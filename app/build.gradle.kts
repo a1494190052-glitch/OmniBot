@@ -121,13 +121,14 @@ android {
     }
 }
 dependencies {
-    implementation(project(":flutter"))
+    // implementation(project(":flutter"))
     implementation(project(":uikit"))
     implementation(project(":baselib"))
-    implementation(project(":mnn_local"))
+    // implementation(project(":mnn_local"))
     implementation(project(":core:main"))
     implementation(project(":core:terminal-view"))
     implementation(project(":core:terminal-emulator"))
+    implementation("androidx.webkit:webkit:1.8.0")
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar","*.jar"))))
     implementation(project(":assists"))
 //    implementation(project(":lib"))

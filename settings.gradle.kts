@@ -31,12 +31,12 @@ rootProject.name = "OmnibotApp"
 include(":app")
 include(":assists")
 val filePath = settingsDir.toString() + "/ui/.android/include_flutter.groovy"
-apply(from = File(filePath))
+// apply(from = File(filePath))
 
 include(":baselib")
 include(":accessibility")
 include(":omniintelligence")
-include(":mnn_local")
+// include(":mnn_local")
 include(":mnn_tts")
 project(":mnn_tts").projectDir =
     File(settingsDir, "third_party/mnn_android/apps/frameworks/mnn_tts/android")
