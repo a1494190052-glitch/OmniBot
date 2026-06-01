@@ -47,7 +47,7 @@ class ManualRecordingPolicyTest {
     }
 
     @Test
-    fun `a11 text input uses explicit text anchors only`() {
+    fun `a11 text input can recover from text event evidence only`() {
         val source = readSource(
             "assists/src/main/java/cn/com/omnimind/assists/task/vlmserver/ManualVlmTraceRecorder.kt"
         )
@@ -55,15 +55,19 @@ class ManualRecordingPolicyTest {
         assertTrue(source.contains("private data class TextInputAnchor("))
         assertTrue(source.contains("rememberTextInputAnchorFromRealTouch("))
         assertFalse(source.contains("rememberTextInputAnchorFromFocus("))
-        assertTrue(source.contains("\"a11_text_input_anchor_policy\" to \"real_touch_only\""))
+        assertTrue(source.contains("\"a11_text_input_anchor_policy\" to \"real_touch_or_text_event_evidence\""))
         assertTrue(
             Regex(
                 "var anchor = textInputAnchor\\s*" +
                     "if \\(anchor == null\\) \\{\\s*" +
-                    "suppressA11OnlyActionEvent\\(event\\)",
+                    "anchor = textInputAnchorFromTextEvent\\(",
                 RegexOption.DOT_MATCHES_ALL
             ).containsMatchIn(source)
         )
+        assertTrue(source.contains("private fun textInputAnchorFromTextEvent("))
+        assertTrue(source.contains("private fun focusedTextInputCandidateFromXml(xml: String?)"))
+        assertTrue(source.contains("private const val A11Y_TEXT_EVENT_BACKEND = \"a11y_text_event\""))
+        assertTrue(source.contains("private const val FOCUSED_XML_TEXT_INPUT_BACKEND = \"focused_xml_text_input\""))
         assertFalse(source.contains("recordFocusedTextTarget("))
     }
 
@@ -142,22 +146,28 @@ class ManualRecordingPolicyTest {
         assertTrue(source.contains("overlayHeightForParamsLocked(touchable, displaySize.y)"))
         assertTrue(source.contains("imeTouchableTopLocked(fullHeight)?.coerceIn(1, touchableBottom)"))
         assertTrue(source.contains("private fun touchableBottomLocked(fullHeight: Int): Int"))
-        assertTrue(source.contains("shouldKeepImePassthroughWithoutTopLocked()"))
-        assertTrue(source.contains("?: if (shouldKeepImePassthroughWithoutTopLocked()) 1 else touchableBottom"))
+        assertFalse(source.contains("shouldKeepImePassthroughWithoutTopLocked()"))
+        assertFalse(source.contains("?: if (shouldKeepImePassthroughWithoutTopLocked()) 1 else touchableBottom"))
         assertTrue(source.contains("private fun imeTopLocked(): Int?"))
+        assertTrue(source.contains("private fun keyboardTopForGestureLocked(displayHeight: Int): Int?"))
         assertTrue(source.contains("WindowInsets.Type.ime()"))
-        assertTrue(source.contains("scheduleImeGeometryProbeLocked(clearWhenMissing = false)"))
-        assertTrue(source.contains("HumanTrajectoryLearningSession.probeManualImeOverlayTop("))
+        assertFalse(source.contains("scheduleImeGeometryProbeLocked"))
+        assertFalse(source.contains("HumanTrajectoryLearningSession.probeManualImeOverlayTop("))
         assertFalse(source.contains("AccessibilityWindowInfo.TYPE_INPUT_METHOD"))
         assertFalse(source.contains("scanImeNodeTop"))
         assertTrue(source.contains("private fun trustedImeTopLocked(top: Int, displayHeight: Int): Int?"))
-        assertTrue(source.contains("private fun cachedReliableImeTopLocked(displayHeight: Int): Int?"))
+        assertFalse(source.contains("private fun cachedReliableImeTopLocked(displayHeight: Int): Int?"))
+        assertFalse(source.contains("lastReliableImeTop"))
+        assertFalse(source.contains("lastImeGeometrySeenAtMs"))
         assertTrue(source.contains("private fun estimatedImeTopLocked(displayHeight: Int): Int?"))
         assertTrue(source.contains("rememberImeOpenExpectedLocked()"))
         assertTrue(source.contains("IME_ESTIMATED_TOP_RATIO"))
         assertFalse(source.contains("fallbackImeTop(displayHeight)"))
         assertTrue(source.contains("scheduleImeRelockLocked()"))
         assertFalse(source.contains("awaitImeVisible"))
+        assertTrue(source.contains("private fun isKeyboardSubmitGestureLocked(gesture: ManualOverlayTouchGesture): Boolean"))
+        assertTrue(source.contains("HumanTrajectoryLearningSession.prepareImeSubmitRecording()"))
+        assertTrue(source.contains("HumanTrajectoryLearningSession.recordImeSubmitGesture(gesture)"))
         assertTrue(recorderSource.contains("TEXT_INPUT_ANCHOR_ACTIVE_TTL_MS"))
         assertFalse(recorderSource.contains("if (target == null && !beforeXml.isNullOrBlank())"))
         assertTrue(recorderSource.contains("val anchorTarget = target ?: coordinateTextAnchorTarget("))
@@ -167,8 +177,17 @@ class ManualRecordingPolicyTest {
         assertTrue(recorderSource.contains("\"搜索\""))
         assertTrue(recorderSource.contains("if (xml.isNullOrBlank()) return false"))
         assertTrue(recorderSource.contains("if (candidates.isEmpty()) return false"))
-        assertTrue(recorderSource.contains("foregroundAppVisibleBottomFromFilteredXml("))
-        assertTrue(recorderSource.contains("IME_FILTERED_APP_TOP_MAX_RATIO"))
+        assertFalse(recorderSource.contains("probeImeOverlayTop("))
+        assertFalse(recorderSource.contains("foregroundAppVisibleBottomFromFilteredXml("))
+        assertFalse(recorderSource.contains("IME_FILTERED_APP_TOP_MAX_RATIO"))
+        assertTrue(recorderSource.contains("fun prepareImeSubmitRecording(): Boolean"))
+        assertTrue(recorderSource.contains("focused_xml_ime_submit"))
+        assertTrue(recorderSource.contains("fun recordImeSubmitGesture(gesture: ManualOverlayTouchGesture): Boolean"))
+        assertTrue(recorderSource.contains("actionName = \"press_key\""))
+        assertTrue(recorderSource.contains("\"key\" to \"ENTER\""))
+        assertTrue(recorderSource.contains("\"recording_backend\" to IME_SUBMIT_BACKEND"))
+        assertTrue(recorderSource.contains("private const val IME_SUBMIT_BACKEND = \"ime_submit\""))
+        assertTrue(recorderSource.contains("\"event_type\" to \"IME_SUBMIT_KEY\""))
     }
 
     @Test

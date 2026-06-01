@@ -284,18 +284,24 @@ object HumanTrajectoryLearningSession {
             }
     }
 
-    suspend fun probeManualImeOverlayTop(displayHeight: Int, displayWidth: Int): Int? {
-        val session = synchronized(lock) { activeSession } ?: return null
-        if (synchronized(lock) { activePaused }) return null
-        return runCatching {
-            session.recorder.probeImeOverlayTop(
-                displayHeight = displayHeight,
-                displayWidth = displayWidth
-            )
-        }.getOrElse { error ->
-            OmniLog.w(TAG, "manual IME overlay top probe failed: ${error.message}")
-            null
-        }
+    fun prepareImeSubmitRecording(): Boolean {
+        val session = synchronized(lock) { activeSession } ?: return false
+        if (synchronized(lock) { activePaused }) return false
+        return runCatching { session.recorder.prepareImeSubmitRecording() }
+            .getOrElse { error ->
+                OmniLog.w(TAG, "manual IME submit prepare failed: ${error.message}")
+                false
+            }
+    }
+
+    fun recordImeSubmitGesture(gesture: ManualOverlayTouchGesture): Boolean {
+        val session = synchronized(lock) { activeSession } ?: return false
+        if (synchronized(lock) { activePaused }) return false
+        return runCatching { session.recorder.recordImeSubmitGesture(gesture) }
+            .getOrElse { error ->
+                OmniLog.w(TAG, "manual IME submit record failed: ${error.message}")
+                false
+            }
     }
 
     fun completeActive(): Boolean {

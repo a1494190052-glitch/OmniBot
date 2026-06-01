@@ -42,9 +42,9 @@ object ManualTouchRecordLoader {
     private const val IME_RELIABLE_TOP_MIN_RATIO = 0.25f
     private const val IME_RELIABLE_TOP_MAX_RATIO = 0.92f
     private const val IME_ESTIMATED_TOP_RATIO = 0.58f
+    private const val IME_SUBMIT_MIN_X_RATIO = 0.72f
+    private const val IME_SUBMIT_MIN_KEYBOARD_Y_RATIO = 0.55f
     private const val IME_OPEN_EXPECTED_TTL_MS = 1_200L
-    private const val IME_GEOMETRY_SEEN_TTL_MS = 1_500L
-    private const val IME_TOP_CACHE_TTL_MS = 12_000L
 
     private val recordScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -57,11 +57,6 @@ object ManualTouchRecordLoader {
     private var displayHeight: Int = 0
     private var imeVisibilityProbeJob: Job? = null
     private var imeRelockJob: Job? = null
-    private var imeGeometryProbeJob: Job? = null
-    private var imeProbeClearWhenMissing: Boolean = false
-    private var lastReliableImeTop: Int? = null
-    private var lastReliableImeTopAtMs: Long = 0L
-    private var lastImeGeometrySeenAtMs: Long = 0L
     private var imeOpenExpectedUntilMs: Long = 0L
     private var startX = 0f
     private var startY = 0f
@@ -97,9 +92,6 @@ object ManualTouchRecordLoader {
             imeVisibilityProbeJob = null
             imeRelockJob?.cancel()
             imeRelockJob = null
-            imeGeometryProbeJob?.cancel()
-            imeGeometryProbeJob = null
-            imeProbeClearWhenMissing = false
             val view = overlayView
             val manager = windowManager
             overlayView = null
@@ -109,9 +101,6 @@ object ManualTouchRecordLoader {
             currentOverlayHeight = 0
             displayWidth = 0
             displayHeight = 0
-            lastReliableImeTop = null
-            lastReliableImeTopAtMs = 0L
-            lastImeGeometrySeenAtMs = 0L
             imeOpenExpectedUntilMs = 0L
             syntheticReplayInFlight = false
             syntheticReplaySuppressUntilMs = 0L
@@ -344,6 +333,11 @@ object ManualTouchRecordLoader {
                 isKeyboardBlackBoxGestureLocked(gesture)
             }
         }
+        val keyboardSubmitGesture = withContext(Dispatchers.Main) {
+            synchronized(this@ManualTouchRecordLoader) {
+                keyboardBlackBoxGesture && isKeyboardSubmitGestureLocked(gesture)
+            }
+        }
         var executed = false
         var recorded = false
         var mayOpenIme = false
@@ -359,6 +353,9 @@ object ManualTouchRecordLoader {
                 }
             }
             try {
+                if (keyboardSubmitGesture) {
+                    HumanTrajectoryLearningSession.prepareImeSubmitRecording()
+                }
                 delay(OVERLAY_UNLOCK_REPLAY_DELAY_MS)
                 val replayResult = if (keyboardBlackBoxGesture) {
                     HumanTrajectoryLearningSession.replayOverlayGestureWithoutRecording(gesture)
@@ -395,6 +392,9 @@ object ManualTouchRecordLoader {
         if (keyboardBlackBoxGesture && executed) {
             // Keyboard taps are a black box: replay them so text changes happen,
             // but let TYPE_VIEW_TEXT_CHANGED merge the final input_text action.
+            if (keyboardSubmitGesture) {
+                HumanTrajectoryLearningSession.recordImeSubmitGesture(gesture)
+            }
         } else if (executed && recorded) {
             // Keep recording UI static. Per-gesture indicators/status updates add
             // extra overlay input work and can make the control window ANR.
@@ -437,16 +437,7 @@ object ManualTouchRecordLoader {
     private fun isKeyboardBlackBoxGestureLocked(gesture: ManualOverlayTouchGesture): Boolean {
         val displayHeight = currentDisplaySize().y
         if (displayHeight <= 0) return false
-        val hasActiveTextInput = HumanTrajectoryLearningSession.hasActiveTextInputAnchor()
-        val estimatedTop = estimatedImeTopValueLocked(displayHeight).takeIf { hasActiveTextInput }
-        val imeTop = imeTopLocked()
-        val keyboardTop = when {
-            hasActiveTextInput && imeTop != null && estimatedTop != null ->
-                minOf(imeTop, estimatedTop)
-            hasActiveTextInput -> estimatedTop
-            else -> imeTop
-        }
-            ?: return false
+        val keyboardTop = keyboardTopForGestureLocked(displayHeight) ?: return false
         if (keyboardTop >= displayHeight) return false
         val gestureY = when (gesture.actionName) {
             "swipe" -> (gesture.startY + gesture.endY) / 2f
@@ -455,9 +446,29 @@ object ManualTouchRecordLoader {
         return gestureY >= keyboardTop
     }
 
+    private fun isKeyboardSubmitGestureLocked(gesture: ManualOverlayTouchGesture): Boolean {
+        if (gesture.actionName != "click") return false
+        val displaySize = currentDisplaySize()
+        if (displaySize.x <= 0 || displaySize.y <= 0) return false
+        val keyboardTop = keyboardTopForGestureLocked(displaySize.y) ?: return false
+        val keyboardHeight = (displaySize.y - keyboardTop).coerceAtLeast(1)
+        val minSubmitX = displaySize.x * IME_SUBMIT_MIN_X_RATIO
+        val minSubmitY = keyboardTop + keyboardHeight * IME_SUBMIT_MIN_KEYBOARD_Y_RATIO
+        return gesture.startX >= minSubmitX && gesture.startY >= minSubmitY
+    }
+
+    private fun keyboardTopForGestureLocked(displayHeight: Int): Int? {
+        val imeTop = imeTopLocked()
+        val estimatedTop = estimatedImeTopLocked(displayHeight)
+        return when {
+            imeTop != null && estimatedTop != null -> minOf(imeTop, estimatedTop)
+            imeTop != null -> imeTop
+            else -> estimatedTop
+        }
+    }
+
     private fun scheduleImeVisibilityProbeLocked(clearWhenMissing: Boolean) {
         if (imeVisibilityProbeJob?.isActive == true) return
-        scheduleImeGeometryProbeLocked(clearWhenMissing = clearWhenMissing)
         imeVisibilityProbeJob = recordScope.launch {
             delay(IME_VISIBILITY_PROBE_DELAY_MS)
             val deadline = System.currentTimeMillis() + IME_VISIBILITY_PROBE_TIMEOUT_MS
@@ -468,7 +479,6 @@ object ManualTouchRecordLoader {
             ) {
                 appeared = withContext(Dispatchers.Main) {
                     synchronized(this@ManualTouchRecordLoader) {
-                        scheduleImeGeometryProbeLocked(clearWhenMissing = clearWhenMissing)
                         isImeVisibleLocked()
                     }
                 }
@@ -497,7 +507,6 @@ object ManualTouchRecordLoader {
             while (HumanTrajectoryLearningSession.isActive() && !HumanTrajectoryLearningSession.isPaused()) {
                 val imeVisible = withContext(Dispatchers.Main) {
                     synchronized(this@ManualTouchRecordLoader) {
-                        scheduleImeGeometryProbeLocked(clearWhenMissing = false)
                         val visible = isImeVisibleLocked()
                         if (visible) {
                             lockTouchLocked()
@@ -525,34 +534,19 @@ object ManualTouchRecordLoader {
         val touchableBottom = touchableBottomLocked(fullHeight)
         if (!touchable) return fullHeight
         return imeTouchableTopLocked(fullHeight)?.coerceIn(1, touchableBottom)
-            ?: if (shouldKeepImePassthroughWithoutTopLocked()) 1 else touchableBottom
+            ?: touchableBottom
     }
 
     private fun imeTouchableTopLocked(displayHeight: Int): Int? {
-        val imeTop = imeTopLocked()
-        val estimatedTop = estimatedImeTopValueLocked(displayHeight)
-            .takeIf { HumanTrajectoryLearningSession.hasActiveTextInputAnchor() }
-        return when {
-            imeTop != null && estimatedTop != null -> minOf(imeTop, estimatedTop)
-            estimatedTop != null -> estimatedTop
-            else -> imeTop
-        }
-    }
-
-    private fun shouldKeepImePassthroughWithoutTopLocked(): Boolean {
-        val now = SystemClock.uptimeMillis()
-        return now <= imeOpenExpectedUntilMs || imeGeometryRecentlySeenLocked()
+        return keyboardTopForGestureLocked(displayHeight)
     }
 
     private fun imeTopLocked(): Int? {
         val displayHeight = currentDisplaySize().y.takeIf { it > 0 } ?: return null
-        // Keep IME detection cheap on the main thread. Filtered App XML probes
-        // run asynchronously and only update the cached geometry.
-        rootImeTopLocked(displayHeight)?.let { top ->
-            rememberImeGeometrySeenLocked()
-            return rememberReliableImeTopLocked(top)
-        }
-        return cachedReliableImeTopLocked(displayHeight) ?: estimatedImeTopLocked(displayHeight)
+        // Keep IME detection cheap and deterministic on the main thread. Do not
+        // infer keyboard geometry from App XML; normal bottom elements can look
+        // like a keyboard boundary on vivo/OEM builds.
+        return rootImeTopLocked(displayHeight)
     }
 
     private fun rootImeTopLocked(displayHeight: Int): Int? {
@@ -576,47 +570,6 @@ object ManualTouchRecordLoader {
         return clamped.takeIf { it in minTop..maxTop }
     }
 
-    private fun scheduleImeGeometryProbeLocked(clearWhenMissing: Boolean) {
-        if (imeGeometryProbeJob?.isActive == true) {
-            if (clearWhenMissing) imeProbeClearWhenMissing = true
-            return
-        }
-        imeProbeClearWhenMissing = clearWhenMissing
-        val fullHeight = currentDisplaySize().y
-        val fullWidth = currentDisplaySize().x
-        if (fullHeight <= 0 || fullWidth <= 0) return
-        imeGeometryProbeJob = recordScope.launch {
-            val probedTop = HumanTrajectoryLearningSession.probeManualImeOverlayTop(
-                displayHeight = fullHeight,
-                displayWidth = fullWidth
-            )
-            withContext(Dispatchers.Main) {
-                synchronized(this@ManualTouchRecordLoader) {
-                    imeGeometryProbeJob = null
-                    val shouldClearWhenMissing = clearWhenMissing || imeProbeClearWhenMissing
-                    imeProbeClearWhenMissing = false
-                    val active = HumanTrajectoryLearningSession.isActive() &&
-                        !HumanTrajectoryLearningSession.isPaused()
-                    if (!active) return@synchronized
-                    val currentHeight = currentDisplaySize().y
-                    val top = probedTop?.let { trustedImeTopLocked(it, currentHeight) }
-                    if (top != null) {
-                        rememberImeGeometrySeenLocked()
-                        rememberReliableImeTopLocked(top)
-                        lockTouchLocked()
-                        scheduleImeRelockLocked()
-                    } else if (shouldClearWhenMissing && SystemClock.uptimeMillis() > imeOpenExpectedUntilMs) {
-                        val insetsVisible = rootImeTopLocked(currentHeight) != null
-                        if (!insetsVisible) {
-                            clearImeGeometryLocked()
-                            lockTouchLocked()
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     private fun touchableBottomLocked(fullHeight: Int): Int {
         if (fullHeight <= 1) return fullHeight
         val navigationBottomInset = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -630,42 +583,15 @@ object ManualTouchRecordLoader {
         return (fullHeight - navigationBottomInset).coerceIn(1, fullHeight)
     }
 
-    private fun rememberReliableImeTopLocked(top: Int): Int {
-        lastReliableImeTop = top
-        lastReliableImeTopAtMs = SystemClock.uptimeMillis()
-        return top
-    }
-
-    private fun cachedReliableImeTopLocked(displayHeight: Int): Int? {
-        if (!imeGeometryRecentlySeenLocked() && SystemClock.uptimeMillis() > imeOpenExpectedUntilMs) {
-            return null
-        }
-        val top = lastReliableImeTop ?: return null
-        val fresh = SystemClock.uptimeMillis() - lastReliableImeTopAtMs <= IME_TOP_CACHE_TTL_MS
-        return top.takeIf { fresh }?.coerceIn(1, displayHeight - 1)
-    }
-
-    private fun rememberImeGeometrySeenLocked() {
-        lastImeGeometrySeenAtMs = SystemClock.uptimeMillis()
-    }
-
-    private fun imeGeometryRecentlySeenLocked(): Boolean {
-        val seenAt = lastImeGeometrySeenAtMs
-        return seenAt > 0 && SystemClock.uptimeMillis() - seenAt <= IME_GEOMETRY_SEEN_TTL_MS
-    }
-
-    private fun clearImeGeometryLocked() {
-        lastReliableImeTop = null
-        lastReliableImeTopAtMs = 0L
-        lastImeGeometrySeenAtMs = 0L
-    }
-
     private fun rememberImeOpenExpectedLocked() {
         imeOpenExpectedUntilMs = SystemClock.uptimeMillis() + IME_OPEN_EXPECTED_TTL_MS
     }
 
     private fun estimatedImeTopLocked(displayHeight: Int): Int? {
-        if (!imeGeometryRecentlySeenLocked() && SystemClock.uptimeMillis() > imeOpenExpectedUntilMs) {
+        if (SystemClock.uptimeMillis() > imeOpenExpectedUntilMs) {
+            return null
+        }
+        if (!HumanTrajectoryLearningSession.hasActiveTextInputAnchor()) {
             return null
         }
         return estimatedImeTopValueLocked(displayHeight)
