@@ -1,6 +1,7 @@
 package cn.com.omnimind.bot.runlog
 
 import cn.com.omnimind.bot.agent.AgentToolNames
+import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.androidPrivilegedReplayAction
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.androidPrivilegedReplayArgs
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.asMap
@@ -205,10 +206,10 @@ internal object RunLogReplayStepCompiler {
         val isGraphTool = RunLogReplayPolicy.isOmniflowGraphTool(toolName)
         val isFunctionTool = RunLogReplayPolicy.isOmniflowFunctionTool(toolName)
         val isCallTool = RunLogReplayPolicy.isOmniflowToolCallTool(toolName)
-        val canonicalToolName = if (isFunctionTool || isCallTool) {
-            RunLogReplayPolicy.TOOL_CALL_TOOL
-        } else {
-            toolName
+        val canonicalToolName = when {
+            isFunctionTool -> OobFunctionToolNames.FUNCTION_RUN
+            isCallTool -> RunLogReplayPolicy.TOOL_CALL_TOOL
+            else -> toolName
         }
         val canonicalArgs = if (isFunctionTool || isCallTool) {
             canonicalCallToolArgs(toolName, args)

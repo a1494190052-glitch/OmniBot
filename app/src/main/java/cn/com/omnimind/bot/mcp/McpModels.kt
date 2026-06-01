@@ -70,6 +70,7 @@ data class TaskState(
     @Volatile var executionRoute: String = "",
     @Volatile var errorCode: String? = null,
     @Volatile var missingPermissions: List<String> = emptyList(),
+    @Volatile var omniflowRecall: Map<String, Any?>? = null,
     @Volatile var vlmRequest: VlmTaskRequest? = null,
     val startTime: Long = System.currentTimeMillis(),
     @Volatile var stateChanged: Boolean = false
@@ -98,6 +99,7 @@ data class TaskState(
         "executionRoute" to executionRoute,
         "errorCode" to errorCode,
         "missingPermissions" to missingPermissions,
+        "omniflowRecall" to omniflowRecall,
         "elapsedMs" to (System.currentTimeMillis() - startTime)
     )
     

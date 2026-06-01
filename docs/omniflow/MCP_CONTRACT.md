@@ -2,29 +2,33 @@
 
 This is the stable OOB OmniFlow MCP contract for external GUI agents.
 
-External agents should treat the canonical surface as the normal activation
-path:
-
-```text
-omniflow.recall
-omniflow.call_function
-omniflow.ingest_run_log
-omniflow.explore_replay
-```
-
-OOB also exposes a direct Function/RunLog surface for deterministic replay
-audits and explicit tool-driven integration:
+External agents should treat the direct OOB Function/RunLog surface as the
+normal activation path:
 
 ```text
 oob_function_list
 oob_function_get
 oob_function_register
+update_function
 oob_function_guard_check
 oob_function_run
 oob_run_log_list
 oob_run_log_get
 oob_run_log_convert
 ```
+
+OOB may also expose legacy OmniFlow adapter tools for older external agents:
+
+```text
+omniflow.recall
+omniflow.call_tool
+omniflow.ingest_run_log
+omniflow.explore_replay
+```
+
+Those adapter tools route to the same Function store and runner. New agents
+should not prefer them when `oob_function_*`, `oob_run_log_*`, and
+`update_function` are available.
 
 If these tools are not present, the agent should fall back to
 `GUI_AGENT_PLAYBOOK.md` instead of inventing hidden calls.
@@ -37,15 +41,6 @@ Always start with:
 tools/list
 ```
 
-Canonical OmniFlow mode is available when the tool list contains:
-
-```text
-omniflow.recall
-omniflow.call_function
-omniflow.ingest_run_log
-omniflow.explore_replay
-```
-
 Direct OOB Function/RunLog mode is available when the tool list contains:
 
 ```text
@@ -56,6 +51,15 @@ oob_function_run
 oob_run_log_list
 oob_run_log_get
 oob_run_log_convert
+```
+
+Legacy OmniFlow adapter mode is available when the tool list contains:
+
+```text
+omniflow.recall
+omniflow.call_tool
+omniflow.ingest_run_log
+omniflow.explore_replay
 ```
 
 ## Fixed Tools
@@ -100,9 +104,12 @@ recall
 miss
 ```
 
-### `omniflow.call_function`
+### `omniflow.call_tool`
 
-Executes one agent-selected Function with explicit arguments.
+Calls one OOB/OmniFlow capability. When `function_id` is provided, it executes
+the selected Function through the same local runner as `oob_function_run`.
+`omniflow.call_function` may still be accepted by old servers as a compatibility
+alias, but new agents should not use it as a separate path.
 
 Input:
 
@@ -276,17 +283,20 @@ calling it with `functionId` and `run_id` returns `analysis_context` plus an
 ## External Agent Flow
 
 1. Call `tools/list`.
-2. If canonical tools are present, call `omniflow.recall`.
-3. Select a Function returned by recall.
-4. Call `omniflow.call_function` with explicit arguments.
-5. If a successful RunLog should become reusable, call
-   `omniflow.ingest_run_log`.
+2. If direct OOB Function tools are present, list/get candidate Functions,
+   inspect their profile and input schema, then call
+   `oob_function_guard_check`.
+3. If the guard allows execution, call `oob_function_run` with explicit
+   arguments.
+4. If only legacy adapter tools are present, call `omniflow.recall`, select a
+   Function, then call `omniflow.call_tool` with `function_id` and explicit
+   arguments.
+5. If a successful RunLog should become reusable, call `oob_run_log_convert`
+   when available, otherwise use the legacy `omniflow.ingest_run_log` adapter.
 6. If recall misses and the user wants OOB to discover a local path, call
    `omniflow.explore_replay` with a bounded `max_steps` and optional
    `stop_text`.
-7. Use `oob_function_guard_check` and `oob_function_run` for direct audit or
-   explicit deterministic replay flows.
-8. If the MCP tools are missing, use the GUI bridge playbook.
+7. If the MCP tools are missing, use the GUI bridge playbook.
 
 ## Safety Rules
 

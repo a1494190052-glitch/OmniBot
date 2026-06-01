@@ -10,7 +10,8 @@ tools, operate Android UI, and ask the user for confirmation.
 1. Read `skills/guiagent-omniflow/SKILL.md`.
 2. If MCP is available, call `tools/list`.
 3. Choose the best available mode:
-   - Direct MCP mode when `omniflow.recall` and `omniflow.call_function` exist.
+   - Direct MCP mode when `omniflow.recall` and `omniflow.call_tool` or
+     `oob_function_run` exist.
    - GUI bridge mode when only the OOB app UI is available.
    - Agent bridge mode when only `agent_run` exists.
 
@@ -20,12 +21,15 @@ tools, operate Android UI, and ask the user for confirmation.
 
 ```text
 tools/call omniflow.recall(goal, current_package?, current_node_id?, k?)
-tools/call omniflow.call_function(function_id, arguments)
+tools/call omniflow.call_tool(function_id, arguments)
+# or, when direct OOB Function tools are exposed:
+tools/call oob_function_guard_check(function_id, arguments)
+tools/call oob_function_run(function_id, arguments)
 ```
 
 Run only a Function returned by recall or explicitly selected by the user. If
-`call_function` returns `fallback=true`, continue through the host agent planner
-or GUI bridge path.
+the Function run returns `fallback=true`, continue through the host agent
+planner or GUI bridge path using the returned fallback context.
 
 ### Write back a RunLog
 

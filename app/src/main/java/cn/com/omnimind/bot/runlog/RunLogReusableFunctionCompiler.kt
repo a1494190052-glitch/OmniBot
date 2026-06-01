@@ -89,7 +89,8 @@ object RunLogReusableFunctionCompiler {
                 "step_count" to steps.size,
                 "omniflow_step_count" to capabilities["omniflow_step_count"],
                 "agent_step_count" to capabilities["agent_step_count"],
-                "has_agent_steps" to capabilities["has_agent_steps"],
+                OobFunctionSpecVocabulary.FIELD_HAS_AGENT_STEPS to
+                    capabilities[OobFunctionSpecVocabulary.FIELD_HAS_AGENT_STEPS],
             ),
             "_oob_registry" to linkedMapOf(
                 "registered_at" to now,
@@ -104,7 +105,9 @@ object RunLogReusableFunctionCompiler {
         return linkedMapOf(
             "omniflow_step_count" to steps.count { it["executor"] == RunLogReplayPolicy.EXECUTOR_OMNIFLOW },
             "agent_step_count" to steps.count { it["executor"] == RunLogReplayPolicy.EXECUTOR_AGENT },
-            "has_agent_steps" to steps.any { it["executor"] == RunLogReplayPolicy.EXECUTOR_AGENT },
+            OobFunctionSpecVocabulary.FIELD_HAS_AGENT_STEPS to steps.any {
+                it["executor"] == RunLogReplayPolicy.EXECUTOR_AGENT
+            },
         )
     }
 

@@ -426,9 +426,11 @@ for fallback_index, card in enumerate(cards, start=1):
     step_prefix = f"step_{step_index:03d}_{safe_name(action_name, 'action')}"
     event_context = as_map(card.get("event_context"))
     source_context = as_map(card.get("source_context"))
+    source_meta = as_map(source_context.get("_oob_meta"))
     before_xml = observation_xml(card, "before")
     after_xml = observation_xml(card, "after")
-    recording_backend = as_map(card.get("params")).get("recording_backend")
+    params = as_map(card.get("params"))
+    recording_backend = params.get("recording_backend")
 
     for side, xml in (("before", before_xml), ("after", after_xml)):
         if not xml:
@@ -510,7 +512,9 @@ for fallback_index, card in enumerate(cards, start=1):
         "has_source_context": bool(source_context),
         "event_type": event_context.get("event_type"),
         "event_has_source": event_context.get("event_has_source"),
-        "target_resolution": event_context.get("target_resolution") or as_map(card.get("params")).get("target_resolution"),
+        "target_resolution": event_context.get("target_resolution") or params.get("target_resolution"),
+        "source_context_mode": source_meta.get("source_context_mode"),
+        "missing_source_xml": source_meta.get("missing_source_xml"),
     })
 
 write_ndjson(artifact_dir / "events" / "a11.ndjson", a11_events)
@@ -530,6 +534,17 @@ action_names = [
 click_count = sum(1 for name in action_names if name == "click")
 swipe_count = sum(1 for name in action_names if name == "swipe")
 missing_before_xml = [row["step_index"] for row in action_rows if not row["has_before_xml"]]
+coordinate_only_no_xml = [
+    row["step_index"] for row in action_rows
+    if not row["has_before_xml"]
+    and row.get("source_context_mode") == "coordinate_only_no_xml"
+    and row.get("missing_source_xml") is True
+]
+coordinate_only_no_xml_set = set(coordinate_only_no_xml)
+unexplained_missing_before_xml = [
+    step for step in missing_before_xml
+    if step not in coordinate_only_no_xml_set
+]
 missing_after_xml = [row["step_index"] for row in action_rows if not row["has_after_xml"]]
 missing_before_screenshot = [row["step_index"] for row in action_rows if not row["has_before_screenshot"]]
 missing_after_screenshot = [row["step_index"] for row in action_rows if not row["has_after_screenshot"]]
@@ -576,9 +591,12 @@ audit = {
         "before_screenshot_steps": len(action_rows) - len(missing_before_screenshot),
         "after_screenshot_steps": len(action_rows) - len(missing_after_screenshot),
         "source_context_steps": len(action_rows) - len(missing_source_context),
+        "coordinate_only_no_xml_steps": len(coordinate_only_no_xml),
     },
     "missing": {
         "before_xml_steps": missing_before_xml,
+        "coordinate_only_no_xml_steps": coordinate_only_no_xml,
+        "unexplained_before_xml_steps": unexplained_missing_before_xml,
         "after_xml_steps": missing_after_xml,
         "before_screenshot_steps": missing_before_screenshot,
         "after_screenshot_steps": missing_after_screenshot,
@@ -672,6 +690,8 @@ summary = {
     "screenshot_ref_count": audit["screenshot_ref_count"],
     "screenshot_local_copy_count": audit["screenshot_local_copy_count"],
     "missing_before_xml_steps": missing_before_xml,
+    "coordinate_only_no_xml_steps": coordinate_only_no_xml,
+    "unexplained_missing_before_xml_steps": unexplained_missing_before_xml,
     "missing_after_xml_steps": missing_after_xml,
     "unexpected_backend_steps": unexpected_backend_steps,
     "a11_backend_steps": a11_backend_steps,
@@ -719,8 +739,11 @@ if a11_backend_steps:
 if unexpected_backend_steps:
     print(f"unexpected action backend at steps {unexpected_backend_steps}", file=sys.stderr)
     sys.exit(1)
-if missing_before_xml:
-    print(f"missing before XML at steps {missing_before_xml}", file=sys.stderr)
+if unexplained_missing_before_xml:
+    print(
+        f"missing before XML without coordinate-only marker at steps {unexplained_missing_before_xml}",
+        file=sys.stderr,
+    )
     sys.exit(1)
 if debug_overlay and non_overlay_backend_steps:
     print(f"debug overlay validation expected overlay_touch backends, got other backends at steps {non_overlay_backend_steps}", file=sys.stderr)

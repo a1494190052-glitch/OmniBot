@@ -17,7 +17,7 @@
       "model_free_step_count": 7,
       "omniflow_step_count": 7,
       "agent_step_count": 0,
-      "requires_agent_fallback": false
+      "has_agent_steps": false
     },
     "steps": [
       {
@@ -144,6 +144,6 @@
     "step_count": 7,
     "omniflow_step_count": 7,
     "agent_step_count": 0,
-    "requires_agent_fallback": false
+    "has_agent_steps": false
   }
 }

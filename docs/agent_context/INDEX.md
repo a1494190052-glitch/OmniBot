@@ -1,7 +1,7 @@
 # OOB Agent Context Index
 
 Status: Draft
-Last Updated: 2026-05-31
+Last Updated: 2026-06-01
 
 ## Fixed Read Order For Workbench Backend Tasks
 
@@ -51,6 +51,35 @@ Last Updated: 2026-05-31
    - `ui/test/features/task/pages/execution_history/function_run_result_sheet_test.dart`
    - `ui/test/features/task/pages/execution_history/run_log_timeline_page_test.dart`
    - `ui/test/widgets/execution/execution_detail_view_test.dart`
+
+## Fixed Read Order For OmniFlow Function Tasks
+
+1. `AGENTS.md`
+2. `docs/omniflow/function-replay-unified-design.md`
+3. `docs/omniflow/README.md`
+4. `docs/omniflow/MCP_CONTRACT.md`
+5. `docs/omniflow/FUNCTION_SPEC.md`
+6. `docs/omniflow/update-function.md`
+7. `app/src/main/assets/builtin_skills/omniflow/SKILL.md`
+8. `app/src/main/assets/builtin_skills/omniflow/references/unified-design.md`
+9. Target source files:
+   - `app/src/main/java/cn/com/omnimind/bot/omniflow/`
+   - `app/src/main/java/cn/com/omnimind/bot/runlog/OobActionCodec.kt`
+   - `app/src/main/java/cn/com/omnimind/bot/runlog/OobStepRoleClassifier.kt`
+   - `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogReplayStepCompiler.kt`
+   - `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogReplayStepNoiseNormalizer.kt`
+   - `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogReusableFunctionCompiler.kt`
+   - `app/src/main/java/cn/com/omnimind/bot/runlog/OmniflowStepExecutor.kt`
+   - `app/src/main/java/cn/com/omnimind/bot/mcp/McpToolDefinitions.kt`
+   - `app/src/main/java/cn/com/omnimind/bot/vlm/VlmToolCoordinator.kt`
+   - `app/src/main/java/cn/com/omnimind/bot/vlm/VlmRecallGuidanceBuilder.kt`
+   - `assists/src/main/java/cn/com/omnimind/assists/task/vlmserver/VLMToolDefinitions.kt`
+   - `assists/src/main/java/cn/com/omnimind/assists/task/vlmserver/ActionExecutor.kt`
+10. Focused tests:
+   - `app/src/test/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolHandlerOmniFlowExecutionTest.kt`
+   - `app/src/test/java/cn/com/omnimind/bot/vlm/VlmToolCoordinatorRecallExecutionTest.kt`
+   - `app/src/test/java/cn/com/omnimind/bot/vlm/VlmRecallGuidanceBuilderTest.kt`
+   - `app/src/test/java/cn/com/omnimind/assists/task/vlmserver/VLMToolDefinitionsTest.kt`
 
 ## Current Workbench Focus
 

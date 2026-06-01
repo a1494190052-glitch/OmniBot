@@ -22,6 +22,8 @@ class VLMToolDefinitionsTest {
         assertTrue(toolNames.contains("scroll"))
         assertTrue(toolNames.contains("oob_function_run"))
         assertTrue(toolNames.contains("finished"))
+        assertFalse(toolNames.contains("call_function"))
+        assertFalse(toolNames.contains("run_function"))
     }
 
     @Test
@@ -45,6 +47,8 @@ class VLMToolDefinitionsTest {
         assertFalse(promptGuide.contains("waiting actions"))
         assertTrue(promptGuide.contains("input_text(target_description, content, element_index?, x, y)"))
         assertTrue(promptGuide.contains("oob_function_run(function_id, arguments?)"))
+        assertFalse(promptGuide.contains("call_function("))
+        assertFalse(promptGuide.contains("run_function("))
         assertTrue(promptGuide.contains("Coordinates are fallback only"))
         assertTrue(promptGuide.contains("page settling and stability detection are handled internally"))
     }

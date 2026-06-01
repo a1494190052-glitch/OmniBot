@@ -1,5 +1,6 @@
 package cn.com.omnimind.bot.runlog
 
+import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
 import cn.com.omnimind.bot.runlog.OobActionCodec.boolArg
 import cn.com.omnimind.bot.runlog.OobActionCodec.firstNonBlank
 import cn.com.omnimind.bot.runlog.OobActionCodec.listArg
@@ -355,8 +356,8 @@ object OobFunctionSchemaBuilder {
         "executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
         "model_free" to true,
         "scriptable" to true,
-        "tool" to RunLogReplayPolicy.TOOL_CALL_FUNCTION,
-        "callable_tool" to RunLogReplayPolicy.TOOL_CALL_FUNCTION,
+        "tool" to OobFunctionToolNames.FUNCTION_RUN,
+        "callable_tool" to OobFunctionToolNames.FUNCTION_RUN,
         "args" to args.filterValues { it != null },
     )
 

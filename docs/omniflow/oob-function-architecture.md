@@ -43,8 +43,12 @@ RunLog events
 -> cleanup and annotation
 -> checker rule materialization
 -> Function store
+-> recall candidate payload
+-> oob_function_guard_check
 -> guard check
+-> oob_function_run
 -> OmniflowStepExecutor
+-> fallback_context when replay fails
 ```
 
 `update_function` uses the same canonicalization rules as initial enhancement.
@@ -55,3 +59,8 @@ roles, and checker rules.
 
 When logic asks "what action is this?" or "what role does this step have?", it
 must call the shared codec/classifier instead of adding a local `when` block.
+
+Do not add hidden replay queues, automatic step skipping, source-alignment skip
+counters, or semantic/navigation recovery layers. If the current Function path
+is wrong, return fallback context and repair the saved Function through
+`update_function`.

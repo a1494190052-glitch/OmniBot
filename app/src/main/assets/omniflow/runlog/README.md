@@ -146,8 +146,8 @@ runtime, and guard code should use those constants instead of scattering
 literal `"omniflow"`, `"tool"`, or `"agent"` checks in core replay paths.
 Use the constants for both step construction and executor comparisons. Keep
 component-specific diagnostic labels, for example `agent_tool`,
-`omniflow_graph`, `omniflow_function`, or `omniflow_vlm_fallback`, outside this
-taxonomy unless they become first-class replay executors.
+`omniflow_graph`, or `omniflow_function`, outside this taxonomy unless they
+become first-class replay executors.
 Fields that carry the deterministic replay marker, such as `coordinate_hook`,
 should also reference `RunLogReplayPolicy.EXECUTOR_OMNIFLOW` instead of
 spelling the string locally.
@@ -158,11 +158,14 @@ instead of retyping the marker.
 tool names directly. Do not treat those JSON literals as competing Kotlin
 owners; keep Kotlin code and tests pointing at `OobFunctionToolNames`,
 `AgentToolNames`, or `RunLogReplayPolicy` as appropriate.
-Canonical replay tool names such as `call_tool`, `oob_tool_call`,
+Replay compatibility tool names such as `call_tool`, `oob_tool_call`,
 `call_function`, `go_to_node`, and `oob.agent.run` also live in
 `RunLogReplayPolicy` when they are used by Function compilation, schema
-materialization, recall, or replay routing. UDEG edge-kind names and diagnostic
-counter keys remain graph-storage vocabulary owned by `OobUdegNodeStore`.
+materialization, recall, or replay routing. Agent-facing docs and tools should
+still present saved Function execution as `oob_function_run`; `call_function`
+is accepted for older RunLogs and adapters only. UDEG edge-kind names and
+diagnostic counter keys remain graph-storage vocabulary owned by
+`OobUdegNodeStore`.
 Canonical in-app Function and RunLog lifecycle tool names such as
 `oob_function_run`, `update_function`, and `oob_run_log_convert` live in
 `OobFunctionToolNames`; `RunLogReplayPolicy` may classify those tools but should
@@ -176,10 +179,11 @@ the `AgentToolNames` constant, but it should not redefine the string. If the
 tool is only a live agent capability and does not appear in reusable replay
 steps, leave RunLog policy unchanged.
 Agent-facing docs should name the OOB Function tools first. Legacy
-`omniflow.recall`, `omniflow.call_tool`, `omniflow.call_function`,
-`omniflow.ingest_run_log`, and `omniflow.explore_replay` remain compatibility
-tool names for external MCP clients and old agentkit flows; do not present them
-as the primary in-app path when `oob_function_*`, `oob_run_log_*`, and
+`omniflow.recall`, `omniflow.call_tool`, `omniflow.ingest_run_log`, and
+`omniflow.explore_replay` remain compatibility tool names for external MCP
+clients and old agentkit flows. Older clients may also send
+`omniflow.call_function`; route it to the same Function runner, but do not
+present it as a primary path when `oob_function_*`, `oob_run_log_*`, and
 `update_function` are available.
 
 - `executor=omniflow`: deterministic local replay only. Allowed actions are

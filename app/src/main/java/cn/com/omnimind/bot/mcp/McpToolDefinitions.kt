@@ -350,20 +350,6 @@ BEHAVIOR:
         )
     )
 
-    val omniflowCallFunctionTool = mapOf(
-        "name" to "omniflow.call_function",
-        "description" to """Execute one agent-selected OOB Function by function_id with explicit arguments. Returns structured success/fallback/control fields and does not silently invent missing parameters.""".trimIndent(),
-        "inputSchema" to mapOf(
-            "type" to "object",
-            "properties" to mapOf(
-                "function_id" to mapOf("type" to "string", "description" to "Function id returned by `omniflow.recall`."),
-                "arguments" to mapOf("type" to "object", "description" to "Parameter values matching the Function inputSchema."),
-                "goal" to mapOf("type" to "string", "description" to "Optional original task goal for tracing.")
-            ),
-            "required" to listOf("function_id")
-        )
-    )
-
     val omniflowIngestRunLogTool = mapOf(
         "name" to "omniflow.ingest_run_log",
         "description" to """Convert a successful OOB RunLog into a reusable local Function asset. Prefer passing run_id for an existing internal RunLog; inline run_log is accepted for simple external writeback.""".trimIndent(),

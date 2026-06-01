@@ -45,9 +45,10 @@ Keep the boundary simple: recall is UDEG page match plus node-attached
 capability candidates, not global Function search; registration is
 `RunLog -> compile -> Function store -> UDEG node attachment`, not a harness;
 enhancement never changes executable replay structure; replay must surface as a
-real `call_function` / reusable-command card; if replay needs live perception,
-return `fallback=true` / `needs_agent` and let the caller explicitly continue
-with bounded VLM.
+real `oob_function_run` / reusable-command card; if replay needs live
+perception, return `fallback_context` and let the caller explicitly continue
+with bounded VLM. Legacy `call_function` names are parser/card compatibility
+labels only, not the agent-facing replay entry point.
 
 ## Access Mode Selection
 
@@ -96,8 +97,8 @@ the in-app Agent to use OmniFlow UI/native capabilities.
 4. If the guard returns `allow`, call
    `oob_function_run({functionId, arguments})`. If replay is resuming from a
    known good prefix, include `start_step_index` or `resume_from_step`.
-5. If `oob_function_run` returns `fallback=true`, `needs_agent`, or
-   `fallback_context`, return that state to the caller; continue with live
+5. If `oob_function_run` returns `fallback_context`, `model_required`, or an
+   explicit fallback flag, return that state to the caller; continue with live
    planning only after explicit bounded VLM selection.
 6. If only legacy direct MCP names are exposed, use the compatibility path:
    `omniflow.recall(...)` as context, then `omniflow.call_tool({function_id,
@@ -219,8 +220,8 @@ Local OmniFlow replay uses pre-action controls only:
   execute the recorded action coordinates directly.
 - Do not run post-action page/package validation. A deterministic step succeeds
   when the action backend accepts the operation.
-- Reusable command replay may return `fallback=true`, `needs_agent`, or
-  `model_required=true`; in that case switch to bounded live VLM only when the
+- Reusable command replay may return `fallback_context`, `model_required`, or an
+  explicit fallback flag; in that case switch to bounded live VLM only when the
   user explicitly requested continued execution.
 - Do not preserve `wait` steps as evidence. Page settling belongs to the native
   replay backend.

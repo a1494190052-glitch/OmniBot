@@ -42,13 +42,16 @@ Keep the boundary simple: recall is UDEG page match plus node-attached
 capability candidates, not global Function search; registration is
 `RunLog -> compile -> Function store -> UDEG node attachment`, not a harness;
 enhancement never changes executable replay structure; replay must surface as a
-real `call_function` / reusable-command card; if replay needs live perception,
-return `fallback=true` / `needs_agent` and let the caller explicitly continue
-with bounded VLM.
+real `oob_function_run` / reusable-command card; if replay needs live
+perception, return `fallback_context` and let the caller explicitly continue
+with bounded VLM. Legacy `call_function` names are parser/card compatibility
+labels only, not the agent-facing replay entry point.
 
 ## Access Mode Selection
 
-If MCP is available, call `tools/list`.
+If MCP is available, call `tools/list`. Prefer direct OOB Function tools when
+they are present. Legacy `omniflow.*` names are only adapters for older clients
+that do not expose the `oob_function_*` tools.
 
 Use Direct MCP mode if these tools exist:
 
@@ -56,6 +59,22 @@ Use Direct MCP mode if these tools exist:
 omniflow.recall
 omniflow.call_tool
 omniflow.ingest_run_log
+```
+
+Prefer this direct OOB surface when available:
+
+```text
+oob_run_log_list
+oob_run_log_get
+oob_run_log_convert
+oob_function_list
+oob_function_get
+oob_function_register
+update_function
+oob_function_guard_check
+oob_function_run
+oob_function_delete
+oob_function_clear
 ```
 
 If direct tools are absent, use GUI bridge mode through the OOB app:
@@ -72,14 +91,22 @@ the in-app Agent to use OmniFlow UI/native capabilities.
 
 ### Recall and Run a Reusable Command
 
-1. `omniflow.recall(goal, current_package?, current_node_id?, current_xml?, k?)`
-2. Treat recall candidates as context, not completion: inspect the current node,
-   decision context, and capability candidates before selecting a command.
-3. If a candidate fits, fill arguments from `inputSchema` or `parameters`, then
-   call `omniflow.call_tool({function_id, arguments, start_step_index?})`.
-4. If recall misses or call_tool returns `fallback=true`, return that state to
-   the caller; continue with live planning only after explicit bounded VLM
-   selection.
+1. Use `oob_function_list` to get local reusable Function candidates, or
+   `oob_function_get` when a Function id is already known.
+2. Inspect the Function name, description, parameters, `agent_reuse` metadata,
+   and execution step summaries. Do not treat a name-only match as enough
+   evidence for direct execution.
+3. If a candidate fits the user goal, fill arguments from the Function input
+   schema and call `oob_function_guard_check({functionId, arguments})`.
+4. If the guard returns `allow`, call
+   `oob_function_run({functionId, arguments})`. If replay is resuming from a
+   known good prefix, include `start_step_index` or `resume_from_step`.
+5. If `oob_function_run` returns `fallback_context`, `model_required`, or an
+   explicit fallback flag, return that state to the caller; continue with live
+   planning only after explicit bounded VLM selection.
+6. If only legacy direct MCP names are exposed, use the compatibility path:
+   `omniflow.recall(...)` as context, then `omniflow.call_tool({function_id,
+   arguments})` for the chosen Function.
 
 ### Write Back a RunLog
 

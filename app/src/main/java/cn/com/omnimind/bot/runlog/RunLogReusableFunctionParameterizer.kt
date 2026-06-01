@@ -251,7 +251,7 @@ object RunLogReusableFunctionParameterizer {
                     args["functionName"],
                 )
                 nullableMap(
-                    "type" to RunLogReplayPolicy.TOOL_CALL_FUNCTION,
+                    "type" to RunLogReplayPolicy.TOOL_FUNCTION_RUN,
                     "params" to nullableMap(
                         "node_id" to firstNonBlank(args["node_id"], args["nodeId"]),
                         "function_name" to functionId,

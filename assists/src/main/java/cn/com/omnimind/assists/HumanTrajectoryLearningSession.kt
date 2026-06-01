@@ -140,6 +140,13 @@ object HumanTrajectoryLearningSession {
      */
     fun activeRunId(): String? = synchronized(lock) { activeSession?.runId }
 
+    fun hasActiveTextInputAnchor(): Boolean {
+        val session = synchronized(lock) { activeSession } ?: return false
+        if (synchronized(lock) { activePaused }) return false
+        return runCatching { session.recorder.hasActiveTextInputAnchor() }
+            .getOrDefault(false)
+    }
+
     fun start(
         context: Context,
         name: String,
@@ -197,8 +204,7 @@ object HumanTrajectoryLearningSession {
                     runId = runId,
                     success = false,
                     doneReason = "recorder_unavailable",
-                    errorMessage = "无障碍服务未就绪，无法学习轨迹",
-                    saveSnapshot = false
+                    errorMessage = "无障碍服务未就绪，无法学习轨迹"
                 )
                 deferred.completeExceptionally(
                     IllegalStateException("无障碍服务未就绪，无法学习轨迹")
@@ -249,25 +255,47 @@ object HumanTrajectoryLearningSession {
 
     suspend fun recordOverlayGesture(
         gesture: ManualOverlayTouchGesture,
-        onGestureReplayStarted: suspend (mayOpenIme: Boolean, passthroughMs: Long) -> Unit = { _, _ -> },
-        onGestureReplayFinished: suspend (mayOpenIme: Boolean) -> Unit = {}
+        onGestureDispatched: suspend (mayOpenIme: Boolean) -> Unit = {}
     ): ManualOverlayGestureReplayResult {
         val session = synchronized(lock) { activeSession }
             ?: return ManualOverlayGestureReplayResult(executed = false)
         if (synchronized(lock) { activePaused }) {
             return ManualOverlayGestureReplayResult(executed = false)
         }
-        return runCatching {
-            session.recorder.recordOverlayGesture(
-                gesture = gesture,
-                onGestureReplayStarted = onGestureReplayStarted,
-                onGestureReplayFinished = onGestureReplayFinished
-            )
-        }
+        return runCatching { session.recorder.recordOverlayGesture(gesture, onGestureDispatched) }
             .getOrElse { error ->
                 OmniLog.w(TAG, "manual overlay gesture failed: ${error.message}")
                 ManualOverlayGestureReplayResult(executed = false)
             }
+    }
+
+    suspend fun replayOverlayGestureWithoutRecording(
+        gesture: ManualOverlayTouchGesture
+    ): ManualOverlayGestureReplayResult {
+        val session = synchronized(lock) { activeSession }
+            ?: return ManualOverlayGestureReplayResult(executed = false, recorded = false)
+        if (synchronized(lock) { activePaused }) {
+            return ManualOverlayGestureReplayResult(executed = false, recorded = false)
+        }
+        return runCatching { session.recorder.replayOverlayGestureWithoutRecording(gesture) }
+            .getOrElse { error ->
+                OmniLog.w(TAG, "manual overlay black-box replay failed: ${error.message}")
+                ManualOverlayGestureReplayResult(executed = false, recorded = false)
+            }
+    }
+
+    suspend fun probeManualImeOverlayTop(displayHeight: Int, displayWidth: Int): Int? {
+        val session = synchronized(lock) { activeSession } ?: return null
+        if (synchronized(lock) { activePaused }) return null
+        return runCatching {
+            session.recorder.probeImeOverlayTop(
+                displayHeight = displayHeight,
+                displayWidth = displayWidth
+            )
+        }.getOrElse { error ->
+            OmniLog.w(TAG, "manual IME overlay top probe failed: ${error.message}")
+            null
+        }
     }
 
     fun completeActive(): Boolean {
@@ -289,8 +317,7 @@ object HumanTrajectoryLearningSession {
                     runId = session.runId,
                     success = false,
                     doneReason = "recording_failed",
-                    errorMessage = error.message.orEmpty(),
-                    saveSnapshot = false
+                    errorMessage = error.message.orEmpty()
                 )
                 session.result.complete(
                     HumanTrajectoryLearningResult(
@@ -323,8 +350,7 @@ object HumanTrajectoryLearningSession {
                 InternalRunLogStore.appendCards(
                     context = session.context,
                     runId = session.runId,
-                    cards = cards,
-                    saveSnapshot = false
+                    cards = cards
                 )
                 appendCardsMs = System.currentTimeMillis() - appendStartedAtMs
             }
@@ -333,8 +359,7 @@ object HumanTrajectoryLearningSession {
                 InternalRunLogStore.updateDiagnostics(
                     context = session.context,
                     runId = session.runId,
-                    diagnostics = trace.diagnostics,
-                    saveSnapshot = false
+                    diagnostics = trace.diagnostics
                 )
                 diagnosticsMs = System.currentTimeMillis() - diagnosticsStartedAtMs
             }
@@ -359,8 +384,7 @@ object HumanTrajectoryLearningSession {
                 runId = session.runId,
                 success = success,
                 doneReason = doneReason,
-                errorMessage = errorMessage,
-                saveSnapshot = false
+                errorMessage = errorMessage
             )
         }.onFailure { error ->
             OmniLog.w(TAG, "finish human trajectory run failed: ${session.runId}, ${error.message}")
@@ -418,8 +442,7 @@ object HumanTrajectoryLearningSession {
             runId = session.runId,
             success = false,
             doneReason = "cancelled",
-            errorMessage = message,
-            saveSnapshot = false
+            errorMessage = message
         )
         session.result.complete(
             HumanTrajectoryLearningResult(

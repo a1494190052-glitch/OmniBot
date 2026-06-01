@@ -8,7 +8,7 @@ import org.junit.Test
 
 class ManualRecordingPolicyTest {
     @Test
-    fun `a11 only replay actions stay disabled`() {
+    fun `a11 only replay actions stay disabled except post input app click`() {
         val source = readSource(
             "assists/src/main/java/cn/com/omnimind/assists/task/vlmserver/ManualVlmTraceRecorder.kt"
         )
@@ -22,20 +22,27 @@ class ManualRecordingPolicyTest {
         assertTrue(source.contains("\"records_replayable_actions\" to false"))
         assertTrue(source.contains("\"a11_replay_actions_enabled\" to false"))
         assertTrue(source.contains("\"a11_post_input_click_enabled\" to true"))
-        assertTrue(source.contains("private fun hasPostInputActionWindowLocked(nowMs: Long): Boolean"))
+        assertTrue(source.contains("private fun hasPostInputActionWindowLocked"))
+        assertTrue(source.contains("recordPostInputActionLocked"))
+        assertTrue(source.contains("isPostInputSourceFromExpectedApp"))
         assertTrue(
             Regex(
                 "AccessibilityEvent\\.TYPE_VIEW_CLICKED,\\s*" +
                     "AccessibilityEvent\\.TYPE_VIEW_LONG_CLICKED -> \\{\\s*" +
-                    ".*if \\(hasPostInputActionWindowLocked\\(nowMs\\)\\) \\{\\s*" +
-                    "recordPostInputActionLocked\\(event, packageName, nowMs\\)\\s*" +
-                    "\\} else \\{\\s*" +
-                    "suppressA11OnlyActionEvent\\(event\\)",
+                    "val nowMs = System\\.currentTimeMillis\\(\\)\\s*" +
+                    "if \\(hasPostInputActionWindowLocked\\(nowMs\\)\\)",
                 RegexOption.DOT_MATCHES_ALL
             ).containsMatchIn(source)
         )
-        assertTrue(source.contains("AccessibilityEvent.TYPE_VIEW_FOCUSED -> {"))
-        assertTrue(source.contains("handleTextInputFocus(event, packageName)"))
+        assertTrue(
+            Regex(
+                "AccessibilityEvent\\.TYPE_VIEW_TEXT_CHANGED -> \\{\\s*" +
+                    "recordTextChanged\\(event, packageName, lastXmlSnapshot, lastScreenshotSnapshot\\)",
+                RegexOption.DOT_MATCHES_ALL
+            ).containsMatchIn(source)
+        )
+        assertTrue(source.contains("AccessibilityEvent.TYPE_VIEW_FOCUSED -> suppressA11OnlyActionEvent(event)"))
+        assertFalse(source.contains("handleTextInputFocus"))
         assertTrue(source.contains("AccessibilityEvent.TYPE_VIEW_SCROLLED -> suppressA11OnlyActionEvent(event)"))
     }
 
@@ -47,15 +54,11 @@ class ManualRecordingPolicyTest {
 
         assertTrue(source.contains("private data class TextInputAnchor("))
         assertTrue(source.contains("rememberTextInputAnchorFromRealTouch("))
-        assertTrue(source.contains("rememberTextInputAnchorFromFocus("))
-        assertTrue(source.contains("\"a11_text_input_anchor_policy\" to \"real_touch_or_text_focus\""))
+        assertFalse(source.contains("rememberTextInputAnchorFromFocus("))
+        assertTrue(source.contains("\"a11_text_input_anchor_policy\" to \"real_touch_only\""))
         assertTrue(
             Regex(
                 "var anchor = textInputAnchor\\s*" +
-                    "if \\(anchor == null && source\\?\\.isTextEntryLike\\(\\) == true\\) \\{\\s*" +
-                    "rememberTextInputAnchorFromFocus\\(source, packageName\\)\\s*" +
-                    "anchor = textInputAnchor\\s*" +
-                    "\\}\\s*" +
                     "if \\(anchor == null\\) \\{\\s*" +
                     "suppressA11OnlyActionEvent\\(event\\)",
                 RegexOption.DOT_MATCHES_ALL
@@ -97,7 +100,6 @@ class ManualRecordingPolicyTest {
         )
 
         assertFalse(source.contains("PROCESSING_RESET_TIMEOUT_MS"))
-        assertFalse(source.contains("withTimeoutOrNull"))
         assertTrue(source.contains("recorded = replayResult.recorded"))
         assertTrue(source.contains("executed && !recorded"))
         assertTrue(source.contains("lockTouchLocked()"))
@@ -118,24 +120,55 @@ class ManualRecordingPolicyTest {
             "assists/src/main/java/cn/com/omnimind/assists/task/vlmserver/ManualVlmTraceRecorder.kt"
         )
 
-        assertTrue(recorderSource.contains("onGestureReplayStarted(mayOpenIme, replayPassthroughMs)"))
-        assertTrue(recorderSource.contains("onGestureReplayFinished(mayOpenIme)"))
-        assertTrue(source.contains("val replayResult = HumanTrajectoryLearningSession.recordOverlayGesture("))
-        assertTrue(source.contains("onGestureReplayStarted = { mayOpenIme, passthroughMs ->"))
-        assertTrue(source.contains("scheduleReplayRelockLocked(mayOpenIme, passthroughMs)"))
-        assertTrue(source.contains("onGestureReplayFinished = { mayOpenIme ->"))
-        assertFalse(source.contains("!expectsIme"))
-        assertTrue(source.contains("scheduleImeVisibilityProbeLocked()"))
+        assertFalse(recorderSource.contains("onGestureReplayStarted"))
+        assertFalse(recorderSource.contains("onGestureReplayFinished"))
+        assertFalse(source.contains("onGestureReplayStarted"))
+        assertFalse(source.contains("onGestureReplayFinished"))
+        assertTrue(source.contains("val replayResult = if (keyboardBlackBoxGesture)"))
+        assertTrue(source.contains("HumanTrajectoryLearningSession.replayOverlayGestureWithoutRecording(gesture)"))
+        assertTrue(source.contains("HumanTrajectoryLearningSession.recordOverlayGesture(gesture) {"))
+        assertTrue(source.contains("private fun isKeyboardBlackBoxGestureLocked(gesture: ManualOverlayTouchGesture): Boolean"))
+        assertTrue(source.contains("HumanTrajectoryLearningSession.hasActiveTextInputAnchor()"))
+        assertTrue(source.contains("minOf(imeTop, estimatedTop)"))
+        assertTrue(source.contains("beginSyntheticReplaySuppressionLocked()"))
+        assertTrue(source.contains("shouldSuppressReplayTouch(event)"))
+        assertTrue(recorderSource.contains("suspend fun replayOverlayGestureWithoutRecording("))
+        assertTrue(recorderSource.contains("fun hasActiveTextInputAnchor(): Boolean"))
+        assertTrue(recorderSource.contains("recorded = false"))
+        assertFalse(source.contains("scheduleReplayRelockLocked"))
+        assertFalse(source.contains("enterImeBypassLocked"))
+        assertFalse(source.contains("ManualRecordingImeBypassSignal"))
+        assertTrue(source.contains("scheduleImeVisibilityProbeLocked(clearWhenMissing = !mayOpenIme)"))
         assertTrue(source.contains("overlayHeightForParamsLocked(touchable, displaySize.y)"))
+        assertTrue(source.contains("imeTouchableTopLocked(fullHeight)?.coerceIn(1, touchableBottom)"))
+        assertTrue(source.contains("private fun touchableBottomLocked(fullHeight: Int): Int"))
+        assertTrue(source.contains("shouldKeepImePassthroughWithoutTopLocked()"))
+        assertTrue(source.contains("?: if (shouldKeepImePassthroughWithoutTopLocked()) 1 else touchableBottom"))
         assertTrue(source.contains("private fun imeTopLocked(): Int?"))
-        assertTrue(source.contains("window.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD"))
+        assertTrue(source.contains("WindowInsets.Type.ime()"))
+        assertTrue(source.contains("scheduleImeGeometryProbeLocked(clearWhenMissing = false)"))
+        assertTrue(source.contains("HumanTrajectoryLearningSession.probeManualImeOverlayTop("))
+        assertFalse(source.contains("AccessibilityWindowInfo.TYPE_INPUT_METHOD"))
+        assertFalse(source.contains("scanImeNodeTop"))
         assertTrue(source.contains("private fun trustedImeTopLocked(top: Int, displayHeight: Int): Int?"))
-        assertTrue(source.contains("fallbackImeTop(displayHeight)"))
-        assertTrue(source.contains("if (visible) {\n                            enterImeBypassLocked()"))
+        assertTrue(source.contains("private fun cachedReliableImeTopLocked(displayHeight: Int): Int?"))
+        assertTrue(source.contains("private fun estimatedImeTopLocked(displayHeight: Int): Int?"))
+        assertTrue(source.contains("rememberImeOpenExpectedLocked()"))
+        assertTrue(source.contains("IME_ESTIMATED_TOP_RATIO"))
+        assertFalse(source.contains("fallbackImeTop(displayHeight)"))
         assertTrue(source.contains("scheduleImeRelockLocked()"))
         assertFalse(source.contains("awaitImeVisible"))
+        assertTrue(recorderSource.contains("TEXT_INPUT_ANCHOR_ACTIVE_TTL_MS"))
+        assertFalse(recorderSource.contains("if (target == null && !beforeXml.isNullOrBlank())"))
+        assertTrue(recorderSource.contains("val anchorTarget = target ?: coordinateTextAnchorTarget("))
+        assertTrue(recorderSource.contains("materializePendingTextFromXml("))
+        assertTrue(recorderSource.contains("FOCUSED_XML_TEXT_FALLBACK"))
+        assertTrue(recorderSource.contains("normalizeInputTextContent("))
+        assertTrue(recorderSource.contains("\"搜索\""))
         assertTrue(recorderSource.contains("if (xml.isNullOrBlank()) return false"))
         assertTrue(recorderSource.contains("if (candidates.isEmpty()) return false"))
+        assertTrue(recorderSource.contains("foregroundAppVisibleBottomFromFilteredXml("))
+        assertTrue(recorderSource.contains("IME_FILTERED_APP_TOP_MAX_RATIO"))
     }
 
     @Test
@@ -176,6 +209,12 @@ class ManualRecordingPolicyTest {
         assertTrue(controlSource.contains("WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY"))
         assertFalse(controlSource.contains("fun ensureOnTop"))
         assertTrue(controlSource.contains("showTransientStatus(\"开启悬浮窗权限\""))
+        assertFalse(source.contains("ManualRecordingControlOverlay.showTransientStatus"))
+        assertFalse(source.contains("ClickIndicator("))
+        assertFalse(controlSource.contains("moveControlOverlayToNextPosition"))
+        assertFalse(controlSource.contains("dockPositionIndex"))
+        assertFalse(controlSource.contains("移动"))
+        assertTrue(controlSource.contains("text = \"录制\""))
         assertTrue(controlSource.contains("keepControlsAboveTouchRecorderOnce()"))
         val dragSuppression = Regex(
             "private fun beginDragRecordingSuppression\\(\\) \\{(.*?)\\n    \\}",

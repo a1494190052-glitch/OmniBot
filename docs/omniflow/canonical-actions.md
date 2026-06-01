@@ -58,6 +58,7 @@ kept as agent fallback steps when live perception is required.
 - Parser and args summary: `OobActionCodec.kt`
 - Runtime executor: `OmniflowStepExecutor.kt`
 - UDEG edge indexing: `OobUdegNodeStore.kt`
-- Replay alignment: `PendingActionStack.kt`
+- RunLog card cleanup and compilation: `RunLogReplayStepCompiler.kt`,
+  `RunLogReplayStepNoiseNormalizer.kt`, and `OobStepRoleClassifier.kt`
 
 Do not add new action aliases outside `OobActionCodec`.

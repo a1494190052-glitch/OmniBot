@@ -14,6 +14,8 @@ backends. The agent behavior belongs in this skill and its references.
 
 ## Route The Task
 
+- Overall Function replay architecture, recall, fallback, or over-design
+  cleanup: read `references/unified-design.md`.
 - Function lifecycle or chat management: read `references/function-management.md`.
 - Function enhancement, repair, or step labeling: read `references/function-enhancement.md`.
 - RunLog success/failure evidence or `run_id`: read `references/runlog-evidence.md`.

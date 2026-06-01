@@ -236,7 +236,7 @@ class OobPageVectorSetTest {
 
             val payload = store.exportBundle()["payload"] as Map<*, *>
             val edges = (payload["edges"] as List<*>).mapNotNull { it as? Map<*, *> }
-            val callEdges = edges.filter { it["kind"] == "call_function" }
+            val callEdges = edges.filter { it["kind"] == "function_call" }
             val functionEdges = edges.filter { it["kind"] == "function" }
 
             assertEquals(1, callEdges.size)

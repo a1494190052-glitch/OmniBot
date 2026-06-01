@@ -2,6 +2,9 @@
 
 Use this reference to choose the canonical tool path.
 
+For the end-to-end replay architecture and the list of concepts that should not
+be reintroduced, read `unified-design.md`.
+
 ## Preferred Tools
 
 1. Use `oob_run_log_list`, `oob_run_log_get`, and `oob_run_log_convert` for
@@ -23,15 +26,16 @@ the user if the goal does not contain enough information.
 
 ## Legacy Direct MCP Names
 
-`omniflow.recall`, `omniflow.call_function`, `omniflow.call_tool`,
-`omniflow.ingest_run_log`, and `omniflow.explore_replay` may exist in external
-MCP clients or older agentkit flows.
+`omniflow.recall`, `omniflow.call_tool`, `omniflow.ingest_run_log`, and
+`omniflow.explore_replay` may exist in external MCP clients or older agentkit
+flows. Some older servers also accept `omniflow.call_function`; treat it only as
+a compatibility alias for `omniflow.call_tool(function_id=...)` /
+`oob_function_run`.
 
 Inside the OOB app, prefer the `oob_*` tools above. Use legacy `omniflow.*`
 tools only when those are the tools actually exposed and the `oob_*` tools are
-not available. Legacy `omniflow.call_function` is a compatibility alias for the
-same `oob_function_run` execution path; do not design a second Function replay
-flow around it.
+not available. Do not design a second Function replay flow around any
+`call_function` name.
 
 ## Tool Missing Rule
 

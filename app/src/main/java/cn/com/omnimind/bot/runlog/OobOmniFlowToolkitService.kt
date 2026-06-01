@@ -9,6 +9,7 @@ import cn.com.omnimind.bot.omniflow.OobFunctionRecallService
 import cn.com.omnimind.bot.omniflow.OobFunctionRepository
 import cn.com.omnimind.bot.omniflow.OobFunctionRunPolicy
 import cn.com.omnimind.bot.omniflow.OobFunctionSpecBuilder
+import cn.com.omnimind.bot.omniflow.OobFunctionSpecVocabulary
 import cn.com.omnimind.bot.omniflow.OobFunctionUpdateService
 import cn.com.omnimind.bot.omniflow.OobFunctionRunner
 import cn.com.omnimind.bot.runlog.OobActionCodec.boolArg
@@ -511,10 +512,7 @@ class OobOmniFlowToolkitService(
             "step_count" to (execution["step_count"] ?: steps.size),
             "omniflow_step_count" to execution["omniflow_step_count"],
             "agent_step_count" to execution["agent_step_count"],
-            "has_agent_steps" to (
-                execution["has_agent_steps"]
-                    ?: execution["requires_agent_fallback"]
-                ),
+            "has_agent_steps" to OobFunctionSpecVocabulary.agentStepFlag(execution),
             "parameter_names" to OobFunctionSchemaBuilder.parameterNames(spec),
             "step_summaries" to stepSummaries(spec),
             "source" to spec["source"],

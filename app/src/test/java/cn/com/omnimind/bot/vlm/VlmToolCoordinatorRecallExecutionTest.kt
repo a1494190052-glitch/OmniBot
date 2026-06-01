@@ -18,6 +18,10 @@ class VlmToolCoordinatorRecallExecutionTest {
             goal = "open settings",
             status = TaskStatus.RUNNING,
         )
+        state.omniflowRecall = mapOf(
+            "decision" to "hit",
+            "hit" to mapOf("function_id" to "open_settings_function")
+        )
         val events = mutableListOf<Map<String, Any?>>()
 
         val outcome = VlmToolCoordinator.tryExecuteRecallHit(
@@ -47,6 +51,7 @@ class VlmToolCoordinatorRecallExecutionTest {
         assertEquals("omniflow_recall_hit:open_settings_function", state.executionRoute)
         assertTrue(state.finishedContent?.contains("open_settings_function") == true)
         assertTrue(state.summaryText?.contains("actions_executed=1") == true)
+        assertEquals("hit", outcome?.toPayload()?.get("omniflowRecall")?.let { it as Map<*, *> }?.get("decision"))
         assertEquals(2, events.size)
         assertEquals("FINISHED", events.last()["status"])
     }

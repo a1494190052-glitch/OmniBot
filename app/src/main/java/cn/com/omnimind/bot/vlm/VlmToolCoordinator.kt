@@ -49,6 +49,7 @@ data class VlmToolOutcome(
     val executionRoute: String = "",
     val errorCode: String? = null,
     val missingPermissions: List<String> = emptyList(),
+    val omniflowRecall: Map<String, Any?>? = null,
 ) {
     fun toPayload(): Map<String, Any?> = linkedMapOf(
         "taskId" to taskId,
@@ -66,6 +67,7 @@ data class VlmToolOutcome(
         "executionRoute" to executionRoute,
         "errorCode" to errorCode,
         "missingPermissions" to missingPermissions,
+        "omniflowRecall" to omniflowRecall,
     )
 }
 
@@ -177,6 +179,7 @@ object VlmToolCoordinator {
             context = context,
             request = boundedRequest,
         )
+        taskState.omniflowRecall = recallGuidance.payload.takeIf { it.isNotEmpty() }
         taskState.vlmRequest = recallBaseRequest
         if (recallGuidance.guidance.isNotBlank()) {
             taskState.executionRoute = "vlm_with_omniflow_recall:${recallGuidance.decision}"
@@ -361,6 +364,7 @@ object VlmToolCoordinator {
                     context = context,
                     request = boundedRequest,
                 )
+                taskState.omniflowRecall = recallGuidance.payload.takeIf { it.isNotEmpty() }
                 taskState.vlmRequest = recallBaseRequest
                 if (recallGuidance.guidance.isNotBlank()) {
                     taskState.executionRoute = "vlm_with_omniflow_recall:${recallGuidance.decision}"
@@ -1072,6 +1076,7 @@ object VlmToolCoordinator {
             executionRoute = executionRoute,
             errorCode = errorCode,
             missingPermissions = missingPermissions,
+            omniflowRecall = omniflowRecall,
         )
     }
 

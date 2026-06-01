@@ -27,6 +27,83 @@
 
 ---
 
+## 2026-06-01 当前手动录制策略
+
+当前稳定策略是单向链路：overlay 捕获真实触摸，录制器短超时采
+`beforeXml`，临时放行 overlay 后用 `dispatchGesture` 重放，再立刻重锁
+overlay。Accessibility 不反向控制 overlay，不生成 click/swipe/long_press。
+
+关键约束：
+
+- 普通动作只依赖真实 overlay/raw touch，缺 XML 时记录坐标兜底。
+- `afterXml` / `afterScreenshot` 不作为手动录制必填项。
+- `TYPE_VIEW_TEXT_CHANGED` 只更新真实触摸锚点上的最终 `input_text`。
+- `TYPE_VIEW_CLICKED` / focused / scrolled 只计数或 suppress，不补录动作。
+- 键盘打开时 overlay 保持 touchable，但高度裁剪到 keyboard top；键盘区域
+  放行，键盘上方 App 区域继续被 overlay 捕获。
+- 如果裁剪竞态导致 overlay 兜住键盘区域触摸，该触摸只做黑盒 replay，不采
+  XML/截图，不生成 click；最终输入结果仍由 `TYPE_VIEW_TEXT_CHANGED` 合并成
+  一条 `input_text`。键盘区域判定不能只信 `imeTop`；已有真实输入锚点时，
+  `imeTop` 缺失或不准也要用保守底部估算把键盘按键挡进黑盒。
+- 刚点击可能打开输入框但还没有真实 keyboard top 时，短时间使用保守估算高度，
+  优先保证键盘区域可触摸，随后由 `WindowInsets` 或“过滤输入法后的前景
+  App XML 可见底边”修正。
+- 不用 `TYPE_INPUT_METHOD` window frame / 输入法子节点作为键盘 top。vivo 等
+  设备上输入法 window frame 可能从状态栏下方开始，和真实按键区域无关。
+- `dispatchGesture` 超时只写 `dispatch_timeout` 诊断，不阻塞下一次操作。
+
+---
+
+## 2026-06-01 rejected attempts / lessons
+
+这些是已经验证过会导致卡死、闪退、漏记或保存不稳的失败尝试，不要在后续修复中恢复：
+
+1. **A11/IME 事件反向控制 overlay 状态**
+   - 失败方案：`TYPE_VIEW_TEXT_CHANGED` / focus 事件通过
+     `ManualRecordingImeBypassSignal` 让 overlay 进入/退出 IME bypass。
+   - 问题：A11 事件和 overlay replay 互相触发，容易形成 relock/bypass 循环；
+     主线程频繁 `updateViewLayout`，用户输入时明显卡顿，极端情况下 ANR。
+   - 结论：A11 只能作为文本 evidence，不能控制 overlay 状态机。
+
+2. **键盘打开后全屏 `NOT_TOUCHABLE` bypass**
+   - 失败方案：IME 可见时让全屏 overlay 不可触摸，所有触摸直接传给 App/键盘。
+   - 问题：键盘能输入，但键盘上方 App 区域点击完全录不到，比如“搜索/发送”。
+   - 结论：只裁剪 overlay 高度到 keyboard top，不能全屏 bypass。
+
+3. **A11 post-input click 补录**
+   - 失败方案：输入后用 `TYPE_VIEW_CLICKED` 的 source 节点补录“搜索/发送”。
+   - 问题：source 可能 stale/null，坐标和真实触摸顺序不可靠，容易重复/误记；
+     安全 snapshot 仍会引入额外 binder 访问和闪退风险。
+   - 结论：post-input click 仍必须靠 overlay 捕获；A11 click 永不生成动作。
+
+4. **手动录制 finish 走 `saveSnapshot=false` event-only 保存**
+   - 失败方案：finish 时只写事件，不写完整 RunLog snapshot。
+   - 问题：列表/详情读取路径不一致，图片和 source context 容易缺失，用户看到
+     “无法保存”或详情打不开。
+   - 结论：手动录制 finish 必须直接写 RunLog cards、diagnostics 和 finish snapshot。
+
+5. **恢复固定 after evidence 等待**
+   - 失败方案：每步等待固定 350ms 再采 `afterXml` / screenshot。
+   - 问题：XML 本身多数不慢，但固定等待和窗口事件 burst 会放大延迟；用户连续
+     操作时队列堆积，误以为卡死。
+   - 结论：手动录制不等 after evidence，后态缺失是允许状态。
+
+6. **每步重建 overlay z-order**
+   - 失败方案：每个动作调用 remove/add 或 ensure-on-top。
+   - 问题：窗口重建本身在主线程，遇到 IME/系统弹窗时更容易掉帧和输入派发超时。
+   - 结论：overlay 录制期间只 add/remove 一次，状态变化用去重后的
+     `updateViewLayout`。
+
+7. **用输入法 window frame / 子节点扫描计算 keyboard top**
+   - 失败方案：读取 `AccessibilityWindowInfo.TYPE_INPUT_METHOD` 的 bounds，或者
+     扫描输入法 root 子节点，再把最小 top 当作 keyboard top。
+   - 问题：vivo 设备上输入法 window frame 可从 `y=140` 开始，真实按键区域在
+     `y≈1682`；子节点结构由输入法实现决定，不稳定，也会增加 binder 访问。
+   - 结论：只把输入法从 XML capture 中过滤掉；overlay 裁剪几何来自 filtered
+     foreground App XML 的可见底边，缺失时才短时用保守估算。
+
+---
+
 ## 已知 Bug
 
 ### BUG-1（严重）：handleCaptureClick 在主线程调用 pauseActive → 死锁 → ANR → 闪退
@@ -111,7 +188,7 @@ private fun awaitOverlayRecordJobs() {
         }
     }
 }
-// 常量建议: OVERLAY_RECORD_DRAIN_TIMEOUT_MS = 3000L
+// 当前值: OVERLAY_RECORD_DRAIN_TIMEOUT_MS = 600L
 ```
 
 ---
@@ -126,14 +203,15 @@ private fun awaitOverlayRecordJobs() {
 
 **修复（已生效）**：
 ```kotlin
-val beforeXml = withTimeoutOrNull(BEFORE_XML_CAPTURE_TIMEOUT_MS) {  // 2000ms
+val beforeXml = withTimeoutOrNull(BEFORE_XML_CAPTURE_TIMEOUT_MS) {  // 300ms
     withContext(Dispatchers.IO) { captureCurrentXml() }  // 独立 IO 线程
-} ?: synchronized(recordingLock) { lastXmlSnapshot }  // 超时回退到上一次快照
+}?.takeIf { it.isNotBlank() }
 ```
 
-- `withTimeoutOrNull`：超时后协程继续，不再等待
+- `withTimeoutOrNull`：超时后协程继续，不再等待当前操作
 - `withContext(Dispatchers.IO)`：binder 在独立线程，超时后该线程后台释放，不阻塞当前协程
-- 超时回退 `lastXmlSnapshot`：beforeXml 可能略旧，但手势仍然正确录制
+- 不回退旧 XML：缺失 XML 是合法状态，动作以坐标兜底记录并标记
+  `missing_source_xml=true`
 
 **不变式**：凡是调用 `captureCurrentXml()`（或任何 `window.root` / `getCaptureScreenShotXml`）的地方，都必须有超时保护。
 
@@ -190,12 +268,14 @@ val beforeXml = withTimeoutOrNull(BEFORE_XML_CAPTURE_TIMEOUT_MS) {  // 2000ms
 | 常量 | 位置 | 值 | 含义 |
 |------|------|----|------|
 | `OVERLAY_UNLOCK_REPLAY_DELAY_MS` | ManualTouchRecordLoader | 32ms | overlay NOT_TOUCHABLE 生效等待 |
-| `OVERLAY_CLICK_REPLAY_TIMEOUT_MS` | ManualVlmTraceRecorder | 650ms | click GestureDescription 最大等待 |
+| `BEFORE_XML_CAPTURE_TIMEOUT_MS` | ManualVlmTraceRecorder | 300ms | before XML 采集上限；超时后坐标兜底 |
+| `OVERLAY_CLICK_REPLAY_TIMEOUT_MS` | ManualVlmTraceRecorder | 500ms | click GestureDescription 最大等待 |
 | `OVERLAY_TOUCH_SETTLE_MS` | ManualVlmTraceRecorder | 350ms | 已废弃（beforeXml-only 模式下不等待） |
-| `IME_WAIT_TIMEOUT_MS` | ManualTouchRecordLoader | 600ms | 点击后 IME 弹出等待上限 |
-| `IME_VISIBILITY_GRACE_MS` | ManualTouchRecordLoader | 450ms | IME 未出现时的额外宽限 |
+| `IME_VISIBILITY_PROBE_TIMEOUT_MS` | ManualTouchRecordLoader | 1500ms | 点击后轻量探测 IME 是否出现 |
+| `IME_RELOCK_POLL_MS` | ManualTouchRecordLoader | 900ms | IME 打开期间刷新 filtered App XML 裁剪几何 |
+| `IME_OPEN_EXPECTED_TTL_MS` | ManualTouchRecordLoader | 1200ms | 输入框点击后的短时估算窗口 |
 | `OVERLAY_RECORD_DRAIN_POLL_MS` | ManualVlmTraceRecorder | 100ms | `awaitOverlayRecordJobs` 每轮等待 |
-| `OVERLAY_RECORD_DRAIN_TIMEOUT_MS` | ManualVlmTraceRecorder | **待添加** 3000ms | drain 总超时，防永久阻塞 |
+| `OVERLAY_RECORD_DRAIN_TIMEOUT_MS` | ManualVlmTraceRecorder | 600ms | drain 总超时，防永久阻塞 |
 
 ---
 
@@ -207,8 +287,10 @@ GestureDescription 必须在 overlay NOT_TOUCHABLE 时分发（否则被 overlay
 - NOT_TOUCHABLE 期间：`unlockTouchLocked()` → `delay(32ms)` → `performOverlayGesture()`
 - `onGestureDispatched` 回调后立即 `lockTouchLocked()`（TOUCHABLE）
 - 新触摸在 TOUCHABLE 期间进入 `pendingGestures` 队列
-- NOT_TOUCHABLE 窗口约 32ms + GestureDescription 执行时间（≤650ms）≈ 700ms
+- NOT_TOUCHABLE 窗口约 32ms + GestureDescription 执行时间（click ≤500ms）
 - 此窗口内的用户触摸直接到 App，无法被 overlay 捕获——这是不可消除的物理约束
+- 键盘打开后不是全屏 NOT_TOUCHABLE；overlay 高度裁剪到 keyboard top，键盘区
+  放行，App 区域继续捕获。
 
 ---
 

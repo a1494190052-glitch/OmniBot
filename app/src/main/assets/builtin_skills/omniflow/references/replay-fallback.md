@@ -47,6 +47,6 @@ before running again. Examples:
 Stop and report the blocker when:
 
 - The same step fails repeatedly.
-- `fallback_available=false`.
+- No `fallback_context` or resume step is available.
 - The action is risky and needs confirmation.
 - The Function needs structural repair and the user did not authorize it.

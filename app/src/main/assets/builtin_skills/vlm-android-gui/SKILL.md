@@ -89,9 +89,12 @@ connected by artifacts, but do not merge their responsibilities.
    `currentPageSummary` as current-page decision context, not into pre-run
    `stepSkillGuidance`, not as task memory, and not by flat-scanning all
    Functions.
+   Recall is local infrastructure: it should usually take milliseconds to tens
+   of milliseconds, with slow debug/device cases measured in the returned
+   timing payload. It does not call the VLM model.
 4. Treat node-attached Functions as callable capability candidates. Default
    `allowOmniFlowFunctionAutoExecute=false`: the live VLM still chooses native
-   screen tools (`click`, `input_text`, `swipe`, `open_app`, `press_back`,
+   screen tools (`click`, `input_text`, `scroll`, `open_app`, `press_back`,
    `press_home`, `finished`) from live screenshot/XML/indexed evidence unless
    the current task has a high-confidence Function match. For a high-confidence
    match, prefer explicit replay through guard + Function run instead of
@@ -730,11 +733,12 @@ Rules:
 - Use `tool_name` plus `arguments` for direct tools such as `vlm_task`.
 - Nested reusable command calls are valid only through
   `call_tool(function_id=...)`.
-- Treat nested `call_function` / `call_tool(function_id=...)` as a real tool
-  call. It must produce its own visible tool card with
-  `toolName=call_function`, `toolType=oob_function`, readable "复用指令" text,
-  `argsJson.function_id`, and final success/error status. Do not hide nested
-  reusable-command execution only inside a parent result JSON.
+- Treat nested `oob_function_run` / `call_tool(function_id=...)` as a real tool
+  call. It must produce its own visible tool card with an agent-facing
+  `toolName=oob_function_run`, `toolType=oob_function`, readable "复用指令"
+  text, `argsJson.function_id`, and final success/error status. Compatibility
+  cards may still carry an internal `call_function` step label for old RunLogs,
+  but that label is not the public action name.
 - If `call_tool` returns `fallback=true` or `needs_agent`, follow the Runtime
   Flow fallback rule: stop replay, report the reason, and continue with bounded
   VLM only through explicit selection.
@@ -748,7 +752,7 @@ verify that the result contains:
 - parent step `executor=omniflow_function`
 - `nested_function_id` equal to the expected child Function id
 - one streamed `tool_started` and one `tool_completed` card for the
-  `call_function` step
+  `oob_function_run` replay
 - nested `step_results` with concrete model-free actions such as `open_app`
 - the same child reusable command succeeds from at least two different current
   pages
@@ -770,7 +774,7 @@ execution`. Keep this contract visible and separate from runtime tests:
   `runner=oob_omniflow_replay`. User UI may show a compact "离线重放 /
   OmniFlow Replay" tag, but must not show VLM token cost unless the replay
   explicitly fell back to VLM.
-- `call_function` cards should appear in the same agent RunLog as other tool
+- `oob_function_run` cards should appear in the same agent RunLog as other tool
   cards. Users should see a compact reusable-command card and status; detailed
   nested `step_results` stay inside the card detail / raw result surfaces.
 - Do not show internal route-building jargon to users. Keep legacy

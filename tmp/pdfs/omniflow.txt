@@ -1,0 +1,958 @@
+     OmniFlow: Executable GUI Memory for Dynamic
+                 Mobile Environments
+Abstract                                                                  Task Initialization    Multi-Step Execution Bypass      Task Completion
+LLM-based mobile GUI agents are effective on open-ended
+tasks, but their reason-action loop is inefficient for repeated           Step #1          Step #2             Step #i     Step #i+1          Step #n
+mobile workflows. Each GUI step can require a fresh model                                                                 Controlled Action
+decision. Running that model on the device exposes latency,               Observation                 Observation            Exec. Loop
+                                                                                                     hooking
+memory, power, and thermal costs; serving it in the cloud
+                                                                          Reasoning &                 Screen State
+expands the privacy boundary because screen observations                  Action Gen.                   Compiler
+often contain personal context. Trajectory reuse is therefore                                                              Screen Action
+a natural serving target, yet existing memory, replay, and                Action Exec.                 Cache Gate           State  List
+program-guided methods still frequently return to online
+                                                                           (a) Traditional                 (b) Alternate Action-Replay
+repair when dynamic layouts, pop-ups, missing selectors, or             Reason-Action Loop                        with OmniFlow
+device-specific content invalidate stored actions.                        (LLM-Intensive)                  (Fast and Resource-Efficient)
+   We present OmniFlow, a plug-in GUI Agent cache system
+for dynamic mobile environments. OmniFlow converts suc-                 Figure 1. Comparison between the traditional reason-action
+cessful run_logs into reusable Function assets and serves               loop and OmniFlow’s cache-first Function execution path.
+them with a cache-first discipline: a cache hit skips online rea-
+soning for the matched segment, while a miss or failed check
+returns control to the host agent. The Omni representa-
+tion layer recalls compatible Functions through privacy-safe            to Wi-Fi.” The state of the art, V-Droid [5] (MobiCom 2026),
+UDEG nodes, keeping raw XML, screenshots, and private                   achieves 59.5% task success at 4.3 s per step while issuing an
+text outside the shared cache boundary. The Flow execution              LLM call at every action—20 percentage points below human
+layer applies a recalled Function to the live device through            performance. The cost model is quantified in §2.
+an observe-check-transfer-act loop, so cached actions are                  This cost is amplified by the edge deployment boundary.
+checked and mapped against the current screen before exe-               Running a large GUI model on the device reduces data expo-
+cution.                                                                 sure, but each action must pay the latency, memory, power,
+   Our registered Android and multi-user evaluations show               and thermal cost of local inference. Serving the model in
+that OmniFlow can turn repeated successful executions into              the cloud improves capacity, but screen observations often
+low-overhead cache hits. Function recall uses a compact                 contain contacts, accounts, messages, and other private con-
+payload and has 0.007 ms median lookup latency. In frozen               text. Reusing a previously successful execution segment is
+fixture trials, cache-hit execution reduces wall-clock latency          therefore an economical and privacy-bounded serving path:
+by 38% versus step-wise replanning (3 017 vs. 4 849.5 ms)               matched segments can avoid online model calls and keep full
+while spending 0 online model tokens on the matched seg-                GUI observations out of the planner prompt, while uncertain
+ment. In a 3-round, 25-goal cross-user workload, OmniFlow               states remain under the host agent.
+reduces total token spend by 88.1% against a step-wise base-               Existing systems still optimize mainly for online decision
+line. Broader cross-device sweeps and recovery/fallback cov-            capability. Step-wise agents improve action selection but
+erage remain open evaluation items.                                     continue to pay one decision per step; memory-based agents
+                                                                        retrieve task notes or app knowledge that must be interpreted
+                                                                        again at runtime [9, 25, 32]; program-guided and synthesis-
+1   Introduction                                                        based agents improve long-horizon control but still return to
+Mobile GUI agents allow users to express natural-language               online repair when the live screen diverges from the stored
+goals and have them executed on personal devices. The de-               program or documentation [22, 26, 35]; foundation agents
+ployment target, however, is often repeated serving rather              raise open-task coverage without targeting deterministic
+than one-off exploration: users ask agents to open famil-               serving economics for repeated routines [18]. Under dynamic
+iar pages, follow fixed workflows, fill forms, create records,          mobile layouts, a pop-up, asynchronous load, device-specific
+and repeat routine settings. In the common reason-action                row, or missing selector can turn reuse into frequent recovery.
+loop, every step observes the screen, invokes an LLM or                 Each recovery reintroduces latency, model calls, and control
+VLM, issues one GUI action, and repeats. The result is ex-              uncertainty, eroding the benefit of reuse. Figure 1 contrasts
+pensive repeated work: every user independently re-solves               this repeated reason-action loop with OmniFlow’s cache-first
+goals such as “add a contact,” “set an alarm,” and “connect             Function execution path.
+                                                                    1
+Conference’17, July 2017, Washington, DC, USA
+
+
+   The core obstacle is that historical context and prior execu-       2   Background and Motivation
+tion results must be adapted to the current state before they          In this section, we review recent advances in mobile GUI
+can be reused. Screen density, OS skin, locale, app version,           agents powered by emerging LLMs and VLMs, along with the
+and personal data make the same app look different across              high execution costs associated with the traditional execu-
+phones. In our measurements, 32.5% of real touch targets               tion pipeline. We then examine efforts to reduce the runtime
+carry no resource-id, text, or content-desc, creating a                costs of such agents and discuss their limitations, which
+structural failure region for attribute-only reuse (§2.1). A           motivate the design of OmniFlow.
+useful cache therefore needs executable memory that can
+be invoked without re-planning the matched segment, and
+transferable execution that can apply prior actions to the
+live device state under runtime checks.                                2.1 High Execution Costs of GUI Agents
+   We present OmniFlow, a GUI Agent cache system for                   Mobile GUI agents typically operate in an observe–reason–act
+dynamic, heterogeneous mobile environments. OmniFlow                   loop [19, 23, 25, 32]. As shown in Figure 1, at each step, the
+wraps an existing agent-device loop: it observes the current           agent perceives the current screen, invokes an LLM or VLM
+state, asks whether a compatible cached segment is available,          to determine the next GUI action, and executes the action in
+executes admitted segments through a controlled runtime,               the environment. Although this workflow enables flexible
+and returns misses or check failures to the host agent. Suc-           reasoning over open-ended tasks, it introduces substantial
+cessful run_logs are written back as typed Function assets.            runtime overhead because model inference is repeatedly trig-
+On a cache hit, OmniFlow skips online reasoning for the                gered during long interaction sequences. The cost accumu-
+matched segment; on a miss, the original planner keeps serv-           lates with each additional step, leading to increased latency
+ing the long tail.                                                     and computation during task execution [1, 5, 31, 33, 35]. Prior
+   OmniFlow separates reusable execution knowledge from                work reports that existing mobile agents often require more
+live execution control. The Omni representation layer or-              than 10 seconds per step, 1–2 minutes, and about $1 mone-
+ganizes successful runs around UDEG nodes and Function                 tary cost per task on average [4, 5]. More broadly, planning
+assets, so recall can return a compact executable candidate            and reflection alone can account for 75%–94% of end-to-end
+instead of a full trajectory, screenshot, or prompt history. The       latency in GUI agents [1]. These costs become more pro-
+Flow execution layer applies the selected Function to the              nounced when the step-wise model inference runs directly
+current device state. It repeatedly observes the page, checks          on mobile devices with strict memory, power, and thermal
+whether the next cached action is admissible, transfers the            constraints [4, 5, 30].
+recorded target to the live screen, and dispatches one con-                However, real-world mobile usage rarely consists of purely
+crete action before observing again. This design keeps raw             open-ended tasks. In practice, users repeatedly perform sim-
+XML, screenshots, and private text out of the shared cache             ilar routines, such as checking routine information, retriev-
+boundary while retaining enough structure for reuse (§3).              ing specific content, completing fixed navigation paths, and
+Contributions. We make three contributions.                            filling structured form-like workflows. Prior studies charac-
+                                                                       terize smartphone interaction as highly habitual, with repet-
+                                                                       itive checking behavior and app-launch patterns that are
+ C1. Executable Function assets for cache-first serving.               strongly shaped by recurring contexts such as time and
+     OmniFlow turns successful run_logs into reusable                  location [16, 28]. Public mobile GUI datasets and bench-
+     Function assets and integrates them as a plug-in cache            marks reflect a similar pattern. For example, AITW con-
+     layer: matched segments skip online reasoning, while              tains 715K episodes but only around 30K unique instruc-
+     misses return to the host agent.                                  tions [20]. Therefore, although open-ended reasoning is im-
+ C2. Omni: privacy-safe state recall. Omni uses UDEG                   portant, many realistic mobile-agent workloads are better
+     nodes as shared state keys and recalls compatible Func-           viewed as repeated executions of recurring workflow pat-
+     tions without exposing raw XML, screenshots, or pri-              terns rather than entirely novel tasks.
+     vate text as the shared memory object.                                This reuse problem is constrained by the observation in-
+ C3. Flow: control-aware execution in the live state.                  terface itself. Mobile GUI agents usually observe a screen-
+     Flow transfers cached actions to the current screen               shot, an Android accessibility tree, or both. The accessibility
+     through an observe-check-transfer-act loop, bound-                tree reliably exposes element bounds and hierarchy when
+     ing dynamic-layout mismatches before they become                  elements are observable, while semantic attributes such as
+     expensive online recovery.                                        resource-id, text, and content-desc only appear when
+                                                                       developers provide them. As a result, repeated execution can-
+                                                                       not assume that every target has a stable selector: coordinate
+   The registered experiments and outputs are summarized               replay breaks under device-size and layout changes, and se-
+in Table 3.                                                            lector replay fails on missing annotations, custom-rendered
+                                                                   2
+OmniFlow : Executable GUI Memory for Dynamic Mobile Environments                                                        Conference’17, July 2017, Washington, DC, USA
+
+
+Table 1. Comparison of reuse mechanisms for mobile GUI                                             a discretized action space, which substantially reduces la-
+agents. The columns capture whether a method can reuse a                                           tency. ShowUI [12] accelerates VLM inference through UI-
+matched routine without invoking the model again, transfer                                         guided visual token selection. Other studies accelerate ex-
+the routine under dynamic UI states, and avoid app-wide                                            ecution by pruning redundant visual or historical context
+exploration.                                                                                       before model inference, such as masking-based GUI element
+                                                                                                   pruning and history compression [3], position-preserving
+Approach
+                                                  Model-free
+                                                 matched reuse
+                                                                 Dynamic-state
+                                                                   transfer
+                                                                                 No app-wide
+                                                                                 exploration
+                                                                                                   UI token selection [17].
+RPA / script replay [7, 10, 14, 15]                   ✓               ✗              ✗                However, these categories still retain important limita-
+Memory-based agents [9, 25, 32]                       ✗               ✗              ✗             tions. RPA and script replay provide executable routines but
+Program-guided agents [22, 24, 26, 35]                ✓               ✗              ✗
+Per-step inference acceleration [3, 5, 12, 17]        ✗               ✗              ✓             do not transfer well across dynamic states. Memory-based
+OmniFlow                                              ✓               ✓              ✓
+                                                                                                   and program-guided methods depend on substantial app
+                                                                                                   knowledge or exploration and still require online adaptation
+                                                                                                   when the live state diverges. Per-step inference acceleration
+                                                                                                   methods reduce per-step cost but do not eliminate repeated
+widgets, WebViews, obfuscated resource identifiers, and un-                                        reasoning in long interaction loops. The limitations motivate
+labeled container controls. The same instability limits graph-                                     us to build OmniFlow for cross-device and generalized cache
+level reuse. A conventional UI transition graph provides a                                         reuse.
+useful state structure, but its nodes are often tied to raw
+XML or unstable attributes, and its edges record dispatched                                        2.3   Goals and Challenges
+actions and state transitions rather than verified task effects.
+Such a graph is therefore difficult to reuse as a cross-device                                     Our goal is to provide executable GUI memory for re-
+and cross-user execution cache under dynamic layouts and                                           peated mobile-agent serving. A successful execution should
+user-specific content.                                                                             become a reusable asset that can be called again for a matched
+                                                                                                   routine, instead of being stored only as a raw trace, a screen-
+                                                                                                   shot, or a textual hint that the model must reinterpret at
+2.2      Reducing Runtime Costs                                                                    every step. Achieving this goal raises two core challenges.
+Prior studies on reducing the runtime costs of GUI agents pri-                                        Executable memory. Historical trajectories are difficult
+marily fall into several categories, which are summarized in                                       to represent because they must balance generality and ac-
+Table 1. First, Robotic process automation (RPA)-based                                             curacy. Descriptive memories, screenshots, and trajectory
+automation systems treat mobile tasks as fixed workflows                                           summaries are general enough to retrieve, but they still re-
+by recording and replaying user demonstrations [7, 10, 14,                                         quire the host agent to inspect the current screen, infer the
+15]. As this approach relies on strict memorization, it is                                         next step, and generate actions online. Raw replay traces
+highly sensitive to environmental changes: even minor screen                                       and scripts are accurate enough to execute on the recording
+modifications or layout updates can cause previously recorded                                      environment, but they bind the routine to fixed coordinates,
+routines to fail.                                                                                  selectors, and entry conditions. A useful GUI memory must
+   Second, memory-based reuse methods reduce execu-                                                sit between these extremes: it must be abstract enough to be
+tion cost by reusing app knowledge or prior task experience                                        recalled for matched routines and concrete enough to expose
+collected from an initial exploration or first-time execution                                      a safe executor for the matched segment.
+phase. For example, AutoDroid [25] and AppAgent [32] con-                                             Transferable execution. An executable memory asset is
+struct app-specific task knowledge (e.g., UI transition graphs)                                    useful only if it can be applied to the live device state. The
+through automated exploration, which are later retrieved                                           source execution may have been recorded under different
+to guide execution. MobileGPT [9] extends this idea with                                           content, layout, entry state, or transient UI conditions, and
+a hierarchical app memory that stores reusable procedures                                          mobile interfaces often change through pop-ups, asynchro-
+and subtasks summarized from prior executions.                                                     nous loading, and device-specific rendering. Reuse therefore
+   Third, program-guided agents generate executable scripts                                        requires the system to locate the current state, map historical
+or programs from collected app documentation, state-machine                                        action targets to live targets, and keep checking the screen
+memory, or declarative interfaces [22, 24, 26, 35]. These sys-                                     as actions are issued.
+tems improve long-horizon control, but they still rely on                                             These two challenges also impose deployment constraints.
+substantial app knowledge and online adaptation when the                                           A practical cache layer should not require app-wide explo-
+live state diverges from the stored program.                                                       ration on each device, and it should not make raw screen-
+   Finally, per-step inference acceleration methods re-                                            shots, raw XML, or private text the shared memory object.
+tain the traditional observe–reason–act loop but reduce the                                        When a request misses or a match is unsafe for direct execu-
+cost of each individual decision. V-Droid [5] replaces auto-                                       tion, the system should return a compact semantic context to
+regressive action generation with verifier-based ranking over                                      the host planner instead of performing uncontrolled replay.
+                                                                                               3
+Conference’17, July 2017, Washington, DC, USA
+
+                         full image + complex prompt           Reasoning                    Action stack
+                                                                                                                                  Act
+                          high latency & reason cost
+                                                                  hit                                                       Control plane
+                                                                                                      …                  action    +      state
+          online
+                      goal           cache gate                Planner
+      flow executor                                                                        stack handler                     state observe
+                                     check if hit              With hint
+                                                       Miss        Compressed                        Recovery function
+                                                                                                                             plugin checker
+                         current
+                                                       cache       state context                      = +         …
+        MCP tools        context       state                                            runlog build UDEG
+                                                                recaller                                                     action transfer
+      runtime layer                   matcher                                            & agent augment
+                                   source                                                             UTG merge                   act
+                                   context
+        offline                                            UDEG：dynamic encoder
+      omni memory                                             Node：state info                                               terminal verifier
+                                                               Edge：function
+
+Figure 2. System design overview. OmniFlow maintains a UDEG whose nodes are privacy-safe GUI states and whose edges
+are executable Functions. Omni recalls a compatible UDEG node and Function edge; Flow executes the edge through a single
+observe-check-transfer-act stack and writes accepted run logs back into the UDEG structure.
+
+3      System Design                                                               and the missing conditions needed for the next decision. Full
+3.1     Architecture and Execution Overview                                        GUI histories stay outside the online exchange.
+OmniFlow separates reusable execution knowledge from
+                                                                                      Overview. The UDEG structure gives Omni a stable unit
+live execution control. Omni representation layer orga-
+                                                                                   for reuse. A live GUI observation is first encoded as a node
+nizes successful runs into UDEG nodes and Function edges,
+                                                                                   query; the query is matched against stored UDEG nodes;
+so the system can recall which segment is reusable while
+                                                                                   applicable Function edges are then retrieved around the
+keeping full histories outside online reasoning. Flow execu-
+                                                                                   matched nodes. The same structure is extended during write-
+tion layer takes the recalled Function and decides whether
+                                                                                   back: accepted observations update nodes, and successful
+it can execute in the current device state. A mobile GUI
+                                                                                   task segments update or create Functions. This design keeps
+exposes one foreground control surface at a time; Flow
+                                                                                   reusable execution knowledge in a compact form, so Flow
+therefore serializes cached execution through one observe-
+                                                                                   receives the constraints it needs while the host agent receives
+check-transfer-act stack. The stack observes the current state,
+                                                                                   only the context needed for unresolved decisions.
+checks whether the next Function action is admissible, trans-
+fers the recorded target to the live screen, and issues one                           Node. A UDEG node is the vectorized state key used for
+concrete action before observing again.                                            indexed lookup, cross-device state reuse, and later action
+   The two layers communicate through a unified MCP pro-                           transfer. Figure 3 shows the conversion on the left. Omni
+tocol. Omni exposes a query interface, and Flow calls this                         starts from the accessibility XML tree, splits it into UI ele-
+interface at decision points to retrieve reusable Function                         ments, and encodes each element as a 64-dimensional vector
+candidates and compact context. Flow then executes the                             with two views: a human-facing view for visible content and
+selected Function through a control loop that grounds each                         affordance, and a programmer-facing view for widget class,
+step in the current observation, checks the pre-action state,                      interaction flags, and tree structure. Raw text is projected
+and transfers recorded targets before issuing device actions.                      into privacy-preserving features and discarded. The element
+   Both layers are designed as wrappers around the exist-                          vectors are then pooled into page-level state regions, pro-
+ing agent-device loop. Omni hooks before the host planner                          ducing a 512-dimensional node vector used for approximate
+by providing the recall interface, while Flow hooks after                          lookup and node-family matching.
+a Function or planner decision by providing the execution                             The node’s capability is action-compatible retrieval. Two
+interface. This design lets OmniFlow integrate as a modular                        observations can map to the same UDEG node when their
+cache and execution layer without replacing the host agent                         encoded UI elements support the same key actions and those
+architecture. Figure 2 shows this end-to-end flow.                                 actions can be transferred safely across layout, text, device,
+                                                                                   or density variation. Visually similar observations remain
+                                                                                   separated when their available actions or task effects diverge.
+3.2     Omni UDEG Layer                                                            The vector form gives Omni candidate lookup over compact
+Omni maintains the reusable side of OmniFlow. Its job is to                        state vectors without sharing raw XML, screenshots, or raw
+find where the current task fits in prior successful executions                    text; the retained element-level evidence gives Flow the
+and to store new accepted segments after a run completes.                          anchors needed to transfer recorded actions to the current
+For online use, Omni returns compact Function candidates                           device.
+                                                                             4
+OmniFlow : Executable GUI Memory for Dynamic Mobile Environments                             Conference’17, July 2017, Washington, DC, USA
+
+
+   Edge. An edge in the UDEG is a Function. Omni con-                  Table 2. Recall payload size for the structured context re-
+structs a Function from a successful task segment by pre-              turned by Omni.
+serving the reusable execution boundary: the state where the
+segment can start, the task effect the segment should produce,                 Metric                        Value         Cases
+and the source context Flow needs to transfer recorded ac-                     recalled payload size     1 342.9 B avg.     11
+tions to the current screen. This edge unit raises reuse above                 payload reduction           57.0% avg.       11
+                                                                               lookup latency          0.007 ms median      21
+a single low-level transition. A Function can cover the key
+semantic part of a task while leaving device-specific entry
+steps to routing and recovery.                                         filling, creating, saving, or submitting. A false cache hit can
+   Function also gives Omni a programmable structure. Its              therefore have a high task cost. The gate admits a Function
+body is a typed composition of atomic device actions and               segment only when the recalled edge has enough evidence
+nested Function calls. Atomic actions are the smallest ex-             to be admitted by Flow’s pre-action state checks and action
+ecutable operations over act, such as tap, type, scroll, or            transfer. Otherwise, Omni returns a bounded planner hint
+back. Nested Function calls reuse previously accepted task             and withholds the executable package. This keeps useful
+segments. The planner or cache gate can therefore invoke a             historical structure available to the planner while preventing
+Function through a tool-call-like interface: select the callable       weak matches from entering direct execution.
+unit, bind its arguments, and let Flow execute the resulting
+stack under state checks and action transfer.                             Write. The write flow starts from an accepted run_log.
+   The edge role reflects a key observation: most GUI tasks            Omni converts the observed XML states into node vectors,
+contain a small number of key Functions that determine task            merges them into existing nodes or creates new nodes, ex-
+effect, while many surrounding actions only move the device            tracts successful task segments into Functions, abstracts con-
+into position. Navigation Functions perform this positioning           crete values into argument schemas, stores source context
+work, such as open-app, back, tab switch, or dialog dismissal.         for future action transfer, records execution evidence, and
+Semantic Functions carry task effect, such as filling fields,          updates execution statistics.
+creating records, saving, or submitting. Omni can therefore               This write flow is the agent-augmentation mechanism. A
+manage semantic Functions like callable macros: once the               successful agent run adds reusable state keys, executable
+start node is satisfied, Flow expands the Function into its            Function assets, argument boundaries, and source contexts
+atomic actions and executes the matched segment with safety            to Omni. Later agents can retrieve this structure during recall,
+checks. Online reasoning is skipped for the matched semantic           spend fewer tokens on rediscovering GUI procedures, and
+segment, while observe remains in the Flow loop for state              delegate accepted segments to Flow for controlled execution.
+checks and recovery.
+                                                                       3.3   Flow Execution Layer
+   Recall. Recall turns prior executions into executable can-          Flow is the independent execution layer behind a recalled
+didates. The core observation is that GUI reuse is governed            Function or a host planner decision. Its objective is to use a
+by two stable structures: whether the live context aligns              source execution in the current state while preserving task
+with a source context near a reusable UDEG-node family,                semantics. A recalled Function tells Flow what was done
+and whether that family exposes a successful key Function.             before and what task effect it is meant to produce. The live
+Omni therefore first matches the live observation to UDEG              device tells Flow what is true now. Flow connects the two
+nodes, then recalls Function segments around those nodes.              by observing the current page, reaching the executable posi-
+The optimization target is the online reasoning boundary:              tion when needed, checking the current state, transferring
+the host planner should see the remaining decision, not the            historical targets to current targets, and dispatching actions.
+full history.                                                             Flow is defined by two device I/O operations: observe
+   This changes the role of memory in the system. Agent                and act. observe reads the current structured GUI state,
+memories commonly return past trajectories, textual sum-               including the active application, page structure, interactive
+maries, or screenshots for the planner to interpret again.             elements, and the context needed for matching. act sends
+Omni organizes the prior execution as Function candidates              one concrete device action, such as tap, type, back, or open-
+around UDEG nodes, so the planner receives a smaller prob-             app. Flow’s design is the control logic around this observe-
+lem: which candidate Function is useful and what condition             act loop: every decision is made from observed state, every
+is still missing. The frozen recall result reports an average          device change goes through act, and every dispatched step
+returned context of 1 342.9 B, a 57.0% average reduction rela-         is followed by a fresh observation before the next step is
+tive to returning all Functions, and 0.007 ms median lookup            accepted.
+latency (Table 2).                                                        Flow connects to the existing agent/device loop at two
+   Executable recall is admitted through a cache gate. Se-             points. Reasoning runs before the host planner, where cache
+mantic GUI actions can write user-visible state—for example            gate and recall decide whether the planner can be skipped or
+                                                                   5
+Conference’17, July 2017, Washington, DC, USA
+
+                                                                                         Current Node
+
+ 64D UI element :            Human view          + programmer                                                            …        K-th nearest pages
+
+                                       Privacy vector   Feature bullet
+                                                                                      Real trace                                  Main Feature vector
+                                                          0     1   0 0   0   1
+
+                                                                                                                                  Key Functions
+
+                                           ···                                                 ｜search bar           +                         End node
+            XML tree                                                                       long term go-to edge
+
+512D       XML Tree      :   S1     S2      …      Si     …           Sn
+                             S1: if clickable / S2：Top bar ..                                       ：Offline agent retrieval
+                 (a) XML-to-node vectorization.                                                    (b) UDEG-node lookup and Function recall.
+
+Figure 3. Omni lookup representation. Omni converts XML observations into node vectors, uses the vector index to retrieve
+nearby UDEG nodes, and opens the associated key Functions for direct execution or planner hints.
+
+given compressed structured context. Act runs after a Func-                           reason the cache can survive different entry points, light
+tion or planner decision is available, where Flow turns the                           layout changes, and transient UI interruptions.
+result into controlled act calls under the current observation.
+                                                                                         Checker and local recovery. During act execution, Flow
+                                                                                      inserts a lightweight checker between observe and action
+   Reasoning. The upper half of Flow decides whether the
+                                                                                      transfer. The checker is a configurable and pluggable trig-
+current request can reuse cached structure before asking a
+                                                                                      ger list. Each trigger defines a condition over the current
+host agent to reason from scratch. It first passes through
+                                                                                      state or the pending action; once the condition is satisfied,
+a cache gate. The gate is the admission controller for exe-
+                                                                                      Flow runs the corresponding check before target transfer
+cutable Function segments. A direct gate hit is strict: the goal
+                                                                                      and action dispatch. These triggers can be attached at differ-
+must match a stored Function, the current state must local-
+                                                                                      ent granularities, such as a global rule, a UDEG node, or a
+ize to a compatible UDEG node, and Flow must be able to
+                                                                                      Function. Typical examples include an occlusion trigger that
+reach the Function’s executable position. When this happens,
+                                                                                      checks whether the target region is covered by a dialog or
+Flow can skip online reasoning for the matched segment
+                                                                                      advertisement, and a waiting trigger for loading or transition
+and enter cached execution directly.
+                                                                                      pages.
+   Most requests miss this strict gate. Flow then asks Omni
+                                                                                         When a trigger fires, the checker only decides the next
+for recall before any cold-prompt fallback. Omni returns a
+                                                                                      control result for the current execution stack: continue, wait,
+compact structured context: candidate UDEG nodes, relevant
+                                                                                      run a short recovery action, or fall back to the host agent.
+Function summaries, recorded source context for transfer-
+                                                                                      Local recovery therefore remains inside the same observe-
+able actions, open argument slots, and execution boundaries.
+                                                                                      act control loop, and the cached executor and host agent do
+This context is deliberately smaller than the full observa-
+                                                                                      not compete for the foreground UI channel.
+tion, full history, or full Function set. It gives the planner
+                                                                                         Checker rules can be continuously improved from failed
+high-signal structure while reducing both input context and
+                                                                                      executions. OmniFlow records erroneous or failed run_logs;
+expected output: the planner chooses among compressed
+                                                                                      offline agent augmentation then analyzes the observation,
+candidates and fills missing arguments within the reusable
+                                                                                      pending action, and execution result at the failure point
+procedure boundary.
+                                                                                      and turns recurring local deviations into new triggers or
+                                                                                      updates to existing rules. This lets checker coverage grow
+   Action stack. The lower half of Flow turns the reasoning                           with execution logs while keeping the online execution path
+result into device actions. Flow materializes each Function                           lightweight.
+as a controlled execution stack. A Function may contain
+nested Function calls and typed actions, so Flow expands                                 Action transfer. Action transfer maps a source action
+it into stack frames. In a typical hit, the stack has one to                          in a recalled Function to a live target on the current screen.
+three parts: reach the executable position, execute the key                           Its design follows a key observation: repeated GUI actions
+semantic actions, and perform any local recovery required                             are rarely defined by absolute coordinates alone. An action
+by the live device state.                                                             such as adding a contact or submitting a form may appear
+   The action list keeps the steps that carry task effect, such                       at different positions across devices, but it still depends on
+as filling arguments, confirming a form, or creating a record.                        similar input fields, buttons, labels, widget roles, and local
+Flow handles non-core steps from the recorded run through                             layout relationships. Omni first localizes the live observation
+navigation and recovery mechanisms, reconstructing only                               to a compatible UDEG-node family; the recalled Function
+what is needed on the current device. This separation is the                          provides the historical source context; Flow then uses the
+                                                                                  6
+OmniFlow : Executable GUI Memory for Dynamic Mobile Environments                                    Conference’17, July 2017, Washington, DC, USA
+
+
+Algorithm 1 Anchor-based action transfer for one recorded                      assuming the old and new screens are identical. Algorithm 1
+action                                                                         summarizes this per-action decision; the formal risk deriva-
+Require: source context 𝑢𝑠 ; current candidates 𝑈𝑡 ; recorded action           tion is given in Appendix A.
+    𝑎
+Ensure: executable target action or Abstain
+ 1: 𝑠 ← recorded source element targeted by 𝑎
+ 2: 𝐴 ← ∅
+ 3: for all 𝑢𝑡 ∈ 𝑈𝑡 do
+ 4:     𝑀 ← reciprocal structural matches between 𝑢𝑠 and 𝑢𝑡
+ 5:     𝐴 ← 𝐴∪ stable matched pairs from 𝑀
+ 6: end for
+ 7: 𝑥ˆ ← project 𝑠 through nearest anchors in 𝐴
+ 8: 𝐶 ← target elements near 𝑥ˆ plus elements with compatible
+    roles
+ 9: 𝐶 ← 𝐶 ∪ {∅}                        ⊲ null target is always available
+10: for all 𝑐 ∈ 𝐶 do                                                           4   Implementation
+11:     score 𝑐 using structural similarity, geometric consistency,            OmniFlow is implemented as a thin runtime layer attached
+    region compatibility, and stable identity evidence when present            to the physical GUI I/O boundary. The host keeps its original
+12: end for                                                                    planner and device controller; the adapter only needs to ex-
+13: convert scores to posterior 𝑃 (𝑐 = 𝑡 ∗ | 𝑢𝑠 , 𝑈𝑡 , 𝑎) over 𝐶
+                                                                               pose observe, which returns the current GUI state, and act,
+14: 𝑐 ∗ ← arg max𝑐 ∈𝐶,𝑐≠∅ 𝑃 (𝑐 = 𝑡 ∗ )
+                                                                               which issues one concrete action. We chose this boundary
+15: 𝑅exec ← 𝐶 𝐹 𝑃 (1 − 𝑃 (𝑐 ∗ = 𝑡 ∗ ))
+16: 𝑅abs ← 𝐶 𝐹 𝑁 (1 − 𝑃 (∅ = 𝑡 ∗ ))
+                                                                               because it is common to VLM agents, scripted benchmarks,
+17: if 𝑅exec < 𝑅abs then                                                       and manual exploration: all of them eventually observe the
+18:     return action 𝑎 rebound to target element 𝑐 ∗                          screen and send physical actions. The prototype exposes
+19: else                                                                       three runtime tools at this boundary: Function recall before
+20:     return Abstain                                                         planning, Function execution after a Function is selected, and
+21: end if                                                                     run-log ingestion after an execution finishes. These three
+                                                                               tools are also the measurement boundary used in §5.
+                                                                                  The runtime stores only the compact assets needed by
+current observation to rebind the source target to an exe-                     these tools. Local observations may include screenshots and
+cutable element on the live screen.                                            accessibility XML, but the shared cache stores UDEG-node
+   We introduce anchor-based transfer for this rebinding step.                 encodings and Function metadata rather than raw obser-
+Attribute-only methods usually rely on XML features such                       vation data. Recall returns a bounded Function candidate
+as name, resource-id, or visible text, but many mobile tar-                    set with compact context and argument requirements; exe-
+gets do not expose these signals, and present attributes can                   cution receives a Function identifier and bound arguments,
+shift across versions, locales, or user data. Anchor-based                     checks that the current state admits the Function, and then
+transfer instead first finds relatively stable anchors between                 dispatches actions through the host’s act interface. A cache
+the source context and the current context. These anchors                      hit therefore skips online model calls for the matched seg-
+are not necessarily the final click target; they are elements                  ment, while device I/O, state checks, target transfer, and
+that help Flow recover the page’s local structure and spatial                  acceptance checks remain part of runtime cost.
+relation. UDEG-node element vectors provide the structural                        OmniFlow records every execution as a canonical run_log.
+signal, including widget role, interaction flags, hierarchy,                   Each entry captures the observe-plan-act result: the plan-
+and local context. Element bounds provide the spatial sig-                     ner’s selected plan, the context observed before the physi-
+nal, including relative placement and local neighborhoods.                     cal action, and the concrete action that was actually issued.
+Flow projects the recorded target through these anchors and                    Because logging happens at the I/O boundary, the same
+scores candidate live targets by structural similarity, geomet-                format covers VLM-planned actions, scripted benchmark
+ric consistency, region compatibility, and stable attribute                    actions, and human exploration traces. Ingestion first builds
+evidence when available.                                                       the UDEG structure directly from these logs by turning ob-
+   The transfer boundary is conservative. If the evidence iden-                served states into nodes and accepted action segments into
+tifies a strong non-null target, Flow rebinds the recorded                     candidate Functions. An offline agent-augmentation pass
+action and dispatches it through act. If the target is miss-                   then enriches nodes and Functions with summaries, argu-
+ing or ambiguous, Flow abstains and emits a recovery or                        ment boundaries, source context, and execution evidence for
+fallback signal. Thus action transfer is possible because Om-                  online recall. Thus the implementation keeps online serving
+niFlow combines state localization, source-context evidence,                   small while letting successful offline or fallback executions
+and our anchor-based structural-spatial mapping rather than                    become future cache assets.
+                                                                           7
+Conference’17, July 2017, Washington, DC, USA
+
+
+Table 3. Evaluation overview. Success rate is the headline                           Table 7. Source-to-current Function transfer on the Contacts
+metric; time, token cost, and resource cost explain where the                        clean collection. These are offline-oracle results, not live
+system benefit comes from.                                                           device success.
+
+ Experiment             Primary metric                  Evidence status               System    target found                        action succ.           FP rate        raw UI
+ End-to-end execution   live success rate               frozen + live sidecar
+ Time and model cost    latency, tokens, calls          frozen
+                                                                                      B0 coord     100.0%                               100%                16.7%           no
+ Omni recall            top-1, coverage, lookup time    frozen; scale partial         B1 exact      68.8%                               100%                16.7%           yes
+ Function transfer      success, false positives        offline + bounded live        B2 anchor     68.8%                               100%                16.7%           yes
+ Asset yield            runs-to-functions compression   frozen
+ Multi-user reuse       cross-user hit, isolation       frozen
+                                                                                      OmniFlow      68.8%                               100%                8.3%            no
+ Boundary ablation      terminal/effect correctness     frozen sidecar
+ Energy/resource cost   battery, CPU, memory, bytes     one-run sidecar
+ Case study             observed execution regimes      partial
+                                                                                     Table 8. Bounded live verifier for source-to-current transfer.
+
+                                                                                     Scope                                              Positive cases   Negative cases       Status
+                                                                                     emulator-5554 live verify (16 safe Contacts cases)      14/15          1/1 FP        bounded live
+                                                                                     page-family leave-one-out                          5/5 recall@1,3         –           offline only
+
+Table 4. End-to-end success and efficiency. The live result
+measures task completion; latency and token cost explain                                           Table 9. Run-log to Function asset yield.
+the successful path.
+                                                                                             Workload                                runs        functions           ratio
+ Metric                      OmniFlow              Baseline / note                           contacts/add_contact                      7             1               7.0×
+ live success rate            100% (1/1)   OpenAppTaskEval, emulator-5554
+ live zero-token hits             1/1             planner not used
+                                                                                             contacts/edit_profile                     4             1               4.0×
+ live canonical duration     35 166.6 ms      current single-device run                      shared pool                              11             2               5.5×
+ frozen fixture success       25% (1/4)          Step-Wise: 0% (0/4)
+ frozen HIT latency            3 017 ms         Step-Wise: 4 849.5 ms
+ frozen HIT token cost             0          Step-Wise: 1 484.5 tokens                           Table 10. Multi-user reuse and isolation.
+ scale-out token reduction       88.1%              25 × 3 rounds
+                                                                                         Round                   Hit rate         Token cost               Interpretation
+                                                                                         User A cold              0/25             nonzero               first exploration
+                                                                                         User B repeat            25/25           zero on hit            cross-user reuse
+Table 5. Live cache-hit timing breakdown for the latest uni-
+                                                                                         User B new               0/25             nonzero               no spurious hits
+fied single-device run.
+
+             Stage                            Average time                           5      Evaluation
+             launcher total                    38 528.0 ms                           5.1     Experimental Setup
+             canonical run                     35 166.6 ms
+                                                                                     5.2     End-to-End Success Rate and Efficiency
+             function execution                35 132.6 ms
+             device act I/O                    12 462.3 ms                           5.3     Time and Cost Breakdown
+             device observe I/O                22 663.8 ms                           5.4     Omni Representation Recall
+             pre-cache observation               23.3 ms                             5.5     Source-to-Current Function Transfer
+             cache lookup                         0.3 ms
+                                                                                     5.6     Run-Log Asset Yield
+             plan selection                       0.0 ms
+                                                                                     5.7     Multi-User Reuse
+                                                                                     5.8     Boundary Ablations
+                                                                                     5.9     Resource and Energy Cost
+Table 6. Omni representation recall. Payload-size fields mea-
+sure the serialized structured recall payload, not raw traces.                       5.10      Case Study: Hit, Recover, Fall Back
+                                                                                     5.11      Limitations
+ Metric                               Value       Cases         Status
+ Function top-1 exact reuse           100%         21           frozen               6      Discussion
+ candidate coverage                   100%         11           frozen                  Information boundary. OmniFlow enforces a strict three-
+ context isolation                    100%          6           frozen               tier information boundary. On-device only: raw accessibil-
+ lookup latency                     0.007 ms       21       frozen median
+                                                                                     ity trees and screenshots are used solely as input to the
+ recalled payload size           1 342.9 B avg.    11           frozen
+ payload reduction                 57.0% avg.      11           frozen               local recall query—encoded into a UDEG node, matched,
+                                                                                     and discarded. They never leave the device. Shareable to the
+                                                                                     cloud: only node encodings and structured Function pay-
+                                                                                     loads (typed action records, argument schemas, goal labels).
+                                                                                     No raw strings, screenshots, or user-identifying content
+                                                                                 8
+OmniFlow : Executable GUI Memory for Dynamic Mobile Environments                                                          Conference’17, July 2017, Washington, DC, USA
+
+
+Table 11. Key-Function boundary ablation on ContactsAdd-                                            are pooled over screen regions to capture the functional lay-
+Contact.                                                                                            out of the state without storing the raw XML, screenshot,
+                                                                                                    or user-visible strings. The structural part records widget
+ Variant                      Low-level action Terminal effect                                      class, tree depth, interaction flags, relative bounds, and sub-
+ full Function                success          contact inserted
+ semantic tail, correct start success          contact inserted
+                                                                                                    tree structure. The semantic part uses compact hash features
+ semantic tail, wrong start returned true      no contact inserted                                  derived from visible text, content descriptions, and identifier
+ wrong start + controller     success          bridge inserted first                                suffixes, but does not retain the raw strings. States whose en-
+ route-only bridge tests      3 passed         semantic edge blocked                                codings fall within the same action-compatible equivalence
+                                                                                                    class become the same UDEG node; states that look similar
+Table 12. Resource and energy accounting from the latest                                            but expose different actions or task effects remain separate.
+one-run emulator sidecar. These counters are secondary sys-                                            The node payload used for recall is intentionally smaller
+tem evidence, not an energy-saving claim.                                                           than the full observation, but it is not assumed to be a fixed-
+                                                                                                    size constant: action-transfer payloads may carry bounded el-
+Metric                    Purpose                   Current value / boundary
+                                                                                                    ement records when Flow needs source context for a recorded
+wall-clock latency        end-to-end time           35 166.6 ms canonical
+token/model calls         online compute cost       zero-token hit; 88.1% scale estimate            action. For this reason, the evaluation reports payload size
+lookup latency            cache-query overhead      0.3 ms                                          from the actual recalled candidate payload emitted by the
+device active time        mobile runtime cost       40 720.0 ms, emulator
+battery drain             energy cost               0.0%, 0.0 mAh, emulator                         runner rather than inferring it from the fixed vector compo-
+host CPU / peak RSS       host overhead             4 541.5 ms / 228 081 664 B                      nent alone. The formal encoding summary is in Appendix B.
+network bytes             device-wide traffic       5 043 B
+
+
+Table 13. Current case-study evidence. Only the clean-hit
+                                                                                                    7    Related Work
+regime is observed in the frozen payload.                                                              Step-wise LLM GUI agents. Mobile-Agent and Step-
+                                                                                                    Wise planners issue one VLM call per action step. They
+Regime             Evidence / details                    LLM tokens   Outcome                       generalise well but incur 𝑂 (𝑛 × 𝑚 × 𝑘) total cost across 𝑛
+Clean hit          run 9d404127; 1 968 ms; model calls 0 0            Function completes
+Control recovery   missing                               –            needs live event stream       users, 𝑚 tasks, and 𝑘 executions, with no cross-user reuse.
+Agent fallback     missing                               –            needs live event stream       V-Droid [5] (MobiCom 2026) shifts the LLM role from gener-
+                                                                                                    ator to verifier: it scores a discrete action set rather than gen-
+    Table 14. Evaluation limits retained as table entries.                                          erating actions token by token, achieving 4.3 s per step (6.1×
+                                                                                                    faster than generation-based agents) and 59.5% success on
+ Limit                           Current boundary                                                   AndroidWorld. V-Droid reduces the latency of each LLM
+ E2E scale                       Current top-level live sweep is a small                            call via prefilling; it does not eliminate LLM calls on repeated
+                                 deterministic AndroidWorld task.                                   goals or enable trajectory reuse across users. Total cost for 𝑛
+ Transfer live                   Bounded live verifier includes a nega-                             users and 𝑘 repetitions of the same goal remains 𝑂 (𝑛 ×𝑚 ×𝑘).
+                                 tive false-positive sample.                                        OmniFlow wraps any step-wise planner—including verifier-
+ Resource / energy               One emulator sidecar; physical-device                              based ones—as a fallback; cache misses and mid-execution
+                                 repetition still missing.                                          deviations delegate to the host agent via a structured handoff
+ Case study                      Control-recovery and fallback regimes                              that passes typed action records and a UDEG-node state—a
+                                 are not yet observed.                                              smaller prompt than the raw accessibility tree a cold-start
+ Cold start                      Novel goals with no reusable                                       agent would receive. The core distinction is that repeated
+                                 Function still pay first-run cost.                                 compatible segments can be served as executable cache hits
+                                                                                                    instead of being replanned step by step.
+are included. Agent context: only the matched Function’s
+                                                                                                       Memory-based and programmatic GUI agents. Auto-
+skill description—the remaining action plan and argument
+                                                                                                    Droid [25] and MobileGPT [9] establish an important princi-
+schema. The agent never sees raw XML or screenshots; its
+                                                                                                    ple: recurring task patterns can be compressed into reusable
+context size is proportional to the number of remaining ac-
+                                                                                                    sub-task sequences stored as a per-app transition graph, re-
+tions, not to the size of the accessibility tree.
+                                                                                                    ducing per-goal LLM cost when a warm-start match is found.
+   This separation makes OmniFlow simultaneously privacy-
+                                                                                                    AppAgent [32] and Cradle [21] follow similar memory-
+safe, cloud-friendly, and prompt-efficient: the cloud receives
+                                                                                                    augmentation patterns. These systems recall descriptions of
+only compact UDEG node and Function assets; the agent re-
+                                                                                                    prior tasks; the retrieved memory still requires per-step LLM
+ceives only structured skills. The boundary is an operational
+                                                                                                    inference to map descriptions to current device coordinates,
+privacy contract, not a formal differential-privacy guarantee.
+                                                                                                    and memory is device-local with no cross-user sharing.
+   UDEG node encoding. Each accessibility-observable GUI                                               ActionEngine [35] (2026) advances this to a program-
+state is encoded locally before it can become a UDEG node.                                          matic paradigm: a Crawling Agent builds a State-Machine
+The internal encoding is a PageVectorSet: element vectors                                           Graph offline; an Execution Agent issues a single LLM call to
+                                                                                                9
+Conference’17, July 2017, Washington, DC, USA
+
+
+synthesise a complete Python program and executes it deter-               Action verification and safety. VeriSafe [8] (MobiCom
+ministically (see §2.2 for performance details). AutoDroid-            2025) addresses action correctness at runtime: it autoformu-
+V2 [26] applies a similar insight on Android: it auto-generates        lates the user’s goal into a logic specification and checks
+per-app API documentation and trains an on-device SLM to               each LLM-generated action against it before execution, re-
+produce multi-step scripts, keeping inference local to protect         ducing harmful or erroneous actions. Like V-Droid, VeriSafe
+privacy.                                                               operates step-by-step and does not cache or reuse trajecto-
+   Where OmniFlow differs is in its target environment and             ries across runs. OmniFlow’s control plane (§3) addresses a
+cost model. In these systems, when no reusable shared asset            complementary concern: verifying that a cached trajectory
+is carried across users, each execution still pays per-task            still achieves its intended task effect on the current device,
+planning effort—either one LLM call to synthesise a new pro-           using terminal-state and business-effect checks rather than
+gram or one SLM call to generate a new script. The repeated-           pre-action logical constraints.
+goal cost therefore scales with users and executions rather
+than with successful assetizations. More critically, both sys-            LLM serving caches. KV-cache sharing [13, 34] reuses at-
+tems assume the app structure is known and stable: Ac-                 tention key-value tensors across requests that share prompt
+tionEngine’s Crawling Agent requires white-box access to               prefixes, reducing the latency of individual LLM inferences.
+enumerate all reachable states, a precondition that breaks             Iteration-level scheduling (FastServe [27]) preempts long
+on Flutter apps, WebView-heavy apps, and any app whose                 generations to reduce head-of-line blocking. These optimi-
+structure varies by user or A/B cohort. OmniFlow treats the            sations are orthogonal to OmniFlow: they make individual
+app as a complete black box, learns from user trajectories             LLM calls faster; OmniFlow eliminates LLM calls for the
+via write-back, and—once a Function asset is cached and                matched segment of compatible cache hits. The two layers
+its preconditions match—serves compatible repeated execu-              are composable.
+tions without online LLM calls for the matched segment.
+Its two-layer architecture separates UDEG-node candidate                 GUI benchmarks. AndroidWorld [19] provides the 50-
+recall from control-aware execution, so unsafe transfers can           goal task suite we use for evaluation. AndroidBench and
+abstain or fall back instead of being counted as successful            AITW [20] offer additional task sets; we leave evaluation on
+reuse.                                                                 these to future work. OmniFlow’s trace schema is designed to
+   UI transition graphs. Tools such as DroidBot [11] and               emit records compatible with these benchmarks’ evaluation
+Monkey [2] build UTGs through automated exploration;                   protocols.
+static-analysis tools such as GATOR/WTG [29] derive ap-
+proximate graphs from app binaries. Memory-based agents                8   Conclusion
+including AutoDroid [25] and MobileGPT [9] build per-
+                                                                       We have presented OmniFlow, a cache-first execution layer
+task or per-app transition graphs from completed executions
+                                                                       that provides a fast lane for recurring GUI automation goals
+and use them to guide future runs. In the shared execution-
+                                                                       without modifying or replacing the host agent. Function as-
+cache setting, these representations expose three limitations:
+                                                                       sets turn successful user trajectories into directly executable
+node matching relies on attribute selectors that are absent on
+                                                                       cache entries; UDEG nodes provide the privacy-safe state
+32.5% of real touch targets (§2.1); edges record dispatched ac-
+                                                                       representation for cache matching; and the Flow execution
+tions rather than verified task outcomes; and nodes store raw
+                                                                       layer re-enacts cached trajectories under live device condi-
+accessibility-tree content that cannot be shared across users
+                                                                       tions with source-to-current action transfer, risk-gated target
+without leaking personal data (§2.2). OmniFlow is designed
+                                                                       selection, and control-aware verification.
+around the joint contract through privacy-safe UDEG nodes,
+                                                                          Together these contributions close a gap that the four prior
+Function edges with terminal verification, and a privacy-
+                                                                       paradigms leave open. Step-wise agents scale as 𝑂 (𝑛 · 𝑚 · 𝑘),
+safe structural encoding.
+                                                                       memory-based agents remain descriptive, programmatic
+  UI test replay and RPA.. Coordinate-based replay (B0),               agents require unsafe white-box crawling, and replay sys-
+UI-tree exact replay (B1), and UI-tree with anchor mapping             tems bind trajectories to device-specific coordinates and se-
+(B2) record action sequences tied to device-specific coordi-           mantic attributes. OmniFlow occupies a distinct position:
+nates or resource-IDs. These execute deterministically on              executable for compatible cache hits, black-box-compatible
+the same device but can break across different screen res-             through run-log write-back, privacy-safe at the shared pay-
+olutions, manufacturer skins, or app versions. Raw UI tree             load boundary, and guarded by transfer and verification in-
+access is required at sharing time, which violates the pri-            stead of assuming that every cached action is safe to replay.
+vacy contract. OmniFlow’s internal UDEG-node encoding                     The current evaluation is summarized in Table 3. The
+supports a privacy-preserving transfer path where retaining            main limitations remain Android scope, cold-start cost, cache
+raw UI trees is precluded by the sharing contract; the current         invalidation, the route-only bridge requirement, and broader
+paper reports only offline and bounded-live evidence (§5.5).           cross-device and OOB evidence.
+                                                                  10
+OmniFlow : Executable GUI Memory for Dynamic Mobile Environments                                  Conference’17, July 2017, Washington, DC, USA
+
+
+  The Function-cache abstraction identified here—operating                 can be highly selective when 𝐴 holds, but it has no stable
+above KV-cache and model-serving optimizations, at the                     selector to use on the remaining 32.5% of targets. Spatial and
+goal level, across compatible users and device states under                anchor evidence is available on all accessibility-exposed ele-
+explicit verification—represents a layer that is absent from               ments through bounds and tree structure, but can be ambigu-
+current LLM serving stacks for agentic workloads. OmniFlow                 ous on repeated rows or visually similar controls. OmniFlow
+provides a concrete realization of this abstraction for mobile             therefore treats the two sources as complementary likelihood
+GUI automation and a starting point for extending the same                 terms rather than claiming that either source is universally
+principle to other agent domains.                                          stronger. The paper reports the observed false-positive and
+                                                                           action-success rates from the registered source-to-current
+A    Bayesian Derivation of Anchor-Based                                   transfer experiment; broader dominance claims remain out
+     Action Transfer                                                       of scope.
+This appendix provides the formal Bayesian derivation for                     Calibration of the null-target prior. The null target’s
+the anchor-based action transfer decision rule described in                prior 𝑃 (𝑡 ∗ = ∅) is set per action type to reflect the operational
+§3.3.                                                                      cost of a false positive. For destructive action types (delete,
+   Problem setup. Let 𝑃𝑠 and 𝑃𝑡 denote the source and target               send, pay), 𝐶 𝐹 𝑃 ≫ 𝐶 𝐹 𝑁 , which raises the posterior threshold
+pages (as accessibility trees), 𝑠 ∈ 𝑃𝑠 the recorded source tar-            and increases the abstain rate. For navigation actions (tap,
+get element, and T = 𝑃𝑡 ∪ {∅} the candidate set (elements of               scroll), the wrong-click and abstain losses can be closer. This
+the target page plus the null/abstain option). The true target             calibration justifies why the matcher exposes a loss ratio
+is 𝑡 ∗ ∈ T , unknown at decision time. Let x = (x𝑒 , x𝑠 , x𝑐 , x𝑎 )        instead of applying one fixed confidence threshold to every
+denote the available evidence: element similarity, projected               action type.
+geometry, page context, and optional attribute evidence, re-
+spectively. Define the loss:                                               B    PageVectorSet Encoding: Formal
+                                                                                Specification
+                     
+                      0        𝑡 = 𝑡 ∗ ≠ ∅ (correct click)
+                                                                          This appendix formalises the PageVectorSet construction
+                                𝑡 ≠ 𝑡 ∗, 𝑡 ≠ ∅ (false positive)
+                     
+                     
+                     𝐶
+     𝐶 (𝑡, 𝑡 ∗ ) =
+                          𝐹𝑃
+                                                                           described informally in §3.2. The goal is to show precisely
+                     
+                     
+                     𝐶𝐹 𝑁      𝑡 = ∅, 𝑡 ∗ ≠ ∅ (false negative)            what information is captured, what is discarded, and why the
+                                𝑡 = 𝑡 ∗ = ∅ (correct abstain)
+                     
+                     0
+                                                                          representation remains available when semantic attributes
+                                                                           are absent while preserving the paper’s privacy boundary
+  Risk-gated decision rule. The implementation maintains
+                                                                           (no raw text or raw coordinates are retained).
+a posterior distribution over target elements and the null
+option, then compares the expected cost of executing the best                Element vector. Let 𝑒𝑖 denote the 𝑖-th element in an ac-
+non-null candidate against the expected cost of abstaining.                cessibility tree with 𝑛 elements. OmniFlow maps 𝑒𝑖 to a 64-
+The expected cost of clicking candidate 𝑡 ≠ ∅ is:                          dimensional real vector v𝑖 ∈ R64 , formed by concatenating
+          E[𝐶 (𝑡, 𝑡 ∗ ) | x] = 𝐶 𝐹 𝑃 1 − 𝑃 (𝑡 = 𝑡 ∗ | x) .
+                                                                          the two implementation views in ElementEmbeddingConfig:
+                                                                                                                 (𝑝 )
+The expected cost of abstaining (𝑡 = ∅) is:                                                       v𝑖 = [v𝑖(ℎ) ; v𝑖 ].
+             E[𝐶 (∅, 𝑡 ∗ ) | x] = 𝐶 𝐹 𝑁 · 𝑃 (𝑡 ∗ ≠ ∅ | x).                   Human-observation view v𝑖(ℎ) ∈ R32 . This view encodes
+Let 𝑝𝑡 = 𝑃 (𝑡 = 𝑡 ∗ | x) and 𝑝 ∅ = 𝑃 (𝑡 ∗ = ∅ | x). Clicking 𝑡 is          what a user sees:
+preferred when:                                                                • Content hash (16 dims): a signed hash projection
+                           𝐶𝐹 𝑃                                                  of visible text when text is present; with an optional
+                                (1 − 𝑝𝑡 ) < 1 − 𝑝 ∅ .                            screenshot, icon-like elements can use a 16-dimensional
+                           𝐶𝐹 𝑁
+                                                                                 visual hash in the same slot.
+This is the Bayes-risk gate currently exposed in the matcher                   • Content type (4 dims): one-hot text/icon/empty/mixed
+debug payload: risk_execute corresponds to the left-hand                         evidence.
+side after normalizing by 𝐶 𝐹 𝑁 , and risk_abstain corre-                      • Affordance (4 dims): whether the element appears
+sponds to 1 − 𝑝 ∅ . The executor chooses the non-null target                     tappable, typeable, scrollable, or toggleable.
+only when the execute risk is smaller; otherwise it returns                    • Prominence (4 dims): area-based visual-importance
+an abstain/fallback result.                                                      bucket.
+                                                                               • Visual state (4 dims): selected, disabled, focused, or
+  Why combine identity and geometry evidence. Let 𝐴
+                                                                                 primary visual-state cues.
+denote the event that the target element carries at least one
+                                                                                                                  (𝑝 )
+usable semantic attribute, with 𝑃 (𝐴) = 0.675 in the Mobile-                 Programmer-observation view v𝑖 ∈ R32 . This view en-
+Views analysis (§2.1). Attribute or exact-signature evidence               codes developer- and tree-structure evidence:
+                                                                      11
+Conference’17, July 2017, Washington, DC, USA
+
+
+     • Class type (8 dims): signed hash of the widget-class         resource IDs, class names, flags, and text/content-description
+         suffix.                                                    hashes when action mapping needs exact signature evidence.
+     • Attributes (8 dims): boolean interaction/state flags in-     The default shared serialization omits those action-identity
+         cluding clickable, focusable, editable, scrollable, check- fields. This is an operational privacy boundary, not a formal
+         able, enabled, and selected.                               differential-privacy claim. It also explains a current limita-
+     • Structure hash (12 dims): signed hash of a bounded-          tion recorded in the reviewer-risk ledger: a privacy-minimal
+         depth subtree signature.                                   PageVectorSet is sufficient as a page-recall object, but exact
+     • Hierarchy (2 dims): leaf and sibling indicators.             action-signature transfer may need local XML context or
+     • ID hint (2 dims): coarse action/input hints from resource-idan identity-bearing diagnostic payload and must otherwise
+         naming patterns.                                           abstain.
+Raw text and content-desc strings are not serialized in
+the minimal shared payload. Local XML-built pages can keep          C MobileViews Attribute Completeness
+hashed text and selector/state diagnostics for action mapping,            Analysis
+but those fields are opt-in diagnostics rather than the default
+                                                                    §2.1 states that 32.5% of real Android touch targets carry no
+shared PageVectorSet schema.
+                                                                    usable semantic attribute (resource-id, text, or content-desc).
+   Region pooling. OmniFlow’s page-level recall vector pools        This appendix describes the measurement methodology to
+element vectors into eight slices. The current slice order is:      make the claim reproducible and to clarify what “usable”
+𝑅1 = all non-root elements, 𝑅2 = app top-bar elements, 𝑅3 =         means in practice.
+footer elements, 𝑅4 = package-local middle-region elements,
+𝑅5 = selected/activated target elements, 𝑅6 = middle-region            Dataset. The analysis uses MobileViews [6], a large-scale
+actionable elements, 𝑅7 = middle-region focus targets, and 𝑅8       dataset of Android app UI states and recorded interaction
+= middle-region display-text leaves. The top-bar and footer         traces collected from 30,000+ apps. We extract the 7,378 ele-
+cuts are quantile-based rather than fixed 10% screen bands,         ments that are the direct targets of recorded touch actions—
+so the same encoder can adapt to pages with different root          the set of elements that a replay or attribute-based agent
+heights and system UI insets.                                       must be able to identify.
+   The page-level vector for region 𝑅𝑟 is mean pooled:
+                                1 ∑︁                                   Attribute filtering. For each touch-target element, we
+                          p𝑟 =              v𝑖 ,                    examine three attributes:
+                               |𝐸𝑟 | 𝑒 ∈𝐸
+                                      𝑖   𝑟
+                                                                        1. resource-id: Non-empty and not obfuscated. An resource-id
+where 𝐸𝑟 is the set of elements assigned to region 𝑅𝑟 . If 𝐸𝑟 is
+                                                                           value is classified as obfuscated if its suffix (the portion
+empty (e.g., no selected elements on this page), p𝑟 = 0.
+                                                                           after the last “/”) consists solely of lower-case letters
+   The page-level recall vector is the concatenation p =
+                      512                                                  and digits and has length ≤ 3. These are characteris-
+[p1 ; . . . ; p8 ] ∈ R , normalized to unit length when nonzero.
+                                                                           tic outputs of ProGuard and R8 resource renaming;
+   Page similarity. The similarity between two pages is                    an agent matching on resource-id = a0 on one app
+computed over the normalized page-level vectors, so cosine                 version may find resource-id = b1 on the next build.
+similarity is the primary page-recall score:                            2. text: Non-empty after trimming whitespace. This in-
+                           (1) (2)        (1)    (2)                       cludes visible button labels, input-field content, and
+                      sim(p , p ) = p · p ,                                list-item text. Dynamic content (e.g., a contact name in
+after both vectors have been normalized. This fixed 512-                   a list item) is not excluded here because even dynamic
+dimensional vector is used for fast candidate recall. The seri-            text can serve as a selector when the content is known
+alized PageVectorSet used by action transfer is larger: it also            at action-generation time.
+contains element vector records, root bounds, and element               3. content-desc: Non-empty after trimming whitespace.
+bounds, so its byte size still depends on the number of ele-               This attribute is the primary accessibility label for icon-
+ments. This is why the evaluation reports the actual recalled              only controls and image buttons; its absence is com-
+payload size emitted by the runner instead of assuming a                   mon in apps that do not follow accessibility best prac-
+constant PageVectorSet size.                                               tices.
+   Privacy invariant. The encoding pipeline satisfies the               An element is classified as attribute-absent if all three val-
+following invariant by construction: the minimal shared               ues are empty or obfuscated after the filters above. We do not
+PageVectorSet payload contains no raw text or raw content-            count fallback attributes such as hint, view-id-resource-name,
+description string from the source accessibility tree. Element        or inferred positional labels, because attribute-only replay
+records retain bounds because coordinate transfer needs ge-           baselines do not rely on them for robust cross-version match-
+ometry; local diagnostic payloads may additionally include            ing.
+                                                                 12
+OmniFlow : Executable GUI Memory for Dynamic Mobile Environments                                   Conference’17, July 2017, Washington, DC, USA
+
+
+   Result. Of the 7,378 touch-target elements, 2,398 are attribute-             records, the current page’s PageVectorSet, and the re-
+absent under the definition above: 32.5%. The remaining                         maining plan—to the host agent. This is the escalation
+67.5% carry at least one usable attribute. Broken down by                       path for deviations that require open-ended reasoning.
+attribute type:                                                                 The agent receives a partially-completed trajectory,
+                                                                                not a cold-start observation, and the resulting run log
+    • 3,923 (53.2%) have a non-obfuscated resource-id,
+                                                                                is eligible for ingestion once the agent completes the
+    • 2,224 (30.1%) have non-empty text,
+                                                                                task.
+    • 635 (8.6%) have non-empty content-desc.
+Attributes are not mutually exclusive; many elements carry                  Signals compose: the executor applies signals from all ac-
+two or all three. The 32.5% attribute-absent set represents              tive detectors in sequence before dispatching each action.
+the structural failure region of any attribute-based or selector-        A single deviation may trigger refresh_observation fol-
+based approach: no algorithm that requires a stable attribute            lowed by run_actions in the same step. Each detector is
+can address these elements, regardless of its sophistication.            an independent plugin; adding or removing a detector does
+                                                                         not change the executor or the Function format. The set of
+   Generalisability. MobileViews was collected from a broad              active detectors is configurable per deployment.
+sample of consumer Android apps, not from a curated or
+enterprise-app subset. However, it skews toward apps that                References
+expose an accessible UI (the accessibility service must be                [1] Reyna Abhyankar, Qi Qi, and Yiying Zhang. 2025. Osworld-human:
+able to observe the UI tree). Apps built entirely on Unity,                   Benchmarking the efficiency of computer-use agents. arXiv preprint
+Unreal, or custom OpenGL rendering expose no accessibility                    arXiv:2506.16042 (2025).
+tree at all; for these, the “0 usable attributes” rate is 100%.           [2] Android Developers. 2026. UI/Application Exerciser Monkey. https:
+                                                                              //developer.android.com/studio/test/other-testing-tools/monkey.
+The 32.5% figure is therefore a lower bound on the structural             [3] Gongwei Chen, Xurui Zhou, Rui Shao, Yibo Lyu, Kaiwen Zhou, Shuai
+failure rate in the wild.                                                     Wang, Wentao Li, Yinchuan Li, Zhongang Qi, and Liqiang Nie. 2025.
+                                                                              Less is more: Empowering gui agent with context-aware simplification.
+                                                                              In Proceedings of the IEEE/CVF International Conference on Computer
+D    Control Plane Signal Taxonomy                                            Vision. 5901–5911.
+This appendix lists the full set of correction signals the con-           [4] Filippos Christianos, Georgios Papoudakis, Thomas Coste, Jianye HAO,
+trol plane may return, as referenced in §3.3. Each signal is                  Jun Wang, and Kun Shao. 2025. Lightweight Neural App Control. In
+a high-level semantic directive interpreted by the executor;                  The Thirteenth International Conference on Learning Representations.
+                                                                              https://openreview.net/forum?id=BL4WBIfyrz
+no signal issues device commands directly.                                [5] Gaole Dai, Shiqi Jiang, Ting Cao, Yuanchun Li, Yuqing Yang, Rui
+replace_action. Substitute a corrected action for the sched-                  Tan, Mo Li, and Lili Qiu. 2025. Advancing mobile gui agents: A
+                                                                              verifier-driven approach to practical deployment. arXiv preprint
+     uled one before dispatch. Used when a detector de-                       arXiv:2503.15937 (2025).
+     termines that the planned action targets the wrong                   [6] Longxi Gao, Li Zhang, Shihe Wang, Pengzhi Gao, Wei Liu, Jian Luan,
+     element or uses incorrect parameters for the current                     Shangguang Wang, Yuanchun Li, and Mengwei Xu. 2025. Mobile-
+     device state (e.g., coordinate drift detected by the an-                 Views: A Million-scale and Diverse Mobile GUI Dataset. arXiv preprint
+                                                                              arXiv:2409.14337 (2025). https://arxiv.org/abs/2409.14337
+     chor failure detector).
+                                                                          [7] Lorenzo Gomez, Iulian Neamtiu, Tanzirul Azim, and Todd Millstein.
+run_actions. Inject a short recovery action sequence be-                      2013. Reran: Timing-and touch-sensitive record and replay for android.
+     fore resuming the Function plan at the current step                      In 2013 35th international conference on software engineering (ICSE).
+     index. Used to handle transient interruptions such as                    IEEE, 72–81.
+     permission dialogs, notification banners, or loading                 [8] Jungjae Lee, Dongjae Lee, Chihun Choi, Youngmin Im, Jaeyoung Wi,
+     overlays that must be dismissed before the planned                       Kihong Heo, Sangeun Oh, Sunjae Lee, and Insik Shin. 2025. VeriSafe
+                                                                              Agent: Safeguarding Mobile GUI Agent via Logic-based Action Verifi-
+     action can proceed.                                                      cation. In Proceedings of the 31st Annual International Conference on Mo-
+refresh_observation. Re-observe the current page with-                        bile Computing and Networking. 817–831. doi:10.1145/3680207.3765248
+     out advancing the plan. Used when the page state is                  [9] Sunjae Lee, Junyoung Choi, Jungjae Lee, Munim Hasan Wasi, Hojun
+     expected to change shortly (e.g., a loading spinner is                   Choi, Steve Ko, Sangeun Oh, and Insik Shin. 2024. Mobilegpt: Aug-
+     present) and the next planned action should not be                       menting llm with human-like app memory for mobile task automation.
+                                                                              In Proceedings of the 30th Annual International Conference on Mobile
+     dispatched until the page has stabilised.                                Computing and Networking. 1119–1133.
+abort. Stop the Function and return a structured failure to              [10] Toby Jia-Jun Li, Amos Azaria, and Brad A Myers. 2017. SUGILITE:
+     the caller. Used when a detector determines that the                     creating multimodal smartphone automation by demonstration. In
+     execution cannot be recovered locally and the devia-                     Proceedings of the 2017 CHI conference on human factors in computing
+     tion does not warrant a host-agent handoff (e.g., the                    systems. 6038–6049.
+                                                                         [11] Yuanchun Li, Ziyue Yang, Yao Guo, and Xiangqun Chen. 2017. Droid-
+     package identity is irrecoverably wrong).                                Bot: A Lightweight UI-Guided Test Input Generator for Android. In
+handoff. Suspend the Function and pass the accumulated                        Proceedings of the 39th International Conference on Software Engineering
+     execution context—completed steps as typed action                        Companion. 23–26. doi:10.1109/ICSE-C.2017.8
+                                                                    13
+Conference’17, July 2017, Washington, DC, USA
+
+
+[12] Kevin Qinghong Lin, Linjie Li, Difei Gao, Zhengyuan Yang, Shiwei                     Systems, Applications and Services. 223–235.
+     Wu, Zechen Bai, Stan Weixian Lei, Lijuan Wang, and Mike Zheng                   [27] Bingyang Wu, Yinmin Zhong, Zili Zhang, Shengyu Liu, Fangyue Liu,
+     Shou. 2025. Showui: One vision-language-action model for gui visual                  Yuanhang Sun, Gang Huang, Xuanzhe Liu, and Xin Jin. 2024. Fast
+     agent. In Proceedings of the Computer Vision and Pattern Recognition                 Distributed Inference Serving for Large Language Models. arXiv
+     Conference. 19498–19508.                                                             preprint arXiv:2305.05920 (2024). https://arxiv.org/abs/2305.05920
+[13] Yuhan Liu, Yuyang Huang, Jiayi Yao, Shaoting Feng, Zhuohan Gu,                  [28] Tingxin Yan, David Chu, Deepak Ganesan, Aman Kansal, and Jie Liu.
+     Kuntai Du, Hanchen Li, Yihua Cheng, Junchen Jiang, Shan Lu, Madan                    2012. Fast app launching for mobile devices using predictive user
+     Musuvathi, and Esha Choukse. 2025. DroidSpeak: KV Cache Sharing                      context. In Proceedings of the 10th international conference on Mobile
+     for Cross-LLM Communication and Multi-LLM Serving. arXiv preprint                    systems, applications, and services. 113–126.
+     arXiv:2411.02820 (2025). https://arxiv.org/abs/2411.02820                       [29] Shengqian Yang, Hailong Zhang, Haowei Wu, Yan Wang, Dacong
+[14] Maestro. 2026. Maestro. End-to-End UI Testing for Mobile and Web.                    Yan, and Atanas Rountev. 2015. Static Window Transition Graphs for
+     https://maestro.dev/.                                                                Android. In Proceedings of the 30th IEEE/ACM International Conference
+[15] openatx. 2026. uiautomator2: Android Uiautomator2 Python Wrapper.                    on Automated Software Engineering. 658–668. doi:10.1109/ASE.2015.76
+     https://github.com/openatx/uiautomator2.                                        [30] Chaoyun Zhang, Shilin He, Jiaxu Qian, Bowen Li, Liqun Li, Si Qin,
+[16] Antti Oulasvirta, Tye Rattenbury, Lingyi Ma, and Eeva Raita. 2012.                   Yu Kang, Minghua Ma, Guyue Liu, Qingwei Lin, et al. 2024. Large
+     Habits make smartphone use more pervasive. Personal and Ubiquitous                   Language Model-Brained GUI Agents: A Survey. arXiv preprint
+     computing 16, 1 (2012), 105–114.                                                     arXiv:2411.18279 (2024).
+[17] Mingyu Ouyang, Kevin Qinghong Lin, Mike Zheng Shou, and                         [31] Chaoyun Zhang, He Huang, Chiming Ni, Jian Mu, Si Qin, Shilin He,
+     Hwee Tou Ng. 2026. FocusUI: Efficient UI Grounding via Position-                     Lu Wang, Fangkai Yang, Pu Zhao, Chao Du, et al. 2025. Ufo2: The
+     Preserving Visual Token Selection. arXiv preprint arXiv:2601.03928                   desktop agentos. arXiv preprint arXiv:2504.14603 (2025).
+     (2026).                                                                         [32] Chi Zhang, Zhao Yang, Jiaxuan Liu, Yanda Li, Yucheng Han, Xin Chen,
+[18] Yujia Qin, Haitao Lyu, Yan Cao, Libo Wu, Jiawei Zhu, Xi Lin, Haoyu                   Zebiao Huang, Bin Fu, and Gang Yu. 2025. AppAgent: Multimodal
+     Zhang, Wenhao Wu, Zheng Li, Yuxuan Jin, et al. 2025. UI-TARS:                        Agents as Smartphone Users. In Proceedings of the 2025 CHI Conference
+     Pioneering Automated GUI Interaction with Native Agents. arXiv                       on Human Factors in Computing Systems. 1–20.
+     preprint arXiv:2501.12326 (2025).                                               [33] Li Zhang, Longxi Gao, and Mengwei Xu. 2025. Does chain-of-thought
+[19] Christopher Rawles, Sarah Clinckemaillie, Yifan Chang, Jonathan                      reasoning help mobile gui agent? an empirical study. arXiv preprint
+     Waltz, Gabrielle Lau, Marybeth Fair, Alice Li, William E Bishop, Wei Li,             arXiv:2503.16788 (2025).
+     Folawiyo Campbell-Ajala, Daniel Kenji Toyama, Robert James Berry,               [34] Lianmin Zheng, Liangsheng Yin, Zhiqiang Xie, Chuyue Sun, Jeff
+     Divya Tyamagundlu, Timothy P Lillicrap, and Oriana Riva. 2025. An-                   Huang, Cody Hao Yu, Shiyi Cao, Christos Kozyrakis, Ion Stoica,
+     droidWorld: A Dynamic Benchmarking Environment for Autonomous                        Joseph E. Gonzalez, Clark Barrett, and Ying Sheng. 2024. SGLang:
+     Agents. In The Thirteenth International Conference on Learning Repre-                Efficient Execution of Structured Language Model Programs. arXiv
+     sentations. https://openreview.net/forum?id=il5yUQsrjC                               preprint arXiv:2312.07104 (2024). https://arxiv.org/abs/2312.07104
+[20] Christopher Rawles, Alice Li, Daniel Rodriguez, Oriana Riva, and                [35] Hongbin Zhong, Fazle Faisal, Luis França, Tanakorn Leesataporn-
+     Timothy Lillicrap. 2023. Android in the wild: A large-scale dataset for              wongsa, Adriana Szekeres, Kexin Rong, and Suman Nath. 2026. Actio-
+     android device control. arXiv preprint arXiv:2307.10088 (2023).                      nengine: From reactive to programmatic gui agents via state machine
+[21] Weihao Tan, Wentao Zhang, Xinrun Xu, Haochong Xia, Ziluo Ding,                       memory. arXiv preprint arXiv:2602.20502 (2026).
+     Boyu Li, Bohan Zhou, Junpeng Yue, Jiechuan Jiang, Yewen Li, Ruyi An,
+     Molei Qin, Chuqiao Zong, Longtao Zheng, Yujie Wu, Xiaoqiang Chai,
+     Yifei Bi, Tianbao Xie, Pengjie Gu, Xiyun Li, Ceyao Zhang, Long Tian,
+     Chaojie Wang, Xinrun Wang, Börje F. Karlsson, Bo An, Shuicheng
+     Yan, and Zongqing Lu. 2024. Cradle: Empowering Foundation Agents
+     Towards General Computer Control. arXiv preprint arXiv:2403.03186
+     (2024). https://arxiv.org/abs/2403.03186
+[22] Shizuo Tian, Hao Wen, Yuxuan Chen, Jiacheng Liu, Shanhui Zhao,
+     Guohong Liu, Ju Ren, Yunxin Liu, and Yuanchun Li. 2025. AgentProg:
+     Empowering Long-Horizon GUI Agents with Program-Guided Context
+     Management. arXiv preprint arXiv:2512.10371 (2025).
+[23] Bryan Wang, Gang Li, and Yang Li. 2023. Enabling conversational
+     interaction with mobile ui using large language models. In Proceedings
+     of the 2023 CHI Conference on Human Factors in Computing Systems.
+     1–17.
+[24] Yuan Wang, Mingyu Li, and Haibo Chen. 2026. From Imperative
+     to Declarative: Towards LLM-friendly OS Interfaces for Boosted
+     Computer-Use Agents. In Proceedings of the 21st European Conference
+     on Computer Systems. 296–310.
+[25] Hao Wen, Yuanchun Li, Guohong Liu, Shanhui Zhao, Tao Yu, Toby
+     Jia-Jun Li, Shiqi Jiang, Yunhao Liu, Yaqin Zhang, and Yunxin Liu. 2024.
+     Autodroid: Llm-powered task automation in android. In Proceedings
+     of the 30th annual international conference on Mobile computing and
+     networking. 543–557.
+[26] Hao Wen, Shizuo Tian, Borislav Pavlov, Wenjie Du, Yixuan Li, Ge
+     Chang, Shanhui Zhao, Jiacheng Liu, Yunxin Liu, Ya-Qin Zhang, et al.
+     2025. Autodroid-v2: Boosting slm-based gui agents via code generation.
+     In Proceedings of the 23rd Annual International Conference on Mobile
+
+                                                                                14
+

@@ -17,18 +17,20 @@ only the shipped docs, skill, and MCP tools.
 When the host implements the OOB OmniFlow MCP contract:
 
 - `tools/list` exposes the canonical activation surface:
-  `omniflow.recall`, `omniflow.call_function`, `omniflow.ingest_run_log`, and
+  `omniflow.recall`, `omniflow.call_tool`, `omniflow.ingest_run_log`, and
   `omniflow.explore_replay`.
 - `tools/list` also exposes the direct Function and RunLog surface:
   `oob_function_list/get/register/guard_check/run` and
   `oob_run_log_list/get/convert`.
 - `omniflow.recall` returns a direct no-argument hit or ranked candidates with
   `inputSchema`.
-- `omniflow.call_function` executes only an explicit agent-selected
+- `omniflow.call_tool` executes only an explicit agent-selected
   `function_id` and returns structured `success/fallback/control` fields.
 - `omniflow.ingest_run_log` registers a successful RunLog as a reusable Function
   or rejects it with a reason.
-- The same ingested Function can be replayed through `omniflow.call_function`.
+- The same ingested Function can be replayed through `omniflow.call_tool` with
+  `function_id`, or through `oob_function_run` when direct OOB tools are
+  exposed.
 - `omniflow.explore_replay` can return a bounded
   `oob.omniflow_utg.v1` path plus a generated Function id without requiring
   provider-side graph commands.
@@ -63,12 +65,14 @@ Minimum sample task:
 
 1. Recall the sample `settings_click_path_demo` Function with
    `omniflow.recall`.
-2. Run it through `omniflow.call_function`.
+2. Run it through `omniflow.call_tool` with `function_id`, or
+   `oob_function_run`.
 3. Confirm the result includes 7 step results and 4 `click` steps.
 4. Ingest `runlog_install_demo` through `omniflow.ingest_run_log`.
 5. Run a bounded `omniflow.explore_replay` request with `replay=false` and
    confirm it returns `utg.schema_version=oob.omniflow_utg.v1`.
-6. Run the returned Function id through `omniflow.call_function`.
+6. Run the returned Function id through `omniflow.call_tool` with
+   `function_id`, or `oob_function_run`.
 7. Report `function_id=settings_click_path_demo`, the run id, runner duration,
    and the slowest click step.
 

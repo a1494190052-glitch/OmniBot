@@ -24,6 +24,10 @@ Ship this directory as the external OmniFlow kit:
 - `cleanup-rules.md`: deterministic RunLog cleanup and merge rules.
 - `manual-runlog-recording.md`: loss-intolerant manual RunLog recording policy.
 - `oob-function-architecture.md`: RunLog/OOB Function/UDEG runtime ownership map.
+- `function-replay-unified-design.md`: single-path Function replay, recall,
+  fallback, update_function, legacy compatibility, removed over-design, code
+  ownership, and cleanup backlog. Treat this as the source of truth for current
+  Function/OmniFlow replay design.
 - `GUI_AGENT_PLAYBOOK.md`: step-by-step execution playbook and fallback paths.
 - `ACCEPTANCE.md`: verification checklist for a host app or external agent.
 - `PYTHON_SDK.md`: directly callable Python library usage.
@@ -56,18 +60,26 @@ the host app runtime, MCP server, guard policy, and audited runner.
 
 ### Mode A: Direct MCP
 
-Use this when `tools/list` contains the canonical OmniFlow tools. This is the
-preferred stable external interface.
+Use this when `tools/list` contains the direct OOB Function and RunLog tools.
+This is the preferred stable external interface for current agents.
 
 Minimum direct tools:
 
 ```text
-omniflow.recall
-omniflow.call_function
-omniflow.ingest_run_log
+oob_function_list
+oob_function_get
+oob_function_guard_check
+oob_function_run
+oob_run_log_list
+oob_run_log_get
+oob_run_log_convert
+update_function
 ```
 
-Read `MCP_CONTRACT.md` before calling these tools.
+Read `MCP_CONTRACT.md` before calling these tools. Older external agent kits may
+only expose `omniflow.recall`, `omniflow.call_tool`, and
+`omniflow.ingest_run_log`; treat those as compatibility adapters over the same
+Function runner, not a second workflow.
 
 ### Mode B: Current GUI Bridge
 
@@ -130,7 +142,10 @@ Default policy:
 
 1. Read `skills/guiagent-omniflow/SKILL.md`.
 2. If using MCP, call `tools/list`.
-3. If `omniflow.recall` and `omniflow.call_function` exist, use direct MCP mode.
+3. If direct OOB Function tools are present, use
+   `oob_function_guard_check` followed by `oob_function_run` for explicit
+   replay. If only `omniflow.recall` and `omniflow.call_tool` exist, use them
+   as compatibility adapters.
 4. If direct tools are missing, open the OOB app and use GUI bridge mode.
 5. Always inspect a Function before running it.
 6. Always call guard or visually inspect guard state before execution.

@@ -90,7 +90,8 @@ class OobFunctionSpecBuilder {
                 "step_count" to normalizedSteps.size,
                 "omniflow_step_count" to capabilities["omniflow_step_count"],
                 "agent_step_count" to capabilities["agent_step_count"],
-                "has_agent_steps" to capabilities["has_agent_steps"],
+                OobFunctionSpecVocabulary.FIELD_HAS_AGENT_STEPS to
+                    capabilities[OobFunctionSpecVocabulary.FIELD_HAS_AGENT_STEPS],
             ),
             "_oob_registry" to linkedMapOf(
                 "registered_at" to now,
@@ -186,13 +187,18 @@ class OobFunctionSpecBuilder {
             RunLogReplayPolicy.isOmniflowFunctionTool(normalizedTool) ||
                 RunLogReplayPolicy.isOmniflowToolCallTool(normalizedTool) ||
                 firstNonBlank(raw["function_id"], raw["functionId"]).isNotBlank() -> {
+                val canonicalTool = if (RunLogReplayPolicy.isOmniflowToolCallTool(normalizedTool)) {
+                    RunLogReplayPolicy.TOOL_CALL_TOOL
+                } else {
+                    OobFunctionToolNames.FUNCTION_RUN
+                }
                 step["kind"] = "omniflow_function"
                 step["executor"] = RunLogReplayPolicy.EXECUTOR_OMNIFLOW
                 step["model_free"] = true
                 step["scriptable"] = true
-                step["tool"] = RunLogReplayPolicy.TOOL_CALL_TOOL
-                step["callable_tool"] = RunLogReplayPolicy.TOOL_CALL_TOOL
-                step["source_tool"] = normalizedTool.takeIf { it != RunLogReplayPolicy.TOOL_CALL_TOOL }
+                step["tool"] = canonicalTool
+                step["callable_tool"] = canonicalTool
+                step["source_tool"] = normalizedTool.takeIf { it != canonicalTool }
                 step["args"] = canonicalSimpleCallToolArgs(raw, stepArgs)
                 if (sourceContext.isNotEmpty()) step["source_context"] = sourceContext
             }
@@ -413,7 +419,9 @@ class OobFunctionSpecBuilder {
         linkedMapOf(
             "omniflow_step_count" to steps.count { it["executor"] == RunLogReplayPolicy.EXECUTOR_OMNIFLOW },
             "agent_step_count" to steps.count { it["executor"] == RunLogReplayPolicy.EXECUTOR_AGENT },
-            "has_agent_steps" to steps.any { it["executor"] == RunLogReplayPolicy.EXECUTOR_AGENT },
+            OobFunctionSpecVocabulary.FIELD_HAS_AGENT_STEPS to steps.any {
+                it["executor"] == RunLogReplayPolicy.EXECUTOR_AGENT
+            },
         )
 
     private fun putIfPresent(
