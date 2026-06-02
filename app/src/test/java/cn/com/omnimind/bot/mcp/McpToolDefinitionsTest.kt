@@ -91,6 +91,26 @@ class McpToolDefinitionsTest {
     }
 
     @Test
+    fun getStateToolExposesXmlScreenshotControls() {
+        val tool = McpToolDefinitions.fixedTools.single {
+            it["name"] == "get_state"
+        }
+        val schema = tool["inputSchema"] as Map<*, *>
+        val properties = schema["properties"] as Map<*, *>
+        val description = tool["description"]?.toString().orEmpty()
+
+        assertTrue(description.contains("Accessibility XML"))
+        assertTrue(properties.containsKey("include_xml"))
+        assertTrue(properties.containsKey("include_screenshot"))
+        assertTrue(properties.containsKey("include_indexed_context"))
+        assertTrue(properties.containsKey("include_marked_screenshot"))
+        assertTrue(properties.containsKey("include_image_content"))
+        assertTrue(properties.containsKey("filter_overlay"))
+        assertTrue(properties.containsKey("image_quality"))
+        assertTrue(properties.containsKey("max_xml_chars"))
+    }
+
+    @Test
     fun oobFunctionRunToolExposesResumeControls() {
         val tool = McpToolDefinitions.fixedTools.single {
             it["name"] == OobFunctionToolNames.FUNCTION_RUN

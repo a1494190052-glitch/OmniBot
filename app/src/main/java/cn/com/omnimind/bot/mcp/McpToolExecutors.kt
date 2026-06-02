@@ -1,7 +1,10 @@
 package cn.com.omnimind.bot.mcp
 
 import android.content.Context
+import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
+import cn.com.omnimind.assists.task.vlmserver.VLMIndexedPageContext
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
+import cn.com.omnimind.baselib.util.ImageQuality
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
@@ -91,6 +94,184 @@ object McpToolExecutors {
             OmniLog.e(TAG, "Error executing VLM task: ${e.message}")
             return@withContext McpResponseBuilder.buildErrorText("VLM task failed: ${e.message}")
         }
+    }
+
+    /**
+     * Captures the current phone state through OOB's on-device Accessibility runtime.
+     *
+     * This is intentionally read-only and avoids host-side adb dump/screencap latency.
+     */
+    suspend fun executeGetState(
+        context: Context,
+        args: Map<String, Any?>?
+    ): Map<String, Any?> = withContext(Dispatchers.IO) {
+        if (!AssistsUtil.Core.isAccessibilityServiceEnabled()) {
+            return@withContext McpResponseBuilder.buildErrorText("Accessibility service is not enabled")
+        }
+
+        val includeXml = boolArgOrDefault(args, true, "include_xml", "includeXml")
+        val includeScreenshot = boolArgOrDefault(args, true, "include_screenshot", "includeScreenshot")
+        val includeIndexedContext = boolArgOrDefault(
+            args,
+            true,
+            "include_indexed_context",
+            "includeIndexedContext",
+            "include_indexed_page_evidence",
+            "includeIndexedPageEvidence"
+        )
+        val includeMarkedScreenshot = boolArgOrDefault(
+            args,
+            false,
+            "include_marked_screenshot",
+            "includeMarkedScreenshot"
+        )
+        val includeImageContent = boolArgOrDefault(
+            args,
+            false,
+            "include_image_content",
+            "includeImageContent"
+        )
+        val filterOverlay = boolArgOrDefault(args, true, "filter_overlay", "filterOverlay")
+        val maxXmlChars = intArg(args, "max_xml_chars", "maxXmlChars") ?: 0
+        val imageQuality = imageQualityArg(args)
+
+        val capturedAtMs = System.currentTimeMillis()
+        val packageName = runCatching { AccessibilityController.getPackageName().orEmpty() }
+            .getOrDefault("")
+        val activityName = runCatching { AccessibilityController.getCurrentActivity().orEmpty() }
+            .getOrDefault("")
+
+        val xmlCapture = if (includeXml || includeIndexedContext || includeMarkedScreenshot) {
+            runCatching { AccessibilityController.getCaptureScreenShotXml(true).orEmpty() }
+        } else {
+            Result.success("")
+        }
+        val rawXml = xmlCapture.getOrDefault("")
+        val returnedXml = truncateXml(rawXml, maxXmlChars)
+
+        val screenshotCapture = if (includeScreenshot || includeMarkedScreenshot || includeImageContent) {
+            runCatching {
+                AccessibilityController.captureScreenshotImage(
+                    isBitmap = false,
+                    isBase64 = true,
+                    isFile = false,
+                    isFilterOverlay = filterOverlay,
+                    compressQuality = imageQuality
+                )
+            }
+        } else {
+            null
+        }
+        val screenshotPayload = screenshotCapture?.getOrNull()
+        val screenshotDataUri = screenshotPayload
+            ?.imageBase64
+            ?.takeIf { screenshotPayload.isSuccess && it.isNotBlank() }
+            ?.let(::ensureJpegDataUri)
+
+        val displayWidth = maxOf(
+            screenshotPayload?.originalWidth ?: 0,
+            context.resources.displayMetrics.widthPixels
+        ).coerceAtLeast(1)
+        val displayHeight = maxOf(
+            screenshotPayload?.originalHeight ?: 0,
+            context.resources.displayMetrics.heightPixels
+        ).coerceAtLeast(1)
+        val indexedEvidence = if (includeIndexedContext && rawXml.isNotBlank()) {
+            runCatching {
+                VLMIndexedPageContext.render(
+                    currentXml = rawXml,
+                    displayWidth = displayWidth,
+                    displayHeight = displayHeight
+                )
+            }.getOrDefault("")
+        } else {
+            ""
+        }
+        val markedScreenshot = if (includeMarkedScreenshot && screenshotDataUri != null && rawXml.isNotBlank()) {
+            runCatching {
+                VLMIndexedPageContext.renderMarkedScreenshot(
+                    screenshotBase64 = screenshotDataUri,
+                    currentXml = rawXml,
+                    displayWidth = displayWidth,
+                    displayHeight = displayHeight
+                )
+            }.getOrNull()
+        } else {
+            null
+        }
+
+        val text = buildString {
+            appendLine("get_state captured current device state.")
+            appendLine("package_name: ${packageName.ifBlank { "unknown" }}")
+            appendLine("activity_name: ${activityName.ifBlank { "unknown" }}")
+            appendLine("xml_chars: ${rawXml.length}")
+            appendLine("xml_node_count: ${xmlNodeCount(rawXml)}")
+            appendLine("screenshot_present: ${screenshotDataUri != null}")
+            if (screenshotPayload != null) {
+                appendLine("screenshot_size: ${screenshotPayload.compressedWidth}x${screenshotPayload.compressedHeight}")
+                appendLine("screenshot_original_size: ${screenshotPayload.originalWidth}x${screenshotPayload.originalHeight}")
+            }
+            if (indexedEvidence.isNotBlank()) {
+                appendLine("indexed_page_evidence: present")
+            }
+            if (xmlCapture.isFailure) {
+                appendLine("xml_error: ${xmlCapture.exceptionOrNull()?.message.orEmpty()}")
+            }
+            if (screenshotCapture?.isFailure == true) {
+                appendLine("screenshot_error: ${screenshotCapture.exceptionOrNull()?.message.orEmpty()}")
+            }
+        }.trim()
+
+        val content = mutableListOf<Map<String, Any?>>(
+            mapOf("type" to "text", "text" to text)
+        )
+        if (includeImageContent && screenshotDataUri != null) {
+            content += mapOf(
+                "type" to "image",
+                "data" to jpegBase64Payload(screenshotDataUri),
+                "mimeType" to "image/jpeg"
+            )
+        }
+
+        return@withContext linkedMapOf<String, Any?>(
+            "content" to content,
+            "success" to true,
+            "schema_version" to "oob.get_state.v1",
+            "captured_at_ms" to capturedAtMs,
+            "package_name" to packageName,
+            "activity_name" to activityName,
+            "xml" to returnedXml.takeIf { includeXml },
+            "xml_chars" to rawXml.length,
+            "xml_node_count" to xmlNodeCount(rawXml),
+            "xml_truncated" to (includeXml && returnedXml.length < rawXml.length),
+            "xml_error" to xmlCapture.exceptionOrNull()?.message,
+            "indexed_page_evidence" to indexedEvidence.takeIf { it.isNotBlank() },
+            "screenshot" to screenshotPayload?.let { payload ->
+                linkedMapOf<String, Any?>(
+                    "present" to (screenshotDataUri != null),
+                    "mime_type" to "image/jpeg",
+                    "data_uri" to screenshotDataUri,
+                    "original_width" to payload.originalWidth,
+                    "original_height" to payload.originalHeight,
+                    "width" to payload.compressedWidth,
+                    "height" to payload.compressedHeight,
+                    "applied_scale" to payload.appliedScale,
+                    "filter_overlay" to payload.isFilterOverlay,
+                    "quality" to imageQuality.name.lowercase(),
+                    "is_lot_of_single_color" to payload.isLotOfSingleColor,
+                    "is_mostly_light_background" to payload.isMostlyLightBackground,
+                    "is_side_region_mostly_single_color" to payload.isSideRegionMostlySingleColor,
+                )
+            },
+            "screenshot_error" to screenshotCapture?.exceptionOrNull()?.message,
+            "marked_screenshot" to markedScreenshot?.let {
+                linkedMapOf(
+                    "mime_type" to "image/jpeg",
+                    "data_uri" to it
+                )
+            },
+            "source" to "oob_accessibility_runtime"
+        ).filterValues { it != null }
     }
 
     private fun firstString(args: Map<String, Any?>?, vararg keys: String): String? {
@@ -189,6 +370,38 @@ object McpToolExecutors {
             }
         }
         return default
+    }
+
+    private fun imageQualityArg(args: Map<String, Any?>?): ImageQuality {
+        val raw = firstString(args, "image_quality", "imageQuality", "quality")
+            ?.uppercase()
+            ?.replace("-", "_")
+            ?: return ImageQuality.MEDIUM
+        return ImageQuality.values().firstOrNull { it.name == raw } ?: ImageQuality.MEDIUM
+    }
+
+    private fun ensureJpegDataUri(value: String): String {
+        val trimmed = value.trim()
+        return if (trimmed.startsWith("data:image/", ignoreCase = true)) {
+            trimmed
+        } else {
+            "data:image/jpeg;base64,$trimmed"
+        }
+    }
+
+    private fun jpegBase64Payload(dataUri: String): String =
+        dataUri
+            .substringAfter("base64,", dataUri)
+            .replace(Regex("\\s+"), "")
+
+    private fun truncateXml(xml: String, maxXmlChars: Int): String {
+        if (maxXmlChars <= 0 || xml.length <= maxXmlChars) return xml
+        return xml.take(maxXmlChars)
+    }
+
+    private fun xmlNodeCount(xml: String): Int {
+        if (xml.isBlank()) return 0
+        return Regex("<node\\b").findAll(xml).count()
     }
     
     /**

@@ -90,6 +90,31 @@ class OmniFlowMcpClient:
     def read_resource(self, uri: str, limit: int = 50) -> dict[str, Any]:
         return self.rpc("resources/read", {"uri": uri, "limit": limit})
 
+    def get_state(
+        self,
+        *,
+        include_xml: bool = True,
+        include_screenshot: bool = True,
+        include_indexed_context: bool = True,
+        include_marked_screenshot: bool = False,
+        include_image_content: bool = False,
+        filter_overlay: bool = True,
+        image_quality: str = "medium",
+        max_xml_chars: int | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "include_xml": include_xml,
+            "include_screenshot": include_screenshot,
+            "include_indexed_context": include_indexed_context,
+            "include_marked_screenshot": include_marked_screenshot,
+            "include_image_content": include_image_content,
+            "filter_overlay": filter_overlay,
+            "image_quality": image_quality,
+        }
+        if max_xml_chars is not None:
+            payload["max_xml_chars"] = max_xml_chars
+        return self.call_tool("get_state", payload)
+
     def recall(
         self,
         goal: str,

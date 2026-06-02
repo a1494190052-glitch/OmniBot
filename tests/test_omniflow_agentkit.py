@@ -80,6 +80,35 @@ class OmniFlowAgentKitTest(unittest.TestCase):
         self.assertEqual(client.calls[0][1]["fallback_session_id"], "fallback_1")
         self.assertEqual(client.calls[0][1]["fallback_attempt"], 1)
 
+    def test_mcp_client_get_state_calls_tool(self):
+        class CapturingClient(OmniFlowMcpClient):
+            def __init__(self):
+                super().__init__("http://127.0.0.1/mcp")
+                self.calls = []
+
+            def call_tool(self, name, arguments=None):
+                self.calls.append((name, arguments or {}))
+                return {"success": True}
+
+        client = CapturingClient()
+        result = client.get_state(
+            include_xml=False,
+            include_screenshot=True,
+            include_indexed_context=False,
+            include_marked_screenshot=True,
+            image_quality="low",
+            max_xml_chars=512,
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(client.calls[0][0], "get_state")
+        self.assertFalse(client.calls[0][1]["include_xml"])
+        self.assertTrue(client.calls[0][1]["include_screenshot"])
+        self.assertFalse(client.calls[0][1]["include_indexed_context"])
+        self.assertTrue(client.calls[0][1]["include_marked_screenshot"])
+        self.assertEqual(client.calls[0][1]["image_quality"], "low")
+        self.assertEqual(client.calls[0][1]["max_xml_chars"], 512)
+
     def test_assets_fallback_without_repo_docs(self):
         with tempfile.TemporaryDirectory() as tmp:
             kit = OmniFlowAgentKit(root=Path(tmp))

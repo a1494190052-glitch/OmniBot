@@ -187,6 +187,59 @@ BEHAVIOR:
         )
     )
 
+    val getStateTool = mapOf(
+        "name" to "get_state",
+        "description" to """Capture the current Android device state from OOB's on-device Accessibility runtime.
+
+Returns the foreground package/activity, live Accessibility XML, screenshot metadata, and optionally a JPEG screenshot data URI plus OOB indexed page evidence. This is a read-only state capture tool for external testing and GUI agents; it avoids slow host-side adb uiautomator/screencap capture.
+""".trimIndent(),
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "include_xml" to mapOf(
+                    "type" to "boolean",
+                    "default" to true,
+                    "description" to "Include the full live Accessibility XML string. Default: true."
+                ),
+                "include_screenshot" to mapOf(
+                    "type" to "boolean",
+                    "default" to true,
+                    "description" to "Include a JPEG screenshot data URI under screenshot.data_uri. Default: true."
+                ),
+                "include_indexed_context" to mapOf(
+                    "type" to "boolean",
+                    "default" to true,
+                    "description" to "Include OOB indexed page evidence rendered from XML for element grounding. Default: true."
+                ),
+                "include_marked_screenshot" to mapOf(
+                    "type" to "boolean",
+                    "default" to false,
+                    "description" to "Include a marked screenshot with element indexes. This duplicates image payload size. Default: false."
+                ),
+                "include_image_content" to mapOf(
+                    "type" to "boolean",
+                    "default" to false,
+                    "description" to "Also attach screenshot as MCP image content. Default false because screenshot.data_uri already contains it."
+                ),
+                "filter_overlay" to mapOf(
+                    "type" to "boolean",
+                    "default" to true,
+                    "description" to "Try to hide/filter OOB overlays during screenshot capture. Default: true."
+                ),
+                "image_quality" to mapOf(
+                    "type" to "string",
+                    "enum" to listOf("original", "high", "medium", "low", "summary"),
+                    "default" to "medium",
+                    "description" to "Screenshot compression level. Default: medium."
+                ),
+                "max_xml_chars" to mapOf(
+                    "type" to "integer",
+                    "description" to "Optional XML truncation limit for the returned xml field. Omit or set <=0 for full XML."
+                )
+            )
+        )
+    )
+
     val fileTransferTool
         get() = mapOf(
         "name" to "file_transfer",
@@ -630,6 +683,7 @@ This is the MCP control entry for Project creation. It writes the normal Workben
             taskStatusTool,
             taskReplyTool,
             taskWaitUnlockTool,
+            getStateTool,
             fileTransferTool,
             agentRunTool,
             oobToolCallTool,

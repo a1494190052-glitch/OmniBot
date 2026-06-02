@@ -242,6 +242,7 @@ object McpRoutes {
             "task_status" -> McpToolExecutors.executeTaskStatus(args)
             "task_reply" -> McpToolExecutors.executeTaskReply(args)
             "task_wait_unlock" -> McpToolExecutors.executeTaskWaitUnlock(context, args, serverScope)
+            "get_state" -> McpToolExecutors.executeGetState(context, args)
             "file_transfer" -> McpToolExecutors.executeFileTransfer(args)
             "agent_run" -> McpToolExecutors.executeAgentRun(context, args)
             RunLogReplayPolicy.TOOL_OOB_TOOL_CALL -> McpToolExecutors.executeOobToolCall(context, args)

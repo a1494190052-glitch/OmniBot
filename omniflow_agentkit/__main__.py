@@ -59,6 +59,21 @@ def main(argv: list[str] | None = None) -> int:
     smoke.add_argument("task")
     smoke.add_argument("--repo")
 
+    get_state = sub.add_parser("mcp-get-state", help="Capture current device XML and screenshot through OOB MCP")
+    _add_mcp_args(get_state)
+    get_state.add_argument("--no-xml", action="store_true", help="Do not include Accessibility XML")
+    get_state.add_argument("--no-screenshot", action="store_true", help="Do not include screenshot data URI")
+    get_state.add_argument("--no-indexed-context", action="store_true", help="Do not include indexed page evidence")
+    get_state.add_argument("--marked-screenshot", action="store_true", help="Include marked screenshot with element indexes")
+    get_state.add_argument("--image-content", action="store_true", help="Also attach screenshot as MCP image content")
+    get_state.add_argument("--no-filter-overlay", action="store_true", help="Do not hide/filter OOB overlay during screenshot")
+    get_state.add_argument(
+        "--image-quality",
+        choices=["original", "high", "medium", "low", "summary"],
+        default="medium",
+    )
+    get_state.add_argument("--max-xml-chars", type=int)
+
     recall = sub.add_parser("mcp-recall", help="Recall reusable Functions through the canonical OmniFlow tool")
     _add_mcp_args(recall)
     recall.add_argument("goal")
@@ -157,6 +172,25 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         summary = RepoProbe(args.repo).run().summary() if args.repo else None
         print(runner.run(kit.agent_prompt(args.task, repo_summary=summary)))
+        return 0
+
+    if args.cmd == "mcp-get-state":
+        print(
+            json.dumps(
+                _mcp_client(args).get_state(
+                    include_xml=not args.no_xml,
+                    include_screenshot=not args.no_screenshot,
+                    include_indexed_context=not args.no_indexed_context,
+                    include_marked_screenshot=args.marked_screenshot,
+                    include_image_content=args.image_content,
+                    filter_overlay=not args.no_filter_overlay,
+                    image_quality=args.image_quality,
+                    max_xml_chars=args.max_xml_chars,
+                ),
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         return 0
 
     if args.cmd == "mcp-recall":
