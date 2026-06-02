@@ -289,7 +289,7 @@ class OobOmniFlowToolkitService(
     fun guardCheck(args: Map<String, Any?>?): Map<String, Any?> {
         val request = args ?: emptyMap()
         val functionId = firstNonBlank(request["functionId"], request["function_id"])
-        val arguments = functionParameters(request)
+        val arguments = functionArguments(request)
         return functionRunPolicy.guardCheck(functionId = functionId, arguments = arguments)
     }
 
@@ -297,7 +297,7 @@ class OobOmniFlowToolkitService(
         val callTiming = OobFunctionCallTiming()
         val request = args ?: emptyMap()
         val functionId = firstNonBlank(request["functionId"], request["function_id"])
-        val arguments = functionParameters(request)
+        val arguments = functionArguments(request)
         val dryRun = boolArg(request["dryRun"]) || boolArg(request["dry_run"])
         val confirmed = boolArg(request["confirmed"]) || boolArg(request["userConfirmed"])
         val resumeFromStep = intArg(
@@ -431,14 +431,8 @@ class OobOmniFlowToolkitService(
         ).filterValues { it != null }
     }
 
-    private fun functionParameters(request: Map<String, Any?>): Map<String, Any?> =
-        mapArg(request["function_parameters"]).ifEmpty {
-            mapArg(request["functionParameters"])
-        }.ifEmpty {
-            mapArg(request["arguments"])
-        }.ifEmpty {
-            mapArg(request["params"])
-        }
+    private fun functionArguments(request: Map<String, Any?>): Map<String, Any?> =
+        mapArg(request["arguments"])
 
     fun listRunLogs(args: Map<String, Any?>?): Map<String, Any?> {
         val limit = intArg(args?.get("limit"), defaultValue = 50).coerceIn(1, 200)

@@ -36,8 +36,8 @@ class VLMToolDefinitionsTest {
 
         assertTrue(tool.function.description.contains("current page context"))
         assertTrue(properties.containsKey("function_id"))
-        assertFalse(properties.containsKey("function_parameters"))
-        assertFalse(properties.containsKey("functionParameters"))
+        assertTrue(properties.containsKey("arguments"))
+        assertTrue(properties.keys == setOf("function_id", "arguments"))
         assertTrue(argumentsSchema["additionalProperties"]!!.jsonPrimitive.boolean)
     }
 

@@ -505,11 +505,7 @@ class VLMClient(
             )
             "oob_function_run", "call_function", "run_function" -> FunctionRunAction(
                 functionId = requireString(args, "function_id", "functionId"),
-                arguments = (args["function_parameters"] as? JsonObject)
-                    ?: (args["functionParameters"] as? JsonObject)
-                    ?: (args["arguments"] as? JsonObject)
-                    ?: (args["params"] as? JsonObject)
-                    ?: buildJsonObject {}
+                arguments = (args["arguments"] as? JsonObject) ?: buildJsonObject {}
             )
             "hot_key" -> HotKeyAction(
                 key = requireString(args, "key").uppercase()

@@ -5,17 +5,16 @@ import org.junit.Test
 
 class OobFunctionCallRequestResolverTest {
     @Test
-    fun `function parameters are preferred for oob function run arguments`() {
+    fun `arguments are used for oob function run parameters`() {
         val request = OobFunctionCallRequestResolver().resolve(
             args = mapOf(
                 "function_id" to "xiaohongshu_search",
-                "function_parameters" to mapOf("keyword" to "美食"),
-                "arguments" to mapOf("keyword" to "ignored"),
+                "arguments" to mapOf("keyword" to "彩票"),
             ),
             isKnownFunction = { it == "xiaohongshu_search" },
         )
 
         assertEquals("xiaohongshu_search", request.functionId)
-        assertEquals(mapOf("keyword" to "美食"), request.targetArgs)
+        assertEquals(mapOf("keyword" to "彩票"), request.targetArgs)
     }
 }
