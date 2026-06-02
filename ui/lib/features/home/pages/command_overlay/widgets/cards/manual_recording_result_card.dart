@@ -29,6 +29,8 @@ class ManualRecordingResultCard extends StatelessWidget {
     final functionId = (cardData['functionId'] ?? cardData['function_id'] ?? '')
         .toString()
         .trim();
+    final agentVisible =
+        cardData['agent_visible'] == true || cardData['agentVisible'] == true;
     final diagnostics = _asMap(cardData['diagnostics']);
     final manualDiagnostics = _asMap(diagnostics['manual_recording']);
     final rawTouchDiagnostics = _asMap(diagnostics['raw_touch']);
@@ -42,9 +44,8 @@ class ManualRecordingResultCard extends StatelessWidget {
         manualDiagnostics['guarantees_no_missing_clicks'] == true;
     final recordingMode = switch (actionSource) {
       'mixed' => '混合采集',
-      'raw_touch' || 'raw_touch_only' => completeness == 'raw_touch_interrupted'
-          ? 'raw 中断'
-          : 'raw touch',
+      'raw_touch' || 'raw_touch_only' =>
+        completeness == 'raw_touch_interrupted' ? 'raw 中断' : 'raw touch',
       'accessibility_event' => 'A11 事件',
       _ => rawTouchDiagnostics['available'] == true ? 'raw touch' : 'A11 事件',
     };
@@ -149,7 +150,10 @@ class ManualRecordingResultCard extends StatelessWidget {
                         if (runId.isNotEmpty)
                           _Tag(label: 'runlog', value: runId),
                         if (functionId.isNotEmpty)
-                          _Tag(label: '复用指令', value: functionId),
+                          _Tag(
+                            label: agentVisible ? '复用指令' : '人工 Function',
+                            value: functionId,
+                          ),
                       ],
                     ),
                     if (warning.isNotEmpty) ...[

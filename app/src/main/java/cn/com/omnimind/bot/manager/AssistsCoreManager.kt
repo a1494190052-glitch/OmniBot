@@ -1135,16 +1135,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         if (sealed > 0) {
             OmniLog.i(TAG, "idle consolidation: sealed $sealed orphaned run log(s)")
         }
-        val autoRegisterResult = OobRunLogReplayService(context)
-            .autoRegisterRecentRunLogs(limit = 50)
-        val registered = (autoRegisterResult["registered_count"] as? Number)?.toInt() ?: 0
-        val alreadyExists = (autoRegisterResult["already_exists_count"] as? Number)?.toInt() ?: 0
-        if (registered > 0 || alreadyExists > 0) {
-            OmniLog.i(
-                TAG,
-                "idle consolidation: registered=$registered already_exists=$alreadyExists"
-            )
-        }
+        OmniLog.d(TAG, "idle consolidation completed without implicit RunLog registration")
     }
 
     private fun syncAgentAiCapabilityConfigFile() {
@@ -3275,12 +3266,18 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             val register = when (val raw = args["register"]) {
                 is Boolean -> raw
                 is String -> raw.equals("true", ignoreCase = true)
-                else -> true
+                else -> false
+            }
+            val agentVisible = when (val raw = args["agentVisible"] ?: args["agent_visible"]) {
+                is Boolean -> raw
+                is String -> raw.equals("true", ignoreCase = true)
+                else -> false
             }
             val payload = runCatching {
                 OobRunLogReplayService(context).convertRunLog(
                     runId = runId,
                     register = register,
+                    agentVisible = agentVisible,
                     functionIdOverride = args["functionId"]?.toString()
                         ?: args["function_id"]?.toString(),
                     nameOverride = args["name"]?.toString(),
@@ -3402,7 +3399,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             } else {
                 withContext(Dispatchers.Main) {
                     DraggableBallInstance.setDoing(
-                        message = "正在整理复用指令",
+                        message = "正在整理录制结果",
                         isShowTakeOver = false,
                         subMessage = "请稍候",
                         isShowStop = false
@@ -3413,6 +3410,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                         OobRunLogReplayService(context).convertRunLog(
                             runId = learningResult.runId,
                             register = true,
+                            agentVisible = false,
                             nameOverride = learningResult.name,
                             descriptionOverride = learningResult.description
                         )
@@ -3452,6 +3450,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     "success" to recordingSuccess,
                     "recording_success" to recordingSuccess,
                     "conversion_success" to conversionSuccess,
+                    "function_registered" to (conversion["registered"] == true),
+                    "agent_visible" to (conversion["agent_visible"] == true),
                     "error_code" to if (conversionSuccess) null else {
                         conversion["error_code"] ?: "HUMAN_TRAJECTORY_CONVERT_FAILED"
                     },
@@ -3918,7 +3918,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         mainJob.launch {
             val limit = call.argument<Number>("limit")?.toInt() ?: 100
             val offset = call.argument<Number>("offset")?.toInt() ?: 0
-            val autoRegister = call.argument<Boolean>("autoRegister") ?: true
+            val autoRegister = call.argument<Boolean>("autoRegister") ?: false
             val payload = withContext(Dispatchers.IO) {
                 if (autoRegister) {
                     runCatching { OobRunLogReplayService(context).autoRegisterRecentRunLogs(limit = 50) }

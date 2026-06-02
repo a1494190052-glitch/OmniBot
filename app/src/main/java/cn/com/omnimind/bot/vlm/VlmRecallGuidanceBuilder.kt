@@ -218,16 +218,22 @@ object VlmRecallGuidanceBuilder {
     private fun renderArgumentPolicy(candidate: Map<String, Any?>): String {
         val requiresArguments = requiresArguments(candidate)
         val fillPolicy = firstNonBlank(candidate["argument_fill_policy"], candidate["argumentFillPolicy"])
-        val schema = mapArg(candidate["inputSchema"])
-        val properties = mapArg(schema["properties"]).keys
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
+        val schema = mapArg(candidate["inputSchema"]).ifEmpty { mapArg(candidate["input_schema"]) }
+        val required = listArg(schema["required"]).map { it.toString() }.toSet()
+        val properties = mapArg(schema["properties"]).entries
+            .mapNotNull { (rawName, rawSpec) ->
+                val name = rawName.trim()
+                if (name.isEmpty()) return@mapNotNull null
+                val type = firstNonBlank(mapArg(rawSpec)["type"]).ifBlank { "any" }
+                val requiredLabel = if (name in required) " required" else " optional"
+                "$name:$type$requiredLabel"
+            }
             .take(6)
-            .joinToString(",")
+            .joinToString(prefix = "{", postfix = "}", separator = ", ")
         return listOf(
             "requires_arguments=$requiresArguments",
             "fill_policy=$fillPolicy".takeIf { fillPolicy.isNotBlank() },
-            "params=$properties".takeIf { properties.isNotBlank() },
+            "arguments=$properties".takeIf { properties.isNotBlank() },
         ).filterNotNull().joinToString(" ")
     }
 

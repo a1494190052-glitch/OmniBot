@@ -214,6 +214,7 @@ class OobFunctionRecallService(
                 val functionId = firstNonBlank(functionSummary["function_id"])
                 if (functionId.isBlank()) return@forEach
                 val spec = functionRepository.get(functionId) ?: return@forEach
+                if (!OobFunctionRepository.isAgentVisible(spec)) return@forEach
                 val textScore = scoreNodeFunctionText(
                     spec = spec,
                     function = functionSummary,

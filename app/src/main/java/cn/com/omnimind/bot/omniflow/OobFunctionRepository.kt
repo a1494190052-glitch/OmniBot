@@ -39,13 +39,22 @@ class OobFunctionRepository(
             putIfAbsent("name", functionId)
         }
         val alreadyExists = contains(functionId)
-        val udegResult = runCatching {
-            OobUdegNodeStore(context).upsertFunction(functionId, spec)
-        }.getOrElse { error ->
+        val agentVisible = isAgentVisible(spec)
+        val udegResult = if (agentVisible) {
+            runCatching {
+                OobUdegNodeStore(context).upsertFunction(functionId, spec)
+            }.getOrElse { error ->
+                linkedMapOf(
+                    "success" to false,
+                    "indexed" to false,
+                    "error_message" to error.message.orEmpty()
+                )
+            }
+        } else {
             linkedMapOf(
-                "success" to false,
+                "success" to true,
                 "indexed" to false,
-                "error_message" to error.message.orEmpty()
+                "reason" to "manual_function_hidden_from_agent"
             )
         }
 
@@ -104,8 +113,10 @@ class OobFunctionRepository(
             "created_function_id" to functionId,
             "imported" to success,
             "already_exists" to alreadyExists,
-            "function_kind" to "oob_reusable_function",
-            "asset_state" to "native_local",
+            "function_kind" to functionKind(spec),
+            "asset_state" to assetState(spec),
+            "agent_visible" to agentVisible,
+            "visibility" to visibility(spec),
             "runner" to OobFunctionSpecVocabulary.REGISTRY_RUNNER_AGENT_REUSABLE_FUNCTION,
             "oob_function_as_tool_enabled" to
                 AgentToolFeatureStore.isOobFunctionAsToolEnabled(context),
@@ -119,8 +130,8 @@ class OobFunctionRepository(
         )
     }
 
-    fun list(limit: Int = 100, offset: Int = 0): Map<String, Any?> {
-        val page = listSpecsPage(limit = limit, offset = offset)
+    fun list(limit: Int = 100, offset: Int = 0, includeHidden: Boolean = false): Map<String, Any?> {
+        val page = listSpecsPage(limit = limit, offset = offset, includeHidden = includeHidden)
         return linkedMapOf(
             "success" to true,
             "count" to page.specs.size,
@@ -131,12 +142,13 @@ class OobFunctionRepository(
             "functions" to page.specs.map(::summaryMap),
             "function_kind" to "oob_reusable_function",
             "asset_state" to "native_local",
+            "include_hidden" to includeHidden,
             "source" to "oob_function_repository"
         )
     }
 
-    fun listSpecs(limit: Int = 100): List<Map<String, Any?>> {
-        return listSpecsPage(limit = limit, offset = 0).specs
+    fun listSpecs(limit: Int = 100, includeHidden: Boolean = false): List<Map<String, Any?>> {
+        return listSpecsPage(limit = limit, offset = 0, includeHidden = includeHidden).specs
     }
 
     fun get(functionId: String): Map<String, Any?>? {
@@ -234,8 +246,10 @@ class OobFunctionRepository(
             "has_agent_steps" to execution?.let(OobFunctionSpecVocabulary::agentStepFlag),
             "parameter_names" to OobFunctionSchemaBuilder.parameterNames(spec),
             "step_summaries" to OobFunctionSchemaBuilder.stepSummaries(spec),
-            "function_kind" to "oob_reusable_function",
-            "asset_state" to "native_local",
+            "function_kind" to functionKind(spec),
+            "asset_state" to assetState(spec),
+            "agent_visible" to isAgentVisible(spec),
+            "visibility" to visibility(spec),
             "runner" to OobFunctionSpecVocabulary.REGISTRY_RUNNER_AGENT_REUSABLE_FUNCTION,
             "registered_at" to registry?.get("registered_at"),
             "updated_at" to registry?.get("updated_at"),
@@ -252,7 +266,8 @@ class OobFunctionRepository(
 
     private fun listSpecsPage(
         limit: Int = 100,
-        offset: Int = 0
+        offset: Int = 0,
+        includeHidden: Boolean = false,
     ): FunctionSpecPage {
         val safeLimit = limit.coerceIn(1, 500)
         val safeOffset = offset.coerceAtLeast(0)
@@ -283,7 +298,8 @@ class OobFunctionRepository(
                 byId[functionId] = OobFunctionJson.sanitizeMap(spec)
             }
         }
-        val window = byId.values.drop(safeOffset).take(safeLimit + 1).toList()
+        val visibleSpecs = byId.values.filter { includeHidden || isAgentVisible(it) }
+        val window = visibleSpecs.drop(safeOffset).take(safeLimit + 1).toList()
         return FunctionSpecPage(
             specs = window.take(safeLimit),
             limit = safeLimit,
@@ -365,6 +381,41 @@ class OobFunctionRepository(
                 }
             }.distinct()
         }
+
+        fun isAgentVisible(spec: Map<String, Any?>): Boolean {
+            val metadata = spec["metadata"] as? Map<*, *>
+            val visibility = visibility(spec)
+            val explicit = spec["agent_visible"] ?: spec["agentVisible"] ?: metadata?.get("agent_visible")
+                ?: metadata?.get("agentVisible")
+            if (explicit is Boolean) return explicit
+            val explicitText = explicit?.toString()?.trim()?.lowercase().orEmpty()
+            if (explicitText in setOf("false", "0", "no", "hidden")) return false
+            if (visibility in setOf("manual_function", "manual_draft", "draft", "hidden")) return false
+            return true
+        }
+
+        fun visibility(spec: Map<String, Any?>): String {
+            val metadata = spec["metadata"] as? Map<*, *>
+            return (
+                spec["visibility"]
+                    ?: metadata?.get("visibility")
+                    ?: if ((spec["agent_visible"] ?: metadata?.get("agent_visible")) == false) {
+                        "manual_function"
+                    } else {
+                        "agent_reusable"
+                    }
+                )
+                .toString()
+                .trim()
+                .lowercase()
+                .ifBlank { "agent_reusable" }
+        }
+
+        fun functionKind(spec: Map<String, Any?>): String =
+            if (isAgentVisible(spec)) "oob_reusable_function" else "oob_manual_function"
+
+        fun assetState(spec: Map<String, Any?>): String =
+            if (isAgentVisible(spec)) "native_local" else "manual_function"
 
         fun errorPayload(
             code: String,

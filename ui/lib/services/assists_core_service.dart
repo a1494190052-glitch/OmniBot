@@ -2706,6 +2706,7 @@ class AssistsMessageService {
   static Future<Map<String, dynamic>> convertInternalRunLogToOobFunction({
     required String runId,
     bool register = true,
+    bool agentVisible = false,
     String? functionId,
     String? name,
     String? description,
@@ -2718,6 +2719,7 @@ class AssistsMessageService {
         .invokeMethod('convertInternalRunLogToOobFunction', {
           'runId': normalizedRunId,
           'register': register,
+          'agentVisible': agentVisible,
           if (functionId != null && functionId.trim().isNotEmpty)
             'functionId': functionId.trim(),
           if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
@@ -2783,7 +2785,7 @@ class AssistsMessageService {
   static Future<Map<String, dynamic>> listOobReusableFunctions({
     int limit = 100,
     int offset = 0,
-    bool autoRegister = true,
+    bool autoRegister = false,
   }) async {
     final result = await assistCore.invokeMethod('listOobReusableFunctions', {
       'limit': limit,

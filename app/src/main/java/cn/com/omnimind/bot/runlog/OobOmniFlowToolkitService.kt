@@ -54,12 +54,15 @@ class OobOmniFlowToolkitService(
 
     fun ingestRunLog(args: Map<String, Any?>?): Map<String, Any?> {
         val request = args ?: emptyMap()
+        val register = boolArgOrDefault(request["register"], defaultValue = false)
+        val agentVisible = boolArgOrDefault(request["agent_visible"], defaultValue = false) ||
+            boolArgOrDefault(request["agentVisible"], defaultValue = false)
         val runId = firstNonBlank(request["run_id"], request["runId"])
         val rawRunLog = mapArg(request["run_log"]).ifEmpty { mapArg(request["runLog"]) }
         val result = if (runId.isNotEmpty()) {
-            replayService.convertRunLog(runId = runId, register = true)
+            replayService.convertRunLog(runId = runId, register = register, agentVisible = agentVisible)
         } else if (rawRunLog.isNotEmpty()) {
-            ingestInlineRunLog(rawRunLog)
+            ingestInlineRunLog(rawRunLog, register = register, agentVisible = agentVisible)
         } else {
             linkedMapOf(
                 "success" to false,
@@ -75,6 +78,7 @@ class OobOmniFlowToolkitService(
             "created_function_id" to result["created_function_id"],
             "status" to when {
                 !success -> "rejected"
+                result["registered"] != true -> "converted"
                 result["already_exists"] == true -> "updated"
                 else -> "created"
             },
@@ -220,7 +224,8 @@ class OobOmniFlowToolkitService(
     fun listFunctions(args: Map<String, Any?>?): Map<String, Any?> =
         functionRepository.list(
             limit = intArg(args?.get("limit"), defaultValue = 100),
-            offset = intArg(args?.get("offset"), defaultValue = 0)
+            offset = intArg(args?.get("offset"), defaultValue = 0),
+            includeHidden = boolArg(args?.get("include_hidden")) || boolArg(args?.get("includeHidden")),
         )
 
     fun getFunction(args: Map<String, Any?>?): Map<String, Any?> {
@@ -284,7 +289,7 @@ class OobOmniFlowToolkitService(
     fun guardCheck(args: Map<String, Any?>?): Map<String, Any?> {
         val request = args ?: emptyMap()
         val functionId = firstNonBlank(request["functionId"], request["function_id"])
-        val arguments = mapArg(request["arguments"])
+        val arguments = functionParameters(request)
         return functionRunPolicy.guardCheck(functionId = functionId, arguments = arguments)
     }
 
@@ -292,7 +297,7 @@ class OobOmniFlowToolkitService(
         val callTiming = OobFunctionCallTiming()
         val request = args ?: emptyMap()
         val functionId = firstNonBlank(request["functionId"], request["function_id"])
-        val arguments = mapArg(request["arguments"])
+        val arguments = functionParameters(request)
         val dryRun = boolArg(request["dryRun"]) || boolArg(request["dry_run"])
         val confirmed = boolArg(request["confirmed"]) || boolArg(request["userConfirmed"])
         val resumeFromStep = intArg(
@@ -426,6 +431,15 @@ class OobOmniFlowToolkitService(
         ).filterValues { it != null }
     }
 
+    private fun functionParameters(request: Map<String, Any?>): Map<String, Any?> =
+        mapArg(request["function_parameters"]).ifEmpty {
+            mapArg(request["functionParameters"])
+        }.ifEmpty {
+            mapArg(request["arguments"])
+        }.ifEmpty {
+            mapArg(request["params"])
+        }
+
     fun listRunLogs(args: Map<String, Any?>?): Map<String, Any?> {
         val limit = intArg(args?.get("limit"), defaultValue = 50).coerceIn(1, 200)
         val offset = intArg(args?.get("offset"), defaultValue = 0).coerceAtLeast(0)
@@ -445,7 +459,9 @@ class OobOmniFlowToolkitService(
         val runId = firstNonBlank(request["runId"], request["run_id"])
         return replayService.convertRunLog(
             runId = runId,
-            register = boolArgOrDefault(request["register"], defaultValue = true),
+            register = boolArgOrDefault(request["register"], defaultValue = false),
+            agentVisible = boolArgOrDefault(request["agent_visible"], defaultValue = false) ||
+                boolArgOrDefault(request["agentVisible"], defaultValue = false),
             functionIdOverride = firstNonBlank(request["functionId"], request["function_id"])
                 .takeIf { it.isNotEmpty() },
             nameOverride = firstNonBlank(request["name"]).takeIf { it.isNotEmpty() },
@@ -453,7 +469,11 @@ class OobOmniFlowToolkitService(
         )
     }
 
-    private fun ingestInlineRunLog(runLog: Map<String, Any?>): Map<String, Any?> {
+    private fun ingestInlineRunLog(
+        runLog: Map<String, Any?>,
+        register: Boolean,
+        agentVisible: Boolean,
+    ): Map<String, Any?> {
         val runId = firstNonBlank(runLog["run_id"], runLog["runId"])
             .ifBlank { "inline_${System.currentTimeMillis()}" }
         val resultMap = mapArg(runLog["result"])
@@ -495,12 +515,49 @@ class OobOmniFlowToolkitService(
                 code = "RUN_LOG_NO_REPLAYABLE_STEPS",
                 message = "RunLog has no replayable steps"
             )
+        val effectiveSpec = if (agentVisible) spec else markManualFunctionSpec(spec)
+        val functionId = OobFunctionRepository.functionIdFromSpec(effectiveSpec)
+        if (!register) {
+            return linkedMapOf(
+                "success" to true,
+                "registered" to false,
+                "run_id" to record.runId,
+                "function_id" to functionId,
+                "created_function_id" to functionId,
+                "function_spec" to effectiveSpec,
+                "summary" to functionRepository.summaryMap(effectiveSpec),
+                "source" to "oob_native_omniflow_toolkit"
+            )
+        }
         workspaceFunctionStore.mirrorRunLog(record)
-        return functionRepository.register(spec) + linkedMapOf(
+        return functionRepository.register(effectiveSpec) + linkedMapOf(
+            "registered" to true,
             "run_id" to record.runId,
-            "function_spec" to spec
+            "function_id" to functionId,
+            "created_function_id" to functionId,
+            "function_spec" to effectiveSpec
         )
     }
+
+    private fun markManualFunctionSpec(spec: Map<String, Any?>): Map<String, Any?> =
+        linkedMapOf<String, Any?>().apply {
+            putAll(spec)
+            put("agent_visible", false)
+            put("visibility", "manual_function")
+            val metadata = (spec["metadata"] as? Map<*, *>)
+                ?.mapNotNull { (key, value) -> key?.toString()?.let { it to value } }
+                ?.toMap()
+                ?: emptyMap()
+            put(
+                "metadata",
+                linkedMapOf<String, Any?>().apply {
+                    putAll(metadata)
+                    put("agent_visible", false)
+                    put("visibility", "manual_function")
+                    put("registered_via", metadata["registered_via"] ?: "run_log_manual_convert")
+                }
+            )
+        }
 
     private fun functionAgentSummary(spec: Map<String, Any?>): Map<String, Any?> {
         val execution = mapArg(spec["execution"])

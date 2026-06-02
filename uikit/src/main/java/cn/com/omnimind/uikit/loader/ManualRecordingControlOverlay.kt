@@ -130,9 +130,20 @@ object ManualRecordingControlOverlay {
         }
     }
 
-    private fun hideTemporarily() {
+    fun cancelRecording(message: String = "人工轨迹学习已取消") {
         synchronized(this) {
             dismissLocked()
+        }
+        recordingControlScope.launch {
+            val updated = runCatching {
+                HumanTrajectoryLearningSession.cancelActive(message)
+            }.getOrElse { error ->
+                OmniLog.e(TAG, "cancel manual recording failed: ${error.message}", error)
+                false
+            }
+            if (!updated) {
+                OmniLog.w(TAG, "cancel requested without active manual recording session")
+            }
         }
     }
 
@@ -305,10 +316,10 @@ object ManualRecordingControlOverlay {
                 }
             }
         }
-        val captureButton = TextView(context).apply {
-            tag = "manual_recording_capture_action"
-            text = "截图"
-            contentDescription = "保存当前屏幕状态"
+        val cancelButton = TextView(context).apply {
+            tag = "manual_recording_cancel_action"
+            text = "取消"
+            contentDescription = "取消手动录制"
             setTextColor(Color.WHITE)
             textSize = 11f
             typeface = Typeface.DEFAULT_BOLD
@@ -318,10 +329,12 @@ object ManualRecordingControlOverlay {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = 9.dpToPx().toFloat()
-                setColor(Color.rgb(58, 64, 78))
+                setColor(Color.rgb(92, 56, 56))
             }
             setOnClickListener {
-                handleCaptureClick()
+                isEnabled = false
+                text = "取消中"
+                this@ManualRecordingControlOverlay.cancelRecording("人工轨迹学习已取消")
             }
         }
         val finishButton = TextView(context).apply {
@@ -342,23 +355,18 @@ object ManualRecordingControlOverlay {
             setOnClickListener {
                 isEnabled = false
                 text = "保存中"
-                val finishingState = ManualRecordingControlOverlay.state
                 synchronized(this@ManualRecordingControlOverlay) {
                     dismissLocked()
                 }
                 recordingControlScope.launch {
                     val updated = runCatching {
-                        if (finishingState == State.PREPARING) {
-                            HumanTrajectoryLearningSession.cancelActive("人工轨迹学习已取消")
-                        } else {
-                            HumanTrajectoryLearningSession.completeActive()
-                        }
+                        HumanTrajectoryLearningSession.completeActive()
                     }.getOrElse { error ->
                         OmniLog.e(TAG, "finish manual recording failed: ${error.message}", error)
                         false
                     }
                     if (!updated) {
-                        OmniLog.w(TAG, "finish clicked without active manual recording session state=$finishingState")
+                        OmniLog.w(TAG, "finish clicked without active manual recording session")
                     }
                 }
             }
@@ -380,7 +388,7 @@ object ManualRecordingControlOverlay {
             }
         )
         container.addView(
-            captureButton,
+            cancelButton,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -398,56 +406,6 @@ object ManualRecordingControlOverlay {
             }
         )
         return container
-    }
-
-    private fun handleCaptureClick() {
-        val callback = synchronized(this) { captureStateCallback } ?: return
-        val previousState = synchronized(this) { state }
-        val context = overlayView?.context ?: UIKit.appContext ?: return
-        // pauseActive() calls awaitOverlayRecordJobs() which blocks the calling thread.
-        // Must run on the IO thread — calling it on the main thread deadlocks against
-        // the IO coroutine's replay callbacks that hop back to Main.
-        recordingControlScope.launch {
-            val wasPaused = HumanTrajectoryLearningSession.isPaused()
-            val shouldResume = HumanTrajectoryLearningSession.isActive() &&
-                !wasPaused &&
-                HumanTrajectoryLearningSession.pauseActive()
-            withContext(Dispatchers.Main) {
-                if (shouldResume) markPaused()
-                hideTemporarily()
-            }
-            val result = runCatching { callback() }
-                .getOrElse { error ->
-                    OmniLog.e(TAG, "manual recording state capture failed: ${error.message}", error)
-                    linkedMapOf(
-                        "success" to false,
-                        "error_message" to error.message.orEmpty()
-                    )
-                }
-            val success = result["success"] == true
-            OmniLog.d(
-                TAG,
-                "manual recording state capture success=$success state=${result["state_artifact"]}"
-            )
-            val resumed = if (shouldResume) {
-                HumanTrajectoryLearningSession.resumeActive()
-            } else {
-                false
-            }
-            if (HumanTrajectoryLearningSession.isActive()) {
-                withContext(Dispatchers.Main) {
-                    val restoredState = if (HumanTrajectoryLearningSession.isPaused()) {
-                        if (previousState == State.READY) State.READY else State.PAUSED
-                    } else {
-                        State.RECORDING
-                    }
-                    show(context, restoredState, callback)
-                }
-            }
-            if (!resumed && shouldResume) {
-                OmniLog.w(TAG, "manual recording resume after state capture failed")
-            }
-        }
     }
 
     private fun attachDragHandler(
@@ -535,9 +493,9 @@ object ManualRecordingControlOverlay {
         val pauseButton = (0 until container.childCount)
             .map { container.getChildAt(it) }
             .firstOrNull { it.tag == "manual_recording_pause_action" } as? TextView
-        val captureButton = (0 until container.childCount)
+        val cancelButton = (0 until container.childCount)
             .map { container.getChildAt(it) }
-            .firstOrNull { it.tag == "manual_recording_capture_action" } as? TextView
+            .firstOrNull { it.tag == "manual_recording_cancel_action" } as? TextView
         title?.text = when (state) {
             State.PREPARING -> "准备"
             State.READY -> "待机"
@@ -560,26 +518,17 @@ object ManualRecordingControlOverlay {
                 State.PAUSED -> "继续手动录制"
             }
         }
-        captureButton?.apply {
-            visibility = if (state == State.PREPARING) View.GONE else View.VISIBLE
-            isEnabled = state != State.PREPARING
-            text = "截图"
-            contentDescription = "保存当前屏幕状态"
+        cancelButton?.apply {
+            visibility = View.VISIBLE
+            isEnabled = true
+            text = "取消"
+            contentDescription = "取消手动录制"
         }
         button?.apply {
-            isEnabled = true
-            text = when (state) {
-                State.PREPARING -> "取消"
-                State.READY -> "完成"
-                State.RECORDING -> "完成"
-                State.PAUSED -> "完成"
-            }
-            contentDescription = when (state) {
-                State.PREPARING -> "取消手动录制"
-                State.READY -> "结束手动录制"
-                State.RECORDING -> "结束手动录制"
-                State.PAUSED -> "结束手动录制"
-            }
+            visibility = if (state == State.PREPARING) View.GONE else View.VISIBLE
+            isEnabled = state != State.PREPARING
+            text = "完成"
+            contentDescription = "完成并保存手动录制"
         }
     }
 

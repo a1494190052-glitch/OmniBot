@@ -33,19 +33,15 @@ class CatStepLayoutApiImpl : CatStepLayoutApi {
 
     override fun onStopClick() {
         if (HumanTrajectoryLearningSession.isActive()) {
-            ManualRecordingControlOverlay.dismiss()
-            DraggableBallInstance.setDoing(
-                message = "正在整理复用指令",
-                isShowTakeOver = false,
-                subMessage = "请稍候",
-                isShowStop = false
-            )
-            manualRecordingScope.launch {
-                HumanTrajectoryLearningSession.completeActive()
-            }
+            ManualRecordingControlOverlay.cancelRecording("人工轨迹学习已取消")
+            DraggableBallInstance.finishDoingTask("录制已取消")
             return
         }
-        if (UIKit.executionTaskEventApi?.vlmTask != null && completeActiveVlmUiSession()) {
+        if (AgentVlmUiSession.requestStopActiveSession()) {
+            DraggableBallInstance.finishDoingTask("任务已停止")
+            if (!CompanionOverlaySettings.isEnabled()) {
+                CompanionOverlaySettings.dismissFloatingUi()
+            }
             return
         }
         if (OmniFlowUiSession.requestStopActiveSession()) {
@@ -53,6 +49,9 @@ class CatStepLayoutApiImpl : CatStepLayoutApi {
             if (!CompanionOverlaySettings.isEnabled()) {
                 CompanionOverlaySettings.dismissFloatingUi()
             }
+            return
+        }
+        if (UIKit.executionTaskEventApi?.vlmTask != null && completeActiveVlmUiSession()) {
             return
         }
         if (completeActiveVlmUiSession()) {

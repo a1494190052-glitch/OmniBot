@@ -117,8 +117,11 @@ record. Do not read only the snapshot when correctness matters.
 - Graph/UTG replay path runner: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionGraphStepRunner.kt`
 - Native replay policy and reusable command conversion: `app/src/main/java/cn/com/omnimind/bot/runlog/`
 - RunLog conversion facade: `app/src/main/java/cn/com/omnimind/bot/runlog/OobRunLogReplayService.kt`
-  It only converts and auto-registers RunLogs; Function CRUD belongs in
-  `OobFunctionRepository`. Conversion responses should expose diagnostics such
+  It converts RunLogs into Function specs or manual Function assets; Function CRUD belongs in
+  `OobFunctionRepository`. RunLog conversion must not make the result agent-visible by default:
+  `agent_visible=false` / `visibility=manual_function` means it is saved for editing or direct id-based
+  execution, but excluded from UDEG recall, dynamic tools, and the normal reusable-command list. Only an
+  explicit registration/publish action should set `agent_visible=true`. Conversion responses should expose diagnostics such
   as card counts and compiled step counts; workspace RunLog mirroring is
   best-effort and must not replace Function registration status.
 - Agent/MCP Function facade: `app/src/main/java/cn/com/omnimind/bot/runlog/OobOmniFlowToolkitService.kt`

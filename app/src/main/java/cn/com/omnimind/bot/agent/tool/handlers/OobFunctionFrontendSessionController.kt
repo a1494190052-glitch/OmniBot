@@ -47,11 +47,11 @@ class OobFunctionFrontendSessionController(
                 ScreenMaskLoader.loadGoneViewScreenMask()
                 DraggableBallInstance.loadBall()
                 DraggableBallInstance.setDoing(
-                    message = helper.localized("OmniFlow 准备执行"),
+                    message = helper.localized("准备执行复用指令"),
                     isShowTakeOver = false,
                     subMessage = helper.localized(label),
-                    isShowStop = false,
-                    isTouchable = false
+                    isShowStop = true,
+                    isTouchable = true
                 )
             }
         }.onFailure {
@@ -100,7 +100,7 @@ class OobFunctionFrontendSessionController(
         suspend fun update(progress: String) {
             throwIfStopRequested()
             val message = helper.localized(
-                "OmniFlow：${progress.trim().ifBlank { label }.take(48)}"
+                "复用指令：${progress.trim().ifBlank { label }.take(48)}"
             )
             runCatching {
                 withContext(Dispatchers.Main) {
@@ -108,9 +108,9 @@ class OobFunctionFrontendSessionController(
                     DraggableBallInstance.setDoing(
                         message = message,
                         isShowTakeOver = false,
-                        subMessage = helper.localized("本地执行中"),
-                        isShowStop = false,
-                        isTouchable = false
+                        subMessage = helper.localized("执行中"),
+                        isShowStop = true,
+                        isTouchable = true
                     )
                 }
             }.onFailure {

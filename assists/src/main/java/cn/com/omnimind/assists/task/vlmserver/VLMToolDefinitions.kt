@@ -237,7 +237,7 @@ object VLMToolDefinitions {
             name = "oob_function_run",
             description = t(
                 locale,
-                "执行当前页面上下文中明确给出的 OOB 复用指令候选。只能使用上下文里出现过的 function_id，并根据用户任务填写参数。",
+                "执行当前页面上下文中明确给出的 OOB 复用指令候选。只能使用上下文里出现过的 function_id，并根据用户任务填写 arguments。",
                 "Run an OOB reusable Function candidate explicitly listed in the current page context. Only use a function_id shown in context and fill arguments from the user task."
             ),
             parameters = objectSchema(
@@ -251,7 +251,7 @@ object VLMToolDefinitions {
             ),
             promptGuide = t(
                 locale,
-                "- oob_function_run(function_id, arguments?): 当 UDEG 当前页上下文给出了高度匹配的复用指令候选时调用；不要发明 function_id，参数从用户任务中填写。",
+                "- oob_function_run(function_id, arguments?): 当 UDEG 当前页上下文给出了高度匹配的复用指令候选时调用；不要发明 function_id，参数必须从用户任务中填写到 arguments。",
                 "- oob_function_run(function_id, arguments?): Use only when the UDEG current-page context lists a matching reusable Function candidate; do not invent function_id, fill arguments from the user task."
             )
         ),
@@ -401,8 +401,8 @@ object VLMToolDefinitions {
             append(
                 t(
                     locale,
-                    "注意：所有 function.arguments 必须是严格合法的 JSON object。把 OOB indexed page evidence 作为主要 grounding：click/input_text/long_press 优先填写 element_index，scroll 优先填写 scrollable_index。坐标必须分别写入 x / y / x1 / y1 / x2 / y2 字段，不要写成 \"x\": 827, 76 这类非法格式，坐标只作为兜底。不要返回停留、延时或空操作类动作；页面停留和稳定检测由系统内部处理。",
-                    "Important: every function.arguments value must be a strictly valid JSON object. Use OOB indexed page evidence as the primary grounding: for click/input_text/long_press prefer element_index, and for scroll prefer scrollable_index. Coordinates must be written into x / y / x1 / y1 / x2 / y2 as separate scalar fields; do not emit invalid forms such as \"x\": 827, 76. Coordinates are fallback only. Do not return idle, delay, or no-op actions; page settling and stability detection are handled internally."
+                    "注意：每个 tool call 的 JSON 参数必须是严格合法的 object；oob_function_run 的业务参数必须写入 arguments。把 OOB indexed page evidence 作为主要 grounding：click/input_text/long_press 优先填写 element_index，scroll 优先填写 scrollable_index。坐标必须分别写入 x / y / x1 / y1 / x2 / y2 字段，不要写成 \"x\": 827, 76 这类非法格式，坐标只作为兜底。不要返回停留、延时或空操作类动作；页面停留和稳定检测由系统内部处理。",
+                    "Important: every tool call JSON argument value must be a strict object; oob_function_run business parameters must go under arguments. Use OOB indexed page evidence as the primary grounding: for click/input_text/long_press prefer element_index, and for scroll prefer scrollable_index. Coordinates must be written into x / y / x1 / y1 / x2 / y2 as separate scalar fields; do not emit invalid forms such as \"x\": 827, 76. Coordinates are fallback only. Do not return idle, delay, or no-op actions; page settling and stability detection are handled internally."
                 )
             )
         }

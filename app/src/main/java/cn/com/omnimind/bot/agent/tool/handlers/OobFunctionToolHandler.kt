@@ -174,10 +174,10 @@ class OobFunctionToolHandler(
             val success = runPayload["success"] == true
             val payload = helper.encodeLocalizedPayload(runPayload)
             val summary = if (success) {
-                "OOB Function completed: $functionId"
+                "复用指令执行完成：$functionId"
             } else {
                 runPayload["error_message"]?.toString()?.takeIf { it.isNotBlank() }
-                    ?: "OOB Function failed: $functionId"
+                    ?: "复用指令执行失败：$functionId"
             }
             return cn.com.omnimind.bot.agent.ToolExecutionResult.ContextResult(
                 toolName = toolName,
@@ -547,6 +547,8 @@ class OobFunctionToolHandler(
                     }
                 }
             }
+            frontendSession?.throwIfStopRequested()
+            toolHandle?.throwIfStopRequested()
             val stepFinishedAtMs = System.currentTimeMillis()
             val timedStepResult = LinkedHashMap<String, Any?>().apply {
                 putAll(stepResult)

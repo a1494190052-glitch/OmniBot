@@ -154,7 +154,7 @@ class OobVlmPageContextProvider(
                 buildString {
                     append(index + 1).append(". oob_function_run function_id=").append(functionId)
                     if (description.isNotBlank()) append(" description=").append(description)
-                    if (params.isNotBlank()) append(" params=").append(params)
+                    if (params.isNotBlank()) append(" arguments=").append(params)
                     if (useWhen.isNotBlank()) append(" use_when=").append(useWhen)
                 }
             }
@@ -168,13 +168,16 @@ class OobVlmPageContextProvider(
         val properties = mapArg(schema["properties"])
         if (properties.isEmpty()) return "none"
         val required = listArg(schema["required"]).map { it.toString() }.toSet()
-        return properties.keys
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .take(MAX_PARAMS)
-            .joinToString(",") { name ->
-                if (name in required) "$name*" else name
+        return properties.entries
+            .mapNotNull { (rawName, rawSpec) ->
+                val name = rawName.trim()
+                if (name.isEmpty()) return@mapNotNull null
+                val type = firstNonBlank(mapArg(rawSpec)["type"]).ifBlank { "any" }
+                val requiredLabel = if (name in required) " required" else " optional"
+                "$name:$type$requiredLabel"
             }
+            .take(MAX_PARAMS)
+            .joinToString(prefix = "{", postfix = "}", separator = ", ")
     }
 
     private fun renderUseWhen(capability: Map<String, Any?>): String {

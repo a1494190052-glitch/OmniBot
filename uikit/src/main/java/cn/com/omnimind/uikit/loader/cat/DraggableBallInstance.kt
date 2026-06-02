@@ -137,14 +137,20 @@ object DraggableBallInstance {
 
     private fun ensureShowInfoViewAttachedOrUpdated(
         instance: DraggableBallLoader,
-        caller: String
+        caller: String,
+        forceOnTop: Boolean = false
     ): Boolean {
         val view = instance.catDialogShowInfoView
         val windowManager = instance.getWindowManager()
         return try {
             if (view.isAttachedToWindow) {
                 view.cancelAnimations()
-                windowManager.updateViewLayout(view, instance.catDialogShowInfoViewParams)
+                if (forceOnTop) {
+                    windowManager.removeView(view)
+                    windowManager.addView(view, instance.catDialogShowInfoViewParams)
+                } else {
+                    windowManager.updateViewLayout(view, instance.catDialogShowInfoViewParams)
+                }
             } else {
                 try {
                     windowManager.addView(view, instance.catDialogShowInfoViewParams)
@@ -211,16 +217,18 @@ object DraggableBallInstance {
      * 做任务中
      */
     fun doingTask(
-        message: String, subMessage: String
+        message: String,
+        subMessage: String,
+        forceOnTop: Boolean = false
     ) {
         resetTaskCompletionHintState()
         val instance = getLoadedInstance() ?: return
         CancelClickLoader.cancelIntercepting()
         instance.catView.setViewState(DraggableViewState.DOING_TASK)
         instance.collapseMenu()
-        if (CatDialogStateData.viewState == CatDialogViewState.EMPTY ||
+        val shouldResetLayout = CatDialogStateData.viewState == CatDialogViewState.EMPTY ||
             !instance.catDialogShowInfoView.isAttachedToWindow
-        ) {
+        if (shouldResetLayout) {
             instance.catDialogShowInfoViewParams = instance.getParams(WindowFlag.SCREEN_LOCK_FLAG)
             val (x, y) = CatDialogStateData.getDoingTaskXY()
             val (w, h) = CatDialogStateData.getTaskDoingWH()
@@ -229,7 +237,16 @@ object DraggableBallInstance {
             instance.catDialogShowInfoViewParams.width = w
             instance.catDialogShowInfoViewParams.height = h
             instance.catDialogShowInfoView.visibility = View.VISIBLE
-            if (!ensureShowInfoViewAttachedOrUpdated(instance, "doingTask")) return
+        }
+        if (shouldResetLayout || forceOnTop) {
+            if (!ensureShowInfoViewAttachedOrUpdated(
+                    instance = instance,
+                    caller = "doingTask",
+                    forceOnTop = forceOnTop
+                )
+            ) {
+                return
+            }
         }
 
         // 调用 doingTask，传递必要的参数以支持状态切换动画
@@ -250,7 +267,8 @@ object DraggableBallInstance {
         subMessage: String? = null,
         isShowStop: Boolean = true,
         preferApplicationOverlay: Boolean = false,
-        isTouchable: Boolean = true
+        isTouchable: Boolean = true,
+        forceOnTop: Boolean = false
     ) {
         resetTaskCompletionHintState()
         val instance = getLoadedInstance(preferApplicationOverlay) ?: return
@@ -262,10 +280,10 @@ object DraggableBallInstance {
         } else {
             WindowFlag.SCREEN_UNLOCK_FLAG
         }
-        if (CatDialogStateData.viewState == CatDialogViewState.EMPTY ||
+        val shouldResetLayout = CatDialogStateData.viewState == CatDialogViewState.EMPTY ||
             instance.catDialogShowInfoViewParams.flags != windowFlag ||
             !instance.catDialogShowInfoView.isAttachedToWindow
-        ) {
+        if (shouldResetLayout) {
             instance.catDialogShowInfoViewParams = instance.getParams(windowFlag)
             val (x, y) = CatDialogStateData.getDoingTaskXY()
             val (w, h) = CatDialogStateData.getTaskDoingWH()
@@ -274,7 +292,16 @@ object DraggableBallInstance {
             instance.catDialogShowInfoViewParams.width = w
             instance.catDialogShowInfoViewParams.height = h
             instance.catDialogShowInfoView.visibility = View.VISIBLE
-            if (!ensureShowInfoViewAttachedOrUpdated(instance, "setDoing")) return
+        }
+        if (shouldResetLayout || forceOnTop) {
+            if (!ensureShowInfoViewAttachedOrUpdated(
+                    instance = instance,
+                    caller = "setDoing",
+                    forceOnTop = forceOnTop
+                )
+            ) {
+                return
+            }
         }
         var msg = if (message.isEmpty() || message.equals("null")) {
             "正在执行中..."

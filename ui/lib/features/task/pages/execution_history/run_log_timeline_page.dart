@@ -250,8 +250,8 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
           _functionPanelStatus = _RunLogFunctionPanelStatus.saved;
           _functionPanelMessage = _text(
             context,
-            '已保存为复用指令',
-            'Saved as reusable command',
+            '已保存为人工 Function',
+            'Saved as manual function',
           );
           _functionPanelError = null;
         } else if (_functionPanelStatus == _RunLogFunctionPanelStatus.saved) {
@@ -334,7 +334,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
     final isEnhancingRunLogFunction = _runLogEnhancementJob?.isRunning == true;
     final List<Widget> actions = <Widget>[
       Tooltip(
-        message: l10n.omniflowAssetReplay,
+        message: _text(context, '执行复用指令', 'Run reusable command'),
         child: IconButton(
           key: const ValueKey('run-log-action-replay'),
           icon: _isReplayingRunLog
@@ -358,7 +358,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
         message: savedSpec != null
             ? _text(context, '查看复用指令', 'View reusable command')
             : convertEligibility.canConvert
-            ? _text(context, '保存为复用指令', 'Save reusable command')
+            ? _text(context, '保存为人工 Function', 'Save manual function')
             : convertEligibility.message,
         child: IconButton(
           key: const ValueKey('run-log-action-save-function'),
@@ -535,8 +535,8 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       _functionPanelStatus = _RunLogFunctionPanelStatus.saving;
       _functionPanelMessage = _text(
         context,
-        '正在保存为复用指令',
-        'Saving as reusable command',
+        '正在保存人工 Function',
+        'Saving manual function',
       );
       _functionPanelError = null;
     });
@@ -599,8 +599,8 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
         _functionPanelStatus = _RunLogFunctionPanelStatus.saved;
         _functionPanelMessage = _text(
           context,
-          '已保存为复用指令',
-          'Saved as reusable command',
+          '已保存为人工 Function',
+          'Saved as manual function',
         );
         _functionPanelError = null;
       });
@@ -623,12 +623,19 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
     setState(() {
       _isReplayingRunLog = true;
     });
-    showToast(context.l10n.omniflowAssetReplayProgress, type: ToastType.info);
-    final executionFailedText = context.l10n.omniflowAssetReplayFailed;
+    showToast(
+      _text(context, '正在执行复用指令', 'Running reusable command'),
+      type: ToastType.info,
+    );
+    final executionFailedText = _text(
+      context,
+      '复用指令执行失败',
+      'Reusable command failed',
+    );
     final conversionFailedText = _text(
       context,
-      '执行记录生成失败',
-      'Execution record generation failed',
+      '复用指令生成失败',
+      'Reusable command generation failed',
     );
 
     try {
@@ -666,7 +673,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       await showFunctionRunResultSheet(
         context,
         result: result,
-        title: _text(context, 'RunLog 重放结果', 'RunLog replay result'),
+        title: _text(context, '复用指令执行结果', 'Reusable command result'),
         arguments: _defaultArgumentsForFunctionSpec(spec),
       );
     } catch (e) {
@@ -1179,9 +1186,9 @@ class _RunLogFunctionStatusStrip extends StatelessWidget {
   String _title(BuildContext context) {
     switch (status) {
       case _RunLogFunctionPanelStatus.saving:
-        return _text(context, '正在保存为复用指令', 'Saving reusable command');
+        return _text(context, '正在保存人工 Function', 'Saving manual function');
       case _RunLogFunctionPanelStatus.saved:
-        return _text(context, '已保存为复用指令', 'Reusable command saved');
+        return _text(context, '已保存人工 Function', 'Manual function saved');
       case _RunLogFunctionPanelStatus.enhancing:
         return _text(context, '后台增强中', 'Enhancing in background');
       case _RunLogFunctionPanelStatus.enhanced:
@@ -2931,6 +2938,7 @@ class _ReusableFunctionSpecSheetState
     final detail = _ReusableFunctionDraftSnapshot.fromSpec(spec.json);
     final enhancementStatus = _visibleEnhancementStatus;
     final isEnhancing = _isEnhancing || _enhancementJob?.isRunning == true;
+    final isAgentVisible = _isAgentVisible;
     final hasAgentEnhanced =
         _hasAgentEnhanced || spec.aiEnhanced || enhancementStatus.isApplied;
 
@@ -3197,6 +3205,27 @@ class _ReusableFunctionSpecSheetState
                                               hasAgentEnhanced
                                         ? null
                                         : _enhanceWithAgent,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: _SpecActionButton(
+                                    icon: isAgentVisible
+                                        ? Icons.verified_rounded
+                                        : Icons.app_registration_rounded,
+                                    label: _isImporting
+                                        ? _text(context, '注册中', 'Registering')
+                                        : isAgentVisible
+                                        ? _text(context, '已注册', 'Registered')
+                                        : _text(context, '注册', 'Register'),
+                                    onTap:
+                                        _isImporting ||
+                                            _isExecuting ||
+                                            _isScheduling ||
+                                            isEnhancing ||
+                                            isAgentVisible
+                                        ? null
+                                        : _publishFunctionForAgent,
                                   ),
                                 ),
                                 const SizedBox(width: 10),
@@ -3625,6 +3654,7 @@ class _ReusableFunctionSpecSheetState
   Future<bool> _registerFunction({
     String? successMessage,
     bool allowWhileEnhancing = false,
+    bool agentVisible = false,
   }) async {
     if (_isImporting ||
         (_enhancementJob?.isRunning == true && !allowWhileEnhancing)) {
@@ -3644,6 +3674,7 @@ class _ReusableFunctionSpecSheetState
               functionId: spec.functionId,
               name: spec.name,
               description: (spec.json['description'] ?? '').toString(),
+              agentVisible: agentVisible,
             );
         if (!mounted) return false;
         final registeredId = _firstNonBlank([
@@ -3678,7 +3709,10 @@ class _ReusableFunctionSpecSheetState
       }
 
       final result = await AssistsMessageService.registerOobReusableFunction(
-        functionSpec: spec.json,
+        functionSpec: _functionJsonForAgentVisibility(
+          spec.json,
+          agentVisible: agentVisible,
+        ),
       );
       if (!mounted) return false;
       final registeredId = _firstNonBlank([
@@ -3801,6 +3835,14 @@ class _ReusableFunctionSpecSheetState
     }
   }
 
+  Future<void> _publishFunctionForAgent() async {
+    await _registerFunction(
+      successMessage: _text(context, '已注册为复用指令', 'Reusable command registered'),
+      agentVisible: true,
+      allowWhileEnhancing: true,
+    );
+  }
+
   Future<void> _scheduleRegisteredFunction() async {
     if (_isScheduling ||
         _isImporting ||
@@ -3895,6 +3937,46 @@ class _ReusableFunctionSpecSheetState
     }
     cloned['description'] = description;
     return cloned;
+  }
+
+  Map<String, dynamic> _functionJsonForAgentVisibility(
+    Map<String, dynamic> rawJson, {
+    required bool agentVisible,
+  }) {
+    final cloned = _deepCopyStringMap(rawJson);
+    cloned['agent_visible'] = agentVisible;
+    cloned['visibility'] = agentVisible ? 'agent_reusable' : 'manual_function';
+    final metadata = _asStringKeyMap(cloned['metadata']);
+    cloned['metadata'] = <String, dynamic>{
+      ...metadata,
+      'agent_visible': agentVisible,
+      'visibility': agentVisible ? 'agent_reusable' : 'manual_function',
+    };
+    return cloned;
+  }
+
+  bool get _isAgentVisible {
+    bool? readFlag(dynamic value) {
+      if (value is bool) return value;
+      final text = value?.toString().trim().toLowerCase();
+      if (text == 'true' || text == '1' || text == 'yes') return true;
+      if (text == 'false' || text == '0' || text == 'no') return false;
+      return null;
+    }
+
+    final raw = _importResult?.rawJson ?? const <String, dynamic>{};
+    final metadata = _asStringKeyMap(spec.json['metadata']);
+    final visibility = _firstNonBlank([
+      raw['visibility'],
+      spec.json['visibility'],
+      metadata['visibility'],
+    ]).toLowerCase();
+    return readFlag(raw['agent_visible']) ??
+        readFlag(raw['agentVisible']) ??
+        readFlag(spec.json['agent_visible']) ??
+        readFlag(spec.json['agentVisible']) ??
+        readFlag(metadata['agent_visible']) ??
+        (visibility.isEmpty || visibility == 'agent_reusable');
   }
 
   String get _registeredFunctionId {
@@ -6608,19 +6690,19 @@ bool _isVlmRunLogStep(_RunLogStepSnapshot snapshot) => snapshot.isVlmStep;
 _RunLogStepSource _runLogStepSource(_RunLogStepSnapshot snapshot) {
   final evidence = _runLogSourceEvidence(snapshot);
   if (_containsAny(evidence, const [
-    'human_takeover',
-    'manual_recording',
-    'human',
-  ])) {
-    return _RunLogStepSource.human;
-  }
-  if (_containsAny(evidence, const [
     'omniflow_replay',
     'oob_omniflow_replay',
     'oob_function_runner',
     'completed_local',
   ])) {
     return _RunLogStepSource.omniflowReplay;
+  }
+  if (_containsAny(evidence, const [
+    'human_takeover',
+    'manual_recording',
+    'human',
+  ])) {
+    return _RunLogStepSource.human;
   }
   if (_isVlmRunLogStep(snapshot)) {
     return _RunLogStepSource.agentVlm;
@@ -6736,7 +6818,7 @@ String _runLogStepDetailTitle(BuildContext context, _RunLogStepSource source) {
     case _RunLogStepSource.human:
       return _text(context, '人类接管记录', 'Human takeover');
     case _RunLogStepSource.omniflowReplay:
-      return _text(context, 'OmniFlow 执行记录', 'OmniFlow run');
+      return _text(context, '复用指令执行记录', 'Reusable command run');
     case _RunLogStepSource.route:
       return _text(context, '工具调用', 'Tool call');
   }

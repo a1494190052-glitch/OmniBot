@@ -352,12 +352,14 @@ BEHAVIOR:
 
     val omniflowIngestRunLogTool = mapOf(
         "name" to "omniflow.ingest_run_log",
-        "description" to """Convert a successful OOB RunLog into a reusable local Function asset. Prefer passing run_id for an existing internal RunLog; inline run_log is accepted for simple external writeback.""".trimIndent(),
+        "description" to """Convert a successful OOB RunLog into a local manual Function asset. By default this returns or saves an agent-hidden manual Function; set register=true and agent_visible=true only when explicitly publishing it as a reusable command candidate.""".trimIndent(),
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
                 "run_id" to mapOf("type" to "string", "description" to "Existing OOB internal RunLog id."),
                 "run_log" to mapOf("type" to "object", "description" to "Optional inline canonical run log."),
+                "register" to mapOf("type" to "boolean", "description" to "Persist the converted manual Function. Default false."),
+                "agent_visible" to mapOf("type" to "boolean", "description" to "Publish into agent-visible reusable command recall/tool candidates. Default false."),
                 "auto_enrich" to mapOf("type" to "boolean", "description" to "Accepted for compatibility; OOB simple mode does deterministic local import.")
             )
         )

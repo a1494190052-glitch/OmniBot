@@ -47,7 +47,7 @@ class ManualRecordingPolicyTest {
     }
 
     @Test
-    fun `a11 text input can recover from text event evidence only`() {
+    fun `a11 text input requires real touch anchor`() {
         val source = readSource(
             "assists/src/main/java/cn/com/omnimind/assists/task/vlmserver/ManualVlmTraceRecorder.kt"
         )
@@ -55,21 +55,23 @@ class ManualRecordingPolicyTest {
         assertTrue(source.contains("private data class TextInputAnchor("))
         assertTrue(source.contains("rememberTextInputAnchorFromRealTouch("))
         assertFalse(source.contains("rememberTextInputAnchorFromFocus("))
-        assertTrue(source.contains("\"a11_text_input_anchor_policy\" to \"real_touch_or_text_event_evidence\""))
+        assertTrue(source.contains("\"a11_text_input_anchor_policy\" to \"real_touch_or_focused_start\""))
         assertTrue(
             Regex(
                 "var anchor = textInputAnchor\\s*" +
                     "if \\(anchor == null\\) \\{\\s*" +
-                    "anchor = textInputAnchorFromTextEvent\\(",
+                    "suppressA11OnlyActionEvent\\(event\\)\\s*" +
+                    "return\\s*\\}",
                 RegexOption.DOT_MATCHES_ALL
             ).containsMatchIn(source)
         )
-        assertTrue(source.contains("private fun textInputAnchorFromTextEvent("))
+        assertFalse(source.contains("private fun textInputAnchorFromTextEvent("))
+        assertFalse(source.contains("private const val A11Y_TEXT_EVENT_BACKEND = \"a11y_text_event\""))
+        assertTrue(source.contains("private fun preSeedFocusedTextInputAnchorFrom("))
+        assertTrue(source.contains("textInputAnchor = preSeedFocusedTextInputAnchorFrom(lastXmlSnapshot, lastScreenshotSnapshot)"))
         assertTrue(source.contains("private fun focusedTextInputCandidateFromXml("))
         assertTrue(source.contains("requireText: Boolean = true"))
         assertTrue(source.contains("hasFocusedTextInputTargetInXml(lastXmlSnapshot)"))
-        assertTrue(source.contains("focusedTextInputCandidateFromXml(beforeXml, requireText = false)"))
-        assertTrue(source.contains("private const val A11Y_TEXT_EVENT_BACKEND = \"a11y_text_event\""))
         assertTrue(source.contains("private const val FOCUSED_XML_TEXT_INPUT_BACKEND = \"focused_xml_text_input\""))
         assertFalse(source.contains("recordFocusedTextTarget("))
     }
@@ -267,8 +269,44 @@ class ManualRecordingPolicyTest {
         assertFalse(controlSource.contains("moveControlOverlayToNextPosition"))
         assertFalse(controlSource.contains("dockPositionIndex"))
         assertFalse(controlSource.contains("移动"))
+        assertFalse(controlSource.contains("manual_recording_capture_action"))
+        assertFalse(controlSource.contains("handleCaptureClick"))
+        assertFalse(controlSource.contains("text = \"截图\""))
+        assertTrue(controlSource.contains("manual_recording_cancel_action"))
+        assertTrue(controlSource.contains("fun cancelRecording(message: String = \"人工轨迹学习已取消\")"))
+        assertTrue(controlSource.contains("HumanTrajectoryLearningSession.cancelActive(message)"))
+        assertTrue(controlSource.contains("HumanTrajectoryLearningSession.completeActive()"))
+        assertTrue(controlSource.contains("visibility = if (state == State.PREPARING) View.GONE else View.VISIBLE"))
+        assertTrue(controlSource.contains("contentDescription = \"完成并保存手动录制\""))
         assertTrue(controlSource.contains("text = \"录制\""))
         assertTrue(controlSource.contains("keepControlsAboveTouchRecorderOnce()"))
+        val catStepSource = readSource(
+            "uikit/src/main/java/cn/com/omnimind/uikit/api/callbackimpl/CatStepLayoutApiImpl.kt"
+        )
+        val manualStopBranch = Regex(
+            "if \\(HumanTrajectoryLearningSession\\.isActive\\(\\)\\) \\{(.*?)\\n\\s*return\\s*\\}",
+            RegexOption.DOT_MATCHES_ALL
+        ).find(catStepSource)?.groupValues?.get(1).orEmpty()
+        assertTrue(manualStopBranch.contains("ManualRecordingControlOverlay.cancelRecording"))
+        assertFalse(manualStopBranch.contains("HumanTrajectoryLearningSession.completeActive()"))
+        val frontendSource = readSource(
+            "app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionFrontendSessionController.kt"
+        )
+        assertTrue(frontendSource.contains("isShowStop = true"))
+        assertTrue(frontendSource.contains("isTouchable = true"))
+        assertFalse(frontendSource.contains("isShowStop = false"))
+        assertFalse(frontendSource.contains("isTouchable = false"))
+        val functionHandlerSource = readSource(
+            "app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolHandler.kt"
+        )
+        assertTrue(
+            Regex(
+                "frontendSession\\?\\.throwIfStopRequested\\(\\)\\s*" +
+                    "toolHandle\\?\\.throwIfStopRequested\\(\\)\\s*" +
+                    "val stepFinishedAtMs = System\\.currentTimeMillis\\(\\)",
+                RegexOption.DOT_MATCHES_ALL
+            ).containsMatchIn(functionHandlerSource)
+        )
         val dragSuppression = Regex(
             "private fun beginDragRecordingSuppression\\(\\) \\{(.*?)\\n    \\}",
             RegexOption.DOT_MATCHES_ALL
@@ -279,6 +317,31 @@ class ManualRecordingPolicyTest {
         ).find(controlSource)?.groupValues?.get(1).orEmpty()
         assertFalse(dragSuppression.contains("pauseActive"))
         assertFalse(dragResume.contains("resumeActive"))
+    }
+
+    @Test
+    fun `vlm execution stop stays clickable and requests stop before complete`() {
+        val taskEventSource = readSource(
+            "uikit/src/main/java/cn/com/omnimind/uikit/api/uieventimpl/UITaskEventImpl.kt"
+        )
+        val draggableSource = readSource(
+            "uikit/src/main/java/cn/com/omnimind/uikit/loader/cat/DraggableBallInstance.kt"
+        )
+        val catStepSource = readSource(
+            "uikit/src/main/java/cn/com/omnimind/uikit/api/callbackimpl/CatStepLayoutApiImpl.kt"
+        )
+
+        assertTrue(taskEventSource.contains("ScreenMaskLoader.loadLockScreenMask()"))
+        assertTrue(taskEventSource.contains("forceOnTop = true"))
+        assertTrue(draggableSource.contains("forceOnTop: Boolean = false"))
+        assertTrue(draggableSource.contains("windowManager.removeView(view)"))
+        assertTrue(draggableSource.contains("windowManager.addView(view, instance.catDialogShowInfoViewParams)"))
+
+        val stopIndex = catStepSource.indexOf("AgentVlmUiSession.requestStopActiveSession()")
+        val completeIndex = catStepSource.indexOf("completeActiveVlmUiSession()")
+        assertTrue(stopIndex >= 0)
+        assertTrue(completeIndex >= 0)
+        assertTrue(stopIndex < completeIndex)
     }
 
     private fun readSource(relativePath: String): String {

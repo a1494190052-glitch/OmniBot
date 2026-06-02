@@ -98,7 +98,9 @@ class OobFunctionCallRequestResolver {
     }
 
     private fun nestedArguments(args: Map<String, Any?>): Map<String, Any?> =
-        mapArg(args["arguments"])
+        mapArg(args["function_parameters"])
+            .ifEmpty { mapArg(args["functionParameters"]) }
+            .ifEmpty { mapArg(args["arguments"]) }
             .ifEmpty { mapArg(args["args"]) }
             .ifEmpty { mapArg(args["input"]) }
 
@@ -127,6 +129,8 @@ class OobFunctionCallRequestResolver {
             "tool_title",
             "tool",
             "callable_tool",
+            "function_parameters",
+            "functionParameters",
             "arguments",
             "args",
             "input",
@@ -155,6 +159,8 @@ class OobFunctionCallRequestResolver {
             "edges",
             "utg",
             "graph",
+            "function_parameters",
+            "functionParameters",
             "arguments",
             "args",
             "input",
@@ -171,6 +177,8 @@ class OobFunctionCallRequestResolver {
             "targetTool",
             "tool",
             "callable_tool",
+            "function_parameters",
+            "functionParameters",
             "arguments",
             "args",
             "input",

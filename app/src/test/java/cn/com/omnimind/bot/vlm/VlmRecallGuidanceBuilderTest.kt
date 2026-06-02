@@ -389,7 +389,7 @@ class VlmRecallGuidanceBuilderTest {
         assertNull(VlmRecallGuidanceBuilder.fromAgentPayload(payload, allowDirectExecutionDecision = true).directHitFunctionId)
         assertTrue(guidance.contains("function_id=send_message"))
         assertTrue(guidance.contains("argument_policy: requires_arguments=true"))
-        assertTrue(guidance.contains("params=contact,message"))
+        assertTrue(guidance.contains("arguments={contact:string required, message:string required}"))
         assertTrue(guidance.contains("function_profile: purpose=Send a chat message"))
         assertTrue(guidance.contains("parameterized_hits_may_be_called_by_agent_with_filled_arguments=true"))
     }

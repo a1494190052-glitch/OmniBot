@@ -1891,7 +1891,9 @@ class _ChatBotSheetState extends State<ChatBotSheet>
       final runId = (result['run_id'] ?? result['runId'] ?? '').toString();
       showToast(
         success
-            ? (conversionSuccess ? '手动录制完成，复用指令已生成' : '手动录制完成，RunLog 已生成')
+            ? (conversionSuccess
+                  ? '手动录制完成，人工 Function 已保存'
+                  : '手动录制完成，RunLog 已生成')
             : '手动录制失败',
         type: success ? ToastType.success : ToastType.error,
       );
@@ -1941,6 +1943,9 @@ class _ChatBotSheetState extends State<ChatBotSheet>
     final runId = (result['run_id'] ?? result['runId'] ?? '').toString();
     final actionCount = result['action_count'] ?? result['actionCount'] ?? 0;
     final functionId = result['function_id'] ?? result['functionId'];
+    final functionRegistered =
+        result['function_registered'] ?? result['functionRegistered'];
+    final agentVisible = result['agent_visible'] ?? result['agentVisible'];
     final errorMessage = result['error_message'] ?? result['errorMessage'];
     final cardData = <String, dynamic>{
       'type': 'manual_recording_result',
@@ -1956,6 +1961,9 @@ class _ChatBotSheetState extends State<ChatBotSheet>
       'action_count': actionCount,
       'functionId': functionId,
       'function_id': functionId,
+      'functionRegistered': functionRegistered,
+      'function_registered': functionRegistered,
+      'agent_visible': agentVisible,
       'summary': result['summary'],
       'errorMessage': errorMessage,
       'error_message': errorMessage,

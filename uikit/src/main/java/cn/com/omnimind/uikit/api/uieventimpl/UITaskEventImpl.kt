@@ -105,7 +105,11 @@ class UITaskEventImpl : UITaskEvent {
         VibrationUtil.vibrateNormal()
         withContext(Dispatchers.Main) {
             ScreenMaskLoader.loadLockScreenMask()
-            DraggableBallInstance.doingTask(message, subMessage)
+            DraggableBallInstance.doingTask(
+                message = message,
+                subMessage = subMessage,
+                forceOnTop = true
+            )
         }
     }
 
@@ -122,7 +126,11 @@ class UITaskEventImpl : UITaskEvent {
         if (!isFloatingUiEnabled()) return
         withContext(Dispatchers.Main) {
             ScreenMaskLoader.loadLockScreenMask()
-            DraggableBallInstance.setDoing(message, showTakeOver)
+            DraggableBallInstance.setDoing(
+                message = message,
+                isShowTakeOver = showTakeOver,
+                forceOnTop = true
+            )
         }
     }
 

@@ -180,10 +180,10 @@ class OobFunctionNestedFunctionExecutor(
             "timing" to nestedRun["timing"],
             "error_code" to nestedRun["error_code"],
             "summary" to if (success) {
-                "$stepTitle completed via local OOB Function: $functionId"
+                "复用指令执行完成：$functionId"
             } else {
                 nestedRun["error_message"]?.toString()?.takeIf { it.isNotBlank() }
-                    ?: "$stepTitle failed via local OOB Function: $functionId"
+                    ?: "复用指令执行失败：$functionId"
             },
         ).filterValues { it != null })
     }

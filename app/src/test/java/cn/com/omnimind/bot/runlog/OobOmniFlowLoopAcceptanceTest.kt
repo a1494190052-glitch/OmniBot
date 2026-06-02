@@ -825,10 +825,36 @@ class OobOmniFlowLoopAcceptanceTest {
                 doneReason = "utg_exploration_completed",
             )
 
+            val hiddenFunctionId = "${functionId}_manual"
+            val hiddenConvert = toolkit.convertRunLog(
+                mapOf(
+                    "run_id" to runId,
+                    "register" to true,
+                    "function_id" to hiddenFunctionId,
+                    "name" to goal,
+                    "description" to goal,
+                )
+            )
+            assertEquals(true, hiddenConvert["success"])
+            assertEquals(hiddenFunctionId, hiddenConvert["function_id"])
+            assertEquals(true, hiddenConvert["registered"])
+            assertEquals(false, hiddenConvert["agent_visible"])
+            val hiddenRecall = toolkit.recall(
+                mapOf(
+                    "goal" to goal,
+                    "current_package" to "com.example.settings",
+                    "current_xml" to SOURCE_XML,
+                    "k" to 3,
+                )
+            )
+            assertEquals(true, hiddenRecall["success"])
+            assertEquals("miss", hiddenRecall["decision"])
+
             val convert = toolkit.convertRunLog(
                 mapOf(
                     "run_id" to runId,
                     "register" to true,
+                    "agent_visible" to true,
                     "function_id" to functionId,
                     "name" to goal,
                     "description" to goal,
