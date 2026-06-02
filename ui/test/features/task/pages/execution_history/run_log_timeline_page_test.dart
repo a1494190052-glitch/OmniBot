@@ -326,6 +326,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('工具调用 · 第 1 步'), findsOneWidget);
+    expect(find.byTooltip('转为复用指令'), findsNothing);
+    expect(find.byTooltip('复制本步文本'), findsNothing);
+    expect(find.byIcon(Icons.close_rounded), findsOneWidget);
     expect(_richTextContaining('执行方式  工具调用'), findsOneWidget);
     expect(find.text('工具调用历史'), findsNothing);
   });

@@ -17,4 +17,19 @@ class OobFunctionCallRequestResolverTest {
         assertEquals("xiaohongshu_search", request.functionId)
         assertEquals(mapOf("keyword" to "彩票"), request.targetArgs)
     }
+
+    @Test
+    fun `reusable command id is function alias and not a business argument`() {
+        val request = OobFunctionCallRequestResolver().resolve(
+            args = mapOf(
+                "tool_title" to "小红书搜索猫猫",
+                "reusable_command_id" to "oob_cmd_human_trajectory_fd980fdf",
+                "arguments" to mapOf("input_text_3" to "猫猫"),
+            ),
+            isKnownFunction = { it == "oob_cmd_human_trajectory_fd980fdf" },
+        )
+
+        assertEquals("oob_cmd_human_trajectory_fd980fdf", request.functionId)
+        assertEquals(mapOf("input_text_3" to "猫猫"), request.targetArgs)
+    }
 }

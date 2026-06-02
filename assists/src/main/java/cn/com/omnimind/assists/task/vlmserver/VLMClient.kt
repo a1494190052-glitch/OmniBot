@@ -504,7 +504,13 @@ class VLMClient(
                 reason = optionalString(args, "reason").orEmpty()
             )
             "oob_function_run", "call_function", "run_function" -> FunctionRunAction(
-                functionId = requireString(args, "function_id", "functionId"),
+                functionId = requireString(
+                    args,
+                    "function_id",
+                    "functionId",
+                    "reusable_command_id",
+                    "reusableCommandId"
+                ),
                 arguments = (args["arguments"] as? JsonObject) ?: buildJsonObject {}
             )
             "hot_key" -> HotKeyAction(

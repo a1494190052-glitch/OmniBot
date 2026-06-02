@@ -81,6 +81,16 @@
       "hasEvals": false
     },
     {
+      "id": "apk-inspector-project",
+      "name": "apk-inspector-project",
+      "description": "Forge and maintain OOB APK Inspector workbench workflows. Use when the user asks for APK 快速体检台, APK 体检, APK 静态解析, Android 安装包审计, package/signature/permissions/components/assets/strings/URL/native so inspection, first-run observation, apk diff, or project-owned self-update rules for an APK analysis skill.",
+      "assetPath": "builtin_skills/apk-inspector-project",
+      "hasScripts": false,
+      "hasReferences": true,
+      "hasAssets": false,
+      "hasEvals": false
+    },
+    {
       "id": "oob-web-research",
       "name": "oob-web-research",
       "description": "调研、搜索整理、收集资料、分析竞品、研究市场、小红书调研、GitHub分析、爬取内容、批量收集、信息汇总、web research。Use when the task involves gathering, extracting, or aggregating information from the web — search results, platform pages, repositories, or social content — and storing findings in a Project.",

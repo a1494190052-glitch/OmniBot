@@ -67,10 +67,14 @@ class OobFunctionCallRequestResolver {
     fun functionId(args: Map<String, Any?>, step: Map<String, Any?>): String = firstNonBlank(
         args["function_id"],
         args["functionId"],
+        args["reusable_command_id"],
+        args["reusableCommandId"],
         args["oob_function_id"],
         args["oobFunctionId"],
         step["function_id"],
         step["functionId"],
+        step["reusable_command_id"],
+        step["reusableCommandId"],
         step["oob_function_id"],
         step["oobFunctionId"],
     )
@@ -115,6 +119,8 @@ class OobFunctionCallRequestResolver {
         val FUNCTION_CALL_META_KEYS = setOf(
             "function_id",
             "functionId",
+            "reusable_command_id",
+            "reusableCommandId",
             "id",
             "name",
             "tool_name",
@@ -135,6 +141,8 @@ class OobFunctionCallRequestResolver {
         val EXECUTION_ARG_KEYS = setOf(
             "function_id",
             "functionId",
+            "reusable_command_id",
+            "reusableCommandId",
             "id",
             "name",
             "tool_name",
@@ -163,6 +171,8 @@ class OobFunctionCallRequestResolver {
         val CALL_TOOL_META_KEYS = setOf(
             "function_id",
             "functionId",
+            "reusable_command_id",
+            "reusableCommandId",
             "oob_function_id",
             "oobFunctionId",
             "tool_name",

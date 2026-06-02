@@ -99,8 +99,9 @@ class OobFunctionFrontendSessionController(
 
         suspend fun update(progress: String) {
             throwIfStopRequested()
+            val progressText = progress.trim().ifBlank { label }.take(48)
             val message = helper.localized(
-                "复用指令：${progress.trim().ifBlank { label }.take(48)}"
+                "复用指令：${label.take(32)}"
             )
             runCatching {
                 withContext(Dispatchers.Main) {
@@ -108,7 +109,7 @@ class OobFunctionFrontendSessionController(
                     DraggableBallInstance.setDoing(
                         message = message,
                         isShowTakeOver = false,
-                        subMessage = helper.localized("执行中"),
+                        subMessage = helper.localized(progressText),
                         isShowStop = true,
                         isTouchable = true
                     )

@@ -146,8 +146,17 @@ object DraggableBallInstance {
             if (view.isAttachedToWindow) {
                 view.cancelAnimations()
                 if (forceOnTop) {
-                    windowManager.removeView(view)
-                    windowManager.addView(view, instance.catDialogShowInfoViewParams)
+                    runCatching {
+                        windowManager.removeViewImmediate(view)
+                        windowManager.addView(view, instance.catDialogShowInfoViewParams)
+                    }.getOrElse { error ->
+                        OmniLog.w(TAG, "$caller showInfoView top refresh fallback: ${error.message}")
+                        if (view.isAttachedToWindow) {
+                            windowManager.updateViewLayout(view, instance.catDialogShowInfoViewParams)
+                        } else {
+                            windowManager.addView(view, instance.catDialogShowInfoViewParams)
+                        }
+                    }
                 } else {
                     windowManager.updateViewLayout(view, instance.catDialogShowInfoViewParams)
                 }

@@ -1034,6 +1034,88 @@ Actual output:
   );
 
   test(
+    'agent enhancement uses input text step names only as binding fallback',
+    () async {
+      final fallback = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+        runId: 'run-xhs-search',
+        title: '小红书搜索关键词',
+        payload: const {'goal': '小红书搜索关键词'},
+        cards: [
+          card('open_app', const {'package_name': 'com.xingin.xhs'}),
+          card('click', const {'x': 300, 'y': 400}),
+          card('input_text', const {
+            'text': '彩票',
+            'target_description': '搜索框',
+          }),
+        ],
+        useEnglish: false,
+      );
+
+      final enhanced =
+          await RunLogReusableFunctionConverter.applyLabelEnhancementAsync({
+            'parameters': [
+              {
+                'name': 'input_text_3',
+                'type': 'string',
+                'description': '小红书搜索关键词',
+                'default': '彩票',
+              },
+            ],
+          }, fallback);
+
+      final parameters = (enhanced['parameters'] as List).cast<Map>();
+      expect(parameters.map((item) => item['name']), isNot(contains('input_text_3')));
+      final searchQuery = parameters.firstWhere(
+        (item) => item['name'] == 'search_query',
+      );
+      expect(
+        searchQuery['bindings'],
+        contains(r'$.execution.steps[2].args.text'),
+      );
+    },
+  );
+
+  test(
+    'agent enhancement keeps semantic binding into nested function arguments',
+    () async {
+      final fallback = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+        runId: 'run-nested-function-search',
+        title: '小红书搜索关键词',
+        payload: const {'goal': '小红书搜索关键词'},
+        cards: [
+          card('call_function', const {
+            'function_id': 'child_search',
+            'arguments': {'query': '彩票'},
+          }),
+        ],
+        useEnglish: false,
+      );
+
+      final enhanced =
+          await RunLogReusableFunctionConverter.applyLabelEnhancementAsync({
+            'parameters': [
+              {
+                'name': 'search_query',
+                'type': 'string',
+                'description': '搜索关键词',
+                'default': '彩票',
+                'bindings': [r'$.execution.steps[0].args.arguments.query'],
+              },
+            ],
+          }, fallback);
+
+      final parameters = (enhanced['parameters'] as List).cast<Map>();
+      final searchQuery = parameters.firstWhere(
+        (item) => item['name'] == 'search_query',
+      );
+      expect(
+        searchQuery['bindings'],
+        contains(r'$.execution.steps[0].args.arguments.query'),
+      );
+    },
+  );
+
+  test(
     'agent enhancement annotates cleanup candidates without rewriting execution',
     () async {
       final fallback = RunLogReusableFunctionConverter.buildLocalFunctionJson(

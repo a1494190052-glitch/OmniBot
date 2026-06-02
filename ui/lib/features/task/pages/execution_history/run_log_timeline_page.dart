@@ -1205,94 +1205,6 @@ class _RunLogFunctionStatusStrip extends StatelessWidget {
   }
 }
 
-class _StepFunctionStatusStrip extends StatelessWidget {
-  const _StepFunctionStatusStrip({
-    required this.isConverting,
-    required this.spec,
-    required this.message,
-    required this.error,
-    required this.onView,
-  });
-
-  final bool isConverting;
-  final RunLogReusableFunctionSpec? spec;
-  final String? message;
-  final String? error;
-  final VoidCallback? onView;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.omniPalette;
-    final hasError = error?.trim().isNotEmpty == true;
-    final color = hasError
-        ? _errorColor(context)
-        : spec != null
-        ? _successColor(context)
-        : _routeColor(context);
-    final detail = _firstNonBlank([
-      error,
-      message,
-      spec?.name,
-      spec?.functionId,
-    ]);
-    return Container(
-      key: const ValueKey('run-log-step-function-status-strip'),
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(10, 9, 8, 9),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: context.isDarkTheme ? 0.16 : 0.08),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withValues(alpha: 0.24)),
-      ),
-      child: Row(
-        children: [
-          if (isConverting)
-            SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(strokeWidth: 2, color: color),
-            )
-          else
-            Icon(
-              hasError
-                  ? Icons.error_outline_rounded
-                  : Icons.auto_awesome_rounded,
-              size: 18,
-              color: color,
-            ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              detail.isEmpty
-                  ? _text(
-                      context,
-                      '此步复用指令已生成',
-                      'Step reusable command generated',
-                    )
-                  : detail,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 12,
-                height: 1.25,
-                fontWeight: FontWeight.w600,
-                color: palette.textPrimary,
-              ),
-            ),
-          ),
-          if (spec != null && !isConverting)
-            TextButton.icon(
-              key: const ValueKey('run-log-step-function-open-detail'),
-              onPressed: onView,
-              icon: const Icon(Icons.visibility_outlined, size: 16),
-              label: Text(_text(context, '查看', 'View')),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
 class _RunLogTimelineEmptyNotice extends StatelessWidget {
   const _RunLogTimelineEmptyNotice({
     required this.icon,
@@ -2316,7 +2228,6 @@ Future<void> _showFunctionStepDetail(
       ]),
       title: _firstNonBlank([card['title'], card['summary']]),
       payload: <String, dynamic>{'source': 'function_step', 'card': card},
-      enableConvertStep: false,
     ),
   );
 }
@@ -2330,7 +2241,6 @@ class _StepDetailSheet extends StatefulWidget {
     required this.title,
     required this.payload,
     this.baseUrl,
-    this.enableConvertStep = true,
   });
 
   final Map<String, dynamic> card;
@@ -2340,19 +2250,12 @@ class _StepDetailSheet extends StatefulWidget {
   final String title;
   final Map<String, dynamic> payload;
   final String? baseUrl;
-  final bool enableConvertStep;
 
   @override
   State<_StepDetailSheet> createState() => _StepDetailSheetState();
 }
 
 class _StepDetailSheetState extends State<_StepDetailSheet> {
-  bool _isConvertingStep = false;
-  RunLogReusableFunctionSpec? _generatedStepSpec;
-  String? _generatedStepRunId;
-  String? _stepConversionMessage;
-  String? _stepConversionError;
-
   @override
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
@@ -2454,42 +2357,6 @@ class _StepDetailSheetState extends State<_StepDetailSheet> {
                               ],
                             ),
                           ),
-                          if (widget.enableConvertStep)
-                            Tooltip(
-                              message: _text(
-                                context,
-                                '转为复用指令',
-                                'Convert this step',
-                              ),
-                              child: IconButton(
-                                icon: _isConvertingStep
-                                    ? SizedBox(
-                                        width: 18,
-                                        height: 18,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: palette.textSecondary,
-                                        ),
-                                      )
-                                    : const Icon(Icons.auto_awesome_rounded),
-                                color: palette.textSecondary,
-                                onPressed: _isConvertingStep
-                                    ? null
-                                    : () => _convertThisStep(snapshot),
-                              ),
-                            ),
-                          Tooltip(
-                            message: _text(context, '复制本步文本', 'Copy this step'),
-                            child: IconButton(
-                              icon: const Icon(Icons.content_copy_rounded),
-                              color: palette.textSecondary,
-                              onPressed: () => _copyText(
-                                context,
-                                snapshot.toTranscript(),
-                                _text(context, '已复制本步文本', 'Copied this step'),
-                              ),
-                            ),
-                          ),
                           IconButton(
                             icon: const Icon(Icons.close_rounded),
                             color: palette.textSecondary,
@@ -2528,20 +2395,6 @@ class _StepDetailSheetState extends State<_StepDetailSheet> {
                                     baseUrl: widget.baseUrl,
                                   );
                                 },
-                              ),
-                              const SizedBox(height: 12),
-                            ],
-                            if (_isConvertingStep ||
-                                _generatedStepSpec != null ||
-                                _stepConversionError != null) ...[
-                              _StepFunctionStatusStrip(
-                                isConverting: _isConvertingStep,
-                                spec: _generatedStepSpec,
-                                message: _stepConversionMessage,
-                                error: _stepConversionError,
-                                onView: _generatedStepSpec == null
-                                    ? null
-                                    : _openGeneratedStepSpecSheet,
                               ),
                               const SizedBox(height: 12),
                             ],
@@ -2748,83 +2601,6 @@ class _StepDetailSheetState extends State<_StepDetailSheet> {
         ),
       ),
     );
-  }
-
-  Future<void> _convertThisStep(_RunLogStepSnapshot snapshot) async {
-    if (_isConvertingStep) return;
-    setState(() {
-      _isConvertingStep = true;
-      _stepConversionMessage = _text(
-        context,
-        '正在生成此步复用指令',
-        'Generating step command',
-      );
-      _stepConversionError = null;
-      _generatedStepSpec = null;
-      _generatedStepRunId = null;
-    });
-    final stepRunId = '${widget.runId}-step-${snapshot.stepNumber}';
-    final stepTitle = snapshot.title.isNotEmpty
-        ? snapshot.title
-        : (snapshot.toolName.isNotEmpty
-              ? snapshot.toolName
-              : 'Step ${snapshot.stepNumber}');
-    try {
-      final spec = await RunLogReusableFunctionConverter.convert(
-        runId: stepRunId,
-        title: stepTitle,
-        payload: {
-          ...widget.payload,
-          'goal': stepTitle,
-          'operation_description': stepTitle,
-          'source_run_id': widget.runId,
-          'source_step_number': snapshot.stepNumber,
-        },
-        cards: [widget.card],
-        useAi: false,
-        useEnglish: _localeValue(context, zh: false, en: true),
-      );
-      if (!mounted) return;
-      setState(() {
-        _isConvertingStep = false;
-        _generatedStepSpec = spec;
-        _generatedStepRunId = stepRunId;
-        _stepConversionMessage = spec.warning?.trim().isNotEmpty == true
-            ? spec.warning
-            : _text(context, '此步复用指令已生成', 'Step reusable command generated');
-        _stepConversionError = null;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isConvertingStep = false;
-        _generatedStepRunId = stepRunId;
-        _stepConversionMessage = _text(context, '生成失败', 'Generation failed');
-        _stepConversionError = e.toString();
-      });
-    }
-  }
-
-  Future<void> _openGeneratedStepSpecSheet() async {
-    final spec = _generatedStepSpec;
-    if (spec == null) return;
-    await showModalBottomSheet<void>(
-      context: context,
-      useRootNavigator: true,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withValues(alpha: 0.28),
-      builder: (_) => _ReusableFunctionSpecSheet(
-        spec: spec,
-        runId: _generatedStepRunId ?? '${widget.runId}-step',
-        baseUrl: widget.baseUrl,
-      ),
-    );
-  }
-
-  void _copyText(BuildContext context, String text, String successMessage) {
-    Clipboard.setData(ClipboardData(text: text));
-    showToast(successMessage, type: ToastType.success);
   }
 }
 

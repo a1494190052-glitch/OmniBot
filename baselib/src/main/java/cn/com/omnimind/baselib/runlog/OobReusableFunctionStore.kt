@@ -234,6 +234,11 @@ object OobReusableFunctionStore {
         val spec = mutableJsonMap(sanitizeMap(functionSpec))
         val resolvedArguments = linkedMapOf<String, Any?>()
         val bindingResults = mutableListOf<Map<String, Any?>>()
+        val suppliedArgumentNames = arguments.keys
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+        val suppliedArgumentStatus = linkedMapOf<String, LinkedHashMap<String, Any?>>()
         val missingRequired = mutableListOf<String>()
         val legacyParameters = spec["parameters"] as? List<*> ?: emptyList<Any?>()
         if (legacyParameters.isNotEmpty()) {
@@ -258,13 +263,30 @@ object OobReusableFunctionStore {
                 }
                 resolvedArguments[name] = value
                 val bindings = listArg(parameter["bindings"])
+                var appliedCount = 0
                 bindings.forEach { rawBinding ->
                     val binding = rawBinding?.toString()?.trim().orEmpty()
                     if (binding.isEmpty()) return@forEach
+                    val applied = setJsonPathValue(spec, binding, value)
+                    if (applied) appliedCount += 1
                     bindingResults += linkedMapOf(
                         "parameter" to name,
                         "binding" to binding,
-                        "applied" to setJsonPathValue(spec, binding, value)
+                        "applied" to applied
+                    )
+                }
+                if (hasCallArgument) {
+                    suppliedArgumentStatus[name] = linkedMapOf(
+                        "name" to name,
+                        "declared" to true,
+                        "binding_count" to bindings.size,
+                        "applied_count" to appliedCount,
+                        "applied" to (appliedCount > 0),
+                        "reason" to when {
+                            appliedCount > 0 -> "bound"
+                            bindings.isEmpty() -> "no_binding_path"
+                            else -> "binding_path_not_applied"
+                        },
                     )
                 }
             }
@@ -293,13 +315,56 @@ object OobReusableFunctionStore {
                     return@forEach
                 }
                 resolvedArguments[name] = value
-                parameterBindings(name, parameter, spec).forEach { binding ->
+                val bindings = parameterBindings(name, parameter, spec)
+                var appliedCount = 0
+                bindings.forEach { binding ->
+                    val applied = setJsonPathValue(spec, binding, value)
+                    if (applied) appliedCount += 1
                     bindingResults += linkedMapOf(
                         "parameter" to name,
                         "binding" to binding,
-                        "applied" to setJsonPathValue(spec, binding, value)
+                        "applied" to applied
                     )
                 }
+                if (hasCallArgument) {
+                    suppliedArgumentStatus[name] = linkedMapOf(
+                        "name" to name,
+                        "declared" to true,
+                        "binding_count" to bindings.size,
+                        "applied_count" to appliedCount,
+                        "applied" to (appliedCount > 0),
+                        "reason" to when {
+                            appliedCount > 0 -> "bound"
+                            bindings.isEmpty() -> "no_binding_path"
+                            else -> "binding_path_not_applied"
+                        },
+                    )
+                }
+            }
+        }
+
+        suppliedArgumentNames.forEach { name ->
+            suppliedArgumentStatus.putIfAbsent(
+                name,
+                linkedMapOf(
+                    "name" to name,
+                    "declared" to false,
+                    "binding_count" to 0,
+                    "applied_count" to 0,
+                    "applied" to false,
+                    "reason" to "argument_not_declared",
+                )
+            )
+        }
+        val unboundArguments = suppliedArgumentStatus.values
+            .filter { it["applied"] != true }
+            .map { linkedMapOf<String, Any?>().apply { putAll(it) } }
+        val bindingAppliedCount = bindingResults.count { it["applied"] == true }
+        val suppliedBindingAppliedCount = suppliedArgumentStatus.values.sumOf { status ->
+            when (val count = status["applied_count"]) {
+                is Number -> count.toInt()
+                is String -> count.toIntOrNull() ?: 0
+                else -> 0
             }
         }
 
@@ -320,6 +385,11 @@ object OobReusableFunctionStore {
             put("arguments", sanitizeMap(arguments))
             put("resolved_arguments", resolvedArguments)
             put("binding_results", bindingResults)
+            put("supplied_argument_names", suppliedArgumentNames)
+            put("argument_binding_status", suppliedArgumentStatus.values.toList())
+            put("unbound_arguments", unboundArguments)
+            put("binding_applied_count", bindingAppliedCount)
+            put("supplied_binding_applied_count", suppliedBindingAppliedCount)
             put("missing_required_arguments", missingRequired)
             put("materialized_at", System.currentTimeMillis().toString())
             put("runner", RUNNER)
@@ -597,7 +667,11 @@ object OobReusableFunctionStore {
                         map[token.key] = value
                         return true
                     }
-                    val child = map[token.key] ?: return false
+                    val child = map[token.key] ?: if (token.index == null && !isLast) {
+                        linkedMapOf<String, Any?>().also { map[token.key] = it }
+                    } else {
+                        return false
+                    }
                     if (token.index == null) {
                         child
                     } else {

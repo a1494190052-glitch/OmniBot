@@ -123,6 +123,59 @@ class SkillRuntimeBehaviorTest {
     }
 
     @Test
+    fun resolveMatchesApkInspectorProjectRequests() {
+        val matches = SkillTriggerMatcher.resolveMatches(
+            userMessage = "把 APK 分享给 OOB，端上解析包名、签名、权限、组件、assets、strings、URL、native so，做成 APK 快速体检台",
+            entries = listOf(
+                entry(
+                    id = "apk-inspector-project",
+                    description = "Forge and maintain OOB APK Inspector workbench workflows."
+                ),
+                entry(
+                    id = "oob-project",
+                    description = "OOB Workbench Project 完整生命周期：新建、更新、审查。Use when the user says \"帮我做一个\"."
+                )
+            )
+        )
+
+        assertEquals("apk-inspector-project", matches.firstOrNull()?.entry?.id)
+    }
+
+    @Test
+    fun resolveMatchesApkInspectorSelfUpdateRequests() {
+        val matches = SkillTriggerMatcher.resolveMatches(
+            userMessage = "APK 体检台的 project-owned skill 怎么维护自己的风险规则和更新协议？",
+            entries = listOf(
+                entry(
+                    id = "apk-inspector-project",
+                    description = "Forge and maintain OOB APK Inspector workbench workflows."
+                ),
+                entry(
+                    id = "skill-creator",
+                    description = "Guide for creating and updating effective Omnibot skills."
+                )
+            )
+        )
+
+        assertTrue(matches.any { it.entry.id == "apk-inspector-project" })
+    }
+
+    @Test
+    fun resolveMatchesApkInspectorDoesNotMatchPlainProjectRequests() {
+        val matches = SkillTriggerMatcher.resolveMatches(
+            userMessage = "帮我做一个支出记录 Project，后面再改一下界面",
+            entries = listOf(
+                entry(
+                    id = "apk-inspector-project",
+                    description = "Forge and maintain OOB APK Inspector workbench workflows. Use for project-owned self-update rules."
+                )
+            )
+        )
+
+        assertTrue(matches.isEmpty())
+    }
+
+    @Test
     fun resolveMatchesHatchPetFromStructuredChinesePetPrompt() {
         val matches = SkillTriggerMatcher.resolveMatches(
             userMessage = """

@@ -24,7 +24,9 @@ class OobFunctionRepository(
     )
 ) {
     fun register(functionSpec: Map<String, Any?>): Map<String, Any?> {
-        val rawSpec = OobFunctionJson.sanitizeMap(functionSpec)
+        val rawSpec = OobFunctionParameterBindingNormalizer.normalize(
+            OobFunctionJson.sanitizeMap(functionSpec)
+        )
         val rawFunctionId = functionIdFromSpec(rawSpec)
         if (rawFunctionId.isEmpty()) {
             return errorPayload(
@@ -118,6 +120,8 @@ class OobFunctionRepository(
             "agent_visible" to agentVisible,
             "visibility" to visibility(spec),
             "runner" to OobFunctionSpecVocabulary.REGISTRY_RUNNER_AGENT_REUSABLE_FUNCTION,
+            "parameter_binding_normalization" to OobFunctionJson.mapArg(spec["metadata"])
+                ["oob_parameter_binding_normalization"],
             "oob_function_as_tool_enabled" to
                 AgentToolFeatureStore.isOobFunctionAsToolEnabled(context),
             "workspace" to workspaceResult,

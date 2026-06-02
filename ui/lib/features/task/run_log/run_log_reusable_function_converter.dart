@@ -1134,7 +1134,8 @@ Requirements:
 - Preserve execution.steps order, tool names, and key args. Do not invent tools that do not exist.
 - You may rewrite name/description to make it a clearer reusable command name.
 - You may refine parameters: abstract hard-coded user input, search terms, message text, URLs, and target objects into parameters; do not abstract coordinate x/y into user parameters.
-- Every parameter must include name/type/description/bindings/default. bindings must be a JSONPath string array pointing to execution.steps[*].args.
+- Every parameter must include name/type/description/bindings/default. bindings must be a JSONPath string array pointing to leaf fields under execution.steps[*].args, including nested call_function arguments such as execution.steps[*].args.arguments.query.
+- Parameter names must be semantic, for example contact_name, search_query, message_text, target_date, or target_url. Do not use mechanical names such as input_text_3 as final parameter names.
 - Preserve or improve step executor/model_free/scriptable/omniflow_action/callable_tool/agent_call/validation/fallback fields.
 - Keep model_free omniflow actions model-free; do not turn click/scroll/input_text/open_app/back/home/hot_key into agent steps.
 - Drop legacy wait cards. Page settling is handled internally by OmniFlow/VLM stability logic and must not become a replay step.
@@ -1156,7 +1157,8 @@ $compact
 - 保留 execution.steps 的顺序、工具名和关键 args，不要编造不存在的工具。
 - 可以重写 name/description，使其更像复用指令名称。
 - 可以整理 parameters：把硬编码的用户输入、搜索词、消息文本、URL、目标对象抽象成参数；不要把坐标 x/y 抽象成用户参数。
-- 每个 parameter 必须包含 name/type/description/bindings/default，其中 bindings 是 JSONPath 字符串数组，指向 execution.steps[*].args。
+- 每个 parameter 必须包含 name/type/description/bindings/default，其中 bindings 是 JSONPath 字符串数组，指向 execution.steps[*].args 下的叶子字段，也可以指向嵌套 call_function 的 arguments，例如 execution.steps[*].args.arguments.query。
+- parameter name 必须有语义，例如 contact_name、search_query、message_text、target_date 或 target_url。不要把 input_text_3 这类机械名作为最终参数名。
 - 保留或优化每步的 executor/model_free/scriptable/omniflow_action/callable_tool/agent_call/validation/fallback 字段。
 - 保持 model_free omniflow 动作无模型执行，不要把 click/scroll/input_text/open_app/back/home/hot_key 改成 agent 步骤。
 - 丢弃旧版 wait 卡片。页面停留由 OmniFlow/VLM 内部稳定逻辑处理，不能生成回放步骤。
@@ -1289,9 +1291,10 @@ Return exactly one JSON object. Use this example shape:
 Rules:
 - Do not use Markdown or explanations.
 - Do not change function_id, tools, executors, arguments, parameters, validation, fallback, or step order.
-- You may add or rename parameter descriptors only from candidate_bindings in the input digest. Do not bind coordinates, bounds, widths, heights, or invented paths.
+- You may add or rename parameter descriptors only from candidate_bindings in the input digest. Candidate bindings may target nested call_function arguments. Do not bind coordinates, bounds, widths, heights, or invented paths.
 - Do not rewrite execution.steps or tool arguments. Parameter abstraction is metadata + bindings only; the runner applies fresh arguments later.
 - Prefer reusable slots for user-entered text, contact names, phone numbers, search terms, message text, dates, URLs, and target object names.
+- Parameter names must be semantic, for example contact_name, search_query, message_text, target_date, or target_url. Do not use mechanical names such as input_text_3 as final parameter names.
 - Use agent_reuse only as non-executable metadata for key actions, reuse conditions, avoid conditions, success signal, and contiguous segment candidates.
 - Segment candidates must use inclusive contiguous step indexes from the existing execution.steps. Do not claim a segment is already registered as a new command.
 - Write a compact but detailed description that helps the Agent decide when to call this Function later. Cover what user-visible operations it performs, required app/page conditions, runtime inputs, and success signal when known.
@@ -1318,6 +1321,7 @@ ${_labelEnhancementSkillContract(skillContract: skillContract, section: 'all')}
 2. 每个 step 的标题/描述/动作用途标注。
 3. 只从 candidate_bindings 中选择运行时参数。
 4. 非执行的 agent_reuse 元数据。
+参数名必须有语义，例如 contact_name、search_query、message_text、target_date 或 target_url；不要把 input_text_3 这类机械名作为最终参数名。
 
 只返回一个 JSON object。使用这个样例结构：
 {
@@ -1380,7 +1384,7 @@ ${_labelEnhancementSkillContract(skillContract: skillContract, section: 'all')}
 规则：
 - 不要 Markdown，不要解释。
 - 不要改 function_id、tool、executor、arguments、parameters、validation、fallback 或 step 顺序。
-- 可以新增或重命名参数描述，但只能从输入摘要的 candidate_bindings 中选择。不要绑定坐标、bounds、宽高或不存在的路径。
+- 可以新增或重命名参数描述，但只能从输入摘要的 candidate_bindings 中选择；candidate_bindings 可以指向嵌套 call_function 的 arguments。不要绑定坐标、bounds、宽高或不存在的路径。
 - 不要重写 execution.steps 或工具参数。参数抽象只落成 metadata + bindings，回放时由 runner 注入新的运行时参数。
 - 优先抽象用户输入文本、联系人姓名、手机号、搜索词、消息正文、日期、URL 和目标对象名。
 - agent_reuse 只作为非执行元数据，用来记录 key action、复用条件、避免条件、成功信号和连续 segment 候选。
@@ -1538,6 +1542,7 @@ Return exactly one JSON object:
 Rules:
 - Return raw JSON only. Do not use Markdown or explanations.
 - Bindings must be copied exactly from candidate_bindings[*].binding.
+- A binding may point to a nested call_function argument, for example \$.execution.steps[1].args.arguments.search_query.
 - Do not bind coordinates, bounds, widths, heights, or invented paths.
 - Prefer slots for user-entered text, contact names, phone numbers, search terms, message text, dates, URLs, and target object names.
 - Do not include name, steps, execution, tools, args, or agent_reuse.
@@ -1558,6 +1563,7 @@ ${_labelEnhancementSkillContract(skillContract: skillContract, section: 'paramet
 规则：
 - 只返回原始 JSON。不要 Markdown，不要解释。
 - bindings 必须从 candidate_bindings[*].binding 原样复制。
+- binding 可以指向嵌套 call_function 参数，例如 \$.execution.steps[1].args.arguments.search_query。
 - 不要绑定坐标、bounds、宽高或不存在的路径。
 - 优先抽象用户输入文本、联系人姓名、手机号、搜索词、消息正文、日期、URL 和目标对象名。
 - 不要包含 name、steps、execution、tools、args 或 agent_reuse。
@@ -2198,7 +2204,18 @@ $fallback
       if (parameter.isEmpty) {
         continue;
       }
-      final directTargets = _validBindingTargets(parameter['bindings'], steps)
+      final inferredBindings = _fallbackInputTextBindingsForParameter(
+        parameter,
+        steps,
+      );
+      final explicitTargets = _validBindingTargets(
+        parameter['bindings'],
+        steps,
+      );
+      final candidateTargets = explicitTargets.isNotEmpty
+          ? explicitTargets
+          : _validBindingTargets(inferredBindings, steps);
+      final directTargets = candidateTargets
           .where((target) => !consumedBindings.contains(target.binding))
           .toList(growable: false);
       if (directTargets.isEmpty) {
@@ -2215,12 +2232,11 @@ $fallback
         continue;
       }
       final defaultValue = _jsonSafe(compatibleTargets.first.value);
-      final baseName = _firstNonBlank([
-        parameter['name'],
-        parameter['id'],
-        parameter['role'],
-        _parameterBaseName(compatibleTargets.first.leafKey, ''),
-      ]);
+      final baseName = _semanticParameterNameForTarget(
+        parameter,
+        compatibleTargets.first,
+        steps,
+      );
       final name = _uniqueParameterName(baseName, usedNames);
       final description = _firstNonBlank([
         parameter['description'],
@@ -3408,6 +3424,106 @@ List<_ParameterBindingTarget> _validBindingTargets(
     output.add(target);
   }
   return output;
+}
+
+List<String> _fallbackInputTextBindingsForParameter(
+  Map<String, dynamic> parameter,
+  List<Map<String, dynamic>> steps,
+) {
+  final rawName = _firstNonBlank([parameter['name'], parameter['id']]);
+  final match = RegExp(
+    r'^input[_-]?text(?:[_-]?(\d+))?$',
+    caseSensitive: false,
+  ).firstMatch(rawName);
+  if (match == null) {
+    return const <String>[];
+  }
+  final explicitStepNumber = int.tryParse(match.group(1) ?? '');
+  final stepIndex = explicitStepNumber != null
+      ? explicitStepNumber - 1
+      : steps.indexWhere(_isTextInputStep);
+  if (stepIndex < 0 || stepIndex >= steps.length) {
+    return const <String>[];
+  }
+  final step = steps[stepIndex];
+  if (!_isTextInputStep(step)) {
+    return const <String>[];
+  }
+  final args = _asStringKeyMap(step['args']);
+  return const ['text', 'content', 'value']
+      .where(args.containsKey)
+      .map((key) => '\$.execution.steps[$stepIndex].args.$key')
+      .toList(growable: false);
+}
+
+String _semanticParameterNameForTarget(
+  Map<String, dynamic> parameter,
+  _ParameterBindingTarget target,
+  List<Map<String, dynamic>> steps,
+) {
+  final rawName = _firstNonBlank([
+    parameter['name'],
+    parameter['id'],
+    parameter['role'],
+    _parameterBaseName(target.leafKey, ''),
+  ]);
+  if (!_isGenericInputTextParameterName(rawName)) {
+    return rawName;
+  }
+  final step = target.stepIndex >= 0 && target.stepIndex < steps.length
+      ? steps[target.stepIndex]
+      : const <String, dynamic>{};
+  final args = _asStringKeyMap(step['args']);
+  final hint = _firstNonBlank([
+    parameter['description'],
+    parameter['summary'],
+    parameter['role'],
+    args['target_description'],
+    args['targetDescription'],
+    args['label'],
+    args['hint'],
+    args['placeholder'],
+    step['title'],
+    step['description'],
+    step['summary'],
+    target.leafKey,
+  ]);
+  return _semanticParameterNameFromHint(hint, target.stepIndex);
+}
+
+bool _isGenericInputTextParameterName(String name) {
+  return RegExp(
+    r'^input[_-]?text(?:[_-]?\d+)?$',
+    caseSensitive: false,
+  ).hasMatch(name.trim());
+}
+
+String _semanticParameterNameFromHint(String hint, int stepIndex) {
+  final lower = hint.toLowerCase();
+  if (lower.contains('search') ||
+      lower.contains('query') ||
+      lower.contains('keyword') ||
+      hint.contains('搜索') ||
+      hint.contains('关键词')) {
+    return 'search_query';
+  }
+  if (lower.contains('phone') || hint.contains('电话') || hint.contains('手机号')) {
+    return 'phone_number';
+  }
+  if (lower.contains('email') || hint.contains('邮箱')) {
+    return 'email';
+  }
+  if (lower.contains('address') || hint.contains('地址')) {
+    return 'address';
+  }
+  if (lower.contains('name') || hint.contains('姓名') || hint.contains('联系人')) {
+    return 'contact_name';
+  }
+  final normalized = _parameterBaseName(hint, 'runtime_text');
+  if (normalized.isNotEmpty && normalized != 'runtime_text_value') {
+    return normalized;
+  }
+  return 'entered_text_step_${stepIndex + 1}';
 }
 
 _ParameterBindingTarget? _bindingTargetForPath(

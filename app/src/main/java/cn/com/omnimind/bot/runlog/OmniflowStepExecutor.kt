@@ -1406,6 +1406,25 @@ object OmniflowStepExecutor {
         val interactive: Boolean get() = clickable || focusable || editable || scrollable
     }
 
+    private fun UiNode.toNodeInfo(rootArea: Float) = OmniflowNodeMatcher.NodeInfo(
+        resourceId = resourceId,
+        resourceTail = resourceTail,
+        text = text,
+        contentDesc = contentDesc,
+        hintText = hintText,
+        classSuffix = classSuffix,
+        clickable = clickable,
+        focusable = focusable,
+        editable = editable,
+        scrollable = scrollable,
+        checkable = checkable,
+        enabled = enabled,
+        selected = selected,
+        areaRatio = area / rootArea.coerceAtLeast(1f),
+        centerX = centerX,
+        centerY = centerY,
+    )
+
     private data class PageModel(
         val rootBounds: Rect,
         val nodes: List<UiNode>,
@@ -1687,94 +1706,63 @@ object OmniflowStepExecutor {
         sourceNode: UiNode,
     ): TargetMatch? {
         val anchors = buildAnchors(sourcePage, targetPage)
-        if (anchors.isEmpty()) {
-            val fallback = directSimilarityFallback(targetPage, sourceNode) ?: return null
-            return fallback.copy(
-                debug = fallback.debug + mapOf(
-                    "source_element" to summarizeNode(sourceNode),
-                    "anchor_count" to 0,
-                )
-            )
-        }
-
         val pageDiagonal = hypot(targetPage.rootBounds.width, targetPage.rootBounds.height).coerceAtLeast(1f)
         val scaleX = targetPage.rootBounds.width / (sourcePage.rootBounds.width + 1e-6f)
         val scaleY = targetPage.rootBounds.height / (sourcePage.rootBounds.height + 1e-6f)
 
-        var bestNode: UiNode? = null
-        var bestDirect = 0f
-        var bestSpatial = 0f
-        var bestScore = 0f
-        var bestVotes: List<Map<String, Any?>> = emptyList()
+        val candidates = targetPage.nodes.filter { it.visible && it.enabled && it.area > 1f }
+        if (candidates.isEmpty()) return directSimilarityFallback(targetPage, sourceNode)
 
-        for (candidate in targetPage.nodes) {
-            val directSimilarity = nodeSimilarity(sourceNode, candidate)
-            if (directSimilarity <= 0f) continue
+        val tgtRootArea = targetPage.rootBounds.area.coerceAtLeast(1f)
+        val srcRootArea = sourcePage.rootBounds.area.coerceAtLeast(1f)
+        val srcInfo = sourceNode.toNodeInfo(srcRootArea)
+        val srcVec = OmniflowNodeMatcher.elementVector(srcInfo)
+        val candidateInfos = candidates.map { it.toNodeInfo(tgtRootArea) }
+        val candidateVecs = candidateInfos.map { OmniflowNodeMatcher.elementVector(it) }
 
-            val votes = mutableListOf<Map<String, Any?>>()
-            var contributionSum = 0f
-            for ((anchorIndex, anchor) in anchors.withIndex()) {
-                val predictedX = anchor.target.centerX + (sourceNode.centerX - anchor.source.centerX) * scaleX
-                val predictedY = anchor.target.centerY + (sourceNode.centerY - anchor.source.centerY) * scaleY
-                val distance = hypot(predictedX - candidate.centerX, predictedY - candidate.centerY)
-                val geometryScore = max(0f, 1f - (distance / pageDiagonal))
-                val contribution = anchor.similarity * geometryScore
-                contributionSum += contribution
-                votes += mapOf(
-                    "anchor_index" to anchorIndex,
-                    "anchor_similarity" to anchor.similarity,
-                    "geometry_score" to geometryScore,
-                    "contribution" to contribution,
-                    "predicted_point" to mapOf("x" to predictedX, "y" to predictedY),
-                )
-            }
-            if (votes.isEmpty()) continue
-
-            val spatialScore = contributionSum / votes.size.toFloat()
-            val matchScore = directSimilarity * spatialScore
-            if (matchScore > bestScore) {
-                bestNode = candidate
-                bestDirect = directSimilarity
-                bestSpatial = spatialScore
-                bestScore = matchScore
-                bestVotes = votes.sortedByDescending {
-                    (it["contribution"] as? Number)?.toFloat() ?: 0f
-                }.take(5)
-            }
+        val matcherAnchors = anchors.map { a ->
+            OmniflowNodeMatcher.MatcherAnchor(
+                sourceCenterX = a.source.centerX,
+                sourceCenterY = a.source.centerY,
+                targetCenterX = a.target.centerX,
+                targetCenterY = a.target.centerY,
+                similarity = a.similarity,
+            )
         }
 
-        if (bestNode == null || bestScore < MIN_ANCHOR_MATCH_SCORE) {
+        val result = OmniflowNodeMatcher.matchBayesian(
+            sourceNode = srcInfo,
+            sourceVec = srcVec,
+            candidates = candidateInfos,
+            candidateVecs = candidateVecs,
+            anchors = matcherAnchors,
+            pageDiagonal = pageDiagonal,
+            scaleX = scaleX,
+            scaleY = scaleY,
+        )
+
+        if (result.abstain) {
             val fallback = directSimilarityFallback(targetPage, sourceNode) ?: return null
             return fallback.copy(
                 debug = fallback.debug + mapOf(
                     "source_element" to summarizeNode(sourceNode),
                     "anchor_count" to anchors.size,
-                    "anchor_fallback" to true,
+                    "bayesian" to result.debug,
                 )
             )
         }
 
+        val bestNode = candidates[result.index]
         return TargetMatch(
             node = bestNode,
-            confidence = bestScore,
+            confidence = result.confidence,
             anchorCount = anchors.size,
-            mode = "anchor_projection",
+            mode = result.mode,
             debug = mapOf(
                 "source_element" to summarizeNode(sourceNode),
                 "target_element" to summarizeNode(bestNode),
                 "anchor_count" to anchors.size,
-                "direct_similarity" to bestDirect,
-                "spatial_score" to bestSpatial,
-                "match_score" to bestScore,
-                "anchors" to anchors.take(5).map {
-                    mapOf(
-                        "source" to summarizeNode(it.source),
-                        "target" to summarizeNode(it.target),
-                        "similarity" to it.similarity,
-                    )
-                },
-                "top_votes" to bestVotes,
-            )
+            ) + result.debug
         )
     }
 
@@ -1810,48 +1798,41 @@ object OmniflowStepExecutor {
     ): List<AnchorPair> {
         val sourceNodes = sourcePage.nodes.filter { isAnchorCandidate(it, sourcePage.rootBounds) }
         val targetNodes = targetPage.nodes.filter { isAnchorCandidate(it, targetPage.rootBounds) }
-        if (sourceNodes.isEmpty() || targetNodes.isEmpty()) {
-            return emptyList()
-        }
+        if (sourceNodes.isEmpty() || targetNodes.isEmpty()) return emptyList()
+
+        val srcRootArea = sourcePage.rootBounds.area.coerceAtLeast(1f)
+        val tgtRootArea = targetPage.rootBounds.area.coerceAtLeast(1f)
+        val sourceVecs = sourceNodes.map { OmniflowNodeMatcher.elementVector(it.toNodeInfo(srcRootArea)) }
+        val targetVecs = targetNodes.map { OmniflowNodeMatcher.elementVector(it.toNodeInfo(tgtRootArea)) }
 
         val bestSourceByTarget = mutableMapOf<Int, Pair<UiNode, Float>>()
-        for (target in targetNodes) {
+        for (ti in targetNodes.indices) {
             var bestSource: UiNode? = null
-            var bestSimilarity = 0f
-            for (source in sourceNodes) {
-                val similarity = nodeSimilarity(source, target)
-                if (similarity > bestSimilarity) {
-                    bestSource = source
-                    bestSimilarity = similarity
-                }
+            var bestSim = 0f
+            for (si in sourceNodes.indices) {
+                val sim = OmniflowNodeMatcher.cosine(sourceVecs[si], targetVecs[ti])
+                if (sim > bestSim) { bestSource = sourceNodes[si]; bestSim = sim }
             }
-            if (bestSource != null) {
-                bestSourceByTarget[target.index] = bestSource to bestSimilarity
-            }
+            if (bestSource != null) bestSourceByTarget[targetNodes[ti].index] = bestSource to bestSim
         }
 
         val anchors = mutableListOf<AnchorPair>()
-        for (source in sourceNodes) {
+        for (si in sourceNodes.indices) {
             var bestTarget: UiNode? = null
-            var bestSimilarity = 0f
-            for (target in targetNodes) {
-                val similarity = nodeSimilarity(source, target)
-                if (similarity > bestSimilarity) {
-                    bestTarget = target
-                    bestSimilarity = similarity
-                }
+            var bestSim = 0f
+            for (ti in targetNodes.indices) {
+                val sim = OmniflowNodeMatcher.cosine(sourceVecs[si], targetVecs[ti])
+                if (sim > bestSim) { bestTarget = targetNodes[ti]; bestSim = sim }
             }
-            val reciprocal = bestTarget?.let { target ->
-                bestSourceByTarget[target.index]?.first?.index == source.index
+            val reciprocal = bestTarget?.let { t ->
+                bestSourceByTarget[t.index]?.first?.index == sourceNodes[si].index
             } == true
-            if (bestTarget != null && reciprocal && bestSimilarity >= MIN_ANCHOR_SIMILARITY) {
-                anchors += AnchorPair(source, bestTarget, bestSimilarity)
+            if (bestTarget != null && reciprocal && bestSim >= MIN_ANCHOR_SIMILARITY) {
+                anchors += AnchorPair(sourceNodes[si], bestTarget, bestSim)
             }
         }
 
-        return anchors
-            .sortedByDescending { it.similarity }
-            .take(maxAnchorCount)
+        return anchors.sortedByDescending { it.similarity }.take(maxAnchorCount)
     }
 
     private fun selectPointSourceNode(
@@ -2247,8 +2228,8 @@ object OmniflowStepExecutor {
     private const val DEFAULT_SCREEN_CENTER_Y = 960f
     private const val DEFAULT_SWIPE_DISTANCE = 600f
     private val BOUNDS_REGEX = Regex("""\[(-?\d+),(-?\d+)]\[(-?\d+),(-?\d+)]""")
-    private const val MAX_ANCHOR_COUNT = 5
-    private const val MIN_ANCHOR_SIMILARITY = 0.45f
+    private const val MAX_ANCHOR_COUNT = OmniflowNodeMatcher.MAX_ANCHOR_COUNT
+    private const val MIN_ANCHOR_SIMILARITY = OmniflowNodeMatcher.MIN_ANCHOR_SIMILARITY
     private const val MIN_ANCHOR_MATCH_SCORE = 0.12f
     private const val MIN_DIRECT_FALLBACK_SIMILARITY = 0.86f
     private const val MIN_AD_DISMISS_SCORE = 760f

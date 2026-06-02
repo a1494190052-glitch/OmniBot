@@ -35,6 +35,7 @@ import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -168,10 +169,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
                         "scriptable" to true,
                         "tool" to "oob_function_run",
                         "callable_tool" to "oob_function_run",
-                        "args" to mapOf(
-                            "function_id" to "child_finished",
-                            "arguments" to mapOf("source" to "test"),
-                        ),
+                        "args" to mapOf("function_id" to "child_finished"),
                     )
                 ),
             )
@@ -1017,6 +1015,204 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
             assertEquals("tool", step["executor"])
             assertEquals("call_tool", step["delegated_from"])
             assertEquals("vlm_task", step["tool"])
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `dynamic function tool ignores presentation metadata when binding arguments`() = runBlocking {
+        val context = TempFilesContext()
+        try {
+            val store = WorkspaceFunctionStore(context.root)
+            val spec = functionSpec(
+                functionId = "search_cat",
+                steps = listOf(
+                    finishedStep("done"),
+                ),
+                extras = mapOf(
+                    "parameters" to mapOf(
+                        "type" to "object",
+                        "properties" to mapOf(
+                            "search_query" to mapOf(
+                                "type" to "string",
+                                "x_oob_bindings" to listOf(
+                                    "$.execution.steps[0].args.content",
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+            OobReusableFunctionStore.register(context, spec)
+            assertTrue(store.register(spec)["success"] == true)
+            val handler = handler(context, store)
+            val args = Json.parseToJsonElement(
+                """
+                {
+                  "tool_title": "小红书搜索猫猫",
+                  "reusable_command_id": "search_cat",
+                  "arguments": {
+                    "search_query": "猫猫"
+                  }
+                }
+                """.trimIndent()
+            ).jsonObject
+
+            val result = handler.execute(
+                toolCall = AssistantToolCall(
+                    id = "call_search_cat",
+                    type = "function",
+                    function = cn.com.omnimind.baselib.llm.AssistantToolCallFunction(
+                        name = "search_cat",
+                        arguments = args.toString(),
+                    ),
+                ),
+                args = args,
+                runtimeDescriptor = AgentToolRegistry.RuntimeToolDescriptor(
+                    name = "search_cat",
+                    displayName = "小红书搜索",
+                    toolType = "oob_function",
+                ),
+                env = FakeEnv(context),
+                callback = RecordingToolCardCallback(),
+                toolHandle = NoOpAgentRunControl.beginToolExecution("search_cat", "call_search_cat"),
+            )
+
+            assertTrue(result is ToolExecutionResult.ContextResult)
+            result as ToolExecutionResult.ContextResult
+            assertEquals(true, result.success)
+            assertFalse(result.rawResultJson.contains("tool_title"))
+            assertTrue(result.rawResultJson.contains("search_query"))
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `function arguments can propagate through nested function binding tables`() = runBlocking {
+        val context = TempFilesContext()
+        val backend = RecordingBackend(
+            currentXml = CURRENT_PAGE_XML,
+            currentPackage = "com.example.current",
+            currentActivity = "MainActivity",
+        )
+        try {
+            val store = WorkspaceFunctionStore(context.root)
+            val leaf = functionSpec(
+                functionId = "leaf_input_search",
+                steps = listOf(
+                    mapOf(
+                        "id" to "leaf_input",
+                        "title" to "Input search query",
+                        "kind" to "omniflow_action",
+                        "executor" to "omniflow",
+                        "model_free" to true,
+                        "scriptable" to true,
+                        "tool" to "input_text",
+                        "callable_tool" to "input_text",
+                        "args" to mapOf("text" to "彩票"),
+                    ),
+                ),
+                extras = mapOf(
+                    "parameters" to mapOf(
+                        "type" to "object",
+                        "properties" to mapOf(
+                            "search_query" to mapOf(
+                                "type" to "string",
+                                "x_oob_bindings" to listOf(
+                                    "$.execution.steps[0].args.text",
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+            val middle = functionSpec(
+                functionId = "middle_call_leaf",
+                steps = listOf(
+                    mapOf(
+                        "id" to "middle_call",
+                        "title" to "Call leaf input",
+                        "kind" to "omniflow_function",
+                        "executor" to "omniflow",
+                        "model_free" to true,
+                        "scriptable" to true,
+                        "tool" to "oob_function_run",
+                        "callable_tool" to "oob_function_run",
+                        "args" to mapOf(
+                            "function_id" to "leaf_input_search",
+                            "arguments" to mapOf("search_query" to "彩票"),
+                        ),
+                    ),
+                ),
+                extras = mapOf(
+                    "parameters" to mapOf(
+                        "type" to "object",
+                        "properties" to mapOf(
+                            "search_query" to mapOf(
+                                "type" to "string",
+                                "x_oob_bindings" to listOf(
+                                    "$.execution.steps[0].args.arguments.search_query",
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+            val parent = functionSpec(
+                functionId = "parent_call_middle",
+                steps = listOf(
+                    mapOf(
+                        "id" to "parent_call",
+                        "title" to "Call middle",
+                        "kind" to "omniflow_function",
+                        "executor" to "omniflow",
+                        "model_free" to true,
+                        "scriptable" to true,
+                        "tool" to "oob_function_run",
+                        "callable_tool" to "oob_function_run",
+                        "args" to mapOf(
+                            "function_id" to "middle_call_leaf",
+                            "arguments" to mapOf("search_query" to "彩票"),
+                        ),
+                    ),
+                ),
+                extras = mapOf(
+                    "parameters" to mapOf(
+                        "type" to "object",
+                        "properties" to mapOf(
+                            "search_query" to mapOf(
+                                "type" to "string",
+                                "x_oob_bindings" to listOf(
+                                    "$.execution.steps[0].args.arguments.search_query",
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+            assertTrue(store.register(leaf)["success"] == true)
+            assertTrue(store.register(middle)["success"] == true)
+            OmniflowActionRuntime.useBackendForTesting(backend).use {
+                val run = handler(context, store).runMaterializedFunction(
+                    functionId = "parent_call_middle",
+                    spec = parent,
+                    materializedSpec = OobReusableFunctionStore.materialize(
+                        parent,
+                        mapOf("search_query" to "猫猫"),
+                    ),
+                    allowAgentFallback = false,
+                )
+
+                assertEquals(true, run["success"])
+                assertEquals(listOf("猫猫"), backend.inputTexts)
+                val parentStep = stepResults(run).single()
+                assertEquals("middle_call_leaf", parentStep["nested_function_id"])
+                val middleStepResults = parentStep["step_results"] as List<*>
+                val middleStep = middleStepResults.single() as Map<*, *>
+                assertEquals("leaf_input_search", middleStep["nested_function_id"])
+            }
         } finally {
             context.root.deleteRecursively()
         }

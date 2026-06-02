@@ -18,12 +18,14 @@ private const val USER_SOURCE = "user"
 private const val INSTALL_STATE_INSTALLED = "installed"
 private const val INSTALL_STATE_REMOVED_BUILTIN = "removed_builtin"
 private const val SKILL_REGISTRY_FILE_NAME = ".skill_registry.json"
+private const val APK_INSPECTOR_PROJECT_SKILL_ID = "apk-inspector-project"
 private const val OFFICIAL_SKILLS_GITHUB_REPOSITORY_URL = "https://github.com/omnimind-ai/OmniBotSkills"
 private const val OFFICIAL_SKILLS_CNB_REPOSITORY_URL = "https://cnb.cool/o.a/OmniBotSkills"
 private const val OFFICIAL_SKILLS_DIRECTORY_NAME = "OmniBotSkills"
 private val PROJECT_RELATED_BUILTIN_SKILL_IDS = setOf(
     "oob-project",
-    "oob-web-research"
+    "oob-web-research",
+    APK_INSPECTOR_PROJECT_SKILL_ID
 )
 private val RETIRED_BUILTIN_SKILL_IDS = setOf(
     "oob-native-" + "workbench",
@@ -808,6 +810,12 @@ object SkillTriggerMatcher {
         if (normalizedName.isNotBlank() && normalizedMessage.contains(normalizedName)) {
             score += 0.9
         }
+        if (entry.id == APK_INSPECTOR_PROJECT_SKILL_ID) {
+            if (looksLikeApkInspectorProjectRequest(normalizedMessage)) {
+                score += 1.0
+            }
+            return min(score, 1.5)
+        }
         extractCandidatePhrases(entry.description).forEach { phrase ->
             if (phrase.isNotBlank() && normalizedMessage.contains(normalize(phrase))) {
                 score += 0.35
@@ -857,6 +865,79 @@ object SkillTriggerMatcher {
             "主要颜色"
         ).count { normalizedMessage.contains(normalize(it)) } >= 2
         return hasCreationIntent || hasStructuredPetSpec
+    }
+
+    private fun looksLikeApkInspectorProjectRequest(normalizedMessage: String): Boolean {
+        if (listOf(
+                "apk快速体检台",
+                "apkinspector",
+                "apkinspectorproject",
+                "apkhealthcheck",
+                "apk体检台"
+            ).any { normalizedMessage.contains(normalize(it)) }
+        ) {
+            return true
+        }
+
+        val hasApkTarget = listOf(
+            "apk",
+            ".apk",
+            "安卓安装包",
+            "android安装包",
+            "安装包体检",
+            "安装包分析"
+        ).any { normalizedMessage.contains(normalize(it)) }
+
+        val apkSurfaceHits = listOf(
+            "包名",
+            "签名",
+            "manifest",
+            "权限",
+            "组件",
+            "导出组件",
+            "intent",
+            "assets",
+            "strings",
+            "url",
+            "native",
+            "so",
+            "dex"
+        ).count { normalizedMessage.contains(normalize(it)) }
+
+        val hasInspectionIntent = listOf(
+            "体检",
+            "检测",
+            "解析",
+            "分析",
+            "审计",
+            "逆向",
+            "diff",
+            "可疑",
+            "风险",
+            "报告",
+            "首启",
+            "首次启动",
+            "firstrun",
+            "observe",
+            "inspect",
+            "triage"
+        ).any { normalizedMessage.contains(normalize(it)) }
+
+        val hasForgeOrSkillIntent = listOf(
+            "forge",
+            "skill",
+            "自更新",
+            "更新协议",
+            "维护规则",
+            "维护自己的",
+            "项目自带",
+            "projectowned",
+            "project-owned"
+        ).any { normalizedMessage.contains(normalize(it)) }
+
+        return (hasApkTarget && hasInspectionIntent) ||
+            (hasApkTarget && hasForgeOrSkillIntent) ||
+            (apkSurfaceHits >= 3 && (hasInspectionIntent || hasForgeOrSkillIntent))
     }
 
     private fun extractCandidatePhrases(description: String): List<String> {

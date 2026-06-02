@@ -294,11 +294,15 @@ class ManualRecordingPolicyTest {
         )
         assertTrue(frontendSource.contains("isShowStop = true"))
         assertTrue(frontendSource.contains("isTouchable = true"))
+        assertTrue(frontendSource.contains("val progressText = progress.trim().ifBlank { label }.take(48)"))
+        assertTrue(frontendSource.contains("subMessage = helper.localized(progressText)"))
+        assertFalse(frontendSource.contains("subMessage = helper.localized(\"执行中\")"))
         assertFalse(frontendSource.contains("isShowStop = false"))
         assertFalse(frontendSource.contains("isTouchable = false"))
         val functionHandlerSource = readSource(
             "app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolHandler.kt"
         )
+        assertTrue(functionHandlerSource.contains("frontendSession?.update(\"第 \$stepIndex/\${steps.size} 步 \$stepTitle\")"))
         assertTrue(
             Regex(
                 "frontendSession\\?\\.throwIfStopRequested\\(\\)\\s*" +
@@ -334,8 +338,9 @@ class ManualRecordingPolicyTest {
         assertTrue(taskEventSource.contains("ScreenMaskLoader.loadLockScreenMask()"))
         assertTrue(taskEventSource.contains("forceOnTop = true"))
         assertTrue(draggableSource.contains("forceOnTop: Boolean = false"))
-        assertTrue(draggableSource.contains("windowManager.removeView(view)"))
+        assertTrue(draggableSource.contains("windowManager.removeViewImmediate(view)"))
         assertTrue(draggableSource.contains("windowManager.addView(view, instance.catDialogShowInfoViewParams)"))
+        assertTrue(draggableSource.contains("showInfoView top refresh fallback"))
 
         val stopIndex = catStepSource.indexOf("AgentVlmUiSession.requestStopActiveSession()")
         val completeIndex = catStepSource.indexOf("completeActiveVlmUiSession()")

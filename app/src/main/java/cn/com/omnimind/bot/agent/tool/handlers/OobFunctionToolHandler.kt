@@ -2,6 +2,7 @@ package cn.com.omnimind.bot.agent.tool.handlers
 
 import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
 import cn.com.omnimind.bot.agent.AgentToolJson.mapToJsonElement
+import cn.com.omnimind.bot.omniflow.OobFunctionArgumentBindingValidator
 import cn.com.omnimind.bot.runlog.OmniflowCheckerRule
 import cn.com.omnimind.bot.runlog.OobFunctionSchemaBuilder
 import cn.com.omnimind.bot.runlog.OmniflowStepExecutor
@@ -93,15 +94,17 @@ class OobFunctionToolHandler(
             )
 
         val argsMap = helper.jsonObjectToMap(args)
+        val functionArgs = callRequestResolver.resolve(argsMap) { getSpec(it) != null }.targetArgs
         val missing = cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
-            .missingRequiredArguments(spec, argsMap)
+            .missingRequiredArguments(spec, functionArgs)
         if (missing.isNotEmpty()) {
             return cn.com.omnimind.bot.agent.ToolExecutionResult.Error(
                 toolName,
                 "Missing required arguments: ${missing.joinToString(", ")}"
             )
         }
-        val materializedSpec = cn.com.omnimind.baselib.runlog.OobReusableFunctionStore.materialize(spec, argsMap)
+        val materializedSpec = cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
+            .materialize(spec, functionArgs)
 
         val runPayload = runMaterializedFunction(
             functionId = toolName,
@@ -274,6 +277,25 @@ class OobFunctionToolHandler(
             callStack
         }
         val steps = timing.measure("materialized_steps_ms") { materializedSteps(materializedSpec) }
+        val bindingValidation = timing.measure("argument_binding_validation_ms") {
+            OobFunctionArgumentBindingValidator.validate(materializedSpec)
+        }
+        if (!bindingValidation.success) {
+            return runResultBuilder.withRunnerTiming(
+                runResultBuilder.failedRun(
+                    functionId = functionId,
+                    spec = spec,
+                    auditRunId = auditRunId,
+                    startedAtMs = runStartedAtMs,
+                    errorCode = OobFunctionArgumentBindingValidator.ERROR_CODE,
+                    errorMessage = bindingValidation.errorMessage,
+                    extras = bindingValidation.diagnostics,
+                ),
+                timing.finish()
+            )
+        }
+        val argumentSourcesByStepIndex =
+            OobFunctionArgumentBindingValidator.argumentSourcesByStepIndex(materializedSpec)
         val normalizedResumeFromStep = resumeFromStep.coerceIn(0, steps.size)
         val activeSteps = if (normalizedResumeFromStep > 0) {
             steps.drop(normalizedResumeFromStep)
@@ -556,6 +578,12 @@ class OobFunctionToolHandler(
                 putIfAbsent("started_at_ms", stepStartedAtMs)
                 putIfAbsent("finished_at_ms", stepFinishedAtMs)
                 putIfAbsent("duration_ms", (stepFinishedAtMs - stepStartedAtMs).coerceAtLeast(0))
+                if (OmniflowStepExecutor.actionNameForStep(step) == "input_text") {
+                    argumentSourcesByStepIndex[index]?.let { source ->
+                        put("argument_source", source["argument_source"])
+                        put("argument_binding", source)
+                    }
+                }
             }
             stepResults += timedStepResult
             if (timedStepResult["success"] == false) {
@@ -589,6 +617,7 @@ class OobFunctionToolHandler(
             allowAgentFallback = allowAgentFallback,
             failureReason = failureReason,
         )
+        resultPayload.putAll(OobFunctionArgumentBindingValidator.runtimeDiagnostics(materializedSpec))
         timing.recordElapsed("result_build_ms", resultBuildStartedAt)
         val runFinishedAtMs = System.currentTimeMillis()
         resultPayload["timing"] = timing.finish(runFinishedAtMs)

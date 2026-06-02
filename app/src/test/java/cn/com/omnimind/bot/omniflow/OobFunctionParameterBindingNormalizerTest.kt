@@ -1,0 +1,191 @@
+package cn.com.omnimind.bot.omniflow
+
+import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class OobFunctionParameterBindingNormalizerTest {
+    @Test
+    fun `normalizes input text step parameter into binding table and materializes`() {
+        val normalized = OobFunctionParameterBindingNormalizer.normalize(
+            mapOf(
+                "function_id" to "xiaohongshu_search",
+                "name" to "小红书搜索关键词",
+                "parameters" to mapOf(
+                    "type" to "object",
+                    "properties" to mapOf(
+                        "input_text_3" to mapOf(
+                            "type" to "string",
+                            "description" to "搜索关键词",
+                            "default" to "彩票",
+                        ),
+                    ),
+                    "required" to emptyList<String>(),
+                ),
+                "execution" to mapOf(
+                    "steps" to listOf(
+                        step("open_app", mapOf("package_name" to "com.xingin.xhs")),
+                        step("click", mapOf("x" to 100, "y" to 200)),
+                        step("input_text", mapOf("text" to "彩票", "target_description" to "搜索框")),
+                    ),
+                ),
+            )
+        )
+
+        val schema = normalized["parameters"] as Map<*, *>
+        val properties = schema["properties"] as Map<*, *>
+        val input = properties["input_text_3"] as Map<*, *>
+        assertEquals(
+            listOf("$.execution.steps[2].args.text"),
+            input["x_oob_bindings"],
+        )
+
+        val metadata = normalized["metadata"] as Map<*, *>
+        val table = metadata["oob_parameter_bindings"] as List<*>
+        assertEquals(
+            listOf("$.execution.steps[2].args.text"),
+            (table.single() as Map<*, *>)["bindings"],
+        )
+
+        val materialized = OobReusableFunctionStore.materialize(
+            normalized,
+            mapOf("input_text_3" to "猫猫"),
+        )
+        val steps = ((materialized["execution"] as Map<*, *>)["steps"] as List<*>)
+            .map { it as Map<*, *> }
+        assertEquals("猫猫", (steps[2]["args"] as Map<*, *>)["text"])
+        val runtime = materialized["runtime"] as Map<*, *>
+        assertEquals(emptyList<Any?>(), runtime["unbound_arguments"])
+        assertTrue((runtime["supplied_binding_applied_count"] as Number).toInt() > 0)
+    }
+
+    @Test
+    fun `supplied argument without binding is rejected by validator`() {
+        val materialized = OobReusableFunctionStore.materialize(
+            mapOf(
+                "function_id" to "bad_search",
+                "parameters" to mapOf(
+                    "type" to "object",
+                    "properties" to mapOf(
+                        "search_query" to mapOf(
+                            "type" to "string",
+                            "default" to "彩票",
+                        ),
+                    ),
+                ),
+                "execution" to mapOf(
+                    "steps" to listOf(
+                        step("input_text", mapOf("text" to "彩票")),
+                    ),
+                ),
+            ),
+            mapOf("search_query" to "猫猫"),
+        )
+
+        val validation = OobFunctionArgumentBindingValidator.validate(materialized)
+        assertFalse(validation.success)
+        assertTrue(validation.errorMessage.contains("search_query"))
+        val unbound = validation.diagnostics["unbound_arguments"] as List<*>
+        assertEquals("search_query", (unbound.single() as Map<*, *>)["name"])
+    }
+
+    @Test
+    fun `normalizes semantic parameter into nested function argument binding`() {
+        val normalized = OobFunctionParameterBindingNormalizer.normalize(
+            mapOf(
+                "function_id" to "parent_search",
+                "name" to "小红书搜索",
+                "parameters" to mapOf(
+                    "type" to "object",
+                    "properties" to mapOf(
+                        "search_query" to mapOf(
+                            "type" to "string",
+                            "description" to "搜索关键词",
+                            "default" to "彩票",
+                        ),
+                    ),
+                ),
+                "execution" to mapOf(
+                    "steps" to listOf(
+                        step(
+                            "oob_function_run",
+                            mapOf(
+                                "function_id" to "child_search",
+                                "arguments" to mapOf("query" to "彩票"),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        val schema = normalized["parameters"] as Map<*, *>
+        val properties = schema["properties"] as Map<*, *>
+        val searchQuery = properties["search_query"] as Map<*, *>
+        assertEquals(
+            listOf("$.execution.steps[0].args.arguments.query"),
+            searchQuery["x_oob_bindings"],
+        )
+        val topLevelTable = normalized["x_oob_parameter_bindings"] as List<*>
+        assertEquals(
+            listOf("$.execution.steps[0].args.arguments.query"),
+            (topLevelTable.single() as Map<*, *>)["bindings"],
+        )
+
+        val materialized = OobReusableFunctionStore.materialize(
+            normalized,
+            mapOf("search_query" to "猫猫"),
+        )
+        val steps = ((materialized["execution"] as Map<*, *>)["steps"] as List<*>)
+            .map { it as Map<*, *> }
+        val args = steps[0]["args"] as Map<*, *>
+        val nestedArguments = args["arguments"] as Map<*, *>
+        assertEquals("猫猫", nestedArguments["query"])
+        assertTrue(OobFunctionArgumentBindingValidator.validate(materialized).success)
+    }
+
+    @Test
+    fun `materialize can create explicit nested function argument object from binding table`() {
+        val spec = mapOf(
+            "function_id" to "parent_search_explicit",
+            "parameters" to mapOf(
+                "type" to "object",
+                "properties" to mapOf(
+                    "search_query" to mapOf(
+                        "type" to "string",
+                        "description" to "搜索关键词",
+                        "x_oob_bindings" to listOf(
+                            "$.execution.steps[0].args.arguments.search_query",
+                        ),
+                    ),
+                ),
+            ),
+            "execution" to mapOf(
+                "steps" to listOf(
+                    step("oob_function_run", mapOf("function_id" to "child_search")),
+                ),
+            ),
+        )
+
+        val materialized = OobReusableFunctionStore.materialize(
+            spec,
+            mapOf("search_query" to "猫猫"),
+        )
+        val steps = ((materialized["execution"] as Map<*, *>)["steps"] as List<*>)
+            .map { it as Map<*, *> }
+        val args = steps[0]["args"] as Map<*, *>
+        val nestedArguments = args["arguments"] as Map<*, *>
+        assertEquals("猫猫", nestedArguments["search_query"])
+        assertTrue(OobFunctionArgumentBindingValidator.validate(materialized).success)
+    }
+
+    private fun step(tool: String, args: Map<String, Any?>): Map<String, Any?> =
+        mapOf(
+            "tool" to tool,
+            "executor" to "omniflow",
+            "model_free" to true,
+            "args" to args,
+        )
+}

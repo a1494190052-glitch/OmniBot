@@ -245,6 +245,9 @@ object VLMToolDefinitions {
                     "function_id" to stringSchema(
                         t(locale, "当前页面上下文中给出的 Function id。", "Function id shown in the current page context.")
                     ),
+                    "reusable_command_id" to stringSchema(
+                        t(locale, "function_id 的兼容别名。", "Compatibility alias for function_id.")
+                    ),
                     "arguments" to objectSchema(additionalProperties = true)
                 ),
                 required = listOf("function_id")
@@ -436,6 +439,7 @@ object VLMToolDefinitions {
         when (toolName) {
             "click", "long_press", "input_text" -> normalizePointArguments(normalized)
             "scroll" -> normalizeScrollArguments(normalized)
+            "oob_function_run" -> normalizeFunctionRunArguments(normalized)
         }
         if (toolName == "input_text" && normalized["content"] == null) {
             listOf("text", "value").firstNotNullOfOrNull { alias ->
@@ -585,6 +589,13 @@ object VLMToolDefinitions {
                 arguments["y2"] = buildNumericPrimitive(endPoint.second)
             }
         }
+    }
+
+    private fun normalizeFunctionRunArguments(arguments: MutableMap<String, JsonElement>) {
+        if (arguments["function_id"] != null) return
+        listOf("functionId", "reusable_command_id", "reusableCommandId").firstNotNullOfOrNull { alias ->
+            arguments[alias]
+        }?.let { arguments["function_id"] = it }
     }
 
     private fun hasCompleteScrollCoordinates(arguments: Map<String, JsonElement>): Boolean {
