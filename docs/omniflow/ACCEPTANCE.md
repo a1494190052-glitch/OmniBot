@@ -3,6 +3,11 @@
 The kit is acceptable when an external GUI agent can complete these checks using
 only the shipped docs, skill, and MCP tools.
 
+Note: this acceptance file still records older external MCP names for historical
+coverage. Current OOB Function replay is `oob_function_run`; `call_function`,
+`run_function`, and `omniflow.call_function` are compatibility aliases or old
+source evidence only.
+
 ## Documentation Checks
 
 - The agent can explain what OmniFlow is and when to activate it.

@@ -33,7 +33,7 @@ OMNIFLOW FUNCTION REUSE:
 - If the user goal clearly matches a saved OOB/OmniFlow Function, prefer oob_function_guard_check then oob_function_run before raw VLM exploration.
 - Parameterized Functions are valid matches. Fill required arguments from the user goal like a normal tool before calling oob_function_run; do not discard a good Function only because it has an input schema.
 - Keep allowOmniFlowFunctionAutoExecute=false by default. Set it true only when the caller explicitly wants a high-confidence recalled Function to execute before live VLM, or when the goal says to reuse a saved/previous Function. If a recalled hit requires arguments, use the returned schema/profile to let the agent fill arguments instead of running empty args.
-- If the Function replay fails, use the returned fallback_context and resume later with oob_function_run resume_from_step/start_step_index.
+- If the Function replay fails, use the returned fallback_context. The agent handles failed_step_index first, then resumes the next remaining Function step with oob_function_run resume_from_step; start_step_index is only a compatibility alias.
 
 IMPORTANT FOR SUMMARY TASKS:
 - If the user's goal is to summarize, extract key points, or produce a report (e.g., "总结/汇总/整理/概括/提炼" or "summary/recap"),
@@ -467,7 +467,7 @@ BEHAVIOR:
 
     val oobFunctionRunTool = mapOf(
         "name" to OobFunctionToolNames.FUNCTION_RUN,
-        "description" to "Run one saved OOB/OmniFlow reusable Function. When the user's goal clearly matches a saved Function, prefer oob_function_guard_check then this tool before raw vlm_task. On local replay failure, returns fallback_context so an agent can handle the failed step and call this tool again with resume_from_step/start_step_index.",
+        "description" to "Run one saved OOB/OmniFlow reusable Function. When the user's goal clearly matches a saved Function, prefer oob_function_guard_check then this tool before raw vlm_task. On local replay failure, returns fallback_context so an agent can handle failed_step_index, then call this tool again with resume_from_step for the next remaining step. start_step_index is only a compatibility alias for resume_from_step.",
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
@@ -476,10 +476,10 @@ BEHAVIOR:
                 "arguments" to mapOf("type" to "object", "description" to "Materialization arguments for the Function."),
                 "resume_from_step" to mapOf(
                     "type" to "integer",
-                    "description" to "0-based step index to start from. Omit or set 0 for first run; set after agent fallback to resume remaining steps."
+                    "description" to "0-based step index to start from. Omit or set 0 for first run; after agent fallback, use the returned resume_from_step only after the agent has completed failed_step_index. This resumes the next remaining step, not the failed step itself."
                 ),
                 "resumeFromStep" to mapOf("type" to "integer", "description" to "Camel-case alias for resume_from_step."),
-                "start_step_index" to mapOf("type" to "integer", "description" to "Alias for resume_from_step. Use to start or resume from a specific Function step."),
+                "start_step_index" to mapOf("type" to "integer", "description" to "Compatibility alias for resume_from_step. Use the returned resume_from_step after fallback; explicitly pass failed_step_index only when intentionally retrying the failed step."),
                 "startStepIndex" to mapOf("type" to "integer", "description" to "Camel-case alias for start_step_index."),
                 "fallback_session_id" to mapOf(
                     "type" to "string",

@@ -24,7 +24,7 @@ object RunLogReplayPolicy {
     const val TOOL_CALL_TOOL: String = "call_tool"
     const val TOOL_OOB_TOOL_CALL: String = "oob_tool_call"
     const val TOOL_FUNCTION_RUN: String = OobFunctionToolNames.FUNCTION_RUN
-    @Deprecated("Use TOOL_FUNCTION_RUN/oob_function_run for new Function replay steps.")
+    // Legacy import/card name. New Function replay steps should use TOOL_FUNCTION_RUN.
     const val TOOL_CALL_FUNCTION: String = "call_function"
     const val TOOL_GO_TO_NODE: String = "go_to_node"
     const val TOOL_CLICK_NODE: String = "click_node"

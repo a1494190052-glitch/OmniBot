@@ -7,7 +7,7 @@ tools, operate Android UI, and ask the user for confirmation.
 
 ## First Move
 
-1. Read `skills/guiagent-omniflow/SKILL.md`.
+1. Read `app/src/main/assets/builtin_skills/omniflow/SKILL.md`.
 2. If MCP is available, call `tools/list`.
 3. Choose the best available mode:
    - Direct MCP mode when `omniflow.recall` and `omniflow.call_tool` or

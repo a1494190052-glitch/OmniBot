@@ -157,18 +157,25 @@ class OobFunctionNestedFunctionExecutor(
             )
         )
         val success = nestedRun["success"] == true
+        val nestedModelRequired = nestedRun["model_required"] == true ||
+            nestedRun["fallback_context"] != null
         return completeWithCard(linkedMapOf<String, Any?>(
             "step_id" to stepId,
             "tool" to callableTool.ifEmpty { OobFunctionToolNames.FUNCTION_RUN },
             "executor" to "omniflow_function",
             "model_free" to true,
             "success" to success,
+            "model_required" to nestedModelRequired.takeIf { it },
             "nested_function_id" to functionId,
             "nested_run_id" to nestedRun["run_id"],
             "nested_runner" to nestedRun["runner"],
             "nested_step_count" to nestedRun["step_count"],
             "nested_success_step_count" to nestedRun["success_step_count"],
-            "nested_model_required" to nestedRun["model_required"],
+            "nested_model_required" to nestedModelRequired,
+            "nested_failed_step_index" to nestedRun["failed_step_index"],
+            "nested_resume_from_step" to nestedRun["resume_from_step"],
+            "nested_fallback_context" to nestedRun["fallback_context"],
+            "nested_agent_prompt" to nestedRun["agent_prompt"],
             "step_results" to nestedRun["step_results"],
             "timing" to nestedRun["timing"],
             "error_code" to nestedRun["error_code"],

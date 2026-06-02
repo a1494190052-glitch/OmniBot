@@ -142,6 +142,12 @@ oob_function_run(function_id, arguments?)
 names only. They may remain in parser, old RunLog, and old MCP adapter code, but
 they must not be the primary agent-facing tool, prompt, or schema.
 
+New compiled or registered Function steps that invoke another Function should
+write `tool=oob_function_run` and `callable_tool=oob_function_run`. If the
+source evidence came from `call_function`, keep that fact only in `source_tool`
+or import metadata. This makes the main replay path read the same way in
+Function specs, tool-card events, VLM guidance, and MCP schemas.
+
 ### Fallback
 
 Replay failure returns structured context instead of silently switching to live
@@ -151,7 +157,7 @@ VLM:
 {
   "model_required": true,
   "failed_step_index": 2,
-  "resume_from_step": 2,
+  "resume_from_step": 3,
   "fallback_context": {
     "failed_step": {},
     "remaining_steps": []
@@ -159,12 +165,24 @@ VLM:
 }
 ```
 
+`failed_step_index` is the step the agent must complete manually. After the
+agent completes that failed step, `resume_from_step` points to the next local
+step to replay. To retry the failed step itself, pass `failed_step_index`
+explicitly as the start step.
+
 The agent can:
 
 - continue with bounded live VLM for the failed step,
-- call `oob_function_run` again with `start_step_index` / `resume_from_step`,
+- call `oob_function_run` again with the returned `resume_from_step`
+  (`start_step_index` is only a compatibility alias),
 - call `update_function` with RunLog evidence if the Function should be
   repaired.
+
+Nested Function failures bubble up. If a parent step calls another Function and
+the child Function needs agent fallback, the parent step is marked
+`model_required=true` and includes nested fallback metadata. The parent
+`oob_function_run` still returns one fallback handoff for the parent step; it
+does not silently swallow the child failure.
 
 If the agent's manual action fixes the failed step, it can resume from the
 returned step index. If the manual action proves the Function is wrong, it
@@ -415,6 +433,10 @@ Keep these capabilities:
 
 ## Code Ownership
 
+For the detailed engineering map, including per-file responsibility,
+compatibility boundaries, deprecated concepts, and maintenance rules, read
+`IMPLEMENTATION_MAP.md`. The list below is the compact owner map.
+
 Core Function backend:
 
 - `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionRepository.kt`
@@ -471,6 +493,9 @@ Use this file for the unified product and architecture decision. Use the
 specialized docs only for details:
 
 - `README.md`: package entrypoint and external modes.
+- `IMPLEMENTATION_MAP.md`: engineering maintenance map for main path, code
+  ownership, tool naming, compatibility layers, removed concepts, fallback,
+  checker handling, and future cleanup rules.
 - `MCP_CONTRACT.md`: exact MCP surface and legacy adapter behavior.
 - `FUNCTION_SPEC.md`: Function JSON shape and executor rules.
 - `canonical-actions.md`: compact action vocabulary and aliases.

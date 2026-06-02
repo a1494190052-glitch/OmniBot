@@ -736,8 +736,8 @@ class RunLogReusableFunctionCompilerTest {
         assertFalse(graph.containsKey("agent_call"))
 
         val function = steps[1]
-        assertEquals("call_tool", function["tool"])
-        assertEquals("call_tool", function["callable_tool"])
+        assertEquals("oob_function_run", function["tool"])
+        assertEquals("oob_function_run", function["callable_tool"])
         assertEquals("call_function", function["source_tool"])
         assertEquals("omniflow", function["executor"])
         assertEquals("omniflow_function", function["kind"])

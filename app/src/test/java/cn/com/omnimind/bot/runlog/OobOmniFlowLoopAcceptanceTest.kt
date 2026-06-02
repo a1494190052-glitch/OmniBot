@@ -1386,21 +1386,34 @@ class OobOmniFlowLoopAcceptanceTest {
             )
             assertEquals(true, register["success"])
 
+            val guard = toolkit.guardCheck(mapOf("function_id" to functionId))
+            assertEquals(true, guard["success"])
+            assertEquals("needs_agent", guard["decision"])
+            val guardSteps = guard["step_decisions"] as? List<*>
+            val agentGuardStep = guardSteps?.firstOrNull() as? Map<*, *>
+            assertEquals("needs_agent", agentGuardStep?.get("decision"))
+
             val firstRun = toolkit.runFunction(mapOf("function_id" to functionId))
             assertEquals(false, firstRun["success"])
-            assertEquals(0, (firstRun["resume_from_step"] as Number).toInt())
+            assertEquals(0, (firstRun["failed_step_index"] as Number).toInt())
+            assertEquals(1, (firstRun["resume_from_step"] as Number).toInt())
             assertEquals(1, (firstRun["fallback_attempt"] as Number).toInt())
             assertNotNull(firstRun["fallback_session_id"])
             val fallbackContext = firstRun["fallback_context"] as? Map<*, *>
             assertEquals("oob.function_fallback_context.v1", fallbackContext?.get("schema_version"))
             assertEquals(functionId, fallbackContext?.get("function_id"))
-            assertEquals(0, (fallbackContext?.get("resume_from_step") as Number).toInt())
+            assertEquals(0, (fallbackContext?.get("failed_step_index") as Number).toInt())
+            assertEquals(1, (fallbackContext?.get("resume_from_step") as Number).toInt())
             val failedStep = fallbackContext["failed_step"] as? Map<*, *>
             assertEquals("tap_takeout_with_agent", failedStep?.get("step_id"))
+            val remainingSteps = fallbackContext["remaining_steps"] as? List<*>
+            val nextStep = remainingSteps?.firstOrNull() as? Map<*, *>
+            assertEquals(1, (nextStep?.get("index") as Number).toInt())
+            assertEquals("confirm_after_agent", nextStep["step_id"])
             val returnInstruction = fallbackContext["return_instruction"] as? Map<*, *>
             assertEquals(OobFunctionToolNames.FUNCTION_RUN, returnInstruction?.get("tool"))
             val returnArgs = returnInstruction?.get("args") as? Map<*, *>
-            assertEquals(0, (returnArgs?.get("resume_from_step") as Number).toInt())
+            assertEquals(1, (returnArgs?.get("resume_from_step") as Number).toInt())
 
             val secondRun = toolkit.runFunction(
                 mapOf(
@@ -1428,6 +1441,8 @@ class OobOmniFlowLoopAcceptanceTest {
             )
             assertEquals(false, exhaustedRun["success"])
             assertEquals("repeated_failure_same_step", exhaustedRun["fallback_unavailable_reason"])
+            assertEquals(0, (exhaustedRun["failed_step_index"] as Number).toInt())
+            assertEquals(1, (exhaustedRun["resume_from_step"] as Number).toInt())
             assertEquals(false, exhaustedRun.containsKey("fallback_context"))
             assertEquals(3, (exhaustedRun["fallback_attempt"] as Number).toInt())
         } finally {

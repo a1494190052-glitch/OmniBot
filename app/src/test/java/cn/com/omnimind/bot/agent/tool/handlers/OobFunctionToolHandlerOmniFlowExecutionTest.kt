@@ -148,7 +148,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
-    fun `nested call_function emits explicit tool card events`() = runBlocking {
+    fun `nested oob_function_run emits explicit tool card events`() = runBlocking {
         val context = TempFilesContext()
         try {
             val store = WorkspaceFunctionStore(context.root)
@@ -166,8 +166,8 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
                         "executor" to "omniflow",
                         "model_free" to true,
                         "scriptable" to true,
-                        "tool" to "call_function",
-                        "callable_tool" to "call_function",
+                        "tool" to "oob_function_run",
+                        "callable_tool" to "oob_function_run",
                         "args" to mapOf(
                             "function_id" to "child_finished",
                             "arguments" to mapOf("source" to "test"),
@@ -193,15 +193,15 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
             assertEquals("tool_completed", callback.toolCardEvents[1].first)
 
             val start = callback.toolCardEvents[0].second
-            assertEquals("parent-call_parent_step_call_function", start["cardId"])
-            assertEquals("call_function", start["toolName"])
+            assertEquals("parent-call_parent_step_oob_function_run", start["cardId"])
+            assertEquals("oob_function_run", start["toolName"])
             assertEquals("oob_function", start["toolType"])
             assertEquals("running", start["status"])
             assertTrue(start["argsJson"].toString().contains("child_finished"))
 
             val complete = callback.toolCardEvents[1].second
-            assertEquals("parent-call_parent_step_call_function", complete["cardId"])
-            assertEquals("call_function", complete["toolName"])
+            assertEquals("parent-call_parent_step_oob_function_run", complete["cardId"])
+            assertEquals("oob_function_run", complete["toolName"])
             assertEquals("success", complete["status"])
             assertEquals(true, complete["success"])
             assertTrue(complete["resultPreviewJson"].toString().contains("child_finished"))
@@ -212,7 +212,69 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
-    fun `call_function executes source-context steps in fixed order`() = runBlocking {
+    fun `nested oob_function_run propagates agent fallback requirement to parent run`() = runBlocking {
+        val context = TempFilesContext()
+        try {
+            val store = WorkspaceFunctionStore(context.root)
+            val child = functionSpec(
+                functionId = "child_needs_agent",
+                steps = listOf(
+                    mapOf(
+                        "id" to "child_agent_step",
+                        "title" to "Child agent step",
+                        "kind" to "agent_call",
+                        "executor" to "agent",
+                        "model_free" to false,
+                        "scriptable" to false,
+                        "tool" to "vlm_task",
+                        "callable_tool" to "vlm_task",
+                        "args" to mapOf("goal" to "tap the live-only target"),
+                    )
+                ),
+            )
+            val parent = functionSpec(
+                functionId = "parent_calls_agent_child",
+                steps = listOf(
+                    mapOf(
+                        "id" to "parent_nested_step",
+                        "title" to "Call agent child",
+                        "kind" to "omniflow_function",
+                        "executor" to "omniflow",
+                        "model_free" to true,
+                        "scriptable" to true,
+                        "tool" to "oob_function_run",
+                        "callable_tool" to "oob_function_run",
+                        "args" to mapOf("function_id" to "child_needs_agent"),
+                    )
+                ),
+            )
+            assertTrue(store.register(child)["success"] == true)
+
+            val run = handler(context, store).runMaterializedFunction(
+                functionId = "parent_calls_agent_child",
+                spec = parent,
+                materializedSpec = OobReusableFunctionStore.materialize(parent, emptyMap()),
+                allowAgentFallback = true,
+            )
+
+            assertEquals(false, run["success"])
+            assertEquals(true, run["model_required"])
+            val step = stepResults(run).single()
+            assertEquals(false, step["success"])
+            assertEquals(true, step["model_required"])
+            assertEquals(true, step["nested_model_required"])
+            assertEquals("child_needs_agent", step["nested_function_id"])
+            val nestedSteps = step["step_results"] as? List<*>
+            val childStep = nestedSteps?.single() as? Map<*, *>
+            assertEquals(true, childStep?.get("model_required"))
+            assertEquals("child_agent_step", childStep?.get("step_id"))
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `oob_function_run executes source-context steps in fixed order`() = runBlocking {
         val context = TempFilesContext()
         val pageA = pageXml("A", "com.example.a")
         val pageB = pageXml("B", "com.example.b")
@@ -258,7 +320,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
-    fun `call_function ignores key action metadata during fixed replay`() = runBlocking {
+    fun `oob_function_run ignores key action metadata during fixed replay`() = runBlocking {
         val context = TempFilesContext()
         val pageA = pageXml("A", "com.example.a")
         val pageB = pageXml("B", "com.example.b")
@@ -298,7 +360,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
-    fun `call_function keeps fixed order when no key action metadata exists`() = runBlocking {
+    fun `oob_function_run keeps fixed order when no key action metadata exists`() = runBlocking {
         val context = TempFilesContext()
         val pageA = pageXml("A", "com.example.a")
         val pageB = pageXml("B", "com.example.b")
@@ -385,7 +447,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
-    fun `call_function missing nested function fails locally without agent fallback`() = runBlocking {
+    fun `legacy nested call_function missing child fails locally without agent fallback`() = runBlocking {
         val context = TempFilesContext()
         try {
             val spec = functionSpec(
@@ -588,7 +650,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
-    fun `recursive call_function is rejected by local runner`() = runBlocking {
+    fun `legacy recursive call_function alias is rejected by local runner`() = runBlocking {
         val context = TempFilesContext()
         try {
             val store = WorkspaceFunctionStore(context.root)

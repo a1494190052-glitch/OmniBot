@@ -16,11 +16,16 @@ context.
 If `oob_function_run` returns `fallback_context`, do not restart the whole
 Function immediately.
 
-1. Read the failed step, failed reason, current screen context, and
-   `resume_from_step`.
+1. Read the failed step, failed reason, current screen context,
+   `failed_step_index`, and `resume_from_step`.
 2. Complete only the failed step using the live phone state or the bounded VLM
    path available to the caller.
-3. Call `oob_function_run` again with the provided resume data:
+3. Call `oob_function_run` again with the provided resume data. After the agent
+   has completed the failed step, `resume_from_step` points to the next local
+   step. Use `failed_step_index` only when retrying the failed step itself.
+   If the failed step is a nested Function call, inspect its `nested_*`
+   fallback fields as evidence, but still resume the parent Function from the
+   returned parent `resume_from_step`.
 
 ```json
 {

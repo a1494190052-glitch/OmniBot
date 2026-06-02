@@ -4,7 +4,8 @@ Date: 2026-05-17
 
 These checks validate that the OmniFlow Agent Kit can be handed to external
 GUI-agent projects as a directly callable library plus skill package. The public
-MCP surface includes the canonical OmniFlow tools:
+MCP surface used by these historical external-project checks includes the older
+canonical OmniFlow tools:
 
 ```text
 omniflow.recall
@@ -12,6 +13,11 @@ omniflow.call_function
 omniflow.ingest_run_log
 omniflow.explore_replay
 ```
+
+Current OOB model-visible Function replay should use `oob_function_run`.
+`omniflow.call_function` and `call_function` remain compatibility names in older
+MCP clients, test records, and source evidence; do not introduce them as a new
+primary replay path.
 
 The OOB MCP server and Agent Kit also expose direct Function/RunLog tools for
 debugging and deterministic replay audits:
@@ -148,6 +154,8 @@ client = OmniFlowMcpClient(endpoint="http://127.0.0.1:8765/mcp", token="...")
 if client.has_canonical_omniflow():
     recalled = client.recall("open Android Settings")
     function_id = recalled["hit"]["function_id"]
+    # Historical compatibility wrapper. New OOB clients should use
+    # oob_function_run / client.run_function when direct tools are exposed.
     result = client.call_function(function_id, {})
 ```
 
@@ -229,8 +237,9 @@ How mobile-mcp should use OmniFlow:
 
 - Prefer direct MCP mode.
 - Discover with `tools/list`.
-- Use `omniflow.recall`, `omniflow.call_function`, and
-  `omniflow.ingest_run_log` for replay and RunLog registration.
+- Prefer direct OOB tools, especially `oob_function_run`, when exposed. Use
+  `omniflow.recall`, compatibility `omniflow.call_function`, and
+  `omniflow.ingest_run_log` only for older external MCP surfaces.
 - Treat the Python kit as a contract/test client or export
   `python -m omniflow_agentkit pack` as JSON for Node-side agent context.
 
@@ -258,9 +267,11 @@ omniflow_mobile_mcp_acceptance=ok
 - mobile-mcp is detected as an MCP project and gets `direct_mcp`.
 - Each tested external project can recall the existing
   `settings_click_path_demo` Function through MCP.
-- Each tested external project can run that Function through
-  `omniflow.call_function` and receives a real run id.
+- Each tested external project can run that Function through current
+  `oob_function_run` or compatibility `omniflow.call_function` and receives a
+  real run id.
 - Each tested external project can ingest `runlog_install_demo` into
   `install_sample_apk_demo`.
-- Each tested external project can run the ingested Function through
-  `omniflow.call_function` and receives a real run id.
+- Each tested external project can run the ingested Function through current
+  `oob_function_run` or compatibility `omniflow.call_function` and receives a
+  real run id.

@@ -32,7 +32,7 @@ import kotlin.math.sqrt
 object ManualTouchRecordLoader {
     private const val TAG = "ManualTouchRecordLoader"
     private const val MIN_SWIPE_DISTANCE_DP = 24f
-    private const val OVERLAY_UNLOCK_REPLAY_DELAY_MS = 96L
+    private const val OVERLAY_UNLOCK_REPLAY_DELAY_MS = 160L
     private const val OVERLAY_REPLAY_TOUCH_SUPPRESS_AFTER_MS = 120L
     private const val IME_VISIBILITY_PROBE_DELAY_MS = 120L
     private const val IME_VISIBILITY_PROBE_TIMEOUT_MS = 1_500L
@@ -44,7 +44,7 @@ object ManualTouchRecordLoader {
     private const val IME_ESTIMATED_TOP_RATIO = 0.58f
     private const val IME_SUBMIT_MIN_X_RATIO = 0.72f
     private const val IME_SUBMIT_MIN_KEYBOARD_Y_RATIO = 0.55f
-    private const val IME_OPEN_EXPECTED_TTL_MS = 1_200L
+    private const val IME_OPEN_EXPECTED_TTL_MS = 1_500L
 
     private val recordScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -338,6 +338,25 @@ object ManualTouchRecordLoader {
                 keyboardBlackBoxGesture && isKeyboardSubmitGestureLocked(gesture)
             }
         }
+        if (keyboardBlackBoxGesture) {
+            if (keyboardSubmitGesture) {
+                HumanTrajectoryLearningSession.prepareImeSubmitRecording()
+            }
+            withContext(Dispatchers.Main) {
+                synchronized(this@ManualTouchRecordLoader) {
+                    rememberImeOpenExpectedLocked()
+                    lockTouchLocked()
+                    scheduleImeRelockLocked()
+                }
+            }
+            OmniLog.w(
+                TAG,
+                "manual keyboard touch consumed by overlay; cropped overlay without replay " +
+                    "action=${gesture.actionName} x=${gesture.startX} y=${gesture.startY}"
+            )
+            return true
+        }
+
         var executed = false
         var recorded = false
         var mayOpenIme = false
@@ -353,24 +372,17 @@ object ManualTouchRecordLoader {
                 }
             }
             try {
-                if (keyboardSubmitGesture) {
-                    HumanTrajectoryLearningSession.prepareImeSubmitRecording()
-                }
                 delay(OVERLAY_UNLOCK_REPLAY_DELAY_MS)
-                val replayResult = if (keyboardBlackBoxGesture) {
-                    HumanTrajectoryLearningSession.replayOverlayGestureWithoutRecording(gesture)
-                } else {
-                    HumanTrajectoryLearningSession.recordOverlayGesture(gesture) { mayOpenIme ->
-                        withContext(Dispatchers.Main) {
-                            synchronized(this@ManualTouchRecordLoader) {
-                                if (overlayView?.isAttachedToWindow == true &&
-                                    HumanTrajectoryLearningSession.isActive() &&
-                                    !HumanTrajectoryLearningSession.isPaused()) {
-                                    if (mayOpenIme) {
-                                        rememberImeOpenExpectedLocked()
-                                    }
-                                    lockTouchLocked()
+                val replayResult = HumanTrajectoryLearningSession.recordOverlayGesture(gesture) { mayOpenIme ->
+                    withContext(Dispatchers.Main) {
+                        synchronized(this@ManualTouchRecordLoader) {
+                            if (overlayView?.isAttachedToWindow == true &&
+                                HumanTrajectoryLearningSession.isActive() &&
+                                !HumanTrajectoryLearningSession.isPaused()) {
+                                if (mayOpenIme) {
+                                    rememberImeOpenExpectedLocked()
                                 }
+                                lockTouchLocked()
                             }
                         }
                     }
@@ -389,13 +401,7 @@ object ManualTouchRecordLoader {
             OmniLog.w(TAG, "record overlay gesture failed: ${error.message}")
         }
 
-        if (keyboardBlackBoxGesture && executed) {
-            // Keyboard taps are a black box: replay them so text changes happen,
-            // but let TYPE_VIEW_TEXT_CHANGED merge the final input_text action.
-            if (keyboardSubmitGesture) {
-                HumanTrajectoryLearningSession.recordImeSubmitGesture(gesture)
-            }
-        } else if (executed && recorded) {
+        if (executed && recorded) {
             // Keep recording UI static. Per-gesture indicators/status updates add
             // extra overlay input work and can make the control window ANR.
         } else if (executed && !recorded) {
@@ -407,14 +413,12 @@ object ManualTouchRecordLoader {
                 val active = HumanTrajectoryLearningSession.isActive() &&
                     !HumanTrajectoryLearningSession.isPaused()
                 if (active) {
-                    if (mayOpenIme || keyboardBlackBoxGesture) {
+                    if (mayOpenIme) {
                         rememberImeOpenExpectedLocked()
                     }
                     lockTouchLocked()
                     if (!keyboardBlackBoxGesture && gesture.actionName == "click" && executed) {
                         scheduleImeVisibilityProbeLocked(clearWhenMissing = !mayOpenIme)
-                    } else if (keyboardBlackBoxGesture && executed) {
-                        scheduleImeRelockLocked()
                     }
                 }
                 active
@@ -494,6 +498,9 @@ object ManualTouchRecordLoader {
                         !HumanTrajectoryLearningSession.isPaused()) {
                         lockTouchLocked()
                         scheduleImeRelockLocked()
+                    } else if (!appeared && clearWhenMissing) {
+                        imeOpenExpectedUntilMs = 0L
+                        lockTouchLocked()
                     }
                 }
             }
@@ -507,7 +514,8 @@ object ManualTouchRecordLoader {
             while (HumanTrajectoryLearningSession.isActive() && !HumanTrajectoryLearningSession.isPaused()) {
                 val imeVisible = withContext(Dispatchers.Main) {
                     synchronized(this@ManualTouchRecordLoader) {
-                        val visible = isImeVisibleLocked()
+                        val visible = isImeVisibleLocked() ||
+                            SystemClock.uptimeMillis() <= imeOpenExpectedUntilMs
                         if (visible) {
                             lockTouchLocked()
                         }
@@ -588,10 +596,9 @@ object ManualTouchRecordLoader {
     }
 
     private fun estimatedImeTopLocked(displayHeight: Int): Int? {
-        if (SystemClock.uptimeMillis() > imeOpenExpectedUntilMs) {
-            return null
-        }
-        if (!HumanTrajectoryLearningSession.hasActiveTextInputAnchor()) {
+        val hasTextInput = HumanTrajectoryLearningSession.hasActiveTextInputAnchor()
+        val expectedIme = SystemClock.uptimeMillis() <= imeOpenExpectedUntilMs
+        if (!hasTextInput && !expectedIme) {
             return null
         }
         return estimatedImeTopValueLocked(displayHeight)

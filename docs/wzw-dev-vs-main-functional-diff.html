@@ -685,7 +685,7 @@
         <div class="flow-step">
           <span>05</span>
           <strong>外部 Agent 调用</strong>
-          <p>MCP 暴露 recall、call_function、ingest_run_log 和 Project Toolbox。</p>
+          <p>MCP 历史报告中暴露 recall、call_function、ingest_run_log 和 Project Toolbox；当前 OOB Function 重放主路径是 <code>oob_function_run</code>，call_function 只作为兼容名称。</p>
         </div>
       </div>
     </section>
@@ -871,7 +871,7 @@
             wzw-dev 不只服务 App 内部。OmniFlow kit 明确给外部 GUI Agent 一套接入契约和验收方式。
           </p>
           <ul>
-            <li>MCP 暴露 canonical 工具：<code>omniflow.recall</code>、<code>omniflow.call_function</code>、<code>omniflow.ingest_run_log</code>、<code>omniflow.explore_replay</code>。</li>
+            <li>MCP 历史 canonical 工具包含 <code>omniflow.recall</code>、<code>omniflow.call_function</code>、<code>omniflow.ingest_run_log</code>、<code>omniflow.explore_replay</code>；当前 OOB Function 重放主路径是 <code>oob_function_run</code>，<code>omniflow.call_function</code> 只保留兼容。</li>
             <li>外部可以 list/get/register/guard/run Function，也能 list/get/convert RunLog。</li>
             <li>文档和脚本覆盖 MobileGPT、mobile-use、mobile-mcp 这类外部项目验收。</li>
             <li>Project Toolbox 让 active Project 的业务动作也能通过 MCP 动态暴露。</li>

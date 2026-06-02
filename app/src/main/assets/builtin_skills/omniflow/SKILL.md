@@ -31,7 +31,10 @@ by default.
 
 - Prefer `oob_function_*`, `oob_run_log_*`, and `update_function` for in-app
   OOB Function work.
-- Use `oob_function_run` for replay and pass `start_step_index` when resuming.
+- Use `oob_function_run` for replay. After fallback, complete
+  `failed_step_index` first, then pass the returned `resume_from_step` to
+  continue from the next remaining Function step. `start_step_index` is only a
+  compatibility alias for that same value.
 - Use `update_function` for all saved Function modifications.
 - Treat RunLogs as evidence. Do not invent RunLogs, Function ids, screenshots,
   XML, or tool results.

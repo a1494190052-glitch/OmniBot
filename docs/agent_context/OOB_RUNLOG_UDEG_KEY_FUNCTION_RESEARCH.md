@@ -77,7 +77,8 @@ does not fully implement the proposed OOB design.
 
 - `src/integrations/utg_api/_import.py`
   - Imports one canonical run log into one Function-like asset.
-  - Preserves concrete actions, including expanded `call_function` actions.
+  - Preserves concrete actions, including legacy `call_function` source
+    evidence when older traces contain it.
   - Updates source run ids when a run reused an existing Function.
   - Writes imported Functions back into the runtime/compiler cache.
   - It does not by default split one RunLog into multiple key Functions during
@@ -90,7 +91,9 @@ does not fully implement the proposed OOB design.
     path.
 
 - `src/utg/runtime/utg_runtime.py`
-  - `run_function(...)` supports global and node-scoped Function lookup.
+  - `run_function(...)` is the external stack's Function runner; in OOB docs
+    and model-visible tools the current replay entry point is
+    `oob_function_run`.
   - It enforces a Function start-node precondition before execution.
   - If the current node differs from the Function start node, it can try a
     route-only bridge to satisfy the precondition.
@@ -99,21 +102,23 @@ does not fully implement the proposed OOB design.
 
 - `src/utg/execution/executor.py`
   - Executes a Function through an observe-before-action loop.
-  - Supports recursive `call_function`.
-  - Checks nested `call_function` node preconditions before executing child
+  - Supports recursive Function calls.
+  - Checks nested Function-call node preconditions before executing child
     Functions.
   - Aborts on missing child Functions, recursion cycles, or unsatisfied node
     preconditions.
 
 - `src/integrations/utg_api/_merge.py`
-  - Supports compose-style merge using `call_function`.
+  - Supports compose-style merge using Function-call edges.
   - Bridges gaps between child Functions through shortest route-only paths when
     node endpoints are known.
 
 Useful ideas to borrow:
 
 - Node precondition before executing a Function.
-- `call_function` as the programmable composition primitive.
+- Function-call edges as a programmable composition primitive. In OOB, expose
+  this as `oob_function_run`; keep `call_function` only as legacy source
+  evidence or parser compatibility.
 - Compose merge as cached Function-path materialization.
 - Conservative abort/fallback when a precondition or child Function is missing.
 
@@ -151,7 +156,7 @@ OOB already has a substantial native foundation.
   - Encodes those pages into nodes.
   - Attaches Function segment summaries to the matched nodes.
   - This is already close to a suffix-recall mechanism, but it is still tied to
-    the parent Function and `start_step_index`.
+    the parent Function and explicit resume indexes.
 
 - `OobOmniFlowToolkitService.recall(...)`
   - Fresh reads or accepts current XML/package.
@@ -161,7 +166,9 @@ OOB already has a substantial native foundation.
 
 - `OobFunctionToolHandler`
   - Runs materialized Functions locally.
-  - Supports nested `call_function` steps and explicit tool cards.
+  - Supports nested Function-run steps and explicit `oob_function_run` tool
+    cards. Legacy `call_function` labels are accepted only as parser/source
+    compatibility.
   - Fails locally without VLM fallback when fallback is disabled.
   - Supports a `go_to_node` graph step in tests.
 
@@ -438,7 +445,7 @@ Direct replay:
 
 - Existing `convertRunLog(register=true)` behavior remains compatible unless the
   enhanced path is explicitly enabled or product policy switches over.
-- Existing nested `call_function` tests keep passing.
+- Existing nested legacy Function-call compatibility tests keep passing.
 - Existing UDEG page-match recall tests keep passing.
 - Direct replay failures still return structured errors and do not silently call
   VLM when fallback is disabled.

@@ -19,6 +19,10 @@ finished
 These are the only deterministic local replay actions that should be written
 into new Function steps.
 
+Nested saved Function execution is not a GUI action. New nested Function steps
+should use the tool name `oob_function_run`; `call_function` and `run_function`
+are legacy import names only.
+
 ## Legacy Aliases
 
 Legacy aliases are compatibility input only. They should not be written by new

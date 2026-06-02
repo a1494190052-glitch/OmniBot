@@ -217,7 +217,7 @@
       <li>失败 card 不参与“已有可回放动作”判断，避免失败 click 把 VLM-only fallback 跳过后生成空 Function。</li>
       <li><code>android_privileged_action</code> 中的本地 UI action 会从 <code>arguments</code> 展平成端侧执行器需要的 <code>x/y/text/package_name</code> 等字段。</li>
       <li>纯端侧 action 标记为 <code>executor=omniflow</code> 和 <code>model_free=true</code>；browser/search/memory/runlog 等 data-flow 工具保留 <code>executor=agent</code>。</li>
-      <li>provider-owned 图执行工具，例如 <code>go_to_node</code>, <code>click_node</code>, <code>call_function</code>，不降级成本地坐标脚本，统一标记为需要 OmniFlow/provider fallback。</li>
+      <li>provider-owned 图执行工具，例如 <code>go_to_node</code>, <code>click_node</code>, 旧 <code>call_function</code> source label，不降级成本地坐标脚本，统一标记为需要 OmniFlow/provider fallback；当前 Function 重放工具名是 <code>oob_function_run</code>。</li>
       <li>Flutter 侧 <code>RunLogReplayPolicy</code> 与 Android asset <code>replay_policy.json</code> 有测试对齐，避免 UI 转换器和 native runner 分叉。</li>
     </ul>
 

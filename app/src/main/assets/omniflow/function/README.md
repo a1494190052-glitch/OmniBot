@@ -340,7 +340,9 @@ When adding or migrating a generic agent tool name:
   re-localize and attempt each active step in order; it must not skip action
   steps because a terminal postcondition appears satisfied or because the page
   seems to have advanced. If the current step cannot be executed, return
-  fallback context with `resume_from_step`.
+  fallback context with `failed_step_index` plus `resume_from_step`.
+  `resume_from_step` is the next local step after the agent has handled the
+  failed step.
 
 `OobFunctionRunner` owns runtime execution startup:
 

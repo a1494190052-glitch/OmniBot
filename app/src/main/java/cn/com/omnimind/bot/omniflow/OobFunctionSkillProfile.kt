@@ -298,7 +298,7 @@ object OobFunctionSkillProfile {
             put("toolType", "workbench")
             put(
                 "description",
-                "执行一个已保存的 OOB/OmniFlow Function。用户目标与候选 Function 高置信匹配时，优先先调用 ${OobFunctionToolNames.FUNCTION_GUARD_CHECK} 再调用本工具，不要先裸跑 vlm_task。失败时返回 fallback_context，agent 可接管失败步骤，然后用 resume_from_step/start_step_index 从失败或下一步恢复继续。"
+                "执行一个已保存的 OOB/OmniFlow Function。用户目标与候选 Function 高置信匹配时，优先先调用 ${OobFunctionToolNames.FUNCTION_GUARD_CHECK} 再调用本工具，不要先裸跑 vlm_task。失败时返回 fallback_context，agent 先接管 failed_step_index 对应步骤；完成后再用返回的 resume_from_step 从下一步恢复继续。start_step_index 只是兼容别名。"
             )
             putJsonObject("parameters") {
                 put("type", "object")
@@ -308,11 +308,11 @@ object OobFunctionSkillProfile {
                     putJsonObject("arguments") { put("type", "object") }
                     putJsonObject("resume_from_step") {
                         put("type", "integer")
-                        put("description", "0-based step index. Omit or set 0 for a fresh run; set to the failed/next step when resuming after agent fallback.")
+                        put("description", "0-based step index. Omit or set 0 for a fresh run; after agent fallback, use the returned resume_from_step only after completing failed_step_index. It continues from the next remaining step, not the failed step itself.")
                     }
                     putJsonObject("start_step_index") {
                         put("type", "integer")
-                        put("description", "Alias for resume_from_step. Use this when the caller wants to start or resume from a specific Function step.")
+                        put("description", "Compatibility alias for resume_from_step. After fallback, use the returned resume_from_step; explicitly pass failed_step_index only when intentionally retrying the failed step.")
                     }
                     putJsonObject("startStepIndex") {
                         put("type", "integer")

@@ -557,6 +557,9 @@ class OobFunctionToolHandler(
             }
             stepResults += timedStepResult
             if (timedStepResult["success"] == false) {
+                if (timedStepResult["model_required"] == true) {
+                    modelRequired = true
+                }
                 if (!timedStepResult.containsKey("recovery")) {
                     timedStepResult["recovery"] = agentFallbackController.refetchCurrentPageForFailedStep(
                         timedStepResult["summary"]?.toString() ?: "step failed"

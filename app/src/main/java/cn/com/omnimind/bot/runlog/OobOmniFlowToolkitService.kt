@@ -413,6 +413,7 @@ class OobOmniFlowToolkitService(
             "runner_duration_ms" to durationMs,
             "timing" to timing,
             "fallback_session_id" to fallbackMetadata["fallback_session_id"],
+            "failed_step_index" to fallbackMetadata["failed_step_index"],
             "resume_from_step" to fallbackMetadata["resume_from_step"],
             "fallback_attempt" to fallbackMetadata["fallback_attempt"],
             "fallback_unavailable_reason" to fallbackMetadata["fallback_unavailable_reason"],

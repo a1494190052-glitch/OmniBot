@@ -1716,7 +1716,9 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             "context_apps_query" -> AgentToolMeta("builtin", t("查询已安装应用", "Query Installed Apps"))
             "context_time_now" -> AgentToolMeta("builtin", t("查询当前时间", "Query Current Time"))
             AgentToolNames.VLM_TASK -> AgentToolMeta("vlm", t("视觉执行", "Visual Task"))
-            RunLogReplayPolicy.TOOL_CALL_FUNCTION, "omniflow.call_function" -> AgentToolMeta(
+            OobFunctionToolNames.FUNCTION_RUN,
+            "call_function",
+            "omniflow.call_function" -> AgentToolMeta(
                 "oob_function",
                 t("复用指令", "Reusable Command")
             )

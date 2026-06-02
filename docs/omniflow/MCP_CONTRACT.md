@@ -253,9 +253,12 @@ or deterministic replay timing rather than recall-first activation.
 `needs_confirmation`, or `block` before execution. `oob_function_run` runs a
 Function directly and returns `run_id`, `runner`, `timing`, and
 `step_results`. When local replay fails but agent recovery is possible, it also
-returns `fallback_context`; after the agent completes the failed step, call
+returns `fallback_context`; after the agent completes `failed_step_index`, call
 `oob_function_run` again with `resume_from_step`, `fallback_session_id`, and
 `fallback_attempt` from that context to continue the remaining steps.
+`resume_from_step` is the next local Function step after the failed step has
+been handled. To intentionally retry the failed step itself, pass
+`failed_step_index` explicitly instead of the returned `resume_from_step`.
 
 Example direct run result:
 

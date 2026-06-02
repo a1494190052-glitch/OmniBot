@@ -111,6 +111,9 @@ connected by artifacts, but do not merge their responsibilities.
 6. If replay returns `fallback=true`, `needs_agent`, or `model_required=true`,
    stop replay and require an explicit bounded VLM continuation. Do not silently
    fall back to VLM inside an offline replay.
+   The returned `failed_step_index` is the step live VLM/agent must handle.
+   After that step is completed, resume local replay with the returned
+   `resume_from_step`, which points to the next remaining Function step.
    If the selected Function was wrong, use the returned `fallback_context` to
    continue with native VLM actions and later call `update_function` with the
    run evidence if the saved Function should be repaired.

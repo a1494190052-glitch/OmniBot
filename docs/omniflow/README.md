@@ -15,7 +15,8 @@ using OmniFlow without private repo knowledge.
 Ship this directory as the external OmniFlow kit:
 
 - `README.md`: product boundary, modes, and quick start.
-- `skills/guiagent-omniflow/SKILL.md`: the primary instruction file for GUI agents.
+- `../app/src/main/assets/builtin_skills/omniflow/SKILL.md`: the canonical
+  instruction file for GUI agents.
 - `MCP_CONTRACT.md`: direct MCP tool/resource/prompt contract.
 - `FUNCTION_SPEC.md`: reusable Function schema and executor rules.
 - `canonical-actions.md`: OOB Function action vocabulary and legacy alias migration.
@@ -28,17 +29,18 @@ Ship this directory as the external OmniFlow kit:
   fallback, update_function, legacy compatibility, removed over-design, code
   ownership, and cleanup backlog. Treat this as the source of truth for current
   Function/OmniFlow replay design.
+- `IMPLEMENTATION_MAP.md`: engineering maintenance map for the current main
+  path, tool naming, code ownership, compatibility layers, removed concepts,
+  `update_function`, fallback, checker handling, and future cleanup rules.
 - `GUI_AGENT_PLAYBOOK.md`: step-by-step execution playbook and fallback paths.
 - `ACCEPTANCE.md`: verification checklist for a host app or external agent.
 - `PYTHON_SDK.md`: directly callable Python library usage.
 - `TESTED_PROJECTS.md`: tested external GUI-agent integrations.
 - `samples/`: small Function and MCP call examples.
 
-For App-bundled distribution, mirror the skill under:
-
-```text
-app/src/main/assets/omniflow/skills/guiagent-omniflow/SKILL.md
-```
+Do not maintain another `skills/guiagent-omniflow/SKILL.md` mirror. The app
+bundles the canonical skill from `app/src/main/assets/builtin_skills/omniflow/`
+and its `references/` directory.
 
 ## Runtime Boundary
 
@@ -140,7 +142,7 @@ Default policy:
 
 ## Quick Start For An External GUI Agent
 
-1. Read `skills/guiagent-omniflow/SKILL.md`.
+1. Read `app/src/main/assets/builtin_skills/omniflow/SKILL.md`.
 2. If using MCP, call `tools/list`.
 3. If direct OOB Function tools are present, use
    `oob_function_guard_check` followed by `oob_function_run` for explicit
@@ -155,6 +157,9 @@ Default policy:
 10. Record the Function run result or audit id in the final response.
 
 ## Current Code Map
+
+For the full maintained map, read `IMPLEMENTATION_MAP.md`. The compact core
+locations are:
 
 - Native RunLog store: `baselib/src/main/java/cn/com/omnimind/baselib/runlog/InternalRunLogStore.kt`
 - Native Function store: `baselib/src/main/java/cn/com/omnimind/baselib/runlog/OobReusableFunctionStore.kt`

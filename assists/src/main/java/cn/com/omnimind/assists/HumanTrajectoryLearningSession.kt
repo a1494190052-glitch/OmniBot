@@ -269,37 +269,12 @@ object HumanTrajectoryLearningSession {
             }
     }
 
-    suspend fun replayOverlayGestureWithoutRecording(
-        gesture: ManualOverlayTouchGesture
-    ): ManualOverlayGestureReplayResult {
-        val session = synchronized(lock) { activeSession }
-            ?: return ManualOverlayGestureReplayResult(executed = false, recorded = false)
-        if (synchronized(lock) { activePaused }) {
-            return ManualOverlayGestureReplayResult(executed = false, recorded = false)
-        }
-        return runCatching { session.recorder.replayOverlayGestureWithoutRecording(gesture) }
-            .getOrElse { error ->
-                OmniLog.w(TAG, "manual overlay black-box replay failed: ${error.message}")
-                ManualOverlayGestureReplayResult(executed = false, recorded = false)
-            }
-    }
-
     fun prepareImeSubmitRecording(): Boolean {
         val session = synchronized(lock) { activeSession } ?: return false
         if (synchronized(lock) { activePaused }) return false
         return runCatching { session.recorder.prepareImeSubmitRecording() }
             .getOrElse { error ->
                 OmniLog.w(TAG, "manual IME submit prepare failed: ${error.message}")
-                false
-            }
-    }
-
-    fun recordImeSubmitGesture(gesture: ManualOverlayTouchGesture): Boolean {
-        val session = synchronized(lock) { activeSession } ?: return false
-        if (synchronized(lock) { activePaused }) return false
-        return runCatching { session.recorder.recordImeSubmitGesture(gesture) }
-            .getOrElse { error ->
-                OmniLog.w(TAG, "manual IME submit record failed: ${error.message}")
                 false
             }
     }

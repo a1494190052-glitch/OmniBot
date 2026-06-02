@@ -65,7 +65,10 @@ class ManualRecordingPolicyTest {
             ).containsMatchIn(source)
         )
         assertTrue(source.contains("private fun textInputAnchorFromTextEvent("))
-        assertTrue(source.contains("private fun focusedTextInputCandidateFromXml(xml: String?)"))
+        assertTrue(source.contains("private fun focusedTextInputCandidateFromXml("))
+        assertTrue(source.contains("requireText: Boolean = true"))
+        assertTrue(source.contains("hasFocusedTextInputTargetInXml(lastXmlSnapshot)"))
+        assertTrue(source.contains("focusedTextInputCandidateFromXml(beforeXml, requireText = false)"))
         assertTrue(source.contains("private const val A11Y_TEXT_EVENT_BACKEND = \"a11y_text_event\""))
         assertTrue(source.contains("private const val FOCUSED_XML_TEXT_INPUT_BACKEND = \"focused_xml_text_input\""))
         assertFalse(source.contains("recordFocusedTextTarget("))
@@ -128,17 +131,25 @@ class ManualRecordingPolicyTest {
         assertFalse(recorderSource.contains("onGestureReplayFinished"))
         assertFalse(source.contains("onGestureReplayStarted"))
         assertFalse(source.contains("onGestureReplayFinished"))
-        assertTrue(source.contains("val replayResult = if (keyboardBlackBoxGesture)"))
-        assertTrue(source.contains("HumanTrajectoryLearningSession.replayOverlayGestureWithoutRecording(gesture)"))
+        assertTrue(source.contains("if (keyboardBlackBoxGesture)"))
+        assertTrue(source.contains("manual keyboard touch consumed by overlay; cropped overlay without replay"))
+        assertFalse(source.contains("HumanTrajectoryLearningSession.replayOverlayGestureWithoutRecording(gesture)"))
         assertTrue(source.contains("HumanTrajectoryLearningSession.recordOverlayGesture(gesture) {"))
         assertTrue(source.contains("private fun isKeyboardBlackBoxGestureLocked(gesture: ManualOverlayTouchGesture): Boolean"))
+        assertFalse(source.contains("shouldRefreshFocusedInputForGestureLocked(gesture)"))
+        assertFalse(source.contains("HumanTrajectoryLearningSession.refreshFocusedTextInputTarget()"))
+        assertFalse(source.contains("HumanTrajectoryLearningSession.refreshFocusedTextInputValue()"))
         assertTrue(source.contains("HumanTrajectoryLearningSession.hasActiveTextInputAnchor()"))
         assertTrue(source.contains("minOf(imeTop, estimatedTop)"))
         assertTrue(source.contains("beginSyntheticReplaySuppressionLocked()"))
         assertTrue(source.contains("shouldSuppressReplayTouch(event)"))
-        assertTrue(recorderSource.contains("suspend fun replayOverlayGestureWithoutRecording("))
+        assertFalse(recorderSource.contains("suspend fun replayOverlayGestureWithoutRecording("))
         assertTrue(recorderSource.contains("fun hasActiveTextInputAnchor(): Boolean"))
-        assertTrue(recorderSource.contains("recorded = false"))
+        assertFalse(recorderSource.contains("fun refreshFocusedTextInputTarget(): Boolean"))
+        assertFalse(recorderSource.contains("fun refreshFocusedTextInputValue(): Boolean"))
+        assertFalse(recorderSource.contains("focused_xml_ime_poll"))
+        assertFalse(recorderSource.contains("private const val FOCUSED_XML_TEXT_TARGET_BACKEND = \"focused_xml_text_target\""))
+        assertFalse(recorderSource.contains("recorded = false"))
         assertFalse(source.contains("scheduleReplayRelockLocked"))
         assertFalse(source.contains("enterImeBypassLocked"))
         assertFalse(source.contains("ManualRecordingImeBypassSignal"))
@@ -160,6 +171,8 @@ class ManualRecordingPolicyTest {
         assertFalse(source.contains("lastReliableImeTop"))
         assertFalse(source.contains("lastImeGeometrySeenAtMs"))
         assertTrue(source.contains("private fun estimatedImeTopLocked(displayHeight: Int): Int?"))
+        assertTrue(source.contains("val hasTextInput = HumanTrajectoryLearningSession.hasActiveTextInputAnchor()"))
+        assertTrue(source.contains("if (!hasTextInput && !expectedIme)"))
         assertTrue(source.contains("rememberImeOpenExpectedLocked()"))
         assertTrue(source.contains("IME_ESTIMATED_TOP_RATIO"))
         assertFalse(source.contains("fallbackImeTop(displayHeight)"))
@@ -167,7 +180,7 @@ class ManualRecordingPolicyTest {
         assertFalse(source.contains("awaitImeVisible"))
         assertTrue(source.contains("private fun isKeyboardSubmitGestureLocked(gesture: ManualOverlayTouchGesture): Boolean"))
         assertTrue(source.contains("HumanTrajectoryLearningSession.prepareImeSubmitRecording()"))
-        assertTrue(source.contains("HumanTrajectoryLearningSession.recordImeSubmitGesture(gesture)"))
+        assertFalse(source.contains("HumanTrajectoryLearningSession.recordImeSubmitGesture(gesture)"))
         assertTrue(recorderSource.contains("TEXT_INPUT_ANCHOR_ACTIVE_TTL_MS"))
         assertFalse(recorderSource.contains("if (target == null && !beforeXml.isNullOrBlank())"))
         assertTrue(recorderSource.contains("val anchorTarget = target ?: coordinateTextAnchorTarget("))
@@ -177,17 +190,38 @@ class ManualRecordingPolicyTest {
         assertTrue(recorderSource.contains("\"搜索\""))
         assertTrue(recorderSource.contains("if (xml.isNullOrBlank()) return false"))
         assertTrue(recorderSource.contains("if (candidates.isEmpty()) return false"))
+        assertTrue(recorderSource.contains("suppressRecentOverlayTextChangeClickLocked(now, anchor, target)"))
+        assertTrue(recorderSource.contains("TEXT_INPUT_KEYBOARD_CLICK_SUPPRESS_WINDOW_MS"))
+        assertTrue(recorderSource.contains("TEXT_INPUT_ANCHOR_CLICK_GRACE_MS"))
+        assertTrue(recorderSource.contains("keyboard_click_suppressed_count"))
+        assertTrue(
+            Regex(
+                "if \\(action\\.actionName != \"click\"\\) return\\s*" +
+                    "if \\(action\\.params\\[\"recording_backend\"\\]\\?\\.toString\\(\\) != OVERLAY_TOUCH_BACKEND\\) return\\s*" +
+                    "if \\(anchor != null &&",
+                RegexOption.DOT_MATCHES_ALL
+            ).containsMatchIn(recorderSource)
+        )
+        assertTrue(
+            Regex(
+                "val elapsedMs = nowMs - action\\.finishedAtMs\\s*" +
+                    "if \\(elapsedMs !in 0L\\.\\.TEXT_INPUT_KEYBOARD_CLICK_SUPPRESS_WINDOW_MS\\) return\\s*" +
+                    "val x = action\\.params\\[\"x\"\\]\\.asFloatOrNull\\(\\) \\?: return\\s*" +
+                    "val y = action\\.params\\[\"y\"\\]\\.asFloatOrNull\\(\\) \\?: return\\s*" +
+                    "if \\(target\\.bounds\\.containsPoint\\(x, y\\) \\|\\| anchor\\?\\.target\\?\\.bounds\\?\\.containsPoint\\(x, y\\) == true\\)",
+                RegexOption.DOT_MATCHES_ALL
+            ).containsMatchIn(recorderSource)
+        )
         assertFalse(recorderSource.contains("probeImeOverlayTop("))
         assertFalse(recorderSource.contains("foregroundAppVisibleBottomFromFilteredXml("))
         assertFalse(recorderSource.contains("IME_FILTERED_APP_TOP_MAX_RATIO"))
         assertTrue(recorderSource.contains("fun prepareImeSubmitRecording(): Boolean"))
         assertTrue(recorderSource.contains("focused_xml_ime_submit"))
-        assertTrue(recorderSource.contains("fun recordImeSubmitGesture(gesture: ManualOverlayTouchGesture): Boolean"))
-        assertTrue(recorderSource.contains("actionName = \"press_key\""))
-        assertTrue(recorderSource.contains("\"key\" to \"ENTER\""))
-        assertTrue(recorderSource.contains("\"recording_backend\" to IME_SUBMIT_BACKEND"))
-        assertTrue(recorderSource.contains("private const val IME_SUBMIT_BACKEND = \"ime_submit\""))
-        assertTrue(recorderSource.contains("\"event_type\" to \"IME_SUBMIT_KEY\""))
+        assertFalse(recorderSource.contains("fun recordImeSubmitGesture(gesture: ManualOverlayTouchGesture): Boolean"))
+        assertFalse(recorderSource.contains("actionName = \"press_key\""))
+        assertFalse(recorderSource.contains("\"recording_backend\" to IME_SUBMIT_BACKEND"))
+        assertFalse(recorderSource.contains("private const val IME_SUBMIT_BACKEND = \"ime_submit\""))
+        assertFalse(recorderSource.contains("\"event_type\" to \"IME_SUBMIT_KEY\""))
     }
 
     @Test

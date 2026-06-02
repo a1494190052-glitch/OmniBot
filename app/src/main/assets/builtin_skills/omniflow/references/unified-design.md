@@ -42,6 +42,9 @@ Use these names first:
 Legacy names such as `call_function`, `run_function`, and
 `omniflow.call_function` are compatibility aliases only. They may be parsed from
 old RunLogs or old MCP clients, but they are not the model-visible replay tool.
+New Function steps that call another saved Function should write
+`tool=oob_function_run` and `callable_tool=oob_function_run`; keep old names only
+as `source_tool` evidence when importing legacy cards.
 
 ## Recall
 
@@ -59,9 +62,11 @@ candidate matches. `oob_function_run` executes only after that decision.
 ## Fallback
 
 If replay fails, return or use `fallback_context`, `failed_step_index`,
-`resume_from_step`, and `remaining_steps`. The agent can continue with bounded
-live VLM or call `update_function` with RunLog evidence. Do not silently fall
-back inside offline replay.
+`resume_from_step`, and `remaining_steps`. `failed_step_index` is the step the
+agent must complete; after that step is completed, `resume_from_step` points to
+the next local step. Use `failed_step_index` only when retrying the failed step
+itself. The agent can continue with bounded live VLM or call `update_function`
+with RunLog evidence. Do not silently fall back inside offline replay.
 
 ## update_function
 

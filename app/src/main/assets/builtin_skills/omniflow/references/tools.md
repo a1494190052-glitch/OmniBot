@@ -15,8 +15,9 @@ be reintroduced, read `unified-design.md`.
    repair, RunLog evidence analysis, checker metadata, and structural patches.
 4. Use `oob_function_guard_check` before risky or user-visible replay when the
    Function source or target context is uncertain.
-5. Use `oob_function_run` for replay. Use `start_step_index` to resume after a
-   known good prefix.
+5. Use `oob_function_run` for replay. After fallback, the agent handles
+   `failed_step_index`; then call `oob_function_run` with the returned
+   `resume_from_step` to continue from the next remaining step.
 
 When recall returns a Function with `inputSchema`, treat it like any other
 agent tool: fill required arguments from the user goal, run guard checks, then
@@ -31,6 +32,12 @@ the user if the goal does not contain enough information.
 flows. Some older servers also accept `omniflow.call_function`; treat it only as
 a compatibility alias for `omniflow.call_tool(function_id=...)` /
 `oob_function_run`.
+
+`start_step_index`, `startStepIndex`, and `resumeFromStep` are compatibility
+spellings for `resume_from_step`. They do not change fallback semantics: retry a
+failed step only when the caller explicitly passes `failed_step_index`; otherwise
+the returned `resume_from_step` means "continue after the failed step has been
+handled."
 
 Inside the OOB app, prefer the `oob_*` tools above. Use legacy `omniflow.*`
 tools only when those are the tools actually exposed and the `oob_*` tools are

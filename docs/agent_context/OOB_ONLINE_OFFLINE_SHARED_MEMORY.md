@@ -51,7 +51,8 @@ Online VLM entry and coordination:
 Offline OmniFlow and replay:
 
 - `app/src/main/java/cn/com/omnimind/bot/runlog/OobOmniFlowToolkitService.kt`
-  - `recall`, `callFunction`, `ingestRunLog`, `convertRunLog`.
+  - `recall`, `runFunction` / compatibility `callFunction`, `ingestRunLog`,
+    `convertRunLog`.
 - `app/src/main/java/cn/com/omnimind/bot/runlog/OobRunLogReplayService.kt`
   - converts successful RunLogs and registers reusable Functions.
 - `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogReusableFunctionCompiler.kt`
@@ -61,8 +62,8 @@ Offline OmniFlow and replay:
 - `app/src/main/java/cn/com/omnimind/bot/runlog/OmniflowStepExecutor.kt`
   - deterministic primitive replay executor and four-part per-step replay timing.
 - `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolHandler.kt`
-  - materialized Function runner, nested `call_function` tool-card events, and
-    per-step timing.
+  - materialized Function runner, nested `oob_function_run` tool-card events,
+    legacy Function-call compatibility, and per-step timing.
 - `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionSkillProfile.kt`
   - focused native tool-budget adapter for the `oob-function-management` skill.
     It exposes management tool schemas and optional registered Function tools,
@@ -171,11 +172,13 @@ Startup and device normalization:
 - Raw `duration_ms`, `started_at_ms`, `finished_at_ms`, and `phase_ms` are
   internal observability fields. They are recorded in RunLog/results/tests but
   should not be shown as raw debug labels in normal user-facing UI.
-- `call_function` is a tool call, even when it appears as a nested step inside
-  a reusable Function. It must emit normal `tool_started` / `tool_completed`
-  cards with `toolName=call_function`, `toolType=oob_function`, readable
-  "复用指令" labels, `argsJson.function_id`, and completion status. These cards
-  are shown in the agent UI and persisted into the same agent RunLog.
+- `oob_function_run` is the model-visible reusable Function replay tool. When
+  it appears as a nested step inside a reusable Function, it must emit normal
+  `tool_started` / `tool_completed` cards with `toolName=oob_function_run`,
+  `toolType=oob_function`, readable "复用指令" labels,
+  `argsJson.function_id`, and completion status. Legacy `call_function` labels
+  may still appear in old RunLogs or parser inputs, but they should normalize to
+  the same replay path and not be documented as the primary tool.
 
 ## Online Entry Flow
 
@@ -215,14 +218,14 @@ automation permission error code.
    because `allowOmniFlowFunctionAutoExecute=false`.
 6. Only when the request explicitly allows Function auto-execution and recall
    returned a strict direct no-argument hit, calls
-   `OobOmniFlowToolkitService.callFunction(...)` with:
+   `OobOmniFlowToolkitService.runFunction(...)` with:
 
 ```kotlin
 mapOf(
     "function_id" to functionId,
     "goal" to request.goal,
     "arguments" to emptyMap<String, Any?>(),
-    "start_step_index" to startStepIndex,
+    "resume_from_step" to startStepIndex,
 )
 ```
 
@@ -690,7 +693,7 @@ The action duration is currently measured around actual action execution, not
 the whole model step. Token usage is aggregated from OpenAI-compatible stream
 usage and also retained per attempt.
 
-Explicit agent tool cards, including nested `call_function`, use the generic
+Explicit agent tool cards, including nested `oob_function_run`, use the generic
 agent card schema produced by `AssistsCoreManager.buildAgentToolRunLogCard(...)`:
 
 - `tool_name/toolName`
@@ -706,8 +709,9 @@ agent card schema produced by `AssistsCoreManager.buildAgentToolRunLogCard(...)`
 - `rawResultJson`
 - `compile_kind = "agent_tool"`
 
-For reusable-command cards, `toolName=call_function`, `toolType=oob_function`,
-and `argsJson` must include `function_id` plus optional `arguments`.
+For reusable-command cards, `toolName=oob_function_run`, `toolType=oob_function`,
+and `argsJson` must include `function_id` plus optional `arguments`. Legacy
+cards with `toolName=call_function` are accepted as old evidence only.
 
 ## Manual Takeover Recording
 
@@ -984,12 +988,13 @@ counts = {...}
 This timing is for internal logs/tests. Normal UI should not expose raw
 `phase_ms` keys.
 
-## Offline Call Function / Replay Flow
+## Offline oob_function_run / Replay Flow
 
-`OobOmniFlowToolkitService.callFunction(args)`:
+`OobOmniFlowToolkitService.runFunction(args)`:
 
 1. Reads `function_id/functionId`, optional `goal`, optional `arguments`,
-   optional `start_step_index` or segment aliases.
+   optional `resume_from_step` / compatibility `start_step_index` or segment
+   aliases.
 2. Runs guard check.
 3. Calls `executeFunction(...)`.
 4. Records Function run statistics.
@@ -1013,7 +1018,7 @@ guard
 source = oob_native_omniflow_toolkit
 ```
 
-The outer `callFunction/runFunction` wrapper also adds:
+The outer `runFunction` wrapper, plus compatibility `callFunction`, also adds:
 
 ```text
 timing.call_started_at_ms
@@ -1036,7 +1041,8 @@ first be checked against `call_phase_ms.guard_check_ms`,
 1. Loads Function spec from replay service.
 2. Checks required arguments.
 3. Materializes spec with provided args.
-4. Slices from `start_step_index` when executing a recalled segment.
+4. Slices from `resume_from_step` / compatibility `start_step_index` when
+   executing a recalled segment.
 5. Runs `OobFunctionToolHandler.runMaterializedFunction(...)`.
 
 The returned `timing` is rooted at `executeFunction(...)`, so it includes the
@@ -1086,9 +1092,10 @@ read with `runner_phase_ms` and each primitive step's timing below.
    - delegated agent tool if router/environment are available
    - otherwise returns agent fallback requirement
 6. Emits explicit start/complete tool-card events for every nested
-   `call_function` / `call_tool(function_id=...)` step when a callback is
-   present. Missing function id, missing function, missing arguments, recursion,
-   and nested success/failure all produce a completed card instead of silently
+   `oob_function_run` / `call_tool(function_id=...)` step when a callback is
+   present. Legacy `call_function` source labels normalize to the same path.
+   Missing function id, missing function, missing arguments, recursion, and
+   nested success/failure all produce a completed card instead of silently
    disappearing into `step_results`.
 7. Records each step result with `started_at_ms`, `finished_at_ms`,
    `duration_ms`.

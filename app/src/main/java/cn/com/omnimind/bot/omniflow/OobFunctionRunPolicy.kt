@@ -43,7 +43,7 @@ class OobFunctionRunPolicy(
         val riskLevel = aggregateRisk(stepDecisions)
         val reason = when (decision) {
             DECISION_ALLOW -> "All steps are deterministic local replay or registered tool calls."
-            DECISION_AGENT_REQUIRED -> "At least one step requires live Agent planning."
+            DECISION_NEEDS_AGENT -> "At least one step requires live Agent planning."
             DECISION_NEEDS_CONFIRMATION -> "At least one step can affect device state outside local UI replay."
             DECISION_BLOCK -> "At least one step is blocked by OOB safety policy."
             else -> "Guard decision unavailable."
@@ -86,27 +86,34 @@ class OobFunctionRunPolicy(
             failedStep["model_required"] == true
         if (!fallbackEligible) return emptyMap()
 
-        val nextAttempt = fallbackAttempt + 1
-        val attemptLimitReached = fallbackAttempt >= MAX_FUNCTION_FALLBACK_ATTEMPTS_PER_STEP
         val sessionId = fallbackSessionId.ifBlank {
             "oob_fallback_${functionId.ifBlank { "unknown" }}_${System.currentTimeMillis()}"
         }
+        val materializedSteps = materializedStepsFor(functionId, arguments)
+        val resumeFromStep = (failedStepIndex + 1).coerceAtMost(materializedSteps.size)
+        val nextAttempt = fallbackAttempt + 1
+        val attemptLimitReached = fallbackAttempt >= MAX_FUNCTION_FALLBACK_ATTEMPTS_PER_STEP
         if (attemptLimitReached) {
             return linkedMapOf<String, Any?>(
                 "fallback_session_id" to sessionId,
-                "resume_from_step" to failedStepIndex,
+                "failed_step_index" to failedStepIndex,
+                "resume_from_step" to resumeFromStep,
                 "fallback_attempt" to nextAttempt,
                 "fallback_unavailable_reason" to "repeated_failure_same_step",
             )
         }
-        val remainingSteps = materializedStepSummariesFrom(functionId, arguments, failedStepIndex)
+        val remainingSteps = materializedStepSummariesFrom(
+            steps = materializedSteps,
+            startIndex = resumeFromStep,
+        )
         val recovery = mapArg(failedStep["recovery"])
         val agentPrompt = buildAgentFallbackPrompt(
             functionId = functionId,
             arguments = arguments,
             failedStep = failedStep,
             remainingSteps = remainingSteps,
-            resumeFromStep = failedStepIndex,
+            failedStepIndex = failedStepIndex,
+            resumeFromStep = resumeFromStep,
             sessionId = sessionId,
             nextAttempt = nextAttempt,
             attemptLimitReached = attemptLimitReached,
@@ -118,7 +125,8 @@ class OobFunctionRunPolicy(
             "guard_decision" to guard["decision"],
             "risk_level" to guard["risk_level"],
             "fallback_session_id" to sessionId,
-            "resume_from_step" to failedStepIndex,
+            "failed_step_index" to failedStepIndex,
+            "resume_from_step" to resumeFromStep,
             "fallback_attempt" to nextAttempt,
             "max_attempts_per_step" to MAX_FUNCTION_FALLBACK_ATTEMPTS_PER_STEP,
             "failed_step" to summarizeStepResult(failedStep),
@@ -132,17 +140,18 @@ class OobFunctionRunPolicy(
                 "args" to linkedMapOf(
                     "function_id" to functionId,
                     "arguments" to arguments,
-                    "resume_from_step" to failedStepIndex,
+                    "resume_from_step" to resumeFromStep,
                     "fallback_session_id" to sessionId,
                     "fallback_attempt" to nextAttempt,
                 )
             ),
-            "agent_rule" to "先在当前页面完成 failed_step；完成后用 return_instruction 从 resume_from_step 继续本地重放。"
+            "agent_rule" to "先在当前页面完成 failed_step；完成后用 return_instruction 从下一步 resume_from_step 继续本地重放。"
         ).filterValues { it != null }
 
         return linkedMapOf<String, Any?>(
             "fallback_session_id" to sessionId,
-            "resume_from_step" to failedStepIndex,
+            "failed_step_index" to failedStepIndex,
+            "resume_from_step" to resumeFromStep,
             "fallback_attempt" to nextAttempt,
             "fallback_context" to fallbackContext,
             "agent_prompt" to agentPrompt,
@@ -197,13 +206,13 @@ class OobFunctionRunPolicy(
                 requiresRoot = false
             }
             executor == RunLogReplayPolicy.EXECUTOR_AGENT || RunLogReplayPolicy.isAgentTool(action) -> {
-                decision = DECISION_AGENT_REQUIRED
+                decision = DECISION_NEEDS_AGENT
                 risk = RISK_MEDIUM
                 reason = "$action requires live Agent planning"
                 requiresRoot = false
             }
             else -> {
-                decision = DECISION_AGENT_REQUIRED
+                decision = DECISION_NEEDS_AGENT
                 risk = RISK_MEDIUM
                 reason = "$action is not a fixed local replay action"
                 requiresRoot = false
@@ -224,7 +233,7 @@ class OobFunctionRunPolicy(
         return when {
             decisions.contains(DECISION_BLOCK) -> DECISION_BLOCK
             decisions.contains(DECISION_NEEDS_CONFIRMATION) -> DECISION_NEEDS_CONFIRMATION
-            decisions.contains(DECISION_AGENT_REQUIRED) -> DECISION_AGENT_REQUIRED
+            decisions.contains(DECISION_NEEDS_AGENT) -> DECISION_NEEDS_AGENT
             else -> DECISION_ALLOW
         }
     }
@@ -283,20 +292,21 @@ class OobFunctionRunPolicy(
             "executor" to step["executor"],
             "success" to step["success"],
             "model_required" to step["model_required"],
+            "nested_function_id" to step["nested_function_id"],
+            "nested_model_required" to step["nested_model_required"],
+            "nested_failed_step_index" to step["nested_failed_step_index"],
+            "nested_resume_from_step" to step["nested_resume_from_step"],
+            "nested_fallback_context" to step["nested_fallback_context"],
             "error_code" to step["error_code"],
             "summary" to step["summary"],
             "prompt" to step["prompt"],
         ).filterValues { it != null }
 
     private fun materializedStepSummariesFrom(
-        functionId: String,
-        arguments: Map<String, Any?>,
+        steps: List<Map<String, Any?>>,
         startIndex: Int,
     ): List<Map<String, Any?>> {
-        val spec = functionRepository.get(functionId) ?: return emptyList()
-        val materialized = runCatching { OobReusableFunctionStore.materialize(spec, arguments) }
-            .getOrElse { return emptyList() }
-        return materializedSteps(materialized)
+        return steps
             .drop(startIndex.coerceAtLeast(0))
             .mapIndexed { offset, step ->
                 val index = startIndex + offset
@@ -313,17 +323,25 @@ class OobFunctionRunPolicy(
             }
     }
 
+    private fun materializedStepsFor(functionId: String, arguments: Map<String, Any?>): List<Map<String, Any?>> {
+        val spec = functionRepository.get(functionId) ?: return emptyList()
+        val materialized = runCatching { OobReusableFunctionStore.materialize(spec, arguments) }
+            .getOrElse { return emptyList() }
+        return materializedSteps(materialized)
+    }
+
     private fun buildAgentFallbackPrompt(
         functionId: String,
         arguments: Map<String, Any?>,
         failedStep: Map<String, Any?>,
         remainingSteps: List<Map<String, Any?>>,
+        failedStepIndex: Int,
         resumeFromStep: Int,
         sessionId: String,
         nextAttempt: Int,
         attemptLimitReached: Boolean,
     ): String {
-        val title = firstNonBlank(failedStep["title"], failedStep["step_id"], "step_${resumeFromStep + 1}")
+        val title = firstNonBlank(failedStep["title"], failedStep["step_id"], "step_${failedStepIndex + 1}")
         val tool = firstNonBlank(failedStep["tool"])
         val summary = firstNonBlank(failedStep["summary"], failedStep["prompt"])
         val recovery = mapArg(failedStep["recovery"])
@@ -348,7 +366,8 @@ class OobFunctionRunPolicy(
             oob_function_run 本地重放失败，需要你接管当前步骤。
             function_id: $functionId
             fallback_session_id: $sessionId
-            failed_step_index: $resumeFromStep
+            failed_step_index: $failedStepIndex
+            resume_from_step_after_agent: $resumeFromStep
             failed_step: $title
             tool: $tool
             reason: $summary
@@ -358,7 +377,7 @@ class OobFunctionRunPolicy(
             当前页面 XML（截断）:
             $currentXml
 
-            你需要先在当前页面完成 failed_step 对应的真实操作。完成后调用：
+            你需要先在当前页面完成 failed_step 对应的真实操作。完成后从下一步继续调用：
             oob_function_run({
               "function_id": "$functionId",$argumentsText
               "resume_from_step": $resumeFromStep,
@@ -393,7 +412,7 @@ class OobFunctionRunPolicy(
     private companion object {
         private const val MAX_FUNCTION_FALLBACK_ATTEMPTS_PER_STEP = 2
         private const val DECISION_ALLOW = "allow"
-        private const val DECISION_AGENT_REQUIRED = "agent_required"
+        private const val DECISION_NEEDS_AGENT = "needs_agent"
         private const val DECISION_NEEDS_CONFIRMATION = "needs_confirmation"
         private const val DECISION_BLOCK = "block"
         private const val RISK_LOW = "low"
