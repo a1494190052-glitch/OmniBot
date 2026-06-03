@@ -302,8 +302,15 @@ object PromptTemplate {
             appendLine(
                 t(
                     locale,
-                    "不要只输出 observation/thought/summary JSON，不要在 assistant.content 中写动作参数，也不要提前宣布任务完成。",
-                    "Do not output only observation/thought/summary JSON, do not put action arguments in assistant.content, and do not announce completion prematurely."
+                    "如果当前模型接口无法生成原生 tool_calls，也必须只输出一个可解析的工具调用 JSON，例如 {\"tool\":\"oob_function_run\",\"function_id\":\"...\",\"arguments\":{}} 或 {\"tool\":\"click\",\"target_description\":\"...\",\"element_index\":1,\"x\":500,\"y\":500}。",
+                    "If the current model API cannot emit native tool_calls, output exactly one parseable tool-call JSON instead, for example {\"tool\":\"oob_function_run\",\"function_id\":\"...\",\"arguments\":{}} or {\"tool\":\"click\",\"target_description\":\"...\",\"element_index\":1,\"x\":500,\"y\":500}."
+                )
+            )
+            appendLine(
+                t(
+                    locale,
+                    "不要只输出 observation/thought/summary JSON，不要提前宣布任务完成；如果被迫使用 assistant.content 兜底，它的全部内容必须只是一个工具调用 JSON。",
+                    "Do not output only observation/thought/summary JSON and do not announce completion prematurely; if you must use assistant.content as fallback, its entire content must be exactly one tool-call JSON."
                 )
             )
             appendLine(

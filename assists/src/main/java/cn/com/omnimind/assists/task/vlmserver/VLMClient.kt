@@ -534,6 +534,7 @@ class VLMClient(
         val normalized = content.trim()
         if (normalized.isEmpty()) return null
         return parseJsonTextToolCall(normalized)
+            ?: parseFunctionInvocationTextToolCall(normalized)
             ?: parseTaggedJsonTextToolCall(normalized)
             ?: parseHtmlArgTextToolCall(normalized)
     }
@@ -550,17 +551,73 @@ class VLMClient(
             }.getOrNull() ?: return@forEach
             val name = parsed["name"]?.jsonPrimitive?.contentOrNull?.trim()
                 ?: parsed["function"]?.jsonPrimitive?.contentOrNull?.trim()
+                ?: parsed["tool"]?.jsonPrimitive?.contentOrNull?.trim()
+                ?: parsed["tool_name"]?.jsonPrimitive?.contentOrNull?.trim()
+                ?: parsed["action"]?.jsonPrimitive?.contentOrNull?.trim()
                 ?: return@forEach
-            val args = parsed["arguments"]?.let { arguments ->
+            val hasInlineFunctionId = parsed[OobCanonicalActionSchema.ARG_FUNCTION_ID] != null
+            val args = if (hasInlineFunctionId) {
+                buildInlineActionArguments(parsed).toString()
+            } else parsed["arguments"]?.let { arguments ->
                 when (arguments) {
                     is JsonObject -> arguments.toString()
                     is JsonPrimitive -> arguments.contentOrNull.orEmpty()
                     else -> arguments.toString()
                 }
-            } ?: "{}"
+            } ?: parsed["args"]?.let { arguments ->
+                when (arguments) {
+                    is JsonObject -> arguments.toString()
+                    is JsonPrimitive -> arguments.contentOrNull.orEmpty()
+                    else -> arguments.toString()
+                }
+            } ?: buildInlineActionArguments(parsed).toString()
             return buildFallbackToolCall(name, args)
         }
         return null
+    }
+
+    private fun parseFunctionInvocationTextToolCall(content: String): AssistantToolCall? {
+        toolNames().forEach { toolName ->
+            var searchStart = 0
+            while (searchStart < content.length) {
+                val nameIndex = content.indexOf(toolName, startIndex = searchStart, ignoreCase = false)
+                if (nameIndex < 0) break
+                val before = content.getOrNull(nameIndex - 1)
+                val afterName = content.getOrNull(nameIndex + toolName.length)
+                val isTokenBoundary = (before == null || !before.isLetterOrDigit() && before != '_') &&
+                    (afterName == null || afterName.isWhitespace() || afterName == '(')
+                if (!isTokenBoundary) {
+                    searchStart = nameIndex + toolName.length
+                    continue
+                }
+                val openParen = content.indexOf('(', startIndex = nameIndex + toolName.length)
+                if (openParen < 0) break
+                if (content.substring(nameIndex + toolName.length, openParen).isNotBlank()) {
+                    searchStart = nameIndex + toolName.length
+                    continue
+                }
+                val args = extractBalancedParenthesized(content, openParen)
+                if (!args.isNullOrBlank()) {
+                    return buildFallbackToolCall(toolName, args)
+                }
+                searchStart = nameIndex + toolName.length
+            }
+        }
+        return null
+    }
+
+    private fun buildInlineActionArguments(parsed: JsonObject): JsonObject {
+        val ignoredKeys = setOf(
+            "name",
+            "function",
+            "tool",
+            "tool_name",
+            "action",
+            "observation",
+            "thought",
+            "summary",
+        )
+        return JsonObject(parsed.filterKeys { it !in ignoredKeys })
     }
 
     private fun parseTaggedJsonTextToolCall(content: String): AssistantToolCall? {
@@ -654,6 +711,44 @@ class VLMClient(
                     depth -= 1
                     if (depth == 0) {
                         return raw.substring(start, index + 1)
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    private fun extractBalancedParenthesized(raw: String, openParenIndex: Int): String? {
+        if (openParenIndex !in raw.indices || raw[openParenIndex] != '(') return null
+        var depth = 0
+        var inString = false
+        var stringQuote = '\u0000'
+        var escaped = false
+
+        for (index in openParenIndex until raw.length) {
+            val ch = raw[index]
+            if (inString) {
+                if (escaped) {
+                    escaped = false
+                    continue
+                }
+                when (ch) {
+                    '\\' -> escaped = true
+                    stringQuote -> inString = false
+                }
+                continue
+            }
+
+            when (ch) {
+                '"', '\'' -> {
+                    inString = true
+                    stringQuote = ch
+                }
+                '(' -> depth += 1
+                ')' -> {
+                    depth -= 1
+                    if (depth == 0) {
+                        return raw.substring(openParenIndex + 1, index).trim()
                     }
                 }
             }

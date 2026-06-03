@@ -338,6 +338,60 @@ class VLMClientRequestTest {
     }
 
     @Test
+    fun `text fallback tool parser supports inline oob function run json`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "vlm-test-model",
+                turn = ChatCompletionTurn(
+                    finishReason = "stop",
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        content = JsonPrimitive(
+                            """{"tool":"oob_function_run","function_id":"xhs_search_keyword","arguments":{"keyword":"猫猫"}}"""
+                        )
+                    )
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary"
+        )
+
+        assertTrue(result.success)
+        val action = requireNotNull(result.step).action as FunctionRunAction
+        assertEquals("xhs_search_keyword", action.functionId)
+        assertEquals("猫猫", action.arguments["keyword"]!!.jsonPrimitive.contentOrNull)
+    }
+
+    @Test
+    fun `text fallback tool parser supports function invocation syntax`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "vlm-test-model",
+                turn = ChatCompletionTurn(
+                    finishReason = "stop",
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        content = JsonPrimitive(
+                            """oob_function_run({"function_id":"xhs_search_keyword","arguments":{"keyword":"美食"}})"""
+                        )
+                    )
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary"
+        )
+
+        assertTrue(result.success)
+        val action = requireNotNull(result.step).action as FunctionRunAction
+        assertEquals("xhs_search_keyword", action.functionId)
+        assertEquals("美食", action.arguments["keyword"]!!.jsonPrimitive.contentOrNull)
+    }
+
+    @Test
     fun `openai tool action parser preserves indexed grounding fields`() {
         val client = VLMClient()
         val clickResult = client.parseVLMResponse(
