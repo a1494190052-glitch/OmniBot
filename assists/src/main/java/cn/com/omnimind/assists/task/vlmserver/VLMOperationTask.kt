@@ -24,6 +24,15 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.longOrNull
 import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -639,6 +648,7 @@ open class VLMOperationTask(
         val pageDiagnostics = step.pageDiagnostics.takeIf { it.isNotEmpty() }
         val postActionObservation = VLMPostActionObservation.summarize(step)
         val postActionObservationMap = postActionObservation?.toRunLogMap()
+        val actionResultData = step.actionResultData?.toRunLogAny()
         val header = linkedMapOf<String, Any?>(
             "step_index" to index,
             "title" to title,
@@ -671,6 +681,8 @@ open class VLMOperationTask(
             "finished_at_ms" to step.finishedAtMs,
             "package_name" to step.packageName,
             "page_diagnostics" to pageDiagnostics,
+            "action_result_data" to actionResultData,
+            "function_result" to actionResultData.takeIf { step.action is FunctionRunAction },
             "token_usage" to tokenUsage,
             "token_usage_attempts" to tokenUsageAttempts.takeIf { it.isNotEmpty() },
             "compile_kind" to "vlm_step",
@@ -691,6 +703,9 @@ open class VLMOperationTask(
                 "disappeared_texts" to postActionObservation?.disappearedTexts?.takeIf { it.isNotEmpty() },
                 "after_focused_editable" to postActionObservation?.afterFocusedEditable,
                 "observation_summary" to postActionObservation?.summaryText,
+                "data" to actionResultData,
+                "action_result_data" to actionResultData,
+                "function_result" to actionResultData.takeIf { step.action is FunctionRunAction },
                 "page_diagnostics" to pageDiagnostics
             ).filterValues { it != null },
             "before" to linkedMapOf(
@@ -740,6 +755,7 @@ open class VLMOperationTask(
             val postActionObservation = VLMPostActionObservation.summarize(step)
             val postActionObservationMap = postActionObservation?.toRunLogMap()
             val pageDiagnostics = step.pageDiagnostics.takeIf { it.isNotEmpty() }
+            val actionResultData = step.actionResultData?.toRunLogAny()
             JSONObject(
                 linkedMapOf<String, Any?>(
                     "message" to step.result,
@@ -759,6 +775,9 @@ open class VLMOperationTask(
                     "disappeared_texts" to postActionObservation?.disappearedTexts?.takeIf { it.isNotEmpty() },
                     "after_focused_editable" to postActionObservation?.afterFocusedEditable,
                     "observation_summary" to postActionObservation?.summaryText,
+                    "data" to actionResultData,
+                    "action_result_data" to actionResultData,
+                    "function_result" to actionResultData.takeIf { step.action is FunctionRunAction },
                     "compile_kind" to "vlm_step"
                 ).filterValues { it != null }
             ).toString()
@@ -791,6 +810,8 @@ open class VLMOperationTask(
             "resultPreviewJson" to if (streamKind == "tool_completed") resultJson else "",
             "rawResultJson" to if (streamKind == "tool_completed") resultJson else "",
             "success" to success,
+            "actionResultData" to step.actionResultData?.toString().takeIf { streamKind == "tool_completed" },
+            "action_result_data" to step.actionResultData?.toString().takeIf { streamKind == "tool_completed" },
             "stepIndex" to index,
             "startedAtMs" to step.startedAtMs,
             "started_at_ms" to step.startedAtMs,
@@ -871,7 +892,7 @@ open class VLMOperationTask(
             is GetStateAction -> linkedMapOf("reason" to action.reason)
             is FunctionRunAction -> linkedMapOf(
                 "function_id" to action.functionId,
-                "arguments" to action.arguments
+                "arguments" to action.arguments.toRunLogAny()
             )
             is WaitAction -> emptyMap()
             is RecordAction -> linkedMapOf("content" to action.content)
@@ -886,6 +907,20 @@ open class VLMOperationTask(
             is AbortAction -> linkedMapOf("value" to action.value)
         }
     }
+
+    private fun JsonElement.toRunLogAny(): Any? =
+        when (this) {
+            is JsonNull -> null
+            is JsonObject -> entries.associate { (key, value) -> key to value.toRunLogAny() }
+            is JsonArray -> map { it.toRunLogAny() }
+            is JsonPrimitive -> {
+                if (isString) {
+                    contentOrNull
+                } else {
+                    booleanOrNull ?: longOrNull ?: doubleOrNull ?: contentOrNull
+                }
+            }
+        }
 
     fun start(
         context: Context,
