@@ -188,6 +188,8 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
                 put("name", JsonPrimitive(name))
                 put("description", JsonPrimitive(description))
                 put("packageName", JsonPrimitive(targetPackage))
+                put("agent_visible", JsonPrimitive(true))
+                put("visibility", JsonPrimitive("agent_reusable"))
                 put("disable_current_page_capture", JsonPrimitive(true))
                 put(
                     "steps",

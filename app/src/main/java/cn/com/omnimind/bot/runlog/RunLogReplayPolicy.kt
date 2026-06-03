@@ -83,6 +83,8 @@ object RunLogReplayPolicy {
 
     val omniflowFunctionTools: Set<String> = setOf(
         TOOL_FUNCTION_RUN,
+        "call_function",
+        "omniflow.call_function",
     )
 
     val omniflowToolCallTools: Set<String> = setOf(

@@ -85,7 +85,7 @@ class OobOmniFlowToolkitService(
     suspend fun explore(args: Map<String, Any?>?): Map<String, Any?> {
         val request = args ?: emptyMap()
         val register = boolArg(request["register"])
-        val functionId = firstNonBlank(request["function_id"])
+        val functionId = firstNonBlank(request["function_id"], request["functionId"])
         val name = firstNonBlank(request["name"])
         val description = firstNonBlank(request["description"])
         val exploreResult = explorer.explore(request)
@@ -282,7 +282,7 @@ class OobOmniFlowToolkitService(
 
     fun guardCheck(args: Map<String, Any?>?): Map<String, Any?> {
         val request = args ?: emptyMap()
-        val functionId = firstNonBlank(request["function_id"])
+        val functionId = firstNonBlank(request["function_id"], request["functionId"])
         val arguments = functionArguments(request)
         return functionRunPolicy.guardCheck(functionId = functionId, arguments = arguments)
     }
@@ -290,7 +290,7 @@ class OobOmniFlowToolkitService(
     suspend fun runFunction(args: Map<String, Any?>?): Map<String, Any?> {
         val callTiming = OobFunctionCallTiming()
         val request = args ?: emptyMap()
-        val functionId = firstNonBlank(request["function_id"])
+        val functionId = firstNonBlank(request["function_id"], request["functionId"])
         val arguments = functionArguments(request)
         val dryRun = boolArg(request["dry_run"])
         val confirmed = boolArg(request["confirmed"])
@@ -444,7 +444,7 @@ class OobOmniFlowToolkitService(
             runId = runId,
             register = boolArgOrDefault(request["register"], defaultValue = false),
             agentVisible = boolArgOrDefault(request["agent_visible"], defaultValue = false),
-            functionIdOverride = firstNonBlank(request["function_id"])
+            functionIdOverride = firstNonBlank(request["function_id"], request["functionId"])
                 .takeIf { it.isNotEmpty() },
             nameOverride = firstNonBlank(request["name"]).takeIf { it.isNotEmpty() },
             descriptionOverride = firstNonBlank(request["description"]).takeIf { it.isNotEmpty() }

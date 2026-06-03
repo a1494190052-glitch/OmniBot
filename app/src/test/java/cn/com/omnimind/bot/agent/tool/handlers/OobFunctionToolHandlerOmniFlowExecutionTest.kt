@@ -1255,6 +1255,97 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
+    fun `oob function run tool executes registered function with arguments`() = runBlocking {
+        val context = TempFilesContext()
+        val backend = RecordingBackend(
+            currentXml = CURRENT_PAGE_XML,
+            currentPackage = "com.example.current",
+            currentActivity = "MainActivity",
+        )
+        try {
+            val store = WorkspaceFunctionStore(context.root)
+            val spec = functionSpec(
+                functionId = "search_keyword",
+                steps = listOf(
+                    mapOf(
+                        "id" to "input_keyword",
+                        "title" to "Input keyword",
+                        "kind" to "omniflow_action",
+                        "executor" to "omniflow",
+                        "model_free" to true,
+                        "scriptable" to true,
+                        "tool" to "input_text",
+                        "callable_tool" to "input_text",
+                        "args" to mapOf("text" to "原始关键词"),
+                    ),
+                ),
+                extras = mapOf(
+                    "parameters" to mapOf(
+                        "type" to "object",
+                        "properties" to mapOf(
+                            "keyword" to mapOf(
+                                "type" to "string",
+                                "x_oob_bindings" to listOf(
+                                    "$.execution.steps[0].args.text",
+                                ),
+                            ),
+                        ),
+                        "required" to listOf("keyword"),
+                    ),
+                ),
+            )
+            OobReusableFunctionStore.register(context, spec)
+            assertTrue(store.register(spec)["success"] == true)
+            val handler = handler(context, store)
+            val args = Json.parseToJsonElement(
+                """
+                {
+                  "tool_title": "小红书搜索猫猫",
+                  "function_id": "search_keyword",
+                  "arguments": {
+                    "keyword": "猫猫"
+                  }
+                }
+                """.trimIndent()
+            ).jsonObject
+
+            OmniflowActionRuntime.useBackendForTesting(backend).use {
+                val result = handler.execute(
+                    toolCall = AssistantToolCall(
+                        id = "call_oob_function_run",
+                        type = "function",
+                        function = cn.com.omnimind.baselib.llm.AssistantToolCallFunction(
+                            name = "oob_function_run",
+                            arguments = args.toString(),
+                        ),
+                    ),
+                    args = args,
+                    runtimeDescriptor = AgentToolRegistry.RuntimeToolDescriptor(
+                        name = "oob_function_run",
+                        displayName = "执行复用指令",
+                        toolType = "workbench",
+                    ),
+                    env = FakeEnv(context),
+                    callback = RecordingToolCardCallback(),
+                    toolHandle = NoOpAgentRunControl.beginToolExecution(
+                        "oob_function_run",
+                        "call_oob_function_run"
+                    ),
+                )
+
+                assertTrue(result is ToolExecutionResult.ContextResult)
+                result as ToolExecutionResult.ContextResult
+                assertEquals(true, result.success)
+                assertEquals(listOf("猫猫"), backend.inputTexts)
+                assertTrue(result.rawResultJson.contains("search_keyword"))
+                assertTrue(result.rawResultJson.contains("keyword"))
+            }
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `function arguments can propagate through nested function binding tables`() = runBlocking {
         val context = TempFilesContext()
         val backend = RecordingBackend(

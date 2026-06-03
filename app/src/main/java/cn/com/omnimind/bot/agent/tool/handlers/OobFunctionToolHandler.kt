@@ -55,9 +55,12 @@ class OobFunctionToolHandler(
     var workspaceFunctionStore: cn.com.omnimind.bot.workbench.WorkspaceFunctionStore? = null
 
     override fun canHandle(toolName: String): Boolean =
-        RunLogReplayPolicy.isOmniflowToolCallTool(toolName) || runCatching {
-            cn.com.omnimind.baselib.runlog.OobReusableFunctionStore.get(context, toolName) != null
-        }.getOrDefault(false) || workspaceFunctionStore?.canHandle(toolName) == true
+        RunLogReplayPolicy.isOmniflowToolCallTool(toolName) ||
+            RunLogReplayPolicy.isOmniflowFunctionTool(toolName) ||
+            runCatching {
+                cn.com.omnimind.baselib.runlog.OobReusableFunctionStore.get(context, toolName) != null
+            }.getOrDefault(false) ||
+            workspaceFunctionStore?.canHandle(toolName) == true
 
     /** Returns the function spec from SharedPreferences or workspace, whichever has it. */
     private fun getSpec(functionId: String): Map<String, Any?>? =
@@ -84,7 +87,10 @@ class OobFunctionToolHandler(
         toolHandle: cn.com.omnimind.bot.agent.AgentToolExecutionHandle
     ): cn.com.omnimind.bot.agent.ToolExecutionResult {
         val toolName = toolCall.function.name
-        if (RunLogReplayPolicy.isOmniflowToolCallTool(toolName)) {
+        if (
+            RunLogReplayPolicy.isOmniflowToolCallTool(toolName) ||
+            RunLogReplayPolicy.isOmniflowFunctionTool(toolName)
+        ) {
             return executeModelCallTool(toolCall, args, env, callback, toolHandle)
         }
         val spec = getSpec(toolName)

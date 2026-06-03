@@ -43,6 +43,7 @@ class OobFunctionUpdateService(
         }
         val functionId = firstNonBlank(
             request["function_id"],
+            request["functionId"],
             runLogTimeline["registered_function_id"],
             mapArg(runLogTimeline["registered_function_spec"])["function_id"],
         )

@@ -21,6 +21,7 @@ class OobFunctionSpecBuilder {
         val now = System.currentTimeMillis().toString()
         val rawFunctionId = firstNonBlank(
             request["function_id"],
+            request["functionId"],
             request["id"],
         )
         val name = firstNonBlank(request["name"], request["title"], rawFunctionId)
@@ -56,11 +57,15 @@ class OobFunctionSpecBuilder {
             )
         }
         val capabilities = simpleExecutionCapabilities(normalizedSteps)
+        val explicitAgentVisible = request["agent_visible"] ?: request["agentVisible"]
+        val explicitVisibility = firstNonBlank(request["visibility"])
         return linkedMapOf<String, Any?>(
             "schema_version" to OobFunctionSpecVocabulary.SCHEMA_VERSION_V1,
             "function_id" to functionId,
             "name" to name,
             "description" to description,
+            "agent_visible" to explicitAgentVisible,
+            "visibility" to explicitVisibility.takeIf { it.isNotBlank() },
             "parameters" to listArg(request["parameters"]).mapNotNull { raw ->
                 mapArg(raw).takeIf { it.isNotEmpty() }
             },
@@ -97,7 +102,7 @@ class OobFunctionSpecBuilder {
                 "storage" to "workspace",
                 "registration_input_mode" to "simple",
             ),
-        )
+        ).filterValues { it != null }
     }
 
     fun hasExplicitFunctionSpec(request: Map<String, Any?>): Boolean =
