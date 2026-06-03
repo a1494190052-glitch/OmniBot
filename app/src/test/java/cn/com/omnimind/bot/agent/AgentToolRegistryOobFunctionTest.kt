@@ -4,9 +4,11 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.SharedPreferences
 import android.content.pm.ApplicationInfo
+import cn.com.omnimind.baselib.i18n.PromptLocale
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
 import cn.com.omnimind.bot.agent.config.AgentToolFeatureStore
 import cn.com.omnimind.bot.omniflow.OobFunctionRepository
+import cn.com.omnimind.bot.omniflow.OobFunctionSkillProfile
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
 import cn.com.omnimind.bot.workbench.WorkbenchProjectStore
 import java.io.File
@@ -37,14 +39,15 @@ class AgentToolRegistryOobFunctionTest {
             assertFalse(toolNames.contains("workbench_project_list"))
             assertFalse(toolNames.contains("workbench_api_call"))
             assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_LIST))
-            assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_GET))
+            assertTrue(toolNames.contains(OobFunctionToolNames.FUNCTION_GET))
             assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_REGISTER))
             assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_UPDATE))
-            assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_GUARD_CHECK))
-            assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_RUN))
+            assertTrue(toolNames.contains(OobFunctionToolNames.FUNCTION_GUARD_CHECK))
+            assertTrue(toolNames.contains(OobFunctionToolNames.FUNCTION_RUN))
             assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_DELETE))
             assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_CLEAR))
             assertFalse(toolNames.contains(OobFunctionToolNames.RUN_LOG_LIST))
+            assertFalse(toolNames.contains("oob_function_recall"))
         } finally {
             context.root.deleteRecursively()
         }
@@ -228,7 +231,7 @@ class AgentToolRegistryOobFunctionTest {
     }
 
     @Test
-    fun `registered oob function is hidden after explicit feature disable`() {
+    fun `registered oob function dynamic tool is hidden after explicit feature disable but runner stays callable`() {
         val context = TempFilesContext()
         try {
             val functionId = "oob_explicitly_disabled"
@@ -243,6 +246,66 @@ class AgentToolRegistryOobFunctionTest {
             )
 
             assertFalse(registry.toolsForModel.any { it.function.name == functionId })
+            assertTrue(registry.toolsForModel.any { it.function.name == OobFunctionToolNames.FUNCTION_GET })
+            assertTrue(registry.toolsForModel.any { it.function.name == OobFunctionToolNames.FUNCTION_GUARD_CHECK })
+            assertTrue(registry.toolsForModel.any { it.function.name == OobFunctionToolNames.FUNCTION_RUN })
+            assertFalse(registry.toolsForModel.any { it.function.name == "oob_function_recall" })
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `default prompt context recalls functions internally without exposing recall tool`() {
+        val context = TempFilesContext()
+        try {
+            AgentToolFeatureStore.setOobFunctionAsToolEnabled(context, false)
+            val repository = OobFunctionRepository(context)
+            val xhsFunctionId = "xhs_search_keyword"
+            val settingsFunctionId = "open_network_from_catalog"
+            assertEquals(
+                true,
+                repository.register(
+                    functionSpec(
+                        functionId = xhsFunctionId,
+                        name = "小红书搜索关键词",
+                        description = "在小红书里搜索用户给定的关键词",
+                        packageName = "com.xingin.xhs",
+                    )
+                )["success"]
+            )
+            assertEquals(
+                true,
+                repository.register(
+                    functionSpec(
+                        functionId = settingsFunctionId,
+                        name = "打开网络设置",
+                        description = "open network settings",
+                        packageName = "com.android.settings",
+                    )
+                )["success"]
+            )
+
+            val registry = AgentToolRegistry(
+                context = context,
+                discoveredServers = emptyList(),
+            )
+            val toolNames = registry.toolsForModel.map { it.function.name }.toSet()
+            assertTrue(toolNames.contains(OobFunctionToolNames.FUNCTION_RUN))
+            assertFalse(toolNames.contains("oob_function_recall"))
+
+            val promptContext = OobFunctionSkillProfile.promptCandidateContext(
+                context = context,
+                locale = PromptLocale.ZH_CN,
+                goal = "小红书查看猫猫",
+                currentPackageName = "com.xingin.xhs",
+            )
+
+            assertTrue(promptContext.contains("自动召回 OmniFlow Function 候选"))
+            assertTrue(promptContext.contains("Function recall 是运行时内部步骤，不是模型工具"))
+            assertTrue(promptContext.contains(xhsFunctionId))
+            assertTrue(promptContext.contains(OobFunctionToolNames.FUNCTION_RUN))
+            assertFalse(promptContext.contains("oob_function_recall"))
         } finally {
             context.root.deleteRecursively()
         }
@@ -414,11 +477,23 @@ class AgentToolRegistryOobFunctionTest {
         })
     }
 
-    private fun functionSpec(functionId: String): Map<String, Any?> = linkedMapOf(
+    private fun functionSpec(
+        functionId: String,
+        name: String = "Reusable text input",
+        description: String = "Replay text input with a replaceable value",
+        packageName: String? = null,
+    ): Map<String, Any?> = linkedMapOf(
         "schema_version" to "oob.reusable_function.v1",
         "function_id" to functionId,
-        "name" to "Reusable text input",
-        "description" to "Replay text input with a replaceable value",
+        "name" to name,
+        "description" to description,
+        "constraints" to packageName?.let { linkedMapOf("package_name" to it) },
+        "source" to packageName?.let {
+            linkedMapOf(
+                "package_name" to it,
+                "goal" to description,
+            )
+        },
         "parameters" to listOf(
             linkedMapOf(
                 "name" to "replacement_text",

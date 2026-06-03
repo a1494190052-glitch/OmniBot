@@ -24,7 +24,7 @@ object OobFunctionSkillProfile {
     const val PROFILE = "function_management"
     const val SKILL_ID = "oob-function-management"
     private const val MAX_DYNAMIC_FUNCTION_TOOLS = 500
-    private const val MAX_PROMPT_FUNCTION_CANDIDATES = 5
+    private const val MAX_PROMPT_FUNCTION_CANDIDATES = 50
     private val MODEL_TOOL_NAME_REGEX = Regex("^[A-Za-z0-9_-]{1,64}$")
 
     val toolNames: Set<String> = OobFunctionToolNames.profileTools
@@ -37,6 +37,11 @@ object OobFunctionSkillProfile {
 
     fun staticToolDefinitions(locale: PromptLocale): List<JsonObject> =
         functionManagementToolDefinitions.map { definition ->
+            AgentToolDefinitions.decorateToolDefinition(definition, locale)
+        }
+
+    fun runtimeToolDefinitions(locale: PromptLocale): List<JsonObject> =
+        functionRuntimeToolDefinitions.map { definition ->
             AgentToolDefinitions.decorateToolDefinition(definition, locale)
         }
 
@@ -63,13 +68,17 @@ object OobFunctionSkillProfile {
     fun promptCandidateContext(
         context: Context,
         locale: PromptLocale,
+        goal: String? = null,
+        currentPackageName: String? = null,
         limit: Int = MAX_PROMPT_FUNCTION_CANDIDATES,
     ): String {
-        if (!AgentToolFeatureStore.isOobFunctionAsToolEnabled(context)) {
-            return ""
-        }
         val candidates = runCatching {
-            OobFunctionRepository(context).listSpecs(limit.coerceIn(1, MAX_PROMPT_FUNCTION_CANDIDATES))
+            promptCandidates(
+                context = context,
+                goal = goal,
+                currentPackageName = currentPackageName,
+                limit = limit.coerceIn(1, MAX_PROMPT_FUNCTION_CANDIDATES),
+            )
         }.onFailure {
             OmniLog.w("OobFunctionSkillProfile", "load prompt Function candidates failed: ${it.message}")
         }.getOrDefault(emptyList())
@@ -78,16 +87,18 @@ object OobFunctionSkillProfile {
         return buildString {
             when (locale) {
                 PromptLocale.ZH_CN -> {
-                    appendLine("当前可复用的 OmniFlow Functions（候选摘要，不是完整 spec）：")
+                    appendLine("本轮已根据用户目标自动召回 OmniFlow Function 候选（候选摘要，不是完整 spec）：")
                     appendLine("- Function 是可组合的复用片段，不要求一次覆盖完整用户目标；运行后根据结果继续选择下一个 Function、VLM 或其他工具。")
+                    appendLine("- Function recall 是运行时内部步骤，不是模型工具；不要尝试调用 function_recall。")
                     appendLine("- 如果用户目标与某个 Function 高置信匹配，优先 `${OobFunctionToolNames.FUNCTION_GUARD_CHECK}` -> `${OobFunctionToolNames.FUNCTION_RUN}`，不要先裸跑 `vlm_task`。")
                     appendLine("- 带参数的 Function 也可以命中；像普通 tool 一样根据用户目标填写 `arguments`，再调用 `${OobFunctionToolNames.FUNCTION_RUN}`。")
                     appendLine("- `vlm_task` 只有在显式允许高置信自动执行时才会复用 Function，且内部也走 `${OobFunctionToolNames.FUNCTION_RUN}`；缺少必填参数时不要空跑，交给 agent 填参。")
                     appendLine("- 如果只是相似但不确定，先 guard 或 `${OobFunctionToolNames.FUNCTION_GET}` 查看；证据不足再用 `vlm_task`。")
                 }
                 PromptLocale.EN_US -> {
-                    appendLine("Reusable OmniFlow Functions available right now (candidate summaries, not full specs):")
+                    appendLine("OmniFlow Function candidates recalled automatically for this user goal (summaries, not full specs):")
                     appendLine("- A Function is a composable reusable segment, not necessarily the whole user goal; after running it, continue with the next Function, VLM, or other tool as needed.")
+                    appendLine("- Function recall is an internal runtime step, not a model tool; do not try to call function_recall.")
                     appendLine("- If the user goal clearly matches a Function, prefer `${OobFunctionToolNames.FUNCTION_GUARD_CHECK}` -> `${OobFunctionToolNames.FUNCTION_RUN}` before raw `vlm_task`.")
                     appendLine("- Parameterized Functions can still be selected; fill `arguments` from the user goal like a normal tool, then call `${OobFunctionToolNames.FUNCTION_RUN}`.")
                     appendLine("- `vlm_task` reuses a Function only when high-confidence auto-execution is explicitly allowed, and it uses the same `${OobFunctionToolNames.FUNCTION_RUN}` path internally; do not run with missing required arguments.")
@@ -98,6 +109,32 @@ object OobFunctionSkillProfile {
                 appendLine(formatPromptCandidate(index + 1, spec, locale))
             }
         }.trim()
+    }
+
+    private fun promptCandidates(
+        context: Context,
+        goal: String?,
+        currentPackageName: String?,
+        limit: Int,
+    ): List<Map<String, Any?>> {
+        val normalizedGoal = goal?.trim().orEmpty()
+        if (normalizedGoal.isNotEmpty()) {
+            val recall = OobFunctionRecallService(
+                context = context,
+                functionRepository = OobFunctionRepository(context),
+            ).recall(
+                mapOf(
+                    "goal" to normalizedGoal,
+                    "current_package" to currentPackageName.orEmpty(),
+                    "k" to limit,
+                    "include_debug" to false,
+                )
+            )
+            val recalled = OobFunctionJson.listArg(recall["candidates"])
+                .mapNotNull { OobFunctionJson.mapArg(it).takeIf { candidate -> candidate.isNotEmpty() } }
+            if (recalled.isNotEmpty()) return recalled
+        }
+        return OobFunctionRepository(context).listSpecs(limit)
     }
 
     private fun normalizeProfile(profile: String?): String = profile
@@ -122,7 +159,8 @@ object OobFunctionSkillProfile {
             ?: (metadata?.get("agent_reuse") as? Map<*, *>)
         val reuseWhen = agentReuse?.get("reuse_when")?.toString()?.trim().orEmpty()
         val successSignal = agentReuse?.get("success_signal")?.toString()?.trim().orEmpty()
-        val inputSchema = OobFunctionSchemaBuilder.inputSchema(spec)
+        val inputSchema = OobFunctionJson.mapArg(spec["inputSchema"])
+            .ifEmpty { OobFunctionSchemaBuilder.inputSchema(spec) }
         val params = ((inputSchema["properties"] as? Map<*, *>)?.keys ?: emptySet<Any?>())
             .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
             .take(6)
@@ -137,11 +175,15 @@ object OobFunctionSkillProfile {
         return when (locale) {
             PromptLocale.ZH_CN -> buildString {
                 append("- $ordinal. `$functionId` — $name：$clippedDescription；参数: $params")
+                spec["score"]?.let { append("；匹配分: $it") }
+                spec["recall_scope"]?.toString()?.takeIf { it.isNotBlank() }?.let { append("；来源: $it") }
                 if (reuseWhen.isNotEmpty()) append("；适用: ${reuseWhen.take(120)}")
                 if (successSignal.isNotEmpty()) append("；成功标志: ${successSignal.take(120)}")
             }
             PromptLocale.EN_US -> buildString {
                 append("- $ordinal. `$functionId` — $name: $clippedDescription; params: $params")
+                spec["score"]?.let { append("; score: $it") }
+                spec["recall_scope"]?.toString()?.takeIf { it.isNotBlank() }?.let { append("; source: $it") }
                 if (reuseWhen.isNotEmpty()) append("; use when: ${reuseWhen.take(120)}")
                 if (successSignal.isNotEmpty()) append("; success: ${successSignal.take(120)}")
             }
@@ -450,5 +492,11 @@ object OobFunctionSkillProfile {
         oobRunLogListTool,
         oobRunLogGetTool,
         oobRunLogConvertTool,
+    )
+
+    private val functionRuntimeToolDefinitions: List<JsonObject> = listOf(
+        oobFunctionGetTool,
+        oobFunctionGuardCheckTool,
+        oobFunctionRunTool,
     )
 }

@@ -101,6 +101,8 @@ class AgentToolRegistry(
         }
         if (OobFunctionSkillProfile.isProfile(toolExposurePolicy.profile)) {
             runtimeDefinitions.addAll(OobFunctionSkillProfile.staticToolDefinitions(locale))
+        } else {
+            runtimeDefinitions.addAll(OobFunctionSkillProfile.runtimeToolDefinitions(locale))
         }
         runtimeDefinitions.addAll(AgentToolDefinitions.memoryTools(locale))
         runtimeDefinitions.addAll(AgentToolDefinitions.subagentTools(locale))

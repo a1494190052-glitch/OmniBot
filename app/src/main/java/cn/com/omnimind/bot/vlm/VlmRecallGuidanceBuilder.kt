@@ -109,13 +109,7 @@ object VlmRecallGuidanceBuilder {
         val nodeCandidates = listArg(payload["node_candidates"]).mapNotNull { raw ->
             mapArg(raw).takeIf { it.isNotEmpty() }
         }.take(MAX_GUIDANCE_CANDIDATES)
-        val anchoredContext = nodeCandidates.isNotEmpty() || directDecision || directCandidatePayload
-        val candidates = if (anchoredContext) {
-            candidateList(payload).take(MAX_GUIDANCE_CANDIDATES)
-        } else {
-            emptyList()
-        }
-        if (!directDecision && nodeCandidates.isEmpty() && !directCandidatePayload) return ""
+        val candidates = candidateList(payload).take(MAX_GUIDANCE_CANDIDATES)
         if (candidates.isEmpty() && nodeCandidates.isEmpty()) return ""
 
         return buildString {
@@ -369,8 +363,8 @@ object VlmRecallGuidanceBuilder {
             }
         }
 
-    private const val DEFAULT_RECALL_COUNT = 3
-    private const val MAX_GUIDANCE_CANDIDATES = 2
+    private const val DEFAULT_RECALL_COUNT = 50
+    private const val MAX_GUIDANCE_CANDIDATES = 20
     private const val MAX_DESCRIPTION_CHARS = 96
     private const val DIRECT_HIT_MIN_SCORE = 0.92
     private const val DIRECT_HIT_MIN_PAGE_SCORE = 0.90

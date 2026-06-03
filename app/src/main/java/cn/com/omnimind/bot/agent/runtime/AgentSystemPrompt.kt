@@ -188,8 +188,8 @@ object AgentSystemPrompt {
         val oobFunctionCandidateSection = oobFunctionCandidateContext
             ?.takeIf { it.isNotBlank() }
             ?: when (locale) {
-                PromptLocale.ZH_CN -> "当前没有可注入的 OmniFlow Function 候选摘要；如用户明确要求复用，先用 `oob_function_list` 查找。"
-                PromptLocale.EN_US -> "No OmniFlow Function candidate summary is injected right now; if the user explicitly asks to reuse one, call `oob_function_list` first."
+                PromptLocale.ZH_CN -> "本轮没有命中的 OmniFlow Function 候选；继续使用普通工具或 `vlm_task` 完成任务。"
+                PromptLocale.EN_US -> "No OmniFlow Function candidates matched this turn; continue with regular tools or `vlm_task`."
             }
 
         val workbenchProjectOperationRules = if (workbenchProjectEnabled) {

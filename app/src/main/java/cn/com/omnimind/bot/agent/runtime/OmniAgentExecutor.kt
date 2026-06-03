@@ -106,7 +106,9 @@ class OmniAgentExecutor(
                 null
             } else OobFunctionSkillProfile.promptCandidateContext(
                 context = context,
-                locale = promptLocale
+                locale = promptLocale,
+                goal = userMessage,
+                currentPackageName = currentPackageName,
             ).takeIf { it.isNotBlank() }
             val ltmIndex = if (lightweightToolProfile) {
                 null

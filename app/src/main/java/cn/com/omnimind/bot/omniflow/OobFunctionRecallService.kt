@@ -35,7 +35,7 @@ class OobFunctionRecallService(
             )
         }
         val currentNodeId = firstNonBlank(request["current_node_id"], request["currentNodeId"])
-        val k = intArg(request["k"], defaultValue = 8).coerceIn(1, 50)
+        val k = intArg(request["k"], defaultValue = DEFAULT_RECALL_LIMIT).coerceIn(1, MAX_RECALL_FUNCTIONS)
         val allowDirectExecutionDecision = boolArg(request["auto_execute"]) ||
             boolArg(request["autoExecute"]) ||
             boolArg(request["allow_direct_hit"]) ||
@@ -59,71 +59,81 @@ class OobFunctionRecallService(
                     .getOrDefault("")
             }
         }
-        if (currentXml.isBlank()) {
-            val payload = linkedMapOf<String, Any?>(
-                "success" to true,
-                "decision" to "miss",
-                "decision_path" to OobUdegNodeStore.UDEG_DECISION_PATH,
-                "hit" to null,
-                "candidates" to emptyList<Map<String, Any?>>(),
-                "node_candidates" to emptyList<Map<String, Any?>>(),
-                "count" to 0,
-                "reason" to "missing_current_page_for_udeg_page_match",
-                "current_package" to currentPackage.takeIf { it.isNotEmpty() },
-                "current_node_id" to currentNodeId.takeIf { it.isNotEmpty() },
-                "timing" to timing.finish(
-                    decision = "miss",
-                    counts = linkedMapOf(
-                        "node_candidates" to 0,
-                        "function_candidates" to 0,
-                    )
-                ),
-                "source" to "oob_native_udeg_page_match",
-            )
-            return compactRecallPayload(payload, includeDebug)
-        }
-
         val nodeStore = OobUdegNodeStore(context)
         val nodeMatches = timing.measure("page_match_ms") {
-            nodeStore.recall(
-                currentXml = currentXml,
-                currentPackage = currentPackage,
-                topK = k,
-            )
+            if (currentXml.isBlank()) {
+                emptyList()
+            } else {
+                nodeStore.recall(
+                    currentXml = currentXml,
+                    currentPackage = currentPackage,
+                    topK = k,
+                )
+            }
         }
         val nodeCandidates = nodeMatches.map { it.toMap() }
         val decisionNodeMatches = nodeMatches.take(1)
-        val nodeCapabilityRanking = timing.measure("rank_functions_ms") {
-            rankNodeCapabilities(
+        val recallRanking = timing.measure("rank_functions_ms") {
+            val nodeRanking = rankNodeCapabilities(
                 nodeMatches = decisionNodeMatches,
                 goal = goal,
                 currentPackage = currentPackage,
                 topK = k,
             )
+            val nodeFunctionIds = nodeRanking.functions.map { it.functionId }.toSet()
+            val catalogFunctions = rankCatalogFunctions(
+                goal = goal,
+                currentPackage = currentPackage,
+                topK = k,
+                excludeFunctionIds = nodeFunctionIds,
+            )
+            RecallRanking(
+                node = nodeRanking,
+                catalogFunctions = catalogFunctions,
+                mergedFunctions = (nodeRanking.functions + catalogFunctions)
+                    .sortedWith(
+                        compareByDescending<RankedFunction> { it.score }
+                            .thenByDescending { it.pageScore }
+                            .thenBy { it.functionId }
+                    )
+                    .take(k),
+            )
         }
-        val ranked = nodeCapabilityRanking.functions
+        val nodeCapabilityRanking = recallRanking.node
+        val ranked = recallRanking.mergedFunctions
 
         val candidates = ranked.map { rankedFunction ->
-            candidateMap(
-                spec = rankedFunction.spec,
-                score = rankedFunction.score,
-                reason = rankedFunction.reason,
-                extras = linkedMapOf(
+            val extras = if (rankedFunction.node.isNotEmpty()) {
+                linkedMapOf(
                     "text_score" to roundScore(rankedFunction.textScore),
                     "page_similarity" to roundScore(rankedFunction.pageScore),
                     "udeg_node" to rankedFunction.node,
                     "node_skill_context" to rankedFunction.node["node_skill_context"],
                     "recall_scope" to "udeg_node",
+                    "source" to "oob_udeg_node_function_recall",
                 )
+            } else {
+                linkedMapOf(
+                    "text_score" to roundScore(rankedFunction.textScore),
+                    "page_similarity" to roundScore(rankedFunction.pageScore),
+                    "recall_scope" to "function_catalog",
+                    "source" to "oob_function_catalog_recall",
+                )
+            }
+            candidateMap(
+                spec = rankedFunction.spec,
+                score = rankedFunction.score,
+                reason = rankedFunction.reason,
+                extras = extras
             )
         }
-        val directHit = ranked.firstOrNull()?.takeIf { candidate ->
+        val directHit = nodeCapabilityRanking.functions.firstOrNull()?.takeIf { candidate ->
             allowDirectExecutionDecision &&
-                isHighConfidenceFunctionHit(candidate, ranked.drop(1).firstOrNull())
+                isHighConfidenceFunctionHit(candidate, nodeCapabilityRanking.functions.drop(1).firstOrNull())
         }
         val decision = when {
             directHit != null -> "hit"
-            nodeCandidates.isNotEmpty() -> "recall"
+            candidates.isNotEmpty() || nodeCandidates.isNotEmpty() -> "recall"
             else -> "miss"
         }
 
@@ -163,7 +173,11 @@ class OobFunctionRecallService(
             "node_skill_context" to (nodeCandidates.firstOrNull()?.get("node_skill_context")),
             "decision_context" to (nodeCandidates.firstOrNull()?.get("decision_context")),
             "decision_policy" to linkedMapOf(
-                "mode" to if (allowDirectExecutionDecision) "direct_execution_allowed" else "node_skill_context_only",
+                "mode" to when {
+                    allowDirectExecutionDecision -> "direct_execution_allowed"
+                    nodeCandidates.isNotEmpty() -> "node_skill_context_only"
+                    else -> "function_catalog_context_only"
+                },
                 "requires_vlm_or_tool_decision" to !allowDirectExecutionDecision,
                 "direct_hit_requested" to allowDirectExecutionDecision,
                 "direct_hit_min_score" to DIRECT_HIT_MIN_SCORE,
@@ -173,12 +187,20 @@ class OobFunctionRecallService(
                 "direct_hit_requires_single_candidate" to false,
                 "direct_hit_requires_top1_margin" to true,
                 "direct_hit_allows_agent_filled_arguments" to true,
+                "catalog_recall_enabled" to true,
             ),
             "count" to candidates.size,
             "reason" to when {
                 directHit != null -> "udeg_page_match_direct_function_hit"
-                nodeCandidates.isEmpty() -> "no_udeg_node_page_match"
-                nodeCapabilityRanking.capabilities.isEmpty() -> "udeg_node_match_without_attached_capability"
+                nodeCandidates.isEmpty() && currentXml.isBlank() && candidates.isNotEmpty() ->
+                    "function_catalog_recall_missing_current_page"
+                nodeCandidates.isEmpty() && candidates.isNotEmpty() ->
+                    "function_catalog_recall_no_page_match"
+                nodeCandidates.isEmpty() -> "no_udeg_node_page_match_or_function_candidate"
+                nodeCapabilityRanking.capabilities.isEmpty() && candidates.isEmpty() ->
+                    "udeg_node_match_without_attached_capability_or_catalog_candidate"
+                nodeCapabilityRanking.functions.isEmpty() && candidates.isNotEmpty() ->
+                    "function_catalog_recall_with_udeg_node_context"
                 candidates.isEmpty() -> "udeg_node_match_without_attached_function"
                 else -> "udeg_node_skill_context_recall"
             },
@@ -190,11 +212,16 @@ class OobFunctionRecallService(
                     "node_candidates" to nodeCandidates.size,
                     "decision_node_candidates" to decisionNodeMatches.size,
                     "function_candidates" to ranked.size,
+                    "catalog_function_candidates" to recallRanking.catalogFunctions.size,
                     "node_capabilities" to nodeCapabilityRanking.capabilities.size,
                     "node_function_capabilities" to nodeCapabilityRanking.functionCapabilities.size,
                 )
             ),
-            "source" to "oob_native_udeg_page_match"
+            "source" to if (nodeCandidates.isNotEmpty()) {
+                "oob_native_udeg_page_match"
+            } else {
+                "oob_native_function_recall"
+            }
         )
         return compactRecallPayload(payload, includeDebug)
     }
@@ -260,6 +287,41 @@ class OobFunctionRecallService(
             capabilities = sortedFunctionCapabilities.take(limit),
             functionCapabilities = sortedFunctionCapabilities.take(limit),
         )
+    }
+
+    private fun rankCatalogFunctions(
+        goal: String,
+        currentPackage: String,
+        topK: Int,
+        excludeFunctionIds: Set<String>,
+    ): List<RankedFunction> {
+        val limit = topK.coerceIn(1, MAX_RECALL_FUNCTIONS)
+        return functionRepository
+            .listSpecs(limit = MAX_RECALL_FUNCTIONS, includeHidden = false)
+            .mapNotNull { spec ->
+                if (!OobFunctionRepository.isAgentVisible(spec)) return@mapNotNull null
+                val functionId = OobFunctionSchemaBuilder.functionId(spec)
+                if (functionId.isBlank() || functionId in excludeFunctionIds) return@mapNotNull null
+                val textScore = scoreFunctionText(
+                    spec = spec,
+                    goal = goal,
+                    currentPackage = currentPackage,
+                )
+                RankedFunction(
+                    spec = spec,
+                    functionId = functionId,
+                    score = roundScore(textScore.score),
+                    reason = "function_catalog_${textScore.reason}",
+                    textScore = textScore.score,
+                    pageScore = 0.0,
+                    node = emptyMap(),
+                )
+            }
+            .sortedWith(
+                compareByDescending<RankedFunction> { it.score }
+                    .thenBy { it.functionId }
+            )
+            .take(limit)
     }
 
     private fun capabilityComparator(): Comparator<Map<String, Any?>> =
@@ -594,6 +656,11 @@ class OobFunctionRecallService(
         val execution = mapArg(spec["execution"])
         val steps = materializedSteps(spec)
         val functionId = OobFunctionSchemaBuilder.functionId(spec)
+        val call = linkedMapOf<String, Any?>(
+            "tool" to OobFunctionToolNames.FUNCTION_RUN,
+            "function_id" to functionId,
+            "arguments" to emptyMap<String, Any?>(),
+        )
         return linkedMapOf<String, Any?>(
             "function_id" to functionId,
             "description" to (spec["description"] ?: spec["name"] ?: functionId),
@@ -608,6 +675,8 @@ class OobFunctionRecallService(
             } else {
                 "agent_fill_required_arguments_from_user_goal"
             },
+            "execution_scope" to "function",
+            "call" to call,
             "has_agent_steps" to OobFunctionSpecVocabulary.agentStepFlag(execution),
             "step_summaries" to stepSummaries(spec),
             "function_profile" to functionProfile(spec),
@@ -696,12 +765,34 @@ class OobFunctionRecallService(
     private fun normalizeText(value: String): String =
         value.trim().lowercase().replace(Regex("\\s+"), " ")
 
-    private fun tokenize(value: String): List<String> =
+    private fun tokenize(value: String): List<String> {
+        val tokens = linkedSetOf<String>()
         Regex("[\\p{L}\\p{N}]+")
             .findAll(value.lowercase())
             .map { it.value }
-            .filter { it.length >= 2 }
-            .toList()
+            .forEach { chunk ->
+                if (chunk.length >= 2) tokens += chunk
+                if (chunk.any(::isCjk)) {
+                    val cjkChars = chunk.filter(::isCjk).map { it.toString() }
+                    tokens += cjkChars
+                    cjkChars.windowed(size = 2).forEach { pair ->
+                        tokens += pair.joinToString(separator = "")
+                    }
+                    cjkChars.windowed(size = 3).forEach { triple ->
+                        tokens += triple.joinToString(separator = "")
+                    }
+                }
+            }
+        return tokens.filter { it.length >= 1 }
+    }
+
+    private fun isCjk(char: Char): Boolean {
+        val block = Character.UnicodeBlock.of(char)
+        return block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS ||
+            block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A ||
+            block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_B ||
+            block == Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS
+    }
 
     private fun roundScore(value: Double): Double =
         ((value.coerceIn(0.0, 1.0) * 1000.0).roundToInt() / 1000.0)
@@ -726,6 +817,12 @@ class OobFunctionRecallService(
     private data class FunctionTextScore(
         val score: Double,
         val reason: String,
+    )
+
+    private data class RecallRanking(
+        val node: NodeCapabilityRanking,
+        val catalogFunctions: List<RankedFunction>,
+        val mergedFunctions: List<RankedFunction>,
     )
 
     private data class NodeCapabilityRanking(
@@ -788,5 +885,7 @@ class OobFunctionRecallService(
         private const val DIRECT_HIT_MIN_MARGIN = 0.08
         private const val PAGE_MATCH_WEIGHT = 0.70
         private const val GOAL_MATCH_WEIGHT = 0.30
+        private const val DEFAULT_RECALL_LIMIT = 50
+        private const val MAX_RECALL_FUNCTIONS = 50
     }
 }

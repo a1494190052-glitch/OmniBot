@@ -237,16 +237,22 @@ class VlmRecallGuidanceBuilderTest {
     }
 
     @Test
-    fun `weak recall candidates without page matched node are kept out of online VLM step guidance`() {
+    fun `function catalog candidates without page matched node are still rendered for online VLM step guidance`() {
         val guidance = VlmRecallGuidanceBuilder.renderGuidance(
             mapOf(
                 "success" to true,
                 "decision" to "recall",
+                "decision_policy" to mapOf(
+                    "mode" to "function_catalog_context_only",
+                    "requires_vlm_or_tool_decision" to true,
+                    "catalog_recall_enabled" to true,
+                ),
                 "candidates" to listOf(
                     mapOf(
                         "function_id" to "open_settings_from_history",
                         "score" to 0.71,
                         "description" to "Historical Settings path",
+                        "recall_scope" to "function_catalog",
                         "step_summaries" to listOf(
                             mapOf("tool" to "click", "title" to "click: Network"),
                         ),
@@ -255,7 +261,10 @@ class VlmRecallGuidanceBuilderTest {
             )
         )
 
-        assertEquals("", guidance)
+        assertTrue(guidance.contains("decision_policy: mode=function_catalog_context_only"))
+        assertTrue(guidance.contains("1. oob_function_run function_id=open_settings_from_history"))
+        assertTrue(guidance.contains("function_execution_policy=optional_candidates_only"))
+        assertFalse(guidance.contains("step:"))
     }
 
     @Test
