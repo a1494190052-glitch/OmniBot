@@ -198,6 +198,7 @@ object HumanTrajectoryLearningSession {
                 }
             }
             activePaused = false
+            OmniLog.i(TAG, "start beginRun: $runId")
             InternalRunLogStore.beginRun(
                 context = appContext,
                 runId = runId,
@@ -206,6 +207,8 @@ object HumanTrajectoryLearningSession {
                 toolName = "human_trajectory",
                 operationDescription = normalizedName
             )
+            OmniLog.i(TAG, "start beginRun done: $runId")
+            OmniLog.i(TAG, "start recorder.start: $runId")
             if (!recorder.start()) {
                 InternalRunLogStore.finishRun(
                     context = appContext,
@@ -219,6 +222,7 @@ object HumanTrajectoryLearningSession {
                 )
                 return deferred
             }
+            OmniLog.i(TAG, "start recorder.start done: $runId")
             activeSession = ActiveSession(
                 context = appContext,
                 runId = runId,

@@ -259,10 +259,13 @@ class ManualVlmTraceRecorder(
         }
         isStarted = true
         isPaused = false
+        OmniLog.i(TAG, "manual trace recorder start: capture xml session=$sessionLabel")
         lastXmlSnapshot = captureCurrentXmlSafe("start")
-        lastScreenshotSnapshot = captureCurrentScreenshotRef("start")
+        lastScreenshotSnapshot = null
+        OmniLog.i(TAG, "manual trace recorder start: preseed text anchor session=$sessionLabel")
         textInputAnchor = preSeedFocusedTextInputAnchorFrom(lastXmlSnapshot, lastScreenshotSnapshot)
         if (enableRawTouch) {
+            OmniLog.i(TAG, "manual trace recorder start: start raw touch session=$sessionLabel")
             startRawTouchRecorder()
         } else {
             rawTouchStatus = ManualRawTouchStatus(
@@ -272,6 +275,7 @@ class ManualVlmTraceRecorder(
                 errorMessage = "Raw getevent recording is disabled; using overlay touch actions with Accessibility evidence"
             )
         }
+        OmniLog.i(TAG, "manual trace recorder start: add listener session=$sessionLabel")
         AssistsService.addListener(listener)
         OmniLog.d(TAG, "manual trace recorder started: $sessionLabel rawTouch=$enableRawTouch")
         return true
@@ -287,7 +291,7 @@ class ManualVlmTraceRecorder(
         if (isPaused) return true
         awaitOverlayRecordJobs("pause")
         val currentXml = captureCurrentXmlSafe("pause")
-        val currentScreenshot = captureCurrentScreenshotRef("pause")
+        val currentScreenshot = null
         materializePendingTextFromXml(
             xml = currentXml,
             screenshot = currentScreenshot,
@@ -312,7 +316,7 @@ class ManualVlmTraceRecorder(
         if (!isStarted) return false
         if (!isPaused) return true
         lastXmlSnapshot = captureCurrentXmlSafe("resume")
-        lastScreenshotSnapshot = captureCurrentScreenshotRef("resume")
+        lastScreenshotSnapshot = null
         postInputClickWindow = null
         lastDiscreteSignature = ""
         lastDiscreteAtMs = 0L
@@ -2307,13 +2311,15 @@ class ManualVlmTraceRecorder(
             val capturedAtMs = System.currentTimeMillis()
             val capture = runBlocking {
                 withTimeoutOrNull(DEBUG_SCREENSHOT_CAPTURE_TIMEOUT_MS) {
-                    AccessibilityController.captureScreenshotImage(
-                        isBitmap = true,
-                        isBase64 = false,
-                        isFile = false,
-                        isFilterOverlay = true,
-                        compressQuality = DEBUG_SCREENSHOT_QUALITY
-                    )
+                    withContext(Dispatchers.IO) {
+                        AccessibilityController.captureScreenshotImage(
+                            isBitmap = true,
+                            isBase64 = false,
+                            isFile = false,
+                            isFilterOverlay = true,
+                            compressQuality = DEBUG_SCREENSHOT_QUALITY
+                        )
+                    }
                 }
             }
             val bitmap = capture?.imageBitmap

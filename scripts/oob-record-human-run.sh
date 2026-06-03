@@ -20,6 +20,7 @@ EXPECTED_SWIPES=""
 DEBUG_OVERLAY_GESTURES="${DEBUG_OVERLAY_GESTURES:-0}"
 DEBUG_SCREENSHOTS="${DEBUG_SCREENSHOTS:-1}"
 SIMULATE_RESTART_BEFORE_FINISH="${SIMULATE_RESTART_BEFORE_FINISH:-0}"
+ACTIVE_RUN_ID=""
 
 usage() {
   cat <<'EOF'
@@ -171,7 +172,8 @@ read_app_file() {
 wait_for_file() {
   local path="$1"
   local output="$2"
-  local deadline=$((SECONDS + TIMEOUT_SECONDS))
+  local timeout="${3:-$TIMEOUT_SECONDS}"
+  local deadline=$((SECONDS + timeout))
   while (( SECONDS < deadline )); do
     read_app_file "$path" >"$output"
     if [[ -s "$output" ]]; then
@@ -215,10 +217,18 @@ finish_recording() {
 
 recover_recording() {
   "${ADB[@]}" shell run-as "$PACKAGE_NAME" rm -f "$RESULT_FILE" >/dev/null 2>&1 || true
-  "${ADB[@]}" shell am broadcast \
-    -a "$ACTION" \
-    -n "$RECEIVER" \
-    --es op recover_latest >/dev/null
+  if [[ -n "${ACTIVE_RUN_ID// }" ]]; then
+    "${ADB[@]}" shell am broadcast \
+      -a "$ACTION" \
+      -n "$RECEIVER" \
+      --es op recover_latest \
+      --es runId "$ACTIVE_RUN_ID" >/dev/null
+  else
+    "${ADB[@]}" shell am broadcast \
+      -a "$ACTION" \
+      -n "$RECEIVER" \
+      --es op recover_latest >/dev/null
+  fi
   wait_for_file "$RESULT_FILE" "$RESULT_TMP"
 }
 
@@ -244,9 +254,24 @@ send_recording_op() {
 }
 
 send_overlay_gesture_and_wait() {
+  local attempt
   "${ADB[@]}" shell run-as "$PACKAGE_NAME" rm -f "$GESTURE_FILE" >/dev/null 2>&1 || true
-  send_recording_op gesture "$@"
-  wait_for_file "$GESTURE_FILE" "$GESTURE_TMP"
+  for attempt in 1 2 3; do
+    "${ADB[@]}" shell run-as "$PACKAGE_NAME" rm -f "$GESTURE_FILE" >/dev/null 2>&1 || true
+    if [[ -n "${ACTIVE_RUN_ID// }" ]]; then
+      send_recording_op gesture --es runId "$ACTIVE_RUN_ID" "$@"
+    else
+      send_recording_op gesture "$@"
+    fi
+    if wait_for_file "$GESTURE_FILE" "$GESTURE_TMP" 10; then
+      break
+    fi
+    if (( attempt == 3 )); then
+      return 1
+    fi
+    echo "Gesture result did not arrive on $DEVICE_SERIAL; retrying ($attempt/3)..." >&2
+    sleep 1
+  done
   python3 - "$GESTURE_TMP" <<'PY'
 import json
 import sys
@@ -282,7 +307,11 @@ run_debug_overlay_gestures() {
   swipe_y2=$((height / 3))
   "${ADB[@]}" shell am start -a android.settings.SETTINGS >/dev/null || true
   sleep 1
-  send_recording_op resume
+  if [[ -n "${ACTIVE_RUN_ID// }" ]]; then
+    send_recording_op resume --es runId "$ACTIVE_RUN_ID"
+  else
+    send_recording_op resume
+  fi
   sleep 1
   send_overlay_gesture_and_wait \
     --es actionName click \
@@ -822,14 +851,16 @@ require_unlocked_device
   --ez debugScreenshots "$([[ "$DEBUG_SCREENSHOTS" -eq 1 ]] && echo true || echo false)" >/dev/null
 
 wait_for_file "$START_FILE" "$START_TMP"
-python3 - "$START_TMP" <<'PY'
+ACTIVE_RUN_ID="$(python3 - "$START_TMP" <<'PY'
 import json
 import sys
 data = json.load(open(sys.argv[1], encoding="utf-8"))
 if data.get("success") is not True:
     print(json.dumps(data, ensure_ascii=False, indent=2), file=sys.stderr)
     sys.exit(1)
+print(data.get("run_id") or (data.get("status") or {}).get("run_id") or "")
 PY
+)"
 
 echo "Recording human run on $DEVICE_SERIAL; press Ctrl-C to stop." >&2
 if [[ "$DEBUG_OVERLAY_GESTURES" -eq 1 ]]; then

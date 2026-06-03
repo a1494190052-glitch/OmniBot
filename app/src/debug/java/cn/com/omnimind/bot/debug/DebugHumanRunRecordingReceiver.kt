@@ -33,6 +33,7 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
         val description = intent?.getStringExtra("description")?.trim().orEmpty()
         val name = intent?.getStringExtra("name")?.trim().orEmpty()
             .ifBlank { description.ifBlank { "人工录制轨迹" } }
+        val recoverRunId = stringExtra(intent, "runId") ?: stringExtra(intent, "run_id")
         val enableRawTouch = intent?.getBooleanExtra("enableRawTouch", false) == true ||
             intent?.getBooleanExtra("rawTouch", false) == true
         val enableDebugScreenshots = debugScreenshotsEnabled(intent)
@@ -51,9 +52,9 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
                         )
                         "pause" -> pauseRecording()
                         "resume" -> resumeRecording()
-                        "gesture", "overlay_gesture" -> recordOverlayGesture(intent)
+                        "gesture", "overlay_gesture" -> recordOverlayGesture(intent, recoverRunId)
                         "finish", "stop", "complete" -> finishRecording(appContext)
-                        "recover", "recover_latest", "finish_latest" -> recoverLatestRecording(appContext)
+                        "recover", "recover_latest", "finish_latest" -> recoverRecording(appContext, recoverRunId)
                         "cancel" -> cancelRecording(appContext)
                         "status" -> statusPayload()
                         else -> errorPayload("UNKNOWN_OP", "Unsupported op: $op")
@@ -87,9 +88,6 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
         enableRawTouch: Boolean,
         enableDebugScreenshots: Boolean
     ): Map<String, Any?> {
-        if (activeResult != null || HumanTrajectoryLearningSession.isActive()) {
-            return errorPayload("ALREADY_RECORDING", "A human recording session is already active")
-        }
         OmniLog.i(TAG, "start: waiting for accessibility")
         waitForAccessibility(context)
         OmniLog.i(TAG, "start: accessibility ready")
@@ -163,9 +161,20 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
         ).filterValues { it != null }
     }
 
-    private suspend fun recordOverlayGesture(intent: Intent?): Map<String, Any?> {
+    private suspend fun recordOverlayGesture(intent: Intent?, requestedRunId: String?): Map<String, Any?> {
         if (!HumanTrajectoryLearningSession.isActive()) {
             return errorPayload("NO_ACTIVE_RECORDING", "No active human recording session")
+        }
+        val activeRunId = HumanTrajectoryLearningSession.activeRunId()
+        if (!requestedRunId.isNullOrBlank() && requestedRunId != activeRunId) {
+            return errorPayload(
+                "RUN_ID_MISMATCH",
+                "Active recording runId does not match requested runId",
+                linkedMapOf(
+                    "requested_run_id" to requestedRunId,
+                    "active_run_id" to activeRunId
+                )
+            )
         }
         if (HumanTrajectoryLearningSession.isPaused()) {
             return errorPayload("RECORDING_PAUSED", "Resume the human recording before sending a gesture")
@@ -260,21 +269,32 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
         return awaitResult(context, result, "cancelled")
     }
 
-    private fun recoverLatestRecording(context: Context): Map<String, Any?> {
+    private fun recoverRecording(context: Context, requestedRunId: String?): Map<String, Any?> {
         if (activeResult != null || HumanTrajectoryLearningSession.isActive()) {
             return errorPayload(
                 "ACTIVE_RECORDING",
                 "A live human recording session is active; finish it normally before recovery"
             )
         }
-        val record = InternalRunLogStore.listRunRecords(context, limit = 50)
-            .filter { candidate ->
-                candidate.source == "human_trajectory" && candidate.finishedAtMs == null
-            }
-            .maxByOrNull { candidate -> candidate.startedAtMs }
+        val record = if (requestedRunId.isNullOrBlank()) {
+            InternalRunLogStore.listRunRecords(context, limit = Int.MAX_VALUE)
+                .filter { candidate -> candidate.source == "human_trajectory" && candidate.finishedAtMs == null }
+                .maxByOrNull { candidate -> candidate.startedAtMs }
+        } else {
+            InternalRunLogStore.getRun(context, requestedRunId)
+                ?.takeIf { candidate -> candidate.source == "human_trajectory" && candidate.finishedAtMs == null }
+        }
             ?: return errorPayload("NO_RECOVERABLE_RECORDING", "No unfinished human recording RunLog found")
         val replayableActionCount = record.cards.count(::isManualReplayActionCard)
         val success = replayableActionCount > 0
+        val diagnostics = recoveredManualRecordingDiagnostics(record.cards)
+        if (diagnostics.isNotEmpty()) {
+            InternalRunLogStore.updateDiagnostics(
+                context = context,
+                runId = record.runId,
+                diagnostics = diagnostics
+            )
+        }
         InternalRunLogStore.finishRun(
             context = context,
             runId = record.runId,
@@ -305,6 +325,39 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
             "token_usage_total" to 0,
             "source" to "oob_debug_human_run_recording"
         ).filterValues { it != null }
+    }
+
+    private fun recoveredManualRecordingDiagnostics(cards: List<Map<String, Any?>>): Map<String, Any?> {
+        val actionCards = cards.filter(::isManualReplayActionCard)
+        if (actionCards.isEmpty()) return emptyMap()
+        val backends = actionCards.mapNotNull { card ->
+            val params = card["params"] as? Map<*, *>
+            params?.get("recording_backend")?.toString()?.takeIf { it.isNotBlank() }
+        }
+        val overlayOnly = backends.isNotEmpty() && backends.all {
+            it == "overlay_touch" || it == "overlay_touch_text_input"
+        }
+        val actionSource = when {
+            overlayOnly -> "overlay_touch"
+            backends.any { it.startsWith("device_getevent") } -> "mixed_real_touch"
+            else -> backends.firstOrNull() ?: "recovered_manual_recording"
+        }
+        return linkedMapOf(
+            "manual_recording" to linkedMapOf(
+                "schema_version" to "oob.manual_recording.diagnostics.v1",
+                "recovered_after_restart" to true,
+                "action_source" to actionSource,
+                "completeness" to if (overlayOnly) {
+                    "complete_overlay_touch"
+                } else {
+                    "recovered_incremental_actions"
+                },
+                "guarantees_no_missing_clicks" to overlayOnly,
+                "a11_replay_actions_enabled" to false,
+                "replayable_action_count" to actionCards.size,
+                "recording_backend_counts" to backends.groupingBy { it }.eachCount()
+            )
+        )
     }
 
     private suspend fun awaitResult(
