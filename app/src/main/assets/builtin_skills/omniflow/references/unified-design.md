@@ -18,8 +18,8 @@ order. It does not maintain a hidden pending queue and does not skip middle
 steps because a later page state appears satisfied.
 
 Use one vocabulary everywhere: Function, RunLog, recall, replay, checker,
-fallback, and update. Old Command wording and `call_function` names are
-compatibility only.
+fallback, and update. Deprecated reusable-workflow wording and `call_function`
+names are compatibility only.
 
 Internal graph edges for callable Functions use `kind=function_call`; old
 `call_function` edge inputs are compatibility only.
@@ -40,11 +40,10 @@ Use these names first:
 - `oob_function_get`
 
 Legacy names such as `call_function`, `run_function`, and
-`omniflow.call_function` are compatibility aliases only. They may be parsed from
-old RunLogs or old MCP clients, but they are not the model-visible replay tool.
-New Function steps that call another saved Function should write
-`tool=oob_function_run` and `callable_tool=oob_function_run`; keep old names only
-as `source_tool` evidence when importing legacy cards.
+`omniflow.call_function` are import-only compatibility names. They are not the
+model-visible replay tool and must not be written into new Function specs.
+New Function steps that call another saved Function must write
+`{"tool":"oob_function_run","args":{"function_id":"...","arguments":{...}}}`.
 
 ## Recall
 
@@ -72,10 +71,10 @@ with RunLog evidence. Do not silently fall back inside offline replay.
 
 `update_function` is the only saved Function mutation path.
 
-- `update_function({functionId, run_id})` packages Function + RunLog evidence
+- `update_function({function_id, run_id})` packages Function + RunLog evidence
   and returns `needs_agent_analysis=true`, `analysis_context`, and
   `agent_prompt`.
-- `update_function({functionId, run_id, analysis, patch})` saves agent analysis
+- `update_function({function_id, run_id, analysis, patch})` saves agent analysis
   metadata and applies safe patches.
 
 The Kotlin side packages evidence and applies patches. The analysis skill owns

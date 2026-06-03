@@ -81,7 +81,6 @@ class OobFunctionCallToolStepExecutor(
             val delegatedStep = LinkedHashMap<String, Any?>().apply {
                 putAll(step)
                 put("tool", targetTool)
-                put("callable_tool", targetTool)
                 put("args", targetArgs)
             }
             return LinkedHashMap<String, Any?>().apply {

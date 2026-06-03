@@ -125,7 +125,7 @@ class _ExecutionDetailViewState extends State<ExecutionDetailView> {
                           detail.type == ExecutionDetailType.function
                               ? AppTextLocalizer.choose(
                                   zh: '复用指令',
-                                  en: 'Reusable command',
+                                  en: 'Reusable Function',
                                   locale: Localizations.maybeLocaleOf(context),
                                 )
                               : 'RunLog',

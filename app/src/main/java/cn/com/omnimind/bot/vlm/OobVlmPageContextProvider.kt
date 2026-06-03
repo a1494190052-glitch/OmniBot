@@ -61,8 +61,6 @@ class OobVlmPageContextProvider(
         val skill = mapArg(nodeSkillContext["skill"])
         val decisionContext = mapArg(nodeSkillContext["decision_context"])
             .ifEmpty { mapArg(payload["decision_context"]) }
-        val attachedFunctions = listArg(nodeSkillContext["attached_functions"])
-            .mapNotNull { mapArg(it).takeIf(Map<String, Any?>::isNotEmpty) }
         val visibleTexts = listArg(summary["visible_texts"])
             .take(MAX_ITEMS)
             .joinToString(" / ") { it.toString() }
@@ -106,12 +104,8 @@ class OobVlmPageContextProvider(
             if (usageRules.isNotBlank()) {
                 append("\nUDEG使用方式: ").append(usageRules)
             }
-            appendCapabilitySection(
-                title = "UDEG attached Functions (callable optional capabilities)",
-                capabilities = attachedFunctions
-            )
             append("\n约束: 这是当前页决策上下文；下一步动作仍必须基于本轮 live screenshot/XML/indexed evidence。")
-            append("\n约束: attached Function 只是候选能力，不是完成证明；只有当描述与用户目标明确匹配时，才显式调用 oob_function_run。")
+            append("\n约束: Function 候选只来自独立 OmniFlow recall，不在 page skill 中注入。")
             append("\nUDEG观测来源: live screenshot/XML page match")
         }.take(MAX_GUIDANCE_CHARS)
     }
@@ -135,66 +129,9 @@ class OobVlmPageContextProvider(
         }
     }
 
-    private fun StringBuilder.appendCapabilitySection(
-        title: String,
-        capabilities: List<Map<String, Any?>>
-    ) {
-        val rendered = capabilities
-            .take(MAX_CAPABILITIES)
-            .mapIndexedNotNull { index, capability ->
-                val functionId = firstNonBlank(capability["function_id"])
-                if (functionId.isBlank()) return@mapIndexedNotNull null
-                val description = firstNonBlank(
-                    capability["description"],
-                    capability["name"],
-                    functionId
-                ).take(MAX_DESCRIPTION_CHARS)
-                val params = renderParameterSummary(capability)
-                val useWhen = renderUseWhen(capability)
-                buildString {
-                    append(index + 1).append(". oob_function_run function_id=").append(functionId)
-                    if (description.isNotBlank()) append(" description=").append(description)
-                    if (params.isNotBlank()) append(" arguments=").append(params)
-                    if (useWhen.isNotBlank()) append(" use_when=").append(useWhen)
-                }
-            }
-        if (rendered.isEmpty()) return
-        append("\n").append(title).append(":")
-        rendered.forEach { append("\n- ").append(it) }
-    }
-
-    private fun renderParameterSummary(capability: Map<String, Any?>): String {
-        val schema = mapArg(capability["input_schema"]).ifEmpty { mapArg(capability["inputSchema"]) }
-        val properties = mapArg(schema["properties"])
-        if (properties.isEmpty()) return "none"
-        val required = listArg(schema["required"]).map { it.toString() }.toSet()
-        return properties.entries
-            .mapNotNull { (rawName, rawSpec) ->
-                val name = rawName.trim()
-                if (name.isEmpty()) return@mapNotNull null
-                val type = firstNonBlank(mapArg(rawSpec)["type"]).ifBlank { "any" }
-                val requiredLabel = if (name in required) " required" else " optional"
-                "$name:$type$requiredLabel"
-            }
-            .take(MAX_PARAMS)
-            .joinToString(prefix = "{", postfix = "}", separator = ", ")
-    }
-
-    private fun renderUseWhen(capability: Map<String, Any?>): String {
-        val source = mapArg(capability["source"])
-        return firstNonBlank(
-            capability["reuse_when"],
-            capability["use_when"],
-            source["goal"],
-        ).take(MAX_DESCRIPTION_CHARS)
-    }
-
     private companion object {
         private const val MAX_ITEMS = 8
         private const val MAX_HINTS = 3
-        private const val MAX_CAPABILITIES = 4
-        private const val MAX_PARAMS = 6
-        private const val MAX_DESCRIPTION_CHARS = 140
         private const val MAX_GUIDANCE_CHARS = 1_400
         private const val MAX_CONTEXT_CHARS = 2_400
     }

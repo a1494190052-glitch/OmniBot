@@ -155,7 +155,7 @@ class VLMActionPostProcessorTest {
             thought = "Set the phone label to Work.",
             action = InputTextAction(
                 targetDescription = "415-555-0130 EditText",
-                content = "Work",
+                text = "Work",
                 x = 356f,
                 y = 1111.5f
             ),
@@ -194,7 +194,7 @@ class VLMActionPostProcessorTest {
                 y1 = 141f,
                 x2 = 702f,
                 y2 = 141f,
-                duration = 0.6f
+                durationMs = 600L
             )
         )
 
@@ -388,7 +388,7 @@ class VLMActionPostProcessorTest {
         assertEquals("type_to_form_field_target", result.reason)
         val action = result.step.action as InputTextAction
         assertEquals("Last name", action.targetDescription)
-        assertEquals("Smith", action.content)
+        assertEquals("Smith", action.text)
         assertEquals(356f, action.x, 0.01f)
         assertEquals(799.5f, action.y, 0.01f)
     }
@@ -457,7 +457,7 @@ class VLMActionPostProcessorTest {
                 y1 = 819f,
                 x2 = 702f,
                 y2 = 819f,
-                duration = 0.6f
+                durationMs = 600L
             )
         )
 
@@ -488,7 +488,7 @@ class VLMActionPostProcessorTest {
                 y1 = 1152f,
                 x2 = 360f,
                 y2 = 384f,
-                duration = 0.6f
+                durationMs = 600L
             )
         )
 
@@ -527,7 +527,7 @@ class VLMActionPostProcessorTest {
                 y1 = 1152f,
                 x2 = 360f,
                 y2 = 384f,
-                duration = 0.6f
+                durationMs = 600L
             )
         )
 
@@ -560,7 +560,7 @@ class VLMActionPostProcessorTest {
                 y1 = 1152f,
                 x2 = 360f,
                 y2 = 384f,
-                duration = 0.6f
+                durationMs = 600L
             )
         )
 
@@ -623,7 +623,7 @@ class VLMActionPostProcessorTest {
                 y1 = 1152f,
                 x2 = 360f,
                 y2 = 384f,
-                duration = 0.6f
+                durationMs = 600L
             )
         )
 
@@ -691,7 +691,7 @@ class VLMActionPostProcessorTest {
                 y1 = 1152f,
                 x2 = 360f,
                 y2 = 384f,
-                duration = 0.6f
+                durationMs = 600L
             )
         )
 
@@ -726,7 +726,7 @@ class VLMActionPostProcessorTest {
                 y1 = 1152f,
                 x2 = 360f,
                 y2 = 384f,
-                duration = 0.6f
+                durationMs = 600L
             )
         )
 

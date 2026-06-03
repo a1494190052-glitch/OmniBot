@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ui/features/task/pages/execution_history/command_library_page.dart';
+import 'package:ui/features/task/pages/execution_history/function_library_page.dart';
 import 'package:ui/l10n/generated/app_localizations.dart';
 
 void main() {
@@ -19,7 +19,7 @@ void main() {
   });
 
   testWidgets(
-    'Reusable command library groups same semantic assets and opens detail',
+    'Reusable Function library groups same semantic assets and opens detail',
     (tester) async {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(assistCoreChannel, (call) async {
@@ -41,6 +41,8 @@ void main() {
                       'run_count': 2,
                       'success_count': 2,
                       'fail_count': 0,
+                      'last_success': true,
+                      'last_run_at': '1700000009000',
                     },
                     'step_summaries': <Map<String, dynamic>>[
                       <String, dynamic>{
@@ -89,6 +91,8 @@ void main() {
                       'run_count': 4,
                       'success_count': 4,
                       'fail_count': 0,
+                      'last_success': true,
+                      'last_run_at': '1700000010000',
                     },
                     'step_summaries': <Map<String, dynamic>>[
                       <String, dynamic>{
@@ -148,7 +152,7 @@ void main() {
           locale: Locale('zh'),
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: CommandLibraryPage(),
+          home: FunctionLibraryPage(),
         ),
       );
       await tester.pumpAndSettle();
@@ -162,6 +166,11 @@ void main() {
       expect(find.text('步骤 3'), findsOneWidget);
       expect(find.text('参数 1'), findsOneWidget);
       expect(find.text('RunLogs 2'), findsOneWidget);
+      expect(find.text('执行 3'), findsOneWidget);
+      expect(find.text('成功 3'), findsOneWidget);
+      expect(find.text('执行 4'), findsOneWidget);
+      expect(find.text('成功 4'), findsOneWidget);
+      expect(find.text('上次 成功'), findsNWidgets(2));
       expect(find.text('变体 2'), findsNothing);
       expect(find.textContaining('来自 2 条 RunLog'), findsNothing);
       expect(find.text('package_name'), findsNothing);
@@ -171,9 +180,7 @@ void main() {
       expect(find.textContaining('执行次数'), findsNothing);
       expect(find.textContaining('创建时间'), findsNothing);
       expect(find.textContaining('来源'), findsNothing);
-      expect(find.textContaining('oob_cmd'), findsNothing);
       expect(find.textContaining('run-1'), findsNothing);
-      expect(find.textContaining('Command'), findsNothing);
 
       await tester.tap(find.byIcon(Icons.info_outline_rounded).first);
       await tester.pumpAndSettle();
@@ -193,7 +200,7 @@ void main() {
     },
   );
 
-  testWidgets('Reusable command detail renders vlm_task as VLM step', (
+  testWidgets('Reusable Function detail renders vlm_task as VLM step', (
     tester,
   ) async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -258,7 +265,7 @@ void main() {
         locale: Locale('zh'),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        home: CommandLibraryPage(),
+        home: FunctionLibraryPage(),
       ),
     );
     await tester.pumpAndSettle();
@@ -278,7 +285,7 @@ void main() {
     expect(find.text('VLM 动作'), findsOneWidget);
   });
 
-  testWidgets('Reusable command step can be edited and saved', (tester) async {
+  testWidgets('Reusable Function step can be edited and saved', (tester) async {
     Map<String, dynamic>? savedSpec;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, (call) async {
@@ -299,7 +306,7 @@ void main() {
                       'title': '输入文本',
                       'kind': 'omniflow_action',
                       'executor': 'omniflow',
-                      'tool': 'type',
+                      'tool': 'input_text',
                     },
                   ],
                 },
@@ -318,15 +325,15 @@ void main() {
                     'default': '妈妈',
                     'x_oob_bindings': <String>[
                       r'$.execution.steps[0].args.text',
-                      r'$.actions[0].text',
+                      r'$.actions[0].args.text',
                     ],
                   },
                 },
               },
               'actions': <Map<String, dynamic>>[
                 <String, dynamic>{
-                  'type': 'type',
-                  'text': r'${query}',
+                  'tool': 'input_text',
+                  'args': <String, dynamic>{'text': r'${query}'},
                   'description': '输入文本',
                 },
               ],
@@ -339,9 +346,9 @@ void main() {
                     'title': '输入文本',
                     'kind': 'omniflow_action',
                     'executor': 'omniflow',
-                    'tool': 'type',
-                    'omniflow_action': 'type',
-                    'callable_tool': 'type',
+                    'tool': 'input_text',
+                    'omniflow_action': 'input_text',
+                    'callable_tool': 'input_text',
                     'args': <String, dynamic>{'text': '妈妈'},
                   },
                 ],
@@ -351,7 +358,7 @@ void main() {
           if (call.method == 'registerOobReusableFunction') {
             final arguments = Map<String, dynamic>.from(call.arguments as Map);
             savedSpec = Map<String, dynamic>.from(
-              arguments['functionSpec'] as Map,
+              arguments['function_spec'] as Map,
             );
             return <String, dynamic>{
               'success': true,
@@ -367,7 +374,7 @@ void main() {
         locale: Locale('zh'),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        home: CommandLibraryPage(),
+        home: FunctionLibraryPage(),
       ),
     );
     await tester.pumpAndSettle();
@@ -377,9 +384,9 @@ void main() {
     await tester.pumpAndSettle();
 
     final fields = find.byType(TextField);
-    expect(fields, findsAtLeastNWidgets(6));
+    expect(fields, findsAtLeastNWidgets(3));
     await tester.enterText(fields.at(0), '输入姓名');
-    await tester.enterText(fields.at(1), '妈妈的新号码');
+    await tester.enterText(fields.at(2), '妈妈的新号码');
     await tester.tap(find.text('保存').last);
     await tester.pumpAndSettle();
 
@@ -387,17 +394,16 @@ void main() {
     final step = (execution['steps'] as List).single as Map;
     expect(step['title'], '输入姓名');
     expect(step['tool'], 'input_text');
-    expect(step['omniflow_action'], 'input_text');
     expect((step['args'] as Map)['text'], '妈妈的新号码');
     final action = (savedSpec?['actions'] as List).single as Map;
-    expect(action['type'], 'input_text');
-    expect(action['text'], r'${query}');
+    expect(action['tool'], 'input_text');
+    expect((action['args'] as Map)['text'], r'${query}');
     expect(action['description'], '输入姓名');
     final properties = ((savedSpec?['parameters'] as Map)['properties'] as Map);
     expect((properties['query'] as Map)['default'], '妈妈的新号码');
   });
 
-  testWidgets('Reusable command step can be added and saved', (tester) async {
+  testWidgets('Reusable Function step can be added and saved', (tester) async {
     Map<String, dynamic>? savedSpec;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, (call) async {
@@ -431,12 +437,8 @@ void main() {
               'name': '打开后点击',
               'actions': <Map<String, dynamic>>[
                 <String, dynamic>{
-                  'type': 'click',
-                  'target': <String, dynamic>{
-                    'kind': 'coords',
-                    'x': 12,
-                    'y': 34,
-                  },
+                  'tool': 'click',
+                  'args': <String, dynamic>{'x': 12, 'y': 34},
                   'description': '点击菜单',
                 },
               ],
@@ -466,7 +468,7 @@ void main() {
           if (call.method == 'registerOobReusableFunction') {
             final arguments = Map<String, dynamic>.from(call.arguments as Map);
             savedSpec = Map<String, dynamic>.from(
-              arguments['functionSpec'] as Map,
+              arguments['function_spec'] as Map,
             );
             return <String, dynamic>{
               'success': true,
@@ -482,7 +484,7 @@ void main() {
         locale: Locale('zh'),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        home: CommandLibraryPage(),
+        home: FunctionLibraryPage(),
       ),
     );
     await tester.pumpAndSettle();
@@ -497,7 +499,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final fields = find.byType(TextField);
-    expect(fields, findsAtLeastNWidgets(5));
+    expect(fields, findsAtLeastNWidgets(3));
     await tester.enterText(fields.at(0), '打开设置');
     await tester.enterText(fields.at(1), 'com.android.settings');
     await tester.tap(find.text('添加').last);
@@ -514,16 +516,13 @@ void main() {
     expect(step['index'], 1);
     expect(step['title'], '打开设置');
     expect(step['tool'], 'open_app');
-    expect(step['omniflow_action'], 'open_app');
     final args = step['args'] as Map;
     expect(args['package_name'], 'com.android.settings');
-    expect(args['reset_task'], true);
-    expect(args['launch_mode'], 'fresh_task');
     final actions = savedSpec?['actions'] as List;
     expect(actions, hasLength(2));
     final action = actions.last as Map;
-    expect(action['type'], 'open_app');
-    expect(action['packageName'], 'com.android.settings');
+    expect(action['tool'], 'open_app');
+    expect((action['args'] as Map)['package_name'], 'com.android.settings');
     expect(action['description'], '打开设置');
     expect((savedSpec?['metadata'] as Map)['step_count'], 2);
   });
@@ -578,8 +577,14 @@ void main() {
                 },
               ],
               'actions': <Map<String, dynamic>>[
-                <String, dynamic>{'type': 'input_text', 'text': 'x'},
-                <String, dynamic>{'type': 'input_text', 'text': 'y'},
+                <String, dynamic>{
+                  'tool': 'input_text',
+                  'args': <String, dynamic>{'text': 'x'},
+                },
+                <String, dynamic>{
+                  'tool': 'input_text',
+                  'args': <String, dynamic>{'text': 'y'},
+                },
               ],
               'execution': <String, dynamic>{
                 'steps': <Map<String, dynamic>>[
@@ -606,7 +611,7 @@ void main() {
           if (call.method == 'registerOobReusableFunction') {
             final arguments = Map<String, dynamic>.from(call.arguments as Map);
             savedSpec = Map<String, dynamic>.from(
-              arguments['functionSpec'] as Map,
+              arguments['function_spec'] as Map,
             );
             return <String, dynamic>{
               'success': true,
@@ -622,7 +627,7 @@ void main() {
         locale: Locale('zh'),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        home: CommandLibraryPage(),
+        home: FunctionLibraryPage(),
       ),
     );
     await tester.pumpAndSettle();
@@ -638,7 +643,8 @@ void main() {
     expect(steps, hasLength(1));
     expect((steps.single as Map)['id'], 'step_1');
     expect((steps.single as Map)['title'], '有效输入');
-    expect(((savedSpec?['actions'] as List).single as Map)['text'], 'y');
+    final savedAction = (savedSpec?['actions'] as List).single as Map;
+    expect((savedAction['args'] as Map)['text'], 'y');
     final parameters = savedSpec?['parameters'] as List;
     expect(parameters, hasLength(1));
     expect((parameters.single as Map)['name'], 'kept_text');
@@ -648,7 +654,7 @@ void main() {
   });
 
   testWidgets(
-    'Reusable command run button invokes local execution and shows running state',
+    'Reusable Function run button invokes local execution and shows running state',
     (tester) async {
       final runCompleter = Completer<Map<String, dynamic>>();
       final methodCalls = <MethodCall>[];
@@ -708,7 +714,7 @@ void main() {
           locale: Locale('zh'),
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: CommandLibraryPage(),
+          home: FunctionLibraryPage(),
         ),
       );
       await tester.pumpAndSettle();
@@ -722,7 +728,7 @@ void main() {
         (call) => call.method == 'runOobReusableFunction',
       );
       expect(
-        Map<String, dynamic>.from(runCall.arguments as Map)['functionId'],
+        Map<String, dynamic>.from(runCall.arguments as Map)['function_id'],
         'open_settings',
       );
       expect(
@@ -779,7 +785,7 @@ void main() {
     },
   );
 
-  testWidgets('Reusable command run asks for missing required arguments', (
+  testWidgets('Reusable Function run asks for missing required arguments', (
     tester,
   ) async {
     final methodCalls = <MethodCall>[];
@@ -846,7 +852,7 @@ void main() {
         locale: Locale('zh'),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        home: CommandLibraryPage(),
+        home: FunctionLibraryPage(),
       ),
     );
     await tester.pumpAndSettle();
@@ -869,7 +875,7 @@ void main() {
       (call) => call.method == 'runOobReusableFunction',
     );
     final runArgs = Map<String, dynamic>.from(runCall.arguments as Map);
-    expect(runArgs['functionId'], 'search_settings');
+    expect(runArgs['function_id'], 'search_settings');
     expect(
       Map<String, dynamic>.from(runArgs['arguments'] as Map),
       containsPair('query', 'wifi'),
@@ -877,7 +883,7 @@ void main() {
     expect(find.text('复用指令执行结果'), findsNothing);
   });
 
-  testWidgets('Memory Center reusable command embed keeps OOB interactions', (
+  testWidgets('Memory Center reusable Function embed keeps OOB interactions', (
     tester,
   ) async {
     final methodCalls = <MethodCall>[];
@@ -958,7 +964,7 @@ void main() {
         locale: Locale('zh'),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        home: Scaffold(body: CommandLibraryEmbed()),
+        home: Scaffold(body: FunctionLibraryEmbed()),
       ),
     );
     await tester.pumpAndSettle();
@@ -1003,7 +1009,7 @@ void main() {
       (call) => call.method == 'runOobReusableFunction',
     );
     expect(
-      Map<String, dynamic>.from(runCall.arguments as Map)['functionId'],
+      Map<String, dynamic>.from(runCall.arguments as Map)['function_id'],
       'open_settings',
     );
 

@@ -14,7 +14,7 @@ void main() {
         .setMockMethodCallHandler(assistCoreChannel, null);
   });
 
-  group('OOB reusable command execution bridge', () {
+  group('OOB reusable Function execution bridge', () {
     test('passes default arguments and parses local completion', () async {
       final calls = <MethodCall>[];
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -52,7 +52,7 @@ void main() {
       final arguments = Map<String, dynamic>.from(
         calls.single.arguments as Map,
       );
-      expect(arguments['functionId'], 'open_settings');
+      expect(arguments['function_id'], 'open_settings');
       expect(arguments.containsKey('allowVlmFallback'), isFalse);
       expect(
         Map<String, dynamic>.from(arguments['arguments'] as Map),
@@ -212,49 +212,5 @@ void main() {
       expect(result.successStepCount, 0);
       expect(result.stepResults.single['required_permission'], 'accessibility');
     });
-
-    test(
-      'passes explicit VLM continuation request with local replay result',
-      () async {
-        final calls = <MethodCall>[];
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-            .setMockMethodCallHandler(assistCoreChannel, (call) async {
-              calls.add(call);
-              return <String, dynamic>{
-                'success': true,
-                'function_id': 'search_settings',
-                'execution_status': 'completed_vlm_fallback',
-                'terminal_state': <String, dynamic>{
-                  'status': 'completed_vlm_fallback',
-                  'execution_status': 'completed_vlm_fallback',
-                },
-              };
-            });
-
-        final result = await AssistsMessageService.runOobReusableFunction(
-          functionId: 'search_settings',
-          allowVlmFallback: true,
-          localReplayResult: const <String, dynamic>{
-            'success': false,
-            'context': <String, dynamic>{
-              'step_results': <Map<String, dynamic>>[
-                <String, dynamic>{'success': false, 'needs_agent': true},
-              ],
-            },
-          },
-        );
-
-        expect(result.completedVlmFallback, isTrue);
-        final arguments = Map<String, dynamic>.from(
-          calls.single.arguments as Map,
-        );
-        expect(arguments['allowVlmFallback'], isTrue);
-        final localReplayResult = Map<String, dynamic>.from(
-          arguments['localReplayResult'] as Map,
-        );
-        expect(localReplayResult['success'], isFalse);
-        expect(localReplayResult['context'], isA<Map>());
-      },
-    );
   });
 }

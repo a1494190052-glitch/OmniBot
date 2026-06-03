@@ -6,6 +6,7 @@ import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
 import cn.com.omnimind.bot.runlog.OmniflowCheckerRule
 import cn.com.omnimind.bot.runlog.OmniflowStepExecutor
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
+import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -130,14 +131,14 @@ class OobFunctionGraphStepRunner(
         edges: List<Map<String, Any?>>,
         args: Map<String, Any?>,
     ): List<Map<String, Any?>> {
-        val edgeId = firstNonBlank(args["edge_id"], args["edgeId"])
-        val actionId = firstNonBlank(args["action_id"], args["actionId"])
-        val targetNodeId = firstNonBlank(args["node_id"], args["nodeId"], args["target_node_id"], args["targetNodeId"])
+        val edgeId = firstNonBlank(args["edge_id"])
+        val actionId = firstNonBlank(args["action_id"])
+        val targetNodeId = firstNonBlank(args["node_id"], args["target_node_id"])
         val selected = edges.firstOrNull { edge ->
-            (edgeId.isNotEmpty() && firstNonBlank(edge["edge_id"], edge["edgeId"], edge["id"]) == edgeId) ||
-                (actionId.isNotEmpty() && firstNonBlank(edge["action_id"], edge["actionId"]) == actionId) ||
+            (edgeId.isNotEmpty() && firstNonBlank(edge["edge_id"], edge["id"]) == edgeId) ||
+                (actionId.isNotEmpty() && firstNonBlank(edge["action_id"]) == actionId) ||
                 (targetNodeId.isNotEmpty() &&
-                    firstNonBlank(edge["to_node_id"], edge["toNodeId"], edge["node_id"], edge["nodeId"]) == targetNodeId)
+                    firstNonBlank(edge["to_node_id"], edge["node_id"]) == targetNodeId)
         } ?: edges.firstOrNull()
         return selected?.let { listOf(it) }.orEmpty()
     }
@@ -146,21 +147,17 @@ class OobFunctionGraphStepRunner(
         edges: List<Map<String, Any?>>,
         args: Map<String, Any?>,
     ): List<Map<String, Any?>> {
-        val targetNodeId = firstNonBlank(args["node_id"], args["nodeId"], args["target_node_id"], args["targetNodeId"])
+        val targetNodeId = firstNonBlank(args["node_id"], args["target_node_id"])
         if (targetNodeId.isEmpty()) return edges
         val targetIndex = edges.indexOfFirst { edge ->
-            firstNonBlank(edge["to_node_id"], edge["toNodeId"], edge["node_id"], edge["nodeId"]) == targetNodeId
+            firstNonBlank(edge["to_node_id"], edge["node_id"]) == targetNodeId
         }
         return if (targetIndex >= 0) edges.take(targetIndex + 1) else emptyList()
     }
 
     private fun edgeToOmniflowStep(edge: Map<String, Any?>): Map<String, Any?>? {
         val action = firstNonBlank(
-            edge["action"],
             edge["tool"],
-            edge["omniflow_action"],
-            edge["local_action"],
-            edge["type"],
         )
         val localAction = RunLogReplayPolicy.omniflowActionForToolName(action) ?: return null
         val edgeArgs = linkedMapOf<String, Any?>()
@@ -171,15 +168,12 @@ class OobFunctionGraphStepRunner(
             }
         }
         return linkedMapOf(
-            "title" to firstNonBlank(edge["title"], edge["summary"], edge["target_description"], edge["targetDescription"], localAction),
-            "kind" to "omniflow_action",
+            "title" to firstNonBlank(edge["title"], edge["summary"], edge["target_description"], localAction),
+            "kind" to "function",
             "executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
-            "omniflow_action" to localAction,
-            "local_action" to localAction,
             "model_free" to true,
             "scriptable" to true,
             "tool" to localAction,
-            "callable_tool" to localAction,
             "args" to edgeArgs,
             "source_context" to mapArg(edge["source_context"]).takeIf { it.isNotEmpty() },
         ).filterValues { it != null }
@@ -226,23 +220,12 @@ class OobFunctionGraphStepRunner(
     private companion object {
         val EXECUTION_ARG_KEYS = setOf(
             "function_id",
-            "functionId",
-            "id",
-            "name",
             "tool_name",
-            "toolName",
             "target_tool",
-            "targetTool",
-            "oob_function_id",
-            "oobFunctionId",
             "node_id",
-            "nodeId",
             "target_node_id",
-            "targetNodeId",
             "edge_id",
-            "edgeId",
             "action_id",
-            "actionId",
             "path",
             "edges",
             "utg",
@@ -252,34 +235,6 @@ class OobFunctionGraphStepRunner(
             "input",
         )
 
-        val EDGE_ARG_KEYS = listOf(
-            "x",
-            "y",
-            "x1",
-            "y1",
-            "x2",
-            "y2",
-            "direction",
-            "distance",
-            "distance_px",
-            "distancePx",
-            "duration",
-            "duration_ms",
-            "durationMs",
-            "content",
-            "text",
-            "value",
-            "package_name",
-            "packageName",
-            "key",
-            "hotkey",
-            "hot_key",
-            "target_description",
-            "targetDescription",
-            "node_resource_id",
-            "nodeResourceId",
-            "resource_id",
-            "resourceId",
-        )
+        val EDGE_ARG_KEYS = OobCanonicalActionSchema.sourceContextArgNames
     }
 }

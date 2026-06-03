@@ -42,7 +42,6 @@ class RunLogReusableFunctionCompilerTest {
         val step = steps.single()
         assertEquals("vlm_task", step["tool"])
         assertEquals("agent", step["executor"])
-        assertEquals("oob.agent.run", step["callable_tool"])
         assertEquals(false, step["scriptable"])
 
         val agentCall = step["agent_call"] as? Map<*, *>
@@ -87,7 +86,6 @@ class RunLogReusableFunctionCompilerTest {
         assertEquals("click", click["tool"])
         assertEquals("omniflow", click["executor"])
         assertEquals(true, click["model_free"])
-        assertEquals("click", click["omniflow_action"])
         assertFalse(click.containsKey("coordinate_hook"))
         assertFalse(click.containsKey("agent_call"))
         assertEquals(
@@ -186,7 +184,6 @@ class RunLogReusableFunctionCompilerTest {
                     mapOf(
                         "target_description" to "输入框",
                         "text" to "hello",
-                        "content" to "hello",
                         "x" to 540,
                         "y" to 620,
                         "recording_backend" to "overlay_touch_text_input",
@@ -249,8 +246,8 @@ class RunLogReusableFunctionCompilerTest {
         val spec = compile(
             listOf(
                 card(
-                    "press_key",
-                    mapOf("key" to "back"),
+                    "press_back",
+                    emptyMap(),
                     beforeXml = "",
                     beforePackage = "com.example.search",
                     compileKind = "manual_recording",
@@ -261,7 +258,7 @@ class RunLogReusableFunctionCompilerTest {
         )
 
         val pressKey = stepsFrom(spec).single()
-        assertEquals("press_key", pressKey["tool"])
+        assertEquals("press_back", pressKey["tool"])
         assertFalse(pressKey.containsKey("source_context"))
         assertFalse(pressKey.containsKey("coordinate_hook"))
     }
@@ -421,8 +418,6 @@ class RunLogReusableFunctionCompilerTest {
             "com.android.settings",
             (openApp["args"] as Map<*, *>)["package_name"],
         )
-        assertEquals(true, (openApp["args"] as Map<*, *>)["reset_task"])
-        assertEquals("fresh_task", (openApp["args"] as Map<*, *>)["launch_mode"])
         assertEquals("step_1", openApp["id"])
         assertEquals(0, (openApp["index"] as Number).toInt())
         assertEquals("click", click["tool"])
@@ -517,8 +512,6 @@ class RunLogReusableFunctionCompilerTest {
         val args = openApp["args"] as Map<*, *>
         assertEquals("open_app", openApp["tool"])
         assertEquals("com.android.settings", args["package_name"])
-        assertEquals(true, args["reset_task"])
-        assertEquals("fresh_task", args["launch_mode"])
         assertEquals("initial_open_app_fresh_launch", openApp["route_note"])
     }
 
@@ -705,7 +698,6 @@ class RunLogReusableFunctionCompilerTest {
         for (step in steps) {
             assertEquals("agent", step["executor"])
             assertEquals(false, step["scriptable"])
-            assertEquals("oob.agent.run", step["callable_tool"])
             val agentCall = step["agent_call"] as? Map<*, *>
             assertEquals("data_flow_tool_requires_live_context", agentCall?.get("reason"))
             val agentArgs = agentCall?.get("args") as? Map<*, *>
@@ -719,7 +711,7 @@ class RunLogReusableFunctionCompilerTest {
         val spec = compile(
             listOf(
                 card("go_to_node", mapOf("node_id" to "node_1")),
-                card("call_function", mapOf("function_id" to "func_local")),
+                card("oob_function_run", mapOf("function_id" to "func_local")),
             ),
             runId = "run-omniflow-execution",
         )
@@ -728,7 +720,6 @@ class RunLogReusableFunctionCompilerTest {
         assertEquals(2, steps.size)
         val graph = steps[0]
         assertEquals("go_to_node", graph["tool"])
-        assertEquals("go_to_node", graph["callable_tool"])
         assertEquals("omniflow", graph["executor"])
         assertEquals("omniflow_graph", graph["kind"])
         assertEquals(true, graph["model_free"])
@@ -737,8 +728,6 @@ class RunLogReusableFunctionCompilerTest {
 
         val function = steps[1]
         assertEquals("oob_function_run", function["tool"])
-        assertEquals("oob_function_run", function["callable_tool"])
-        assertEquals("call_function", function["source_tool"])
         assertEquals("omniflow", function["executor"])
         assertEquals("omniflow_function", function["kind"])
         assertEquals(true, function["model_free"])
@@ -757,11 +746,9 @@ class RunLogReusableFunctionCompilerTest {
         for (toolName in listOf(
             "go_to_node",
             "click_node",
-            "call_tool",
             "omniflow.call_tool",
             "oob_tool_call",
-            "call_function",
-            "omniflow.call_function",
+            "call_tool",
             "oob_function_run",
         )) {
             assertTrue(RunLogReplayPolicy.isOmniflowExecutionTool(toolName))
@@ -789,7 +776,7 @@ class RunLogReusableFunctionCompilerTest {
                 card(
                     "oob_tool_call",
                     mapOf(
-                        "toolName" to "vlm_task",
+                        "tool_name" to "vlm_task",
                         "arguments" to mapOf("goal" to "tap settings"),
                     ),
                 ),
@@ -799,8 +786,6 @@ class RunLogReusableFunctionCompilerTest {
 
         val step = stepsFrom(spec).single()
         assertEquals("call_tool", step["tool"])
-        assertEquals("call_tool", step["callable_tool"])
-        assertEquals("oob_tool_call", step["source_tool"])
         assertEquals("tool", step["executor"])
         assertEquals("tool_call", step["kind"])
         assertFalse(step.containsKey("model_free"))
@@ -823,7 +808,6 @@ class RunLogReusableFunctionCompilerTest {
         for (step in steps) {
             assertEquals("agent", step["executor"])
             assertEquals(false, step["scriptable"])
-            assertEquals("oob.agent.run", step["callable_tool"])
             val agentCall = step["agent_call"] as? Map<*, *>
             assertEquals("data_flow_tool_requires_live_context", agentCall?.get("reason"))
         }
@@ -836,7 +820,7 @@ class RunLogReusableFunctionCompilerTest {
                 card(
                     "android_privileged_action",
                     mapOf(
-                        "action" to "tap",
+                            "tool" to "click",
                         "arguments" to mapOf(
                             "target_description" to "Open",
                             "x" to 120,
@@ -851,14 +835,12 @@ class RunLogReusableFunctionCompilerTest {
 
         val step = stepsFrom(spec).single()
         assertEquals("click", step["tool"])
-        assertEquals("click", step["omniflow_action"])
-        assertEquals("android_privileged_action", step["source_tool"])
         assertEquals("omniflow", step["executor"])
         assertFalse(step.containsKey("coordinate_hook"))
         val args = step["args"] as Map<*, *>
         assertEquals(120, (args["x"] as Number).toInt())
         assertEquals(240, (args["y"] as Number).toInt())
-        assertFalse(args.containsKey("action"))
+        assertFalse(args.containsKey("tool"))
         assertFalse(args.containsKey("arguments"))
         assertEquals(
             "click",
@@ -872,8 +854,8 @@ class RunLogReusableFunctionCompilerTest {
             listOf(
                 mapOf(
                     "tool_call" to mapOf(
-                        "function" to mapOf("name" to "type"),
-                        "arguments" to """{"content":"hello"}""",
+                        "function" to mapOf("name" to "input_text"),
+                        "arguments" to """{"text":"hello"}""",
                     ),
                 ),
                 card("wait", mapOf("duration_ms" to 500)),
@@ -884,18 +866,20 @@ class RunLogReusableFunctionCompilerTest {
         val steps = stepsFrom(spec)
         assertEquals(1, steps.size)
         assertEquals("input_text", steps[0]["tool"])
-        assertEquals("type", steps[0]["source_tool"])
-        assertEquals("hello", (steps[0]["args"] as Map<*, *>)["content"])
+        val args = steps[0]["args"] as Map<*, *>
+        assertEquals("hello", args["text"])
+        assertFalse(args.containsKey("content"))
+        assertFalse(args.containsKey("value"))
     }
 
     @Test
-    fun `duplicate legacy type events compile to one input text step`() {
+    fun `duplicate canonical input text events compile to one input text step`() {
         val spec = compile(
             listOf(
                 card(
-                    "type",
+                    "input_text",
                     mapOf(
-                        "content" to "hello",
+                        "text" to "hello",
                         "target_description" to "Search",
                         "node_resource_id" to "search_box",
                     ),
@@ -915,7 +899,10 @@ class RunLogReusableFunctionCompilerTest {
         val steps = stepsFrom(spec)
         assertEquals(1, steps.size)
         assertEquals("input_text", steps[0]["tool"])
-        assertEquals("hello", (steps[0]["args"] as Map<*, *>)["content"])
+        val args = steps[0]["args"] as Map<*, *>
+        assertEquals("hello", args["text"])
+        assertFalse(args.containsKey("content"))
+        assertFalse(args.containsKey("value"))
     }
 
     @Test
@@ -923,23 +910,17 @@ class RunLogReusableFunctionCompilerTest {
         val spec = compile(
             listOf(
                 card("input_text", mapOf("text" to "hello")),
-                card("swipe", mapOf("x1" to 10, "y1" to 20, "x2" to 10, "y2" to 300)),
-                card("press_key", mapOf("key" to "BACK")),
-                card("finish", mapOf("content" to "done")),
+                card("scroll", mapOf("target_description" to "list", "x1" to 10, "y1" to 20, "x2" to 10, "y2" to 300)),
+                card("press_back", emptyMap()),
+                card("finished", mapOf("content" to "done")),
             ),
             runId = "run-omniflow-canonical",
         )
 
         val steps = stepsFrom(spec)
-        assertEquals(listOf("input_text", "swipe", "press_key", "finished"), steps.map { it["tool"] })
+        assertEquals(listOf("input_text", "scroll", "press_back", "finished"), steps.map { it["tool"] })
         assertTrue(steps.all { it["executor"] == "omniflow" })
         assertTrue(steps.all { it["model_free"] == true })
-        assertEquals("input_text", steps[0]["omniflow_action"])
-        assertEquals("swipe", steps[1]["omniflow_action"])
-        assertEquals("press_key", steps[2]["omniflow_action"])
-        assertEquals("finished", steps[3]["omniflow_action"])
-        assertEquals("finished", steps[3]["callable_tool"])
-        assertEquals("finish", steps[3]["source_tool"])
     }
 
     @Test
@@ -1038,13 +1019,13 @@ class RunLogReusableFunctionCompilerTest {
         assertEquals("string", parameter["type"])
         assertEquals("hello", parameter["default"])
         assertEquals(
-            listOf("$.execution.steps[0].args.text", "$.actions[0].text"),
+            listOf("$.execution.steps[0].args.text", "$.actions[0].args.text"),
             parameter["x_oob_bindings"],
         )
 
         val action = actionsFrom(spec).single()
-        assertEquals("input_text", action["type"])
-        assertEquals("${'$'}{input_text}", action["text"])
+        assertEquals("input_text", action["tool"])
+        assertEquals("${'$'}{input_text}", (action["args"] as Map<*, *>)["text"])
 
         val changed = OobReusableFunctionStore.materialize(
             spec,
@@ -1078,13 +1059,12 @@ class RunLogReusableFunctionCompilerTest {
         )
 
         val action = actionsFrom(spec).single()
-        val target = action["target"] as Map<*, *>
-        val params = action["params"] as Map<*, *>
-        assertEquals(180, target["x"])
-        assertEquals(232, target["y"])
-        assertEquals("First name", action["prompt"])
-        assertEquals("app:id/first_name", params["node_resource_id"])
-        assertNotNull(params["source_context"])
+        val args = action["args"] as Map<*, *>
+        assertEquals(180, args["x"])
+        assertEquals(232, args["y"])
+        assertEquals("First name", args["target_description"])
+        assertEquals("app:id/first_name", args["node_resource_id"])
+        assertFalse(args.containsKey("source_context"))
 
         val actionOnlySpec = linkedMapOf<String, Any?>().apply {
             putAll(spec)

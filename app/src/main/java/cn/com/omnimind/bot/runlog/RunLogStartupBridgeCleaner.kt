@@ -90,18 +90,13 @@ internal object RunLogStartupBridgeCleaner {
         val packageName = initialReplayPackage(steps, replayableCards) ?: return steps
         val openAppStep = nullableMap(
             "title" to "open_app: $packageName",
-            "kind" to "omniflow_action",
+            "kind" to "function",
             "executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
-            "omniflow_action" to OobActionCodec.ACTION_OPEN_APP,
-            "local_action" to OobActionCodec.ACTION_OPEN_APP,
             "model_free" to true,
             "scriptable" to true,
             "tool" to OobActionCodec.ACTION_OPEN_APP,
-            "callable_tool" to OobActionCodec.ACTION_OPEN_APP,
             "args" to linkedMapOf(
                 "package_name" to packageName,
-                "reset_task" to true,
-                "launch_mode" to "fresh_task",
             ),
             "route_note" to "injected_initial_package_from_runlog",
         )
@@ -116,7 +111,7 @@ internal object RunLogStartupBridgeCleaner {
         val firstAction = replayActionForStep(first)
         if (firstAction != OobActionCodec.ACTION_OPEN_APP) return steps
         val args = asMap(first["args"])
-        val packageName = firstNonBlank(args["package_name"], args["packageName"])
+        val packageName = firstNonBlank(args["package_name"])
         if (!isLaunchableInitialPackageCandidate(packageName)) return steps
         val preparedFirst = linkedMapOf<String, Any?>().apply {
             putAll(first)
@@ -125,8 +120,6 @@ internal object RunLogStartupBridgeCleaner {
                 linkedMapOf<String, Any?>().apply {
                     putAll(args)
                     put("package_name", packageName)
-                    putIfAbsent("reset_task", true)
-                    putIfAbsent("launch_mode", "fresh_task")
                 }
             )
             putIfAbsent("route_note", "initial_open_app_fresh_launch")
@@ -144,7 +137,6 @@ internal object RunLogStartupBridgeCleaner {
 
         val packageName = firstNonBlank(
             asMap(first["args"])["package_name"],
-            asMap(first["args"])["packageName"],
         )
         if (!isLaunchableInitialPackageCandidate(packageName)) return steps
 
@@ -193,7 +185,7 @@ internal object RunLogStartupBridgeCleaner {
         val srcCtx = asMap(sourceContext["src_ctx"])
         val dstCtx = asMap(sourceContext["dst_ctx"])
         return listOf(
-            firstNonBlank(args["package_name"], args["packageName"]),
+            firstNonBlank(args["package_name"]),
             effectivePackageForContext(srcCtx),
             effectivePackageForContext(dstCtx),
         ).any { it == packageName }
@@ -290,7 +282,6 @@ internal object RunLogStartupBridgeCleaner {
         val args = asMap(extractArgs(card))
         val target = firstNonBlank(
             args["target_description"],
-            args["targetDescription"],
             args["label"],
             asMap(card["header"])["title"],
             card["title"],

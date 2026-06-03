@@ -28,7 +28,13 @@ class OobFunctionParameterBindingNormalizerTest {
                     "steps" to listOf(
                         step("open_app", mapOf("package_name" to "com.xingin.xhs")),
                         step("click", mapOf("x" to 100, "y" to 200)),
-                        step("input_text", mapOf("text" to "彩票", "target_description" to "搜索框")),
+                        step(
+                            "input_text",
+                            mapOf(
+                                "text" to "彩票",
+                                "target_description" to "搜索框",
+                            ),
+                        ),
                     ),
                 ),
             )
@@ -37,15 +43,18 @@ class OobFunctionParameterBindingNormalizerTest {
         val schema = normalized["parameters"] as Map<*, *>
         val properties = schema["properties"] as Map<*, *>
         val input = properties["input_text_3"] as Map<*, *>
+        val expectedBindings = listOf(
+            "$.execution.steps[2].args.text",
+        )
         assertEquals(
-            listOf("$.execution.steps[2].args.text"),
+            expectedBindings,
             input["x_oob_bindings"],
         )
 
         val metadata = normalized["metadata"] as Map<*, *>
         val table = metadata["oob_parameter_bindings"] as List<*>
         assertEquals(
-            listOf("$.execution.steps[2].args.text"),
+            expectedBindings,
             (table.single() as Map<*, *>)["bindings"],
         )
 
@@ -55,7 +64,10 @@ class OobFunctionParameterBindingNormalizerTest {
         )
         val steps = ((materialized["execution"] as Map<*, *>)["steps"] as List<*>)
             .map { it as Map<*, *> }
-        assertEquals("猫猫", (steps[2]["args"] as Map<*, *>)["text"])
+        val args = steps[2]["args"] as Map<*, *>
+        assertEquals("猫猫", args["text"])
+        assertFalse(args.containsKey("content"))
+        assertFalse(args.containsKey("value"))
         val runtime = materialized["runtime"] as Map<*, *>
         assertEquals(emptyList<Any?>(), runtime["unbound_arguments"])
         assertTrue((runtime["supplied_binding_applied_count"] as Number).toInt() > 0)

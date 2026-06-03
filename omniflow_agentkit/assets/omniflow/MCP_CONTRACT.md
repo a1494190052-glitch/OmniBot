@@ -58,6 +58,14 @@ oob_run_log_get
 oob_run_log_convert
 ```
 
+## Function Granularity
+
+Treat each Function as a composable reusable segment. It may complete a small
+user goal, but it is not required to cover the whole goal in one call. After
+each Function result, inspect `success`, `fallback_context`, `step_results`,
+and any terminal state. If work remains, continue with the next Function,
+bounded VLM path, or other tool.
+
 ## Fixed Tools
 
 ### `omniflow.recall`
@@ -102,7 +110,9 @@ miss
 
 ### `omniflow.call_function`
 
-Executes one agent-selected Function with explicit arguments.
+Executes one agent-selected Function segment with explicit arguments. This call
+is a composable step in the caller's plan, not a guarantee that the entire user
+goal is done.
 
 Input:
 
@@ -244,12 +254,14 @@ or deterministic replay timing rather than recall-first activation.
 
 `oob_function_list` and `oob_function_get` expose registered Function specs.
 `oob_function_guard_check` returns `allow`, `needs_agent`,
-`needs_confirmation`, or `block` before execution. `oob_function_run` runs a
-Function directly and returns `run_id`, `runner`, `timing`, and
-`step_results`. When local replay fails but agent recovery is possible, it also
-returns `fallback_context`; after the agent completes the failed step, call
-`oob_function_run` again with `resume_from_step`, `fallback_session_id`, and
-`fallback_attempt` from that context to continue the remaining steps.
+`needs_confirmation`, or `block` before execution. `oob_function_run` runs one
+Function segment directly and returns `run_id`, `runner`, `timing`, and
+`step_results`. Treat the result as progress evidence; if the caller's goal is
+not complete, choose the next Function or tool. When local replay fails but
+agent recovery is possible, it also returns `fallback_context`; after the agent
+completes the failed step, call `oob_function_run` again with
+`resume_from_step`, `fallback_session_id`, and `fallback_attempt` from that
+context to continue the remaining steps.
 
 Example direct run result:
 

@@ -48,7 +48,6 @@ class OobFunctionNestedCallCardPresenter(
         val argsPayload = linkedMapOf<String, Any?>(
             "function_id" to functionId.takeIf { it.isNotBlank() },
             "arguments" to nestedArguments.takeIf { it.isNotEmpty() },
-            "source_tool" to callableTool.takeIf { it.isNotBlank() },
         ).filterValues { it != null }
         val resultPayload = result?.let {
             linkedMapOf<String, Any?>(

@@ -156,15 +156,15 @@ object PromptTemplate {
             appendLine(
                 t(
                     locale,
-                    "完成判断：只有当前页面已经显示用户目标的最终状态，或上一轮工具结果明确完成了不可见系统动作，才调用 finished。还需要打开页面、选择项目、输入内容、保存、发送、确认、等待结果，或只是看到了目标入口，都不算完成；不确定时继续执行下一步或调用 get_state。",
-                    "Completion rule: call finished only when the current page already shows the user's final target state, or the previous tool result explicitly completed an invisible system action. If any page opening, item selection, typing, saving, sending, confirmation, result wait, or visible target entry remains, the task is not complete; when uncertain, continue with the next action or call get_state."
+                    "完成判断：只有当前页面已经显示用户目标的最终状态，或上一轮工具结果明确完成了不可见系统动作，才调用 finished。还需要打开页面、选择项目、输入内容、保存、发送、确认、等待结果，或只是看到了目标入口，都不算完成；不确定时继续执行下一步，系统会在每轮自动刷新页面状态。",
+                    "Completion rule: call finished only when the current page already shows the user's final target state, or the previous tool result explicitly completed an invisible system action. If any page opening, item selection, typing, saving, sending, confirmation, result wait, or visible target entry remains, the task is not complete; when uncertain, continue with the next action. The system refreshes page state automatically each turn."
                 )
             )
             appendLine(
                 t(
                     locale,
-                    "如果截图是黑屏/空白，但 Accessibility tree、indexed evidence、visible_texts 或 get_state 结果包含当前页面和目标控件，请把这些文本树证据视为当前页面证据并继续 click/swipe/type；同一未变化页面不要仅因黑屏连续调用 get_state。",
-                    "If the screenshot is black/blank but the Accessibility tree, indexed evidence, visible_texts, or get_state result contains the current page and target control, treat that tree/text evidence as current-page evidence and continue with click/swipe/type; do not repeatedly call get_state on the same unchanged page solely because the image is black."
+                    "如果截图是黑屏/空白，但 Accessibility tree、indexed evidence 或 visible_texts 包含当前页面和目标控件，请把这些文本树证据视为当前页面证据并继续 click/swipe/type；不要输出刷新状态、等待或空操作。",
+                    "If the screenshot is black/blank but the Accessibility tree, indexed evidence, or visible_texts contains the current page and target control, treat that tree/text evidence as current-page evidence and continue with click/swipe/type; do not output refresh-state, wait, or no-op actions."
                 )
             )
         }.trim()

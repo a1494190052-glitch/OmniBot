@@ -220,15 +220,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsMcpToggleFailed => 'Failed to toggle MCP';
 
   @override
-  String get settingsOobFunctionAsToolTitle => 'OOB reusable commands as tools';
+  String get settingsOobFunctionAsToolTitle =>
+      'OOB reusable Functions as tools';
 
   @override
   String get settingsOobFunctionAsToolSubtitle =>
-      'Let the agent call saved OOB reusable commands as built-in tools';
+      'Let the agent call saved OOB reusable Functions as built-in tools';
 
   @override
   String get settingsOobFunctionAsToolToggleFailed =>
-      'Failed to update OOB reusable command tool setting';
+      'Failed to update OOB reusable Function tool setting';
 
   @override
   String get settingsCopiedAddress => 'Address copied';
@@ -530,7 +531,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get memoryLongTermTitle => 'Long-term Memory';
 
   @override
-  String get memoryCommandsTitle => 'Reusable commands';
+  String get memoryCommandsTitle => 'Reusable Functions';
 
   @override
   String get memoryNoShortTerm => 'No short-term memory yet';
@@ -2131,13 +2132,13 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get omniflowPanelDesc =>
-      'Manage OmniFlow reusable commands: view, execute, or delete saved commands.';
+      'Manage OmniFlow reusable Functions: view, execute, or delete saved Functions.';
 
   @override
-  String get omniflowFunctionList => 'Reusable command list';
+  String get omniflowFunctionList => 'Reusable Function list';
 
   @override
-  String get omniflowFunctionSearch => 'Search reusable commands';
+  String get omniflowFunctionSearch => 'Search reusable Functions';
 
   @override
   String get omniflowFunctionSearchHint => 'Filter by name, description, etc.';
@@ -2180,13 +2181,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get omniflowConfigLoadFailed => 'Failed to load OmniFlow config';
 
   @override
-  String get omniflowFunctionsLoadFailed => 'Failed to load reusable commands';
+  String get omniflowFunctionsLoadFailed => 'Failed to load reusable Functions';
 
   @override
-  String get omniflowTempFunctions => 'Temporary reusable commands';
+  String get omniflowTempFunctions => 'Temporary reusable Functions';
 
   @override
-  String get omniflowReadyFunctions => 'Ready reusable commands';
+  String get omniflowReadyFunctions => 'Ready reusable Functions';
 
   @override
   String get omniflowServiceAddressNotConfigured =>
@@ -2233,7 +2234,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get omniflowViewSkillLibrary => 'View Skill Library';
 
   @override
-  String get omniflowViewFunctionLibrary => 'View reusable commands';
+  String get omniflowViewFunctionLibrary => 'View reusable Functions';
 
   @override
   String get omniflowClearAllData => 'Clear All Data';
@@ -2243,7 +2244,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get omniflowClearAllDataConfirm =>
-      'Confirm clear all OmniFlow data?\n\nThis will delete:\n• All reusable commands\n• All Run Logs\n• All Shared Pages\n\nThis action cannot be undone!';
+      'Confirm clear all OmniFlow data?\n\nThis will delete:\n• All reusable Functions\n• All Run Logs\n• All Shared Pages\n\nThis action cannot be undone!';
 
   @override
   String get omniflowCancel => 'Cancel';
@@ -2253,7 +2254,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String omniflowClearSuccess(Object functions, Object runLogs) {
-    return 'Cleared: $functions reusable commands, $runLogs run logs';
+    return 'Cleared: $functions reusable Functions, $runLogs run logs';
   }
 
   @override
@@ -2270,13 +2271,13 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get functionLibraryTitle => 'Reusable commands';
+  String get functionLibraryTitle => 'Reusable Functions';
 
   @override
-  String get functionLibrarySearchHint => 'Search reusable commands or apps';
+  String get functionLibrarySearchHint => 'Search reusable Functions or apps';
 
   @override
-  String get functionLibraryEmpty => 'No reusable commands yet';
+  String get functionLibraryEmpty => 'No reusable Functions yet';
 
   @override
   String get functionLibraryEmptyDesc =>
@@ -2307,10 +2308,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get functionLibraryEdit => 'Edit';
 
   @override
-  String get functionLibraryEditTitle => 'Edit reusable command';
+  String get functionLibraryEditTitle => 'Edit reusable Function';
 
   @override
-  String get functionLibraryEditHint => 'Modify reusable command description';
+  String get functionLibraryEditHint => 'Modify reusable Function description';
 
   @override
   String get functionLibraryEditPlaceholder => 'Enter new description';
@@ -2352,7 +2353,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get functionLibraryStepKeepOne =>
-      'A reusable command needs at least one step';
+      'A reusable Function needs at least one step';
 
   @override
   String get functionLibraryStepDeleteTitle => 'Delete step';
@@ -2375,7 +2376,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get functionLibraryDelete => 'Delete';
 
   @override
-  String get functionLibraryDeleteTitle => 'Delete reusable command';
+  String get functionLibraryDeleteTitle => 'Delete reusable Function';
 
   @override
   String functionLibraryDeleteConfirm(Object name) {
@@ -2511,7 +2512,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get functionLibraryDetailExamples => 'Parameter Examples';
 
   @override
-  String get functionLibraryDetailDerivedFrom => 'Source reusable command';
+  String get functionLibraryDetailDerivedFrom => 'Source reusable Function';
 
   @override
   String get functionLibraryDetailRuns => 'Run Count';
@@ -2540,29 +2541,29 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get functionLibraryDetailBundleFunction => 'Bundle reusable command';
+  String get functionLibraryDetailBundleFunction => 'Bundle reusable Function';
 
   @override
   String get functionLibraryDetailInternalBlocks =>
-      'Internal reusable command blocks';
+      'Internal reusable Function blocks';
 
   @override
   String get functionLibraryDetailNoBlocks =>
-      'No internal reusable command blocks are available';
+      'No internal reusable Function blocks are available';
 
   @override
   String get functionLibraryDetailNoBundle =>
-      'No bundle reusable command is available';
+      'No bundle reusable Function is available';
 
   @override
-  String get functionLibraryDetailFunctionSchema => 'Reusable command schema';
+  String get functionLibraryDetailFunctionSchema => 'Reusable Function schema';
 
   @override
-  String get executionReuseHit => 'Reusable command';
+  String get executionReuseHit => 'Reusable Function';
 
   @override
   String executionReuseHitWithFunction(Object functionId) {
-    return 'Reusable command · $functionId';
+    return 'Reusable Function · $functionId';
   }
 
   @override
@@ -2599,7 +2600,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get executionActionFinished => 'Finished';
 
   @override
-  String get executionActionCallFunction => 'Run reusable command';
+  String get executionActionCallFunction => 'Run reusable Function';
 
   @override
   String get executionActionDefault => 'Action';
@@ -2616,40 +2617,40 @@ class AppLocalizationsEn extends AppLocalizations {
   String get executionFailed => 'Failed';
 
   @override
-  String get memorySaveAsSkillTitle => 'Save as reusable command';
+  String get memorySaveAsSkillTitle => 'Save as reusable Function';
 
   @override
   String get memorySaveAsSkillContent =>
-      'Save this execution as a reusable command?\n\nYou can view and manage it in the reusable command library.';
+      'Save this execution as a reusable Function?\n\nYou can view and manage it in the reusable Function library.';
 
   @override
-  String get memorySavingProgress => 'Saving reusable command...';
+  String get memorySavingProgress => 'Saving reusable Function...';
 
   @override
   String memorySaveSuccess(String functionId) {
-    return 'Saved as reusable command: $functionId';
+    return 'Saved as reusable Function: $functionId';
   }
 
   @override
-  String get memorySaveSuccessSimple => 'Saved as reusable command';
+  String get memorySaveSuccessSimple => 'Saved as reusable Function';
 
   @override
   String get memorySaveSuccessHint =>
-      'Reusable command saved to the local library.\nYou can view, edit, or upgrade it in the reusable command library.';
+      'Reusable Function saved to the local library.\nYou can view, edit, or upgrade it in the reusable Function library.';
 
   @override
   String get memoryViewInLibrary => 'View Library';
 
   @override
   String get memorySaveCannotImport =>
-      'This execution cannot be saved as a reusable command';
+      'This execution cannot be saved as a reusable Function';
 
   @override
-  String get memorySaveFailed => 'Failed to save reusable command';
+  String get memorySaveFailed => 'Failed to save reusable Function';
 
   @override
   String memorySaveFailedWithMessage(String message) {
-    return 'Failed to save reusable command: $message';
+    return 'Failed to save reusable Function: $message';
   }
 
   @override
@@ -2668,7 +2669,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get omniflowAssetUnknown => 'Unknown';
 
   @override
-  String get omniflowAssetReuseHit => 'Reusable command';
+  String get omniflowAssetReuseHit => 'Reusable Function';
 
   @override
   String get omniflowAssetVlmExecution => 'VLM Execution';
@@ -2688,7 +2689,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get omniflowAssetSourceRuns => 'Source Runs';
 
   @override
-  String get omniflowAssetLinkedFunction => 'Linked reusable command';
+  String get omniflowAssetLinkedFunction => 'Linked reusable Function';
 
   @override
   String get omniflowAssetCopyId => 'Copy ID';
@@ -2718,7 +2719,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get omniflowAssetJsonCopied => 'JSON copied';
 
   @override
-  String get omniflowAssetFunctionDetail => 'Reusable command details';
+  String get omniflowAssetFunctionDetail => 'Reusable Function details';
 
   @override
   String get omniflowAssetRunLogDetail => 'Run Log Details';
@@ -2812,18 +2813,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get functionLibraryEnrich => 'Upgrade';
 
   @override
-  String get functionLibraryEnrichTitle => 'Upgrade reusable command';
+  String get functionLibraryEnrichTitle => 'Upgrade reusable Function';
 
   @override
   String get functionLibraryEnrichConfirm =>
-      'Use AI to enrich this reusable command\'s semantic info?\n\nWill auto-generate: description, parameter slots, pre/post conditions, etc.';
+      'Use AI to enrich this reusable Function\'s semantic info?\n\nWill auto-generate: description, parameter slots, pre/post conditions, etc.';
 
   @override
-  String get functionLibraryEnrichProgress => 'Upgrading reusable command...';
+  String get functionLibraryEnrichProgress => 'Upgrading reusable Function...';
 
   @override
   String get functionLibraryEnrichSuccess =>
-      'Reusable command upgraded successfully';
+      'Reusable Function upgraded successfully';
 
   @override
   String get functionLibraryEnrichFailed => 'Upgrade failed';
@@ -2837,18 +2838,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get functionLibrarySplit => 'Split';
 
   @override
-  String get functionLibrarySplitTitle => 'Split reusable command';
+  String get functionLibrarySplitTitle => 'Split reusable Function';
 
   @override
   String get functionLibrarySplitConfirm =>
-      'Use AI to split this reusable command into smaller ones?';
+      'Use AI to split this reusable Function into smaller ones?';
 
   @override
-  String get functionLibrarySplitProgress => 'Splitting reusable command...';
+  String get functionLibrarySplitProgress => 'Splitting reusable Function...';
 
   @override
   String functionLibrarySplitSuccess(int count) {
-    return 'Reusable command split successfully, created $count new commands';
+    return 'Reusable Function split successfully, created $count new Functions';
   }
 
   @override
@@ -2882,7 +2883,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get actionTypeFinished => 'Finished';
 
   @override
-  String get actionTypeCallFunction => 'Run reusable command';
+  String get actionTypeCallFunction => 'Run reusable Function';
 
   @override
   String get actionTypeDefault => 'Action';

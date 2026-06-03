@@ -8,6 +8,36 @@ import cn.com.omnimind.accessibility.util.ScreenStateUtil
 import cn.com.omnimind.assists.api.bean.VlmTaskTerminalResult
 import cn.com.omnimind.assists.api.interfaces.OnMessagePushListener
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
+import cn.com.omnimind.assists.task.vlmserver.AbortAction
+import cn.com.omnimind.assists.task.vlmserver.ClickAction
+import cn.com.omnimind.assists.task.vlmserver.FeedbackAction
+import cn.com.omnimind.assists.task.vlmserver.FinishedAction
+import cn.com.omnimind.assists.task.vlmserver.FunctionRunAction
+import cn.com.omnimind.assists.task.vlmserver.GetStateAction
+import cn.com.omnimind.assists.task.vlmserver.HttpVLMStreamClient
+import cn.com.omnimind.assists.task.vlmserver.InfoAction
+import cn.com.omnimind.assists.task.vlmserver.InputTextAction
+import cn.com.omnimind.assists.task.vlmserver.LongPressAction
+import cn.com.omnimind.assists.task.vlmserver.OpenAppAction
+import cn.com.omnimind.assists.task.vlmserver.PressBackAction
+import cn.com.omnimind.assists.task.vlmserver.PressHomeAction
+import cn.com.omnimind.assists.task.vlmserver.RecordAction
+import cn.com.omnimind.assists.task.vlmserver.RequireUserChoiceAction
+import cn.com.omnimind.assists.task.vlmserver.RequireUserConfirmationAction
+import cn.com.omnimind.assists.task.vlmserver.ScrollAction
+import cn.com.omnimind.assists.task.vlmserver.UIAction
+import cn.com.omnimind.assists.task.vlmserver.UIContext
+import cn.com.omnimind.assists.task.vlmserver.VLMClient
+import cn.com.omnimind.assists.task.vlmserver.VLMConversationState
+import cn.com.omnimind.assists.task.vlmserver.VLMCurrentPageSnapshot
+import cn.com.omnimind.assists.task.vlmserver.VLMFirstStepOptimizer
+import cn.com.omnimind.assists.task.vlmserver.VLMIndexedPageContext
+import cn.com.omnimind.assists.task.vlmserver.VLMPageContextProviderRegistry
+import cn.com.omnimind.assists.task.vlmserver.VLMPageContextRequest
+import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextProviderRegistry
+import cn.com.omnimind.assists.task.vlmserver.VLMStreamClient
+import cn.com.omnimind.assists.task.vlmserver.WaitAction
+import cn.com.omnimind.baselib.util.ImageQuality
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.mcp.McpTaskManager
 import cn.com.omnimind.bot.mcp.TaskState
@@ -21,6 +51,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.longOrNull
 import org.json.JSONObject
 import java.util.UUID
 
@@ -71,6 +110,50 @@ data class VlmToolOutcome(
     )
 }
 
+data class VlmParseOnlyResult(
+    val success: Boolean,
+    val model: String,
+    val packageName: String?,
+    val xmlChars: Int,
+    val screenshotIncluded: Boolean,
+    val promptChars: Int,
+    val parsed: Boolean,
+    val toolName: String?,
+    val action: Map<String, Any?>?,
+    val error: String?,
+    val currentUserTextPreview: String,
+    val pageDiagnostics: Map<String, String>,
+    val phaseMs: Map<String, Long>,
+) {
+    fun toPayload(): Map<String, Any?> = linkedMapOf(
+        "success" to success,
+        "parse_only" to true,
+        "executed" to false,
+        "model" to model,
+        "package_name" to packageName,
+        "xml_chars" to xmlChars,
+        "screenshot_included" to screenshotIncluded,
+        "prompt_chars" to promptChars,
+        "parsed" to parsed,
+        "tool_name" to toolName,
+        "action" to action,
+        "error" to error,
+        "current_user_text_preview" to currentUserTextPreview,
+        "page_diagnostics" to pageDiagnostics,
+        "phase_ms" to phaseMs,
+        "content" to listOf(
+            mapOf(
+                "type" to "text",
+                "text" to buildString {
+                    append("VLM parse-only completed. executed=false")
+                    toolName?.let { append("\ntool_name: $it") }
+                    error?.let { append("\nerror: $it") }
+                }
+            )
+        ),
+    )
+}
+
 typealias VlmToolProgressReporter = suspend (progress: String, extras: Map<String, Any?>) -> Unit
 
 object VlmToolCoordinator {
@@ -84,6 +167,7 @@ object VlmToolCoordinator {
     private const val MAX_RECALL_RECOVERY_XML_CHARS = 6000
     private const val DEFAULT_MAX_STEPS = 12
     private const val MAX_MAX_STEPS = 64
+    private const val DRY_RUN_PROMPT_PREVIEW_CHARS = 6000
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -188,9 +272,9 @@ object VlmToolCoordinator {
                 progressReporter,
                 taskId,
                 taskState.status,
-                "召回增强",
-                mapOf(
-                    "summary" to "已准备 OmniFlow/UDEG 候选；当前页上下文将由每轮 page skill 注入",
+                    "召回增强",
+                    mapOf(
+                    "summary" to "已准备 OmniFlow 诊断；在线 VLM 每轮 fresh observe 后注入 Function recall 与 UDEG page skill",
                     "omniflowRecallDecision" to recallGuidance.decision,
                     "omniflowRecall" to recallGuidance.payload,
                 )
@@ -287,6 +371,127 @@ object VlmToolCoordinator {
         if (state != null && scope != null) {
             McpTaskManager.scheduleTaskCleanup(normalizedTaskId, scope)
         }
+    }
+
+    suspend fun parseOnlyNextAction(
+        context: Context,
+        request: VlmTaskRequest,
+        scope: CoroutineScope,
+        streamClient: VLMStreamClient = HttpVLMStreamClient(scope),
+    ): VlmParseOnlyResult = withContext(Dispatchers.IO) {
+        val phaseStartedAt = System.currentTimeMillis()
+        val phaseMs = linkedMapOf<String, Long>()
+        fun markPhase(name: String, startedAt: Long) {
+            phaseMs[name] = System.currentTimeMillis() - startedAt
+        }
+
+        val captureStartedAt = System.currentTimeMillis()
+        val snapshot = captureParseOnlySnapshot(context)
+        markPhase("read_current_page_ms", captureStartedAt)
+        val baseContext = UIContext(
+            overallTask = request.goal,
+            currentStepGoal = request.goal,
+            stepSkillGuidance = request.stepSkillGuidance,
+            targetPackageName = request.packageName.orEmpty(),
+            currentPackageName = snapshot.packageName.orEmpty(),
+            maxSteps = resolveMaxSteps(request.maxSteps),
+            stepsUsed = 0,
+        )
+        val result = parseOnlyNextAction(
+            context = baseContext,
+            snapshot = snapshot,
+            model = request.model ?: "scene.vlm.operation.primary",
+            streamClient = streamClient,
+            disableOmniFlowRecall = request.disableOmniFlowRecall,
+            phaseMs = phaseMs,
+        )
+        phaseMs["duration_ms"] = System.currentTimeMillis() - phaseStartedAt
+        result.copy(phaseMs = phaseMs.toMap())
+    }
+
+    internal suspend fun parseOnlyNextAction(
+        context: UIContext,
+        snapshot: VLMCurrentPageSnapshot,
+        model: String = "scene.vlm.operation.primary",
+        streamClient: VLMStreamClient,
+        conversationState: VLMConversationState = VLMConversationState(),
+        vlmClient: VLMClient = VLMClient(),
+        disableOmniFlowRecall: Boolean = false,
+        phaseMs: MutableMap<String, Long> = linkedMapOf(),
+    ): VlmParseOnlyResult {
+        suspend fun <T> timed(name: String, block: suspend () -> T): T {
+            val startedAt = System.currentTimeMillis()
+            return block().also { phaseMs[name] = System.currentTimeMillis() - startedAt }
+        }
+
+        var workingContext = context.copy(
+            currentPageSummary = "",
+            firstStepGuidance = "",
+            pageDiagnostics = emptyMap()
+        )
+        workingContext = timed("first_step_optimizer_ms") {
+            VLMFirstStepOptimizer.enrichContext(
+                context = workingContext,
+                currentXml = snapshot.xml,
+                currentPackageName = snapshot.packageName,
+                stepIndex = 0,
+            )
+        }
+        val pageRequest = VLMPageContextRequest(
+            context = workingContext,
+            currentXml = snapshot.xml,
+            currentPackageName = snapshot.packageName,
+            screenshotBase64 = snapshot.screenshotBase64,
+            stepIndex = 0,
+            snapshot = snapshot,
+            disableOmniFlowRecall = disableOmniFlowRecall,
+        )
+        workingContext = timed("page_context_ms") {
+            VLMPageContextProviderRegistry.enrich(pageRequest)
+        }
+        workingContext = timed("function_recall_ms") {
+            VLMRecallContextProviderRegistry.enrich(pageRequest.copy(context = workingContext))
+        }
+        workingContext = timed("indexed_evidence_ms") {
+            VLMIndexedPageContext.enrich(
+                context = workingContext,
+                currentXml = snapshot.xml,
+                displayWidth = snapshot.displayWidth,
+                displayHeight = snapshot.displayHeight,
+            )
+        }
+        val requestEnvelope = timed("build_request_ms") {
+            vlmClient.buildUIOperationRequest(
+                context = workingContext,
+                screenshot = snapshot.screenshotBase64,
+                markedScreenshot = null,
+                conversationState = conversationState,
+                model = model,
+                includeMarkedScreenshot = false,
+            )
+        }
+        val turn = timed("vlm_stream_ms") {
+            streamClient.streamTurn(requestEnvelope.request)
+        }
+        val parsed = timed("parse_response_ms") {
+            vlmClient.parseVLMResponse(turn, model)
+        }
+        val action = parsed.step?.action
+        return VlmParseOnlyResult(
+            success = parsed.success,
+            model = model,
+            packageName = snapshot.packageName,
+            xmlChars = snapshot.xml?.length ?: 0,
+            screenshotIncluded = !snapshot.screenshotBase64.isNullOrBlank(),
+            promptChars = requestEnvelope.currentUserText.length,
+            parsed = parsed.success && action != null,
+            toolName = action?.name,
+            action = action?.toDebugMap(),
+            error = parsed.error,
+            currentUserTextPreview = requestEnvelope.currentUserText.take(DRY_RUN_PROMPT_PREVIEW_CHARS),
+            pageDiagnostics = workingContext.pageDiagnostics,
+            phaseMs = phaseMs.toMap(),
+        )
     }
 
     suspend fun waitForTask(
@@ -636,6 +841,7 @@ object VlmToolCoordinator {
                         skipGoHome = payload.skipGoHome,
                         stepSkillGuidance = payload.stepSkillGuidance,
                         taskId = taskId,
+                        disableOmniFlowRecall = payload.disableOmniFlowRecall,
                     )
                     deferred.complete(Result.success(Unit))
                 } catch (e: Exception) {
@@ -837,6 +1043,12 @@ object VlmToolCoordinator {
     ): VlmToolOutcome? {
         val functionId = recallGuidance.directHitFunctionId?.trim()?.takeIf { it.isNotEmpty() }
             ?: return null
+        if (recallHitRequiresArguments(recallGuidance)) {
+            taskState.addChatMessage(
+                "[SYSTEM] OmniFlow recall hit $functionId requires arguments; skipping local auto-execute and letting VLM choose oob_function_run with arguments."
+            )
+            return null
+        }
         emitProgress(
             progressReporter,
             taskState.taskId,
@@ -845,7 +1057,7 @@ object VlmToolCoordinator {
             mapOf(
                 "summary" to "命中可直接执行的 OmniFlow Function",
                 "omniflowRecallDecision" to recallGuidance.decision,
-                "functionId" to functionId,
+                "function_id" to functionId,
             )
         )
         val result = runCatching { runFunction(functionId) }.getOrElse { error ->
@@ -882,7 +1094,7 @@ object VlmToolCoordinator {
                 "召回回退",
                 mapOf(
                     "summary" to "召回 Function 未能本地完成，继续视觉执行",
-                    "functionId" to functionId,
+                    "function_id" to functionId,
                     "omniflowRecallResult" to result,
                     "omniflowRecallFallbackGuidanceInjected" to fallbackGuidance.isNotBlank(),
                 )
@@ -916,7 +1128,7 @@ object VlmToolCoordinator {
             "执行完成",
             mapOf(
                 "summary" to message,
-                "functionId" to functionId,
+                "function_id" to functionId,
                 "omniflowRecallResult" to result,
             )
         )
@@ -1032,6 +1244,29 @@ object VlmToolCoordinator {
             else -> emptyList()
         }
 
+    private fun recallHitRequiresArguments(recallGuidance: VlmRecallGuidance): Boolean {
+        val hit = mapValue(recallGuidance.payload["hit"])
+        return candidateRequiresArguments(hit) || candidateRequiresArguments(recallGuidance.payload)
+    }
+
+    private fun candidateRequiresArguments(candidate: Map<String, Any?>): Boolean {
+        if (candidate.isEmpty()) return false
+        val raw = candidate["requires_arguments"] ?: candidate["requiresArguments"]
+        val explicit = when (raw) {
+            is Boolean -> raw
+            is Number -> raw.toInt() != 0
+            is String -> raw.trim().lowercase() in setOf("true", "1", "yes", "y")
+            else -> false
+        }
+        if (explicit) return true
+        val schema = mapValue(candidate["inputSchema"]).ifEmpty { mapValue(candidate["input_schema"]) }
+        if (schema.isEmpty()) return false
+        val required = listValue(schema["required"])
+            .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
+        if (required.isNotEmpty()) return true
+        return mapValue(schema["properties"]).isNotEmpty()
+    }
+
     private fun firstNonBlank(vararg values: Any?): String =
         values.firstNotNullOfOrNull { value ->
             value?.toString()?.trim()?.takeIf { it.isNotEmpty() }
@@ -1046,6 +1281,123 @@ object VlmToolCoordinator {
         ).firstNotNullOfOrNull { value ->
             value?.toString()?.trim()?.takeIf { it.isNotEmpty() }
         } ?: "unknown"
+
+    private fun UIAction.toDebugMap(): Map<String, Any?> =
+        when (this) {
+            is ClickAction -> linkedMapOf(
+                "tool" to name,
+                "target_description" to targetDescription,
+                "element_index" to elementIndex,
+                "node_id" to nodeId,
+                "x" to x,
+                "y" to y,
+            )
+            is InputTextAction -> linkedMapOf(
+                "tool" to name,
+                "target_description" to targetDescription,
+                "text" to text,
+                "element_index" to elementIndex,
+                "node_id" to nodeId,
+                "x" to x,
+                "y" to y,
+            )
+            is ScrollAction -> linkedMapOf(
+                "tool" to name,
+                "target_description" to targetDescription,
+                "scrollable_index" to scrollableIndex,
+                "direction" to direction,
+                "x1" to x1,
+                "y1" to y1,
+                "x2" to x2,
+                "y2" to y2,
+                "duration_ms" to durationMs,
+            )
+            is LongPressAction -> linkedMapOf(
+                "tool" to name,
+                "target_description" to targetDescription,
+                "element_index" to elementIndex,
+                "node_id" to nodeId,
+                "x" to x,
+                "y" to y,
+            )
+            is OpenAppAction -> linkedMapOf("tool" to name, "package_name" to packageName)
+            is PressHomeAction -> linkedMapOf("tool" to name)
+            is PressBackAction -> linkedMapOf("tool" to name)
+            is GetStateAction -> linkedMapOf("tool" to name, "reason" to reason)
+            is FunctionRunAction -> linkedMapOf(
+                "tool" to name,
+                "function_id" to functionId,
+                "arguments" to arguments.toPlainAny(),
+            )
+            is FinishedAction -> linkedMapOf("tool" to name, "content" to content)
+            is InfoAction -> linkedMapOf("tool" to name, "value" to value)
+            is FeedbackAction -> linkedMapOf("tool" to name, "value" to value)
+            is AbortAction -> linkedMapOf("tool" to name, "value" to value)
+            is RequireUserChoiceAction -> linkedMapOf("tool" to name, "options" to options, "prompt" to prompt)
+            is RequireUserConfirmationAction -> linkedMapOf("tool" to name, "prompt" to prompt)
+            is WaitAction -> linkedMapOf("tool" to name, "duration_ms" to durationMs)
+            is RecordAction -> linkedMapOf("tool" to name, "content" to content)
+        }.filterValues { it != null }
+
+    private fun JsonElement.toPlainAny(): Any? =
+        when (this) {
+            is JsonNull -> null
+            is JsonObject -> entries.associate { (key, value) -> key to value.toPlainAny() }
+            is JsonArray -> map { it.toPlainAny() }
+            is JsonPrimitive -> {
+                if (isString) {
+                    contentOrNull
+                } else {
+                    booleanOrNull
+                        ?: longOrNull
+                        ?: doubleOrNull
+                        ?: contentOrNull
+                }
+            }
+        }
+
+    private suspend fun captureParseOnlySnapshot(context: Context): VLMCurrentPageSnapshot {
+        val capturedAtMs = System.currentTimeMillis()
+        val packageName = runCatching { AccessibilityController.getPackageName().orEmpty() }
+            .getOrDefault("")
+            .ifBlank { null }
+        val xml = runCatching { AccessibilityController.getCaptureScreenShotXml(true).orEmpty() }
+            .getOrDefault("")
+            .ifBlank { null }
+        val screenshotPayload = runCatching {
+            AccessibilityController.captureScreenshotImage(
+                isBitmap = false,
+                isBase64 = true,
+                isFile = false,
+                isFilterOverlay = true,
+                compressQuality = ImageQuality.MEDIUM,
+            )
+        }.getOrNull()
+        val screenshot = screenshotPayload
+            ?.imageBase64
+            ?.takeIf { screenshotPayload.isSuccess && it.isNotBlank() }
+            ?.let(::ensureJpegDataUri)
+        val displayMetrics = context.resources.displayMetrics
+        return VLMCurrentPageSnapshot(
+            packageName = packageName,
+            xml = xml,
+            screenshotBase64 = screenshot,
+            displayWidth = maxOf(screenshotPayload?.originalWidth ?: 0, displayMetrics.widthPixels)
+                .coerceAtLeast(1),
+            displayHeight = maxOf(screenshotPayload?.originalHeight ?: 0, displayMetrics.heightPixels)
+                .coerceAtLeast(1),
+            capturedAtMs = capturedAtMs,
+        )
+    }
+
+    private fun ensureJpegDataUri(value: String): String {
+        val trimmed = value.trim()
+        return if (trimmed.startsWith("data:image/", ignoreCase = true)) {
+            trimmed
+        } else {
+            "data:image/jpeg;base64,$trimmed"
+        }
+    }
 
     private fun TaskState.toOutcome(
         status: VlmToolOutcomeStatus,

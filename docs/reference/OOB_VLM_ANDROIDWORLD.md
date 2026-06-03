@@ -12,7 +12,7 @@ This path covers live phone operation through `vlm_task`:
 - Accessibility XML and screenshot grounding
 - AndroidWorld-style tasks that require multi-step navigation and visible
   verification
-- RunLog collection, token usage reporting, reusable-command generation, and
+- RunLog collection, token usage reporting, reusable Function generation, and
   replay validation
 
 It does not cover generic memory recall, Workbench Project generation, browser
@@ -136,7 +136,7 @@ is a general safety or execution invariant that applies outside AndroidWorld.
 
 A successful online VLM run should leave a RunLog with concrete action cards and
 token usage. The debug E2E receiver converts a finished RunLog into an OmniFlow
-reusable command when the log is reusable.
+reusable Function when the log is reusable.
 
 Expected debug result fields:
 
@@ -154,9 +154,9 @@ Every VLM provider call should report token usage when the provider returns it.
 The debug script fails validation if total token usage, per-step usage, or
 per-call usage is missing.
 
-Reusable command execution has three terminal protocol statuses:
+Reusable Function execution has three terminal protocol statuses:
 
-- `completed_local`: the deterministic OmniFlow prefix covered the full command.
+- `completed_local`: the deterministic OmniFlow prefix covered the full Function.
 - `started_agent_fallback`: OOB replayed the local prefix, then started a VLM
   task for the remaining agent/tool-dependent segment.
 - `failed`: local replay, required arguments, asset lookup, or agent fallback
@@ -208,7 +208,7 @@ cd ui
 flutter test \
   test/l10n/app_text_localizer_test.dart \
   test/features/task/pages/execution_history/function_run_result_sheet_test.dart \
-  test/features/task/pages/execution_history/command_library_page_test.dart \
+  test/features/task/pages/execution_history/function_library_page_test.dart \
   test/features/task/pages/execution_history/run_log_timeline_page_test.dart \
   test/services/oob_reusable_function_execution_service_test.dart \
   test/widgets/execution/execution_detail_view_test.dart
@@ -229,7 +229,7 @@ scripts/demo-vlm-runlog-e2e.sh \
   --max-steps 12
 ```
 
-Reusable command segment validation:
+Reusable Function segment validation:
 
 ```bash
 scripts/oob-device-segment-validation.sh --device emulator-5554
@@ -237,7 +237,7 @@ scripts/oob-device-segment-validation.sh --device emulator-5556
 ```
 
 This debug receiver registers a model-free `open_app(Settings)` child reusable
-command, registers a parent command that calls the child segment, runs UDEG
+Function, registers a parent Function that calls the child segment, runs UDEG
 page-match recall from the current launcher page, executes the parent locally,
 and verifies that Settings is foreground. A passing result must include
 `success=true`, `recall.decision=recall`, `parent_run.success=true`,
@@ -255,8 +255,8 @@ The E2E script performs:
 3. raw VLM execution
 4. RunLog lookup
 5. token usage validation
-6. RunLog generation into a reusable command
-7. registered reusable command replay
+6. RunLog generation into a reusable Function
+7. registered reusable Function replay
 
 Use tasks that cross multiple visible states. Do not use one-click smoke tasks
 as acceptance evidence.

@@ -55,4 +55,26 @@ class OmniflowCheckerRuleTest {
             )
         )
     }
+
+    @Test
+    fun `normalizes hi upgrade checker as post action dismiss rule`() {
+        val rule = OmniflowCheckerRule.fromMap(
+            mapOf(
+                "id" to "dismiss_hi_upgrade",
+                "condition" to "hi_upgrade",
+                "action" to "click",
+            )
+        )
+
+        assertNotNull(rule)
+        assertEquals(OmniflowCheckerRule.COND_APP_UPGRADE_PROMPT, rule?.condition)
+        assertEquals(OmniflowCheckerRule.ACTION_DISMISS, rule?.action)
+        assertEquals(OmniflowCheckerRule.PHASE_POST_ACTION, rule?.phase)
+        assertTrue(
+            OmniflowCheckerRule.isSupportedPair(
+                OmniflowCheckerRule.COND_APP_UPGRADE_PROMPT,
+                OmniflowCheckerRule.ACTION_DISMISS,
+            )
+        )
+    }
 }

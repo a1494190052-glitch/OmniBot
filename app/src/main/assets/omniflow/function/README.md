@@ -630,6 +630,9 @@ Keep these pieces separate:
   and compatibility materialization for that projection
 - `OobOmniFlowToolkitService`: public tool facade and response shaping
 - builtin skill prompts: agent instructions, not executable policy
+- `omniflow-checker-maintainer`: agent-facing checklist for implementing
+  runtime checker code, contracts, and tests; executable checker policy still
+  belongs to `OmniflowCheckerRule` and `OmniflowStepExecutor`
 
 Merging these would make it harder to tell whether a change affects storage,
 conversion, execution, or agent patching.

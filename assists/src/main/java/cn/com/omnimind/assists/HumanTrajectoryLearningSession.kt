@@ -371,13 +371,34 @@ object HumanTrajectoryLearningSession {
             OmniLog.w(TAG, "finish human trajectory run failed: ${session.runId}, ${error.message}")
         }
         finishRunMs = System.currentTimeMillis() - finishStartedAtMs
+        val persistenceTiming = linkedMapOf<String, Any?>(
+            "schema_version" to "oob.manual_recording.persist_timing.v1",
+            "stop_ms" to stopMs,
+            "build_cards_ms" to buildCardsMs,
+            "append_cards_ms" to appendCardsMs,
+            "diagnostics_ms" to diagnosticsMs,
+            "finish_run_ms" to finishRunMs,
+            "total_ms" to (System.currentTimeMillis() - completeStartedAtMs).coerceAtLeast(0L)
+        )
         val diagnostics = if (persisted.isFailure) {
             trace.diagnostics + linkedMapOf(
                 "runlog_persist_error" to persisted.exceptionOrNull()?.message.orEmpty(),
-                "runlog_persist_error_type" to persisted.exceptionOrNull()?.javaClass?.name.orEmpty()
+                "runlog_persist_error_type" to persisted.exceptionOrNull()?.javaClass?.name.orEmpty(),
+                "runlog_persistence_timing" to persistenceTiming
             )
         } else {
-            trace.diagnostics
+            trace.diagnostics + linkedMapOf(
+                "runlog_persistence_timing" to persistenceTiming
+            )
+        }
+        runCatching {
+            InternalRunLogStore.updateDiagnostics(
+                context = session.context,
+                runId = session.runId,
+                diagnostics = diagnostics
+            )
+        }.onFailure { error ->
+            OmniLog.w(TAG, "update final human trajectory diagnostics failed: ${session.runId}, ${error.message}")
         }
         session.result.complete(
             HumanTrajectoryLearningResult(

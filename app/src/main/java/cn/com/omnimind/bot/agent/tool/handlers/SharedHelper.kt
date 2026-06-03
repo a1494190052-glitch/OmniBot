@@ -201,10 +201,10 @@ class SharedHelper(
         "executionMode 仅支持 termux 或 proot" to
             "`executionMode` only supports `termux` or `proot`",
         "缺少 command" to "Missing command",
-        "复用指令" to "Reusable Command",
-        "正在执行复用指令" to "Running reusable command",
-        "复用指令执行完成" to "Reusable command completed",
-        "复用指令执行失败" to "Reusable command failed"
+        "复用指令" to "Reusable Function",
+        "正在执行复用指令" to "Running reusable Function",
+        "复用指令执行完成" to "Reusable Function completed",
+        "复用指令执行失败" to "Reusable Function failed"
     )
 
     suspend fun ensureRunActive() {

@@ -392,7 +392,7 @@ class ShowInfoView @JvmOverloads constructor(
         isShowStop: Boolean = true,
     ) {
         applyNormalActionStyle()
-        bottomContentLayout?.visibility = VISIBLE
+        restoreDoingContentVisibility()
         ivResume?.visibility = GONE
         llResume?.visibility = GONE
         llStop?.visibility = if (isShowStop) VISIBLE else GONE
@@ -503,11 +503,14 @@ class ShowInfoView @JvmOverloads constructor(
     }
 
     fun setMessage(message: String) {
+        gradientTextView?.visibility = VISIBLE
         gradientTextView?.setText(message)
 
     }
 
     fun setSubMessage(message: String) {
+        executingTextViewContainer?.visibility = VISIBLE
+        executingTextView?.visibility = VISIBLE
         executingTextView?.setText(message)
     }
 
@@ -546,6 +549,17 @@ class ShowInfoView @JvmOverloads constructor(
         llTakeOverTextView?.setTextColor("#202f51".toColorInt())
         llStopTextView?.text = "已完成"
         llStopTextView?.setTextColor("#16794A".toColorInt())
+    }
+
+    private fun restoreDoingContentVisibility() {
+        visibility = VISIBLE
+        gradientBorderContainer?.visibility = VISIBLE
+        innerRelativeLayout?.visibility = VISIBLE
+        gradientTextView?.visibility = VISIBLE
+        bottomContentLayout?.visibility = VISIBLE
+        executingTextViewContainer?.visibility = VISIBLE
+        executingTextView?.visibility = VISIBLE
+        contentContainer?.visibility = VISIBLE
     }
 
     private fun applyLearningActionStyle(isPaused: Boolean = false) {

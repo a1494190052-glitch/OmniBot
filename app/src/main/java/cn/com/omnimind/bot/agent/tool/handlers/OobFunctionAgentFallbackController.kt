@@ -59,14 +59,13 @@ class OobFunctionAgentFallbackController {
         val targetDesc = OmniflowStepExecutor.stringArg(
             args,
             "target_description",
-            "targetDescription"
         ).orEmpty()
         if (targetDesc.isEmpty()) return null
         val action = OmniflowStepExecutor.actionNameForStep(step)
         val goal = when (action) {
             OobActionCodec.ACTION_CLICK -> "找到并点击「$targetDesc」"
             OobActionCodec.ACTION_LONG_PRESS -> "找到并长按「$targetDesc」"
-            OobActionCodec.ACTION_SWIPE -> "在「$targetDesc」区域滑动"
+            OobActionCodec.ACTION_SCROLL -> "在「$targetDesc」区域滑动"
             else -> "执行 $action 操作：$targetDesc"
         } + recoveryPromptSuffix(recovery)
         val vlmArgs = mapToJsonElement(

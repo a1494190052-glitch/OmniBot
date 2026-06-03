@@ -1,13 +1,13 @@
 ---
 name: vlm-android-gui
-description: Use for OOB VLM Android GUI automation, AndroidWorld phone tasks, vlm_task, OmniFlow replay, reusable command generation, and RunLog validation.
+description: Use for OOB VLM Android GUI automation, AndroidWorld phone tasks, vlm_task, OmniFlow replay, reusable Function generation, and RunLog validation.
 ---
 
 # VLM Android GUI Skill
 
 ## Step Guidance Essentials
 
-- Quick policy phrases for injected guidance: Pass `packageName` when known; OOB indexed page evidence chooses visible labels/roles; Focused editable input uses `type`; Slider/seekbar uses drag; use 0-1000 normalized coordinates with examples `x2=990` and `x1=990,y1=110,x2=10,y2=110`; x1 must be greater than x2 for leftward drag; Display brightness is a drag, do not click; Numeric keypad targets use visible digit clicks; Validate after at least two visible UI states; choose the simplest action.
+- Quick policy phrases for injected guidance: Pass `package_name` when known; OOB indexed page evidence chooses visible labels/roles; focused editable input uses `input_text`; slider/seekbar uses `scroll` as a drag; use 0-1000 normalized coordinates with examples `x2=990` and `x1=990,y1=110,x2=10,y2=110`; x1 must be greater than x2 for leftward drag; Display brightness is a drag, do not click; Numeric keypad targets use visible digit clicks; Validate after at least two visible UI states; choose the simplest action.
 - First-step policy lives here; choose the simplest action that changes one variable, then verify.
 - AndroidWorld first-step policy: choose the first safe state-changing action,
   then validate before continuing.
@@ -26,22 +26,22 @@ description: Use for OOB VLM Android GUI automation, AndroidWorld phone tasks, v
   as a new observation turn.
 - If the screenshot is black or blank but Accessibility tree / indexed evidence
   lists the current page and target text, act from that tree evidence. Do not
-  loop on `get_state` for the same unchanged page solely because pixels are
-  black.
+  output refresh-state, wait, or no-op actions for the same unchanged page
+  solely because pixels are black. Native observe refreshes state internally.
 - OOB indexed page evidence: choose by visible label/role; include `element_index`
   or `scrollable_index` when available and emit 0-1000 normalized centers as fallback.
   The runtime will re-ground clicks/input/long-press by stable `node_id`,
   `element_index`, or unique target description against the latest XML before
   dispatch.
-- Pass `packageName` when known; derive unknown packages from installed apps.
+- Pass `package_name` when known; derive unknown packages from installed apps.
 - Permission/onboarding: choose safe Continue/Allow/OK, not Deny/Delete/Pay.
-- Focused editable input: use `type`; otherwise click intended edit/search field first.
+- Focused editable input: use `input_text`; otherwise click intended edit/search field first.
 - Visible but not focused editable input: use
-  `input_text(target_description, content, element_index?, x, y)` so the field is
+  `input_text(target_description, text, element_index?, x, y)` so the field is
   grounded before typing.
 - Slider/seekbar: use a horizontal drag toward the requested endpoint; do not
   repeat taps on the thumb or hard-code screen-specific coordinates.
-- Numeric keypad targets: click visible digit buttons; do not `type`.
+- Numeric keypad targets: click visible digit buttons; do not use `input_text`.
 - After each action, read `screen_changed`, `appeared_texts`,
   `disappeared_texts`, `after_visible_texts`, and `after_focused_editable` from
   the tool result before choosing the next action. If an action does not change
@@ -53,11 +53,11 @@ description: Use for OOB VLM Android GUI automation, AndroidWorld phone tasks, v
 
 AndroidWorld first-step policy:
 
-- Do not encode assumptions into the first action. Pass `packageName` when
+- Do not encode assumptions into the first action. Pass `package_name` when
   known, otherwise derive it from installed app evidence.
 - If the first screen is a permission, onboarding, or account prompt, handle the
   safe visible prompt before pursuing the target task.
-- If an editable field is already focused, type directly. If not, click or
+- If an editable field is already focused, use `input_text` directly. If not, click or
   `input_text` the intended field first.
 - For sliders, seekbars, and system panels, use drag actions. For Display brightness,
   drag near 90-95% with 0-1000 normalized coordinates, for example
@@ -97,17 +97,20 @@ connected by artifacts, but do not merge their responsibilities.
    screen tools (`click`, `input_text`, `scroll`, `open_app`, `press_back`,
    `press_home`, `finished`) from live screenshot/XML/indexed evidence unless
    the current task has a high-confidence Function match. For a high-confidence
-   match, prefer explicit replay through guard + Function run instead of
-   re-clicking the same flow manually.
+   match, online VLM may explicitly call
+   `oob_function_run(function_id, arguments)` using only candidates listed in
+   the current page context instead of re-clicking the same flow manually. Do
+   not call `oob_function_guard_check` from the VLM loop.
    Parameterized Functions are still valid candidates: read `inputSchema`,
    `function_profile`, and `argument_policy`, fill arguments from the user goal
    like a normal tool call, then use `oob_function_run`.
-5. Explicit Function replay runs through `oob_function_guard_check` then
-   `oob_function_run`. Legacy `omniflow.call_function` or
-   `call_tool(function_id=...)` must route to the same Function runner, not a
-   separate replay implementation. This is an OmniFlow replay step, not a VLM
-   click. It must create its own visible reusable-command card with guard
-   status, local replay result, fallback reason, and nested step results.
+5. Explicit Function replay from the outer Agent uses the OmniFlow skill path:
+   `oob_function_guard_check` when guard policy is required, then
+   `oob_function_run`. Online VLM direct calls skip the guard tool and rely on
+   the current page context plus the local Function runner result. In both
+   paths, Function replay is an OmniFlow replay step, not a VLM click, and must
+   create its own visible reusable Function card with local replay result,
+   fallback reason, and nested step results.
 6. If replay returns `fallback=true`, `needs_agent`, or `model_required=true`,
    stop replay and require an explicit bounded VLM continuation. Do not silently
    fall back to VLM inside an offline replay.
@@ -161,7 +164,7 @@ Mobilerun/Droidrun is also only a design reference for OOB, not an executable
 dependency. Its FastAgent uses a Python host, Portal Android app, indexed
 Accessibility tree, optional screenshot, XML-style tool calls, and structured
 tool results. OOB must keep the native Kotlin VLM loop and its own
-Accessibility, RunLog, reusable command registration, recall, and replay path;
+Accessibility, RunLog, reusable Function registration, recall, and replay path;
 borrow the structured observation/result discipline without calling Portal,
 installing Mobilerun runtime, or delegating actions to Python.
 
@@ -179,7 +182,7 @@ workflow shape, then reimplement the matching OOB behavior in native Kotlin:
    invokes are allowed only when they are clearly sequential on the same stable
    screen; OOB should normally keep one native action per turn.
 5. Execute actions through a small registry: indexed click, coordinate click,
-   type, swipe, open app, back/home/enter, wait only as internal settling, and
+   input_text, scroll, open app, back/home, wait only as internal settling, and
    explicit completion.
 6. Feed structured action results back into the next turn instead of relying on
    free-form chat history.
@@ -210,7 +213,7 @@ OOB mapping for the borrowed flow:
   `DeviceOperator` actions.
 - Mobilerun structured results -> OOB structured tool result and RunLog card
   post-action fields.
-- Mobilerun trajectory artifacts -> OOB RunLog, reusable command registration,
+- Mobilerun trajectory artifacts -> OOB RunLog, reusable Function registration,
   replay, UDEG node recall, token usage, and timing diagnostics.
 
 Do not borrow these parts as dependencies:
@@ -219,7 +222,7 @@ Do not borrow these parts as dependencies:
 - Mobilerun prompt templates as runtime prompts.
 - Mobilerun macro replay format.
 - A host-side agent loop that replaces OOB Kotlin `vlm_task`, RunLog, reusable
-  command registration, UDEG recall, or model-free replay.
+  Function registration, UDEG recall, or model-free replay.
 - Mobilerun CLI/MCP, package import, or runtime installation in OOB validation.
 
 ## Activation
@@ -228,10 +231,10 @@ Activate when the user asks for any of these:
 
 - `vlm_task`, VLM task, 小万视觉执行, screen automation, phone automation, or
   AndroidWorld validation.
-- Click, scroll, type, open app, or verify content on the current Android screen.
+- Click, scroll, input text, open app, or verify content on the current Android screen.
 - A long phone task that must keep acting until a visible stop condition is met.
-- Convert a successful VLM RunLog to a reusable command.
-- Run a stored reusable command through `call_tool` or inspect why replay failed.
+- Convert a successful VLM RunLog to a reusable Function.
+- Run a stored reusable Function through `oob_function_run` or inspect why replay failed.
 - Compare live VLM behavior with OmniFlow replay behavior.
 - Register, list, inspect, delete, or clear OOB reusable Functions/复用指令.
 
@@ -243,12 +246,12 @@ does not ask to operate the phone screen.
 Use exactly one primary mode for a step sequence:
 
 - **VLM**: live model-planned screen operation through `vlm_task`.
-- **OmniFlow**: deterministic replay of an existing reusable command through
-  `call_tool` with `function_id`.
+- **OmniFlow**: deterministic replay of an existing reusable Function through
+  `oob_function_run` with `function_id`.
 - **Human takeover**: manual user actions recorded during a paused VLM task.
 
 If VLM creates a successful RunLog and the user wants reuse, convert that RunLog
-to a reusable command after the run. If OmniFlow replay needs live perception,
+to a reusable Function after the run. If OmniFlow replay needs live perception,
 return to VLM as an explicit fallback instead of mixing labels inside one replay.
 
 RunLog source labels must describe how the step actually executed, not whether
@@ -257,10 +260,10 @@ the action is convertible:
 - Agent/VLM: online `vlm_task` or `compile_kind=vlm_step`; VLM token fields are
   online generation cost.
 - Human: `source=human_takeover` or `compile_kind=manual_recording`.
-- OmniFlow Replay: direct reusable-command replay with
+- OmniFlow Replay: direct reusable Function replay with
   `source/run_source=omniflow_replay` or `runner=oob_omniflow_replay`.
 
-Concrete actions such as `click`, `input_text`, and `swipe` in an online VLM
+Concrete actions such as `click`, `input_text`, and `scroll` in an online VLM
 RunLog are only OmniFlow-compatible; do not label them as offline replay unless
 the replay runner metadata is present.
 
@@ -271,7 +274,7 @@ Use `vlm_task` for live Android GUI work:
 ```json
 {
   "goal": "From the target app home screen, navigate to the requested page, verify the visible finish condition, then finish.",
-  "packageName": "<target-package>",
+  "package_name": "<target-package>",
   "startFromCurrent": false,
   "maxSteps": 12,
   "needSummary": true
@@ -286,7 +289,7 @@ Guidelines:
 - Include the app, starting point, target page, and visible finish condition.
 - Set `startFromCurrent=true` only when the user explicitly wants the current
   page or the target package is already foreground.
-- Pass `packageName` when the target app is known and the task should start from
+- Pass `package_name` when the target app is known and the task should start from
   that app.
 - Use `maxSteps` high enough for long tasks; prefer 8 to 20 for AndroidWorld
   validation instead of tiny click-only smoke tests.
@@ -299,7 +302,7 @@ Guidelines:
   as the coordinate source.
 - The per-turn `Relevant installed apps` section is intentionally a compact
   focused list, not the full package inventory. Use an exact package from that
-  list or the request `packageName` when opening an app; if the needed app is
+  list or the request `package_name` when opening an app; if the needed app is
   absent, observe or ask for clarification instead of guessing a hidden package.
 - The per-turn prompt keeps stable tool/coordinate rules in the system prompt
   and sends only a compact reminder plus live page evidence. Do not compensate
@@ -310,10 +313,10 @@ Guidelines:
   not tap the first unrelated row.
 - For scrollable regions, use `scrollable_index` plus `direction` (`down` to
   reveal lower content, `up` to reveal previous content) and provide the listed
-  0-1000 swipe coordinates as fallback.
-- If an editable element is focused, use `type(content)` directly. If no input
+  0-1000 scroll coordinates as fallback.
+- If an editable element is focused, use `input_text(text)` directly. If no input
   is focused, first click the intended editable/search field by indexed center,
-  then type on the next step after focus is confirmed.
+  then use `input_text` on the next step after focus is confirmed.
 - Before each action, reduce the decision to input, desired output, and the one
   UI variable that should change. After the tool result, compare the new visible
   state with that expected change and correct only that variable.
@@ -474,7 +477,7 @@ The Runtime Flow section owns UDEG policy. This section only adds VLM decision
 safeguards for page-skill context:
 
 - Do not call `finished` because recall returned `hit` or because a historical
-  reusable command finished. Finish only after the current visible page satisfies
+  reusable Function finished. Finish only after the current visible page satisfies
   the user's requested end state.
 - If the current screen does not match the recalled node/step, ignore that
   candidate, re-ground on the current screenshot/XML/indexed evidence, and
@@ -496,7 +499,7 @@ external clients can call the same names through MCP:
 - `oob_function_list` to list local reusable Functions.
 - `oob_function_get` to inspect one Function spec.
 - `oob_function_register` to register/update a reusable instruction. Prefer
-  the simple shape (`functionId`, `name`, `description`, `steps`,
+  the simple shape (`function_id`, `name`, `description`, `steps`,
   optional `sourcePage`) during conversation; use full `functionSpec` only when
   converting/importing an existing structured artifact. If `sourcePage` is
   omitted, OOB tries to capture the current Accessibility XML/package as the
@@ -508,7 +511,7 @@ external clients can call the same names through MCP:
 - `oob_function_clear` with `confirm=true` to clear all Functions and detach
   all UDEG node Function references.
 - `oob_function_run` to explicitly replay a Function after user/agent
-  selection. Legacy `call_tool(function_id=...)` must route to the same runner.
+  selection. Legacy external adapters must route to the same runner.
 
 When validating direct Function replay, inspect `step_results`, not only the
 top-level `success`. Replay no longer runs post-action page/package validation:
@@ -598,7 +601,7 @@ Example wrapper:
 {
   "name": "agent_run",
   "arguments": {
-    "userMessage": "Register the reusable instruction with oob_function_register, then report functionId and success.",
+    "userMessage": "Register the reusable instruction with oob_function_register, then report function_id and success.",
     "toolProfile": "function_management"
   }
 }
@@ -608,18 +611,21 @@ Simple registration example:
 
 ```json
 {
-  "functionId": "open_target_app",
+  "function_id": "open_target_app",
   "name": "Open Target App",
   "description": "Launch the target app from any app.",
-  "packageName": "<target-package>",
   "steps": [
     {
-      "action": "open_app",
-      "packageName": "<target-package>"
+      "tool": "open_app",
+      "args": {
+        "package_name": "<target-package>"
+      }
     },
     {
-      "action": "finished",
-      "content": "Target app opened"
+      "tool": "finished",
+      "args": {
+        "content": "Target app opened"
+      }
     }
   ]
 }
@@ -634,20 +640,19 @@ For page-scoped recall, include:
 
 ```json
 {
-  "sourcePage": {
+  "source_page": {
     "xml": "<hierarchy>...</hierarchy>",
-    "packageName": "<target-package>"
+    "package_name": "<target-package>"
   }
 }
 ```
 
-Supported simple step actions are `open_app`, `click`, `long_press`,
-`input_text`, `swipe`, `press_back`, `press_home`, `press_key`, `finished`, and
-`call_tool`. For deterministic replay steps, provide concrete arguments:
-`packageName` for `open_app`, `x/y` or source-page-backed coordinates for
-`click`, `direction` or `x1/y1/x2/y2` for `swipe`, `content` for `input_text`,
-and `key` for `press_key`. When a step calls another reusable instruction, use
-`action: "call_tool"` plus `functionId` and optional `arguments`.
+Canonical executable step schema is owned by
+`cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema`. Do not maintain a
+second action list in skills or prompts. Every executable step must be shaped as
+`{"tool": "<name>", "args": {...}}`; `input_text` uses `args.text`, `scroll`
+uses `args.duration_ms`, and `oob_function_run` uses `args.function_id` plus
+`args.arguments`.
 
 For real-device validation, also verify the current foreground package/page
 outside the tool response. A `FINISHED` response alone is not enough if the
@@ -665,7 +670,7 @@ Token control:
 - RunLog token fields are diagnostic and should be used for testing/reporting,
   not shown as normal user-facing UI details.
 
-- If the target app is known, pass `packageName` in `vlm_task` instead of asking
+- If the target app is known, pass `package_name` in `vlm_task` instead of asking
   the model to guess the package.
 - If the target app is not known, derive it from the installed application list
   before calling `vlm_task`; do not invent common Android package names.
@@ -675,7 +680,7 @@ Token control:
   now. Do not choose Deny, Delete, Sign in, Pay, or other destructive/private
   controls unless the user explicitly requested it.
 - If an editable field is already focused and the task asks to search, type, or
-  enter specific text, the first action should be `type`; do not click the same
+  enter specific text, the first action should be `input_text`; do not click the same
   input field again.
 - If the desired editable field is visible but a different field is focused,
   prefer `input_text` over typing into the stale focus.
@@ -693,19 +698,19 @@ Token control:
 - For nested list pages, if the task lists multiple rows, click the first
   pending named row even if a later row is also visible.
 - For on-screen numeric keypads, enter values by clicking the visible digit
-  buttons in order. Use `type` only when the focused node is an editable text
+  buttons in order. Use `input_text` only when the focused node is an editable text
   field; a keypad made of clickable digit buttons is not an editable text field.
 - If the last action did not change visible text, selected state, or system
   value, do not repeat it more than once. Re-ground on the current screenshot/XML
-  and choose a different action such as swipe, back, or a specific visible
+  and choose a different action such as scroll, back, or a specific visible
   control.
 - Ignore OOB overlay controls such as 接管, 继续执行, 小万, and OmniBot when
   choosing the first phone action.
 
-## `call_tool` Dispatch
+## `oob_function_run` Dispatch
 
-Prefer `call_tool` when the user explicitly asks to call a tool or when a stored
-reusable command should call another reusable command or tool.
+Prefer `oob_function_run` when a stored reusable instruction is explicitly
+listed in the current page context and matches the user goal.
 
 Run a live VLM task through `call_tool`:
 
@@ -714,42 +719,42 @@ Run a live VLM task through `call_tool`:
   "tool_name": "vlm_task",
   "arguments": {
     "goal": "Open the target app, navigate to the requested page, verify the visible finish condition, then finish.",
-    "packageName": "<target-package>",
+    "package_name": "<target-package>",
     "maxSteps": 12,
     "needSummary": true
   }
 }
 ```
 
-Replay a stored reusable command through `call_tool`:
+Replay a stored reusable instruction:
 
 ```json
 {
-  "function_id": "oob_cmd_vlm_task_example",
-  "arguments": {}
+  "tool": "oob_function_run",
+  "args": {
+    "function_id": "oob_fn_vlm_task_example",
+    "arguments": {}
+  }
 }
 ```
 
 Rules:
 
-- Use `function_id` for existing reusable commands.
-- Use `tool_name` plus `arguments` for direct tools such as `vlm_task`.
-- Nested reusable command calls are valid only through
-  `call_tool(function_id=...)`.
-- Treat nested `oob_function_run` / `call_tool(function_id=...)` as a real tool
-  call. It must produce its own visible tool card with an agent-facing
+- Use `function_id` for existing reusable Functions.
+- Use the same `oob_function_run` shape for nested reusable Function calls.
+- Treat nested `oob_function_run` as a real tool call. It must produce its own visible tool card with an agent-facing
   `toolName=oob_function_run`, `toolType=oob_function`, readable "复用指令"
   text, `argsJson.function_id`, and final success/error status. Compatibility
-  cards may still carry an internal `call_function` step label for old RunLogs,
-  but that label is not the public action name.
-- If `call_tool` returns `fallback=true` or `needs_agent`, follow the Runtime
+  cards may still carry old internal labels for legacy RunLogs, but those labels
+  are not public action names.
+- If `oob_function_run` returns `fallback=true` or `needs_agent`, follow the Runtime
   Flow fallback rule: stop replay, report the reason, and continue with bounded
   VLM only through explicit selection.
 
-## Nested Reusable Command Validation
+## Nested Reusable Function Validation
 
-When validating a nested reusable command, do not only check registration or recall.
-Run a parent reusable command whose step is `call_tool(function_id=...)`, and
+When validating a nested reusable Function, do not only check registration or recall.
+Run a parent reusable Function whose step is `oob_function_run(function_id, arguments)`, and
 verify that the result contains:
 
 - parent step `executor=omniflow_function`
@@ -757,20 +762,20 @@ verify that the result contains:
 - one streamed `tool_started` and one `tool_completed` card for the
   `oob_function_run` replay
 - nested `step_results` with concrete model-free actions such as `open_app`
-- the same child reusable command succeeds from at least two different current
+- the same child reusable Function succeeds from at least two different current
   pages
 
 ## Offline Flow UI Contract
 
-The user-facing flow is `RunLog -> reusable command registration -> local
+The user-facing flow is `RunLog -> reusable Function registration -> local
 execution`. Keep this contract visible and separate from runtime tests:
 
-- A RunLog detail surface should expose direct RunLog replay and reusable command
+- A RunLog detail surface should expose direct RunLog replay and reusable Function
   registration as adjacent actions.
-- A reusable command library surface should show that a command is registered,
+- A reusable Function library surface should show that a Function is registered,
   which RunLog(s) it came from, the step count, parameter count, and a local
   execution action.
-- Reusable command execution results should keep diagnostic timing internal. Persist
+- Reusable Function execution results should keep diagnostic timing internal. Persist
   `duration_ms`, `started_at_ms`, `finished_at_ms`, and phase timings in RunLog
   and test artifacts, but do not expose these fields in user-facing UI.
 - Offline replay cards should carry `run_source=omniflow_replay` and
@@ -778,7 +783,7 @@ execution`. Keep this contract visible and separate from runtime tests:
   OmniFlow Replay" tag, but must not show VLM token cost unless the replay
   explicitly fell back to VLM.
 - `oob_function_run` cards should appear in the same agent RunLog as other tool
-  cards. Users should see a compact reusable-command card and status; detailed
+  cards. Users should see a compact reusable Function card and status; detailed
   nested `step_results` stay inside the card detail / raw result surfaces.
 - Do not show internal route-building jargon to users. Keep legacy
   route-building field names only as compatibility keys.
@@ -788,17 +793,17 @@ execution`. Keep this contract visible and separate from runtime tests:
 Keep user experience validation and actual phone execution validation separate:
 
 - UX/widget validation: verify labels, buttons, disabled states, source RunLog
-  badges, and reusable command execution result sheets with mocked channel
+  badges, and reusable Function execution result sheets with mocked channel
   payloads.
   Timing telemetry should be parsed and asserted in tests, not shown to users.
   These tests must not start emulators, call VLM, or depend on AndroidWorld.
-- Runtime/unit validation: verify RunLog collection, reusable command
-  generation, nested reusable command calls, replay timing propagation, UDEG node
+- Runtime/unit validation: verify RunLog collection, reusable Function
+  generation, nested reusable Function calls, replay timing propagation, UDEG node
   recall, and no timing leakage into VLM prompts.
 - Device validation: run bounded tasks on emulator-5554 or emulator-5556 only
   when explicitly requested. Record run id, package, goal, step count, success,
   `duration_ms`, token usage, replay result, and whether recall hit a UDEG node
-  or reusable command.
+  or reusable Function.
 - AndroidWorld method validation: by default export or inspect the method only.
   Do not claim benchmark success unless a live runner initialized the task,
   OOB executed the task through the native VLM loop, and AndroidWorld evaluated
@@ -807,12 +812,12 @@ Keep user experience validation and actual phone execution validation separate:
 ## No Wait Actions
 
 Never emit or preserve `wait`, `sleep`, delay, pause, or idle as a VLM or
-reusable command action step. OOB handles page settling through its internal stability
+reusable Function action step. OOB handles page settling through its internal stability
 algorithm. A valid action sequence should contain concrete actions such as:
 
 - `click`
 - `scroll`
-- `type`
+- `input_text`
 - `press_back`
 - `press_home`
 - `open_app`
@@ -858,7 +863,7 @@ only because one click or one scroll was executed.
 The Runtime Flow section is the source of truth for UDEG recall. Implementation
 detail: encode the live Accessibility page into a local `PageVectorSet`,
 page-match it to a UDEG node, read that node's skill-like decision context, and
-consider only reusable commands attached to that node as outgoing capability
+consider only reusable Functions attached to that node as outgoing capability
 candidates.
 
 `omniflow.recall` defaults to an agent-compact payload. It should contain the
@@ -867,22 +872,22 @@ step summaries, and decision policy. It should not include raw timing, full node
 skill body, page vectors, or skill artifacts unless a test/debug caller sets
 `include_debug=true`.
 
-## RunLog and Reusable Command Handling
+## RunLog and Reusable Function Handling
 
 The Runtime Flow section owns conversion and replay policy. Operationally, after
 a successful VLM or human-recorded run:
 
 1. Check the RunLog contains concrete actions and a terminal `finished` marker.
-2. Generate a reusable command only when the task is reusable and not
+2. Generate a reusable Function only when the task is reusable and not
    perception-only.
 3. For VLM-only logs with no concrete action, do not create an empty reusable
-   command.
-4. If generated, report the reusable command id, guard decision, replay status,
+   Function.
+4. If generated, report the reusable Function id, guard decision, replay status,
    and run id.
 
 For explicit replay:
 
-1. Run `call_tool(function_id=..., arguments=...)`.
+1. Run `oob_function_run(function_id=..., arguments=...)`.
 2. Respect guard decisions: `allow`, `needs_agent`, `needs_confirmation`,
    `block`.
 3. Report whether local replay ran and whether model/VLM fallback was needed.
@@ -892,7 +897,7 @@ general startup-bridge noise. A transient startup bridge is an early automatic
 click where the source page is a compact prompt/overlay-like page, the clicked
 target text is absent from the source page, the post-action page matches the
 next concrete step's source page, and the next page contains the target. This
-keeps reusable commands from replaying stale first-launch prompts while still
+keeps reusable Functions from replaying stale first-launch prompts while still
 preserving manual takeover cards (`compile_kind=manual_recording` or
 `source=human_takeover`). Inspect
 `transient_startup_bridge_dropped_count` in the converted Function source when
@@ -909,7 +914,7 @@ When the task finishes, report:
 
 - mode: `VLM` or `OmniFlow`
 - run id, if available
-- reusable command id, if created or replayed
+- reusable Function id, if created or replayed
 - guard decision, if replayed
 - number of concrete actions executed
 - final visible result or failure reason

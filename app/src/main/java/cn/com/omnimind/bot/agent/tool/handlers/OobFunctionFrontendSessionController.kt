@@ -51,7 +51,8 @@ class OobFunctionFrontendSessionController(
                     isShowTakeOver = false,
                     subMessage = helper.localized(label),
                     isShowStop = true,
-                    isTouchable = true
+                    isTouchable = true,
+                    forceOnTop = true
                 )
             }
         }.onFailure {
@@ -111,7 +112,8 @@ class OobFunctionFrontendSessionController(
                         isShowTakeOver = false,
                         subMessage = helper.localized(progressText),
                         isShowStop = true,
-                        isTouchable = true
+                        isTouchable = true,
+                        forceOnTop = false
                     )
                 }
             }.onFailure {

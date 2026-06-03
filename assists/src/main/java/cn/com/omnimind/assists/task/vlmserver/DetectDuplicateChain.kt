@@ -15,8 +15,7 @@ object DetectDuplicateChain {
             val step = steps[i]
             if (step.action is WaitAction) {
                 val waitAction = step.action as WaitAction
-                // 使用durationMs或duration，优先使用durationMs
-                val duration = waitAction.durationMs ?: waitAction.duration ?: 0
+                val duration = waitAction.durationMs ?: 0
                 totalDuration += duration
             } else {
                 // 遇到非WaitAction节点则停止
@@ -135,8 +134,8 @@ object DetectDuplicateChain {
             when {
                 action1 is PressBackAction && action2 is PressBackAction -> continue
                 action1 is ClickAction && action2 is ClickAction -> continue
-                action1 is TypeAction && action2 is TypeAction -> {
-                    if (action1.content != action2.content) return false
+                action1 is InputTextAction && action2 is InputTextAction -> {
+                    if (action1.text != action2.text) return false
                 }
 
                 action1 is ScrollAction && action2 is ScrollAction -> continue
@@ -153,10 +152,6 @@ object DetectDuplicateChain {
 
                 action1 is FinishedAction && action2 is FinishedAction -> {
                     if (action1.content != action2.content) return false
-                }
-
-                action1 is HotKeyAction && action2 is HotKeyAction -> {
-                    if (action1.key != action2.key) return false
                 }
 
                 else -> return false

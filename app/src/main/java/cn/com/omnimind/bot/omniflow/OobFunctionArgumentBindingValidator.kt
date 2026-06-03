@@ -87,7 +87,7 @@ object OobFunctionArgumentBindingValidator {
     }
 
     private val executionStepBindingRegex =
-        Regex("""^\$\.execution\.steps\[(\d+)]\.args\.(text|content|value)$""")
+        Regex("""^\$\.execution\.steps\[(\d+)]\.args\.text$""")
     private val actionBindingRegex =
-        Regex("""^\$\.actions\[(\d+)]\.(text|content|value)$""")
+        Regex("""^\$\.actions\[(\d+)]\.args\.text$""")
 }

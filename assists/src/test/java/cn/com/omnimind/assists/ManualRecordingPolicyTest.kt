@@ -37,7 +37,7 @@ class ManualRecordingPolicyTest {
         assertTrue(
             Regex(
                 "AccessibilityEvent\\.TYPE_VIEW_TEXT_CHANGED -> \\{\\s*" +
-                    "recordTextChanged\\(event, packageName, lastXmlSnapshot, lastScreenshotSnapshot\\)",
+                    "recordTextChanged\\(event, packageName, lastXmlSnapshot, lastScreenshotSnapshot, sourceSnapshot\\)",
                 RegexOption.DOT_MATCHES_ALL
             ).containsMatchIn(source)
         )
@@ -109,15 +109,45 @@ class ManualRecordingPolicyTest {
         )
 
         assertFalse(source.contains("PROCESSING_RESET_TIMEOUT_MS"))
+        assertTrue(source.contains("withTimeoutOrNull(gestureProcessTimeoutMs(gesture))"))
+        assertTrue(source.contains("manual gesture processing timeout"))
+        assertTrue(source.contains("recoverAfterGestureProcessingTimeout()"))
+        assertTrue(source.contains("if (error is CancellationException) throw error"))
         assertTrue(source.contains("recorded = replayResult.recorded"))
         assertTrue(source.contains("executed && !recorded"))
         assertTrue(source.contains("lockTouchLocked()"))
+        assertTrue(recorderSource.contains("if (error is CancellationException && !currentCoroutineContext().isActive)"))
+        assertFalse(recorderSource.contains("runCatching { performOverlayGesture(gesture) }"))
+        assertTrue(
+            Regex(
+                "try \\{\\s*" +
+                    "val dispatchOutcome = try \\{.*" +
+                    "return ManualOverlayGestureReplayResult\\(.*" +
+                    "\\} finally \\{\\s*" +
+                    "synchronized\\(recordingLock\\) \\{\\s*" +
+                    "decrementOverlayGestureActiveLocked\\(\\)",
+                RegexOption.DOT_MATCHES_ALL
+            ).containsMatchIn(recorderSource)
+        )
         assertTrue(recorderSource.contains("while (overlayGestureActiveCount > 0)"))
         assertTrue(recorderSource.contains("OVERLAY_RECORD_DRAIN_TIMEOUT_MS"))
         assertTrue(recorderSource.contains("manual overlay drain timeout"))
         assertTrue(recorderSource.contains("if (!isStarted || isPaused)"))
         assertTrue(recorderSource.contains("recordingLock.wait(min(OVERLAY_RECORD_DRAIN_POLL_MS, remainingMs))"))
         assertTrue(recorderSource.contains("recordingLock.notifyAll()"))
+    }
+
+    @Test
+    fun `accessibility source snapshot stays outside recording lock`() {
+        val source = readSource(
+            "assists/src/main/java/cn/com/omnimind/assists/task/vlmserver/ManualVlmTraceRecorder.kt"
+        )
+
+        assertTrue(source.contains("val sourceSnapshot = when (event.eventType)"))
+        assertTrue(source.contains("handleAccessibilityEventLocked(event, sourceSnapshot)"))
+        assertTrue(source.contains("recordTextChanged(event, packageName, lastXmlSnapshot, lastScreenshotSnapshot, sourceSnapshot)"))
+        assertTrue(source.contains("recordPostInputActionLocked(event, packageName, nowMs, sourceSnapshot)"))
+        assertFalse(source.contains("val source = sourceSnapshotFromEvent(event)\n        val bounds = source?.bounds"))
     }
 
     @Test
@@ -166,7 +196,7 @@ class ManualRecordingPolicyTest {
         assertTrue(source.contains("WindowInsets.Type.ime()"))
         assertFalse(source.contains("scheduleImeGeometryProbeLocked"))
         assertFalse(source.contains("HumanTrajectoryLearningSession.probeManualImeOverlayTop("))
-        assertFalse(source.contains("AccessibilityWindowInfo.TYPE_INPUT_METHOD"))
+        assertTrue(source.contains("AccessibilityWindowInfo.TYPE_INPUT_METHOD"))
         assertFalse(source.contains("scanImeNodeTop"))
         assertTrue(source.contains("private fun trustedImeTopLocked(top: Int, displayHeight: Int): Int?"))
         assertFalse(source.contains("private fun cachedReliableImeTopLocked(displayHeight: Int): Int?"))
@@ -232,11 +262,16 @@ class ManualRecordingPolicyTest {
             "assists/src/main/java/cn/com/omnimind/assists/task/vlmserver/ManualVlmTraceRecorder.kt"
         )
 
-        assertTrue(source.contains("val beforeXml = withTimeoutOrNull(BEFORE_XML_CAPTURE_TIMEOUT_MS)"))
-        assertTrue(source.contains("}?.takeIf { it.isNotBlank() }"))
+        assertTrue(source.contains("captureCurrentXmlTimed("))
+        assertTrue(source.contains("TimedXmlCapture("))
+        assertTrue(source.contains("recordXmlCaptureTiming(reason, durationMs, xml != null)"))
         assertFalse(source.contains("} ?: synchronized(recordingLock) { lastXmlSnapshot }"))
         assertFalse(source.contains("?: AccessibilityController.getCaptureScreenShotXml(true)"))
         assertTrue(source.contains("\"before_xml_present\" to !beforeXml.isNullOrBlank()"))
+        assertTrue(source.contains("\"before_xml_capture_ms\" to beforeXmlCaptureMs"))
+        assertTrue(source.contains("\"xml_capture\" to linkedMapOf"))
+        assertTrue(source.contains("\"schema_version\" to \"oob.manual_recording.xml_capture_timing.v1\""))
+        assertTrue(source.contains("\"avg_ms\" to if (xmlCaptureCount > 0)"))
         assertTrue(source.contains("coordinateTextAnchorTarget("))
         assertTrue(source.contains("coordinate_text_anchor_unresolved"))
         assertTrue(source.contains("sourceTarget == null"))
@@ -246,6 +281,8 @@ class ManualRecordingPolicyTest {
         assertTrue(sessionSource.contains("SOURCE_CONTEXT_MODE_COORDINATE_ONLY_NO_XML"))
         assertTrue(sessionSource.contains("\"source_context_mode\" to SOURCE_CONTEXT_MODE_COORDINATE_ONLY_NO_XML.takeIf"))
         assertTrue(sessionSource.contains("\"missing_source_xml\" to true.takeIf"))
+        assertTrue(sessionSource.contains("\"runlog_persistence_timing\" to persistenceTiming"))
+        assertTrue(sessionSource.contains("\"schema_version\" to \"oob.manual_recording.persist_timing.v1\""))
     }
 
     @Test
@@ -294,6 +331,7 @@ class ManualRecordingPolicyTest {
         )
         assertTrue(frontendSource.contains("isShowStop = true"))
         assertTrue(frontendSource.contains("isTouchable = true"))
+        assertTrue(frontendSource.contains("forceOnTop = true"))
         assertTrue(frontendSource.contains("val progressText = progress.trim().ifBlank { label }.take(48)"))
         assertTrue(frontendSource.contains("subMessage = helper.localized(progressText)"))
         assertFalse(frontendSource.contains("subMessage = helper.localized(\"执行中\")"))

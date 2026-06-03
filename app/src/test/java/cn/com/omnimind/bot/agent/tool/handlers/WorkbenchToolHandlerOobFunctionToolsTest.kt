@@ -247,7 +247,7 @@ class WorkbenchToolHandlerOobFunctionToolsTest {
                         toolName = "input_text",
                         args = mapOf(
                             "target_description" to "First name",
-                            "content" to "Alice",
+                            "text" to "Alice",
                             "x" to 300,
                             "y" to 420,
                         ),
@@ -319,7 +319,6 @@ class WorkbenchToolHandlerOobFunctionToolsTest {
                                     "required" to true,
                                     "description" to "联系人姓名",
                                     "bindings" to listOf(
-                                        "$.execution.steps[1].args.content",
                                         "$.execution.steps[1].args.text",
                                     ),
                                 ),
@@ -489,7 +488,7 @@ class WorkbenchToolHandlerOobFunctionToolsTest {
                         toolName = "input_text",
                         args = mapOf(
                             "target_description" to "First name",
-                            "content" to "Alice",
+                            "text" to "Alice",
                             "x" to 300,
                             "y" to 420,
                         ),
@@ -539,7 +538,6 @@ class WorkbenchToolHandlerOobFunctionToolsTest {
                                     "required" to true,
                                     "description" to "联系人姓名",
                                     "bindings" to listOf(
-                                        "$.execution.steps[1].args.content",
                                         "$.execution.steps[1].args.text",
                                     ),
                                 ),

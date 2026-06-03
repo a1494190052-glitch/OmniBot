@@ -236,8 +236,7 @@ class AgentToolCardPolicy {
     if (toolTypeLower == 'workbench' ||
         toolTypeLower == 'oob_function' ||
         toolTypeLower == 'reusable_function' ||
-        toolNameLower == 'call_function' ||
-        toolNameLower == 'omniflow.call_function' ||
+        toolNameLower == 'oob_function_run' ||
         toolNameLower.startsWith('workbench_')) {
       return AgentToolActivityKind.workbench;
     }
@@ -471,18 +470,12 @@ class AgentToolCardPolicy {
       case AgentToolActivityKind.vlm:
         return firstNonBlank(<Object?>[
           args['target_description'],
-          args['targetDescription'],
-          args['content'],
           args['text'],
           args['prompt'],
-          args['value'],
           args['package_name'],
-          args['packageName'],
           args['key'],
           args['goal'],
           args['duration_ms'],
-          args['durationMs'],
-          args['duration'],
           coordinates(args),
           cardData['summary'],
           cardData['progress'],
@@ -559,18 +552,12 @@ class AgentToolCardPolicy {
       case AgentToolActivityKind.vlm:
         return firstNonBlank(<Object?>[
           args['target_description'],
-          args['targetDescription'],
-          args['content'],
           args['text'],
           args['prompt'],
-          args['value'],
           args['package_name'],
-          args['packageName'],
           args['key'],
           args['goal'],
           args['duration_ms'],
-          args['durationMs'],
-          args['duration'],
           coordinates(args),
         ]);
       case AgentToolActivityKind.terminal:

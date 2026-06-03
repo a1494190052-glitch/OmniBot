@@ -4,6 +4,7 @@ import cn.com.omnimind.bot.agent.AgentToolNames
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -120,11 +121,14 @@ class McpToolDefinitionsTest {
         val description = tool["description"]?.toString().orEmpty()
 
         assertTrue(description.contains("fallback_context"))
-        assertTrue(properties.containsKey("functionId"))
         assertTrue(properties.containsKey("function_id"))
         assertTrue(properties.containsKey("resume_from_step"))
         assertTrue(properties.containsKey("fallback_session_id"))
         assertTrue(properties.containsKey("fallback_attempt"))
+        assertTrue(properties.containsKey("dry_run"))
+        assertFalse(properties.containsKey("functionId"))
+        assertFalse(properties.containsKey("start_step_index"))
+        assertFalse(properties.containsKey("resumeFromStep"))
     }
 
     @Test
@@ -138,12 +142,13 @@ class McpToolDefinitionsTest {
 
         assertTrue(description.contains("run_id"))
         assertTrue(description.contains("analysis_context"))
-        assertTrue(properties.containsKey("functionId"))
         assertTrue(properties.containsKey("function_id"))
         assertTrue(properties.containsKey("run_id"))
-        assertTrue(properties.containsKey("runId"))
         assertTrue(properties.containsKey("analysis"))
         assertTrue(properties.containsKey("patch"))
+        assertTrue(properties.containsKey("dry_run"))
+        assertFalse(properties.containsKey("functionId"))
+        assertFalse(properties.containsKey("runId"))
     }
 
     @Test
@@ -207,12 +212,15 @@ class McpToolDefinitionsTest {
         val schema = tool["inputSchema"] as Map<*, *>
         val properties = schema["properties"] as Map<*, *>
 
-        assertTrue(properties.containsKey("functionId"))
+        assertTrue(properties.containsKey("function_id"))
         assertTrue(properties.containsKey("name"))
         assertTrue(properties.containsKey("description"))
         assertTrue(properties.containsKey("steps"))
-        assertTrue(properties.containsKey("sourcePage"))
-        assertTrue(properties.containsKey("functionSpec"))
+        assertTrue(properties.containsKey("source_page"))
+        assertTrue(properties.containsKey("function_spec"))
+        assertFalse(properties.containsKey("functionId"))
+        assertFalse(properties.containsKey("sourcePage"))
+        assertFalse(properties.containsKey("functionSpec"))
         assertTrue(schema["required"] == null)
     }
 }

@@ -7,7 +7,7 @@ import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 /**
  * Resolves Function and call_tool arguments from model calls and replay steps.
  * The replay handler decides how to execute the request; this class only owns
- * argument shape compatibility across recorded RunLogs and current tool calls.
+ * canonical argument shapes across recorded RunLogs and current tool calls.
  */
 class OobFunctionCallRequestResolver {
     fun stepArgs(step: Map<String, Any?>): Map<String, Any?> {
@@ -32,13 +32,7 @@ class OobFunctionCallRequestResolver {
     }
 
     fun nestedFunctionArguments(args: Map<String, Any?>): Map<String, Any?> {
-        val nested = nestedArguments(args)
-        if (nested.isNotEmpty()) return nested
-        return linkedMapOf<String, Any?>().apply {
-            args.forEach { (key, value) ->
-                if (key !in FUNCTION_CALL_META_KEYS) put(key, value)
-            }
-        }
+        return nestedArguments(args)
     }
 
     fun resolve(
@@ -66,45 +60,23 @@ class OobFunctionCallRequestResolver {
 
     fun functionId(args: Map<String, Any?>, step: Map<String, Any?>): String = firstNonBlank(
         args["function_id"],
-        args["functionId"],
-        args["reusable_command_id"],
-        args["reusableCommandId"],
-        args["oob_function_id"],
-        args["oobFunctionId"],
         step["function_id"],
-        step["functionId"],
-        step["reusable_command_id"],
-        step["reusableCommandId"],
-        step["oob_function_id"],
-        step["oobFunctionId"],
     )
 
     fun targetTool(args: Map<String, Any?>, step: Map<String, Any?>): String = firstNonBlank(
         args["tool_name"],
-        args["toolName"],
         args["target_tool"],
-        args["targetTool"],
         args["tool"],
         step["tool_name"],
-        step["toolName"],
         step["target_tool"],
-        step["targetTool"],
     )
 
     private fun callToolArguments(args: Map<String, Any?>): Map<String, Any?> {
-        val nested = nestedArguments(args)
-        if (nested.isNotEmpty()) return nested
-        return linkedMapOf<String, Any?>().apply {
-            args.forEach { (key, value) ->
-                if (key !in CALL_TOOL_META_KEYS) put(key, value)
-            }
-        }
+        return nestedArguments(args)
     }
 
     private fun nestedArguments(args: Map<String, Any?>): Map<String, Any?> =
         mapArg(args["arguments"])
-            .ifEmpty { mapArg(args["args"]) }
-            .ifEmpty { mapArg(args["input"]) }
 
     private fun Map<String, Any?>.hasExecutionArgs(): Boolean =
         EXECUTION_ARG_KEYS.any { key -> this[key] != null }
@@ -116,76 +88,19 @@ class OobFunctionCallRequestResolver {
     )
 
     private companion object {
-        val FUNCTION_CALL_META_KEYS = setOf(
-            "function_id",
-            "functionId",
-            "reusable_command_id",
-            "reusableCommandId",
-            "id",
-            "name",
-            "tool_name",
-            "toolName",
-            "target_tool",
-            "targetTool",
-            "oob_function_id",
-            "oobFunctionId",
-            "goal",
-            "tool_title",
-            "tool",
-            "callable_tool",
-            "arguments",
-            "args",
-            "input",
-        )
-
         val EXECUTION_ARG_KEYS = setOf(
             "function_id",
-            "functionId",
-            "reusable_command_id",
-            "reusableCommandId",
-            "id",
-            "name",
             "tool_name",
-            "toolName",
             "target_tool",
-            "targetTool",
-            "oob_function_id",
-            "oobFunctionId",
             "node_id",
-            "nodeId",
             "target_node_id",
-            "targetNodeId",
             "edge_id",
-            "edgeId",
             "action_id",
-            "actionId",
             "path",
             "edges",
             "utg",
             "graph",
             "arguments",
-            "args",
-            "input",
-        )
-
-        val CALL_TOOL_META_KEYS = setOf(
-            "function_id",
-            "functionId",
-            "reusable_command_id",
-            "reusableCommandId",
-            "oob_function_id",
-            "oobFunctionId",
-            "tool_name",
-            "toolName",
-            "target_tool",
-            "targetTool",
-            "tool",
-            "callable_tool",
-            "arguments",
-            "args",
-            "input",
-            "goal",
-            "tool_title",
         )
     }
 }

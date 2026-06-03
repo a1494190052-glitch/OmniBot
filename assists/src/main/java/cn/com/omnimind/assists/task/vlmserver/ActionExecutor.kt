@@ -93,16 +93,12 @@ class ActionExecutor(
                 deviceOperator.longClickCoordinate(action.x, action.y)
             }
 
-            is TypeAction -> {
-                deviceOperator.inputText(action.content)
-            }
-
             is InputTextAction -> {
                 val nodeId = action.nodeId?.trim().orEmpty()
                 val nodeInputResult = if (nodeId.isNotEmpty()) {
                     deviceOperator.inputTextToNodeById(
                         nodeId = nodeId,
-                        text = action.content,
+                        text = action.text,
                         targetDescription = action.targetDescription
                     )
                 } else {
@@ -117,7 +113,7 @@ class ActionExecutor(
                     } else {
                         ensureActionActive()
                         kotlinx.coroutines.delay(INPUT_TEXT_FOCUS_DELAY_MS)
-                        val inputResult = deviceOperator.inputText(action.content)
+                        val inputResult = deviceOperator.inputText(action.text)
                         if (inputResult.success) {
                             OperationResult(
                                 success = true,
@@ -132,14 +128,12 @@ class ActionExecutor(
             }
 
             is ScrollAction -> {
-                // VLM 模型返回的 duration 是秒，需要转换为毫秒
-                val durationMs = (action.duration * 1000).toLong()
                 deviceOperator.slideCoordinateWithContext(
                     action.x1,
                     action.y1,
                     action.x2,
                     action.y2,
-                    durationMs,
+                    action.durationMs,
                     action.targetDescription
                 )
             }
@@ -230,11 +224,6 @@ class ActionExecutor(
                 )
             }
 
-            is HotKeyAction -> {
-                deviceOperator.pressHotKey(action.key)
-            }
-
-
             else -> {
                 OperationResult(
                     success = false,
@@ -251,8 +240,7 @@ class ActionExecutor(
             is ScrollAction,
             is OpenAppAction,
             is PressHomeAction,
-            is PressBackAction,
-            is HotKeyAction -> true
+            is PressBackAction -> true
             is GetStateAction -> false
             is FunctionRunAction -> true
             else -> false

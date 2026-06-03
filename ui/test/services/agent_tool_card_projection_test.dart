@@ -207,7 +207,7 @@ void main() {
     expect(projection.streamMeta?['entryId'], 'vlm-step-1');
   });
 
-  test('projects call_function events as reusable command tool cards', () {
+  test('projects call_function events as reusable Function tool cards', () {
     final messages = <ChatMessageModel>[];
     final argsJson = jsonEncode(<String, dynamic>{
       'function_id': 'open_settings',

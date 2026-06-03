@@ -260,7 +260,7 @@ class VLMClientRequestTest {
                                 id = "call_1",
                                 function = AssistantToolCallFunction(
                                     name = "input_text",
-                                    arguments = """{"target_description":"Last name","content":"Smith","x":356,"y":799.5}"""
+                                    arguments = """{"target_description":"Last name","text":"Smith","x":356,"y":799.5}"""
                                 )
                             )
                         )
@@ -274,7 +274,7 @@ class VLMClientRequestTest {
         val step = requireNotNull(result.step)
         val action = step.action as InputTextAction
         assertEquals("Last name", action.targetDescription)
-        assertEquals("Smith", action.content)
+        assertEquals("Smith", action.text)
         assertEquals(356f, action.x, 0.01f)
         assertEquals(799.5f, action.y, 0.01f)
     }
@@ -323,7 +323,7 @@ class VLMClientRequestTest {
                     message = ChatCompletionMessage(
                         role = "assistant",
                         content = JsonPrimitive(
-                            """{"name":"input_text","arguments":{"target_description":"Phone","content":"415-555-0130","x":480,"y":702}}"""
+                            """{"name":"input_text","arguments":{"target_description":"Phone","text":"415-555-0130","x":480,"y":702}}"""
                         )
                     )
                 )
@@ -334,7 +334,7 @@ class VLMClientRequestTest {
         assertTrue(result.success)
         val action = requireNotNull(result.step).action as InputTextAction
         assertEquals("Phone", action.targetDescription)
-        assertEquals("415-555-0130", action.content)
+        assertEquals("415-555-0130", action.text)
     }
 
     @Test

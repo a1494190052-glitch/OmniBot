@@ -615,11 +615,10 @@ String _localizedActivityText(BuildContext context, String value) {
         zh: '工作台操作',
         locale: locale,
       );
-    case 'Reusable Command':
-    case 'Reusable command':
+    case 'Reusable Function':
     case '复用指令':
       return AppTextLocalizer.choose(
-        en: 'Reusable command',
+        en: 'Reusable Function',
         zh: '复用指令',
         locale: locale,
       );

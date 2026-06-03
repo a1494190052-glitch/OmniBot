@@ -56,7 +56,7 @@ class OobFunctionStructuralPatchApplier(
                 reason = "desired_text_missing"
             )
         }
-        val rawAction = firstNonBlank(op["action"], op["tool"], op["omniflow_action"])
+        val rawAction = firstNonBlank(op["tool"])
         val action = OobActionCodec.canonicalActionForName(rawAction)
             ?: OobActionCodec.normalizeName(rawAction).ifBlank { OobActionCodec.ACTION_CLICK }
         val execution = mutableJsonMap(mapArg(spec["execution"]))
@@ -97,13 +97,9 @@ class OobFunctionStructuralPatchApplier(
         val step = mutableJsonMap(mapArg(steps[stepIndex]))
         val args = mutableJsonMap(mapArg(step["args"]))
         val changes = mutableListOf<Map<String, Any?>>()
-        val oldTarget = firstNonBlank(args["target_description"], args["targetDescription"])
+        val oldTarget = firstNonBlank(args["target_description"])
         setArgIfChanged(args, "target_description", desiredText, changes, stepIndex)
-        if (args.containsKey("targetDescription")) {
-            setArgIfChanged(args, "targetDescription", desiredText, changes, stepIndex)
-        }
         val selectorHints = mutableJsonMap(mapArg(args["selector_hints"]))
-            .ifEmpty { mutableJsonMap(mapArg(args["selectorHints"])) }
         val updatedHints = linkedMapOf<String, Any?>().apply {
             putAll(selectorHints)
             put("strategy", "text_first")
@@ -275,31 +271,28 @@ class OobFunctionStructuralPatchApplier(
 
     private fun structuralStepFromOperation(op: Map<String, Any?>): Map<String, Any?> {
         val action = firstNonBlank(
-            op["step_action"],
-            op["stepAction"],
-            op["action"],
             op["tool"],
         )
         if (action.isBlank()) return emptyMap()
         return linkedMapOf<String, Any?>(
-            "action" to action,
+            "tool" to action,
             "title" to firstNonBlank(op["title"], op["summary"], op["description"]).takeIf { it.isNotBlank() },
             "description" to firstNonBlank(op["description"]).takeIf { it.isNotBlank() },
             "args" to mapArg(op["args"]).ifEmpty { mapArg(op["arguments"]) }.takeIf { it.isNotEmpty() },
-            "target_description" to firstNonBlank(op["target_description"], op["targetDescription"]).takeIf { it.isNotBlank() },
-            "text" to firstNonBlank(op["text"], op["content"], op["value"]).takeIf { it.isNotBlank() },
+            "target_description" to firstNonBlank(op["target_description"]).takeIf { it.isNotBlank() },
+            "text" to firstNonBlank(op["text"]).takeIf { it.isNotBlank() },
             "x" to op["x"],
             "y" to op["y"],
             "direction" to firstNonBlank(op["direction"]).takeIf { it.isNotBlank() },
-            "packageName" to firstNonBlank(op["packageName"], op["package_name"]).takeIf { it.isNotBlank() },
-            "source_context" to mapArg(op["source_context"]).ifEmpty { mapArg(op["sourceContext"]) }.takeIf { it.isNotEmpty() },
+            "package_name" to firstNonBlank(op["package_name"]).takeIf { it.isNotBlank() },
+            "source_context" to mapArg(op["source_context"]).takeIf { it.isNotEmpty() },
         ).filterValues { it != null }
     }
 
     private fun looksLikeCanonicalStep(step: Map<String, Any?>): Boolean =
-        firstNonBlank(step["kind"]).isNotBlank() &&
+            firstNonBlank(step["kind"]).isNotBlank() &&
             firstNonBlank(step["executor"]).isNotBlank() &&
-            (step.containsKey("args") || step.containsKey("tool") || step.containsKey("callable_tool"))
+            (step.containsKey("args") || step.containsKey("tool"))
 
     private fun replaceExecutionSteps(
         spec: MutableMap<String, Any?>,
@@ -371,12 +364,9 @@ class OobFunctionStructuralPatchApplier(
             val args = mapArg(step["args"])
             val argsText = listOf(
                 args["target_description"],
-                args["targetDescription"],
                 args["text"],
-                args["content"],
                 args["selector"],
                 args["node_resource_id"],
-                args["nodeResourceId"],
             ).joinToString(" ")
             val labelText = listOf(step["title"], step["summary"], step["description"]).joinToString(" ")
             val score = when {
@@ -395,9 +385,7 @@ class OobFunctionStructuralPatchApplier(
                 "score" to score,
                 "current_target" to firstNonBlank(
                     args["target_description"],
-                    args["targetDescription"],
                     args["text"],
-                    args["content"],
                 ).takeIf { it.isNotBlank() },
             ).filterValues { it != null }
         }.sortedWith(
@@ -460,7 +448,7 @@ class OobFunctionStructuralPatchApplier(
         when (action) {
             OobActionCodec.ACTION_INPUT_TEXT -> "填写$target"
             OobActionCodec.ACTION_LONG_PRESS -> "长按$target"
-            OobActionCodec.ACTION_SWIPE -> "滑动到$target"
+            OobActionCodec.ACTION_SCROLL -> "滑动到$target"
             else -> "点击$target"
         }
 

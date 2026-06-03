@@ -48,6 +48,8 @@ data class OmniflowCheckerRule(
         const val COND_PERMISSION_DIALOG = "permission_dialog"
         /** Android's "Open with" / resolver default-app dialog is visible. */
         const val COND_RESOLVER_DIALOG = "resolver_dialog"
+        /** An app launch surfaced a non-mandatory upgrade/update prompt. */
+        const val COND_APP_UPGRADE_PROMPT = "app_upgrade_prompt"
 
         // ── Actions ─────────────────────────────────────────────────────────
         /** Launch the expected app (params: package_name overrides step inference). */
@@ -146,6 +148,12 @@ data class OmniflowCheckerRule(
                 action = ACTION_CONFIRM_RESOLVER_ALWAYS,
                 phase = PHASE_POST_ACTION,
             ),
+            OmniflowCheckerRule(
+                id = "dismiss_app_upgrade_prompt_after_open_app",
+                condition = COND_APP_UPGRADE_PROMPT,
+                action = ACTION_DISMISS,
+                phase = PHASE_POST_ACTION,
+            ),
         )
 
         // ── Factories ────────────────────────────────────────────────────────
@@ -208,6 +216,21 @@ data class OmniflowCheckerRule(
                 "intent_resolver_dialog",
                 "default_app_dialog",
                 "always_open_dialog" -> COND_RESOLVER_DIALOG
+                "app_upgrade_prompt",
+                "upgrade_prompt",
+                "update_prompt",
+                "app_update_dialog",
+                "app_upgrade_dialog",
+                "version_update",
+                "version_upgrade",
+                "hi_upgrade",
+                "hi_upgrade_prompt",
+                "hi_update",
+                "hi_update_prompt",
+                "应用升级",
+                "应用更新",
+                "版本升级",
+                "版本更新" -> COND_APP_UPGRADE_PROMPT
                 "keyboard_obscuring",
                 "keyboard",
                 "ime_obscuring",
@@ -233,6 +256,7 @@ data class OmniflowCheckerRule(
                 canonicalAction == OobActionCodec.ACTION_CLICK -> when (condition) {
                     COND_OVERLAY_BLOCKING -> ACTION_DISMISS
                     COND_AD_BLOCKING -> ACTION_DISMISS
+                    COND_APP_UPGRADE_PROMPT -> ACTION_DISMISS
                     COND_PERMISSION_DIALOG -> ACTION_ALLOW
                     COND_RESOLVER_DIALOG -> ACTION_CONFIRM_RESOLVER_ALWAYS
                     else -> ""
@@ -254,12 +278,14 @@ data class OmniflowCheckerRule(
             when (condition) {
                 COND_KEYBOARD_OBSCURING -> PHASE_PRE_ACTION
                 COND_RESOLVER_DIALOG -> PHASE_POST_ACTION
+                COND_APP_UPGRADE_PROMPT -> PHASE_POST_ACTION
                 else -> PHASE_PRE_TRANSFER
             }
 
         fun isSupportedPair(condition: String, action: String): Boolean =
             (condition == COND_OVERLAY_BLOCKING && action == ACTION_DISMISS) ||
                 (condition == COND_AD_BLOCKING && action == ACTION_DISMISS) ||
+                (condition == COND_APP_UPGRADE_PROMPT && action == ACTION_DISMISS) ||
                 (condition == COND_PERMISSION_DIALOG && action == ACTION_ALLOW) ||
                 (condition == COND_RESOLVER_DIALOG && action == ACTION_CONFIRM_RESOLVER_ALWAYS) ||
                 (condition == COND_KEYBOARD_OBSCURING && action == ACTION_HIDE_KEYBOARD) ||

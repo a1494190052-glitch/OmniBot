@@ -27,9 +27,7 @@ import cn.com.omnimind.bot.workbench.WorkspaceFunctionStore
  * are registered in OOB stores, recall is deterministic, and execution runs
  * through the existing OOB replay dispatcher. External OmniFlow can replace this
  * class later behind the same Function lifecycle shape:
- * `list/get or recall -> guard_check -> run -> run_log_convert/update_function`.
- * Legacy `omniflow.*` adapters remain compatibility routes, not the preferred
- * in-app agent path.
+     * `list/get or recall -> guard_check -> run -> run_log_convert/update_function`.
  */
 class OobOmniFlowToolkitService(
     private val context: Context,
@@ -49,16 +47,12 @@ class OobOmniFlowToolkitService(
     fun recall(args: Map<String, Any?>?): Map<String, Any?> =
         functionRecallService.recall(args)
 
-    @Deprecated("Use runFunction/oob_function_run. call_function is a compatibility alias.")
-    suspend fun callFunction(args: Map<String, Any?>?): Map<String, Any?> = runFunction(args)
-
     fun ingestRunLog(args: Map<String, Any?>?): Map<String, Any?> {
         val request = args ?: emptyMap()
         val register = boolArgOrDefault(request["register"], defaultValue = false)
-        val agentVisible = boolArgOrDefault(request["agent_visible"], defaultValue = false) ||
-            boolArgOrDefault(request["agentVisible"], defaultValue = false)
-        val runId = firstNonBlank(request["run_id"], request["runId"])
-        val rawRunLog = mapArg(request["run_log"]).ifEmpty { mapArg(request["runLog"]) }
+        val agentVisible = boolArgOrDefault(request["agent_visible"], defaultValue = false)
+        val runId = firstNonBlank(request["run_id"])
+        val rawRunLog = mapArg(request["run_log"])
         val result = if (runId.isNotEmpty()) {
             replayService.convertRunLog(runId = runId, register = register, agentVisible = agentVisible)
         } else if (rawRunLog.isNotEmpty()) {
@@ -91,7 +85,7 @@ class OobOmniFlowToolkitService(
     suspend fun explore(args: Map<String, Any?>?): Map<String, Any?> {
         val request = args ?: emptyMap()
         val register = boolArg(request["register"])
-        val functionId = firstNonBlank(request["function_id"], request["functionId"])
+        val functionId = firstNonBlank(request["function_id"])
         val name = firstNonBlank(request["name"])
         val description = firstNonBlank(request["description"])
         val exploreResult = explorer.explore(request)
@@ -225,11 +219,11 @@ class OobOmniFlowToolkitService(
         functionRepository.list(
             limit = intArg(args?.get("limit"), defaultValue = 100),
             offset = intArg(args?.get("offset"), defaultValue = 0),
-            includeHidden = boolArg(args?.get("include_hidden")) || boolArg(args?.get("includeHidden")),
+            includeHidden = boolArg(args?.get("include_hidden")),
         )
 
     fun getFunction(args: Map<String, Any?>?): Map<String, Any?> {
-        val functionId = firstNonBlank(args?.get("functionId"), args?.get("function_id"))
+        val functionId = firstNonBlank(args?.get("function_id"))
         val spec = functionRepository.get(functionId)
         if (spec == null) {
             return errorPayload(
@@ -249,7 +243,7 @@ class OobOmniFlowToolkitService(
     }
 
     fun deleteFunction(args: Map<String, Any?>?): Map<String, Any?> {
-        val functionId = firstNonBlank(args?.get("functionId"), args?.get("function_id"))
+        val functionId = firstNonBlank(args?.get("function_id"))
         return functionRepository.delete(functionId)
     }
 
@@ -288,7 +282,7 @@ class OobOmniFlowToolkitService(
 
     fun guardCheck(args: Map<String, Any?>?): Map<String, Any?> {
         val request = args ?: emptyMap()
-        val functionId = firstNonBlank(request["functionId"], request["function_id"])
+        val functionId = firstNonBlank(request["function_id"])
         val arguments = functionArguments(request)
         return functionRunPolicy.guardCheck(functionId = functionId, arguments = arguments)
     }
@@ -296,33 +290,28 @@ class OobOmniFlowToolkitService(
     suspend fun runFunction(args: Map<String, Any?>?): Map<String, Any?> {
         val callTiming = OobFunctionCallTiming()
         val request = args ?: emptyMap()
-        val functionId = firstNonBlank(request["functionId"], request["function_id"])
+        val functionId = firstNonBlank(request["function_id"])
         val arguments = functionArguments(request)
-        val dryRun = boolArg(request["dryRun"]) || boolArg(request["dry_run"])
-        val confirmed = boolArg(request["confirmed"]) || boolArg(request["userConfirmed"])
+        val dryRun = boolArg(request["dry_run"])
+        val confirmed = boolArg(request["confirmed"])
         val resumeFromStep = intArg(
             request["resume_from_step"],
-            request["resumeFromStep"],
-            request["start_step_index"],
-            request["startStepIndex"],
             defaultValue = 0
         ).coerceAtLeast(0)
         val fallbackSessionId = firstNonBlank(
             request["fallback_session_id"],
-            request["fallbackSessionId"]
         )
         val fallbackAttempt = intArg(
             request["fallback_attempt"],
-            request["fallbackAttempt"],
             defaultValue = 0
         ).coerceAtLeast(0)
-        val executionMode = firstNonBlank(request["executionMode"], request["execution_mode"])
+        val executionMode = firstNonBlank(request["execution_mode"])
             .ifBlank { "foreground" }
 
         val guard = callTiming.measure("guard_check_ms") {
             guardCheck(
                 linkedMapOf(
-                    "functionId" to functionId,
+                    "function_id" to functionId,
                     "arguments" to arguments,
                 )
             )
@@ -441,22 +430,21 @@ class OobOmniFlowToolkitService(
     }
 
     fun getRunLog(args: Map<String, Any?>?): Map<String, Any?> {
-        val runId = firstNonBlank(args?.get("runId"), args?.get("run_id"))
+        val runId = firstNonBlank(args?.get("run_id"))
         if (runId.isEmpty()) {
-            return errorPayload(code = "RUN_LOG_ID_EMPTY", message = "runId is required")
+            return errorPayload(code = "RUN_LOG_ID_EMPTY", message = "run_id is required")
         }
         return InternalRunLogStore.timelinePayload(context, runId)
     }
 
     fun convertRunLog(args: Map<String, Any?>?): Map<String, Any?> {
         val request = args ?: emptyMap()
-        val runId = firstNonBlank(request["runId"], request["run_id"])
+        val runId = firstNonBlank(request["run_id"])
         return replayService.convertRunLog(
             runId = runId,
             register = boolArgOrDefault(request["register"], defaultValue = false),
-            agentVisible = boolArgOrDefault(request["agent_visible"], defaultValue = false) ||
-                boolArgOrDefault(request["agentVisible"], defaultValue = false),
-            functionIdOverride = firstNonBlank(request["functionId"], request["function_id"])
+            agentVisible = boolArgOrDefault(request["agent_visible"], defaultValue = false),
+            functionIdOverride = firstNonBlank(request["function_id"])
                 .takeIf { it.isNotEmpty() },
             nameOverride = firstNonBlank(request["name"]).takeIf { it.isNotEmpty() },
             descriptionOverride = firstNonBlank(request["description"]).takeIf { it.isNotEmpty() }
@@ -468,7 +456,7 @@ class OobOmniFlowToolkitService(
         register: Boolean,
         agentVisible: Boolean,
     ): Map<String, Any?> {
-        val runId = firstNonBlank(runLog["run_id"], runLog["runId"])
+        val runId = firstNonBlank(runLog["run_id"])
             .ifBlank { "inline_${System.currentTimeMillis()}" }
         val resultMap = mapArg(runLog["result"])
         val success = boolArg(runLog["success"]) || boolArg(resultMap["success"])
@@ -479,10 +467,9 @@ class OobOmniFlowToolkitService(
             runId = runId,
             goal = firstNonBlank(runLog["goal"], runLog["task"]),
             source = firstNonBlank(runLog["source"]).ifBlank { "external_agent" },
-            toolName = firstNonBlank(runLog["tool_name"], runLog["toolName"]),
+            toolName = firstNonBlank(runLog["tool_name"]),
             operationDescription = firstNonBlank(
                 runLog["operation_description"],
-                runLog["operationDescription"],
                 runLog["goal"],
             ),
             startedAtMs = OobActionCodec.longArg(

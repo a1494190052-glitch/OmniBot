@@ -8,6 +8,10 @@ dialogs, skip buttons, banners, coupons, and keyboards.
 Conditional obstruction handling is an optional checker. It is not part of the
 guaranteed happy path unless the user explicitly requests a structural repair.
 
+A checker injects a conditional action into replay when the current XML proves
+the obstacle exists. It does not retarget, replace, or compete with the
+main-path action.
+
 ## How To Identify Ads Or Optional Obstructions
 
 Treat a step as optional checker evidence when it:
@@ -24,6 +28,10 @@ Treat a step as optional checker evidence when it:
 Do not use these signals alone to delete the action. Convert it into checker
 metadata or evidence.
 
+Convert only the obstacle-clearing action into checker metadata. If the recorded
+step is still the intended main-path action and can be remapped by action
+transfer, leave it executable.
+
 ## Supported Runtime Checker Rules
 
 Use only supported runtime checker types:
@@ -32,8 +40,23 @@ Use only supported runtime checker types:
 - `permission_dialog` + `allow` + `pre_transfer`
 - `keyboard_obscuring` + `hide_keyboard` + `pre_action`
 - `package_mismatch` + `open_app` + `pre_transfer`
+- `app_upgrade_prompt` + `dismiss` + `post_action`
 
 Do not invent checker conditions, scripts, selectors, or model calls.
+
+Use `app_upgrade_prompt` for non-mandatory app upgrade/update prompts that
+surface immediately after `open_app`, such as the Hi upgrade prompt. It should
+click only negative choices like `以后再说`, `稍后再说`, `暂不升级`, `取消`,
+`not now`, or `later`, and must not click `立即升级`, `立即更新`, `install`, or
+`download`.
+
+Use `permission_dialog` for Android system permission prompts. The runtime
+must not replace a recorded permission-dialog action. If the recorded source
+step clicks a permission control such as `始终允许`, keep that step in the
+main path and let action transfer remap it to the current dialog. Add
+`permission_dialog + allow` only as a fallback for unexpected prompts that block
+a non-permission step. Do not create per-app selectors or extra label priority
+rules.
 
 ## Patch Pattern
 

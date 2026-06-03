@@ -116,8 +116,6 @@ class WorkbenchToolHandler(
         val success = payload["success"] != false
         val functionId = firstNonBlank(
             payload["function_id"],
-            payload["functionId"],
-            argsMap["functionId"],
             argsMap["function_id"],
         )
         val stepCount = ((payload["execution"] as? Map<*, *>)?.get("step_count") as? Number)?.toInt()
@@ -152,7 +150,7 @@ class WorkbenchToolHandler(
         val argsMap = helper.jsonObjectToMap(args)
         val payload = omniflowToolkit.updateFunction(argsMap)
         val success = payload["success"] == true
-        val functionId = firstNonBlank(payload["function_id"], argsMap["functionId"], argsMap["function_id"])
+        val functionId = firstNonBlank(payload["function_id"], argsMap["function_id"])
         val changed = payload["changed"] == true
         val saved = payload["saved"] == true
         val requiresConfirmation = payload["requires_confirmation"] == true
@@ -177,7 +175,7 @@ class WorkbenchToolHandler(
         val success = payload["success"] == true
         val decision = payload["decision"]?.toString()?.trim().orEmpty()
         val riskLevel = payload["risk_level"]?.toString()?.trim().orEmpty()
-        val functionId = firstNonBlank(payload["function_id"], argsMap["functionId"], argsMap["function_id"])
+        val functionId = firstNonBlank(payload["function_id"], argsMap["function_id"])
         val summary = if (success) {
             "检查完成：$functionId，decision=$decision，risk=$riskLevel"
         } else {
@@ -193,7 +191,7 @@ class WorkbenchToolHandler(
         val argsMap = helper.jsonObjectToMap(args)
         val payload = omniflowToolkit.runFunction(argsMap)
         val success = payload["success"] == true
-        val functionId = firstNonBlank(payload["function_id"], argsMap["functionId"], argsMap["function_id"])
+        val functionId = firstNonBlank(payload["function_id"], argsMap["function_id"])
         val stepCount = ((payload["step_results"] as? List<*>)?.size ?: 0)
             .takeIf { it > 0 }
             ?: ((payload["result"] as? Map<*, *>)?.get("step_count") as? Number)?.toInt()
@@ -218,7 +216,7 @@ class WorkbenchToolHandler(
         val argsMap = helper.jsonObjectToMap(args)
         val payload = omniflowToolkit.deleteFunction(argsMap)
         val success = payload["success"] == true || payload["deleted"] == true
-        val functionId = firstNonBlank(payload["function_id"], argsMap["functionId"], argsMap["function_id"])
+        val functionId = firstNonBlank(payload["function_id"], argsMap["function_id"])
         val summary = if (success) "已删除复用指令 $functionId" else "复用指令不存在"
         return contextResult(OobFunctionToolNames.FUNCTION_DELETE, summary, payload, success, env)
     }
@@ -249,7 +247,7 @@ class WorkbenchToolHandler(
         env: AgentExecutionEnvironment
     ): ToolExecutionResult {
         val argsMap = helper.jsonObjectToMap(args)
-        val runId = firstNonBlank(argsMap["run_id"], argsMap["runId"])
+        val runId = firstNonBlank(argsMap["run_id"])
         if (runId.isEmpty()) {
             return ToolExecutionResult.Error(OobFunctionToolNames.RUN_LOG_GET, "run_id is required")
         }
@@ -266,7 +264,7 @@ class WorkbenchToolHandler(
         env: AgentExecutionEnvironment
     ): ToolExecutionResult {
         val argsMap = helper.jsonObjectToMap(args)
-        val runId = firstNonBlank(argsMap["run_id"], argsMap["runId"])
+        val runId = firstNonBlank(argsMap["run_id"])
         if (runId.isEmpty()) {
             return ToolExecutionResult.Error(OobFunctionToolNames.RUN_LOG_CONVERT, "run_id is required")
         }

@@ -18,8 +18,8 @@ Function spec manually. RunLog conversion is the canonical registration path.
 
 ## List, Inspect, Delete
 
-- Use `oob_function_list` to show available reusable commands.
-- Use `oob_function_get` to inspect a single command before repair, replay, or
+- Use `oob_function_list` to show available reusable Functions.
+- Use `oob_function_get` to inspect a single Function before repair, replay, or
   deletion.
 - Use `oob_function_delete` only for a specific Function id.
 - Use `oob_function_clear` only when the user explicitly asks to clear all saved

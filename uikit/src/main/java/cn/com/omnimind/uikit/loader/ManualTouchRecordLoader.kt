@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Point
 import android.graphics.PointF
+import android.graphics.Rect
 import android.os.Build
 import android.os.SystemClock
 import android.view.Gravity
@@ -13,10 +14,14 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowInsets
 import android.view.WindowManager
+import android.view.accessibility.AccessibilityWindowInfo
+import cn.com.omnimind.accessibility.service.AssistsService
 import cn.com.omnimind.assists.HumanTrajectoryLearningSession
 import cn.com.omnimind.assists.ManualOverlayTouchGesture
+import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.uikit.UIKit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -24,6 +29,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.ArrayDeque
 import kotlin.math.abs
 import kotlin.math.max
@@ -32,7 +38,7 @@ import kotlin.math.sqrt
 object ManualTouchRecordLoader {
     private const val TAG = "ManualTouchRecordLoader"
     private const val MIN_SWIPE_DISTANCE_DP = 24f
-    private const val OVERLAY_UNLOCK_REPLAY_DELAY_MS = 160L
+    private const val OVERLAY_UNLOCK_REPLAY_DELAY_MS = 80L
     private const val OVERLAY_REPLAY_TOUCH_SUPPRESS_AFTER_MS = 120L
     private const val IME_VISIBILITY_PROBE_DELAY_MS = 120L
     private const val IME_VISIBILITY_PROBE_TIMEOUT_MS = 1_500L
@@ -45,6 +51,8 @@ object ManualTouchRecordLoader {
     private const val IME_SUBMIT_MIN_X_RATIO = 0.72f
     private const val IME_SUBMIT_MIN_KEYBOARD_Y_RATIO = 0.55f
     private const val IME_OPEN_EXPECTED_TTL_MS = 1_500L
+    private const val GESTURE_PROCESS_BASE_TIMEOUT_MS = 2_500L
+    private const val GESTURE_PROCESS_MAX_EXTRA_DURATION_MS = 2_500L
 
     private val recordScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -228,9 +236,9 @@ object ManualTouchRecordLoader {
                 // Use net displacement (start→end), not peak displacement during move.
                 // Peak-based detection misclassifies taps where the finger briefly drifts.
                 val actionName = when {
-                    distancePx >= touchSlop -> "swipe"
-                    durationMs >= longPressTimeout -> "long_press"
-                    else -> "click"
+                    distancePx >= touchSlop -> OobCanonicalActionSchema.TOOL_SCROLL
+                    durationMs >= longPressTimeout -> OobCanonicalActionSchema.TOOL_LONG_PRESS
+                    else -> OobCanonicalActionSchema.TOOL_CLICK
                 }
                 isTracking = false
                 val gesture = ManualOverlayTouchGesture(
@@ -241,7 +249,7 @@ object ManualTouchRecordLoader {
                     endY = endY,
                     durationMs = durationMs,
                     distancePx = distancePx,
-                    direction = directionName(startX, startY, endX, endY).takeIf { actionName == "swipe" },
+                    direction = directionName(startX, startY, endX, endY).takeIf { actionName == OobCanonicalActionSchema.TOOL_SCROLL },
                     startedAtMs = downAtMs,
                     finishedAtMs = finishedAtMs,
                     displayWidth = currentDisplaySize().x,
@@ -304,7 +312,17 @@ object ManualTouchRecordLoader {
                     }
                     return@launch
                 }
-                val keepRecording = processQueuedGesture(gesture)
+                val keepRecording = withTimeoutOrNull(gestureProcessTimeoutMs(gesture)) {
+                    processQueuedGesture(gesture)
+                } ?: run {
+                    OmniLog.w(
+                        TAG,
+                        "manual gesture processing timeout action=${gesture.actionName} " +
+                            "x=${gesture.startX} y=${gesture.startY} pending=${pendingGestureCount()}"
+                    )
+                    recoverAfterGestureProcessingTimeout()
+                    true
+                }
                 if (!keepRecording) {
                     withContext(Dispatchers.Main) {
                         synchronized(this@ManualTouchRecordLoader) {
@@ -314,6 +332,29 @@ object ManualTouchRecordLoader {
                         }
                     }
                     return@launch
+                }
+            }
+        }
+    }
+
+    private fun gestureProcessTimeoutMs(gesture: ManualOverlayTouchGesture): Long {
+        val durationBudget = gesture.durationMs.coerceIn(0L, GESTURE_PROCESS_MAX_EXTRA_DURATION_MS)
+        return GESTURE_PROCESS_BASE_TIMEOUT_MS + durationBudget
+    }
+
+    private fun pendingGestureCount(): Int = synchronized(this) {
+        pendingGestures.size
+    }
+
+    private suspend fun recoverAfterGestureProcessingTimeout() {
+        withContext(Dispatchers.Main) {
+            synchronized(this@ManualTouchRecordLoader) {
+                endSyntheticReplaySuppressionLocked()
+                if (HumanTrajectoryLearningSession.isActive() &&
+                    !HumanTrajectoryLearningSession.isPaused()) {
+                    lockTouchLocked()
+                } else {
+                    hide()
                 }
             }
         }
@@ -398,6 +439,7 @@ object ManualTouchRecordLoader {
                 }
             }
         }.onFailure { error ->
+            if (error is CancellationException) throw error
             OmniLog.w(TAG, "record overlay gesture failed: ${error.message}")
         }
 
@@ -444,7 +486,7 @@ object ManualTouchRecordLoader {
         val keyboardTop = keyboardTopForGestureLocked(displayHeight) ?: return false
         if (keyboardTop >= displayHeight) return false
         val gestureY = when (gesture.actionName) {
-            "swipe" -> (gesture.startY + gesture.endY) / 2f
+            OobCanonicalActionSchema.TOOL_SCROLL -> (gesture.startY + gesture.endY) / 2f
             else -> gesture.startY
         }
         return gestureY >= keyboardTop
@@ -501,6 +543,10 @@ object ManualTouchRecordLoader {
                     } else if (!appeared && clearWhenMissing) {
                         imeOpenExpectedUntilMs = 0L
                         lockTouchLocked()
+                    } else if (!appeared && !clearWhenMissing &&
+                        HumanTrajectoryLearningSession.isActive() &&
+                        !HumanTrajectoryLearningSession.isPaused()) {
+                        scheduleImeRelockLocked()
                     }
                 }
             }
@@ -551,10 +597,18 @@ object ManualTouchRecordLoader {
 
     private fun imeTopLocked(): Int? {
         val displayHeight = currentDisplaySize().y.takeIf { it > 0 } ?: return null
-        // Keep IME detection cheap and deterministic on the main thread. Do not
-        // infer keyboard geometry from App XML; normal bottom elements can look
-        // like a keyboard boundary on vivo/OEM builds.
-        return rootImeTopLocked(displayHeight)
+        return rootImeTopLocked(displayHeight) ?: accessibilityImeTopLocked(displayHeight)
+    }
+
+    private fun accessibilityImeTopLocked(displayHeight: Int): Int? {
+        return runCatching {
+            val service = AssistsService.instance ?: return null
+            val rect = Rect()
+            service.windows
+                ?.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+                ?.getBoundsInScreen(rect)
+            trustedImeTopLocked(rect.top, displayHeight).takeIf { rect.top > 0 }
+        }.getOrNull()
     }
 
     private fun rootImeTopLocked(displayHeight: Int): Int? {

@@ -4,9 +4,14 @@ Use this skill when a user asks to reuse, replay, save, inspect, convert, or run
 a previous OOB device execution.
 
 OmniFlow is OOB's reusable execution library. It stores successful executions as
-reusable commands, checks them with guard policy, replays safe deterministic
+reusable Functions, checks them with guard policy, replays safe deterministic
 steps, and
 falls back to Agent planning when the step requires live context.
+
+Treat each reusable Function as a composable segment. It may complete a small
+user goal, or it may only advance one part of a larger goal. After each replay
+result, inspect success/fallback evidence and continue with the next Function,
+bounded VLM path, or other tool if work remains.
 
 ## Activation
 
@@ -14,9 +19,9 @@ Activate when the user asks for any of these:
 
 - Repeat a previous phone task.
 - Save an execution history item as a reusable action.
-- Convert a RunLog to a reusable command.
-- Run a stored reusable command.
-- Inspect or debug reusable command replay.
+- Convert a RunLog to a reusable Function.
+- Run a stored reusable Function.
+- Inspect or debug reusable Function replay.
 - Check whether a stored action is safe.
 - Build a reusable action library from OOB history.
 
@@ -43,7 +48,7 @@ Keep the boundary simple: recall is UDEG page match plus node-attached
 capability candidates, not global Function search; registration is
 `RunLog -> compile -> Function store -> UDEG node attachment`, not a harness;
 enhancement never changes executable replay structure; replay must surface as a
-real `call_function` / reusable-command card; if replay needs live perception,
+real `call_function` / reusable Function card; if replay needs live perception,
 return `fallback=true` / `needs_agent` and let the caller explicitly continue
 with bounded VLM.
 
@@ -63,8 +68,8 @@ omniflow.explore_replay
 If direct tools are absent, use GUI bridge mode through the OOB app:
 
 ```text
-Execution History / Run Logs -> Run details -> Save as reusable command
-Reusable Command Library / Command Library -> Inspect -> Run
+Execution History / Run Logs -> Run details -> Save as reusable Function
+Reusable Function Library / Function Library -> Inspect -> Run
 ```
 
 If only `agent_run` exists, use Agent bridge mode with a targeted prompt asking
@@ -72,14 +77,16 @@ the in-app Agent to use OmniFlow UI/native capabilities.
 
 ## Direct MCP Workflows
 
-### Recall and Run a Reusable Command
+### Recall and Run a Reusable Function
 
 1. `omniflow.recall(goal, current_package?, current_node_id?, current_xml?, k?)`.
 2. Treat recall candidates as context, not completion: inspect the current node,
-   decision context, and capability candidates before selecting a command.
+   decision context, and capability candidates before selecting a Function.
 3. If a candidate fits, fill arguments from `inputSchema` or `parameters`, then
    call `omniflow.call_tool({function_id, arguments, start_step_index?})`.
-4. If recall misses or call_tool returns `fallback=true`, return that state to
+4. Inspect the replay result. If the user goal is not complete, continue with
+   the next Function, bounded VLM path, or other tool.
+5. If recall misses or call_tool returns `fallback=true`, return that state to
    the caller; continue with live planning only after explicit bounded VLM
    selection.
 
@@ -89,7 +96,7 @@ the in-app Agent to use OmniFlow UI/native capabilities.
    `omniflow.ingest_run_log(run_id)` or pass an inline `run_log`.
 2. Treat failed, empty, or non-replayable RunLogs as rejected.
 
-### Enhance a Saved RunLog Command
+### Enhance a Saved RunLog Function
 
 Enhancement improves reuse ability without changing the execution structure.
 For detailed Function-enhancement behavior, read the built-in
@@ -97,7 +104,7 @@ For detailed Function-enhancement behavior, read the built-in
 
 Allowed enhancement output:
 
-- Clearer reusable command name and description.
+- Clearer reusable Function name and description.
 - Per-step title and description.
 - Runtime parameter descriptors for existing non-coordinate step args, such as
   contact name, phone number, search term, message text, date, URL, or target
@@ -113,7 +120,7 @@ Hard boundaries:
   `$.execution.steps[2].args.text`. Do not bind coordinates, bounds, width, or
   height.
 - Treat `agent_reuse.segments` as metadata for future selection or split review.
-  Do not assume they are already registered standalone commands.
+  Do not assume they are already registered standalone Functions.
 - Before replay, fill fresh argument values through `parameters.bindings`; a
   recording with defaults like "妈妈" and a phone number should be reusable for
   another contact and phone number through those bindings.
@@ -144,7 +151,7 @@ local UI path. Keep the exploration bounded.
    risk.
 4. Treat returned `utg.schema_version=oob.omniflow_utg.v1` as a local path
    record, not a full provider-side graph.
-5. If `phase=registered`, report the reusable command id and do not claim replay ran.
+5. If `phase=registered`, report the reusable Function id and do not claim replay ran.
    If `phase=replayed`, report both explore and replay results.
 
 ## GUI Bridge Workflows
@@ -152,14 +159,14 @@ local UI path. Keep the exploration bounded.
 ### Save From RunLog
 
 Open OOB, go to Run Logs, select a successful run, inspect timeline cards,
-save it as a reusable command, inspect the generated spec/details, then save.
-If the command is already registered for that RunLog, open the existing command
+save it as a reusable Function, inspect the generated spec/details, then save.
+If the Function is already registered for that RunLog, open the existing Function
 instead of registering a duplicate. Use Enhance when the user wants better
 reuse labels, runtime slots, key actions, or segment metadata.
 
 ### Run
 
-Open the reusable command library, select the command, inspect details,
+Open the reusable Function library, select the Function, inspect details,
 fill arguments, check warnings, and run only when safe.
 
 ## Guard Rules
@@ -175,9 +182,9 @@ block
 
 Defaults:
 
-- Allow deterministic local UI actions: click, long_press, scroll, type,
-  open_app, press_home, press_back, hot_key.
-- Do not emit or preserve wait as a reusable command step. Page settling belongs
+- Allow deterministic local UI actions: click, long_press, scroll,
+  input_text, open_app, press_home, press_back.
+- Do not emit or preserve wait as a reusable Function step. Page settling belongs
   to the local stability backend.
 - Use Agent fallback for browser, web_search, memory, VLM-only, RunLog lookup,
   and Workbench query/list.
@@ -190,7 +197,7 @@ Defaults:
 
 When you finish, report:
 
-- Reusable command id.
+- Reusable Function id.
 - Guard decision.
 - Whether local replay ran.
 - Whether Agent fallback was needed.

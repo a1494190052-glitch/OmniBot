@@ -13,7 +13,7 @@ class OmniflowStepExecutorTest {
     fun `detects explicit omniflow steps`() {
         val step = mapOf(
             "executor" to "omniflow",
-            "omniflow_action" to "click",
+            "tool" to "click",
             "args" to mapOf("x" to 10, "y" to 20),
         )
 
@@ -30,7 +30,7 @@ class OmniflowStepExecutorTest {
         )
 
         assertTrue(OmniflowStepExecutor.isOmniflowStep(step))
-        assertEquals("press_key", OmniflowStepExecutor.actionNameForStep(step))
+        assertEquals("press_back", OmniflowStepExecutor.actionNameForStep(step))
     }
 
     @Test
@@ -45,22 +45,37 @@ class OmniflowStepExecutorTest {
     }
 
     @Test
-    fun `normalizes omniflow canonical aliases`() {
+    fun `does not normalize legacy action aliases`() {
         assertEquals(
-            "click",
+            "tap",
             OmniflowStepExecutor.actionNameForStep(
                 mapOf("model_free" to true, "tool" to "tap")
             )
         )
+        assertFalse(
+            OmniflowStepExecutor.isOmniflowStep(
+                mapOf("model_free" to true, "tool" to "tap")
+            )
+        )
         assertEquals(
-            "input_text",
+            "type_text",
             OmniflowStepExecutor.actionNameForStep(
                 mapOf("model_free" to true, "tool" to "type_text")
             )
         )
+        assertFalse(
+            OmniflowStepExecutor.isOmniflowStep(
+                mapOf("model_free" to true, "tool" to "type_text")
+            )
+        )
         assertEquals(
-            "finished",
+            "done",
             OmniflowStepExecutor.actionNameForStep(
+                mapOf("model_free" to true, "tool" to "done")
+            )
+        )
+        assertFalse(
+            OmniflowStepExecutor.isOmniflowStep(
                 mapOf("model_free" to true, "tool" to "done")
             )
         )
@@ -87,7 +102,7 @@ class OmniflowStepExecutorTest {
         )
         assertTrue(
             OmniflowStepExecutor.requiresAccessibility(
-                mapOf("executor" to "omniflow", "tool" to "swipe")
+                mapOf("executor" to "omniflow", "tool" to "scroll")
             )
         )
         assertFalse(
@@ -103,18 +118,15 @@ class OmniflowStepExecutorTest {
     }
 
     @Test
-    fun `remap keeps non coordinate action args unchanged`() {
-        val args = mapOf("content" to "hello")
-        val result = OmniflowStepExecutor.remapStepArgs(
-            mapOf(
-                "executor" to "omniflow",
-                "omniflow_action" to "type",
-                "args" to args,
-            )
+    fun `does not classify legacy type content as input text`() {
+        val step = mapOf(
+            "executor" to "omniflow",
+            "tool" to "type",
+            "args" to mapOf("content" to "hello"),
         )
 
-        assertEquals(args, result.args)
-        assertTrue(result.meta.isEmpty())
+        assertFalse(OmniflowStepExecutor.isOmniflowStep(step))
+        assertEquals("type", OmniflowStepExecutor.actionNameForStep(step))
     }
 
     @Test
@@ -124,7 +136,7 @@ class OmniflowStepExecutorTest {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "omniflow_action" to "click",
+                    "tool" to "click",
                     "args" to mapOf("x" to 120, "y" to 240),
                     "source_context" to mapOf(
                         "src_ctx" to mapOf("page" to SOURCE_XML),
@@ -167,7 +179,7 @@ class OmniflowStepExecutorTest {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "omniflow_action" to "click",
+                    "tool" to "click",
                     "coordinate_hook" to "omniflow",
                     "args" to mapOf("x" to 120, "y" to 240),
                     "source_context" to mapOf(
@@ -191,7 +203,7 @@ class OmniflowStepExecutorTest {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "omniflow_action" to "click",
+                    "tool" to "click",
                     "coordinate_hook" to "omniflow",
                     "args" to mapOf("x" to 120, "y" to 240),
                     "source_context" to mapOf(
@@ -220,7 +232,7 @@ class OmniflowStepExecutorTest {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "omniflow_action" to "click",
+                    "tool" to "click",
                     "args" to mapOf(
                         "x" to 360,
                         "y" to 977,
@@ -258,7 +270,7 @@ class OmniflowStepExecutorTest {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "omniflow_action" to "click",
+                    "tool" to "click",
                     "args" to mapOf("x" to 360, "y" to 640),
                     "source_context" to mapOf(
                         "src_ctx" to mapOf("page" to SETTINGS_APPS_XML),
@@ -292,7 +304,7 @@ class OmniflowStepExecutorTest {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "omniflow_action" to "click",
+                    "tool" to "click",
                     "coordinate_hook" to "omniflow",
                     "args" to mapOf(
                         "x" to 360,
@@ -336,7 +348,7 @@ class OmniflowStepExecutorTest {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "omniflow_action" to "click",
+                    "tool" to "click",
                     "title" to "点击 Search settings search_action_bar ViewGroup",
                     "args" to mapOf(
                         "x" to 500,
@@ -377,7 +389,7 @@ class OmniflowStepExecutorTest {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "omniflow_action" to "open_app",
+                    "tool" to "open_app",
                     "args" to mapOf("package_name" to "com.example"),
                     "source_context" to mapOf(
                         "dst_ctx" to mapOf(
@@ -412,7 +424,7 @@ class OmniflowStepExecutorTest {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "omniflow_action" to "open_app",
+                    "tool" to "open_app",
                     "args" to mapOf("package_name" to "com.android.settings"),
                 ),
                 stepId = "step_open_app_activity_package",
@@ -432,7 +444,7 @@ class OmniflowStepExecutorTest {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "omniflow_action" to "open_app",
+                    "tool" to "open_app",
                     "args" to mapOf("package_name" to "com.example"),
                 ),
                 stepId = "step_open_app_resolver",
@@ -454,24 +466,54 @@ class OmniflowStepExecutorTest {
     }
 
     @Test
-    fun `execute passes reset task flag to fresh open app launch`() = runBlocking {
+    fun `open app dismisses app upgrade prompt after launch`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = SOURCE_XML,
+            afterXml = HI_UPGRADE_DIALOG_XML,
+            currentPackage = "com.example.hi",
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "open_app",
+                    "args" to mapOf("package_name" to "com.example.hi"),
+                ),
+                stepId = "step_open_app_hi_upgrade",
+                stepTitle = "open hi app",
+            )
+
+            assertEquals(true, result["success"])
+            assertEquals(listOf("com.example.hi:false"), backend.launchRequests)
+            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
+            val effect = controlEffects.single() as Map<*, *>
+            assertEquals("dismiss_app_upgrade_prompt_after_open_app", effect["controller"])
+            assertEquals("post_action", effect["phase"])
+            assertEquals("app_upgrade_prompt", effect["condition"])
+            assertEquals("dismiss", effect["action"])
+            assertEquals("以后再说 later", effect["button_text"])
+            assertEquals(1, backend.clickPoints.size)
+            assertEquals(510f, backend.clickPoints.single().first, 0.01f)
+            assertEquals(1240f, backend.clickPoints.single().second, 0.01f)
+        }
+    }
+
+    @Test
+    fun `execute opens app with canonical package name only`() = runBlocking {
         val backend = FakeBackend(beforeXml = SOURCE_XML, afterXml = AFTER_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "omniflow_action" to "open_app",
-                    "args" to mapOf(
-                        "package_name" to "com.example",
-                        "reset_task" to true,
-                    ),
+                    "tool" to "open_app",
+                    "args" to mapOf("package_name" to "com.example"),
                 ),
                 stepId = "step_open_app_reset",
                 stepTitle = "open app",
             )
 
             assertEquals(true, result["success"])
-            assertEquals(listOf("com.example:true"), backend.launchRequests)
+            assertEquals(listOf("com.example:false"), backend.launchRequests)
         }
     }
 
@@ -486,7 +528,7 @@ class OmniflowStepExecutorTest {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "omniflow_action" to "scroll",
+                    "tool" to "scroll",
                     "coordinate_hook" to "omniflow",
                     "args" to mapOf(
                         "x1" to 540,
@@ -518,7 +560,7 @@ class OmniflowStepExecutorTest {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "omniflow_action" to "click",
+                    "tool" to "click",
                     "coordinate_hook" to "omniflow",
                     "args" to mapOf(
                         "x" to 504,
@@ -550,7 +592,7 @@ class OmniflowStepExecutorTest {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "omniflow_action" to "click",
+                    "tool" to "click",
                     "args" to mapOf("x" to 360, "y" to 586),
                     "source_context" to mapOf(
                         "src_ctx" to mapOf("page" to SETTINGS_DISPLAY_XML),
@@ -584,7 +626,7 @@ class OmniflowStepExecutorTest {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "omniflow_action" to "click",
+                    "tool" to "click",
                     "args" to mapOf("x" to 360, "y" to 749),
                     "source_context" to mapOf(
                         "src_ctx" to mapOf("page" to SETTINGS_XML),
@@ -618,7 +660,7 @@ class OmniflowStepExecutorTest {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "omniflow_action" to "click",
+                    "tool" to "click",
                     "args" to mapOf("x" to 500, "y" to 120),
                     "source_context" to mapOf(
                         "src_ctx" to mapOf("page" to SETTINGS_XML),
@@ -648,9 +690,9 @@ class OmniflowStepExecutorTest {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "omniflow_action" to "input_text",
+                    "tool" to "input_text",
                     "args" to mapOf(
-                        "content" to "Alice",
+                        "text" to "Alice",
                         "target_description" to "First name",
                         "node_resource_id" to "app:id/first_name",
                         "x" to 180,
@@ -680,7 +722,7 @@ class OmniflowStepExecutorTest {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "omniflow_action" to "click",
+                    "tool" to "click",
                     "coordinate_hook" to "omniflow",
                     "args" to mapOf("x" to 180, "y" to 220),
                     "source_context" to mapOf(
@@ -701,12 +743,12 @@ class OmniflowStepExecutorTest {
 
     @Test
     fun `coordinate remap miss falls back to recorded action coordinates`() = runBlocking {
-        val backend = FakeBackend(beforeXml = AFTER_XML, afterXml = AFTER_XML)
+        val backend = FakeBackend(beforeXml = EMPTY_PAGE_XML, afterXml = EMPTY_PAGE_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "omniflow_action" to "click",
+                    "tool" to "click",
                     "coordinate_hook" to "omniflow",
                     "args" to mapOf("x" to 120, "y" to 240),
                     "source_context" to mapOf(
@@ -732,7 +774,7 @@ class OmniflowStepExecutorTest {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "omniflow_action" to "click",
+                    "tool" to "click",
                     "coordinate_hook" to "omniflow",
                     "args" to mapOf("x" to 120, "y" to 240),
                     "source_context" to mapOf(
@@ -760,7 +802,7 @@ class OmniflowStepExecutorTest {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "omniflow_action" to "click",
+                    "tool" to "click",
                     "coordinate_hook" to "omniflow",
                     "args" to mapOf("x" to 120, "y" to 240),
                     "source_context" to mapOf(
@@ -791,7 +833,7 @@ class OmniflowStepExecutorTest {
         val checkerBudget = OmniflowStepExecutor.CheckerTriggerBudget()
         val step = mapOf(
             "executor" to "omniflow",
-            "omniflow_action" to "click",
+            "tool" to "click",
             "args" to mapOf("x" to 120, "y" to 240),
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
@@ -829,7 +871,7 @@ class OmniflowStepExecutorTest {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "omniflow_action" to "click",
+                    "tool" to "click",
                     "coordinate_hook" to "omniflow",
                     "args" to mapOf("x" to 120, "y" to 240),
                     "source_context" to mapOf(
@@ -855,6 +897,41 @@ class OmniflowStepExecutorTest {
     }
 
     @Test
+    fun `permission dialog recorded click uses action transfer before global checker`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = PERMISSION_ALWAYS_ALLOW_DIALOG_XML,
+            afterXml = SOURCE_XML,
+            currentPackage = "com.google.android.permissioncontroller",
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "coordinate_hook" to "omniflow",
+                    "args" to mapOf("x" to 540, "y" to 1290),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf(
+                            "page" to PERMISSION_RECORDED_ALWAYS_ALLOW_DIALOG_XML,
+                            "package_name" to "com.example.target",
+                        ),
+                    ),
+                ),
+                stepId = "step_permission_always_allow",
+                stepTitle = "click always allow",
+            )
+
+            assertEquals(true, result["success"])
+            assertEquals("action_transfer", result["replay_mode"])
+            assertFalse(result.containsKey("control_effects"))
+            assertTrue(backend.launchRequests.isEmpty())
+            assertEquals(1, backend.clickPoints.size)
+            assertEquals(540f, backend.clickPoints.single().first, 0.01f)
+            assertEquals(1350f, backend.clickPoints.single().second, 0.01f)
+        }
+    }
+
+    @Test
     fun `global checker selects resolver app before disabled always open`() = runBlocking {
         val backend = FakeBackend(
             beforeXml = RESOLVER_DIALOG_DISABLED_ALWAYS_XML,
@@ -865,7 +942,7 @@ class OmniflowStepExecutorTest {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "omniflow_action" to "click",
+                    "tool" to "click",
                     "coordinate_hook" to "omniflow",
                     "args" to mapOf("x" to 120, "y" to 240),
                     "source_context" to mapOf(
@@ -900,7 +977,7 @@ class OmniflowStepExecutorTest {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "omniflow_action" to "click",
+                    "tool" to "click",
                     "args" to mapOf("x" to 540, "y" to 1020),
                     "source_context" to mapOf(
                         "src_ctx" to mapOf("page" to RESOLVER_DIALOG_DISABLED_ALWAYS_XML),
@@ -925,7 +1002,7 @@ class OmniflowStepExecutorTest {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "omniflow_action" to "click",
+                    "tool" to "click",
                     "args" to mapOf(
                         "x" to 120,
                         "y" to 240,
@@ -951,7 +1028,7 @@ class OmniflowStepExecutorTest {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "omniflow_action" to "click",
+                    "tool" to "click",
                     "args" to mapOf("x" to 540, "y" to 1720),
                 ),
                 stepId = "step_keyboard",
@@ -1106,12 +1183,20 @@ class OmniflowStepExecutorTest {
             "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[40,520][1040,1780]\" enabled=\"true\" visible-to-user=\"true\" class=\"com.android.internal.app.ResolverActivity\" package=\"android\" resource-id=\"android:id/resolver_list\"><node bounds=\"[80,570][1000,660]\" enabled=\"true\" visible-to-user=\"true\" text=\"打开方式\" class=\"android.widget.TextView\" resource-id=\"android:id/title\"/><node bounds=\"[80,720][1000,1320]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"浏览器\" class=\"android.widget.TextView\" resource-id=\"android:id/text1\"/><node bounds=\"[110,1620][500,1760]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"仅此一次\" class=\"android.widget.Button\" resource-id=\"android:id/button_once\"/><node bounds=\"[620,1620][1000,1760]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"始终打开\" class=\"android.widget.Button\" resource-id=\"android:id/button_always\"/></node></hierarchy>"
         private const val RESOLVER_DIALOG_DISABLED_ALWAYS_XML =
             "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[40,520][1040,1780]\" enabled=\"true\" visible-to-user=\"true\" class=\"com.android.internal.app.ResolverActivity\" package=\"android\" resource-id=\"android:id/resolver_list\"><node bounds=\"[80,570][1000,660]\" enabled=\"true\" visible-to-user=\"true\" text=\"打开方式\" class=\"android.widget.TextView\" resource-id=\"android:id/title\"/><node bounds=\"[80,720][1000,1320]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"浏览器\" class=\"android.widget.TextView\" resource-id=\"android:id/text1\"/><node bounds=\"[110,1620][500,1760]\" clickable=\"true\" enabled=\"false\" visible-to-user=\"true\" text=\"仅此一次\" class=\"android.widget.Button\" resource-id=\"android:id/button_once\"/><node bounds=\"[620,1620][1000,1760]\" clickable=\"true\" enabled=\"false\" visible-to-user=\"true\" text=\"始终打开\" class=\"android.widget.Button\" resource-id=\"android:id/button_always\"/></node></hierarchy>"
+        private const val PERMISSION_ALWAYS_ALLOW_DIALOG_XML =
+            "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[0,0][1080,1920]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.FrameLayout\" package=\"com.google.android.permissioncontroller\" resource-id=\"com.google.android.permissioncontroller:id/grant_dialog\"><node bounds=\"[120,520][960,640]\" enabled=\"true\" visible-to-user=\"true\" text=\"要允许小万获取此设备的位置信息吗？\" class=\"android.widget.TextView\" resource-id=\"com.google.android.permissioncontroller:id/permission_message\"/><node bounds=\"[80,960][1000,1100]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.LinearLayout\" package=\"com.google.android.permissioncontroller\" resource-id=\"com.google.android.permissioncontroller:id/permission_allow_one_time_button\"><node bounds=\"[160,1000][480,1050]\" enabled=\"true\" visible-to-user=\"true\" text=\"仅此一次\" class=\"android.widget.TextView\" resource-id=\"android:id/text1\"/></node><node bounds=\"[80,1120][1000,1260]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.LinearLayout\" package=\"com.google.android.permissioncontroller\" resource-id=\"com.google.android.permissioncontroller:id/permission_allow_foreground_only_button\"><node bounds=\"[160,1160][520,1210]\" enabled=\"true\" visible-to-user=\"true\" text=\"仅在使用中允许\" class=\"android.widget.TextView\" resource-id=\"android:id/text1\"/></node><node bounds=\"[80,1280][1000,1420]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.LinearLayout\" package=\"com.google.android.permissioncontroller\" resource-id=\"android:id/button1\"><node bounds=\"[160,1320][420,1370]\" enabled=\"true\" visible-to-user=\"true\" text=\"始终允许\" class=\"android.widget.TextView\" resource-id=\"android:id/text1\"/></node><node bounds=\"[80,1440][1000,1580]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.LinearLayout\" package=\"com.google.android.permissioncontroller\" resource-id=\"com.google.android.permissioncontroller:id/permission_deny_button\"><node bounds=\"[160,1480][360,1530]\" enabled=\"true\" visible-to-user=\"true\" text=\"不允许\" class=\"android.widget.TextView\" resource-id=\"android:id/text1\"/></node></node></hierarchy>"
+        private const val PERMISSION_RECORDED_ALWAYS_ALLOW_DIALOG_XML =
+            "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[0,0][1080,1920]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.FrameLayout\" package=\"com.google.android.permissioncontroller\" resource-id=\"com.google.android.permissioncontroller:id/grant_dialog\"><node bounds=\"[120,520][960,640]\" enabled=\"true\" visible-to-user=\"true\" text=\"要允许小万获取此设备的位置信息吗？\" class=\"android.widget.TextView\" resource-id=\"com.google.android.permissioncontroller:id/permission_message\"/><node bounds=\"[80,900][1000,1040]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.LinearLayout\" package=\"com.google.android.permissioncontroller\" resource-id=\"com.google.android.permissioncontroller:id/permission_allow_one_time_button\"><node bounds=\"[160,940][480,990]\" enabled=\"true\" visible-to-user=\"true\" text=\"仅此一次\" class=\"android.widget.TextView\" resource-id=\"android:id/text1\"/></node><node bounds=\"[80,1060][1000,1200]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.LinearLayout\" package=\"com.google.android.permissioncontroller\" resource-id=\"com.google.android.permissioncontroller:id/permission_allow_foreground_only_button\"><node bounds=\"[160,1100][520,1150]\" enabled=\"true\" visible-to-user=\"true\" text=\"仅在使用中允许\" class=\"android.widget.TextView\" resource-id=\"android:id/text1\"/></node><node bounds=\"[80,1220][1000,1360]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.LinearLayout\" package=\"com.google.android.permissioncontroller\" resource-id=\"android:id/button1\"><node bounds=\"[160,1260][420,1310]\" enabled=\"true\" visible-to-user=\"true\" text=\"始终允许\" class=\"android.widget.TextView\" resource-id=\"android:id/text1\"/></node><node bounds=\"[80,1380][1000,1520]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.LinearLayout\" package=\"com.google.android.permissioncontroller\" resource-id=\"com.google.android.permissioncontroller:id/permission_deny_button\"><node bounds=\"[160,1420][360,1470]\" enabled=\"true\" visible-to-user=\"true\" text=\"不允许\" class=\"android.widget.TextView\" resource-id=\"android:id/text1\"/></node></node></hierarchy>"
+        private const val HI_UPGRADE_DIALOG_XML =
+            "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[80,420][1000,1360]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.app.Dialog\" package=\"com.example.hi\" resource-id=\"com.example.hi:id/update_dialog\"><node bounds=\"[160,520][920,620]\" enabled=\"true\" visible-to-user=\"true\" text=\"Hi 发现新版本\" class=\"android.widget.TextView\" resource-id=\"com.example.hi:id/title\"/><node bounds=\"[160,680][920,980]\" enabled=\"true\" visible-to-user=\"true\" text=\"升级后体验更好\" class=\"android.widget.TextView\" resource-id=\"com.example.hi:id/message\"/><node bounds=\"[680,1180][940,1300]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"立即升级\" class=\"android.widget.Button\" resource-id=\"com.example.hi:id/update_now\"/><node bounds=\"[360,1180][660,1300]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"以后再说\" class=\"android.widget.Button\" resource-id=\"com.example.hi:id/later\"/></node></hierarchy>"
         private const val KEYBOARD_XML =
             "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[0,0][1080,1280]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.FrameLayout\" resource-id=\"app:id/content\"/><node bounds=\"[0,1320][1080,1920]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.inputmethodservice.KeyboardView\" package=\"com.google.android.inputmethod.latin\" resource-id=\"com.google.android.inputmethod.latin:id/keyboard_view\"/></hierarchy>"
         private const val SCROLL_SOURCE_XML =
             "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[0,0][1080,1920]\" scrollable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"androidx.recyclerview.widget.RecyclerView\" resource-id=\"app:id/list\"><node bounds=\"[100,300][900,380]\" enabled=\"true\" visible-to-user=\"true\" text=\"Network\" class=\"android.widget.TextView\" resource-id=\"android:id/title\"/></node></hierarchy>"
         private const val AFTER_XML =
             "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[100,200][300,280]\" enabled=\"true\" visible-to-user=\"true\" text=\"Done\" class=\"android.widget.TextView\" resource-id=\"app:id/done\"/></hierarchy>"
+        private const val EMPTY_PAGE_XML =
+            "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[0,0][1080,1920]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.FrameLayout\" resource-id=\"app:id/empty\"/></hierarchy>"
         private const val SETTINGS_XML =
             "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[30,40][1050,140]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"Search settings\" class=\"android.view.ViewGroup\" resource-id=\"com.android.settings:id/search_action_bar\"/></hierarchy>"
         private const val STALE_DIALOG_XML =

@@ -24,8 +24,6 @@ object RunLogReplayPolicy {
     const val TOOL_CALL_TOOL: String = "call_tool"
     const val TOOL_OOB_TOOL_CALL: String = "oob_tool_call"
     const val TOOL_FUNCTION_RUN: String = OobFunctionToolNames.FUNCTION_RUN
-    // Legacy import/card name. New Function replay steps should use TOOL_FUNCTION_RUN.
-    const val TOOL_CALL_FUNCTION: String = "call_function"
     const val TOOL_GO_TO_NODE: String = "go_to_node"
     const val TOOL_CLICK_NODE: String = "click_node"
     const val TOOL_NODE_CLICK: String = "node_click"
@@ -85,13 +83,6 @@ object RunLogReplayPolicy {
 
     val omniflowFunctionTools: Set<String> = setOf(
         TOOL_FUNCTION_RUN,
-        "omniflow.call_function",
-        TOOL_CALL_FUNCTION,
-        "run_function",
-        "execute_function",
-        "callfunction",
-        "runfunction",
-        "executefunction",
     )
 
     val omniflowToolCallTools: Set<String> = setOf(

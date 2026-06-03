@@ -20,7 +20,6 @@ class OobFunctionSpecBuilder {
         if (steps.isEmpty()) return emptyMap()
         val now = System.currentTimeMillis().toString()
         val rawFunctionId = firstNonBlank(
-            request["functionId"],
             request["function_id"],
             request["id"],
         )
@@ -45,8 +44,6 @@ class OobFunctionSpecBuilder {
             request["package_name"],
             request["current_package"],
             request["currentPackage"],
-            mapArg(request["sourcePage"])["package_name"],
-            mapArg(request["sourcePage"])["packageName"],
             mapArg(request["source_page"])["package_name"],
             mapArg(request["source_page"])["packageName"],
             sourcePackageName,
@@ -107,8 +104,7 @@ class OobFunctionSpecBuilder {
         explicitFunctionSpec(request).isNotEmpty()
 
     private fun explicitFunctionSpec(request: Map<String, Any?>): Map<String, Any?> =
-        mapArg(request["functionSpec"])
-            .ifEmpty { mapArg(request["function_spec"]) }
+        mapArg(request["function_spec"])
             .ifEmpty {
                 if ((request.containsKey("function_id") || request.containsKey("name")) &&
                     (mapArg(request["execution"]).isNotEmpty() || listArg(request["actions"]).isNotEmpty())
@@ -131,16 +127,10 @@ class OobFunctionSpecBuilder {
         inheritedSourceContext: Map<String, Any?>,
     ): Map<String, Any?> {
         val rawTool = firstNonBlank(
-            raw["action"],
             raw["tool"],
-            raw["tool_name"],
-            raw["toolName"],
-            raw["omniflow_action"],
-            raw["local_action"],
-            raw["type"],
         ).ifBlank {
-            if (firstNonBlank(raw["function_id"], raw["functionId"]).isNotBlank()) {
-                RunLogReplayPolicy.TOOL_CALL_TOOL
+            if (firstNonBlank(mapArg(raw["args"])["function_id"]).isNotBlank()) {
+                OobFunctionToolNames.FUNCTION_RUN
             } else {
                 OobActionCodec.ACTION_FINISHED
             }
@@ -148,7 +138,6 @@ class OobFunctionSpecBuilder {
         val normalizedTool = RunLogReplayPolicy.normalizeToolName(rawTool)
         val action = OobActionCodec.canonicalActionForName(rawTool)
         val sourceContext = mapArg(raw["source_context"])
-            .ifEmpty { mapArg(raw["sourceContext"]) }
             .ifEmpty { inheritedSourceContext }
         val title = firstNonBlank(raw["title"], raw["summary"], raw["description"])
             .ifBlank { simpleStepTitle(action ?: normalizedTool, raw, index) }
@@ -161,14 +150,11 @@ class OobFunctionSpecBuilder {
         )
         when {
             action != null -> {
-                step["kind"] = "omniflow_action"
+                step["kind"] = "function"
                 step["executor"] = RunLogReplayPolicy.EXECUTOR_OMNIFLOW
-                step["omniflow_action"] = action
-                step["local_action"] = action
                 step["model_free"] = true
                 step["scriptable"] = true
                 step["tool"] = action
-                step["callable_tool"] = action
                 step["args"] = stepArgs
                 if (sourceContext.isNotEmpty()) {
                     step["source_context"] = sourceContext
@@ -180,13 +166,12 @@ class OobFunctionSpecBuilder {
                 step["model_free"] = true
                 step["scriptable"] = true
                 step["tool"] = normalizedTool
-                step["callable_tool"] = normalizedTool
                 step["args"] = stepArgs
                 if (sourceContext.isNotEmpty()) step["source_context"] = sourceContext
             }
             RunLogReplayPolicy.isOmniflowFunctionTool(normalizedTool) ||
                 RunLogReplayPolicy.isOmniflowToolCallTool(normalizedTool) ||
-                firstNonBlank(raw["function_id"], raw["functionId"]).isNotBlank() -> {
+                firstNonBlank(stepArgs["function_id"]).isNotBlank() -> {
                 val canonicalTool = if (RunLogReplayPolicy.isOmniflowToolCallTool(normalizedTool)) {
                     RunLogReplayPolicy.TOOL_CALL_TOOL
                 } else {
@@ -197,9 +182,7 @@ class OobFunctionSpecBuilder {
                 step["model_free"] = true
                 step["scriptable"] = true
                 step["tool"] = canonicalTool
-                step["callable_tool"] = canonicalTool
-                step["source_tool"] = normalizedTool.takeIf { it != canonicalTool }
-                step["args"] = canonicalSimpleCallToolArgs(raw, stepArgs)
+                step["args"] = canonicalSimpleCallToolArgs(stepArgs)
                 if (sourceContext.isNotEmpty()) step["source_context"] = sourceContext
             }
             else -> {
@@ -207,7 +190,6 @@ class OobFunctionSpecBuilder {
                 step["executor"] = RunLogReplayPolicy.EXECUTOR_TOOL
                 step["scriptable"] = true
                 step["tool"] = normalizedTool
-                step["callable_tool"] = normalizedTool
                 step["args"] = stepArgs
                 if (sourceContext.isNotEmpty()) step["source_context"] = sourceContext
             }
@@ -223,41 +205,12 @@ class OobFunctionSpecBuilder {
             ?: OobActionCodec.normalizeName(rawTool)
         val args = linkedMapOf<String, Any?>()
         args.putAll(mapArg(raw["args"]))
-        args.putAll(mapArg(raw["arguments"]).filterKeys { it !in args })
-        putIfPresent(args, "package_name", raw["package_name"], raw["packageName"])
-        putIfPresent(args, "target_description", raw["target_description"], raw["targetDescription"], raw["label"])
-        putIfPresent(args, "text", raw["text"])
-        putIfPresent(args, "content", raw["content"], raw["value"])
-        putIfPresent(args, "key", raw["key"], raw["hotkey"], raw["hot_key"])
-        putIfPresent(args, "direction", raw["direction"], raw["scroll_direction"], raw["scrollDirection"])
-        putIfPresent(args, "x", raw["x"], raw["center_x"], raw["centerX"])
-        putIfPresent(args, "y", raw["y"], raw["center_y"], raw["centerY"])
-        putIfPresent(args, "x1", raw["x1"])
-        putIfPresent(args, "y1", raw["y1"])
-        putIfPresent(args, "x2", raw["x2"])
-        putIfPresent(args, "y2", raw["y2"])
-        putIfPresent(args, "distance", raw["distance"], raw["distance_px"], raw["distancePx"])
-        putIfPresent(args, "duration_ms", raw["duration_ms"], raw["durationMs"])
-        putIfPresent(args, "reset_task", raw["reset_task"], raw["resetTask"])
-        putIfPresent(args, "launch_mode", raw["launch_mode"], raw["launchMode"])
-        putIfPresent(args, "function_id", raw["function_id"], raw["functionId"])
-        val nestedArguments = mapArg(raw["function_arguments"])
-            .ifEmpty { mapArg(raw["functionArguments"]) }
-            .ifEmpty { mapArg(raw["input"]) }
-        if (nestedArguments.isNotEmpty() && !args.containsKey("arguments")) {
-            args["arguments"] = nestedArguments
-        }
-        if (action == OobActionCodec.ACTION_INPUT_TEXT &&
-            firstNonBlank(args["content"], args["text"], args["value"]).isBlank()
-        ) {
-            putIfPresent(args, "content", raw["input_text"], raw["inputText"])
-        }
-        if (action == OobActionCodec.ACTION_OPEN_APP && args["reset_task"] == null) {
-            args["reset_task"] = true
-            args["launch_mode"] = firstNonBlank(args["launch_mode"], "fresh_task")
+        if (action == OobActionCodec.ACTION_INPUT_TEXT) {
+            args.remove("content")
+            args.remove("value")
         }
         if (action == OobActionCodec.ACTION_FINISHED && args.isEmpty()) {
-            args["content"] = firstNonBlank(raw["content"], raw["summary"], "Done")
+            args["content"] = "Done"
         }
         return OobActionCodec.argsForStep(
             mapOf(
@@ -267,28 +220,15 @@ class OobFunctionSpecBuilder {
         )
     }
 
-    private fun canonicalSimpleCallToolArgs(
-        raw: Map<String, Any?>,
-        normalizedArgs: Map<String, Any?>,
-    ): Map<String, Any?> {
+    private fun canonicalSimpleCallToolArgs(normalizedArgs: Map<String, Any?>): Map<String, Any?> {
         val functionId = firstNonBlank(
             normalizedArgs["function_id"],
-            raw["function_id"],
-            raw["functionId"],
-            raw["oob_function_id"],
-            raw["oobFunctionId"],
         )
         val targetTool = firstNonBlank(
-            raw["tool_name"],
-            raw["toolName"],
-            raw["target_tool"],
-            raw["targetTool"],
             normalizedArgs["tool_name"],
-            normalizedArgs["toolName"],
+            normalizedArgs["target_tool"],
         )
         val nestedArguments = mapArg(normalizedArgs["arguments"])
-            .ifEmpty { mapArg(raw["arguments"]) }
-            .ifEmpty { mapArg(raw["args"]) }
         return linkedMapOf<String, Any?>().apply {
             putAll(normalizedArgs)
             if (functionId.isNotBlank()) put("function_id", functionId)
@@ -301,8 +241,7 @@ class OobFunctionSpecBuilder {
         val explicit = mapArg(request["source_context"])
             .ifEmpty { mapArg(request["sourceContext"]) }
         if (explicit.isNotEmpty()) return explicit
-        val sourcePage = mapArg(request["sourcePage"])
-            .ifEmpty { mapArg(request["source_page"]) }
+        val sourcePage = mapArg(request["source_page"])
             .ifEmpty { mapArg(request["currentPage"]) }
             .ifEmpty { mapArg(request["current_page"]) }
         val pageXmlFromRequest = firstNonBlank(
@@ -390,13 +329,12 @@ class OobFunctionSpecBuilder {
     }
 
     private fun simpleStepTitle(action: String, raw: Map<String, Any?>, index: Int): String {
+        val args = mapArg(raw["args"])
         val target = firstNonBlank(
-            raw["target_description"],
-            raw["targetDescription"],
-            raw["label"],
-            raw["text"],
-            raw["content"],
-            raw["value"],
+            args["target_description"],
+            args["label"],
+            args["text"],
+            args["content"].takeIf { action != OobActionCodec.ACTION_INPUT_TEXT },
         )
         return when {
             target.isNotBlank() -> "$action: $target"
@@ -423,16 +361,5 @@ class OobFunctionSpecBuilder {
                 it["executor"] == RunLogReplayPolicy.EXECUTOR_AGENT
             },
         )
-
-    private fun putIfPresent(
-        target: MutableMap<String, Any?>,
-        key: String,
-        vararg values: Any?,
-    ) {
-        if (target.containsKey(key)) return
-        values.firstOrNull { value ->
-            value != null && value.toString().trim().isNotEmpty()
-        }?.let { target[key] = it }
-    }
 
 }

@@ -62,6 +62,14 @@ omniflow.ingest_run_log
 omniflow.explore_replay
 ```
 
+## Function Granularity
+
+Treat each Function as a composable reusable segment. It may complete a small
+user goal, but it is not required to cover the whole goal in one call. After
+each Function result, inspect `success`, `fallback_context`, `step_results`,
+and any terminal state. If work remains, continue with the next Function,
+bounded VLM path, or other tool.
+
 ## Fixed Tools
 
 ### `omniflow.recall`
@@ -107,7 +115,9 @@ miss
 ### `omniflow.call_tool`
 
 Calls one OOB/OmniFlow capability. When `function_id` is provided, it executes
-the selected Function through the same local runner as `oob_function_run`.
+one selected Function segment through the same local runner as
+`oob_function_run`. This call is a composable step in the caller's plan, not a
+guarantee that the entire user goal is done.
 `omniflow.call_function` may still be accepted by old servers as a compatibility
 alias, but new agents should not use it as a separate path.
 
@@ -250,12 +260,14 @@ or deterministic replay timing rather than recall-first activation.
 
 `oob_function_list` and `oob_function_get` expose registered Function specs.
 `oob_function_guard_check` returns `allow`, `needs_agent`,
-`needs_confirmation`, or `block` before execution. `oob_function_run` runs a
-Function directly and returns `run_id`, `runner`, `timing`, and
-`step_results`. When local replay fails but agent recovery is possible, it also
-returns `fallback_context`; after the agent completes `failed_step_index`, call
-`oob_function_run` again with `resume_from_step`, `fallback_session_id`, and
-`fallback_attempt` from that context to continue the remaining steps.
+`needs_confirmation`, or `block` before execution. `oob_function_run` runs one
+Function segment directly and returns `run_id`, `runner`, `timing`, and
+`step_results`. Treat the result as progress evidence; if the caller's goal is
+not complete, choose the next Function or tool. When local replay fails but
+agent recovery is possible, it also returns `fallback_context`; after the agent
+completes `failed_step_index`, call `oob_function_run` again with
+`resume_from_step`, `fallback_session_id`, and `fallback_attempt` from that
+context to continue the remaining steps.
 `resume_from_step` is the next local Function step after the failed step has
 been handled. To intentionally retry the failed step itself, pass
 `failed_step_index` explicitly instead of the returned `resume_from_step`.

@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/theme/theme_context.dart';
 
-class ReusableCommandStepPreview {
-  const ReusableCommandStepPreview({
+class ReusableFunctionStepPreview {
+  const ReusableFunctionStepPreview({
     required this.index,
     required this.title,
     required this.tool,
@@ -26,8 +26,8 @@ class ReusableCommandStepPreview {
   }
 }
 
-class ReusableCommandCardAction {
-  const ReusableCommandCardAction({
+class ReusableFunctionCardAction {
+  const ReusableFunctionCardAction({
     required this.icon,
     required this.tooltip,
     required this.onTap,
@@ -42,8 +42,8 @@ class ReusableCommandCardAction {
   final Color? backgroundColor;
 }
 
-class ReusableCommandCard extends StatelessWidget {
-  const ReusableCommandCard({
+class ReusableFunctionCard extends StatelessWidget {
+  const ReusableFunctionCard({
     super.key,
     required this.title,
     required this.description,
@@ -51,28 +51,36 @@ class ReusableCommandCard extends StatelessWidget {
     required this.stepCount,
     required this.parameterCount,
     required this.sourceRunCount,
+    required this.runCount,
+    required this.successCount,
+    required this.failCount,
     required this.isRunning,
     required this.onRun,
+    this.lastRunSuccess,
     this.isBusy = false,
-    this.actions = const <ReusableCommandCardAction>[],
+    this.actions = const <ReusableFunctionCardAction>[],
   });
 
   final String title;
   final String description;
-  final List<ReusableCommandStepPreview> steps;
+  final List<ReusableFunctionStepPreview> steps;
   final int stepCount;
   final int parameterCount;
   final int sourceRunCount;
+  final int runCount;
+  final int successCount;
+  final int failCount;
+  final bool? lastRunSuccess;
   final bool isRunning;
   final VoidCallback? onRun;
   final bool isBusy;
-  final List<ReusableCommandCardAction> actions;
+  final List<ReusableFunctionCardAction> actions;
 
   @override
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
     final displayTitle = title.trim().isEmpty
-        ? _text(context, '复用指令', 'Reusable command')
+        ? _text(context, '复用指令', 'Reusable Function')
         : title.trim();
     final summaryText = description.trim();
     final previewText = _buildStepPreview(context, steps);
@@ -199,6 +207,32 @@ class ReusableCommandCard extends StatelessWidget {
                       label: 'RunLogs',
                       value: sourceRunCount.toString(),
                     ),
+                  _MetricPill(
+                    label: _text(context, '执行', 'Runs'),
+                    value: runCount.toString(),
+                  ),
+                  _MetricPill(
+                    label: _text(context, '成功', 'Success'),
+                    value: successCount.toString(),
+                  ),
+                  if (failCount > 0)
+                    _MetricPill(
+                      label: _text(context, '失败', 'Failed'),
+                      value: failCount.toString(),
+                    ),
+                  if (lastRunSuccess != null)
+                    _MetricPill(
+                      label: _text(context, '上次', 'Last'),
+                      value: lastRunSuccess!
+                          ? _text(context, '成功', 'Success')
+                          : _text(context, '失败', 'Failed'),
+                      color: lastRunSuccess!
+                          ? Colors.green.shade700
+                          : Colors.red.shade700,
+                      backgroundColor: lastRunSuccess!
+                          ? Colors.green.withValues(alpha: 0.10)
+                          : Colors.red.withValues(alpha: 0.10),
+                    ),
                 ],
               ),
             ],
@@ -252,10 +286,17 @@ class _RunActionButton extends StatelessWidget {
 }
 
 class _MetricPill extends StatelessWidget {
-  const _MetricPill({required this.label, required this.value});
+  const _MetricPill({
+    required this.label,
+    required this.value,
+    this.color,
+    this.backgroundColor,
+  });
 
   final String label;
   final String value;
+  final Color? color;
+  final Color? backgroundColor;
 
   @override
   Widget build(BuildContext context) {
@@ -263,9 +304,11 @@ class _MetricPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: context.isDarkTheme
-            ? palette.surfaceSecondary
-            : palette.accentPrimary.withValues(alpha: 0.08),
+        color:
+            backgroundColor ??
+            (context.isDarkTheme
+                ? palette.surfaceSecondary
+                : palette.accentPrimary.withValues(alpha: 0.08)),
         borderRadius: BorderRadius.circular(99),
       ),
       child: Text(
@@ -275,7 +318,7 @@ class _MetricPill extends StatelessWidget {
         style: TextStyle(
           fontSize: 11,
           fontWeight: FontWeight.w600,
-          color: palette.textSecondary,
+          color: color ?? palette.textSecondary,
           letterSpacing: 0,
         ),
       ),
@@ -286,7 +329,7 @@ class _MetricPill extends StatelessWidget {
 class _IconActionButton extends StatelessWidget {
   const _IconActionButton({required this.action});
 
-  final ReusableCommandCardAction action;
+  final ReusableFunctionCardAction action;
 
   @override
   Widget build(BuildContext context) {
@@ -311,7 +354,7 @@ class _IconActionButton extends StatelessWidget {
 
 String _buildStepPreview(
   BuildContext context,
-  List<ReusableCommandStepPreview> steps,
+  List<ReusableFunctionStepPreview> steps,
 ) {
   final parts = <String>[];
   for (final step in steps.take(3)) {

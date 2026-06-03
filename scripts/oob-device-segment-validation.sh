@@ -6,7 +6,7 @@ PACKAGE_NAME="${PACKAGE_NAME:-cn.com.omnimind.bot.debug}"
 ACTION="cn.com.omnimind.bot.debug.VALIDATE_OOB_FUNCTION_SEGMENT"
 RECEIVER="$PACKAGE_NAME/cn.com.omnimind.bot.debug.DebugOobFunctionSegmentReceiver"
 RESULT_FILE="files/debug-oob-function-segment-result.json"
-GOAL="${GOAL:-Validate reusable command segment}"
+GOAL="${GOAL:-Validate reusable Function segment}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-45}"
 
 while [[ $# -gt 0 ]]; do
@@ -32,9 +32,9 @@ while [[ $# -gt 0 ]]; do
       cat <<USAGE
 Usage: scripts/oob-device-segment-validation.sh [--device SERIAL] [--package PACKAGE] [--goal TEXT] [--timeout SECONDS]
 
-Runs the debug-only reusable command segment validation on a connected device.
-The validation is an actual execution test: it registers a child command,
-registers a parent command, recalls from the current page, executes the parent,
+Runs the debug-only reusable Function segment validation on a connected device.
+The validation is an actual execution test: it registers a child Function,
+registers a parent Function, recalls from the current page, executes the parent,
 and verifies that Android Settings becomes foreground.
 USAGE
       exit 0

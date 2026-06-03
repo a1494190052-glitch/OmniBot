@@ -268,9 +268,9 @@ object VlmRecallGuidanceBuilder {
 
     private fun functionExecutionPolicyLine(directDecision: Boolean): String =
         if (directDecision) {
-            "function_execution_policy=direct_execution_requested_by_caller; parameterized_hits_may_be_called_by_agent_with_filled_arguments=true"
+            "function_execution_policy=direct_execution_requested_by_caller; parameterized_hits_may_be_called_by_agent_or_vlm_with_filled_arguments=true"
         } else {
-            "function_execution_policy=optional_candidates_only; do_not_auto_execute=true; require_explicit_oob_function_run_selection=true; function_candidates_may_be_called_by_agent_with_filled_arguments=true"
+            "function_execution_policy=optional_candidates_only; do_not_auto_execute=true; require_explicit_oob_function_run_selection=true; function_candidates_may_be_called_by_agent_or_vlm_with_filled_arguments=true"
         }
 
     private fun isDirectExecutionRequested(
@@ -299,12 +299,19 @@ object VlmRecallGuidanceBuilder {
 
     private fun requiresArguments(payload: Map<String, Any?>): Boolean {
         val raw = payload["requires_arguments"] ?: payload["requiresArguments"]
-        return when (raw) {
+        val explicit = when (raw) {
             is Boolean -> raw
             is Number -> raw.toInt() != 0
             is String -> raw.trim().lowercase() in setOf("true", "1", "yes")
             else -> false
         }
+        if (explicit) return true
+        val schema = mapArg(payload["inputSchema"]).ifEmpty { mapArg(payload["input_schema"]) }
+        if (schema.isEmpty()) return false
+        val required = listArg(schema["required"])
+            .mapNotNull { it.toString().trim().takeIf(String::isNotEmpty) }
+        if (required.isNotEmpty()) return true
+        return mapArg(schema["properties"]).isNotEmpty()
     }
 
     private fun boolArg(vararg values: Any?): Boolean {

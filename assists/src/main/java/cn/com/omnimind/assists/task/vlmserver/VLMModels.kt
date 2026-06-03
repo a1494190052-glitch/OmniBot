@@ -33,19 +33,12 @@ data class ClickAction(
 ) : UIAction()
 
 @Serializable
-@SerialName("type")
-data class TypeAction(
-    override val name: String = "type",
-    val content: String
-) : UIAction()
-
-@Serializable
 @SerialName("input_text")
 data class InputTextAction(
     override val name: String = "input_text",
     @SerialName("target_description")
     val targetDescription: String,
-    val content: String,
+    val text: String,
     var x: Float,
     var y: Float,
     @SerialName("element_index")
@@ -64,7 +57,8 @@ data class ScrollAction(
     var y1: Float,  // 起始点y
     var x2: Float,  // 结束点x
     var y2: Float,  // 结束点y
-    val duration: Float = 1.5f,  // 持续时间（秒），默认1.5秒
+    @SerialName("duration_ms")
+    val durationMs: Long = 1500L,
     @SerialName("scrollable_index")
     val scrollableIndex: Int? = null,
     val direction: String? = null
@@ -109,9 +103,7 @@ data class PressBackAction(
 data class WaitAction(
     override val name: String = "wait",
     @SerialName("duration_ms")
-    val durationMs: Long? = null,
-    // 某些模型可能返回秒为单位的duration字段，保留以兼容
-    val duration: Long? = null
+    val durationMs: Long? = null
 ) : UIAction()
 
 @Serializable
@@ -179,14 +171,6 @@ data class AbortAction(
     override val name: String = "abort",
     val value: String = ""
 ) : UIAction()
-
-@Serializable
-@SerialName("hot_key")
-data class HotKeyAction(
-    override val name: String = "hot_key",
-    val key: String  // "ENTER", "BACK", "HOME"
-) : UIAction()
-
 
 // ==================== 步骤和上下文 ====================
 

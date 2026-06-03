@@ -15,6 +15,7 @@ import cn.com.omnimind.accessibility.service.AssistsServiceListener
 import cn.com.omnimind.assists.ManualOverlayGestureReplayResult
 import cn.com.omnimind.assists.ManualOverlayTouchGesture
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
+import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
 import cn.com.omnimind.baselib.util.ImageQuality
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
@@ -25,8 +26,11 @@ import java.util.ArrayDeque
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -199,6 +203,13 @@ class ManualVlmTraceRecorder(
     private var screenshotStoredCount: Int = 0
     private var screenshotFailedCount: Int = 0
     private var screenshotSequence: Int = 0
+    private var xmlCaptureCount: Int = 0
+    private var xmlCaptureSuccessCount: Int = 0
+    private var xmlCaptureTimeoutOrEmptyCount: Int = 0
+    private var xmlCaptureTotalMs: Long = 0L
+    private var xmlCaptureMaxMs: Long = 0L
+    private var xmlCaptureLastMs: Long = 0L
+    private var xmlCaptureLastReason: String = ""
     private var accessibilityEventCount: Int = 0
     private var accessibilityIgnoredPackageCount: Int = 0
     private val accessibilityEventTypeCounts = linkedMapOf<String, Int>()
@@ -247,7 +258,7 @@ class ManualVlmTraceRecorder(
         }
         isStarted = true
         isPaused = false
-        lastXmlSnapshot = captureCurrentXmlSafe()
+        lastXmlSnapshot = captureCurrentXmlSafe("start")
         lastScreenshotSnapshot = captureCurrentScreenshotRef("start")
         textInputAnchor = preSeedFocusedTextInputAnchorFrom(lastXmlSnapshot, lastScreenshotSnapshot)
         if (enableRawTouch) {
@@ -274,7 +285,7 @@ class ManualVlmTraceRecorder(
         if (!isStarted) return false
         if (isPaused) return true
         awaitOverlayRecordJobs("pause")
-        val currentXml = captureCurrentXmlSafe()
+        val currentXml = captureCurrentXmlSafe("pause")
         val currentScreenshot = captureCurrentScreenshotRef("pause")
         materializePendingTextFromXml(
             xml = currentXml,
@@ -299,7 +310,7 @@ class ManualVlmTraceRecorder(
     fun resume(): Boolean {
         if (!isStarted) return false
         if (!isPaused) return true
-        lastXmlSnapshot = captureCurrentXmlSafe()
+        lastXmlSnapshot = captureCurrentXmlSafe("resume")
         lastScreenshotSnapshot = captureCurrentScreenshotRef("resume")
         postInputClickWindow = null
         lastDiscreteSignature = ""
@@ -319,7 +330,7 @@ class ManualVlmTraceRecorder(
         }
         stopRawTouchRecorder()
         isPaused = false
-        val stopXml = currentXmlForTextFallback() ?: lastXmlSnapshot
+        val stopXml = currentXmlForTextFallback("stop") ?: lastXmlSnapshot
         materializePendingTextFromXml(
             xml = stopXml,
             screenshot = lastScreenshotSnapshot,
@@ -382,7 +393,7 @@ class ManualVlmTraceRecorder(
             pendingText == null
         }
         val fallbackXml = if (shouldTryFocusedXml) {
-            currentXmlForTextFallback()
+            currentXmlForTextFallback("ime_submit")
         } else {
             null
         }
@@ -413,23 +424,22 @@ class ManualVlmTraceRecorder(
         // It has no internal timeout and can hang indefinitely during UI transitions.
         // Run on a separate IO thread so the timeout can free the processing coroutine
         // even if the underlying binder call is still waiting.
-        val beforeXml = withTimeoutOrNull(BEFORE_XML_CAPTURE_TIMEOUT_MS) {
-            withContext(Dispatchers.IO) { captureCurrentXml() }
-        }?.takeIf { it.isNotBlank() }
+        val beforeXmlCapture = captureCurrentXmlTimed("${operationId}_before")
+        val beforeXml = beforeXmlCapture.xml
         val beforeScreenshot = captureCurrentScreenshotRef(
             stage = "${operationId}_before",
             annotation = ScreenshotAnnotation.forGesture(gesture)
         ) ?: synchronized(recordingLock) {
             if (enableDebugScreenshots) null else lastScreenshotSnapshot
         }
-        val mayOpenIme = gesture.actionName == "click" &&
+        val mayOpenIme = gesture.actionName == OobCanonicalActionSchema.TOOL_CLICK &&
             overlayClickMayOpenIme(beforeXml, gesture.startX, gesture.startY)
-        val touchX = if (gesture.actionName == "swipe") {
+        val touchX = if (gesture.actionName == OobCanonicalActionSchema.TOOL_SCROLL) {
             (gesture.startX + gesture.endX) / 2f
         } else {
             gesture.startX
         }
-        val touchY = if (gesture.actionName == "swipe") {
+        val touchY = if (gesture.actionName == OobCanonicalActionSchema.TOOL_SCROLL) {
             (gesture.startY + gesture.endY) / 2f
         } else {
             gesture.startY
@@ -449,42 +459,42 @@ class ManualVlmTraceRecorder(
         synchronized(recordingLock) {
             overlayGestureActiveCount += 1
         }
-        val dispatchOutcome = try {
-            runCatching { performOverlayGesture(gesture) }
-                .fold(
-                    onSuccess = { OverlayDispatchOutcome.completed() },
-                    onFailure = { error ->
-                        synchronized(recordingLock) { overlayGestureFailedCount += 1 }
-                        val outcome = OverlayDispatchOutcome.fromError(error)
-                        OmniLog.w(
-                            TAG,
-                            "manual overlay touch dispatch ${outcome.status}: ${outcome.errorMessage}"
-                        )
-                        outcome
-                    }
+        try {
+            val dispatchOutcome = try {
+                performOverlayGesture(gesture)
+                OverlayDispatchOutcome.completed()
+            } catch (error: Throwable) {
+                if (error is CancellationException && !currentCoroutineContext().isActive) {
+                    throw error
+                }
+                synchronized(recordingLock) { overlayGestureFailedCount += 1 }
+                val outcome = OverlayDispatchOutcome.fromError(error)
+                OmniLog.w(
+                    TAG,
+                    "manual overlay touch dispatch ${outcome.status}: ${outcome.errorMessage}"
                 )
-        } finally {
-            try {
-                onGestureDispatched(mayOpenIme)
-            } catch (error: Exception) {
-                OmniLog.w(TAG, "manual overlay dispatch callback failed: ${error.message}")
+                outcome
+            } finally {
+                try {
+                    onGestureDispatched(mayOpenIme)
+                } catch (error: Exception) {
+                    OmniLog.w(TAG, "manual overlay dispatch callback failed: ${error.message}")
+                }
             }
-        }
 
-        val recorded = synchronized(recordingLock) {
-            try {
+            val recorded = synchronized(recordingLock) {
                 if (!isStarted || isPaused) return@synchronized false
                 materializePendingTextFromXml(
                     xml = beforeXml,
                     screenshot = beforeScreenshot,
                     resolutionSuffix = "focused_xml_before_next_touch"
                 )
-                val currentTextAnchorId = if (gesture.actionName == "click") {
+                val currentTextAnchorId = if (gesture.actionName == OobCanonicalActionSchema.TOOL_CLICK) {
                     overlayTextAnchorId(gesture)
                 } else {
                     null
                 }
-                if (gesture.actionName == "click") {
+                if (gesture.actionName == OobCanonicalActionSchema.TOOL_CLICK) {
                     rememberTextInputAnchorFromRealTouch(
                         beforeXml = beforeXml,
                         beforeScreenshot = beforeScreenshot,
@@ -501,19 +511,21 @@ class ManualVlmTraceRecorder(
                 flushPendingTextUnlessAnchoredTo(currentTextAnchorId, beforeXml)
                 clearPostInputClickWindowLocked()
                 when (gesture.actionName) {
-                    "click", "long_press" -> appendOverlayClickGesture(
+                    OobCanonicalActionSchema.TOOL_CLICK, OobCanonicalActionSchema.TOOL_LONG_PRESS -> appendOverlayClickGesture(
                         gesture = gesture,
                         beforeXml = beforeXml,
                         beforeScreenshot = beforeScreenshot,
                         operationId = operationId,
-                        dispatchOutcome = dispatchOutcome
+                        dispatchOutcome = dispatchOutcome,
+                        beforeXmlCaptureMs = beforeXmlCapture.durationMs
                     )
-                    "swipe" -> appendOverlaySwipeGesture(
+                    OobCanonicalActionSchema.TOOL_SCROLL -> appendOverlaySwipeGesture(
                         gesture = gesture,
                         beforeXml = beforeXml,
                         beforeScreenshot = beforeScreenshot,
                         operationId = operationId,
-                        dispatchOutcome = dispatchOutcome
+                        dispatchOutcome = dispatchOutcome,
+                        beforeXmlCaptureMs = beforeXmlCapture.durationMs
                     )
                     else -> {
                         overlayGestureFailedCount += 1
@@ -525,15 +537,17 @@ class ManualVlmTraceRecorder(
                 lastXmlSnapshot = beforeXml
                 lastScreenshotSnapshot = beforeScreenshot ?: lastScreenshotSnapshot
                 true
-            } finally {
+            }
+            return ManualOverlayGestureReplayResult(
+                executed = dispatchOutcome.executed,
+                recorded = recorded,
+                mayOpenIme = mayOpenIme
+            )
+        } finally {
+            synchronized(recordingLock) {
                 decrementOverlayGestureActiveLocked()
             }
         }
-        return ManualOverlayGestureReplayResult(
-            executed = dispatchOutcome.executed,
-            recorded = recorded,
-            mayOpenIme = mayOpenIme
-        )
     }
 
     private fun overlayOperationId(
@@ -583,11 +597,13 @@ class ManualVlmTraceRecorder(
     private fun overlayDispatchDiagnostics(
         operationId: String,
         beforeXml: String?,
-        dispatchOutcome: OverlayDispatchOutcome
+        dispatchOutcome: OverlayDispatchOutcome,
+        beforeXmlCaptureMs: Long?
     ): Map<String, Any?> = linkedMapOf<String, Any?>(
         "operation_id" to operationId,
         "dispatch_status" to dispatchOutcome.status,
         "before_xml_present" to !beforeXml.isNullOrBlank(),
+        "before_xml_capture_ms" to beforeXmlCaptureMs,
         "error_code" to dispatchOutcome.errorCode,
         "error_message" to dispatchOutcome.errorMessage
     ).filterValues { it != null }
@@ -629,12 +645,21 @@ class ManualVlmTraceRecorder(
     }
 
     private fun handleAccessibilityEvent(event: AccessibilityEvent) {
+        val sourceSnapshot = when (event.eventType) {
+            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED,
+            AccessibilityEvent.TYPE_VIEW_CLICKED,
+            AccessibilityEvent.TYPE_VIEW_LONG_CLICKED -> sourceSnapshotFromEvent(event)
+            else -> null
+        }
         synchronized(recordingLock) {
-            handleAccessibilityEventLocked(event)
+            handleAccessibilityEventLocked(event, sourceSnapshot)
         }
     }
 
-    private fun handleAccessibilityEventLocked(event: AccessibilityEvent) {
+    private fun handleAccessibilityEventLocked(
+        event: AccessibilityEvent,
+        sourceSnapshot: AccessibilitySourceSnapshot?
+    ) {
         if (!isStarted) return
         if (isPaused) return
         val packageName = event.packageName?.toString()
@@ -646,7 +671,7 @@ class ManualVlmTraceRecorder(
         }
         when (event.eventType) {
             AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> {
-                recordTextChanged(event, packageName, lastXmlSnapshot, lastScreenshotSnapshot)
+                recordTextChanged(event, packageName, lastXmlSnapshot, lastScreenshotSnapshot, sourceSnapshot)
             }
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
@@ -656,7 +681,7 @@ class ManualVlmTraceRecorder(
             AccessibilityEvent.TYPE_VIEW_LONG_CLICKED -> {
                 val nowMs = System.currentTimeMillis()
                 if (hasPostInputActionWindowLocked(nowMs)) {
-                    recordPostInputActionLocked(event, packageName, nowMs)
+                    recordPostInputActionLocked(event, packageName, nowMs, sourceSnapshot)
                 } else {
                     suppressA11OnlyActionEvent(event)
                 }
@@ -695,7 +720,8 @@ class ManualVlmTraceRecorder(
     private fun recordPostInputActionLocked(
         event: AccessibilityEvent,
         packageName: String?,
-        nowMs: Long
+        nowMs: Long,
+        source: AccessibilitySourceSnapshot?
     ) {
         val pendingInput = pendingText
         val activeWindow = activePostInputClickWindowLocked(nowMs)
@@ -704,7 +730,6 @@ class ManualVlmTraceRecorder(
             return
         }
         val beforeXml = lastXmlSnapshot
-        val source = sourceSnapshotFromEvent(event)
         val bounds = source?.bounds
         if (source == null || bounds == null || bounds.isEmpty) {
             flushPendingText(beforeXml)
@@ -724,11 +749,11 @@ class ManualVlmTraceRecorder(
         val y = bounds.centerY().toFloat()
         val label = source.bestLabel().ifBlank { "按钮" }
         val actionName = if (event.eventType == AccessibilityEvent.TYPE_VIEW_LONG_CLICKED) {
-            "long_press"
+            OobCanonicalActionSchema.TOOL_LONG_PRESS
         } else {
-            "click"
+            OobCanonicalActionSchema.TOOL_CLICK
         }
-        val title = if (actionName == "long_press") "人工长按 $label" else "人工点击 $label"
+        val title = if (actionName == OobCanonicalActionSchema.TOOL_LONG_PRESS) "人工长按 $label" else "人工点击 $label"
         flushPendingText(beforeXml)
         clearPostInputClickWindowLocked()
         val resolvedPackageName = source.packageName ?: packageName
@@ -902,8 +927,8 @@ class ManualVlmTraceRecorder(
                 )
                 ?: if (enableDebugScreenshots) null else lastScreenshotSnapshot
         }
-        val touchX = if (gesture.actionName == "swipe") gesture.startX else (gesture.startX + gesture.endX) / 2f
-        val touchY = if (gesture.actionName == "swipe") gesture.startY else (gesture.startY + gesture.endY) / 2f
+        val touchX = if (gesture.actionName == OobCanonicalActionSchema.TOOL_SCROLL) gesture.startX else (gesture.startX + gesture.endX) / 2f
+        val touchY = if (gesture.actionName == OobCanonicalActionSchema.TOOL_SCROLL) gesture.startY else (gesture.startY + gesture.endY) / 2f
         if (coordinateHitsIgnoredTarget(beforeXml, touchX, touchY)) {
             synchronized(recordingLock) {
                 rawGestureIgnoredControlCount += 1
@@ -918,19 +943,19 @@ class ManualVlmTraceRecorder(
                 screenshot = beforeScreenshot,
                 resolutionSuffix = "focused_xml_before_next_touch"
             )
-            val currentTextAnchorId = if (gesture.actionName == "click") {
+            val currentTextAnchorId = if (gesture.actionName == OobCanonicalActionSchema.TOOL_CLICK) {
                 rawTextAnchorId(gesture.gestureId)
             } else {
                 null
             }
-            if (gesture.actionName != "click") {
+            if (gesture.actionName != OobCanonicalActionSchema.TOOL_CLICK) {
                 clearTextInputAnchor()
             }
             flushPendingTextUnlessAnchoredTo(currentTextAnchorId, beforeXml)
             clearPostInputClickWindowLocked()
             when (gesture.actionName) {
-                "click", "long_press" -> appendRawClickGesture(gesture, beforeXml, beforeScreenshot)
-                "swipe" -> appendRawSwipeGesture(gesture, beforeXml, beforeScreenshot)
+                OobCanonicalActionSchema.TOOL_CLICK, OobCanonicalActionSchema.TOOL_LONG_PRESS -> appendRawClickGesture(gesture, beforeXml, beforeScreenshot)
+                OobCanonicalActionSchema.TOOL_SCROLL -> appendRawSwipeGesture(gesture, beforeXml, beforeScreenshot)
             }
             rawGestureRecordedCount += 1
             lastXmlSnapshot = beforeXml ?: lastXmlSnapshot
@@ -955,7 +980,7 @@ class ManualVlmTraceRecorder(
         val label = target.label.ifBlank { "屏幕坐标 ${x.toInt()},${y.toInt()}" }
         val recordedActionName = gesture.actionName
         val title = when (recordedActionName) {
-            "long_press" -> "人工长按 $label"
+            OobCanonicalActionSchema.TOOL_LONG_PRESS -> "人工长按 $label"
             else -> "人工点击 $label"
         }
         val params = linkedMapOf<String, Any?>(
@@ -969,7 +994,7 @@ class ManualVlmTraceRecorder(
             "node_resource_id" to target.resourceId,
             "node_text" to target.text,
             "node_content_description" to target.contentDescription,
-            "duration_ms" to gesture.durationMs.takeIf { recordedActionName == "long_press" },
+            "duration_ms" to gesture.durationMs.takeIf { recordedActionName == OobCanonicalActionSchema.TOOL_LONG_PRESS },
             "gesture_duration_ms" to gesture.durationMs,
             "gesture_distance_px" to gesture.distancePx,
             "gesture_point_count" to gesture.pointCount,
@@ -1033,7 +1058,7 @@ class ManualVlmTraceRecorder(
         ).filterValues { it != null }
         appendRecordedAction(
             ManualVlmRecordedAction(
-                actionName = "swipe",
+                actionName = OobCanonicalActionSchema.TOOL_SCROLL,
                 title = title,
                 params = params,
                 packageName = target.packageName,
@@ -1051,13 +1076,13 @@ class ManualVlmTraceRecorder(
 
     private suspend fun performOverlayGesture(gesture: ManualOverlayTouchGesture) {
         when (gesture.actionName) {
-            "click" -> performOverlayClickGesture(gesture)
-            "long_press" -> AccessibilityController.longClickCoordinate(
+            OobCanonicalActionSchema.TOOL_CLICK -> performOverlayClickGesture(gesture)
+            OobCanonicalActionSchema.TOOL_LONG_PRESS -> AccessibilityController.longClickCoordinate(
                 gesture.startX,
                 gesture.startY,
                 gesture.durationMs.coerceAtLeast(OVERLAY_LONG_PRESS_MIN_DURATION_MS)
             )
-            "swipe" -> {
+            OobCanonicalActionSchema.TOOL_SCROLL -> {
                 val direction = overlaySwipeDirection(gesture)
                 AccessibilityController.scrollCoordinate(
                     x = gesture.startX,
@@ -1099,7 +1124,8 @@ class ManualVlmTraceRecorder(
         beforeXml: String?,
         beforeScreenshot: ManualVlmScreenshotRef?,
         operationId: String,
-        dispatchOutcome: OverlayDispatchOutcome
+        dispatchOutcome: OverlayDispatchOutcome,
+        beforeXmlCaptureMs: Long?
     ) {
         val x = gesture.startX
         val y = gesture.startY
@@ -1113,7 +1139,7 @@ class ManualVlmTraceRecorder(
         val label = target.label.ifBlank { "屏幕坐标 ${x.toInt()},${y.toInt()}" }
         val recordedActionName = gesture.actionName
         val title = when (recordedActionName) {
-            "long_press" -> "人工长按 $label"
+            OobCanonicalActionSchema.TOOL_LONG_PRESS -> "人工长按 $label"
             else -> "人工点击 $label"
         }
         val params = (linkedMapOf<String, Any?>(
@@ -1125,7 +1151,7 @@ class ManualVlmTraceRecorder(
             "node_resource_id" to target.resourceId,
             "node_text" to target.text,
             "node_content_description" to target.contentDescription,
-            "duration_ms" to gesture.durationMs.takeIf { recordedActionName == "long_press" },
+            "duration_ms" to gesture.durationMs.takeIf { recordedActionName == OobCanonicalActionSchema.TOOL_LONG_PRESS },
             "gesture_duration_ms" to gesture.durationMs,
             "gesture_distance_px" to gesture.distancePx,
             "recording_backend" to OVERLAY_TOUCH_BACKEND,
@@ -1134,7 +1160,12 @@ class ManualVlmTraceRecorder(
             "target_resolution" to target.resolution,
             "display_width" to gesture.displayWidth.takeIf { it > 0 },
             "display_height" to gesture.displayHeight.takeIf { it > 0 }
-        ) + overlayDispatchDiagnostics(operationId, beforeXml, dispatchOutcome)).filterValues { it != null }
+                    ) + overlayDispatchDiagnostics(
+                        operationId,
+                        beforeXml,
+                        dispatchOutcome,
+                        beforeXmlCaptureMs
+                    )).filterValues { it != null }
         // Package name from XML is null for SurfaceView/WebView apps (no accessible nodes).
         // Fall back to the accessibility service's current window package so that the
         // compiled Function step carries a valid src_ctx.package_name for the checker.
@@ -1153,7 +1184,14 @@ class ManualVlmTraceRecorder(
                 startedAtMs = gesture.startedAtMs,
                 finishedAtMs = gesture.finishedAtMs,
                 summary = title,
-                eventContext = overlayEventContextFor(gesture, target, operationId, dispatchOutcome, beforeXml)
+                eventContext = overlayEventContextFor(
+                    gesture,
+                    target,
+                    operationId,
+                    dispatchOutcome,
+                    beforeXml,
+                    beforeXmlCaptureMs
+                )
             )
         )
     }
@@ -1163,7 +1201,8 @@ class ManualVlmTraceRecorder(
         beforeXml: String?,
         beforeScreenshot: ManualVlmScreenshotRef?,
         operationId: String,
-        dispatchOutcome: OverlayDispatchOutcome
+        dispatchOutcome: OverlayDispatchOutcome,
+        beforeXmlCaptureMs: Long?
     ) {
         val midX = (gesture.startX + gesture.endX) / 2f
         val midY = (gesture.startY + gesture.endY) / 2f
@@ -1196,12 +1235,17 @@ class ManualVlmTraceRecorder(
             "target_resolution" to target.resolution,
             "display_width" to gesture.displayWidth.takeIf { it > 0 },
             "display_height" to gesture.displayHeight.takeIf { it > 0 }
-        ) + overlayDispatchDiagnostics(operationId, beforeXml, dispatchOutcome)).filterValues { it != null }
+        ) + overlayDispatchDiagnostics(
+            operationId,
+            beforeXml,
+            dispatchOutcome,
+            beforeXmlCaptureMs = beforeXmlCaptureMs
+        )).filterValues { it != null }
         val resolvedPackageName = target.packageName
             ?: AccessibilityController.getPackageName()
         appendRecordedAction(
             ManualVlmRecordedAction(
-                actionName = "swipe",
+                actionName = OobCanonicalActionSchema.TOOL_SCROLL,
                 title = title,
                 params = params,
                 packageName = resolvedPackageName,
@@ -1212,7 +1256,14 @@ class ManualVlmTraceRecorder(
                 startedAtMs = gesture.startedAtMs,
                 finishedAtMs = gesture.finishedAtMs,
                 summary = title,
-                eventContext = overlayEventContextFor(gesture, target, operationId, dispatchOutcome, beforeXml)
+                eventContext = overlayEventContextFor(
+                    gesture,
+                    target,
+                    operationId,
+                    dispatchOutcome,
+                    beforeXml,
+                    beforeXmlCaptureMs
+                )
             )
         )
     }
@@ -1221,9 +1272,9 @@ class ManualVlmTraceRecorder(
         event: AccessibilityEvent,
         packageName: String?,
         beforeXml: String?,
-        beforeScreenshot: ManualVlmScreenshotRef?
+        beforeScreenshot: ManualVlmScreenshotRef?,
+        source: AccessibilitySourceSnapshot?
     ) {
-        val source = sourceSnapshotFromEvent(event)
         val now = System.currentTimeMillis()
         val text = normalizeInputTextContent(
             event.text.joinToString("").ifBlank { source?.text.orEmpty() }
@@ -1379,7 +1430,7 @@ class ManualVlmTraceRecorder(
         val index = recordedActions.lastIndex
         if (index < 0) return
         val action = recordedActions[index]
-        if (action.actionName != "click") return
+        if (action.actionName != OobCanonicalActionSchema.TOOL_CLICK) return
         if (action.params["recording_backend"]?.toString() != OVERLAY_TOUCH_BACKEND) return
         if (anchor != null &&
             action.finishedAtMs <= anchor.finishedAtMs + TEXT_INPUT_ANCHOR_CLICK_GRACE_MS
@@ -1514,14 +1565,45 @@ class ManualVlmTraceRecorder(
         )
     }
 
-    private fun captureCurrentXmlSafe(): String? =
-        runBlocking {
+    private data class TimedXmlCapture(
+        val xml: String?,
+        val durationMs: Long
+    )
+
+    private fun captureCurrentXmlTimed(reason: String): TimedXmlCapture {
+        val startedAtMs = SystemClock.uptimeMillis()
+        val xml = runBlocking {
             withTimeoutOrNull(BEFORE_XML_CAPTURE_TIMEOUT_MS) {
                 withContext(Dispatchers.IO) { captureCurrentXml() }
             }
         }?.takeIf { it.isNotBlank() }
+        val durationMs = (SystemClock.uptimeMillis() - startedAtMs).coerceAtLeast(0L)
+        recordXmlCaptureTiming(reason, durationMs, xml != null)
+        return TimedXmlCapture(xml = xml, durationMs = durationMs)
+    }
 
-    private fun currentXmlForTextFallback(): String? = captureCurrentXmlSafe()
+    private fun captureCurrentXmlSafe(reason: String = "manual_recording"): String? =
+        captureCurrentXmlTimed(reason).xml
+
+    private fun recordXmlCaptureTiming(
+        reason: String,
+        durationMs: Long,
+        success: Boolean
+    ) {
+        xmlCaptureCount += 1
+        if (success) {
+            xmlCaptureSuccessCount += 1
+        } else {
+            xmlCaptureTimeoutOrEmptyCount += 1
+        }
+        xmlCaptureTotalMs += durationMs
+        xmlCaptureMaxMs = max(xmlCaptureMaxMs, durationMs)
+        xmlCaptureLastMs = durationMs
+        xmlCaptureLastReason = reason
+    }
+
+    private fun currentXmlForTextFallback(reason: String = "text_fallback"): String? =
+        captureCurrentXmlSafe(reason)
 
     private fun normalizeInputTextContent(rawText: String): String {
         val normalized = rawText.replace(Regex("\\s+"), " ").trim()
@@ -1555,7 +1637,6 @@ class ManualVlmTraceRecorder(
         lastScreenshotSnapshot = pending.beforeScreenshot ?: lastScreenshotSnapshot
         val params = linkedMapOf<String, Any?>(
             "target_description" to pending.label,
-            "content" to pending.text,
             "text" to pending.text,
             "x" to pending.bounds.centerX().toFloat(),
             "y" to pending.bounds.centerY().toFloat(),
@@ -1566,7 +1647,7 @@ class ManualVlmTraceRecorder(
             "target_resolution" to pending.resolution
         ).filterValues { it != null }
         appendRecordedAction(ManualVlmRecordedAction(
-            actionName = "input_text",
+            actionName = OobCanonicalActionSchema.TOOL_INPUT_TEXT,
             title = title,
             params = params,
             packageName = pending.packageName,
@@ -1604,11 +1685,11 @@ class ManualVlmTraceRecorder(
         return when {
             normalized == "back" ||
                 normalized.contains("back") ||
-                normalized.contains("返回") -> "press_back"
+                normalized.contains("返回") -> OobCanonicalActionSchema.TOOL_PRESS_BACK
             normalized == "home" ||
                 normalized.contains("home") ||
                 normalized.contains("主页") ||
-                normalized.contains("主屏幕") -> "press_home"
+                normalized.contains("主屏幕") -> OobCanonicalActionSchema.TOOL_PRESS_HOME
             else -> null
         }
     }
@@ -2435,7 +2516,8 @@ class ManualVlmTraceRecorder(
         target: ManualEventTarget,
         operationId: String,
         dispatchOutcome: OverlayDispatchOutcome,
-        beforeXml: String?
+        beforeXml: String?,
+        beforeXmlCaptureMs: Long?
     ): Map<String, Any?> = (linkedMapOf<String, Any?>(
         "event_type" to "OVERLAY_TOUCH_${gesture.actionName.uppercase()}",
         "event_has_source" to false,
@@ -2444,7 +2526,7 @@ class ManualVlmTraceRecorder(
         "execution_mode" to SYNTHETIC_REPLAY_EXECUTION_MODE,
         "gesture_duration_ms" to gesture.durationMs,
         "gesture_distance_px" to gesture.distancePx,
-        "direction" to overlaySwipeDirectionName(gesture).takeIf { gesture.actionName == "swipe" },
+        "direction" to overlaySwipeDirectionName(gesture).takeIf { gesture.actionName == OobCanonicalActionSchema.TOOL_SCROLL },
         "start_x" to gesture.startX,
         "start_y" to gesture.startY,
         "end_x" to gesture.endX,
@@ -2456,7 +2538,12 @@ class ManualVlmTraceRecorder(
         "target_resource_id" to target.resourceId,
         "target_class" to target.className,
         "target_bounds" to boundsString(target.bounds)
-    ) + overlayDispatchDiagnostics(operationId, beforeXml, dispatchOutcome)).filterValues { it != null }
+    ) + overlayDispatchDiagnostics(
+        operationId,
+        beforeXml,
+        dispatchOutcome,
+        beforeXmlCaptureMs = beforeXmlCaptureMs
+    )).filterValues { it != null }
 
     private fun textInputEventContextFor(
         event: AccessibilityEvent,
@@ -2626,6 +2713,18 @@ class ManualVlmTraceRecorder(
                     null
                 }
             ).filterValues { it != null },
+            "xml_capture" to linkedMapOf(
+                "schema_version" to "oob.manual_recording.xml_capture_timing.v1",
+                "capture_count" to xmlCaptureCount,
+                "success_count" to xmlCaptureSuccessCount,
+                "timeout_or_empty_count" to xmlCaptureTimeoutOrEmptyCount,
+                "total_ms" to xmlCaptureTotalMs,
+                "avg_ms" to if (xmlCaptureCount > 0) xmlCaptureTotalMs / xmlCaptureCount else 0L,
+                "max_ms" to xmlCaptureMaxMs,
+                "last_ms" to xmlCaptureLastMs,
+                "last_reason" to xmlCaptureLastReason.takeIf { it.isNotBlank() },
+                "timeout_ms" to BEFORE_XML_CAPTURE_TIMEOUT_MS
+            ).filterValues { it != null },
             "accessibility_events" to linkedMapOf(
                 "event_count" to accessibilityEventCount,
                 "ignored_package_event_count" to accessibilityIgnoredPackageCount,
@@ -2683,6 +2782,10 @@ class ManualVlmTraceRecorder(
                 "overlay_action_count" to overlayActions,
                 "raw_action_count" to rawActions,
                 "semantic_action_count" to semanticActions,
+                "xml_capture_count" to xmlCaptureCount,
+                "xml_capture_total_ms" to xmlCaptureTotalMs,
+                "xml_capture_avg_ms" to if (xmlCaptureCount > 0) xmlCaptureTotalMs / xmlCaptureCount else 0L,
+                "xml_capture_max_ms" to xmlCaptureMaxMs,
                 "suppressed_non_raw_action_count" to suppressedNonRawActionCount,
                 "completeness" to completeness,
                 "missing_raw_touch" to (enableRawTouch && !rawTouchAvailable),
@@ -2991,7 +3094,7 @@ class ManualVlmTraceRecorder(
                 ScreenshotAnnotation(actionName = actionName, x = x, y = y)
 
             fun forGesture(gesture: ManualOverlayTouchGesture): ScreenshotAnnotation {
-                return if (gesture.actionName == "swipe") {
+                return if (gesture.actionName == OobCanonicalActionSchema.TOOL_SCROLL) {
                     ScreenshotAnnotation(
                         actionName = gesture.actionName,
                         x = gesture.startX,
@@ -3005,7 +3108,7 @@ class ManualVlmTraceRecorder(
             }
 
             fun forRawGesture(gesture: ManualRawTouchGesture): ScreenshotAnnotation {
-                return if (gesture.actionName == "swipe") {
+                return if (gesture.actionName == OobCanonicalActionSchema.TOOL_SCROLL) {
                     ScreenshotAnnotation(
                         actionName = gesture.actionName,
                         x = gesture.startX,

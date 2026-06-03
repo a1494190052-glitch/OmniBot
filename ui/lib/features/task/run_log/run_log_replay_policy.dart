@@ -1,63 +1,15 @@
+import 'package:ui/features/task/run_log/oob_canonical_action_schema.dart';
+
 class RunLogReplayPolicy {
   const RunLogReplayPolicy._();
 
   static const schemaVersion = 'oob.runlog_replay_policy.v1';
 
-  static const omniflowActions = <String>{
-    'click',
-    'long_press',
-    'input_text',
-    'swipe',
-    'open_app',
-    'press_key',
-    'finished',
-  };
+  static const omniflowActions = OobCanonicalActionSchema.replayableToolNames;
 
-  static const omniflowActionAliases = <String, String>{
-    'tap': 'click',
-    'click_at': 'click',
-    'click_element': 'click',
-    'clickelement': 'click',
-    'longclick': 'long_press',
-    'long_click': 'long_press',
-    'longpress': 'long_press',
-    'type': 'input_text',
-    'type_text': 'input_text',
-    'set_text': 'input_text',
-    'settext': 'input_text',
-    'inputtext': 'input_text',
-    'scroll': 'swipe',
-    'scroll_down': 'swipe',
-    'scroll_up': 'swipe',
-    'scroll_left': 'swipe',
-    'scroll_right': 'swipe',
-    'back': 'press_key',
-    'press_back': 'press_key',
-    'pressback': 'press_key',
-    'press_back_button': 'press_key',
-    'home': 'press_key',
-    'press_home': 'press_key',
-    'presshome': 'press_key',
-    'press_home_button': 'press_key',
-    'hot_key': 'press_key',
-    'hotkey': 'press_key',
-    'presskey': 'press_key',
-    'key_event': 'press_key',
-    'keyevent': 'press_key',
-    'openapp': 'open_app',
-    'launch_app': 'open_app',
-    'launchapp': 'open_app',
-    'finish': 'finished',
-    'done': 'finished',
-    'complete': 'finished',
-  };
+  static const omniflowActionAliases = OobCanonicalActionSchema.actionAliases;
 
-  static const coordinateActions = <String>{
-    'click',
-    'long_press',
-    'input_text',
-    'swipe',
-  };
+  static const coordinateActions = OobCanonicalActionSchema.coordinateToolNames;
 
   static const perceptionTools = <String>{
     'vlm_task',
@@ -96,14 +48,7 @@ class RunLogReplayPolicy {
   };
 
   static const omniflowFunctionTools = <String>{
-    'omniflow.call_function',
-    'call_function',
     'oob_function_run',
-    'run_function',
-    'execute_function',
-    'callfunction',
-    'runfunction',
-    'executefunction',
   };
 
   static const omniflowToolCallTools = <String>{

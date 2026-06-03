@@ -33,7 +33,7 @@
     {
       "id": "vlm-android-gui",
       "name": "vlm-android-gui",
-      "description": "Use for OOB VLM Android GUI automation, AndroidWorld phone tasks, vlm_task, OmniFlow replay, reusable command generation, and RunLog validation.",
+      "description": "Use for OOB VLM Android GUI automation, AndroidWorld phone tasks, vlm_task, OmniFlow replay, reusable Function generation, and RunLog validation.",
       "assetPath": "builtin_skills/vlm-android-gui",
       "hasScripts": false,
       "hasReferences": true,
@@ -47,6 +47,16 @@
       "assetPath": "builtin_skills/omniflow",
       "hasScripts": false,
       "hasReferences": true,
+      "hasAssets": false,
+      "hasEvals": false
+    },
+    {
+      "id": "omniflow-checker-maintainer",
+      "name": "omniflow-checker-maintainer",
+      "description": "Implement and maintain OmniFlow runtime checkers for OOB Android GUI replay. Use when the user asks to add, generate, repair, or debug checker code, global checker, hi 升级 checker, upgrade/update popup checker, package/open-app checker, or supported checker_rules that need Kotlin runtime changes.",
+      "assetPath": "builtin_skills/omniflow-checker-maintainer",
+      "hasScripts": false,
+      "hasReferences": false,
       "hasAssets": false,
       "hasEvals": false
     },

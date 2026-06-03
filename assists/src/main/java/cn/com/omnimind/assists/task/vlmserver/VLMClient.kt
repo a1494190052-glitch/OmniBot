@@ -7,6 +7,7 @@ import cn.com.omnimind.baselib.llm.ChatCompletionRequest
 import cn.com.omnimind.baselib.llm.ChatCompletionStreamOptions
 import cn.com.omnimind.baselib.llm.ModelSceneRegistry
 import cn.com.omnimind.baselib.llm.contentText
+import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
 import cn.com.omnimind.baselib.util.OmniLog
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
@@ -193,7 +194,6 @@ class VLMClient(
         val actionSummary = when (val action = executedStep.action) {
             is ClickAction -> "click ${action.targetDescription} @(${action.x},${action.y})"
             is InputTextAction -> "input_text ${action.targetDescription} @(${action.x},${action.y})"
-            is TypeAction -> "type ${action.content.take(MAX_HISTORY_ACTION_CHARS)}"
             is ScrollAction -> "scroll ${action.targetDescription} ${action.direction.orEmpty()} @(${action.x1},${action.y1})->(${action.x2},${action.y2})"
             is LongPressAction -> "long_press ${action.targetDescription} @(${action.x},${action.y})"
             is OpenAppAction -> "open_app ${action.packageName}"
@@ -207,7 +207,6 @@ class VLMClient(
             is InfoAction -> "info"
             is FeedbackAction -> "feedback"
             is AbortAction -> "abort"
-            is HotKeyAction -> "hot_key ${action.key}"
             is WaitAction -> "wait"
             is RecordAction -> "record"
         }.take(MAX_HISTORY_ACTION_CHARS)
@@ -460,80 +459,68 @@ class VLMClient(
         val toolName = toolCall.function.name
         val args = parseArguments(toolName, toolCall.function.arguments)
         return when (toolName) {
-            "click" -> ClickAction(
-                targetDescription = requireString(args, "target_description"),
-                x = requireFloat(args, "x"),
-                y = requireFloat(args, "y"),
-                elementIndex = optionalInt(args, "element_index"),
-                nodeId = optionalString(args, "node_id")
+            OobCanonicalActionSchema.TOOL_CLICK -> ClickAction(
+                targetDescription = requireString(args, OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION),
+                x = requireFloat(args, OobCanonicalActionSchema.ARG_X),
+                y = requireFloat(args, OobCanonicalActionSchema.ARG_Y),
+                elementIndex = optionalInt(args, OobCanonicalActionSchema.ARG_ELEMENT_INDEX),
+                nodeId = optionalString(args, OobCanonicalActionSchema.ARG_NODE_ID)
             )
-            "type" -> TypeAction(
-                content = requireString(args, "content")
+            OobCanonicalActionSchema.TOOL_INPUT_TEXT -> InputTextAction(
+                targetDescription = requireString(args, OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION),
+                text = requireString(args, OobCanonicalActionSchema.ARG_TEXT),
+                x = requireFloat(args, OobCanonicalActionSchema.ARG_X),
+                y = requireFloat(args, OobCanonicalActionSchema.ARG_Y),
+                elementIndex = optionalInt(args, OobCanonicalActionSchema.ARG_ELEMENT_INDEX),
+                nodeId = optionalString(args, OobCanonicalActionSchema.ARG_NODE_ID)
             )
-            "input_text" -> InputTextAction(
-                targetDescription = requireString(args, "target_description"),
-                content = requireString(args, "content", "text", "value"),
-                x = requireFloat(args, "x"),
-                y = requireFloat(args, "y"),
-                elementIndex = optionalInt(args, "element_index"),
-                nodeId = optionalString(args, "node_id")
+            OobCanonicalActionSchema.TOOL_SCROLL -> ScrollAction(
+                targetDescription = requireString(args, OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION),
+                x1 = requireFloat(args, OobCanonicalActionSchema.ARG_X1),
+                y1 = requireFloat(args, OobCanonicalActionSchema.ARG_Y1),
+                x2 = requireFloat(args, OobCanonicalActionSchema.ARG_X2),
+                y2 = requireFloat(args, OobCanonicalActionSchema.ARG_Y2),
+                durationMs = optionalLong(args, OobCanonicalActionSchema.ARG_DURATION_MS) ?: 1500L,
+                scrollableIndex = optionalInt(args, OobCanonicalActionSchema.ARG_SCROLLABLE_INDEX),
+                direction = optionalString(args, OobCanonicalActionSchema.ARG_DIRECTION)?.lowercase()
             )
-            "scroll" -> ScrollAction(
-                targetDescription = requireString(args, "target_description"),
-                x1 = requireFloat(args, "x1"),
-                y1 = requireFloat(args, "y1"),
-                x2 = requireFloat(args, "x2"),
-                y2 = requireFloat(args, "y2"),
-                duration = optionalFloat(args, "duration") ?: 1.5f,
-                scrollableIndex = optionalInt(args, "scrollable_index"),
-                direction = optionalString(args, "direction")?.lowercase()
+            OobCanonicalActionSchema.TOOL_LONG_PRESS -> LongPressAction(
+                targetDescription = requireString(args, OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION),
+                x = requireFloat(args, OobCanonicalActionSchema.ARG_X),
+                y = requireFloat(args, OobCanonicalActionSchema.ARG_Y),
+                elementIndex = optionalInt(args, OobCanonicalActionSchema.ARG_ELEMENT_INDEX),
+                nodeId = optionalString(args, OobCanonicalActionSchema.ARG_NODE_ID)
             )
-            "long_press" -> LongPressAction(
-                targetDescription = requireString(args, "target_description"),
-                x = requireFloat(args, "x"),
-                y = requireFloat(args, "y"),
-                elementIndex = optionalInt(args, "element_index"),
-                nodeId = optionalString(args, "node_id")
+            OobCanonicalActionSchema.TOOL_OPEN_APP -> OpenAppAction(
+                packageName = requireString(args, OobCanonicalActionSchema.ARG_PACKAGE_NAME)
             )
-            "open_app" -> OpenAppAction(
-                packageName = requireString(args, "package_name")
+            OobCanonicalActionSchema.TOOL_PRESS_HOME -> PressHomeAction()
+            OobCanonicalActionSchema.TOOL_PRESS_BACK -> PressBackAction()
+            OobCanonicalActionSchema.TOOL_GET_STATE -> GetStateAction(
+                reason = optionalString(args, OobCanonicalActionSchema.ARG_REASON).orEmpty()
             )
-            "press_home" -> PressHomeAction()
-            "press_back" -> PressBackAction()
-            "get_state" -> GetStateAction(
-                reason = optionalString(args, "reason").orEmpty()
+            OobCanonicalActionSchema.TOOL_OOB_FUNCTION_RUN -> FunctionRunAction(
+                functionId = requireFunctionId(args),
+                arguments = (args[OobCanonicalActionSchema.ARG_ARGUMENTS] as? JsonObject) ?: buildJsonObject {}
             )
-            "oob_function_run", "call_function", "run_function" -> FunctionRunAction(
-                functionId = requireString(
-                    args,
-                    "function_id",
-                    "functionId",
-                    "reusable_command_id",
-                    "reusableCommandId"
-                ),
-                arguments = (args["arguments"] as? JsonObject) ?: buildJsonObject {}
+            OobCanonicalActionSchema.TOOL_FINISHED -> FinishedAction(
+                content = optionalString(args, OobCanonicalActionSchema.ARG_CONTENT).orEmpty()
             )
-            "hot_key" -> HotKeyAction(
-                key = requireString(args, "key").uppercase()
+            OobCanonicalActionSchema.TOOL_INFO -> InfoAction(
+                value = requireString(args, OobCanonicalActionSchema.ARG_VALUE)
             )
-            "finished" -> FinishedAction(
-                content = optionalString(args, "content").orEmpty()
+            OobCanonicalActionSchema.TOOL_FEEDBACK -> FeedbackAction(
+                value = requireString(args, OobCanonicalActionSchema.ARG_VALUE)
             )
-            "info" -> InfoAction(
-                value = requireString(args, "value")
+            OobCanonicalActionSchema.TOOL_ABORT -> AbortAction(
+                value = optionalString(args, OobCanonicalActionSchema.ARG_VALUE).orEmpty()
             )
-            "feedback" -> FeedbackAction(
-                value = requireString(args, "value")
+            OobCanonicalActionSchema.TOOL_REQUIRE_USER_CHOICE -> RequireUserChoiceAction(
+                options = requireStringList(args, OobCanonicalActionSchema.ARG_OPTIONS),
+                prompt = requireString(args, OobCanonicalActionSchema.ARG_PROMPT)
             )
-            "abort" -> AbortAction(
-                value = optionalString(args, "value").orEmpty()
-            )
-            "require_user_choice" -> RequireUserChoiceAction(
-                options = requireStringList(args, "options"),
-                prompt = requireString(args, "prompt")
-            )
-            "require_user_confirmation" -> RequireUserConfirmationAction(
-                prompt = requireString(args, "prompt")
+            OobCanonicalActionSchema.TOOL_REQUIRE_USER_CONFIRMATION -> RequireUserConfirmationAction(
+                prompt = requireString(args, OobCanonicalActionSchema.ARG_PROMPT)
             )
             else -> throw IllegalArgumentException("Unsupported tool call: ${toolCall.function.name}")
         }
@@ -632,27 +619,8 @@ class VLMClient(
         return toolNames().firstOrNull { it == normalized }
     }
 
-    private fun toolNames(): Set<String> = setOf(
-        "click",
-        "input_text",
-        "type",
-        "scroll",
-        "long_press",
-        "open_app",
-        "press_home",
-        "press_back",
-        "get_state",
-        "oob_function_run",
-        "call_function",
-        "run_function",
-        "hot_key",
-        "finished",
-        "info",
-        "feedback",
-        "abort",
-        "require_user_choice",
-        "require_user_confirmation"
-    )
+    private fun toolNames(): Set<String> =
+        OobCanonicalActionSchema.modelVisibleTools.mapTo(linkedSetOf()) { it.name }
 
     private fun extractTopLevelObject(raw: String): String? {
         val start = raw.indexOf('{')
@@ -698,13 +666,14 @@ class VLMClient(
         return if (normalized.length <= maxLen) normalized else normalized.take(maxLen) + "..."
     }
 
-    private fun requireString(obj: JsonObject, key: String, vararg aliases: String): String {
-        val keys = listOf(key) + aliases
-        keys.forEach { candidate ->
-            val value = obj[candidate]?.jsonPrimitive?.content?.trim()?.takeIf { it.isNotEmpty() }
-            if (value != null) return value
-        }
-        throw IllegalArgumentException("Missing or empty '${keys.first()}'")
+    private fun requireString(obj: JsonObject, key: String): String {
+        return obj[key]?.jsonPrimitive?.content?.trim()?.takeIf { it.isNotEmpty() }
+            ?: throw IllegalArgumentException("Missing or empty '$key'")
+    }
+
+    private fun requireFunctionId(obj: JsonObject): String {
+        return optionalString(obj, OobCanonicalActionSchema.ARG_FUNCTION_ID)
+            ?: throw IllegalArgumentException("Missing or empty '${OobCanonicalActionSchema.ARG_FUNCTION_ID}'")
     }
 
     private fun optionalString(obj: JsonObject, key: String): String? {
@@ -718,6 +687,11 @@ class VLMClient(
 
     private fun optionalFloat(obj: JsonObject, key: String): Float? {
         return obj[key]?.jsonPrimitive?.contentOrNull?.toFloatOrNull()
+    }
+
+    private fun optionalLong(obj: JsonObject, key: String): Long? {
+        val raw = obj[key]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        return raw.toLongOrNull() ?: raw.toDoubleOrNull()?.toLong()
     }
 
     private fun optionalInt(obj: JsonObject, key: String): Int? {

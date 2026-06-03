@@ -36,7 +36,8 @@ class VlmToolHandler(
         val waitTimeoutMs: Long?,
         val model: String?,
         val disableOmniFlowRecall: Boolean,
-        val allowOmniFlowFunctionAutoExecute: Boolean
+        val allowOmniFlowFunctionAutoExecute: Boolean,
+        val parseOnly: Boolean = false,
     )
 
     data class VlmArgsSanitizeResult(
@@ -105,6 +106,7 @@ class VlmToolHandler(
                 disableOmniFlowRecall = disableOmniFlowRecall,
                 explicitFunctionAutoExecute = explicitFunctionAutoExecute
             )
+            val parseOnly = firstBoolean(args, "parseOnly", "parse_only", "dryRun", "dry_run") ?: false
             val rawArgs = VlmExecutionArgs(
                 goal = goal,
                 packageName = packageName?.takeIf { it.isNotBlank() },
@@ -114,7 +116,8 @@ class VlmToolHandler(
                 waitTimeoutMs = waitTimeoutMs,
                 model = model?.takeIf { it.isNotBlank() },
                 disableOmniFlowRecall = disableOmniFlowRecall,
-                allowOmniFlowFunctionAutoExecute = allowOmniFlowFunctionAutoExecute
+                allowOmniFlowFunctionAutoExecute = allowOmniFlowFunctionAutoExecute,
+                parseOnly = parseOnly,
             )
             val appNameToPackage = runtimeContextRepository.getAppNameToPackageMap()
             val detectedTargetPackage = detectTargetAppPackage(userMessage, appNameToPackage)
@@ -151,6 +154,32 @@ class VlmToolHandler(
                 OmniLog.w("VlmToolHandler", "vlm_task args corrected: reasons=${sanitized.reasons.joinToString(",")}")
             }
             helper.ensureRunActive()
+            if (safeArgs.parseOnly) {
+                val result = VlmToolCoordinator.parseOnlyNextAction(
+                    context = helper.context,
+                    request = VlmTaskRequest(
+                        goal = safeArgs.goal,
+                        model = safeArgs.model,
+                        maxSteps = safeArgs.maxSteps,
+                        waitTimeoutMs = safeArgs.waitTimeoutMs,
+                        packageName = if (safeArgs.startFromCurrent) null else safeArgs.packageName,
+                        needSummary = safeArgs.needSummary,
+                        skipGoHome = safeArgs.startFromCurrent,
+                        stepSkillGuidance = resolvedSkills.joinToString("\n\n") { it.stepGuidance() },
+                        disableOmniFlowRecall = safeArgs.disableOmniFlowRecall,
+                        allowOmniFlowFunctionAutoExecute = safeArgs.allowOmniFlowFunctionAutoExecute
+                    ),
+                    scope = scope,
+                )
+                val payloadJson = helper.encodeLocalizedPayload(result.toPayload())
+                return ToolExecutionResult.ContextResult(
+                    toolName = AgentToolNames.VLM_TASK,
+                    summaryText = helper.localized("VLM 已完成一次只解析不执行的诊断规划"),
+                    previewJson = payloadJson,
+                    rawResultJson = payloadJson,
+                    success = result.success,
+                )
+            }
             AgentVlmUiSession.beginTask(toolHandle.runId, vlmTaskId)
             val outcome = VlmToolCoordinator.executeNewTask(
                 context = helper.context,

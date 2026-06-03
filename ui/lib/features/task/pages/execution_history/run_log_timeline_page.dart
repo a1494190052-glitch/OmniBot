@@ -6,7 +6,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:ui/features/task/pages/execution_history/function_run_result_sheet.dart';
-import 'package:ui/features/task/pages/execution_history/widgets/reusable_command_card.dart';
+import 'package:ui/features/task/pages/execution_history/widgets/reusable_function_card.dart';
 import 'package:ui/features/task/run_log/run_log_reusable_function_converter.dart';
 import 'package:ui/features/task/run_log/run_log_replay_policy.dart';
 import 'package:ui/features/task/pages/scheduled_tasks/widgets/schedule_task_sheet.dart';
@@ -334,7 +334,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
     final isEnhancingRunLogFunction = _runLogEnhancementJob?.isRunning == true;
     final List<Widget> actions = <Widget>[
       Tooltip(
-        message: _text(context, '执行复用指令', 'Run reusable command'),
+        message: _text(context, '执行复用指令', 'Run reusable Function'),
         child: IconButton(
           key: const ValueKey('run-log-action-replay'),
           icon: _isReplayingRunLog
@@ -356,7 +356,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       ),
       Tooltip(
         message: savedSpec != null
-            ? _text(context, '查看复用指令', 'View reusable command')
+            ? _text(context, '查看复用指令', 'View reusable Function')
             : convertEligibility.canConvert
             ? _text(context, '保存为人工 Function', 'Save manual function')
             : convertEligibility.message,
@@ -624,18 +624,18 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       _isReplayingRunLog = true;
     });
     showToast(
-      _text(context, '正在执行复用指令', 'Running reusable command'),
+      _text(context, '正在执行复用指令', 'Running reusable Function'),
       type: ToastType.info,
     );
     final executionFailedText = _text(
       context,
       '复用指令执行失败',
-      'Reusable command failed',
+      'Reusable Function failed',
     );
     final conversionFailedText = _text(
       context,
       '复用指令生成失败',
-      'Reusable command generation failed',
+      'Reusable Function generation failed',
     );
 
     try {
@@ -673,7 +673,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       await showFunctionRunResultSheet(
         context,
         result: result,
-        title: _text(context, '复用指令执行结果', 'Reusable command result'),
+        title: _text(context, '复用指令执行结果', 'Reusable Function result'),
         arguments: _defaultArgumentsForFunctionSpec(spec),
       );
     } catch (e) {
@@ -2824,18 +2824,18 @@ class _ReusableFunctionSpecSheetState
                                       ? _text(
                                           context,
                                           'Agent 增强结果',
-                                          'Agent enhanced command',
+                                          'Agent enhanced Function',
                                         )
                                       : hasRegisteredFunction
                                       ? _text(
                                           context,
                                           'RunLog 保存结果',
-                                          'Saved RunLog command',
+                                          'Saved RunLog Function',
                                         )
                                       : _text(
                                           context,
                                           '本地生成结果',
-                                          'Locally prepared command',
+                                          'Locally prepared Function',
                                         ),
                                   style: TextStyle(
                                     fontSize: 12,
@@ -2874,7 +2874,7 @@ class _ReusableFunctionSpecSheetState
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            ReusableCommandCard(
+                            ReusableFunctionCard(
                               title: spec.name.isEmpty
                                   ? spec.functionId
                                   : spec.name,
@@ -2882,14 +2882,10 @@ class _ReusableFunctionSpecSheetState
                                   .toString(),
                               steps: detail.steps
                                   .map(
-                                    (step) => ReusableCommandStepPreview(
+                                    (step) => ReusableFunctionStepPreview(
                                       index: step.index,
                                       title: step.displayTitle,
-                                      tool:
-                                          (step.raw['tool'] ??
-                                                  step.raw['omniflow_action'] ??
-                                                  '')
-                                              .toString(),
+                                      tool: (step.raw['tool'] ?? '').toString(),
                                       executor: (step.raw['executor'] ?? '')
                                           .toString(),
                                       kind: (step.raw['kind'] ?? '').toString(),
@@ -2899,6 +2895,9 @@ class _ReusableFunctionSpecSheetState
                               stepCount: detail.steps.length,
                               parameterCount: detail.parameters.length,
                               sourceRunCount: _sourceRunCount,
+                              runCount: 0,
+                              successCount: 0,
+                              failCount: 0,
                               isRunning: _isExecuting || isEnhancing,
                               onRun: _isImporting || _isExecuting || isEnhancing
                                   ? null
@@ -3154,7 +3153,7 @@ class _ReusableFunctionSpecSheetState
                                     text: _text(
                                       context,
                                       '复用指令 JSON',
-                                      'Reusable command JSON',
+                                      'Reusable Function JSON',
                                     ),
                                   ),
                                   const SizedBox(height: 8),
@@ -3478,7 +3477,7 @@ class _ReusableFunctionSpecSheetState
         });
         showToast(
           successMessage ??
-              _text(context, '已保存为复用指令', 'Reusable command saved'),
+              _text(context, '已保存为复用指令', 'Reusable Function saved'),
           type: ToastType.success,
         );
         return true;
@@ -3499,7 +3498,7 @@ class _ReusableFunctionSpecSheetState
         final message = _text(
           context,
           '注册返回缺少复用指令 ID',
-          'Registration returned no reusable command ID',
+          'Registration returned no reusable Function ID',
         );
         setState(() {
           _isImporting = false;
@@ -3529,7 +3528,7 @@ class _ReusableFunctionSpecSheetState
       if (result.success) {
         showToast(
           successMessage ??
-              _text(context, '已保存为复用指令', 'Reusable command saved'),
+              _text(context, '已保存为复用指令', 'Reusable Function saved'),
           type: ToastType.success,
         );
         return true;
@@ -3566,7 +3565,7 @@ class _ReusableFunctionSpecSheetState
     }
     if (functionId.isEmpty) {
       showToast(
-        _text(context, '没有可执行的复用指令', 'Missing runnable command'),
+        _text(context, '没有可执行的复用指令', 'Missing runnable Function'),
         type: ToastType.warning,
       );
       return;
@@ -3597,7 +3596,7 @@ class _ReusableFunctionSpecSheetState
         await showFunctionRunResultSheet(
           context,
           result: result,
-          title: _text(context, '复用指令执行结果', 'Reusable command result'),
+          title: _text(context, '复用指令执行结果', 'Reusable Function result'),
           arguments: _defaultArguments,
         );
       }
@@ -3613,7 +3612,7 @@ class _ReusableFunctionSpecSheetState
 
   Future<void> _publishFunctionForAgent() async {
     await _registerFunction(
-      successMessage: _text(context, '已注册为复用指令', 'Reusable command registered'),
+      successMessage: _text(context, '已注册为复用指令', 'Reusable Function registered'),
       agentVisible: true,
       allowWhileEnhancing: true,
     );
@@ -3645,7 +3644,7 @@ class _ReusableFunctionSpecSheetState
           _text(
             context,
             '复用指令保存失败，无法转定时任务',
-            'Reusable command registration failed',
+            'Reusable Function registration failed',
           ),
           type: ToastType.error,
         );
@@ -3837,15 +3836,15 @@ class _ReusableFunctionSpecSheetState
     final argumentsJson = _prettyUserJson(_defaultArguments);
     if (_localeValue(context, zh: false, en: true)) {
       return [
-        'Execute this already registered OOB reusable command now. Do not create, update, or discuss the schedule.',
+        'Execute this already registered OOB reusable Function now. Do not create, update, or discuss the schedule.',
         '',
-        'Reusable command ID: $functionId',
+        'Reusable Function ID: $functionId',
         'Arguments JSON:',
         argumentsJson,
         '',
-        'Execution rule: run the OOB reusable command with the arguments above. The runtime executes executor=omniflow/model_free steps locally without a model call; executor=tool uses step.callable_tool; executor=agent or validation mismatch may re-plan with step.agent_call/fallback prompt.',
+        'Execution rule: run the OOB reusable Function with the arguments above. The runtime executes canonical {tool,args} steps locally; validation mismatch returns an explicit failure for the agent to decide the next action.',
         '',
-        'Reusable command JSON:',
+        'Reusable Function JSON:',
         _functionJsonForUser,
       ].join('\n');
     }
@@ -3856,7 +3855,7 @@ class _ReusableFunctionSpecSheetState
       'Arguments JSON:',
       argumentsJson,
       '',
-      '执行规则：用上面的参数运行 OOB 复用指令。运行时会把 executor=omniflow/model_free 的步骤本地执行，不调用模型；executor=tool 调用 step.callable_tool；executor=agent 或 validation 不匹配时可使用 step.agent_call/fallback prompt 重规划。',
+      '执行规则：用上面的参数运行 OOB 复用指令。运行时本地执行标准 {tool,args} 步骤；校验不匹配时返回明确失败，由 agent 决定下一步。',
       '',
       '复用指令 JSON:',
       _functionJsonForUser,
@@ -3882,7 +3881,7 @@ class _ReusableFunctionSpecSheetState
       return '';
     }
     return _prettyUserJson({
-      'action': 'run_reusable_command',
+      'action': 'run_reusable_function',
       'function_id': functionId,
       'arguments': _defaultArguments,
       'context': {
@@ -3897,7 +3896,7 @@ class _ReusableFunctionSpecSheetState
       return _text(
         context,
         '复用指令已通过 VLM 执行完成',
-        'Reusable command completed by VLM',
+        'Reusable Function completed by VLM',
       );
     }
     if (result.startedAgentFallback) {
@@ -3914,10 +3913,10 @@ class _ReusableFunctionSpecSheetState
       return _text(
         context,
         '复用指令已本地执行完成',
-        'Reusable command completed locally',
+        'Reusable Function completed locally',
       );
     }
-    return _text(context, '复用指令已开始执行', 'Reusable command started');
+    return _text(context, '复用指令已开始执行', 'Reusable Function started');
   }
 
   String _runFailureMessage(BuildContext context, UtgManualRunResult result) {
@@ -3925,7 +3924,7 @@ class _ReusableFunctionSpecSheetState
     if (error != null && error.isNotEmpty) {
       return error;
     }
-    return _text(context, '复用指令执行失败', 'Reusable command failed');
+    return _text(context, '复用指令执行失败', 'Reusable Function failed');
   }
 }
 
@@ -4126,7 +4125,6 @@ class _ReusableFunctionStepSummary {
         raw['summary'],
         raw['title'],
         raw['tool'],
-        raw['omniflow_action'],
       ]),
     );
     return _ReusableFunctionStepSummary(
@@ -4145,7 +4143,6 @@ class _ReusableFunctionStepSummary {
       raw['summary'],
       raw['title'],
       raw['tool'],
-      raw['omniflow_action'],
       raw['step_id'],
     ]);
   }
@@ -4213,8 +4210,7 @@ class _ReusableFunctionStepEditorDialogState
           .toString(),
     );
     _toolController = TextEditingController(
-      text: (widget.rawStep['tool'] ?? widget.rawStep['omniflow_action'] ?? '')
-          .toString(),
+      text: (widget.rawStep['tool'] ?? '').toString(),
     );
     _argsController = TextEditingController(
       text: const JsonEncoder.withIndent('  ').convert(
@@ -4262,14 +4258,9 @@ class _ReusableFunctionStepEditorDialogState
     updated['args'] = Map<String, dynamic>.from(
       decodedArgs.map((key, value) => MapEntry(key.toString(), value)),
     );
-    final executor = (updated['executor'] ?? '').toString().trim();
-    if (executor == 'omniflow') {
-      updated['omniflow_action'] = tool;
-      updated['local_action'] = tool;
-      updated['callable_tool'] = tool;
-    } else if (executor != 'agent') {
-      updated['callable_tool'] = tool;
-    }
+    updated.remove('omniflow_action');
+    updated.remove('local_action');
+    updated.remove('callable_tool');
     Navigator.of(context).pop(updated);
   }
 
@@ -4424,9 +4415,9 @@ void _syncReusableCanonicalActionAfterStepEdit(
   );
   final tool =
       RunLogReplayPolicy.omniflowActionForToolName(
-        (step['tool'] ?? step['omniflow_action'] ?? '').toString(),
+        (step['tool'] ?? '').toString(),
       ) ??
-      (step['tool'] ?? step['omniflow_action'] ?? '').toString();
+      (step['tool'] ?? '').toString();
   if (tool.isNotEmpty) {
     action['type'] = tool;
   }
@@ -4436,11 +4427,8 @@ void _syncReusableCanonicalActionAfterStepEdit(
   }
   final args = _asStringKeyMap(step['args']);
   if (tool == 'input_text') {
-    for (final key in const ['text', 'content', 'value']) {
-      if (args.containsKey(key)) {
-        action['text'] = args[key];
-        break;
-      }
+    if (args.containsKey('text')) {
+      action['text'] = args['text'];
     }
   }
   final actions = List<dynamic>.from(rawActions);
@@ -4725,7 +4713,7 @@ class _FunctionApiStatusBox extends StatelessWidget {
         : _errorColor(context);
     final lines = <String>[
       if (functionId.isNotEmpty)
-        _text(context, '复用指令：$functionId', 'Reusable command: $functionId'),
+        _text(context, '复用指令：$functionId', 'Reusable Function: $functionId'),
       if (importResult != null) _importStatusText(context, importResult!),
       if (runResult != null) _runStatusText(context, runResult),
     ];
@@ -4797,7 +4785,7 @@ class _FunctionApiStatusBox extends StatelessWidget {
     return _text(
       context,
       count > 0 ? '保存：已保存 $count 条复用指令' : '保存：已保存',
-      count > 0 ? 'Save: $count reusable commands saved' : 'Save: saved',
+      count > 0 ? 'Save: $count reusable Functions saved' : 'Save: saved',
     );
   }
 
@@ -6594,7 +6582,7 @@ String _runLogStepDetailTitle(BuildContext context, _RunLogStepSource source) {
     case _RunLogStepSource.human:
       return _text(context, '人类接管记录', 'Human takeover');
     case _RunLogStepSource.omniflowReplay:
-      return _text(context, '复用指令执行记录', 'Reusable command run');
+      return _text(context, '复用指令执行记录', 'Reusable Function run');
     case _RunLogStepSource.route:
       return _text(context, '工具调用', 'Tool call');
   }
@@ -6665,7 +6653,6 @@ String _runLogStepTarget(_RunLogStepSnapshot snapshot) {
     params['key'],
     params['duration_ms'],
     params['durationMs'],
-    params['duration'],
     result['summary'],
     result['message'],
   ]);
@@ -7114,11 +7101,8 @@ Map<String, dynamic> _runLogCardFromFunctionStep(
     normalized['tool'],
     normalized['tool_name'],
     normalized['toolName'],
-    normalized['omniflow_action'],
-    normalized['omniflowAction'],
     normalized['action_type'],
     normalized['actionType'],
-    normalized['executor'] == 'agent' ? normalized['callable_tool'] : null,
   ]);
   final args = _decodeJsonIfNeeded(
     _firstPresent([
@@ -7135,7 +7119,6 @@ Map<String, dynamic> _runLogCardFromFunctionStep(
       : _firstNonBlank([
           normalized['compile_kind'],
           normalized['compileKind'],
-          normalized['kind'] == 'omniflow_action' ? 'hit' : null,
           normalized['executor'] == 'omniflow' ? 'hit' : null,
           normalized['kind'],
         ]);
@@ -7262,8 +7245,6 @@ bool _functionStepLooksLikeVlm(Map<String, dynamic> step, String toolName) {
       agentCall['toolName'],
       agentCall['original_tool'],
       agentCall['originalTool'],
-      agentCall['callable_tool'],
-      agentCall['callableTool'],
     ]),
     _firstNonBlank([toolBinding['tool'], toolBinding['kind']]),
   ].map((value) => value.trim().toLowerCase()).toList(growable: false);
@@ -7538,11 +7519,11 @@ String _userVisibleString(String value) {
       .replaceAll('编译', '执行')
       .replaceAll(
         RegExp(r'reusable[_\s-]*function', caseSensitive: false),
-        'reusable_command',
+        'reusable_function',
       )
       .replaceAll(RegExp(r'参考\s*function', caseSensitive: false), '参考复用指令')
-      .replaceAll(RegExp(r'Function'), 'Reusable command')
-      .replaceAll(RegExp(r'function'), 'reusable_command')
+      .replaceAll(RegExp(r'Function'), 'Reusable Function')
+      .replaceAll(RegExp(r'function'), 'reusable_function')
       .replaceAll('函数', '复用指令');
 }
 

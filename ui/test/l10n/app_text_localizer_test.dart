@@ -29,7 +29,7 @@ void main() {
     }
   });
 
-  test('localized reusable command surfaces avoid raw function wording', () {
+  test('localized reusable Function surfaces avoid raw function wording', () {
     final checkedKeys = const [
       'settingsOobFunctionAsToolTitle',
       'settingsOobFunctionAsToolSubtitle',

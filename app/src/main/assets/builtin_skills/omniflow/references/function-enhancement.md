@@ -18,7 +18,7 @@ Function description as capability documentation, not a short human label.
 Allowed changes:
 
 - Rewrite `name` and `description` so the Function reads like a reusable
-  command. Include visible operations, where it applies, runtime inputs, and
+  Function. Include visible operations, where it applies, runtime inputs, and
   success signal when known.
 - Rewrite per-step `title`, `summary`, or `description`.
 - For every executable step, state what the action does and why it exists.
@@ -80,7 +80,7 @@ Patch shape:
     "ops": [
       {
         "op": "replace_target",
-        "action": "click",
+        "tool": "click",
         "wrong_text": "美食",
         "desired_text": "外卖"
       }
@@ -111,9 +111,13 @@ Insert:
         "op": "insert_step",
         "step_index": 2,
         "step": {
-          "action": "click",
+          "tool": "click",
           "title": "点击外卖入口",
-          "target_description": "外卖"
+          "args": {
+            "target_description": "外卖",
+            "x": 500,
+            "y": 500
+          }
         }
       }
     ]

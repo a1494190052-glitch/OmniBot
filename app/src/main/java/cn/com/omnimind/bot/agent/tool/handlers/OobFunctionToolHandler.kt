@@ -14,7 +14,6 @@ class OobFunctionToolHandler(
     private val context: android.content.Context,
     private val helper: SharedHelper,
     private val graphStepRunner: OobFunctionGraphStepRunner = OobFunctionGraphStepRunner(),
-    private val entryPackageGuard: OobFunctionEntryPackageGuard = OobFunctionEntryPackageGuard(),
     private val frontendSessionController: OobFunctionFrontendSessionController =
         OobFunctionFrontendSessionController(helper),
     private val agentFallbackController: OobFunctionAgentFallbackController =
@@ -325,18 +324,20 @@ class OobFunctionToolHandler(
         )
         var frontendFinished = false
         var frontendFinishMessage = helper.localized("任务已完成")
-        try {
-        entryPackageGuard.ensureForeground(steps)
-
-        // Checker rules from the Function spec (metadata.checker_rules).
-        // These are layered on top of the global built-in rules inside the executor.
-        val functionCheckerRules = OmniflowCheckerRule.fromSpec(spec)
-        val checkerBudget = OmniflowStepExecutor.CheckerTriggerBudget()
-
         val stepResults = mutableListOf<Map<String, Any?>>()
         var delegatedToolUsed = false
         var modelRequired = false
         var failureReason: String? = null
+        var currentStepIndex = -1
+        var currentStepId = ""
+        var currentStepTool = ""
+        var currentStepExecutor = ""
+        var currentStepStartedAtMs = 0L
+        try {
+        // Checker rules from the Function spec (metadata.checker_rules).
+        // These are layered on top of the global built-in rules inside the executor.
+        val functionCheckerRules = OmniflowCheckerRule.fromSpec(spec)
+        val checkerBudget = OmniflowStepExecutor.CheckerTriggerBudget()
 
         val stepLoopStartedAt = System.nanoTime()
         timing.recordSinceStart("pre_step_loop_ms", stepLoopStartedAt)
@@ -348,11 +349,15 @@ class OobFunctionToolHandler(
             val stepIndex = index + 1
             val stepId = step["id"]?.toString() ?: "step_$stepIndex"
             val stepTitle = step["title"]?.toString() ?: stepId
-            frontendSession?.update("第 $stepIndex/${steps.size} 步 $stepTitle")
             val executor = step["executor"]?.toString()?.trim()?.lowercase().orEmpty()
                 .ifEmpty { RunLogReplayPolicy.EXECUTOR_AGENT }
-            val callableTool = step["callable_tool"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
-                ?: step["tool"]?.toString()?.trim().orEmpty()
+            val callableTool = step["tool"]?.toString()?.trim().orEmpty()
+            currentStepIndex = index
+            currentStepId = stepId
+            currentStepTool = callableTool
+            currentStepExecutor = executor
+            currentStepStartedAtMs = stepStartedAtMs
+            frontendSession?.update("第 $stepIndex/${steps.size} 步 $stepTitle")
             val omniflowExecutionTool = stepClassifier.omniflowExecutionToolForStep(step, callableTool)
             if (RunLogReplayPolicy.shouldSkipTool(callableTool) ||
                 RunLogReplayPolicy.shouldSkipTool(omniflowExecutionTool) ||
@@ -370,6 +375,7 @@ class OobFunctionToolHandler(
                     "finished_at_ms" to stepStartedAtMs,
                     "duration_ms" to 0L
                 )
+                currentStepIndex = -1
                 continue
             }
 
@@ -586,6 +592,7 @@ class OobFunctionToolHandler(
                 }
             }
             stepResults += timedStepResult
+            currentStepIndex = -1
             if (timedStepResult["success"] == false) {
                 if (timedStepResult["model_required"] == true) {
                     modelRequired = true
@@ -628,7 +635,51 @@ class OobFunctionToolHandler(
         return resultPayload
         } catch (e: ManualToolStopCancellationException) {
             frontendFinishMessage = helper.localized("任务已停止")
-            throw e
+            if (currentStepIndex >= 0 && stepResults.none { it["index"] == currentStepIndex }) {
+                val stoppedAtMs = System.currentTimeMillis()
+                stepResults += LinkedHashMap<String, Any?>().apply {
+                    putAll(
+                        runResultBuilder.failureStep(
+                            stepId = currentStepId.ifBlank { "step_${currentStepIndex + 1}" },
+                            tool = currentStepTool.ifBlank { "?" },
+                            executor = currentStepExecutor.ifBlank { RunLogReplayPolicy.EXECUTOR_OMNIFLOW },
+                            summary = frontendFinishMessage,
+                            errorCode = "OOB_FUNCTION_STOPPED",
+                        )
+                    )
+                    put("index", currentStepIndex)
+                    put("started_at_ms", currentStepStartedAtMs.takeIf { it > 0L } ?: stoppedAtMs)
+                    put("finished_at_ms", stoppedAtMs)
+                    put(
+                        "duration_ms",
+                        (stoppedAtMs - (currentStepStartedAtMs.takeIf { it > 0L } ?: stoppedAtMs))
+                            .coerceAtLeast(0)
+                    )
+                }
+            }
+            failureReason = frontendFinishMessage
+            val resultPayload = runResultBuilder.completedRun(
+                functionId = functionId,
+                spec = spec,
+                auditRunId = auditRunId,
+                steps = steps,
+                activeSteps = activeSteps,
+                stepResults = stepResults,
+                normalizedResumeFromStep = normalizedResumeFromStep,
+                fallbackSessionId = fallbackSessionId,
+                fallbackAttempt = fallbackAttempt,
+                modelRequired = modelRequired,
+                delegatedToolUsed = delegatedToolUsed,
+                allowAgentFallback = allowAgentFallback,
+                failureReason = failureReason,
+            )
+            resultPayload["error_code"] = "OOB_FUNCTION_STOPPED"
+            resultPayload["error_message"] = frontendFinishMessage
+            resultPayload.putAll(OobFunctionArgumentBindingValidator.runtimeDiagnostics(materializedSpec))
+            resultPayload["timing"] = timing.finish()
+            frontendSession?.finish(frontendFinishMessage)
+            frontendFinished = true
+            return resultPayload
         } catch (e: kotlinx.coroutines.CancellationException) {
             frontendFinishMessage = helper.localized("任务已停止")
             throw e

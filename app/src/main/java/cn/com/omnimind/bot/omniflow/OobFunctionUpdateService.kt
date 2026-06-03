@@ -28,7 +28,7 @@ class OobFunctionUpdateService(
 ) {
     fun updateFunction(args: Map<String, Any?>?): Map<String, Any?> {
         val request = args ?: emptyMap()
-        val runId = firstNonBlank(request["runId"], request["run_id"])
+        val runId = firstNonBlank(request["run_id"])
         val runLogTimeline = if (runId.isNotEmpty()) {
             val timeline = InternalRunLogStore.timelinePayload(context, runId)
             if (timeline["success"] != true) {
@@ -42,7 +42,6 @@ class OobFunctionUpdateService(
             emptyMap()
         }
         val functionId = firstNonBlank(
-            request["functionId"],
             request["function_id"],
             runLogTimeline["registered_function_id"],
             mapArg(runLogTimeline["registered_function_spec"])["function_id"],
@@ -62,22 +61,18 @@ class OobFunctionUpdateService(
         val requestedMode = firstNonBlank(request["mode"], request["operation"])
             .lowercase()
             .ifBlank { "enhance" }
-        val dryRun = boolArg(request["dryRun"]) || boolArg(request["dry_run"])
+        val dryRun = boolArg(request["dry_run"])
         val instruction = firstNonBlank(
             request["instruction"],
             request["request"],
             request["user_instruction"],
-            request["userInstruction"],
         )
         val analysis = mapArg(request["analysis"])
             .ifEmpty { mapArg(request["evidence_analysis"]) }
-            .ifEmpty { mapArg(request["evidenceAnalysis"]) }
         val patch = mapArg(request["patch"])
-            .ifEmpty { mapArg(request["functionPatch"]) }
             .ifEmpty { mapArg(request["function_patch"]) }
             .ifEmpty { mapArg(request["updates"]) }
             .ifEmpty { mapArg(analysis["recommended_patch"]) }
-            .ifEmpty { mapArg(analysis["recommendedPatch"]) }
         if (runId.isNotEmpty() && analysis.isEmpty() && patch.isEmpty()) {
             val analysisContext = evidencePackager.analysisContext(
                 functionId = functionId,
@@ -113,11 +108,9 @@ class OobFunctionUpdateService(
         val inferredRepairIntent = requestedMode == "enhance" && ops.any(intentParser::isReplaceTargetOperation)
         val inferredStructuralIntent = requestedMode == "enhance" && ops.any(intentParser::isStructuralOperation)
         val mode = if (inferredRepairIntent || inferredStructuralIntent) "repair" else requestedMode
-        val allowExecutionChange = boolArg(request["allowExecutionChange"]) ||
-            boolArg(request["allow_execution_change"]) ||
+        val allowExecutionChange = boolArg(request["allow_execution_change"]) ||
             mode in setOf("repair", "fix", "correction")
-        val allowStructuralChange = boolArg(request["allowStructuralChange"]) ||
-            boolArg(request["allow_structural_change"])
+        val allowStructuralChange = boolArg(request["allow_structural_change"])
 
         if (patch.isNotEmpty()) {
             changes += metadataPatchApplier.applyPatch(updated, patch)

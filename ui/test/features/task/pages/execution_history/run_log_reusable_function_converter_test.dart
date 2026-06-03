@@ -674,7 +674,7 @@ void main() {
     },
   );
 
-  test('agent prompt uses reusable command wording', () {
+  test('agent prompt uses reusable Function wording', () {
     final spec = RunLogReusableFunctionConverter.buildLocalFunctionJson(
       runId: 'run-agent-prompt-wording',
       title: 'Open settings',
@@ -691,9 +691,9 @@ void main() {
     );
     final zhPrompt = RunLogReusableFunctionConverter.buildAgentPrompt(spec);
 
-    expect(englishPrompt, contains('Reusable command:'));
-    expect(englishPrompt, contains('Reusable command ID:'));
-    expect(englishPrompt, contains('Reusable command JSON:'));
+    expect(englishPrompt, contains('Reusable Function:'));
+    expect(englishPrompt, contains('Reusable Function ID:'));
+    expect(englishPrompt, contains('Reusable Function JSON:'));
     expect(englishPrompt, isNot(contains('Function:')));
     expect(englishPrompt, isNot(contains('Function ID:')));
     expect(englishPrompt, isNot(contains('Function JSON:')));
@@ -710,7 +710,7 @@ void main() {
         await RunLogReusableFunctionConverter.extractJsonObjectAsync(
           jsonEncode({
             'content': jsonEncode({
-              'name': 'Wrapped command',
+              'name': 'Wrapped Function',
               'steps': [
                 {'index': 0, 'title': 'Tap target'},
               ],
@@ -718,7 +718,7 @@ void main() {
           }),
         );
 
-    expect(wrapped?['name'], 'Wrapped command');
+    expect(wrapped?['name'], 'Wrapped Function');
     expect(wrapped?['steps'], isA<List>());
 
     final listWrapped =
@@ -740,7 +740,7 @@ void main() {
               {
                 'message': {
                   'content': jsonEncode({
-                    'name': 'OpenAI wrapped command',
+                    'name': 'OpenAI wrapped Function',
                     'steps': [
                       {'index': 0, 'title': 'Open app'},
                     ],
@@ -751,7 +751,7 @@ void main() {
           }),
         );
 
-    expect(openAiWrapped?['name'], 'OpenAI wrapped command');
+    expect(openAiWrapped?['name'], 'OpenAI wrapped Function');
 
     final objectContent =
         await RunLogReusableFunctionConverter.extractJsonObjectAsync(
@@ -760,7 +760,7 @@ void main() {
               {
                 'message': {
                   'content': {
-                    'name': 'Object content command',
+                    'name': 'Object content Function',
                     'steps': [
                       {'index': 0, 'title': 'Tap target'},
                     ],
@@ -771,7 +771,7 @@ void main() {
           }),
         );
 
-    expect(objectContent?['name'], 'Object content command');
+    expect(objectContent?['name'], 'Object content Function');
 
     final outputWrapped =
         await RunLogReusableFunctionConverter.extractJsonObjectAsync(
@@ -782,7 +782,7 @@ void main() {
                   {
                     'type': 'output_text',
                     'text': jsonEncode({
-                      'name': 'Responses wrapped command',
+                      'name': 'Responses wrapped Function',
                       'steps': [
                         {'index': 0, 'title': 'Use output text'},
                       ],
@@ -794,7 +794,7 @@ void main() {
           }),
         );
 
-    expect(outputWrapped?['name'], 'Responses wrapped command');
+    expect(outputWrapped?['name'], 'Responses wrapped Function');
 
     final parsedWrapped =
         await RunLogReusableFunctionConverter.extractJsonObjectAsync(
@@ -803,7 +803,7 @@ void main() {
               {
                 'message': {
                   'parsed': {
-                    'name': 'Parsed object command',
+                    'name': 'Parsed object Function',
                     'steps': [
                       {'index': 0, 'title': 'Use parsed object'},
                     ],
@@ -814,7 +814,7 @@ void main() {
           }),
         );
 
-    expect(parsedWrapped?['name'], 'Parsed object command');
+    expect(parsedWrapped?['name'], 'Parsed object Function');
 
     final toolCallWrapped =
         await RunLogReusableFunctionConverter.extractJsonObjectAsync(
@@ -827,7 +827,7 @@ void main() {
                       'function': {
                         'name': 'emit_json',
                         'arguments': jsonEncode({
-                          'name': 'Tool call command',
+                          'name': 'Tool call Function',
                           'steps': [
                             {'index': 0, 'title': 'Use tool args'},
                           ],
@@ -841,13 +841,13 @@ void main() {
           }),
         );
 
-    expect(toolCallWrapped?['name'], 'Tool call command');
+    expect(toolCallWrapped?['name'], 'Tool call Function');
 
     final doubleEncoded =
         await RunLogReusableFunctionConverter.extractJsonObjectAsync(
           jsonEncode(
             jsonEncode({
-              'name': 'Double encoded command',
+              'name': 'Double encoded Function',
               'steps': [
                 {'index': 0, 'title': 'Decode twice'},
               ],
@@ -855,18 +855,18 @@ void main() {
           ),
         );
 
-    expect(doubleEncoded?['name'], 'Double encoded command');
+    expect(doubleEncoded?['name'], 'Double encoded Function');
 
     final multiObjectText =
         await RunLogReusableFunctionConverter.extractJsonObjectAsync('''
 Example shape:
-{"name":"short reusable command name","description":"one sentence","steps":[{"index":0,"title":"short action title"}]}
+{"name":"short reusable Function name","description":"one sentence","steps":[{"index":0,"title":"short action title"}]}
 
 Actual output:
-{"name":"Actual enhanced command","description":"真实增强结果","steps":[{"index":0,"title":"执行真实动作"}]}
+{"name":"Actual enhanced Function","description":"真实增强结果","steps":[{"index":0,"title":"执行真实动作"}]}
 ''');
 
-    expect(multiObjectText?['name'], 'Actual enhanced command');
+    expect(multiObjectText?['name'], 'Actual enhanced Function');
 
     final irrelevantJson =
         await RunLogReusableFunctionConverter.extractJsonObjectAsync(
@@ -919,7 +919,7 @@ Actual output:
       expect(prompt, contains('enhanced, unchanged, partial, or failed'));
       expect(prompt, isNot(contains(sourceXml)));
       expect(prompt, isNot(contains('source_context')));
-      expect(prompt, isNot(contains('Reusable command JSON:')));
+      expect(prompt, isNot(contains('Reusable Function JSON:')));
     },
   );
 
@@ -1043,10 +1043,7 @@ Actual output:
         cards: [
           card('open_app', const {'package_name': 'com.xingin.xhs'}),
           card('click', const {'x': 300, 'y': 400}),
-          card('input_text', const {
-            'text': '彩票',
-            'target_description': '搜索框',
-          }),
+          card('input_text', const {'text': '彩票', 'target_description': '搜索框'}),
         ],
         useEnglish: false,
       );
@@ -1064,7 +1061,10 @@ Actual output:
           }, fallback);
 
       final parameters = (enhanced['parameters'] as List).cast<Map>();
-      expect(parameters.map((item) => item['name']), isNot(contains('input_text_3')));
+      expect(
+        parameters.map((item) => item['name']),
+        isNot(contains('input_text_3')),
+      );
       final searchQuery = parameters.firstWhere(
         (item) => item['name'] == 'search_query',
       );
@@ -1279,6 +1279,79 @@ Actual output:
       expect(checkerAssets.single['step_index'], 0);
       expect(checkerAssets.single['role'], 'checker_candidate');
       expect(checkerAssets.single['materialization'], 'metadata_checker_rule');
+    },
+  );
+
+  test(
+    'hi upgrade checker aliases normalize to app upgrade post action rule',
+    () async {
+      final fallback = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+        runId: 'run-hi-upgrade-checker',
+        title: 'Open app and continue',
+        payload: const {
+          'goal': 'Open the app and continue after update prompt',
+        },
+        cards: [
+          card('click', const {
+            'target_description': '以后再说',
+            'x': 900,
+            'y': 1800,
+          }),
+          card('click', const {
+            'target_description': 'Continue',
+            'x': 540,
+            'y': 1680,
+          }),
+        ],
+        useEnglish: true,
+      );
+
+      final enhanced =
+          await RunLogReusableFunctionConverter.applyLabelEnhancementAsync({
+            'steps': [
+              {
+                'index': 0,
+                'title': 'Dismiss Hi upgrade prompt',
+                'description':
+                    'Tap Later only when the Hi app upgrade prompt appears.',
+                'action_purpose':
+                    'Handle a conditional Hi 升级提示 before continuing.',
+                'importance': 'optional',
+                'cleanup_action': 'optional_checker',
+                'cleanup_reason':
+                    'The upgrade prompt may not appear on every replay.',
+                'optional_condition': 'Hi 升级提示出现时点击以后再说，不要立即升级。',
+              },
+            ],
+            'metadata': {
+              'checker_rules': [
+                {
+                  'id': 'hi_upgrade_checker',
+                  'phase': 'pre_transfer',
+                  'condition': 'hi_upgrade',
+                  'action': 'click',
+                  'enabled': true,
+                  'params': {'selector': 'unsupported'},
+                },
+              ],
+            },
+          }, fallback);
+
+      final metadata = enhanced['metadata'] as Map;
+      final checkerRules = (metadata['checker_rules'] as List).cast<Map>();
+      expect(checkerRules, hasLength(1));
+      expect(checkerRules.single['id'], 'hi_upgrade_checker');
+      expect(checkerRules.single['condition'], 'app_upgrade_prompt');
+      expect(checkerRules.single['action'], 'dismiss');
+      expect(checkerRules.single['phase'], 'post_action');
+      expect(checkerRules.single['params'], isEmpty);
+
+      final reuse = enhanced['agent_reuse'] as Map;
+      final checkerAssets = (reuse['checker_assets'] as List).cast<Map>();
+      expect(checkerAssets, hasLength(1));
+      expect(checkerAssets.single['checker_id'], 'hi_upgrade_checker');
+      expect(checkerAssets.single['step_index'], 0);
+      expect(checkerAssets.single['role'], 'checker_candidate');
     },
   );
 

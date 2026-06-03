@@ -36,7 +36,7 @@ void main() {
         .setMockMethodCallHandler(assistCoreChannel, (call) async {
           if (call.method == 'getInternalRunLogTimeline') {
             final args = Map<String, dynamic>.from(call.arguments as Map);
-            if (args['runId'] == 'run-vlm-only') {
+            if (args['run_id'] == 'run-vlm-only') {
               return <String, dynamic>{
                 'success': true,
                 'run_id': 'run-vlm-only',
@@ -65,7 +65,7 @@ void main() {
                 ],
               };
             }
-            if (args['runId'] == 'run-agent-with-nested-vlm') {
+            if (args['run_id'] == 'run-agent-with-nested-vlm') {
               return _nestedVlmRunLogTimelinePayload();
             }
             return <String, dynamic>{
@@ -428,7 +428,7 @@ void main() {
   });
 
   testWidgets(
-    'RunLog restores saved reusable command binding from timeline payload',
+    'RunLog restores saved reusable Function binding from timeline payload',
     (tester) async {
       final methodCalls = <MethodCall>[];
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -495,7 +495,7 @@ void main() {
   );
 
   testWidgets(
-    'RunLog local execution registers the run and executes the generated reusable command',
+    'RunLog local execution registers the run and executes the generated reusable Function',
     (tester) async {
       final methodCalls = <MethodCall>[];
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -579,21 +579,21 @@ void main() {
       final convertArgs = Map<String, dynamic>.from(
         convertCall.arguments as Map,
       );
-      expect(convertArgs['runId'], 'run-vlm');
+      expect(convertArgs['run_id'], 'run-vlm');
       expect(convertArgs['register'], isTrue);
 
       final runCall = methodCalls.singleWhere(
         (call) => call.method == 'runOobReusableFunction',
       );
       final runArgs = Map<String, dynamic>.from(runCall.arguments as Map);
-      expect(runArgs['functionId'], 'fn_from_runlog');
+      expect(runArgs['function_id'], 'fn_from_runlog');
       expect(runArgs['arguments'], isA<Map>());
       expect(find.text('RunLog 重放结果'), findsOneWidget);
     },
   );
 
   testWidgets(
-    'RunLog registration sheet hides internal execution keys in generated reusable command JSON',
+    'RunLog registration sheet hides internal execution keys in generated reusable Function JSON',
     (tester) async {
       final methodCalls = <MethodCall>[];
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -669,7 +669,7 @@ void main() {
       final convertArgs = Map<String, dynamic>.from(
         convertCalls.single.arguments as Map,
       );
-      expect(convertArgs['runId'], 'run-vlm');
+      expect(convertArgs['run_id'], 'run-vlm');
       expect(convertArgs['register'], isTrue);
 
       await _pumpUntilFound(
@@ -784,7 +784,7 @@ void main() {
     final convertArgs = Map<String, dynamic>.from(
       convertCalls.single.arguments as Map,
     );
-    expect(convertArgs['runId'], 'run-vlm');
+    expect(convertArgs['run_id'], 'run-vlm');
     expect(convertArgs['register'], isTrue);
     expect(
       methodCalls.where((call) => call.method == 'getOobReusableFunction'),
@@ -810,7 +810,7 @@ void main() {
     expect(find.text('已经保存过的 Android 设置轨迹'), findsWidgets);
   });
 
-  testWidgets('RunLog saved command supports explicit Agent enhancement', (
+  testWidgets('RunLog saved Function supports explicit Agent enhancement', (
     tester,
   ) async {
     final methodCalls = <MethodCall>[];
@@ -852,7 +852,9 @@ void main() {
           }
           if (call.method == 'registerOobReusableFunction') {
             final args = Map<String, dynamic>.from(call.arguments as Map);
-            final spec = Map<String, dynamic>.from(args['functionSpec'] as Map);
+            final spec = Map<String, dynamic>.from(
+              args['function_spec'] as Map,
+            );
             expect(spec['function_id'], 'fn_from_runlog');
             expect(spec['name'], '打开系统设置');
             return <String, dynamic>{
@@ -1049,7 +1051,9 @@ void main() {
           }
           if (call.method == 'registerOobReusableFunction') {
             final args = Map<String, dynamic>.from(call.arguments as Map);
-            final spec = Map<String, dynamic>.from(args['functionSpec'] as Map);
+            final spec = Map<String, dynamic>.from(
+              args['function_spec'] as Map,
+            );
             final metadata = Map<String, dynamic>.from(spec['metadata'] as Map);
             final report = Map<String, dynamic>.from(
               metadata['oob_enhancement'] as Map,
@@ -1251,7 +1255,9 @@ void main() {
           }
           if (call.method == 'registerOobReusableFunction') {
             final args = Map<String, dynamic>.from(call.arguments as Map);
-            final spec = Map<String, dynamic>.from(args['functionSpec'] as Map);
+            final spec = Map<String, dynamic>.from(
+              args['function_spec'] as Map,
+            );
             expect(spec['function_id'], 'fn_from_runlog');
             expect(spec['name'], '打开系统设置');
             return <String, dynamic>{

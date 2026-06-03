@@ -5,7 +5,7 @@ import 'package:ui/widgets/execution/execution_detail_view.dart';
 import 'package:ui/widgets/execution/execution_models.dart';
 
 void main() {
-  testWidgets('ExecutionDetailView labels reusable commands without raw schema copy', (
+  testWidgets('ExecutionDetailView labels reusable Functions without raw schema copy', (
     tester,
   ) async {
     await tester.pumpWidget(

@@ -79,6 +79,7 @@ object OobFunctionSkillProfile {
             when (locale) {
                 PromptLocale.ZH_CN -> {
                     appendLine("当前可复用的 OmniFlow Functions（候选摘要，不是完整 spec）：")
+                    appendLine("- Function 是可组合的复用片段，不要求一次覆盖完整用户目标；运行后根据结果继续选择下一个 Function、VLM 或其他工具。")
                     appendLine("- 如果用户目标与某个 Function 高置信匹配，优先 `${OobFunctionToolNames.FUNCTION_GUARD_CHECK}` -> `${OobFunctionToolNames.FUNCTION_RUN}`，不要先裸跑 `vlm_task`。")
                     appendLine("- 带参数的 Function 也可以命中；像普通 tool 一样根据用户目标填写 `arguments`，再调用 `${OobFunctionToolNames.FUNCTION_RUN}`。")
                     appendLine("- `vlm_task` 只有在显式允许高置信自动执行时才会复用 Function，且内部也走 `${OobFunctionToolNames.FUNCTION_RUN}`；缺少必填参数时不要空跑，交给 agent 填参。")
@@ -86,6 +87,7 @@ object OobFunctionSkillProfile {
                 }
                 PromptLocale.EN_US -> {
                     appendLine("Reusable OmniFlow Functions available right now (candidate summaries, not full specs):")
+                    appendLine("- A Function is a composable reusable segment, not necessarily the whole user goal; after running it, continue with the next Function, VLM, or other tool as needed.")
                     appendLine("- If the user goal clearly matches a Function, prefer `${OobFunctionToolNames.FUNCTION_GUARD_CHECK}` -> `${OobFunctionToolNames.FUNCTION_RUN}` before raw `vlm_task`.")
                     appendLine("- Parameterized Functions can still be selected; fill `arguments` from the user goal like a normal tool, then call `${OobFunctionToolNames.FUNCTION_RUN}`.")
                     appendLine("- `vlm_task` reuses a Function only when high-confidence auto-execution is explicitly allowed, and it uses the same `${OobFunctionToolNames.FUNCTION_RUN}` path internally; do not run with missing required arguments.")
@@ -162,6 +164,7 @@ object OobFunctionSkillProfile {
         val description = spec["description"]?.toString()?.trim()
             ?.takeIf { it.isNotEmpty() }
             ?: displayName
+        val toolDescription = dynamicFunctionDescription(description, locale)
         val parameters = mapToJsonElement(
             OobFunctionSchemaBuilder.inputSchema(spec)
         ) as? JsonObject ?: JsonObject(emptyMap())
@@ -172,10 +175,23 @@ object OobFunctionSkillProfile {
                 put("name", JsonPrimitive(functionId))
                 put("displayName", JsonPrimitive(displayName))
                 put("toolType", JsonPrimitive("oob_function"))
-                put("description", JsonPrimitive(description))
+                put("description", JsonPrimitive(toolDescription))
                 put("parameters", parameters)
             })
         }, locale)
+    }
+
+    private fun dynamicFunctionDescription(
+        base: String,
+        locale: PromptLocale,
+    ): String {
+        val suffix = when (locale) {
+            PromptLocale.ZH_CN ->
+                "这是一个可组合的 OOB Function 片段，可能只完成用户目标的一部分；调用后根据结果继续选择下一个 Function、VLM 或其他工具。"
+            PromptLocale.EN_US ->
+                "This is a composable OOB Function segment and may only complete part of the user goal; after the result, continue with the next Function, VLM, or other tool as needed."
+        }
+        return "${base.take(360)} $suffix".trim().take(600)
     }
 
     private val oobFunctionListTool: JsonObject = buildJsonObject {
@@ -207,15 +223,12 @@ object OobFunctionSkillProfile {
             putJsonObject("parameters") {
                 put("type", "object")
                 putJsonObject("properties") {
-                    putJsonObject("functionId") {
+                    putJsonObject("function_id") {
                         put("type", "string")
                         put("description", "要读取的 Function id。")
                     }
-                    putJsonObject("function_id") {
-                        put("type", "string")
-                        put("description", "functionId 的 snake-case 兼容字段。")
-                    }
                 }
+                putJsonArray("required") { add("function_id") }
             }
         }
     }
@@ -226,22 +239,20 @@ object OobFunctionSkillProfile {
             put("name", OobFunctionToolNames.FUNCTION_REGISTER)
             put("displayName", "注册复用指令")
             put("toolType", "workbench")
-            put("description", "注册或更新一个 OOB 复用指令。优先使用轻量字段 functionId/name/description/steps；只有已有完整底层结构时才传 functionSpec。")
+            put("description", "注册或更新一个 OOB 复用指令。优先使用轻量字段 function_id/name/description/steps；只有已有完整底层结构时才传 function_spec。")
             putJsonObject("parameters") {
                 put("type", "object")
                 putJsonObject("properties") {
-                    putJsonObject("functionId") { put("type", "string") }
                     putJsonObject("function_id") { put("type", "string") }
                     putJsonObject("name") { put("type", "string") }
                     putJsonObject("description") { put("type", "string") }
-                    putJsonObject("packageName") { put("type", "string") }
-                    putJsonObject("sourcePage") { put("type", "object") }
+                    putJsonObject("package_name") { put("type", "string") }
+                    putJsonObject("source_page") { put("type", "object") }
                     putJsonObject("parameters") { put("type", "array") }
                     putJsonObject("steps") {
                         put("type", "array")
                         putJsonObject("items") { put("type", "object") }
                     }
-                    putJsonObject("functionSpec") { put("type", "object") }
                     putJsonObject("function_spec") { put("type", "object") }
                 }
             }
@@ -258,15 +269,10 @@ object OobFunctionSkillProfile {
             putJsonObject("parameters") {
                 put("type", "object")
                 putJsonObject("properties") {
-                    putJsonObject("functionId") { put("type", "string") }
                     putJsonObject("function_id") { put("type", "string") }
                     putJsonObject("run_id") {
                         put("type", "string")
                         put("description", "Optional local RunLog id. With no analysis/patch, ${OobFunctionToolNames.FUNCTION_UPDATE} returns analysis_context and agent_prompt for evidence analysis.")
-                    }
-                    putJsonObject("runId") {
-                        put("type", "string")
-                        put("description", "Camel-case alias for run_id.")
                     }
                     putJsonObject("instruction") { put("type", "string") }
                     putJsonObject("mode") {
@@ -285,6 +291,9 @@ object OobFunctionSkillProfile {
                         put("description", "Agent-authored RunLog evidence analysis. Saved into Function metadata and may include recommended_patch.")
                     }
                     putJsonObject("patch") { put("type", "object") }
+                    putJsonObject("dry_run") { put("type", "boolean") }
+                    putJsonObject("allow_execution_change") { put("type", "boolean") }
+                    putJsonObject("allow_structural_change") { put("type", "boolean") }
                 }
             }
         }
@@ -298,52 +307,30 @@ object OobFunctionSkillProfile {
             put("toolType", "workbench")
             put(
                 "description",
-                "执行一个已保存的 OOB/OmniFlow Function。用户目标与候选 Function 高置信匹配时，优先先调用 ${OobFunctionToolNames.FUNCTION_GUARD_CHECK} 再调用本工具，不要先裸跑 vlm_task。失败时返回 fallback_context，agent 先接管 failed_step_index 对应步骤；完成后再用返回的 resume_from_step 从下一步恢复继续。start_step_index 只是兼容别名。"
+                "执行一个已保存的 OOB/OmniFlow Function 片段。Function 是可组合的局部流程，可能完成用户目标，也可能只推进其中一段；每次结果返回后都要检查 success、fallback_context 和 step_results，未完成目标时继续选择下一个 Function 或工具。用户目标与候选 Function 高置信匹配时，优先先调用 ${OobFunctionToolNames.FUNCTION_GUARD_CHECK} 再调用本工具，不要先裸跑 vlm_task。失败时返回 fallback_context，agent 先接管 failed_step_index 对应步骤；完成后再用返回的 resume_from_step 从下一步恢复继续。"
             )
             putJsonObject("parameters") {
                 put("type", "object")
                 putJsonObject("properties") {
-                    putJsonObject("functionId") { put("type", "string") }
                     putJsonObject("function_id") { put("type", "string") }
                     putJsonObject("arguments") { put("type", "object") }
                     putJsonObject("resume_from_step") {
                         put("type", "integer")
                         put("description", "0-based step index. Omit or set 0 for a fresh run; after agent fallback, use the returned resume_from_step only after completing failed_step_index. It continues from the next remaining step, not the failed step itself.")
                     }
-                    putJsonObject("start_step_index") {
-                        put("type", "integer")
-                        put("description", "Compatibility alias for resume_from_step. After fallback, use the returned resume_from_step; explicitly pass failed_step_index only when intentionally retrying the failed step.")
-                    }
-                    putJsonObject("startStepIndex") {
-                        put("type", "integer")
-                        put("description", "Camel-case alias for start_step_index.")
-                    }
-                    putJsonObject("resumeFromStep") {
-                        put("type", "integer")
-                        put("description", "Camel-case alias for resume_from_step.")
-                    }
                     putJsonObject("fallback_session_id") {
                         put("type", "string")
                         put("description", "Optional id returned by fallback_context to link replay -> agent fallback -> replay resume.")
-                    }
-                    putJsonObject("fallbackSessionId") {
-                        put("type", "string")
-                        put("description", "Camel-case alias for fallback_session_id.")
                     }
                     putJsonObject("fallback_attempt") {
                         put("type", "integer")
                         put("description", "Optional retry counter returned by fallback_context; used to avoid infinite fallback loops.")
                     }
-                    putJsonObject("fallbackAttempt") {
-                        put("type", "integer")
-                        put("description", "Camel-case alias for fallback_attempt.")
-                    }
-                    putJsonObject("dryRun") { put("type", "boolean") }
-                    putJsonObject("continueWithAgent") { put("type", "boolean") }
-                    putJsonObject("executionMode") { put("type", "string") }
+                    putJsonObject("dry_run") { put("type", "boolean") }
+                    putJsonObject("execution_mode") { put("type", "string") }
                     putJsonObject("confirmed") { put("type", "boolean") }
                 }
-                putJsonArray("required") { add("functionId") }
+                putJsonArray("required") { add("function_id") }
             }
         }
     }
@@ -358,10 +345,10 @@ object OobFunctionSkillProfile {
             putJsonObject("parameters") {
                 put("type", "object")
                 putJsonObject("properties") {
-                    putJsonObject("functionId") { put("type", "string") }
                     putJsonObject("function_id") { put("type", "string") }
                     putJsonObject("arguments") { put("type", "object") }
                 }
+                putJsonArray("required") { add("function_id") }
             }
         }
     }
@@ -376,9 +363,9 @@ object OobFunctionSkillProfile {
             putJsonObject("parameters") {
                 put("type", "object")
                 putJsonObject("properties") {
-                    putJsonObject("functionId") { put("type", "string") }
                     putJsonObject("function_id") { put("type", "string") }
                 }
+                putJsonArray("required") { add("function_id") }
             }
         }
     }
@@ -424,8 +411,8 @@ object OobFunctionSkillProfile {
                 put("type", "object")
                 putJsonObject("properties") {
                     putJsonObject("run_id") { put("type", "string") }
-                    putJsonObject("runId") { put("type", "string") }
                 }
+                putJsonArray("required") { add("run_id") }
             }
         }
     }
@@ -441,10 +428,8 @@ object OobFunctionSkillProfile {
                 put("type", "object")
                 putJsonObject("properties") {
                     putJsonObject("run_id") { put("type", "string") }
-                    putJsonObject("runId") { put("type", "string") }
                     putJsonObject("register") { put("type", "boolean") }
                     putJsonObject("agent_visible") { put("type", "boolean") }
-                    putJsonObject("agentVisible") { put("type", "boolean") }
                     putJsonObject("function_id") { put("type", "string") }
                     putJsonObject("name") { put("type", "string") }
                     putJsonObject("description") { put("type", "string") }

@@ -121,7 +121,7 @@ private object SemanticSearchController : VLMActionController {
         val values = linkedSetOf<String>()
         val lastTyped = request.context.trace
             .asReversed()
-            .mapNotNull { (it.action as? TypeAction)?.content?.trim()?.takeIf(String::isNotEmpty) }
+            .mapNotNull { (it.action as? InputTextAction)?.text?.trim()?.takeIf(String::isNotEmpty) }
             .firstOrNull()
         if (!lastTyped.isNullOrBlank()) values += lastTyped
 
@@ -306,8 +306,7 @@ private object SemanticSearchController : VLMActionController {
             is ClickAction -> action.targetDescription
             is ScrollAction -> action.targetDescription
             is LongPressAction -> action.targetDescription
-            is TypeAction -> action.content
-            is InputTextAction -> listOf(action.targetDescription, action.content).joinToString(" ")
+            is InputTextAction -> listOf(action.targetDescription, action.text).joinToString(" ")
             is RecordAction -> action.content
             is InfoAction -> action.value
             is FeedbackAction -> action.value
@@ -316,7 +315,6 @@ private object SemanticSearchController : VLMActionController {
             is FunctionRunAction -> action.functionId
             is RequireUserChoiceAction -> listOf(action.prompt, action.options.joinToString(" ")).joinToString(" ")
             is RequireUserConfirmationAction -> action.prompt
-            is HotKeyAction -> action.key
             else -> ""
         }
 

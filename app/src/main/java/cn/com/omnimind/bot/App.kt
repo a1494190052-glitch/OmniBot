@@ -23,11 +23,15 @@ import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
 import cn.com.omnimind.bot.terminal.EmbeddedTerminalRuntime
 import cn.com.omnimind.bot.update.AppUpdateManager
 import cn.com.omnimind.bot.util.NestedBackgroundStateUtil
+import cn.com.omnimind.bot.vlm.OobVlmActionPipeline
+import cn.com.omnimind.bot.vlm.OobVlmFunctionRecallProvider
 import cn.com.omnimind.bot.vlm.OobVlmPageContextProvider
 import cn.com.omnimind.assists.task.vlmserver.OperationResult
+import cn.com.omnimind.assists.task.vlmserver.VLMActionPipelineRegistry
 import cn.com.omnimind.assists.task.vlmserver.VLMFunctionRunHandler
 import cn.com.omnimind.assists.task.vlmserver.VLMFunctionRunRegistry
 import cn.com.omnimind.assists.task.vlmserver.VLMFunctionRunRequest
+import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextProviderRegistry
 import com.rk.resources.Res
 import com.tencent.mmkv.MMKV
 import io.flutter.FlutterInjector
@@ -178,6 +182,14 @@ class App : BaseApplication() {
             cn.com.omnimind.assists.task.vlmserver.VLMPageContextProviderRegistry.register(
                 OobVlmPageContextProvider(this)
             )
+        }
+        runCatching {
+            VLMRecallContextProviderRegistry.register(
+                OobVlmFunctionRecallProvider(this)
+            )
+        }
+        runCatching {
+            VLMActionPipelineRegistry.register(OobVlmActionPipeline())
         }
         runCatching {
             VLMFunctionRunRegistry.register(object : VLMFunctionRunHandler {

@@ -7,13 +7,20 @@ import org.junit.Test
 
 class OobActionCodecTest {
     @Test
-    fun `normalizes legacy names to canonical actions`() {
-        assertEquals(OobActionCodec.ACTION_CLICK, OobActionCodec.canonicalActionForName("tap"))
-        assertEquals(OobActionCodec.ACTION_INPUT_TEXT, OobActionCodec.canonicalActionForName("set_text"))
-        assertEquals(OobActionCodec.ACTION_SWIPE, OobActionCodec.canonicalActionForName("scroll_down"))
-        assertEquals(OobActionCodec.ACTION_PRESS_KEY, OobActionCodec.canonicalActionForName("press_back"))
-        assertEquals(OobActionCodec.ACTION_OPEN_APP, OobActionCodec.canonicalActionForName("launch_app"))
-        assertEquals(OobActionCodec.ACTION_FINISHED, OobActionCodec.canonicalActionForName("done"))
+    fun `accepts only canonical action names`() {
+        assertEquals(OobActionCodec.ACTION_CLICK, OobActionCodec.canonicalActionForName("click"))
+        assertEquals(OobActionCodec.ACTION_INPUT_TEXT, OobActionCodec.canonicalActionForName("input_text"))
+        assertEquals(OobActionCodec.ACTION_SCROLL, OobActionCodec.canonicalActionForName("scroll"))
+        assertEquals(OobActionCodec.ACTION_PRESS_BACK, OobActionCodec.canonicalActionForName("press_back"))
+        assertEquals(OobActionCodec.ACTION_OPEN_APP, OobActionCodec.canonicalActionForName("open_app"))
+        assertEquals(OobActionCodec.ACTION_FINISHED, OobActionCodec.canonicalActionForName("finished"))
+
+        assertEquals(null, OobActionCodec.canonicalActionForName("tap"))
+        assertEquals(null, OobActionCodec.canonicalActionForName("set_text"))
+        assertEquals(null, OobActionCodec.canonicalActionForName("scroll_down"))
+        assertEquals(null, OobActionCodec.canonicalActionForName("press_key"))
+        assertEquals(null, OobActionCodec.canonicalActionForName("launch_app"))
+        assertEquals(null, OobActionCodec.canonicalActionForName("done"))
     }
 
     @Test
@@ -27,29 +34,27 @@ class OobActionCodecTest {
 
     @Test
     fun `classifies runtime action families without step roles`() {
-        assertTrue(OobActionCodec.isUserFacingAction("tap"))
+        assertTrue(OobActionCodec.isUserFacingAction(OobActionCodec.ACTION_CLICK))
         assertTrue(OobActionCodec.isUserFacingAction(OobActionCodec.ACTION_INPUT_TEXT))
         assertFalse(OobActionCodec.isUserFacingAction(OobActionCodec.ACTION_OPEN_APP))
 
-        assertTrue(OobActionCodec.isRouteAction("launch_app"))
-        assertTrue(OobActionCodec.isRouteAction("press_key", mapOf("key" to "back")))
+        assertTrue(OobActionCodec.isRouteAction(OobActionCodec.ACTION_OPEN_APP))
+        assertTrue(OobActionCodec.isRouteAction(OobActionCodec.ACTION_PRESS_BACK))
         assertFalse(OobActionCodec.isRouteAction("click"))
-        assertFalse(OobActionCodec.isRouteAction("press_key", mapOf("key" to "enter")))
+        assertFalse(OobActionCodec.isRouteAction("press_key"))
     }
 
     @Test
-    fun `derives implicit key args for back and home aliases`() {
-        assertEquals(
-            "back",
+    fun `back and home do not synthesize legacy key args`() {
+        assertFalse(
             OobActionCodec.argsForStep(
                 mapOf("tool" to "press_back", "args" to emptyMap<String, Any?>())
-            )["key"],
+            ).containsKey("key"),
         )
-        assertEquals(
-            "home",
+        assertFalse(
             OobActionCodec.argsForStep(
                 mapOf("tool" to "press_home", "args" to emptyMap<String, Any?>())
-            )["key"],
+            ).containsKey("key"),
         )
     }
 

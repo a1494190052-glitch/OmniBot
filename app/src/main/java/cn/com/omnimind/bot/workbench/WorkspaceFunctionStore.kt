@@ -141,7 +141,7 @@ class WorkspaceFunctionStore(private val workspaceRoot: File) {
         }
 
         val functionId = OobFunctionSchemaBuilder.functionId(spec)
-            .ifEmpty { deriveCommandId(record) }
+            .ifEmpty { deriveFunctionId(record) }
         val storedSpec = if (functionId == spec["function_id"]) {
             spec
         } else {
@@ -168,15 +168,15 @@ class WorkspaceFunctionStore(private val workspaceRoot: File) {
         return RunLogReusableFunctionCompiler.compile(record)
     }
 
-    private fun deriveCommandId(record: InternalRunLogRecord): String {
+    private fun deriveFunctionId(record: InternalRunLogRecord): String {
         val base = record.toolName.ifBlank { record.goal }
             .lowercase()
             .replace(Regex("[^a-z0-9]+"), "_")
             .trim('_')
             .take(40)
-            .ifBlank { "cmd" }
+            .ifBlank { "function" }
         val suffix = record.runId.takeLast(8).replace(Regex("[^A-Za-z0-9]"), "")
-        return "oob_cmd_${base}_$suffix"
+        return "oob_fn_${base}_$suffix"
     }
 
     private fun functionFile(functionId: String): File {

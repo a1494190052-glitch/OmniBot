@@ -391,7 +391,7 @@ class VlmRecallGuidanceBuilderTest {
         assertTrue(guidance.contains("argument_policy: requires_arguments=true"))
         assertTrue(guidance.contains("arguments={contact:string required, message:string required}"))
         assertTrue(guidance.contains("function_profile: purpose=Send a chat message"))
-        assertTrue(guidance.contains("parameterized_hits_may_be_called_by_agent_with_filled_arguments=true"))
+        assertTrue(guidance.contains("parameterized_hits_may_be_called_by_agent_or_vlm_with_filled_arguments=true"))
     }
 
     @Test
@@ -470,8 +470,10 @@ class VlmRecallGuidanceBuilderTest {
 
             assertTrue(enriched.currentPageSummary.contains("UDEG page skill context"))
             assertTrue(enriched.currentPageSummary.contains(OobUdegNodeStore.UDEG_DECISION_PATH))
-            assertTrue(enriched.currentPageSummary.contains("UDEG attached Functions"))
-            assertTrue(enriched.currentPageSummary.contains("function_id=open_network_settings"))
+            assertFalse(enriched.currentPageSummary.contains("UDEG attached Functions"))
+            assertFalse(enriched.currentPageSummary.contains("function_id=open_network_settings"))
+            assertFalse(enriched.currentPageSummary.contains("VLM调用格式: oob_function_run"))
+            assertTrue(enriched.currentPageSummary.contains("Function 候选只来自独立 OmniFlow recall"))
             assertTrue(enriched.currentPageSummary.contains("动作仍必须基于本轮 live screenshot/XML/indexed evidence"))
             assertEquals("false", enriched.pageDiagnostics["udeg_first_seen"])
             assertEquals("true", enriched.pageDiagnostics["udeg_context_injected"])

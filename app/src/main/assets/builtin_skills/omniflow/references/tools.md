@@ -7,6 +7,11 @@ be reintroduced, read `unified-design.md`.
 
 ## Preferred Tools
 
+Treat each Function as a composable reusable segment. It may be the whole answer
+for a small user goal, or it may only advance one part of a larger goal. After
+each Function result, inspect success/fallback/step evidence and continue with
+the next Function, VLM path, or other tool if work remains.
+
 1. Use `oob_run_log_list`, `oob_run_log_get`, and `oob_run_log_convert` for
    local RunLog discovery and RunLog-to-Function conversion.
 2. Use `oob_function_list`, `oob_function_get`, `oob_function_register`,
@@ -29,9 +34,8 @@ the user if the goal does not contain enough information.
 
 `omniflow.recall`, `omniflow.call_tool`, `omniflow.ingest_run_log`, and
 `omniflow.explore_replay` may exist in external MCP clients or older agentkit
-flows. Some older servers also accept `omniflow.call_function`; treat it only as
-a compatibility alias for `omniflow.call_tool(function_id=...)` /
-`oob_function_run`.
+flows. Inside OOB, do not emit those names for new replay. Use
+`oob_function_run` with canonical `function_id` and `arguments`.
 
 `start_step_index`, `startStepIndex`, and `resumeFromStep` are compatibility
 spellings for `resume_from_step`. They do not change fallback semantics: retry a

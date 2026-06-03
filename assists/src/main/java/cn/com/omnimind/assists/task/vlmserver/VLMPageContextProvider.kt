@@ -9,6 +9,7 @@ data class VLMPageContextRequest(
     val screenshotBase64: String?,
     val stepIndex: Int,
     val snapshot: VLMCurrentPageSnapshot? = null,
+    val disableOmniFlowRecall: Boolean = false,
 )
 
 data class VLMCurrentPageSnapshot(
@@ -21,6 +22,10 @@ data class VLMCurrentPageSnapshot(
 )
 
 interface VLMPageContextProvider {
+    suspend fun enrich(request: VLMPageContextRequest): UIContext
+}
+
+interface VLMRecallContextProvider {
     suspend fun enrich(request: VLMPageContextRequest): UIContext
 }
 
@@ -43,6 +48,30 @@ object VLMPageContextProviderRegistry {
         return runCatching { activeProvider.enrich(request) }
             .onFailure { error ->
                 OmniLog.w(TAG, "page context provider failed: ${error.message}")
+            }
+            .getOrDefault(request.context)
+    }
+}
+
+object VLMRecallContextProviderRegistry {
+    private const val TAG = "VLMRecallContextProvider"
+
+    @Volatile
+    private var provider: VLMRecallContextProvider? = null
+
+    fun register(provider: VLMRecallContextProvider?) {
+        this.provider = provider
+    }
+
+    fun clear() {
+        provider = null
+    }
+
+    suspend fun enrich(request: VLMPageContextRequest): UIContext {
+        val activeProvider = provider ?: return request.context
+        return runCatching { activeProvider.enrich(request) }
+            .onFailure { error ->
+                OmniLog.w(TAG, "recall context provider failed: ${error.message}")
             }
             .getOrDefault(request.context)
     }

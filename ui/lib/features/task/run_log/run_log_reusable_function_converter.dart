@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:ui/features/task/run_log/oob_canonical_action_schema.dart';
 import 'package:ui/features/task/run_log/run_log_replay_policy.dart';
 import 'package:ui/services/assists_core_service.dart';
 
@@ -49,7 +50,7 @@ OmniFlow Function Enhancer skill contract:
 - Per-step enhancement must mark each step with useful/merge/drop/noise/optional_checker metadata when applicable, but this metadata must not rewrite executable steps by itself.
 - Conditional obstruction dismissals such as closing ads, popups, banners, coupons, or permission nudges should be annotated as optional_checker metadata, not treated as a guaranteed happy-path action.
 - When marking a step as optional_checker, also add supported runtime checker rules in metadata.checker_rules and link them from agent_reuse.checker_assets so replay can apply the condition only when it is observed.
-- Supported checker rules are limited to overlay_blocking/dismiss/pre_transfer, permission_dialog/allow/pre_transfer, keyboard_obscuring/hide_keyboard/pre_action, and package_mismatch/open_app/pre_transfer. Do not invent checker conditions, scripts, selectors, or model calls.
+- Supported checker rules are limited to overlay_blocking/dismiss/pre_transfer, permission_dialog/allow/pre_transfer, keyboard_obscuring/hide_keyboard/pre_action, package_mismatch/open_app/pre_transfer, and app_upgrade_prompt/dismiss/post_action. Do not invent checker conditions, scripts, selectors, or model calls.
 - If there is no safe useful improvement for this section, return the current/fallback shape for this section rather than inventing content.
 - The app classifies the final attempt as enhanced, unchanged, partial, or failed from the validated patch and save result.
 ''';
@@ -241,19 +242,19 @@ String _enhancementStatusMessage(
       return _text(
         useEnglish,
         'Agent 已检查，未发现可安全应用的增强；当前复用指令保持不变。',
-        'Agent checked this command and found no safe enhancement to apply. The reusable command is unchanged.',
+        'Agent checked this Function and found no safe enhancement to apply. The reusable Function is unchanged.',
       );
     case RunLogReusableFunctionEnhancementStatus.failed:
       return _text(
         useEnglish,
         'Agent 增强未产生可用结果，已保留当前复用指令。',
-        'Agent enhancement produced no usable result. Keeping the current reusable command.',
+        'Agent enhancement produced no usable result. Keeping the current reusable Function.',
       );
     case RunLogReusableFunctionEnhancementStatus.enhancing:
       return _text(
         useEnglish,
         'Agent 正在后台增强这个复用指令。',
-        'Agent is enhancing this reusable command in the background.',
+        'Agent is enhancing this reusable Function in the background.',
       );
     case RunLogReusableFunctionEnhancementStatus.none:
       return '';
@@ -483,15 +484,9 @@ class RunLogReusableFunctionConverter {
         'title': snapshot.title.isNotEmpty ? snapshot.title : emittedToolName,
         if (summary.isNotEmpty) 'summary': summary,
         'tool': emittedToolName,
-        'callable_tool': executor == 'agent'
-            ? 'oob.agent.run'
-            : emittedToolName,
-        if (emittedToolName != snapshot.toolName)
-          'source_tool': snapshot.toolName,
         'executor': executor,
         'scriptable': scriptable,
         if (modelFree) 'model_free': true,
-        if (replayAction != null) 'omniflow_action': replayAction,
         if (coordinateHook != null) ...coordinateHook,
         'args': args,
         if (prompt.isNotEmpty)
@@ -509,10 +504,9 @@ class RunLogReusableFunctionConverter {
                     _callToolFunctionId(args).isNotEmpty
               ? 'omniflow_function'
               : executor == 'omniflow'
-              ? 'omniflow_action'
+              ? 'function'
               : 'oob_agent_tool',
           'name': emittedToolName,
-          if (executor == 'agent') 'callable_tool': 'oob.agent.run',
         },
         if (executor == 'agent')
           'agent_call': {
@@ -809,7 +803,7 @@ class RunLogReusableFunctionConverter {
         final message = _text(
           useEnglish,
           'Agent 增强没有返回任何可解析 JSON 片段，已保留当前复用指令。',
-          'Agent enhancement did not return any parseable JSON fragments. Keeping the current command.',
+          'Agent enhancement did not return any parseable JSON fragments. Keeping the current Function.',
         );
         final report = _buildEnhancementReport(
           status: RunLogReusableFunctionEnhancementStatus.failed,
@@ -887,7 +881,7 @@ class RunLogReusableFunctionConverter {
       final message = _text(
         useEnglish,
         'Agent 增强失败，已保留当前复用指令：$error',
-        'Agent enhancement failed. Keeping the current command: $error',
+        'Agent enhancement failed. Keeping the current Function: $error',
       );
       final report = _buildEnhancementReport(
         status: RunLogReusableFunctionEnhancementStatus.failed,
@@ -1074,10 +1068,10 @@ class RunLogReusableFunctionConverter {
 
     if (useEnglish) {
       return [
-        'You can reuse this OOB reusable command.',
+        'You can reuse this OOB reusable Function.',
         '',
-        'Reusable command: $name',
-        'Reusable command ID: $functionId',
+        'Reusable Function: $name',
+        'Reusable Function ID: $functionId',
         if (description.isNotEmpty) 'Goal: $description',
         '',
         'Parameters:',
@@ -1086,11 +1080,11 @@ class RunLogReusableFunctionConverter {
         'Execution strategy:',
         '1. Prefer executing materialized execution.steps in order from the JSON.',
         '2. For executor=omniflow/model_free, execute the local replay action without a model call.',
-        '3. For executor=tool, call step.callable_tool with the materialized step.args after validation.',
+        '3. For executor=tool, call step.tool with the materialized step.args after validation.',
         '4. For executor=agent or validation mismatch, call step.agent_call.tool / fallback.tool and re-plan that step from the current screen.',
         '5. Runtime arguments are applied through parameters.bindings before execution.',
         '',
-        'Reusable command JSON:',
+        'Reusable Function JSON:',
         const JsonEncoder.withIndent('  ').convert(functionJson),
       ].join('\n');
     }
@@ -1108,7 +1102,7 @@ class RunLogReusableFunctionConverter {
       '执行策略:',
       '1. 优先按已物化的 execution.steps 顺序执行。',
       '2. executor=omniflow/model_free 时直接执行本地动作，不需要模型调用。',
-      '3. executor=tool 时，先检查 validation，再用 step.callable_tool 和已物化 step.args 调工具。',
+        '3. executor=tool 时，先检查 validation，再用 step.tool 和已物化 step.args 调工具。',
       '4. executor=agent 或状态不匹配时，调用 step.agent_call.tool / fallback.tool，从当前屏幕重规划该步。',
       '5. 运行时参数会先通过 parameters.bindings 写入对应 step args。',
       '',
@@ -1124,7 +1118,7 @@ class RunLogReusableFunctionConverter {
     final compact = const JsonEncoder.withIndent('  ').convert(baseJson);
     if (useEnglish) {
       return '''
-You are the OOB/OmniFlow trajectory organizer. Convert the draft extracted from RunLog below into reusable command JSON.
+You are the OOB/OmniFlow trajectory organizer. Convert the draft extracted from RunLog below into reusable Function JSON.
 
 Requirements:
 - Output exactly one JSON object. Do not use Markdown and do not explain.
@@ -1132,14 +1126,14 @@ Requirements:
 - Do not wrap the JSON in code fences. Do not include comments, prose, XML, YAML, or bullet lists.
 - Keep schema_version = "oob.reusable_function.v1" and keep function_id exactly unchanged.
 - Preserve execution.steps order, tool names, and key args. Do not invent tools that do not exist.
-- You may rewrite name/description to make it a clearer reusable command name.
+- You may rewrite name/description to make it a clearer reusable Function name.
 - You may refine parameters: abstract hard-coded user input, search terms, message text, URLs, and target objects into parameters; do not abstract coordinate x/y into user parameters.
 - Every parameter must include name/type/description/bindings/default. bindings must be a JSONPath string array pointing to leaf fields under execution.steps[*].args, including nested call_function arguments such as execution.steps[*].args.arguments.query.
 - Parameter names must be semantic, for example contact_name, search_query, message_text, target_date, or target_url. Do not use mechanical names such as input_text_3 as final parameter names.
-- Preserve or improve step executor/model_free/scriptable/omniflow_action/callable_tool/agent_call/validation/fallback fields.
-- Keep model_free omniflow actions model-free; do not turn click/scroll/input_text/open_app/back/home/hot_key into agent steps.
+- Preserve or improve step executor/model_free/scriptable/tool/args/agent_call/validation/fallback fields.
+- Keep model_free OOB actions model-free; do not turn click/scroll/input_text/open_app/press_back/press_home into agent steps.
 - Drop legacy wait cards. Page settling is handled internally by OmniFlow/VLM stability logic and must not become a replay step.
-- Keep data-flow and perception tools as executor=agent with callable_tool=oob.agent.run; do not turn browser_use/web_search/memory/oob_run_log tools into direct tool replay.
+- Keep data-flow and perception tools as executor=agent with tool=oob.agent.run; do not turn browser_use/web_search/memory/oob_run_log tools into direct tool replay.
 - Output must be consumable by both the agent and the script runner.
 
 Draft JSON:
@@ -1159,10 +1153,10 @@ $compact
 - 可以整理 parameters：把硬编码的用户输入、搜索词、消息文本、URL、目标对象抽象成参数；不要把坐标 x/y 抽象成用户参数。
 - 每个 parameter 必须包含 name/type/description/bindings/default，其中 bindings 是 JSONPath 字符串数组，指向 execution.steps[*].args 下的叶子字段，也可以指向嵌套 call_function 的 arguments，例如 execution.steps[*].args.arguments.query。
 - parameter name 必须有语义，例如 contact_name、search_query、message_text、target_date 或 target_url。不要把 input_text_3 这类机械名作为最终参数名。
-- 保留或优化每步的 executor/model_free/scriptable/omniflow_action/callable_tool/agent_call/validation/fallback 字段。
-- 保持 model_free omniflow 动作无模型执行，不要把 click/scroll/input_text/open_app/back/home/hot_key 改成 agent 步骤。
+- 保留或优化每步的 executor/model_free/scriptable/tool/args/agent_call/validation/fallback 字段。
+- 保持 model_free OOB 动作无模型执行，不要把 click/scroll/input_text/open_app/press_back/press_home 改成 agent 步骤。
 - 丢弃旧版 wait 卡片。页面停留由 OmniFlow/VLM 内部稳定逻辑处理，不能生成回放步骤。
-- 保持 data-flow 和感知工具为 executor=agent 且 callable_tool=oob.agent.run；不要把 browser_use/web_search/memory/oob_run_log 工具改成直接 tool replay。
+- 保持 data-flow 和感知工具为 executor=agent 且 tool=oob.agent.run；不要把 browser_use/web_search/memory/oob_run_log 工具改成直接 tool replay。
 - 输出必须能被 agent 和 script 执行器共同消费。
 
 草稿 JSON：
@@ -1232,7 +1226,7 @@ Work one section at a time:
 
 Return exactly one JSON object. Use this example shape:
 {
-  "name": "short reusable command name",
+  "name": "short reusable Function name",
   "description": "On the contact edit page, fill the contact name and phone fields with runtime values and submit the form. Reuse when the same contact editor is visible; success is confirmed when the saved contact details appear.",
   "parameters": [
     {
@@ -1296,15 +1290,15 @@ Rules:
 - Prefer reusable slots for user-entered text, contact names, phone numbers, search terms, message text, dates, URLs, and target object names.
 - Parameter names must be semantic, for example contact_name, search_query, message_text, target_date, or target_url. Do not use mechanical names such as input_text_3 as final parameter names.
 - Use agent_reuse only as non-executable metadata for key actions, reuse conditions, avoid conditions, success signal, and contiguous segment candidates.
-- Segment candidates must use inclusive contiguous step indexes from the existing execution.steps. Do not claim a segment is already registered as a new command.
+- Segment candidates must use inclusive contiguous step indexes from the existing execution.steps. Do not claim a segment is already registered as a new Function.
 - Write a compact but detailed description that helps the Agent decide when to call this Function later. Cover what user-visible operations it performs, required app/page conditions, runtime inputs, and success signal when known.
 - Keep titles concise and action-oriented.
 - Include every input step index from execution.steps.
 - Every executable step/action must have title, description, action_purpose, importance, cleanup_action, and cleanup_reason.
 - Step description/action_purpose must say what the action does and why it exists in this trajectory; avoid generic labels like "tap button".
 - cleanup_action must be one of keep, merge_candidate, drop_candidate, noise, or optional_checker.
-- Use optional_checker for conditional obstruction actions such as closing ads, popups, banners, coupons, or permission nudges that may not appear on every replay. Add optional_condition when known. Do not remove or force the step.
-- For every optional_checker, add a supported metadata.checker_rules entry and link it from agent_reuse.checker_assets. Supported combinations only: overlay_blocking+dismiss+pre_transfer, permission_dialog+allow+pre_transfer, keyboard_obscuring+hide_keyboard+pre_action, package_mismatch+open_app+pre_transfer. Do not invent scripts, selectors, model calls, or unsupported checker types.
+- Use optional_checker for conditional obstruction actions such as closing ads, popups, banners, coupons, permission nudges, or upgrade prompts that may not appear on every replay. Add optional_condition when known. Do not remove or force the step.
+- For every optional_checker, add a supported metadata.checker_rules entry and link it from agent_reuse.checker_assets. Supported combinations only: overlay_blocking+dismiss+pre_transfer, permission_dialog+allow+pre_transfer, keyboard_obscuring+hide_keyboard+pre_action, package_mismatch+open_app+pre_transfer, app_upgrade_prompt+dismiss+post_action. Do not invent scripts, selectors, model calls, or unsupported checker types.
 - Mark repeated, wrapper, state-refresh, wait-like, or no-op steps as merge_candidate/drop_candidate/noise with a short cleanup_reason. This is annotation only; do not remove steps.
 
 Input digest:
@@ -1395,8 +1389,8 @@ ${_labelEnhancementSkillContract(skillContract: skillContract, section: 'all')}
 - 每个可执行 step/action 都必须有 title、description、action_purpose、importance、cleanup_action 和 cleanup_reason。
 - description/action_purpose 必须说明这个动作做什么、为什么在这条轨迹里需要它；不要写“点击按钮”这种空泛描述。
 - cleanup_action 只能是 keep、merge_candidate、drop_candidate、noise 或 optional_checker。
-- 对关闭广告、弹窗、横幅、优惠券、权限提示等不一定每次出现的条件性遮挡动作，标成 optional_checker，并在知道条件时写 optional_condition。不要删除或强制改执行。
-- 每个 optional_checker 都要补一个可运行的 metadata.checker_rules，并在 agent_reuse.checker_assets 里关联原 step。只允许这些组合：overlay_blocking+dismiss+pre_transfer、permission_dialog+allow+pre_transfer、keyboard_obscuring+hide_keyboard+pre_action、package_mismatch+open_app+pre_transfer。不要发明脚本、selector、模型调用或不支持的 checker 类型。
+- 对关闭广告、弹窗、横幅、优惠券、权限提示、升级/更新提示等不一定每次出现的条件性遮挡动作，标成 optional_checker，并在知道条件时写 optional_condition。不要删除或强制改执行。
+- 每个 optional_checker 都要补一个可运行的 metadata.checker_rules，并在 agent_reuse.checker_assets 里关联原 step。只允许这些组合：overlay_blocking+dismiss+pre_transfer、permission_dialog+allow+pre_transfer、keyboard_obscuring+hide_keyboard+pre_action、package_mismatch+open_app+pre_transfer、app_upgrade_prompt+dismiss+post_action。不要发明脚本、selector、模型调用或不支持的 checker 类型。
 - 对重复、wrapper、刷新状态、类似 wait、无页面变化的步骤，标成 merge_candidate/drop_candidate/noise 并写简短 cleanup_reason。这只是标注，不要删除步骤。
 
 输入摘要：
@@ -1424,12 +1418,12 @@ $compact
     ).convert(_labelHeaderPromptInput(functionJson));
     if (useEnglish) {
       return '''
-You are editing only the name and description of an OOB reusable command.
+You are editing only the name and description of an OOB reusable Function.
 
 ${_labelEnhancementSkillContract(skillContract: skillContract, section: 'header')}
 
 Return exactly one JSON object:
-{"name":"short reusable command name","description":"On the contact edit page, fill the contact name and phone fields with runtime values and submit the form. Reuse when the same contact editor is visible; success is confirmed when the saved contact details appear."}
+{"name":"short reusable Function name","description":"On the contact edit page, fill the contact name and phone fields with runtime values and submit the form. Reuse when the same contact editor is visible; success is confirmed when the saved contact details appear."}
 
 Rules:
 - Return raw JSON only. Do not use Markdown or explanations.
@@ -1470,7 +1464,7 @@ $input
     final input = const JsonEncoder.withIndent('  ').convert({'steps': steps});
     if (useEnglish) {
       return '''
-You are editing only per-step titles, descriptions, and action-purpose labels for an OOB reusable command.
+You are editing only per-step titles, descriptions, and action-purpose labels for an OOB reusable Function.
 
 ${_labelEnhancementSkillContract(skillContract: skillContract, section: 'steps')}
 
@@ -1487,8 +1481,8 @@ Rules:
 - Describe visible user intent and why the action exists, not raw coordinates or low-level implementation.
 - Every executable step/action must have title, description, action_purpose, importance, cleanup_action, and cleanup_reason.
 - cleanup_action must be one of keep, merge_candidate, drop_candidate, noise, or optional_checker.
-- Use optional_checker for conditional obstruction actions such as closing ads, popups, banners, coupons, or permission nudges that may not appear on every replay. Add optional_condition when known. Do not remove or force the step.
-- For every optional_checker, add a supported metadata.checker_rules entry and link it from agent_reuse.checker_assets. Supported combinations only: overlay_blocking+dismiss+pre_transfer, permission_dialog+allow+pre_transfer, keyboard_obscuring+hide_keyboard+pre_action, package_mismatch+open_app+pre_transfer. Do not invent scripts, selectors, model calls, or unsupported checker types.
+- Use optional_checker for conditional obstruction actions such as closing ads, popups, banners, coupons, permission nudges, or upgrade prompts that may not appear on every replay. Add optional_condition when known. Do not remove or force the step.
+- For every optional_checker, add a supported metadata.checker_rules entry and link it from agent_reuse.checker_assets. Supported combinations only: overlay_blocking+dismiss+pre_transfer, permission_dialog+allow+pre_transfer, keyboard_obscuring+hide_keyboard+pre_action, package_mismatch+open_app+pre_transfer, app_upgrade_prompt+dismiss+post_action. Do not invent scripts, selectors, model calls, or unsupported checker types.
 - Mark repeated, wrapper, state-refresh, wait-like, or no-op steps as merge_candidate/drop_candidate/noise with a short cleanup_reason. This is annotation only; do not remove steps.
 
 Input digest:
@@ -1513,8 +1507,8 @@ ${_labelEnhancementSkillContract(skillContract: skillContract, section: 'steps')
 - 描述可见用户意图和动作存在的原因，不要描述裸坐标或底层实现。
 - 每个可执行 step/action 都必须有 title、description、action_purpose、importance、cleanup_action 和 cleanup_reason。
 - cleanup_action 只能是 keep、merge_candidate、drop_candidate、noise 或 optional_checker。
-- 对关闭广告、弹窗、横幅、优惠券、权限提示等不一定每次出现的条件性遮挡动作，标成 optional_checker，并在知道条件时写 optional_condition。不要删除或强制改执行。
-- 每个 optional_checker 都要补一个可运行的 metadata.checker_rules，并在 agent_reuse.checker_assets 里关联原 step。只允许这些组合：overlay_blocking+dismiss+pre_transfer、permission_dialog+allow+pre_transfer、keyboard_obscuring+hide_keyboard+pre_action、package_mismatch+open_app+pre_transfer。不要发明脚本、selector、模型调用或不支持的 checker 类型。
+- 对关闭广告、弹窗、横幅、优惠券、权限提示、升级/更新提示等不一定每次出现的条件性遮挡动作，标成 optional_checker，并在知道条件时写 optional_condition。不要删除或强制改执行。
+- 每个 optional_checker 都要补一个可运行的 metadata.checker_rules，并在 agent_reuse.checker_assets 里关联原 step。只允许这些组合：overlay_blocking+dismiss+pre_transfer、permission_dialog+allow+pre_transfer、keyboard_obscuring+hide_keyboard+pre_action、package_mismatch+open_app+pre_transfer、app_upgrade_prompt+dismiss+post_action。不要发明脚本、selector、模型调用或不支持的 checker 类型。
 - 对重复、wrapper、刷新状态、类似 wait、无页面变化的步骤，标成 merge_candidate/drop_candidate/noise 并写简短 cleanup_reason。这只是标注，不要删除步骤。
 
 输入摘要：
@@ -1532,7 +1526,7 @@ $input
     ).convert(_labelParametersPromptInput(functionJson));
     if (useEnglish) {
       return '''
-You are editing only runtime parameter metadata for an OOB reusable command.
+You are editing only runtime parameter metadata for an OOB reusable Function.
 
 ${_labelEnhancementSkillContract(skillContract: skillContract, section: 'parameters')}
 
@@ -1584,7 +1578,7 @@ $input
     ).convert(_labelReusePromptInput(functionJson));
     if (useEnglish) {
       return '''
-You are editing only non-executable agent_reuse metadata for an OOB reusable command.
+You are editing only non-executable agent_reuse metadata for an OOB reusable Function.
 
 ${_labelEnhancementSkillContract(skillContract: skillContract, section: 'agent_reuse')}
 
@@ -1593,7 +1587,7 @@ Return exactly one JSON object:
 
 Rules:
 - Return raw JSON only. Do not use Markdown or explanations.
-- agent_reuse is metadata only. Do not claim a segment is registered as a new command.
+- agent_reuse is metadata only. Do not claim a segment is registered as a new Function.
 - Segment candidates must use inclusive contiguous step indexes from the input digest.
 - key_actions and segment inputs may reference only listed parameter names.
 - Do not include name, steps, parameters, execution, tools, or args.
@@ -1633,7 +1627,7 @@ $input
     final fallback = const JsonEncoder.withIndent('  ').convert(fallbackPatch);
     if (useEnglish) {
       return '''
-Repair the previous OOB reusable-command $partName output into exactly one valid JSON object.
+Repair the previous OOB reusable Function $partName output into exactly one valid JSON object.
 
 Return raw JSON only. Do not use Markdown, code fences, comments, or explanations.
 If the invalid output is unusable, return the fallback JSON object.
@@ -1922,7 +1916,7 @@ $fallback
     if (name.isNotEmpty) {
       result['name'] = _normalizeFunctionName(
         name,
-        fallback: fallbackName.isEmpty ? 'reusable_command' : fallbackName,
+        fallback: fallbackName.isEmpty ? 'reusable_function' : fallbackName,
       );
     }
     final description = _firstNonBlank([
@@ -2661,18 +2655,14 @@ class _RunLogActionSnapshot {
           _asBool(_firstPresentValue(header, const ['success'])) ??
           _asBool(_firstPresentValue(card, const ['success'])),
       durationMs: _asInt(
-        _firstPresentValue(header, const ['duration_ms', 'durationMs']) ??
-            _firstPresentValue(card, const ['duration_ms', 'durationMs']),
+        _firstPresentValue(header, const ['duration_ms']) ??
+            _firstPresentValue(card, const ['duration_ms']),
       ),
       packageName: _firstNonBlank([
         before['package_name'],
-        before['packageName'],
         after['package_name'],
-        after['packageName'],
         argsMap['package_name'],
-        argsMap['packageName'],
         card['package_name'],
-        card['packageName'],
       ]),
       beforeSummary: _stateSummary(before),
       afterSummary: _stateSummary(after),
@@ -2869,9 +2859,7 @@ Map<String, dynamic>? _sanitizeCheckerRule(
   final rawParams = _asStringKeyMap(raw['params']);
   final packageName = _firstNonBlank([
     rawParams['package_name'],
-    rawParams['packageName'],
     raw['package_name'],
-    raw['packageName'],
   ]);
   final params = <String, dynamic>{};
   if (condition == 'package_mismatch' &&
@@ -2944,11 +2932,30 @@ String _checkerInferenceText(
     annotation['action_purpose'],
     args['target_description'],
     args['text'],
-    args['content'],
   ].map((value) => value?.toString() ?? '').join(' ').toLowerCase();
 }
 
 String _checkerConditionFromText(String text) {
+  if (_containsAny(text, const [
+    'hi_upgrade',
+    'hi upgrade',
+    'hi 升级',
+    'hi_update',
+    'hi update',
+    'hi 更新',
+    'upgrade',
+    'update',
+    'new version',
+    'version upgrade',
+    'version update',
+    '升级',
+    '更新',
+    '版本升级',
+    '版本更新',
+    '新版本',
+  ])) {
+    return 'app_upgrade_prompt';
+  }
   if (_containsAny(text, const ['keyboard', 'ime', '键盘', '输入法'])) {
     return 'keyboard_obscuring';
   }
@@ -2970,11 +2977,15 @@ String _checkerActionForCondition(String condition) => switch (condition) {
   'keyboard_obscuring' => 'hide_keyboard',
   'permission_dialog' => 'allow',
   'package_mismatch' => 'open_app',
+  'app_upgrade_prompt' => 'dismiss',
   _ => 'dismiss',
 };
 
 String _normalizeCheckerCondition(String raw) {
-  final text = raw.trim().toLowerCase().replaceAll('-', '_');
+  final text = raw.trim().toLowerCase().replaceAll(RegExp(r'[\s-]+'), '_');
+  if (_containsAny(text, const ['升级', '更新'])) {
+    return 'app_upgrade_prompt';
+  }
   return switch (text) {
     'overlay_blocking' ||
     'blocking_overlay' ||
@@ -2998,6 +3009,21 @@ String _normalizeCheckerCondition(String raw) {
     'wrong_app' ||
     'app_mismatch' ||
     'foreground_package_mismatch' => 'package_mismatch',
+    'app_upgrade_prompt' ||
+    'upgrade_prompt' ||
+    'update_prompt' ||
+    'app_upgrade_dialog' ||
+    'app_update_dialog' ||
+    'app_upgrade' ||
+    'app_update' ||
+    'version_update' ||
+    'version_upgrade' ||
+    'version_prompt' ||
+    'new_version_prompt' ||
+    'hi_upgrade' ||
+    'hi_upgrade_prompt' ||
+    'hi_update' ||
+    'hi_update_prompt' => 'app_upgrade_prompt',
     _ => '',
   };
 }
@@ -3011,7 +3037,14 @@ String _normalizeCheckerAction(String raw, {required String condition}) {
     'close_popup' ||
     'click_close' ||
     'click_dismiss' ||
-    'skip' => 'dismiss',
+    'skip' ||
+    'not_now' ||
+    'later' ||
+    'remind_later' ||
+    'postpone' ||
+    'defer' ||
+    'skip_update' ||
+    'cancel' => 'dismiss',
     'allow' || 'grant' || 'grant_permission' || 'click_allow' => 'allow',
     'hide_keyboard' ||
     'dismiss_keyboard' ||
@@ -3019,18 +3052,23 @@ String _normalizeCheckerAction(String raw, {required String condition}) {
     'open_app' || 'launch_app' || 'start_app' => 'open_app',
     'click' when condition == 'overlay_blocking' => 'dismiss',
     'click' when condition == 'permission_dialog' => 'allow',
+    'click' when condition == 'app_upgrade_prompt' => 'dismiss',
     _ => '',
   };
 }
 
-String _checkerPhaseForCondition(String condition) =>
-    condition == 'keyboard_obscuring' ? 'pre_action' : 'pre_transfer';
+String _checkerPhaseForCondition(String condition) => switch (condition) {
+  'keyboard_obscuring' => 'pre_action',
+  'app_upgrade_prompt' => 'post_action',
+  _ => 'pre_transfer',
+};
 
 bool _isSupportedCheckerPair(String condition, String action) =>
     (condition == 'overlay_blocking' && action == 'dismiss') ||
     (condition == 'permission_dialog' && action == 'allow') ||
     (condition == 'keyboard_obscuring' && action == 'hide_keyboard') ||
-    (condition == 'package_mismatch' && action == 'open_app');
+    (condition == 'package_mismatch' && action == 'open_app') ||
+    (condition == 'app_upgrade_prompt' && action == 'dismiss');
 
 String _checkerRuleSignature(Map<String, dynamic> rule) {
   final params = _asStringKeyMap(rule['params']);
@@ -3038,7 +3076,7 @@ String _checkerRuleSignature(Map<String, dynamic> rule) {
     rule['phase'],
     rule['condition'],
     rule['action'],
-    params['package_name'] ?? params['packageName'] ?? '',
+    params['package_name'] ?? '',
   ].map((value) => value?.toString() ?? '').join('|');
 }
 
@@ -3306,7 +3344,7 @@ List<Map<String, dynamic>> _enhancementBindingCandidates(
     if (args.isEmpty) {
       continue;
     }
-    final toolName = _firstNonBlank([step['tool'], step['source_tool']]);
+    final toolName = _firstNonBlank([step['tool']]);
     _collectEnhancementBindingCandidates(
       output: output,
       step: step,
@@ -3450,7 +3488,11 @@ List<String> _fallbackInputTextBindingsForParameter(
     return const <String>[];
   }
   final args = _asStringKeyMap(step['args']);
-  return const ['text', 'content', 'value']
+  final inputTextArgs = OobCanonicalActionSchema.argNames(
+    OobCanonicalActionSchema.toolInputText,
+  );
+  return inputTextArgs
+      .where((key) => key == OobCanonicalActionSchema.argText)
       .where(args.containsKey)
       .map((key) => '\$.execution.steps[$stepIndex].args.$key')
       .toList(growable: false);
@@ -3479,7 +3521,6 @@ String _semanticParameterNameForTarget(
     parameter['summary'],
     parameter['role'],
     args['target_description'],
-    args['targetDescription'],
     args['label'],
     args['hint'],
     args['placeholder'],
@@ -3546,6 +3587,17 @@ _ParameterBindingTarget? _bindingTargetForPath(
     return null;
   }
   final step = steps[stepIndex];
+  if (rootKind == 'args') {
+    final canonicalTool = OobCanonicalActionSchema.canonicalToolName(
+      _firstNonBlank([step['tool']]),
+    );
+    if (canonicalTool != null) {
+      final rootArg = pathSuffix.split('.').first.split('[').first;
+      if (!OobCanonicalActionSchema.argNames(canonicalTool).contains(rootArg)) {
+        return null;
+      }
+    }
+  }
   final root = rootKind == 'args'
       ? _asStringKeyMap(step['args'])
       : _asStringKeyMap(
@@ -4068,6 +4120,12 @@ bool _isParameterCandidate(String toolName, String key, dynamic value) {
   if (_isCoordinateLikeKey(normalizedKey)) {
     return false;
   }
+  final canonicalTool = OobCanonicalActionSchema.canonicalToolName(toolName);
+  if (canonicalTool != null) {
+    return OobCanonicalActionSchema.argNames(canonicalTool).contains(
+      normalizedKey,
+    );
+  }
   const candidateKeys = {
     'text',
     'content',
@@ -4112,10 +4170,6 @@ bool _isCoordinateLikeKey(String key) {
     'bottom',
     'width',
     'height',
-    'center_x',
-    'centery',
-    'center_y',
-    'centerx',
     'bounds',
     'rect',
   };
@@ -4155,19 +4209,12 @@ Map<String, dynamic> _canonicalCallToolArgs(String toolName, dynamic args) {
   final mapped = Map<String, dynamic>.from(_asStringKeyMap(args));
   final functionId = _firstNonBlank([
     mapped['function_id'],
-    mapped['functionId'],
-    mapped['oob_function_id'],
-    mapped['oobFunctionId'],
   ]);
   if (functionId.isNotEmpty) {
     mapped['function_id'] = functionId;
   }
   final targetTool = _firstNonBlank([
     mapped['tool_name'],
-    mapped['toolName'],
-    mapped['target_tool'],
-    mapped['targetTool'],
-    mapped['tool'],
   ]);
   if (targetTool.isNotEmpty &&
       !RunLogReplayPolicy.isOmniflowFunctionTool(normalizedTool)) {
@@ -4180,9 +4227,6 @@ String _callToolFunctionId(dynamic args) {
   final mapped = _asStringKeyMap(args);
   return _firstNonBlank([
     mapped['function_id'],
-    mapped['functionId'],
-    mapped['oob_function_id'],
-    mapped['oobFunctionId'],
   ]);
 }
 
@@ -4200,7 +4244,7 @@ String _stepKindForToolName(String toolName, String route, {dynamic args}) {
   if (RunLogReplayPolicy.isOmniflowFunctionTool(toolName)) {
     return 'omniflow_function';
   }
-  return executor == 'omniflow' ? 'omniflow_action' : 'tool_call';
+  return executor == 'omniflow' ? 'function' : 'tool_call';
 }
 
 String _executorForSnapshot(
@@ -4296,9 +4340,7 @@ String _stepSummary({
   final preview = _compactPreview(
     _firstNonBlank([
       argsMap['target_description'],
-      argsMap['targetDescription'],
       argsMap['text'],
-      argsMap['content'],
       argsMap['message'],
       argsMap['query'],
       argsMap['url'],
@@ -4329,26 +4371,14 @@ Map<String, dynamic>? _buildCoordinateHookMetadata({
   final argsMap = _asStringKeyMap(args);
   final sourceAction = <String, dynamic>{
     'tool': replayAction,
-    if (_firstNonBlank([
-      argsMap['target_description'],
-      argsMap['targetDescription'],
-    ]).isNotEmpty)
-      'target_description': _firstNonBlank([
-        argsMap['target_description'],
-        argsMap['targetDescription'],
-      ]),
+    if (_firstNonBlank([argsMap['target_description']]).isNotEmpty)
+      'target_description': _firstNonBlank([argsMap['target_description']]),
   };
-  for (final key in const [
-    'x',
-    'y',
-    'x1',
-    'y1',
-    'x2',
-    'y2',
-    'duration',
-    'duration_ms',
-    'durationMs',
-  ]) {
+  for (final key in OobCanonicalActionSchema.sourceContextArgNames) {
+    if (key == OobCanonicalActionSchema.argText ||
+        key == OobCanonicalActionSchema.argTargetDescription) {
+      continue;
+    }
     if (argsMap.containsKey(key) && argsMap[key] != null) {
       sourceAction[key] = argsMap[key];
     }
@@ -4387,7 +4417,7 @@ String? _replayActionForSnapshot(_RunLogActionSnapshot snapshot) {
   }
   final argsMap = _asStringKeyMap(snapshot.args);
   return RunLogReplayPolicy.omniflowActionForToolName(
-    _firstNonBlank([argsMap['action'], argsMap['omniflow_action']]),
+    _firstNonBlank([argsMap['tool']]),
   );
 }
 
@@ -4720,20 +4750,17 @@ bool _isDuplicateTextInputStep(
 
 bool _isTextInputStep(Map<String, dynamic> step) {
   final rawAction = _firstNonBlank([
-    step['omniflow_action'],
-    step['local_action'],
     step['tool'],
-    step['callable_tool'],
   ]);
   final action =
       RunLogReplayPolicy.omniflowActionForToolName(rawAction) ??
       RunLogReplayPolicy.normalizeToolName(rawAction);
-  return action == 'input_text' || action == 'type';
+  return action == 'input_text';
 }
 
 String _textInputValue(Map<String, dynamic> step) {
   final args = _asStringKeyMap(step['args']);
-  return _firstNonBlank([args['text'], args['content'], args['value']]);
+  return _firstNonBlank([args['text']]);
 }
 
 String _textInputTargetSignature(Map<String, dynamic> step) {
@@ -4748,9 +4775,7 @@ String _textInputTargetSignature(Map<String, dynamic> step) {
     args['bounds'],
     action['bounds'],
     args['target_description'],
-    args['targetDescription'],
     action['target_description'],
-    action['targetDescription'],
   ]);
 }
 
@@ -4764,9 +4789,7 @@ dynamic _replayArgsForSnapshot(_RunLogActionSnapshot snapshot) {
   final nestedArguments = _asStringKeyMap(argsMap['arguments']);
   final flattened = <String, dynamic>{};
   for (final entry in argsMap.entries) {
-    if (entry.key == 'action' ||
-        entry.key == 'omniflow_action' ||
-        entry.key == 'arguments') {
+    if (entry.key == 'tool' || entry.key == 'arguments') {
       continue;
     }
     flattened[entry.key] = entry.value;
@@ -5262,7 +5285,7 @@ bool _looksLikePlaceholderJsonText(String value) {
     return true;
   }
   return const {
-    'short reusable command name',
+    'short reusable Function name',
     'one sentence',
     'one sentence describing when and why to use it',
     'runtime_slot',
@@ -5503,8 +5526,6 @@ List<dynamic> _normalizeExecutionSteps(dynamic value, dynamic fallback) {
       ]),
     };
     final rawReplayAction = _firstNonBlank([
-      if (executor == 'omniflow') merged['omniflow_action'],
-      if (executor == 'omniflow') fallbackStep['omniflow_action'],
       if (executor == 'omniflow')
         RunLogReplayPolicy.omniflowActionForToolName(toolName),
     ]);
@@ -5529,11 +5550,6 @@ List<dynamic> _normalizeExecutionSteps(dynamic value, dynamic fallback) {
         : rawScriptable is bool
         ? rawScriptable
         : true;
-    final callableTool = executor == 'agent'
-        ? 'oob.agent.run'
-        : executor == 'omniflow' && replayAction.isNotEmpty
-        ? replayAction
-        : canonicalToolName;
     final fallback = _mergeMaps(
       _asStringKeyMap(fallbackStep['fallback']),
       _asStringKeyMap(merged['fallback']),
@@ -5569,12 +5585,9 @@ List<dynamic> _normalizeExecutionSteps(dynamic value, dynamic fallback) {
         args: normalizedArgs,
       ),
       'tool': emittedToolName,
-      'callable_tool': callableTool,
-      if (emittedToolName != toolName) 'source_tool': toolName,
       'executor': executor,
       'scriptable': scriptable,
       if (modelFree) 'model_free': true,
-      if (replayAction.isNotEmpty) 'omniflow_action': replayAction,
       'args': _jsonSafe(normalizedArgs),
       'tool_binding': _mergeMaps(
         _mergeMaps(
@@ -5586,16 +5599,15 @@ List<dynamic> _normalizeExecutionSteps(dynamic value, dynamic fallback) {
               ? 'agent_replan'
               : RunLogReplayPolicy.isOmniflowGraphTool(emittedToolName)
               ? 'omniflow_graph'
-              : RunLogReplayPolicy.isOmniflowFunctionTool(emittedToolName) ||
-                    _callToolFunctionId(normalizedArgs).isNotEmpty
-              ? 'omniflow_function'
-              : executor == 'omniflow'
-              ? 'omniflow_action'
-              : 'oob_agent_tool',
-          'name': emittedToolName,
-          if (executor == 'agent') 'callable_tool': 'oob.agent.run',
-        },
-      ),
+                  : RunLogReplayPolicy.isOmniflowFunctionTool(emittedToolName) ||
+                        _callToolFunctionId(normalizedArgs).isNotEmpty
+                  ? 'omniflow_function'
+                  : executor == 'omniflow'
+                  ? 'function'
+                  : 'oob_agent_tool',
+              'name': emittedToolName,
+            },
+          ),
       if (prompt.isNotEmpty)
         'prompt': {
           ..._asStringKeyMap(fallbackStep['prompt']),

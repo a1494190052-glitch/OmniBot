@@ -2368,7 +2368,7 @@ class AssistsMessageService {
     required String runId,
   }) async {
     final result = await assistCore.invokeMethod('getInternalRunLogTimeline', {
-      'runId': runId.trim(),
+      'run_id': runId.trim(),
     });
     if (result is! Map) {
       throw Exception('内部 RunLog 响应格式错误');
@@ -2698,7 +2698,7 @@ class AssistsMessageService {
 
     final result = await assistCore.invokeMethod(
       'registerOobReusableFunction',
-      {'functionSpec': spec},
+      {'function_spec': spec},
     );
     return UtgFunctionMutationResult.fromMap(_jsonSafeDynamicMap(result));
   }
@@ -2717,11 +2717,11 @@ class AssistsMessageService {
     }
     final result = await assistCore
         .invokeMethod('convertInternalRunLogToOobFunction', {
-          'runId': normalizedRunId,
+          'run_id': normalizedRunId,
           'register': register,
-          'agentVisible': agentVisible,
+          'agent_visible': agentVisible,
           if (functionId != null && functionId.trim().isNotEmpty)
-            'functionId': functionId.trim(),
+            'function_id': functionId.trim(),
           if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
           if (description != null && description.trim().isNotEmpty)
             'description': description.trim(),
@@ -2803,7 +2803,7 @@ class AssistsMessageService {
       return {'success': false, 'error': 'functionId is empty'};
     }
     final result = await assistCore.invokeMethod('deleteOobReusableFunction', {
-      'functionId': normalized,
+      'function_id': normalized,
     });
     return _jsonSafeDynamicMap(result);
   }
@@ -2816,7 +2816,7 @@ class AssistsMessageService {
       return null;
     }
     final result = await assistCore.invokeMethod('getOobReusableFunction', {
-      'functionId': normalized,
+      'function_id': normalized,
     });
     if (result is! Map) {
       return null;
@@ -2844,11 +2844,10 @@ class AssistsMessageService {
     Map<String, dynamic> arguments = const {},
     int? conversationId,
     String? conversationMode,
-    bool allowVlmFallback = false,
     Map<String, dynamic>? localReplayResult,
   }) async {
     final args = <String, dynamic>{
-      'functionId': functionId.trim(),
+      'function_id': functionId.trim(),
       'arguments': _jsonSafeMap(arguments),
     };
     if (conversationId != null && conversationId > 0) {
@@ -2856,9 +2855,6 @@ class AssistsMessageService {
     }
     if (conversationMode != null && conversationMode.trim().isNotEmpty) {
       args['conversationMode'] = conversationMode.trim();
-    }
-    if (allowVlmFallback) {
-      args['allowVlmFallback'] = true;
     }
     if (localReplayResult != null && localReplayResult.isNotEmpty) {
       args['localReplayResult'] = _jsonSafeMap(localReplayResult);

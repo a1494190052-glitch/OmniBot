@@ -77,8 +77,8 @@ UI and tests:
 - `ui/lib/widgets/execution/` normalizes user-facing RunLog/Function cards.
 - `ui/lib/services/agent_tool_card_projection.dart` and
   `ui/lib/services/agent_tool_card_policy.dart` project streamed tool events
-  into visible cards, including nested reusable-command calls.
-- `ui/lib/features/task/pages/execution_history/command_library_page.dart`
+  into visible cards, including nested reusable Function calls.
+- `ui/lib/features/task/pages/execution_history/function_library_page.dart`
   shows reusable Functions as "复用指令".
 - `ui/lib/features/task/pages/execution_history/function_run_result_sheet.dart`
   hides raw internal timing keys from normal UI.
@@ -709,7 +709,7 @@ agent card schema produced by `AssistsCoreManager.buildAgentToolRunLogCard(...)`
 - `rawResultJson`
 - `compile_kind = "agent_tool"`
 
-For reusable-command cards, `toolName=oob_function_run`, `toolType=oob_function`,
+For reusable Function cards, `toolName=oob_function_run`, `toolType=oob_function`,
 and `argsJson` must include `function_id` plus optional `arguments`. Legacy
 cards with `toolName=call_function` are accepted as old evidence only.
 

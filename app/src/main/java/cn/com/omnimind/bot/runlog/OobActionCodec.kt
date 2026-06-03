@@ -1,94 +1,39 @@
 package cn.com.omnimind.bot.runlog
 
+import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
+
 /**
  * Canonical action parser for OOB Function steps.
  *
- * This is the single place where legacy action/tool names are mapped into the
- * compact action vocabulary consumed by replay, UDEG, and update_function.
+ * This is the single place where action/tool names are mapped into the compact
+ * action vocabulary consumed by replay, UDEG, and update_function.
  */
 object OobActionCodec {
-    const val ACTION_CLICK = "click"
-    const val ACTION_LONG_PRESS = "long_press"
-    const val ACTION_INPUT_TEXT = "input_text"
-    const val ACTION_SWIPE = "swipe"
-    const val ACTION_OPEN_APP = "open_app"
-    const val ACTION_PRESS_KEY = "press_key"
-    const val ACTION_FINISHED = "finished"
+    const val ACTION_CLICK = OobCanonicalActionSchema.TOOL_CLICK
+    const val ACTION_LONG_PRESS = OobCanonicalActionSchema.TOOL_LONG_PRESS
+    const val ACTION_INPUT_TEXT = OobCanonicalActionSchema.TOOL_INPUT_TEXT
+    const val ACTION_SCROLL = OobCanonicalActionSchema.TOOL_SCROLL
+    const val ACTION_OPEN_APP = OobCanonicalActionSchema.TOOL_OPEN_APP
+    const val ACTION_PRESS_BACK = OobCanonicalActionSchema.TOOL_PRESS_BACK
+    const val ACTION_PRESS_HOME = OobCanonicalActionSchema.TOOL_PRESS_HOME
+    const val ACTION_FINISHED = OobCanonicalActionSchema.TOOL_FINISHED
 
-    val executableActions: Set<String> = setOf(
-        ACTION_CLICK,
-        ACTION_LONG_PRESS,
-        ACTION_INPUT_TEXT,
-        ACTION_SWIPE,
-        ACTION_OPEN_APP,
-        ACTION_PRESS_KEY,
-        ACTION_FINISHED,
-    )
+    val executableActions: Set<String> = OobCanonicalActionSchema.replayableToolNames
 
-    val coordinateActions: Set<String> = setOf(
-        ACTION_CLICK,
-        ACTION_LONG_PRESS,
-        ACTION_INPUT_TEXT,
-        ACTION_SWIPE,
-    )
+    val coordinateActions: Set<String> = OobCanonicalActionSchema.coordinateToolNames
 
-    val pointTargetActions: Set<String> = setOf(
-        ACTION_CLICK,
-        ACTION_LONG_PRESS,
-    )
+    val pointTargetActions: Set<String> = OobCanonicalActionSchema.pointTargetToolNames
 
-    val userFacingActions: Set<String> = setOf(
-        ACTION_CLICK,
-        ACTION_LONG_PRESS,
-        ACTION_INPUT_TEXT,
-        ACTION_SWIPE,
-    )
+    val userFacingActions: Set<String> = OobCanonicalActionSchema.recordableToolNames
 
-    val actionAliases: Map<String, String> = mapOf(
-        "tap" to ACTION_CLICK,
-        "click_at" to ACTION_CLICK,
-        "click_element" to ACTION_CLICK,
-        "clickelement" to ACTION_CLICK,
-        "longclick" to ACTION_LONG_PRESS,
-        "long_click" to ACTION_LONG_PRESS,
-        "longpress" to ACTION_LONG_PRESS,
-        "type" to ACTION_INPUT_TEXT,
-        "type_text" to ACTION_INPUT_TEXT,
-        "set_text" to ACTION_INPUT_TEXT,
-        "settext" to ACTION_INPUT_TEXT,
-        "inputtext" to ACTION_INPUT_TEXT,
-        "scroll" to ACTION_SWIPE,
-        "scroll_down" to ACTION_SWIPE,
-        "scroll_up" to ACTION_SWIPE,
-        "scroll_left" to ACTION_SWIPE,
-        "scroll_right" to ACTION_SWIPE,
-        "back" to ACTION_PRESS_KEY,
-        "press_back" to ACTION_PRESS_KEY,
-        "pressback" to ACTION_PRESS_KEY,
-        "press_back_button" to ACTION_PRESS_KEY,
-        "home" to ACTION_PRESS_KEY,
-        "press_home" to ACTION_PRESS_KEY,
-        "presshome" to ACTION_PRESS_KEY,
-        "press_home_button" to ACTION_PRESS_KEY,
-        "hot_key" to ACTION_PRESS_KEY,
-        "hotkey" to ACTION_PRESS_KEY,
-        "presskey" to ACTION_PRESS_KEY,
-        "key_event" to ACTION_PRESS_KEY,
-        "keyevent" to ACTION_PRESS_KEY,
-        "openapp" to ACTION_OPEN_APP,
-        "launch_app" to ACTION_OPEN_APP,
-        "launchapp" to ACTION_OPEN_APP,
-        "finish" to ACTION_FINISHED,
-        "done" to ACTION_FINISHED,
-        "complete" to ACTION_FINISHED,
-    )
+    val actionAliases: Map<String, String> = emptyMap()
 
     fun normalizeName(raw: String): String =
-        raw.trim().lowercase()
+        OobCanonicalActionSchema.normalizeToolName(raw)
 
     fun canonicalActionForName(raw: String): String? {
-        val normalized = normalizeName(raw)
-        return normalized.takeIf { it in executableActions } ?: actionAliases[normalized]
+        return OobCanonicalActionSchema.canonicalToolName(raw)
+            ?.takeIf { it in executableActions }
     }
 
     fun actionNameForStep(step: Map<String, Any?>): String {
@@ -102,26 +47,20 @@ object OobActionCodec {
 
     fun isRouteAction(actionType: String, args: Map<String, Any?> = emptyMap()): Boolean {
         val canonical = canonicalActionForName(actionType) ?: normalizeName(actionType)
-        if (canonical == ACTION_OPEN_APP) return true
-        if (canonical != ACTION_PRESS_KEY) return false
-        val key = firstNonBlank(args["key"], args["key_code"], args["keyCode"]).lowercase()
-        return key in setOf("back", "home")
+        return canonical in OobCanonicalActionSchema.routeToolNames
     }
 
     fun argsForStep(step: Map<String, Any?>): Map<String, Any?> {
-        val args = mapArg(step["args"]).toMutableMap()
         val rawAction = rawActionNameForStep(step)
-        when (normalizeName(rawAction)) {
-            "back", "press_back", "pressback", "press_back_button" ->
-                args.putIfAbsent("key", "back")
-            "home", "press_home", "presshome", "press_home_button" ->
-                args.putIfAbsent("key", "home")
-        }
-        return args
+        val canonicalAction = canonicalActionForName(rawAction)
+            ?: return mapArg(step[OobCanonicalActionSchema.ROOT_ARGS])
+        val allowedArgs = OobCanonicalActionSchema.argNames(canonicalAction)
+        return mapArg(step[OobCanonicalActionSchema.ROOT_ARGS])
+            .filterKeys { it in allowedArgs }
     }
 
     fun sourceContextForStep(step: Map<String, Any?>): Map<String, Any?> =
-        mapArg(step["source_context"]).ifEmpty { mapArg(mapArg(step["args"])["source_context"]) }
+        mapArg(step["source_context"]).ifEmpty { mapArg(mapArg(step[OobCanonicalActionSchema.ROOT_ARGS])["source_context"]) }
 
     fun sourceActionForStep(step: Map<String, Any?>): Map<String, Any?> =
         mapArg(sourceContextForStep(step)["action"])
@@ -135,17 +74,8 @@ object OobActionCodec {
         )
 
     private fun rawActionNameForStep(step: Map<String, Any?>): String {
-        val sourceAction = sourceActionForStep(step)
         return firstNonBlankActionName(
-            step["action"],
-            step["omniflow_action"],
-            step["local_action"],
-            step["tool"],
-            step["callable_tool"],
-            step["type"],
-            sourceAction["tool"],
-            sourceAction["action"],
-            sourceAction["type"],
+            step[OobCanonicalActionSchema.ROOT_TOOL],
         )
     }
 
@@ -179,27 +109,12 @@ object OobActionCodec {
         maxValueChars: Int = DEFAULT_ACTION_SUMMARY_VALUE_CHARS,
     ): Map<String, Any?> {
         val summary = linkedMapOf<String, Any?>()
-        summary.putFirstPresent("target_description", args["target_description"], args["targetDescription"], sourceAction["target_description"], sourceAction["targetDescription"])
-        summary.putFirstPresent("selector", args["selector"], sourceAction["selector"])
-        summary.putFirstPresent("node_resource_id", args["node_resource_id"], args["nodeResourceId"], args["resource_id"], args["resourceId"], sourceAction["node_resource_id"], sourceAction["nodeResourceId"], sourceAction["resource_id"], sourceAction["resourceId"])
-        summary.putFirstPresent("bounds", args["bounds"], sourceAction["bounds"])
-        summary.putFirstPresent("node_class", args["node_class"], args["nodeClass"], sourceAction["node_class"], sourceAction["nodeClass"])
-        summary.putFirstPresent("x", args["x"], sourceAction["x"])
-        summary.putFirstPresent("y", args["y"], sourceAction["y"])
-        summary.putFirstPresent("x1", args["x1"], sourceAction["x1"])
-        summary.putFirstPresent("y1", args["y1"], sourceAction["y1"])
-        summary.putFirstPresent("x2", args["x2"], sourceAction["x2"])
-        summary.putFirstPresent("y2", args["y2"], sourceAction["y2"])
-        summary.putFirstPresent("end_x", args["end_x"], args["endX"], sourceAction["end_x"], sourceAction["endX"])
-        summary.putFirstPresent("end_y", args["end_y"], args["endY"], sourceAction["end_y"], sourceAction["endY"])
-        summary.putFirstPresent("direction", args["direction"], args["scroll_direction"], sourceAction["direction"], sourceAction["scroll_direction"])
-        summary.putFirstPresent("distance", args["distance"], args["scroll_distance"], sourceAction["distance"], sourceAction["scroll_distance"])
-        summary.putFirstPresent("duration_ms", args["duration_ms"], args["durationMs"], sourceAction["duration_ms"], sourceAction["durationMs"])
-        summary.putFirstPresent("package_name", args["package_name"], args["packageName"], sourceAction["package_name"], sourceAction["packageName"])
-        summary.putFirstPresent("key", args["key"], args["hotkey"], args["hot_key"], sourceAction["key"], sourceAction["hotkey"], sourceAction["hot_key"])
-        summary.putFirstPresent("clear", args["clear"], sourceAction["clear"])
+        for (key in OobCanonicalActionSchema.sourceContextArgNames) {
+            if (key == OobCanonicalActionSchema.ARG_TEXT) continue
+            summary.putFirstPresent(key, args[key], sourceAction[key])
+        }
         if (actionType == ACTION_INPUT_TEXT) {
-            val text = firstNonBlank(args["text"], args["content"], args["value"], sourceAction["text"], sourceAction["content"], sourceAction["value"])
+            val text = firstNonBlank(args[OobCanonicalActionSchema.ARG_TEXT], sourceAction[OobCanonicalActionSchema.ARG_TEXT])
             if (text.isNotBlank()) {
                 summary["text_present"] = true
                 summary["text_length"] = text.length

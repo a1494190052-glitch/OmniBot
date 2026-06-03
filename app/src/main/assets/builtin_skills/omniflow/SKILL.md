@@ -21,6 +21,8 @@ backends. The agent behavior belongs in this skill and its references.
 - RunLog success/failure evidence or `run_id`: read `references/runlog-evidence.md`.
 - Replay failure, agent fallback, or resume from a step: read `references/replay-fallback.md`.
 - Ads, popups, permission nudges, skip/close buttons: read `references/checkers.md`.
+- New or broken runtime checker implementation, including a global checker that
+  needs Kotlin changes: use the `omniflow-checker-maintainer` skill.
 - Noisy, duplicate, or unclear actions: read `references/canonical-actions.md`.
 - Tool name choice or legacy compatibility: read `references/tools.md`.
 
@@ -29,6 +31,10 @@ by default.
 
 ## Core Rules
 
+- Treat Functions as composable reusable segments. A Function may complete the
+  user goal or only advance one part of it; after each run result, inspect the
+  result and continue with the next Function, VLM path, or other tool when the
+  goal remains unfinished.
 - Prefer `oob_function_*`, `oob_run_log_*`, and `update_function` for in-app
   OOB Function work.
 - Use `oob_function_run` for replay. After fallback, complete

@@ -30,7 +30,7 @@ queue，不根据页面状态自动跳过中间步骤，不做 semantic/navigati
 | 概念 | 主职责 | 主入口 | 不再扩展 |
 | --- | --- | --- | --- |
 | RunLog | 记录一次真实执行或人工录制的证据 | `oob_run_log_*` | inline 临时 replay 规则 |
-| Function | 可复用 GUI 工作流资产 | `oob_function_*` | old Command 产品线 |
+| Function | 可复用 GUI 工作流资产 | `oob_function_*` | legacy reusable-workflow wording |
 | Replay | 顺序执行 `Function.steps` | `oob_function_run` | `call_function` / `run_function` 主路径 |
 | Recall | 本地候选检索并写入上下文 | VLM page context / guidance | recall 前置强规则自动执行 |
 | Checker | 可选条件处理，如广告/弹窗/权限 | Function metadata / checker rules | 必经 happy path step |

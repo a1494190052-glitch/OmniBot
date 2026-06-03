@@ -389,8 +389,7 @@ class OobFunctionRepository(
         fun isAgentVisible(spec: Map<String, Any?>): Boolean {
             val metadata = spec["metadata"] as? Map<*, *>
             val visibility = visibility(spec)
-            val explicit = spec["agent_visible"] ?: spec["agentVisible"] ?: metadata?.get("agent_visible")
-                ?: metadata?.get("agentVisible")
+            val explicit = spec["agent_visible"] ?: metadata?.get("agent_visible")
             if (explicit is Boolean) return explicit
             val explicitText = explicit?.toString()?.trim()?.lowercase().orEmpty()
             if (explicitText in setOf("false", "0", "no", "hidden")) return false

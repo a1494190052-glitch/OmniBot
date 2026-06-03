@@ -100,6 +100,8 @@ class OobFunctionCheckerPatchService {
         val condition = when {
             containsAny(text, listOf("resolver", "chooser", "open with", "always open", "始终打开", "打开方式")) ->
                 OmniflowCheckerRule.COND_RESOLVER_DIALOG
+            containsAny(text, listOf("upgrade", "update", "version", "hi升级", "hi 升级", "新版本", "新版", "升级", "更新")) ->
+                OmniflowCheckerRule.COND_APP_UPGRADE_PROMPT
             containsAny(text, listOf("keyboard", "ime", "键盘", "输入法")) ->
                 OmniflowCheckerRule.COND_KEYBOARD_OBSCURING
             containsAny(text, listOf("permission", "allow", "authorize", "grant", "权限", "授权", "允许")) ->
@@ -146,7 +148,6 @@ class OobFunctionCheckerPatchService {
             annotation["action_purpose"],
             args["target_description"],
             args["text"],
-            args["content"],
         ).joinToString(" ") { it?.toString().orEmpty() }.lowercase()
     }
 

@@ -714,7 +714,7 @@ String resolveAgentToolTypeLabel(
     case 'oob_function':
     case 'reusable_function':
       return AppTextLocalizer.choose(
-        en: 'Reusable command',
+        en: 'Reusable Function',
         zh: '复用指令',
         locale: locale,
       );
@@ -852,7 +852,7 @@ String _prettifyToolName(String raw) {
   }
   final lower = normalized.toLowerCase();
   if (lower == 'call function' || lower == 'omniflow.call function') {
-    return 'Reusable command';
+    return 'Reusable Function';
   }
   if (lower == 'calltool' || lower == 'call tool') {
     return 'Tool call';
@@ -962,11 +962,10 @@ String _localizeToolUiText(String value, {Locale? locale}) {
         zh: '工作台',
         locale: locale,
       );
-    case 'Reusable Command':
-    case 'Reusable command':
+    case 'Reusable Function':
     case '复用指令':
       return AppTextLocalizer.choose(
-        en: 'Reusable command',
+        en: 'Reusable Function',
         zh: '复用指令',
         locale: locale,
       );

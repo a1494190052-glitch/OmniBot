@@ -1,6 +1,7 @@
 package cn.com.omnimind.bot.mcp
 
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
+import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
 import cn.com.omnimind.bot.agent.AgentToolNames
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
@@ -10,6 +11,8 @@ import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
  */
 object McpToolDefinitions {
     private fun brandName(): String = AppLocaleManager.brandName()
+    private val canonicalReplayTools: String =
+        OobCanonicalActionSchema.replayableToolNames.joinToString(", ")
     
     val vlmTaskTool = mapOf(
         "name" to AgentToolNames.VLM_TASK,
@@ -31,9 +34,10 @@ Use cases:
 
 OMNIFLOW FUNCTION REUSE:
 - If the user goal clearly matches a saved OOB/OmniFlow Function, prefer oob_function_guard_check then oob_function_run before raw VLM exploration.
+- Treat Functions as composable reusable segments. A Function may finish the user goal or only advance one part of it; after each run result, continue with the next Function/tool if the goal is not done.
 - Parameterized Functions are valid matches. Fill required arguments from the user goal like a normal tool before calling oob_function_run; do not discard a good Function only because it has an input schema.
 - Keep allowOmniFlowFunctionAutoExecute=false by default. Set it true only when the caller explicitly wants a high-confidence recalled Function to execute before live VLM, or when the goal says to reuse a saved/previous Function. If a recalled hit requires arguments, use the returned schema/profile to let the agent fill arguments instead of running empty args.
-- If the Function replay fails, use the returned fallback_context. The agent handles failed_step_index first, then resumes the next remaining Function step with oob_function_run resume_from_step; start_step_index is only a compatibility alias.
+- If the Function replay fails, use the returned fallback_context. The agent handles failed_step_index first, then resumes the next remaining Function step with oob_function_run resume_from_step.
 
 IMPORTANT FOR SUMMARY TASKS:
 - If the user's goal is to summarize, extract key points, or produce a report (e.g., "总结/汇总/整理/概括/提炼" or "summary/recap"),
@@ -88,12 +92,17 @@ WORKFLOW:
                 "disableOmniFlowRecall" to mapOf(
                     "type" to "boolean",
                     "default" to false,
-                    "description" to "Optional flag. Default false: inject OmniFlow/UDEG page-skill recall context for the live VLM decision. Set true only for a strict no-recall baseline."
+                    "description" to "Optional flag. Default false: inject UDEG page skill and OmniFlow Function recall candidates after each fresh VLM observe. Set true only for a strict no-recall baseline."
                 ),
                 "allowOmniFlowFunctionAutoExecute" to mapOf(
                     "type" to "boolean",
                     "default" to false,
-                    "description" to "Optional advanced flag. Default false: recalled Functions are only provided as choices/context for the live VLM agent. Set true when the user explicitly wants to reuse a saved/previous Function or when the caller has high-confidence that a recalled Function should run before live VLM."
+                    "description" to "Optional advanced flag. Default false: recalled Functions are only choices/context for the live VLM agent and must be selected via oob_function_run(function_id, arguments). True only permits no-argument strict hits to auto-run before live VLM."
+                ),
+                "parseOnly" to mapOf(
+                    "type" to "boolean",
+                    "default" to false,
+                    "description" to "Diagnostic only. Set true to run one real VLM planning turn on the current page, parse the selected tool call, and return it without executing any device action or Function."
                 )
             ),
             "required" to listOf("goal")
@@ -352,14 +361,12 @@ BEHAVIOR:
 
     val oobToolCallTool = mapOf(
         "name" to RunLogReplayPolicy.TOOL_OOB_TOOL_CALL,
-        "description" to """Call any OOB capability through the normal in-app Agent runtime, or run a saved OOB Function by function_id. Use this as the generic bridge when a Project Tool needs VLM, files, terminal/Alpine, UI automation, memory, schedules, or another OOB tool.""".trimIndent(),
+        "description" to """Call any OOB capability through the normal in-app Agent runtime, or run one saved OOB Function segment by function_id. A Function is a composable reusable segment, not necessarily the whole user goal; after each result, inspect success/fallback/step_results and continue with the next Function or tool when needed.""".trimIndent(),
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
-                "toolName" to mapOf("type" to "string", "description" to "OOB or MCP tool name, for example vlm_task or file_transfer. Leave empty when function_id is provided."),
-                "tool_name" to mapOf("type" to "string", "description" to "Snake-case alias for toolName."),
-                "function_id" to mapOf("type" to "string", "description" to "Optional saved OOB Function id. When provided, OOB runs the Function locally."),
-                "functionId" to mapOf("type" to "string", "description" to "Camel-case alias for function_id."),
+                "tool_name" to mapOf("type" to "string", "description" to "OOB or MCP tool name, for example vlm_task or file_transfer. Leave empty when function_id is provided."),
+                "function_id" to mapOf("type" to "string", "description" to "Optional saved OOB Function id. When provided, OOB runs that reusable segment locally."),
                 "arguments" to mapOf("type" to "object", "description" to "Arguments to pass to the requested tool."),
                 "goal" to mapOf("type" to "string", "description" to "Optional natural-language goal when the tool requires planning or composition.")
             )
@@ -368,15 +375,13 @@ BEHAVIOR:
 
     val omniflowCallToolTool = mapOf(
         "name" to "omniflow.call_tool",
-        "description" to """Call one OmniFlow/OOB tool. Pass function_id to run a saved local Function; pass toolName/tool_name plus arguments for VLM, web, terminal, files, memory, schedules, or other OOB tools. This replaces omniflow.call_function for new clients.""".trimIndent(),
+        "description" to """Call one OmniFlow/OOB tool. Pass function_id to run one saved local Function segment; pass tool_name plus arguments for VLM, web, terminal, files, memory, schedules, or other OOB tools. Function calls are composable segments, so continue with another Function/tool when the user goal remains unfinished.""".trimIndent(),
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
-                "toolName" to mapOf("type" to "string", "description" to "Target OOB/MCP tool name, for example vlm_task, web_search, or terminal_execute."),
-                "tool_name" to mapOf("type" to "string", "description" to "Snake-case alias for toolName."),
+                "tool_name" to mapOf("type" to "string", "description" to "Target OOB/MCP tool name, for example vlm_task, web_search, or terminal_execute."),
                 "function_id" to mapOf("type" to "string", "description" to "Saved Function id returned by omniflow.recall or Function library."),
-                "functionId" to mapOf("type" to "string", "description" to "Camel-case alias for function_id."),
-                "arguments" to mapOf("type" to "object", "description" to "Parameter values for the target tool or Function."),
+                "arguments" to mapOf("type" to "object", "description" to "Parameter values for the target tool or Function segment."),
                 "goal" to mapOf("type" to "string", "description" to "Optional original task goal for tracing.")
             )
         )
@@ -405,14 +410,14 @@ BEHAVIOR:
 
     val omniflowIngestRunLogTool = mapOf(
         "name" to "omniflow.ingest_run_log",
-        "description" to """Convert a successful OOB RunLog into a local manual Function asset. By default this returns or saves an agent-hidden manual Function; set register=true and agent_visible=true only when explicitly publishing it as a reusable command candidate.""".trimIndent(),
+        "description" to """Convert a successful OOB RunLog into a local manual Function asset. By default this returns or saves an agent-hidden manual Function; set register=true and agent_visible=true only when explicitly publishing it as a reusable Function candidate.""".trimIndent(),
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
                 "run_id" to mapOf("type" to "string", "description" to "Existing OOB internal RunLog id."),
                 "run_log" to mapOf("type" to "object", "description" to "Optional inline canonical run log."),
                 "register" to mapOf("type" to "boolean", "description" to "Persist the converted manual Function. Default false."),
-                "agent_visible" to mapOf("type" to "boolean", "description" to "Publish into agent-visible reusable command recall/tool candidates. Default false."),
+                "agent_visible" to mapOf("type" to "boolean", "description" to "Publish into agent-visible reusable Function recall/tool candidates. Default false."),
                 "auto_enrich" to mapOf("type" to "boolean", "description" to "Accepted for compatibility; OOB simple mode does deterministic local import.")
             )
         )
@@ -457,30 +462,30 @@ BEHAVIOR:
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
-                "functionId" to mapOf("type" to "string", "description" to "Function id to read.")
-            )
+                "function_id" to mapOf("type" to "string", "description" to "Function id to read.")
+            ),
+            "required" to listOf("function_id")
         )
     )
 
     val oobFunctionRegisterTool = mapOf(
         "name" to OobFunctionToolNames.FUNCTION_REGISTER,
-        "description" to "Register or update one OOB reusable Function. Prefer the simple shape {functionId,name,description,steps,sourcePage}; pass functionSpec only when you already have a full oob.reusable_function.v1 spec. Registration never auto-executes the Function.",
+        "description" to "Register or update one OOB reusable Function. Prefer the simple shape {function_id,name,description,steps,source_page}; pass function_spec only when you already have a full oob.reusable_function.v1 spec. Registration never auto-executes the Function.",
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
-                "functionId" to mapOf("type" to "string", "description" to "Optional stable Function id. Generated from name when omitted."),
-                "function_id" to mapOf("type" to "string", "description" to "Snake-case alias for functionId."),
+                "function_id" to mapOf("type" to "string", "description" to "Optional stable Function id. Generated from name when omitted."),
                 "name" to mapOf("type" to "string", "description" to "User-readable Function name."),
                 "description" to mapOf("type" to "string", "description" to "One-sentence description of when to reuse this Function."),
-                "packageName" to mapOf("type" to "string", "description" to "Optional target/source app package for page-scoped recall."),
-                "sourcePage" to mapOf("type" to "object", "description" to "Optional source page context, for example {xml, packageName, activityName}."),
+                "package_name" to mapOf("type" to "string", "description" to "Optional target/source app package for page-scoped recall."),
+                "source_page" to mapOf("type" to "object", "description" to "Optional source page context, for example {xml, package_name, activity_name}."),
                 "parameters" to mapOf("type" to "array", "description" to "Optional Function parameter descriptors with name/type/required/default/bindings."),
                 "steps" to mapOf(
                     "type" to "array",
-                    "description" to "Simple step list. Each item may include action/tool, title, args/arguments, packageName, x/y, direction, content, key, functionId. Supports open_app, click, long_press, input_text, swipe, press_back, press_home, press_key, finished, call_tool.",
+                    "description" to "Simple canonical step list. Each item must use {tool,args,title?}. Supported tool values are $canonicalReplayTools. input_text uses args.text; oob_function_run uses args.function_id and args.arguments; finished uses args.content.",
                     "items" to mapOf("type" to "object")
                 ),
-                "functionSpec" to mapOf("type" to "object", "description" to "Optional full oob.reusable_function.v1 spec object.")
+                "function_spec" to mapOf("type" to "object", "description" to "Optional full oob.reusable_function.v1 spec object.")
             )
         )
     )
@@ -491,19 +496,17 @@ BEHAVIOR:
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
-                "functionId" to mapOf("type" to "string", "description" to "Function id to update."),
-                "function_id" to mapOf("type" to "string", "description" to "Snake-case alias for functionId."),
+                "function_id" to mapOf("type" to "string", "description" to "Function id to update."),
                 "run_id" to mapOf("type" to "string", "description" to "Optional local RunLog id used as evidence for agent analysis."),
-                "runId" to mapOf("type" to "string", "description" to "Camel-case alias for run_id."),
                 "instruction" to mapOf("type" to "string", "description" to "Optional user correction or enhancement instruction."),
                 "mode" to mapOf("type" to "string", "description" to "enhance, repair, or annotate."),
                 "analysis" to mapOf("type" to "object", "description" to "Agent-authored RunLog evidence analysis to persist in Function metadata."),
                 "patch" to mapOf("type" to "object", "description" to "Optional structured Function patch generated from the analysis."),
-                "dryRun" to mapOf("type" to "boolean", "description" to "Preview changes without saving."),
-                "allowExecutionChange" to mapOf("type" to "boolean", "description" to "Allow repair operations that alter executable step targets."),
-                "allowStructuralChange" to mapOf("type" to "boolean", "description" to "Allow insert/delete step operations.")
+                "dry_run" to mapOf("type" to "boolean", "description" to "Preview changes without saving."),
+                "allow_execution_change" to mapOf("type" to "boolean", "description" to "Allow repair operations that alter executable step targets."),
+                "allow_structural_change" to mapOf("type" to "boolean", "description" to "Allow insert/delete step operations.")
             ),
-            "required" to listOf("functionId")
+            "required" to listOf("function_id")
         )
     )
 
@@ -513,45 +516,38 @@ BEHAVIOR:
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
-                "functionId" to mapOf("type" to "string", "description" to "Function id to check."),
+                "function_id" to mapOf("type" to "string", "description" to "Function id to check."),
                 "arguments" to mapOf("type" to "object", "description" to "Materialization arguments for the Function.")
             ),
-            "required" to listOf("functionId")
+            "required" to listOf("function_id")
         )
     )
 
     val oobFunctionRunTool = mapOf(
         "name" to OobFunctionToolNames.FUNCTION_RUN,
-        "description" to "Run one saved OOB/OmniFlow reusable Function. When the user's goal clearly matches a saved Function, prefer oob_function_guard_check then this tool before raw vlm_task. On local replay failure, returns fallback_context so an agent can handle failed_step_index, then call this tool again with resume_from_step for the next remaining step. start_step_index is only a compatibility alias for resume_from_step.",
+        "description" to "Run one saved OOB/OmniFlow reusable Function segment. A Function is a composable partial workflow: it may complete the user goal or only advance one part of it. After each result, inspect success, fallback_context, and step_results; if the goal remains unfinished, continue with another Function/tool. When the user's goal clearly matches a saved Function, prefer oob_function_guard_check then this tool before raw vlm_task. On local replay failure, returns fallback_context so an agent can handle failed_step_index, then call this tool again with resume_from_step for the next remaining step.",
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
-                "functionId" to mapOf("type" to "string", "description" to "Function id to run."),
-                "function_id" to mapOf("type" to "string", "description" to "Snake-case alias for functionId."),
-                "arguments" to mapOf("type" to "object", "description" to "Materialization arguments for the Function."),
+                "function_id" to mapOf("type" to "string", "description" to "Function id to run."),
+                "arguments" to mapOf("type" to "object", "description" to "Materialization arguments for this Function segment."),
                 "resume_from_step" to mapOf(
                     "type" to "integer",
                     "description" to "0-based step index to start from. Omit or set 0 for first run; after agent fallback, use the returned resume_from_step only after the agent has completed failed_step_index. This resumes the next remaining step, not the failed step itself."
                 ),
-                "resumeFromStep" to mapOf("type" to "integer", "description" to "Camel-case alias for resume_from_step."),
-                "start_step_index" to mapOf("type" to "integer", "description" to "Compatibility alias for resume_from_step. Use the returned resume_from_step after fallback; explicitly pass failed_step_index only when intentionally retrying the failed step."),
-                "startStepIndex" to mapOf("type" to "integer", "description" to "Camel-case alias for start_step_index."),
                 "fallback_session_id" to mapOf(
                     "type" to "string",
                     "description" to "Optional id returned in fallback_context to link the replay/fallback/resume loop."
                 ),
-                "fallbackSessionId" to mapOf("type" to "string", "description" to "Camel-case alias for fallback_session_id."),
                 "fallback_attempt" to mapOf(
                     "type" to "integer",
                     "description" to "Optional attempt counter returned in fallback_context; prevents infinite fallback loops."
                 ),
-                "fallbackAttempt" to mapOf("type" to "integer", "description" to "Camel-case alias for fallback_attempt."),
-                "dryRun" to mapOf("type" to "boolean", "description" to "Only return guard decision without executing."),
-                "continueWithAgent" to mapOf("type" to "boolean", "description" to "Compatibility flag ignored by fixed replay; start VLM explicitly if continuation is needed."),
-                "executionMode" to mapOf("type" to "string", "description" to "foreground or background. Default: foreground."),
+                "dry_run" to mapOf("type" to "boolean", "description" to "Only return guard decision without executing."),
+                "execution_mode" to mapOf("type" to "string", "description" to "foreground or background. Default: foreground."),
                 "confirmed" to mapOf("type" to "boolean", "description" to "Set true only after user confirmation for guarded operations.")
             ),
-            "required" to listOf("functionId")
+            "required" to listOf("function_id")
         )
     )
 
@@ -561,10 +557,9 @@ BEHAVIOR:
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
-                "functionId" to mapOf("type" to "string", "description" to "Function id to delete."),
-                "function_id" to mapOf("type" to "string", "description" to "Snake-case alias for functionId.")
+                "function_id" to mapOf("type" to "string", "description" to "Function id to delete.")
             ),
-            "required" to listOf("functionId")
+            "required" to listOf("function_id")
         )
     )
 
@@ -597,9 +592,9 @@ BEHAVIOR:
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
-                "runId" to mapOf("type" to "string", "description" to "RunLog id to read.")
+                "run_id" to mapOf("type" to "string", "description" to "RunLog id to read.")
             ),
-            "required" to listOf("runId")
+            "required" to listOf("run_id")
         )
     )
 
@@ -609,13 +604,13 @@ BEHAVIOR:
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
-                "runId" to mapOf("type" to "string", "description" to "RunLog id to convert."),
+                "run_id" to mapOf("type" to "string", "description" to "RunLog id to convert."),
                 "register" to mapOf("type" to "boolean", "description" to "Register the converted Function. Default follows service policy."),
-                "functionId" to mapOf("type" to "string", "description" to "Optional Function id override."),
+                "function_id" to mapOf("type" to "string", "description" to "Optional Function id override."),
                 "name" to mapOf("type" to "string", "description" to "Optional Function name override."),
                 "description" to mapOf("type" to "string", "description" to "Optional Function description override.")
             ),
-            "required" to listOf("runId")
+            "required" to listOf("run_id")
         )
     )
 

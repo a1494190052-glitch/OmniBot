@@ -43,7 +43,8 @@ sealed class TaskParams {
         val onMessagePushListener: OnMessagePushListener? = null,
         val skipGoHome: Boolean = false,  // 是否跳过回到主页，从当前页面开始执行
         val stepSkillGuidance: String = "",
-        val taskId: String? = null
+        val taskId: String? = null,
+        val disableOmniFlowRecall: Boolean = false
     ): TaskParams();
 
     data class ScheduledTaskParams(

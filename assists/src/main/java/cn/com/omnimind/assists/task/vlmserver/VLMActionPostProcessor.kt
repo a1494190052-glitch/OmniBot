@@ -206,7 +206,12 @@ object VLMActionPostProcessor {
         val query = pendingTarget.label.trim().takeIf { it.isNotEmpty() } ?: return null
         return corrected(
             step = step,
-            action = TypeAction(content = query),
+            action = InputTextAction(
+                targetDescription = "focused search field",
+                text = query,
+                x = action.x,
+                y = action.y
+            ),
             reason = "ordered_goal_search_query",
             extraSummary = "Typed pending ordered target into focused search field: $query"
         )
@@ -231,10 +236,10 @@ object VLMActionPostProcessor {
         step: VLMStep,
         page: PageModel
     ): Result? {
-        val action = step.action as? TypeAction ?: return null
+        val action = step.action as? InputTextAction ?: return null
         if (page.hasFocusedEditable()) return null
         if (page.numericKeyCount() < MIN_NUMERIC_KEYPAD_KEYS) return null
-        val content = action.content.trim()
+        val content = action.text.trim()
         if (content.isBlank() || !content.all { it.isDigit() }) return null
 
         val key = content.first().toString()
@@ -287,14 +292,14 @@ object VLMActionPostProcessor {
         } else if (step.action is InputTextAction) {
             step.action.copy(
                 targetDescription = best.formTargetLabel,
-                content = content,
+                text = content,
                 x = best.bounds.centerX,
                 y = best.bounds.centerY
             )
         } else {
             InputTextAction(
                 targetDescription = best.formTargetLabel,
-                content = content,
+                text = content,
                 x = best.bounds.centerX,
                 y = best.bounds.centerY
             )
@@ -538,7 +543,7 @@ object VLMActionPostProcessor {
                 y1 = y1,
                 x2 = x,
                 y2 = y2,
-                duration = 1.0f
+                durationMs = 1000L
             ),
             reason = "generic_click_to_search_scroll"
         )
@@ -636,7 +641,7 @@ object VLMActionPostProcessor {
                         y1 = action.y,
                         x2 = action.x,
                         y2 = action.y,
-                        duration = 0.6f
+                        durationMs = 600L
                     ),
                     intent = intent,
                     page = page,
@@ -950,7 +955,7 @@ object VLMActionPostProcessor {
             y1 = y1,
             x2 = x,
             y2 = y2,
-            duration = 1.0f
+            durationMs = 1000L
         )
     }
 
@@ -1349,11 +1354,10 @@ object VLMActionPostProcessor {
             if (currentGoal.isNotBlank() && currentGoal != overall) {
                 add(NarrativeSegment(currentGoal, 36.0))
             }
-            if (step.action is TypeAction || step.action is InputTextAction) {
+            if (step.action is InputTextAction) {
                 addNarrativeSegment(
                     when (val action = step.action) {
-                        is TypeAction -> action.content
-                        is InputTextAction -> listOf(action.targetDescription, action.content).joinToString(" ")
+                        is InputTextAction -> listOf(action.targetDescription, action.text).joinToString(" ")
                         else -> ""
                     },
                     28.0
@@ -1370,8 +1374,7 @@ object VLMActionPostProcessor {
 
     private fun textInputContent(action: UIAction): String? =
         when (action) {
-            is TypeAction -> action.content
-            is InputTextAction -> action.content
+            is InputTextAction -> action.text
             else -> null
         }
 
@@ -1883,8 +1886,7 @@ object VLMActionPostProcessor {
             is ClickAction -> action.targetDescription
             is ScrollAction -> action.targetDescription
             is LongPressAction -> action.targetDescription
-            is TypeAction -> action.content
-            is InputTextAction -> listOf(action.targetDescription, action.content).joinToString(" ")
+            is InputTextAction -> listOf(action.targetDescription, action.text).joinToString(" ")
             is RecordAction -> action.content
             is InfoAction -> action.value
             is FeedbackAction -> action.value
@@ -1893,7 +1895,6 @@ object VLMActionPostProcessor {
             is FunctionRunAction -> action.functionId
             is RequireUserChoiceAction -> listOf(action.prompt, action.options.joinToString(" ")).joinToString(" ")
             is RequireUserConfirmationAction -> action.prompt
-            is HotKeyAction -> action.key
             else -> ""
         }
 

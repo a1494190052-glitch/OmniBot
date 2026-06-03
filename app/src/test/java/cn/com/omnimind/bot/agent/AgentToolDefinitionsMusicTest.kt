@@ -141,12 +141,15 @@ class AgentToolDefinitionsMusicTest {
         val parameters = function["parameters"] as JsonObject
         val properties = parameters["properties"] as JsonObject
 
-        assertTrue(properties.containsKey("functionId"))
+        assertTrue(properties.containsKey("function_id"))
         assertTrue(properties.containsKey("name"))
         assertTrue(properties.containsKey("description"))
         assertTrue(properties.containsKey("steps"))
-        assertTrue(properties.containsKey("sourcePage"))
-        assertTrue(properties.containsKey("functionSpec"))
+        assertTrue(properties.containsKey("source_page"))
+        assertTrue(properties.containsKey("function_spec"))
+        assertFalse(properties.containsKey("functionId"))
+        assertFalse(properties.containsKey("sourcePage"))
+        assertFalse(properties.containsKey("functionSpec"))
     }
 
     @Test
@@ -162,12 +165,13 @@ class AgentToolDefinitionsMusicTest {
         val parameters = function["parameters"] as JsonObject
         val properties = parameters["properties"] as JsonObject
 
-        assertTrue(properties.containsKey("functionId"))
         assertTrue(properties.containsKey("function_id"))
         assertTrue(properties.containsKey("run_id"))
-        assertTrue(properties.containsKey("runId"))
         assertTrue(properties.containsKey("analysis"))
         assertTrue(properties.containsKey("patch"))
+        assertTrue(properties.containsKey("dry_run"))
+        assertFalse(properties.containsKey("functionId"))
+        assertFalse(properties.containsKey("runId"))
     }
 
     @Test
@@ -185,13 +189,17 @@ class AgentToolDefinitionsMusicTest {
         val required = (parameters["required"] as JsonArray)
             .mapNotNull { it.jsonPrimitive.contentOrNull }
 
-        assertTrue(properties.containsKey("functionId"))
         assertTrue(properties.containsKey("function_id"))
         assertTrue(properties.containsKey("resume_from_step"))
         assertTrue(properties.containsKey("fallback_session_id"))
         assertTrue(properties.containsKey("fallback_attempt"))
+        assertTrue(properties.containsKey("dry_run"))
+        assertFalse(properties.containsKey("functionId"))
+        assertFalse(properties.containsKey("start_step_index"))
+        assertFalse(properties.containsKey("startStepIndex"))
+        assertFalse(properties.containsKey("resumeFromStep"))
         assertFalse(properties.containsKey("run_id"))
-        assertTrue(required.contains("functionId"))
+        assertTrue(required.contains("function_id"))
         assertFalse(required.contains("run_id"))
     }
 

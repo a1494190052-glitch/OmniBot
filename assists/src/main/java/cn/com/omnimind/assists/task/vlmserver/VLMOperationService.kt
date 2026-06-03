@@ -75,6 +75,7 @@ class VLMOperationService(
     private var lastReasoningOverlay = ""
     private var lastReasoningOverlayAt = 0L
     private var lastUsableXml: String? = null
+    private var disableOmniFlowRecallForCurrentTask = false
 
     // Priority event management
     private var priorityEvent: Triple<String, String, Boolean>? = null  // (message, type, suggestCompletion)
@@ -215,7 +216,8 @@ class VLMOperationService(
         skipGoHome: Boolean = false,
         summary: Boolean = false,
         currentStepGoal: String = goal,
-        stepSkillGuidance: String = ""
+        stepSkillGuidance: String = "",
+        disableOmniFlowRecall: Boolean = false
     ): TaskExecutionReport {
 
         val normalizedMaxSteps = maxSteps?.takeIf { it > 0 } ?: DEFAULT_VLM_MAX_STEPS
@@ -224,6 +226,7 @@ class VLMOperationService(
         // 重置 Compactor 触发记录
         compactorTriggerSteps.clear()
         resetConversationState()
+        disableOmniFlowRecallForCurrentTask = disableOmniFlowRecall
         ensureTaskActive("execute_task_start")
 
         // 任务开始执行时，先回到手机首页Home（除非 skipGoHome = true）
@@ -669,6 +672,17 @@ class VLMOperationService(
                         snapshot = pageSnapshot
                     )
                 )
+                _context = VLMRecallContextProviderRegistry.enrich(
+                    VLMPageContextRequest(
+                        context = _context,
+                        currentXml = beforeXml,
+                        currentPackageName = pageSnapshot.packageName,
+                        screenshotBase64 = screenshot,
+                        stepIndex = stepIndex,
+                        snapshot = pageSnapshot,
+                        disableOmniFlowRecall = disableOmniFlowRecallForCurrentTask
+                    )
+                )
                 _context = VLMIndexedPageContext.enrich(
                     context = _context,
                     currentXml = beforeXml,
@@ -944,6 +958,34 @@ class VLMOperationService(
                     )
                 }
 
+                if (shouldRunActionPipeline(processedStep.action)) {
+                    val pipelineResult = VLMActionPipelineRegistry.preflight(
+                        VLMActionPipelineRequest(
+                            context = _context,
+                            step = processedStep,
+                            currentXml = dispatchXml,
+                            currentPackageName = dispatchPackageName,
+                            displayWidth = pageSnapshot.displayWidth,
+                            displayHeight = pageSnapshot.displayHeight,
+                            stepIndex = stepIndex,
+                            snapshot = pageSnapshot.copy(
+                                xml = dispatchXml,
+                                packageName = dispatchPackageName
+                            )
+                        )
+                    )
+                    processedStep = pipelineResult.step
+                    dispatchXml = pipelineResult.currentXml?.takeIf { it.isNotBlank() } ?: dispatchXml
+                    dispatchPackageName = pipelineResult.currentPackageName
+                        ?.takeIf { it.isNotBlank() }
+                        ?: dispatchPackageName
+                    if (pipelineResult.diagnostics.isNotEmpty()) {
+                        _context = _context.copy(
+                            pageDiagnostics = _context.pageDiagnostics + pipelineResult.diagnostics
+                        )
+                    }
+                }
+
                 safePauseCheck("before_action_${processedStep.action.name}_${stabilityAttempt}")
                 ensureTaskActive("before_action_dispatch_${processedStep.action.name}_$stabilityAttempt")
 
@@ -1177,17 +1219,28 @@ class VLMOperationService(
         }
     }
 
+    private fun shouldRunActionPipeline(action: UIAction): Boolean {
+        return when (action) {
+            is ClickAction,
+            is InputTextAction,
+            is ScrollAction,
+            is LongPressAction,
+            is OpenAppAction,
+            is PressHomeAction,
+            is PressBackAction -> true
+            else -> false
+        }
+    }
+
     private fun UIAction.isRecoverableDeviceAction(): Boolean {
         return when (this) {
             is ClickAction,
             is InputTextAction,
-            is TypeAction,
             is ScrollAction,
             is LongPressAction,
             is OpenAppAction,
             is PressHomeAction,
             is PressBackAction,
-            is HotKeyAction,
             is GetStateAction,
             is FunctionRunAction -> true
             else -> false
@@ -1673,7 +1726,6 @@ class VLMOperationService(
             is ScrollAction,
             is PressBackAction,
             is PressHomeAction,
-            is HotKeyAction,
             is OpenAppAction,
             is InputTextAction,
             is FunctionRunAction -> true

@@ -47,11 +47,7 @@ class OobFunctionNestedFunctionExecutor(
         val args = callRequestResolver.stepArgs(step)
         val functionId = firstNonBlank(
             args["function_id"],
-            args["functionId"],
-            args["id"],
-            args["name"],
             step["function_id"],
-            step["functionId"],
         )
         val nestedArguments = callRequestResolver.nestedFunctionArguments(args)
         val cardToolName = OobFunctionToolNames.FUNCTION_RUN

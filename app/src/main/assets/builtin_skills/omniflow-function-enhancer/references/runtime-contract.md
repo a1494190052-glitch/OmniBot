@@ -3,6 +3,11 @@ OmniFlow Function Enhancer skill contract:
 - Enhancement is offline editing only; do not execute the Function while enhancing it.
 - Save changes only by calling `update_function`; do not hand-register rewritten Function JSON.
 - Improve reuse clarity without silently changing execution.
+- A Function is an executable action stack. At runtime, Flow expands it into
+  primitive actions and runs every action through
+  `observe -> checker -> action_transfer -> execute`.
+- Do not describe a Function as a one-shot fixed replay. Each action must be
+  grounded against a fresh live observation before it is accepted.
 - Never change function_id, executable step order, tools, executors, concrete args, validation, fallback, or callable tool definitions.
 - Explicit user corrections such as `应该点「外卖」而不是点「美食」` must use `update_function` with mode=repair and a replace_target op.
 - Repair mode may update the selected step's target_description, selector hints, and coordinates/bounds when the desired node is found in XML.
@@ -13,7 +18,9 @@ OmniFlow Function Enhancer skill contract:
 - Per-step enhancement must label every executable step/action with what it does and why it exists in the trajectory. Each step needs a concise title, a concrete description/action_purpose, importance, cleanup_action, and cleanup_reason.
 - Per-step enhancement must mark each step with useful/merge/drop/noise/optional_checker metadata when applicable, but this metadata must not rewrite executable steps by itself.
 - Conditional obstruction dismissals such as closing ads, popups, banners, coupons, or permission nudges should be annotated as optional_checker metadata, not treated as a guaranteed happy-path action.
-- When marking a step as optional_checker, also add supported runtime checker rules in metadata.checker_rules and link them from agent_reuse.checker_assets so replay can apply the condition only when it is observed.
-- Supported checker rules are limited to overlay_blocking/dismiss/pre_transfer, permission_dialog/allow/pre_transfer, keyboard_obscuring/hide_keyboard/pre_action, and package_mismatch/open_app/pre_transfer. Do not invent checker conditions, scripts, selectors, or model calls.
+- A checker is a conditional injected action. It does not retarget or replace the main-path action; its phase decides where replay injects the extra action when the current XML proves the condition.
+- When marking a step as optional_checker, also add supported runtime checker rules in metadata.checker_rules and link them from agent_reuse.checker_assets so replay can inject the action only when it is observed.
+- Supported checker rules are limited to overlay_blocking/dismiss/pre_transfer, permission_dialog/allow/pre_transfer, keyboard_obscuring/hide_keyboard/pre_action, package_mismatch/open_app/pre_transfer, and app_upgrade_prompt/dismiss/post_action. Do not invent checker conditions, scripts, selectors, or model calls.
+- If a recorded source step already clicks a permission-dialog control such as 始终允许/always allow, keep it as the main-path action and rely on action transfer. Use permission_dialog/allow only for unexpected permission prompts that block a non-permission step; do not invent selector or label-priority rules.
 - If there is no safe useful improvement for this section, return the current/fallback shape for this section rather than inventing content.
 - The app classifies the final attempt as enhanced, unchanged, partial, or failed from the validated patch and save result.

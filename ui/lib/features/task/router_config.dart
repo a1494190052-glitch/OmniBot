@@ -6,7 +6,7 @@ import 'pages/execution_history/trajectory_page.dart';
 import 'pages/execution_history/task_execution_detail_page.dart';
 import 'pages/execution_history/run_log_list_page.dart';
 import 'pages/execution_history/run_log_timeline_page.dart';
-import 'pages/execution_history/command_library_page.dart';
+import 'pages/execution_history/function_library_page.dart';
 import 'pages/scheduled_tasks/scheduled_task_list_page.dart';
 import 'pages/task_modify/task_modify_page.dart';
 
@@ -66,9 +66,9 @@ List<GoRoute> taskRoutes = [
   ),
   // Function library page
   GoRoute(
-    path: '/task/command_library',
-    name: 'task/command_library',
-    builder: (context, state) => const CommandLibraryPage(),
+    path: '/task/function_library',
+    name: 'task/function_library',
+    builder: (context, state) => const FunctionLibraryPage(),
   ),
 
   // 定时任务列表页

@@ -62,7 +62,6 @@ class OobFunctionStepClassifier(
         val names = listOf(
             executionToolName(step),
             OmniflowStepExecutor.actionNameForStep(step),
-            step["source_tool"]?.toString().orEmpty(),
         )
         return names.any { name ->
             name.isNotBlank() && RunLogReplayPolicy.shouldSkipTool(name)
@@ -71,11 +70,7 @@ class OobFunctionStepClassifier(
 
     fun executionToolName(step: Map<String, Any?>): String =
         firstNonBlank(
-            step["callable_tool"],
             step["tool"],
-            step["omniflow_action"],
-            step["local_action"],
-            step["type"],
         )
 
     fun omniflowExecutionToolForStep(
@@ -87,10 +82,6 @@ class OobFunctionStepClassifier(
         val candidates = listOf(
             callableTool,
             step["tool"],
-            step["callable_tool"],
-            step["omniflow_action"],
-            step["local_action"],
-            step["type"],
             agentArgs["original_tool"],
             agentCall["original_tool"],
         )

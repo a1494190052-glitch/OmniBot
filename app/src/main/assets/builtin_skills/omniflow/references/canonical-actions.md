@@ -35,7 +35,7 @@ Mark these as noise unless there is clear evidence they matter:
 Mark as merge candidates when:
 
 - Two adjacent steps represent the same user intent.
-- A wrapper step is immediately followed by its concrete click/input/swipe.
+- A wrapper step is immediately followed by its concrete `click`/`input_text`/`scroll`.
 - Repeated input overwrites the same field with the same value.
 
 Use metadata first. Do not delete executable steps unless the user requested

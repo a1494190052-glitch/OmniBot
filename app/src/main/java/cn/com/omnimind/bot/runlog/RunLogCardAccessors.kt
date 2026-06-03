@@ -81,7 +81,7 @@ internal object RunLogCardAccessors {
 
     fun androidPrivilegedReplayAction(args: Map<String, Any?>): String? {
         return OobActionCodec.canonicalActionForName(
-            firstNonBlank(args["action"], args["omniflow_action"])
+            firstNonBlank(args["tool"])
         )
     }
 
@@ -89,13 +89,13 @@ internal object RunLogCardAccessors {
         val nestedArguments = asMap(args["arguments"])
         val flattened = LinkedHashMap<String, Any?>()
         for ((key, value) in args) {
-            if (key == "action" || key == "omniflow_action" || key == "arguments") continue
+            if (key == "tool" || key == "arguments") continue
             flattened[key] = value
         }
         flattened.putAll(nestedArguments)
         return OobActionCodec.argsForStep(
             mapOf(
-                "tool" to firstNonBlank(args["action"], args["omniflow_action"]),
+                "tool" to firstNonBlank(args["tool"]),
                 "args" to flattened,
             )
         )

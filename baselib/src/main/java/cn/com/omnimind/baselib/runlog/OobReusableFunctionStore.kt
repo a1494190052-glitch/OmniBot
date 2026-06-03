@@ -263,10 +263,10 @@ object OobReusableFunctionStore {
                 }
                 resolvedArguments[name] = value
                 val bindings = listArg(parameter["bindings"])
+                    .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
+                    .filter(::isCanonicalBindingPath)
                 var appliedCount = 0
-                bindings.forEach { rawBinding ->
-                    val binding = rawBinding?.toString()?.trim().orEmpty()
-                    if (binding.isEmpty()) return@forEach
+                bindings.forEach { binding ->
                     val applied = setJsonPathValue(spec, binding, value)
                     if (applied) appliedCount += 1
                     bindingResults += linkedMapOf(
@@ -589,13 +589,13 @@ object OobReusableFunctionStore {
     ): List<String> {
         val output = linkedSetOf<String>()
         listArg(property["bindings"]).forEach { raw ->
-            raw?.toString()?.trim()?.takeIf(String::isNotEmpty)?.let(output::add)
+            raw?.toString()?.trim()?.takeIf(String::isNotEmpty)?.takeIf(::isCanonicalBindingPath)?.let(output::add)
         }
         listArg(property["x_oob_bindings"]).forEach { raw ->
-            raw?.toString()?.trim()?.takeIf(String::isNotEmpty)?.let(output::add)
+            raw?.toString()?.trim()?.takeIf(String::isNotEmpty)?.takeIf(::isCanonicalBindingPath)?.let(output::add)
         }
         listArg(property["x-oob-bindings"]).forEach { raw ->
-            raw?.toString()?.trim()?.takeIf(String::isNotEmpty)?.let(output::add)
+            raw?.toString()?.trim()?.takeIf(String::isNotEmpty)?.takeIf(::isCanonicalBindingPath)?.let(output::add)
         }
 
         val metadata = mapArg(spec["metadata"])
@@ -606,12 +606,16 @@ object OobReusableFunctionStore {
             val entry = mapArg(rawEntry)
             if (firstNonBlank(entry["name"], entry["parameter"]) != name) return@forEach
             listArg(entry["bindings"]).forEach { raw ->
-                raw?.toString()?.trim()?.takeIf(String::isNotEmpty)?.let(output::add)
+                raw?.toString()?.trim()?.takeIf(String::isNotEmpty)?.takeIf(::isCanonicalBindingPath)?.let(output::add)
             }
-            firstNonBlank(entry["binding"]).takeIf(String::isNotEmpty)?.let(output::add)
+            firstNonBlank(entry["binding"]).takeIf(String::isNotEmpty)?.takeIf(::isCanonicalBindingPath)?.let(output::add)
         }
         return output.toList()
     }
+
+    private fun isCanonicalBindingPath(path: String): Boolean =
+        path.matches(Regex("""^\$\.execution\.steps\[\d+]\.args\.[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+|\[\d+])*$""")) ||
+            path.matches(Regex("""^\$\.actions\[\d+]\.args\.[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+|\[\d+])*$"""))
 
     private fun renderParameterTemplates(
         value: Any?,

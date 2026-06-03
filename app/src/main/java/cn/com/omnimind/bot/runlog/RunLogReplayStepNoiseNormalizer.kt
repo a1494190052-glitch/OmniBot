@@ -121,13 +121,9 @@ object RunLogReplayStepNoiseNormalizer {
 
         val clickResId = firstNonBlank(
             clickArgs["node_resource_id"],
-            clickArgs["nodeResourceId"],
-            clickArgs["resource_id"],
         )
         val inputResId = firstNonBlank(
             inputArgs["node_resource_id"],
-            inputArgs["nodeResourceId"],
-            inputArgs["resource_id"],
         )
         if (clickResId.isNotBlank() && clickResId == inputResId) return true
 
@@ -135,10 +131,10 @@ object RunLogReplayStepNoiseNormalizer {
         val inputBounds = firstNonBlank(inputArgs["bounds"])
         if (clickBounds.isNotBlank() && clickBounds == inputBounds) return true
 
-        val cx = firstNonBlank(clickArgs["x"], clickArgs["center_x"], clickArgs["centerX"]).toFloatOrNull()
-        val cy = firstNonBlank(clickArgs["y"], clickArgs["center_y"], clickArgs["centerY"]).toFloatOrNull()
-        val ix = firstNonBlank(inputArgs["x"], inputArgs["center_x"], inputArgs["centerX"]).toFloatOrNull()
-        val iy = firstNonBlank(inputArgs["y"], inputArgs["center_y"], inputArgs["centerY"]).toFloatOrNull()
+        val cx = firstNonBlank(clickArgs["x"]).toFloatOrNull()
+        val cy = firstNonBlank(clickArgs["y"]).toFloatOrNull()
+        val ix = firstNonBlank(inputArgs["x"]).toFloatOrNull()
+        val iy = firstNonBlank(inputArgs["y"]).toFloatOrNull()
         if (cx != null && cy != null && ix != null && iy != null) {
             return kotlin.math.abs(cx - ix) < 80f && kotlin.math.abs(cy - iy) < 80f
         }
@@ -151,7 +147,7 @@ object RunLogReplayStepNoiseNormalizer {
 
     private fun textInputValue(step: Map<String, Any?>): String {
         val args = OobActionCodec.argsForStep(step)
-        return firstNonBlank(args["text"], args["content"], args["value"])
+        return firstNonBlank(args["text"])
     }
 
     private fun textInputTargetSignature(step: Map<String, Any?>): String {
@@ -165,9 +161,7 @@ object RunLogReplayStepNoiseNormalizer {
             args["bounds"],
             action["bounds"],
             args["target_description"],
-            args["targetDescription"],
             action["target_description"],
-            action["targetDescription"],
         )
     }
 

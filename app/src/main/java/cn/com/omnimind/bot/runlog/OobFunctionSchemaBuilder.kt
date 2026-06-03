@@ -56,7 +56,7 @@ object OobFunctionSchemaBuilder {
     }
 
     fun functionId(spec: Map<String, Any?>): String =
-        firstNonBlank(spec["function_id"], spec["functionId"], spec["name"])
+        firstNonBlank(spec["function_id"])
 
     fun parameterNames(spec: Map<String, Any?>): List<String> {
         val canonical = mapArg(spec["parameters"])
@@ -99,33 +99,31 @@ object OobFunctionSchemaBuilder {
         index: Int,
         action: Map<String, Any?>,
     ): Map<String, Any?>? {
-        val rawType = firstNonBlank(action["type"], action["name"], action["tool"])
+        val rawType = firstNonBlank(action["tool"])
         if (rawType.isEmpty()) return null
         val normalizedType = OobActionCodec.canonicalActionForName(rawType)
             ?: OobActionCodec.normalizeName(rawType)
         val params = OobActionCodec.argsForStep(
             mapOf(
                 "tool" to rawType,
-                "args" to mapArg(action["params"]),
+                "args" to mapArg(action["args"]),
             )
         )
-        val target = mapArg(action["target"])
         val sourceContext = mapArg(params["source_context"])
-            .ifEmpty { mapArg(action["source_context"]) }
         val title = firstNonBlank(action["description"], action["prompt"], rawType)
             .ifBlank { normalizedType }
         val stepId = firstNonBlank(action["id"], action["step_id"], "step_${index + 1}")
 
         return when {
             normalizedType == OobActionCodec.ACTION_CLICK -> {
-                val targetKind = firstNonBlank(target["kind"])
-                if (targetKind == "node_ref") {
+                val nodeId = firstNonBlank(params["node_id"])
+                if (nodeId.isNotBlank() && firstNonBlank(params["x"]).isBlank() && firstNonBlank(params["y"]).isBlank()) {
                     graphStep(
                         stepId = stepId,
                         index = index,
                         title = title,
                         args = linkedMapOf(
-                            "node_id" to firstNonBlank(target["nodeId"], target["node_id"]),
+                            "node_id" to nodeId,
                         ).filterValues { it.isNotBlank() },
                     )
                 } else {
@@ -135,17 +133,15 @@ object OobFunctionSchemaBuilder {
                         title = title,
                         action = OobActionCodec.ACTION_CLICK,
                         args = linkedMapOf<String, Any?>().apply {
-                            putFirstPresent("x", target["x"], params["x"], action["x"])
-                            putFirstPresent("y", target["y"], params["y"], action["y"])
+                            putFirstPresent("x", params["x"])
+                            putFirstPresent("y", params["y"])
                             putFirstPresent(
                                 "target_description",
-                                action["prompt"],
-                                target["prompt"],
-                                params["clickPrompt"],
                                 params["target_description"],
-                                params["targetDescription"],
                             )
-                            putFirstPresent("selector", params["selector"], action["selector"])
+                            putFirstPresent("selector", params["selector"])
+                            putFirstPresent("node_id", params["node_id"])
+                            putFirstPresent("element_index", params["element_index"])
                             if (sourceContext.isNotEmpty()) put("source_context", sourceContext)
                         },
                         sourceContext = sourceContext,
@@ -158,9 +154,13 @@ object OobFunctionSchemaBuilder {
                 title = title,
                 action = OobActionCodec.ACTION_LONG_PRESS,
                 args = linkedMapOf<String, Any?>().apply {
-                    putFirstPresent("x", target["x"], params["x"], action["x"])
-                    putFirstPresent("y", target["y"], params["y"], action["y"])
-                    putFirstPresent("duration_ms", target["duration_ms"], params["duration_ms"])
+                    putFirstPresent("x", params["x"])
+                    putFirstPresent("y", params["y"])
+                    putFirstPresent("duration_ms", params["duration_ms"])
+                    putFirstPresent("target_description", params["target_description"])
+                    putFirstPresent("selector", params["selector"])
+                    putFirstPresent("node_id", params["node_id"])
+                    putFirstPresent("element_index", params["element_index"])
                     if (sourceContext.isNotEmpty()) put("source_context", sourceContext)
                 },
                 sourceContext = sourceContext,
@@ -171,47 +171,37 @@ object OobFunctionSchemaBuilder {
                 title = title,
                 action = OobActionCodec.ACTION_INPUT_TEXT,
                 args = linkedMapOf<String, Any?>().apply {
-                    putFirstPresent("text", action["text"], params["text"], action["content"], params["content"])
+                    putFirstPresent("text", params["text"])
                     putFirstPresent(
                         "target_description",
-                        action["prompt"],
-                        target["prompt"],
                         params["target_description"],
-                        params["targetDescription"],
-                        action["target_description"],
-                        action["targetDescription"],
                     )
-                    putFirstPresent("x", target["x"], params["x"], action["x"])
-                    putFirstPresent("y", target["y"], params["y"], action["y"])
-                    putFirstPresent(
-                        "node_resource_id",
-                        params["node_resource_id"],
-                        params["nodeResourceId"],
-                        params["resource_id"],
-                        params["resourceId"],
-                        action["node_resource_id"],
-                        action["nodeResourceId"],
-                    )
-                    putFirstPresent("bounds", params["bounds"], action["bounds"])
-                    putFirstPresent("selector", params["selector"], action["selector"])
-                    putFirstPresent("clear", params["clear"], action["clear"])
+                    putFirstPresent("x", params["x"])
+                    putFirstPresent("y", params["y"])
+                    putFirstPresent("node_id", params["node_id"])
+                    putFirstPresent("element_index", params["element_index"])
+                    putFirstPresent("node_resource_id", params["node_resource_id"])
+                    putFirstPresent("bounds", params["bounds"])
+                    putFirstPresent("selector", params["selector"])
+                    putFirstPresent("clear", params["clear"])
                     if (sourceContext.isNotEmpty()) put("source_context", sourceContext)
                 },
                 sourceContext = sourceContext,
             )
-            normalizedType == OobActionCodec.ACTION_SWIPE -> localActionStep(
+            normalizedType == OobActionCodec.ACTION_SCROLL -> localActionStep(
                 stepId = stepId,
                 index = index,
                 title = title,
-                action = OobActionCodec.ACTION_SWIPE,
+                action = OobActionCodec.ACTION_SCROLL,
                 args = linkedMapOf<String, Any?>().apply {
-                    putFirstPresent("x", target["x"], params["x"], action["x"])
-                    putFirstPresent("y", target["y"], params["y"], action["y"])
-                    putFirstPresent("end_x", target["end_x"], target["endX"], params["end_x"], params["endX"])
-                    putFirstPresent("end_y", target["end_y"], target["endY"], params["end_y"], params["endY"])
-                    putFirstPresent("direction", action["direction"], target["direction"], params["direction"])
-                    putFirstPresent("distance", action["distance"], target["distance"], params["distance"])
-                    putFirstPresent("duration_ms", action["duration_ms"], action["durationMs"], params["duration_ms"], params["durationMs"])
+                    putFirstPresent("target_description", params["target_description"])
+                    putFirstPresent("x1", params["x1"])
+                    putFirstPresent("y1", params["y1"])
+                    putFirstPresent("x2", params["x2"])
+                    putFirstPresent("y2", params["y2"])
+                    putFirstPresent("direction", params["direction"])
+                    putFirstPresent("duration_ms", params["duration_ms"])
+                    putFirstPresent("scrollable_index", params["scrollable_index"])
                     if (sourceContext.isNotEmpty()) put("source_context", sourceContext)
                 },
                 sourceContext = sourceContext,
@@ -222,20 +212,17 @@ object OobFunctionSchemaBuilder {
                 title = title,
                 action = OobActionCodec.ACTION_OPEN_APP,
                 args = linkedMapOf<String, Any?>().apply {
-                    putFirstPresent("package_name", action["packageName"], action["package_name"], params["package_name"])
-                    putFirstPresent("reset_task", action["reset_task"], params["reset_task"])
-                    putFirstPresent("launch_mode", action["launch_mode"], params["launch_mode"])
+                    putFirstPresent("package_name", params["package_name"])
                 },
                 sourceContext = emptyMap(),
             )
-            normalizedType == OobActionCodec.ACTION_PRESS_KEY -> localActionStep(
+            normalizedType == OobActionCodec.ACTION_PRESS_BACK ||
+                normalizedType == OobActionCodec.ACTION_PRESS_HOME -> localActionStep(
                 stepId = stepId,
                 index = index,
                 title = title,
-                action = OobActionCodec.ACTION_PRESS_KEY,
-                args = linkedMapOf<String, Any?>().apply {
-                    putFirstPresent("key", action["key"], params["key"], action["hotkey"], params["hotkey"])
-                },
+                action = normalizedType,
+                args = emptyMap(),
                 sourceContext = emptyMap(),
             )
             normalizedType == OobActionCodec.ACTION_FINISHED -> localActionStep(
@@ -244,9 +231,9 @@ object OobFunctionSchemaBuilder {
                 title = title,
                 action = OobActionCodec.ACTION_FINISHED,
                 args = linkedMapOf<String, Any?>().apply {
-                    putFirstPresent("content", action["content"], params["content"])
-                    putFirstPresent("enable_summary", action["enableSummary"], params["enable_summary"])
-                    putFirstPresent("summary_prompt", action["summaryPrompt"], params["summary_prompt"])
+                    putFirstPresent("content", params["content"])
+                    putFirstPresent("enable_summary", params["enable_summary"])
+                    putFirstPresent("summary_prompt", params["summary_prompt"])
                 },
                 sourceContext = emptyMap(),
             )
@@ -255,9 +242,9 @@ object OobFunctionSchemaBuilder {
                 index = index,
                 title = title,
                 args = linkedMapOf<String, Any?>().apply {
-                    putFirstPresent("node_id", params["node_id"], params["nodeId"], action["node_id"], action["nodeId"])
-                    putFirstPresent("path", params["path"], action["path"])
-                    putFirstPresent("utg", params["utg"], action["utg"])
+                    putFirstPresent("node_id", params["node_id"])
+                    putFirstPresent("path", params["path"])
+                    putFirstPresent("utg", params["utg"])
                 },
             )
             RunLogReplayPolicy.isOmniflowFunctionTool(normalizedType) -> functionStep(
@@ -268,15 +255,9 @@ object OobFunctionSchemaBuilder {
                     putFirstPresent(
                         "function_id",
                         params["function_id"],
-                        params["functionId"],
-                        params["function_name"],
-                        params["functionName"],
-                        action["function_id"],
-                        action["functionId"],
                     )
-                    putFirstPresent("function_name", params["function_name"], params["functionName"])
-                    putFirstPresent("node_id", params["node_id"], params["nodeId"])
-                    val arguments = mapArg(params["arguments"]).ifEmpty { mapArg(action["arguments"]) }
+                    putFirstPresent("node_id", params["node_id"])
+                    val arguments = mapArg(params["arguments"])
                     if (arguments.isNotEmpty()) put("arguments", arguments)
                 },
             )
@@ -285,19 +266,16 @@ object OobFunctionSchemaBuilder {
                 index = index,
                 title = title,
                 toolName = firstNonBlank(
-                    action["toolName"],
-                    action["tool_name"],
                     params["tool_name"],
-                    params["toolName"],
                 ),
-                args = mapArg(action["arguments"]).ifEmpty { mapArg(params["arguments"]) },
+                args = mapArg(params["arguments"]),
             )
             else -> externalToolStep(
                 stepId = stepId,
                 index = index,
                 title = title,
                 toolName = normalizedType,
-                args = params.ifEmpty { action },
+                args = params,
             )
         }
     }
@@ -313,14 +291,11 @@ object OobFunctionSchemaBuilder {
         "id" to stepId,
         "index" to index,
         "title" to title,
-        "kind" to "omniflow_action",
+        "kind" to "function",
         "executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
-        "omniflow_action" to action,
-        "local_action" to action,
         "model_free" to true,
         "scriptable" to true,
         "tool" to action,
-        "callable_tool" to action,
         "args" to args.filterValues { it != null },
         "source_context" to sourceContext.takeIf { it.isNotEmpty() },
     ).filterValues { it != null }
@@ -339,7 +314,6 @@ object OobFunctionSchemaBuilder {
         "model_free" to true,
         "scriptable" to true,
         "tool" to RunLogReplayPolicy.TOOL_GO_TO_NODE,
-        "callable_tool" to RunLogReplayPolicy.TOOL_GO_TO_NODE,
         "args" to args.filterValues { it != null },
     )
 
@@ -357,7 +331,6 @@ object OobFunctionSchemaBuilder {
         "model_free" to true,
         "scriptable" to true,
         "tool" to OobFunctionToolNames.FUNCTION_RUN,
-        "callable_tool" to OobFunctionToolNames.FUNCTION_RUN,
         "args" to args.filterValues { it != null },
     )
 
@@ -375,7 +348,6 @@ object OobFunctionSchemaBuilder {
         "executor" to RunLogReplayPolicy.EXECUTOR_TOOL,
         "scriptable" to true,
         "tool" to toolName,
-        "callable_tool" to toolName,
         "args" to args,
     )
 

@@ -471,6 +471,70 @@ class OobOmniFlowLoopAcceptanceTest {
     }
 
     @Test
+    fun `update function normalizes hi upgrade checker aliases into runtime rule`() = runBlocking {
+        val context = TempFilesContext()
+        try {
+            val toolkit = OobOmniFlowToolkitService(context, WorkspaceFunctionStore(context.root))
+            val functionId = "hi_upgrade_checker_alias_update"
+            val register = toolkit.registerFunction(
+                mapOf(
+                    "functionId" to functionId,
+                    "name" to "打开 Hi",
+                    "description" to "用于验证 agent 生成的 Hi 升级 checker 会落成运行时规则",
+                    "steps" to listOf(
+                        mapOf(
+                            "action" to "open_app",
+                            "packageName" to "com.example.hi",
+                        ),
+                        mapOf(
+                            "action" to "finished",
+                            "content" to "Done",
+                        ),
+                    ),
+                )
+            )
+            assertEquals(true, register["success"])
+
+            val update = toolkit.updateFunction(
+                mapOf(
+                    "function_id" to functionId,
+                    "mode" to "enhance",
+                    "patch" to mapOf(
+                        "metadata" to mapOf(
+                            "checker_rules" to listOf(
+                                mapOf(
+                                    "id" to "dismiss_hi_upgrade_if_present",
+                                    "condition" to "hi_upgrade",
+                                    "action" to "click",
+                                    "enabled" to true,
+                                ),
+                            )
+                        ),
+                    ),
+                )
+            )
+
+            assertEquals(true, update["success"])
+            assertEquals(true, update["changed"])
+            assertEquals(true, update["saved"])
+
+            val stored = toolkit.getFunction(mapOf("function_id" to functionId))
+            val function = stored["function"] as Map<*, *>
+            val metadata = function["metadata"] as Map<*, *>
+            val checkerRules = metadata["checker_rules"] as List<*>
+            assertEquals(1, checkerRules.size)
+            val rule = checkerRules.single() as Map<*, *>
+            assertEquals("dismiss_hi_upgrade_if_present", rule["id"])
+            assertEquals("app_upgrade_prompt", rule["condition"])
+            assertEquals("dismiss", rule["action"])
+            assertEquals("post_action", rule["phase"])
+            assertEquals(true, rule["enabled"])
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `update function gates inserts and deletes as structural changes`() = runBlocking {
         val context = TempFilesContext()
         try {

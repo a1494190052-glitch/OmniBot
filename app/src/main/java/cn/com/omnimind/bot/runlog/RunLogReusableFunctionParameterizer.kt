@@ -1,5 +1,6 @@
 package cn.com.omnimind.bot.runlog
 
+import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
 import cn.com.omnimind.bot.runlog.OobActionCodec.firstNonBlank
 import cn.com.omnimind.bot.runlog.OobActionCodec.listArg
 import cn.com.omnimind.bot.runlog.OobActionCodec.mapArg
@@ -9,7 +10,7 @@ import cn.com.omnimind.bot.runlog.OobActionCodec.mapArg
  *
  * RunLogReusableFunctionCompiler owns card-to-step conversion and top-level
  * Function assembly. This object owns deterministic input_text parameter
- * inference and the legacy actions/parameters compatibility surface.
+ * inference and parameter binding metadata.
  */
 object RunLogReusableFunctionParameterizer {
     data class Result(
@@ -146,11 +147,7 @@ object RunLogReusableFunctionParameterizer {
         val match = EXECUTION_ARG_BINDING_REGEX.matchEntire(binding) ?: return null
         val stepIndex = match.groupValues[1].toIntOrNull() ?: return null
         val argKey = match.groupValues[2]
-        val actionPath = when (argKey) {
-            "text", "content", "value" -> "text"
-            else -> argKey
-        }
-        return "$.actions[$stepIndex].$actionPath"
+        return "$.actions[$stepIndex].args.$argKey"
     }
 
     private fun canonicalActionForStep(
@@ -161,118 +158,46 @@ object RunLogReusableFunctionParameterizer {
         val args = OobActionCodec.argsForStep(step)
         val action = OobActionCodec.actionNameForStep(step)
         val description = firstNonBlank(step["title"], step["summary"]).takeIf { it.isNotBlank() }
-        val sourceContext = mapArg(step["source_context"]).ifEmpty { mapArg(args["source_context"]) }
         return when {
-            action == OobActionCodec.ACTION_CLICK -> canonicalPointAction(
-                type = OobActionCodec.ACTION_CLICK,
-                args = args,
-                description = description,
-                sourceContext = sourceContext,
-            )
-            action == OobActionCodec.ACTION_LONG_PRESS -> canonicalPointAction(
-                type = OobActionCodec.ACTION_LONG_PRESS,
-                args = args,
-                description = description,
-                sourceContext = sourceContext,
-            )
-            action == OobActionCodec.ACTION_INPUT_TEXT -> nullableMap(
-                "type" to OobActionCodec.ACTION_INPUT_TEXT,
-                "text" to inputTextValue(args, index, parameterTemplates),
-                "target" to coordinateTarget(args).takeIf {
-                    it["x"] != null && it["y"] != null
-                },
-                "prompt" to firstNonBlank(
-                    args["target_description"],
-                    args["targetDescription"],
-                    args["label"],
-                    args["selector"],
-                ).takeIf { it.isNotBlank() },
-                "params" to nullableMap(
-                    "selector" to firstNonBlank(args["selector"]).takeIf { it.isNotBlank() },
-                    "clear" to args["clear"],
-                    "target_description" to firstNonBlank(
-                        args["target_description"],
-                        args["targetDescription"],
-                        args["label"],
-                    ).takeIf { it.isNotBlank() },
-                    "node_resource_id" to firstNonBlank(
-                        args["node_resource_id"],
-                        args["nodeResourceId"],
-                        args["resource_id"],
-                        args["resourceId"],
-                    ).takeIf { it.isNotBlank() },
-                    "bounds" to firstNonBlank(args["bounds"]).takeIf { it.isNotBlank() },
-                    "node_class" to firstNonBlank(args["node_class"], args["nodeClass"]).takeIf { it.isNotBlank() },
-                    "source_context" to sourceContext.takeIf { it.isNotEmpty() },
-                ).takeIf { it.isNotEmpty() },
-                "description" to description,
-            )
-            action == OobActionCodec.ACTION_SWIPE -> {
-                val target = coordinateTarget(args)
+            OobActionCodec.canonicalActionForName(action) != null -> {
+                val canonicalAction = OobActionCodec.canonicalActionForName(action) ?: action
                 nullableMap(
-                    "type" to OobActionCodec.ACTION_SWIPE,
-                    "target" to target,
-                    "direction" to firstNonBlank(args["direction"], args["scroll_direction"]).ifBlank { "down" },
-                    "distance" to firstPresent(args["distance"], args["scroll_distance"]),
-                    "end_x" to firstPresent(args["end_x"], args["endX"]),
-                    "end_y" to firstPresent(args["end_y"], args["endY"]),
-                    "duration_ms" to firstPresent(args["duration_ms"], args["durationMs"]),
-                    "params" to nullableMap(
-                        "source_context" to sourceContext.takeIf { it.isNotEmpty() },
-                    ).takeIf { it.isNotEmpty() },
+                    "tool" to canonicalAction,
+                    "args" to canonicalArgsForAction(
+                        tool = canonicalAction,
+                        args = args,
+                        stepIndex = index,
+                        parameterTemplates = parameterTemplates,
+                    ),
                     "description" to description,
                 )
             }
-            action == OobActionCodec.ACTION_OPEN_APP -> nullableMap(
-                "type" to OobActionCodec.ACTION_OPEN_APP,
-                "packageName" to firstNonBlank(args["package_name"], args["packageName"]),
-                "description" to description,
-            )
-            action == OobActionCodec.ACTION_PRESS_KEY -> nullableMap(
-                "type" to OobActionCodec.ACTION_PRESS_KEY,
-                "key" to firstNonBlank(args["key"], args["hotkey"], args["hot_key"]),
-                "description" to description,
-            )
-            action == OobActionCodec.ACTION_FINISHED -> nullableMap(
-                "type" to OobActionCodec.ACTION_FINISHED,
-                "content" to firstPresent(args["content"], args["summary"]),
-                "enableSummary" to firstPresent(args["enable_summary"], args["enableSummary"]),
-                "summaryPrompt" to firstPresent(args["summary_prompt"], args["summaryPrompt"]),
-                "description" to description,
-            )
             RunLogReplayPolicy.isOmniflowFunctionTool(action) ||
                 RunLogReplayPolicy.isOmniflowToolCallTool(action) -> {
                 val functionId = firstNonBlank(
                     args["function_id"],
-                    args["functionId"],
-                    args["oob_function_id"],
-                    args["oobFunctionId"],
-                    args["function_name"],
-                    args["functionName"],
                 )
                 nullableMap(
-                    "type" to RunLogReplayPolicy.TOOL_FUNCTION_RUN,
-                    "params" to nullableMap(
-                        "node_id" to firstNonBlank(args["node_id"], args["nodeId"]),
-                        "function_name" to functionId,
-                        "function_id" to functionId,
-                        "arguments" to mapArg(args["arguments"]).ifEmpty { mapArg(args["args"]) },
+                    "tool" to RunLogReplayPolicy.TOOL_FUNCTION_RUN,
+                    "args" to nullableMap(
+                        OobCanonicalActionSchema.ARG_FUNCTION_ID to functionId,
+                        "arguments" to mapArg(args["arguments"]),
                     ),
                     "description" to description,
                 )
             }
             RunLogReplayPolicy.isOmniflowGraphTool(action) -> nullableMap(
-                "type" to RunLogReplayPolicy.TOOL_CLICK_NODE,
-                "params" to nullableMap(
-                    "node_id" to firstNonBlank(args["node_id"], args["nodeId"]),
+                "tool" to RunLogReplayPolicy.TOOL_CLICK_NODE,
+                "args" to nullableMap(
+                    "node_id" to firstNonBlank(args["node_id"]),
                     "path" to listArg(args["path"]).takeIf { it.isNotEmpty() },
                 ),
                 "description" to description,
             )
             action == RunLogReplayPolicy.TOOL_WAIT -> nullableMap(
-                "type" to RunLogReplayPolicy.TOOL_WAIT,
-                "timeMs" to firstPresent(args["timeMs"], args["time_ms"]),
-                "params" to nullableMap(
+                "tool" to RunLogReplayPolicy.TOOL_WAIT,
+                "args" to nullableMap(
+                    "time_ms" to firstPresent(args["time_ms"]),
                     "time_s" to firstPresent(args["time_s"], args["seconds"]),
                     "selector" to firstNonBlank(args["selector"]).takeIf { it.isNotBlank() },
                     "url" to firstNonBlank(args["url"]).takeIf { it.isNotBlank() },
@@ -280,65 +205,34 @@ object RunLogReusableFunctionParameterizer {
                 "description" to description,
             )
             else -> nullableMap(
-                "type" to RunLogReplayPolicy.TOOL_EXTERNAL_TOOL,
-                "toolName" to firstNonBlank(step["callable_tool"], step["tool"], step["action"], action),
-                "arguments" to args,
+                "tool" to RunLogReplayPolicy.TOOL_EXTERNAL_TOOL,
+                "args" to nullableMap(
+                    "tool_name" to firstNonBlank(step["tool"], action),
+                    "arguments" to args,
+                ),
                 "description" to description,
             )
         }
     }
 
-    private fun canonicalPointAction(
-        type: String,
-        args: Map<String, Any?>,
-        description: String?,
-        sourceContext: Map<String, Any?>,
-    ): Map<String, Any?> {
-        val target = coordinateTarget(args).takeIf {
-            it["x"] != null && it["y"] != null
-        } ?: nullableMap(
-            "kind" to "prompt",
-            "prompt" to firstNonBlank(
-                args["target_description"],
-                args["targetDescription"],
-                args["clickPrompt"],
-                args["label"],
-            )
-        )
-        return nullableMap(
-            "type" to type,
-            "target" to target,
-            "prompt" to firstNonBlank(
-                args["target_description"],
-                args["targetDescription"],
-                args["clickPrompt"],
-                args["label"],
-            ).takeIf { it.isNotBlank() },
-            "params" to nullableMap(
-                "source_context" to sourceContext.takeIf { it.isNotEmpty() },
-                "selector" to firstNonBlank(args["selector"]).takeIf { it.isNotBlank() },
-            ).takeIf { it.isNotEmpty() },
-            "description" to description,
-        )
-    }
-
-    private fun coordinateTarget(args: Map<String, Any?>): Map<String, Any?> =
-        nullableMap(
-            "kind" to "coords",
-            "x" to firstPresent(args["x"], args["center_x"], args["centerX"]),
-            "y" to firstPresent(args["y"], args["center_y"], args["centerY"]),
-            "xmlRef" to firstPresent(args["xml_ref"], args["xmlRef"]),
-        )
-
-    private fun inputTextValue(
+    private fun canonicalArgsForAction(
+        tool: String,
         args: Map<String, Any?>,
         stepIndex: Int,
         parameterTemplates: Map<Pair<Int, String>, String>,
-    ): Any? {
-        INPUT_TEXT_ARG_KEYS.forEach { key ->
-            parameterTemplates[stepIndex to key]?.let { return it }
+    ): Map<String, Any?> {
+        val output = linkedMapOf<String, Any?>()
+        OobCanonicalActionSchema.argNames(tool).forEach { key ->
+            val value = when {
+                tool == OobActionCodec.ACTION_INPUT_TEXT && key == OobCanonicalActionSchema.ARG_TEXT ->
+                    parameterTemplates[stepIndex to key] ?: firstPresent(args[key])
+                else -> firstPresent(args[key])
+            }
+            if (value != null) {
+                output[key] = value
+            }
         }
-        return firstPresent(args["text"], args["content"], args["value"])
+        return output
     }
 
     private fun jsonSchemaType(type: String): String =
@@ -409,7 +303,9 @@ object RunLogReusableFunctionParameterizer {
     }
 
     private val INPUT_TEXT_ACTIONS = setOf(OobActionCodec.ACTION_INPUT_TEXT)
-    private val INPUT_TEXT_ARG_KEYS = listOf("text", "content", "value")
+    private val INPUT_TEXT_ARG_KEYS =
+        OobCanonicalActionSchema.argNames(OobActionCodec.ACTION_INPUT_TEXT)
+            .filter { it == OobCanonicalActionSchema.ARG_TEXT }
     private val EXECUTION_ARG_BINDING_REGEX = Regex("""^\$\.execution\.steps\[(\d+)]\.args\.([A-Za-z0-9_]+)$""")
     private const val DEFAULT_INPUT_PARAMETER_NAME = "input_text"
 }

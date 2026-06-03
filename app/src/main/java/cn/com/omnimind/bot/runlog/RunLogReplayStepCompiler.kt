@@ -2,6 +2,7 @@ package cn.com.omnimind.bot.runlog
 
 import cn.com.omnimind.bot.agent.AgentToolNames
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
+import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.androidPrivilegedReplayAction
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.androidPrivilegedReplayArgs
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.asMap
@@ -36,7 +37,6 @@ internal object RunLogReplayStepCompiler {
                 card["title"],
                 card["summary"],
                 card["operation_description"],
-                card["operationDescription"],
                 toolName,
             ),
             toolName = normalizedToolName,
@@ -95,13 +95,11 @@ internal object RunLogReplayStepCompiler {
                     "title" to title,
                     "kind" to "agent_call",
                     "tool" to toolName,
-                    "callable_tool" to RunLogReplayPolicy.TOOL_AGENT_RUN,
                     "executor" to RunLogReplayPolicy.EXECUTOR_AGENT,
                     "scriptable" to false,
                     "args" to args,
                     "tool_binding" to linkedMapOf(
                         "name" to toolName,
-                        "callable_tool" to RunLogReplayPolicy.TOOL_AGENT_RUN,
                     ),
                     "agent_call" to linkedMapOf(
                         "tool" to RunLogReplayPolicy.TOOL_AGENT_RUN,
@@ -124,9 +122,8 @@ internal object RunLogReplayStepCompiler {
                     "title" to title,
                     "kind" to "tool_call",
                     "executor" to RunLogReplayPolicy.EXECUTOR_TOOL,
-                    "scriptable" to true,
-                    "callable_tool" to toolName,
-                    "tool" to toolName,
+            "scriptable" to true,
+            "tool" to toolName,
                     "args" to args,
                     "observed_result" to result.takeUnless(::isEmptyJsonValue),
                 )
@@ -161,35 +158,30 @@ internal object RunLogReplayStepCompiler {
             ?: OobActionCodec.normalizeName(toolName)
         val target = firstNonBlank(
             args["target_description"],
-            args["targetDescription"],
             args["label"],
             args["text"],
-            args["content"],
-            args["value"],
         ).take(80)
         return when (action) {
             OobActionCodec.ACTION_OPEN_APP -> {
-                val packageName = firstNonBlank(args["package_name"], args["packageName"])
+                val packageName = firstNonBlank(args["package_name"])
                 if (packageName.isNotBlank()) "${OobActionCodec.ACTION_OPEN_APP}: $packageName" else OobActionCodec.ACTION_OPEN_APP
             }
             in OobActionCodec.pointTargetActions -> {
                 if (target.isNotBlank()) {
                     "$action: $target"
                 } else {
-                    val x = firstNonBlank(args["x"], args["center_x"], args["centerX"])
-                    val y = firstNonBlank(args["y"], args["center_y"], args["centerY"])
+                    val x = firstNonBlank(args["x"])
+                    val y = firstNonBlank(args["y"])
                     if (x.isNotBlank() && y.isNotBlank()) "$action: ($x, $y)" else action
                 }
             }
             OobActionCodec.ACTION_INPUT_TEXT -> if (target.isNotBlank()) "$action: $target" else action
-            OobActionCodec.ACTION_SWIPE -> {
-                val direction = firstNonBlank(args["direction"], args["scroll_direction"])
+            OobActionCodec.ACTION_SCROLL -> {
+                val direction = firstNonBlank(args["direction"])
                 if (direction.isNotBlank()) "$action: $direction" else action
             }
-            OobActionCodec.ACTION_PRESS_KEY -> {
-                val key = firstNonBlank(args["key"], args["hotkey"], args["hot_key"])
-                if (key.isNotBlank()) "$action: $key" else action
-            }
+            OobActionCodec.ACTION_PRESS_BACK,
+            OobActionCodec.ACTION_PRESS_HOME -> action
             OobActionCodec.ACTION_FINISHED -> OobActionCodec.ACTION_FINISHED
             else -> if (target.isNotBlank()) "$action: $target" else action.ifBlank { "step" }
         }
@@ -216,12 +208,7 @@ internal object RunLogReplayStepCompiler {
         } else {
             args
         }
-        val hasFunctionId = firstNonBlank(
-            canonicalArgs["function_id"],
-            canonicalArgs["functionId"],
-            canonicalArgs["oob_function_id"],
-            canonicalArgs["oobFunctionId"],
-        ).isNotEmpty()
+        val hasFunctionId = firstNonBlank(canonicalArgs["function_id"]).isNotEmpty()
         val executor = if (isGraphTool || isFunctionTool || hasFunctionId) {
             RunLogReplayPolicy.EXECUTOR_OMNIFLOW
         } else {
@@ -238,8 +225,6 @@ internal object RunLogReplayStepCompiler {
             "model_free" to true.takeIf { executor == RunLogReplayPolicy.EXECUTOR_OMNIFLOW },
             "scriptable" to true,
             "tool" to canonicalToolName,
-            "callable_tool" to canonicalToolName,
-            "source_tool" to toolName.takeIf { it != canonicalToolName },
             "args" to canonicalArgs,
             "source_context" to sourceContext.takeIf { it.isNotEmpty() },
             "utg" to utg.takeIf { it.isNotEmpty() },
@@ -254,20 +239,13 @@ internal object RunLogReplayStepCompiler {
         val normalizedTool = RunLogReplayPolicy.normalizeToolName(toolName)
         return linkedMapOf<String, Any?>().apply {
             putAll(args)
-            val functionId = firstNonBlank(
-                args["function_id"],
-                args["functionId"],
-                args["oob_function_id"],
-                args["oobFunctionId"],
-            )
+            val functionId = firstNonBlank(args["function_id"])
             if (functionId.isNotEmpty()) {
                 put("function_id", functionId)
             }
             val targetTool = firstNonBlank(
                 args["tool_name"],
-                args["toolName"],
                 args["target_tool"],
-                args["targetTool"],
                 args["tool"],
             )
             if (targetTool.isNotEmpty() && !RunLogReplayPolicy.isOmniflowFunctionTool(normalizedTool)) {
@@ -286,15 +264,11 @@ internal object RunLogReplayStepCompiler {
     ): Map<String, Any?> {
         return nullableMap(
             "title" to title,
-            "kind" to "omniflow_action",
+            "kind" to "function",
             "executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
-            "omniflow_action" to replayAction,
-            "local_action" to replayAction,
             "model_free" to true,
             "scriptable" to true,
             "tool" to replayAction,
-            "callable_tool" to replayAction,
-            "source_tool" to sourceToolName.takeIf { it != replayAction },
             "args" to args,
             "source_context" to sourceContext.takeIf { it.isNotEmpty() },
             "utg" to utg.takeIf { it.isNotEmpty() },
@@ -337,23 +311,7 @@ internal object RunLogReplayStepCompiler {
                 } ?: rawToolName
                 )
         )
-        for (key in listOf(
-            "target_description",
-            "targetDescription",
-            "x",
-            "y",
-            "x1",
-            "y1",
-            "x2",
-            "y2",
-            "duration",
-            "duration_ms",
-            "durationMs",
-            "node_resource_id",
-            "nodeResourceId",
-            "resource_id",
-            "resourceId",
-        )) {
+        for (key in OobCanonicalActionSchema.sourceContextArgNames) {
             if (actionArgs.containsKey(key) && actionArgs[key] != null) {
                 sourceAction[key] = actionArgs[key]
             }
@@ -377,7 +335,6 @@ internal object RunLogReplayStepCompiler {
                 before["package_name"],
                 before["packageName"],
                 actionArgs["package_name"],
-                actionArgs["packageName"],
                 card["package_name"],
                 card["packageName"],
             ),
@@ -474,12 +431,8 @@ internal object RunLogReplayStepCompiler {
     private fun hasCoordinateEvidence(sourceAction: Map<String, Any?>): Boolean {
         val hasPoint = firstNonBlank(
             sourceAction["x"],
-            sourceAction["center_x"],
-            sourceAction["centerX"],
         ).isNotBlank() && firstNonBlank(
             sourceAction["y"],
-            sourceAction["center_y"],
-            sourceAction["centerY"],
         ).isNotBlank()
         val hasSwipe = firstNonBlank(sourceAction["x1"]).isNotBlank() &&
             firstNonBlank(sourceAction["y1"]).isNotBlank() &&

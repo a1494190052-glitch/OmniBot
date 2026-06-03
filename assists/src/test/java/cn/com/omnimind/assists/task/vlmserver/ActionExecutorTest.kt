@@ -56,7 +56,7 @@ class ActionExecutorTest {
                     thought = "type first name",
                     action = InputTextAction(
                         targetDescription = "First name",
-                        content = "Alice",
+                        text = "Alice",
                         x = 356f,
                         y = 660f,
                         elementIndex = 2,
@@ -90,7 +90,7 @@ class ActionExecutorTest {
                     thought = "type phone",
                     action = InputTextAction(
                         targetDescription = "Phone",
-                        content = "415-555-0130",
+                        text = "415-555-0130",
                         x = 356f,
                         y = 1112f,
                         elementIndex = 4,

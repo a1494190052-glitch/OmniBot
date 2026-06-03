@@ -103,9 +103,9 @@ class OobOmniFlowExplorer(
             "checkable" to checkable,
             "enabled" to enabled,
             "visible" to visible,
-            "scroll_direction" to scrollDirection.takeIf { it.isNotBlank() },
-            "scroll_distance_px" to scrollDistancePx.takeIf { it > 0f },
-            "scroll_duration_ms" to scrollDurationMs.takeIf { it > 0L },
+            "direction" to scrollDirection.takeIf { it.isNotBlank() },
+            "distance" to scrollDistancePx.takeIf { it > 0f },
+            "duration_ms" to scrollDurationMs.takeIf { it > 0L },
             "signature" to signature,
             "action_id" to actionId,
             "score" to score,
@@ -473,7 +473,7 @@ class OobOmniFlowExplorer(
 
     companion object {
         const val ACTION_CLICK = OobActionCodec.ACTION_CLICK
-        const val ACTION_SCROLL = OobActionCodec.ACTION_SWIPE
+        const val ACTION_SCROLL = OobActionCodec.ACTION_SCROLL
         private const val MIN_ACTION_AREA = 36 * 36
         private const val MAX_RESET_BACK_STEPS = 8
         private const val DEFAULT_SCROLL_DISTANCE_PX = 360f
@@ -911,8 +911,8 @@ class OobOmniFlowExplorer(
             "top" to top,
             "right" to right,
             "bottom" to bottom,
-            "center_x" to centerX,
-            "center_y" to centerY,
+            "x" to centerX,
+            "y" to centerY,
             "width" to width,
             "height" to height,
         )

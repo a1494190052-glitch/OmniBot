@@ -820,7 +820,6 @@ open class VLMOperationTask(
     private fun actionTitle(action: UIAction): String {
         return when (action) {
             is ClickAction -> "点击 ${action.targetDescription}"
-            is TypeAction -> "输入文本"
             is InputTextAction -> "输入文本 ${action.targetDescription}"
             is ScrollAction -> "滚动 ${action.targetDescription}"
             is LongPressAction -> "长按 ${action.targetDescription}"
@@ -837,7 +836,6 @@ open class VLMOperationTask(
             is InfoAction -> "请求用户协助"
             is FeedbackAction -> "反馈"
             is AbortAction -> "中止任务"
-            is HotKeyAction -> "快捷键 ${action.key}"
         }
     }
 
@@ -848,11 +846,9 @@ open class VLMOperationTask(
                 "x" to action.x,
                 "y" to action.y
             )
-            is TypeAction -> linkedMapOf("content" to action.content)
             is InputTextAction -> linkedMapOf(
                 "target_description" to action.targetDescription,
-                "content" to action.content,
-                "text" to action.content,
+                "text" to action.text,
                 "x" to action.x,
                 "y" to action.y
             )
@@ -862,7 +858,7 @@ open class VLMOperationTask(
                 "y1" to action.y1,
                 "x2" to action.x2,
                 "y2" to action.y2,
-                "duration" to action.duration
+                "duration_ms" to action.durationMs
             )
             is LongPressAction -> linkedMapOf(
                 "target_description" to action.targetDescription,
@@ -888,7 +884,6 @@ open class VLMOperationTask(
             is InfoAction -> linkedMapOf("value" to action.value)
             is FeedbackAction -> linkedMapOf("value" to action.value)
             is AbortAction -> linkedMapOf("value" to action.value)
-            is HotKeyAction -> linkedMapOf("key" to action.key)
         }
     }
 
@@ -900,7 +895,8 @@ open class VLMOperationTask(
         packageName: String?,
         onTaskFinishListener: () -> Unit,
         skipGoHome: Boolean = false,  // 是否跳过回到主页，从当前页面开始执行
-        stepSkillGuidance: String = ""
+        stepSkillGuidance: String = "",
+        disableOmniFlowRecall: Boolean = false
     ) {
         this.goal = goal;
         this.taskContext = context
@@ -952,7 +948,8 @@ open class VLMOperationTask(
                         skipGoHome = skipGoHome,
                         summary = shouldSummary,
                         currentStepGoal = goal,
-                        stepSkillGuidance = stepSkillGuidance
+                        stepSkillGuidance = stepSkillGuidance,
+                        disableOmniFlowRecall = disableOmniFlowRecall
                     )
                 } else {
                     vlmOperationService.executeTask(
@@ -964,7 +961,8 @@ open class VLMOperationTask(
                         skipGoHome = skipGoHome,  // 使用传入的 skipGoHome 参数
                         summary = shouldSummary,
                         currentStepGoal = goal,
-                        stepSkillGuidance = stepSkillGuidance
+                        stepSkillGuidance = stepSkillGuidance,
+                        disableOmniFlowRecall = disableOmniFlowRecall
 
                     )
                 }

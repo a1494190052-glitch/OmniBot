@@ -34,16 +34,16 @@ Use this vocabulary in code, docs, prompts, and tests:
 
 | Concept | Meaning | Primary surface | Compatibility only |
 | --- | --- | --- | --- |
-| Function | Saved reusable GUI workflow | `oob_function_*` | old Command wording |
+| Function | Saved reusable GUI workflow | `oob_function_*` | legacy reusable-workflow wording |
 | RunLog | Evidence from an execution or manual recording | `oob_run_log_*` | inline legacy logs |
 | Replay | Deterministic execution of explicit Function steps | `oob_function_run` | `call_function`, `run_function`, `omniflow.call_function` |
 | Recall | Local candidate lookup before VLM/tool choice | guidance/page context | auto-execution before VLM |
 | Repair/enhance | Saved Function mutation | `update_function` | direct JSON mutation |
 | Fallback | Structured handoff after replay failure | `fallback_context` | hidden VLM fallback state |
 
-Old `oob_command_*` tools are superseded by Function tools. They should not be
-documented as a parallel product path. If a legacy client still has command
-records, migrate or expose them as Functions.
+Legacy reusable-workflow tools are superseded by Function tools. They should not
+be documented as a parallel product path. If an old client still has records
+under the previous vocabulary, migrate or expose them as Functions.
 
 Internal graph edges that represent callable Functions should use
 `kind=function_call`. Legacy edge inputs with `call_function`, `run_function`,

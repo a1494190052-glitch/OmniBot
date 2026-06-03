@@ -54,7 +54,7 @@ Use this when direct MCP Function tools are missing.
 ### Run a stored Function
 
 1. Open the OOB app.
-2. Navigate to Function Library or Command Library.
+2. Navigate to Function Library.
 3. Select the Function by name or description.
 4. Inspect details before running.
 5. Fill required arguments.

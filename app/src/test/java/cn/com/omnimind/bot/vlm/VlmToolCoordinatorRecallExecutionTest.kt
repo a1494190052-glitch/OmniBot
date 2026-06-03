@@ -1,10 +1,29 @@
 package cn.com.omnimind.bot.vlm
 
+import cn.com.omnimind.assists.task.vlmserver.FunctionRunAction
+import cn.com.omnimind.assists.task.vlmserver.SceneChatCompletionTurn
+import cn.com.omnimind.assists.task.vlmserver.UIContext
+import cn.com.omnimind.assists.task.vlmserver.VLMCurrentPageSnapshot
+import cn.com.omnimind.assists.task.vlmserver.VLMClient
+import cn.com.omnimind.assists.task.vlmserver.VLMPageContextRequest
+import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextProvider
+import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextProviderRegistry
+import cn.com.omnimind.assists.task.vlmserver.VLMStreamClient
+import cn.com.omnimind.baselib.llm.AssistantToolCall
+import cn.com.omnimind.baselib.llm.AssistantToolCallFunction
+import cn.com.omnimind.baselib.llm.ChatCompletionMessage
+import cn.com.omnimind.baselib.llm.ChatCompletionRequest
+import cn.com.omnimind.baselib.llm.ChatCompletionTurn
+import cn.com.omnimind.baselib.llm.ModelSceneRegistry
 import cn.com.omnimind.bot.mcp.TaskState
 import cn.com.omnimind.bot.mcp.TaskStatus
 import cn.com.omnimind.bot.mcp.VlmTaskRequest
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -224,5 +243,188 @@ class VlmToolCoordinatorRecallExecutionTest {
         assertNotNull(outcome)
         assertEquals(true, called)
         assertEquals(TaskStatus.FINISHED, state.status)
+    }
+
+    @Test
+    fun `parameterized recall hit is not auto executed with empty arguments`() = runBlocking {
+        val request = VlmTaskRequest(
+            goal = "小红书查看猫猫",
+            packageName = "com.xingin.xhs",
+            allowOmniFlowFunctionAutoExecute = true,
+        )
+        val state = TaskState(
+            taskId = "task-parameterized-auto-skip",
+            goal = request.goal,
+            status = TaskStatus.RUNNING,
+        )
+        var called = false
+
+        val outcome = VlmToolCoordinator.tryExecuteRecallHitIfAllowed(
+            request = request,
+            taskState = state,
+            recallGuidance = VlmRecallGuidance(
+                decision = "hit",
+                guidance = "oob_function_run function_id=xhs_search_keyword argument_policy: requires_arguments=true arguments={keyword:string required}",
+                payload = mapOf(
+                    "success" to true,
+                    "decision" to "hit",
+                    "hit" to mapOf(
+                        "function_id" to "xhs_search_keyword",
+                        "requires_arguments" to true,
+                    ),
+                ),
+                directHitFunctionId = "xhs_search_keyword",
+            ),
+            progressReporter = { _, _ -> },
+            runFunction = {
+                called = true
+                mapOf("success" to true)
+            },
+        )
+
+        assertNull(outcome)
+        assertFalse(called)
+        assertEquals(TaskStatus.RUNNING, state.status)
+        assertTrue(state.chatMessages.last().contains("requires arguments"))
+    }
+
+    @Test
+    fun `recall hit with input schema is not auto executed even without explicit requires flag`() = runBlocking {
+        val request = VlmTaskRequest(
+            goal = "小红书查看猫猫",
+            packageName = "com.xingin.xhs",
+            allowOmniFlowFunctionAutoExecute = true,
+        )
+        val state = TaskState(
+            taskId = "task-schema-parameterized-auto-skip",
+            goal = request.goal,
+            status = TaskStatus.RUNNING,
+        )
+        var called = false
+
+        val outcome = VlmToolCoordinator.tryExecuteRecallHitIfAllowed(
+            request = request,
+            taskState = state,
+            recallGuidance = VlmRecallGuidance(
+                decision = "hit",
+                guidance = "oob_function_run function_id=xhs_search_keyword arguments={keyword:string required}",
+                payload = mapOf(
+                    "success" to true,
+                    "decision" to "hit",
+                    "hit" to mapOf(
+                        "function_id" to "xhs_search_keyword",
+                        "input_schema" to mapOf(
+                            "type" to "object",
+                            "required" to listOf("keyword"),
+                            "properties" to mapOf(
+                                "keyword" to mapOf("type" to "string")
+                            ),
+                        ),
+                    ),
+                ),
+                directHitFunctionId = "xhs_search_keyword",
+            ),
+            progressReporter = { _, _ -> },
+            runFunction = {
+                called = true
+                mapOf("success" to true)
+            },
+        )
+
+        assertNull(outcome)
+        assertFalse(called)
+        assertEquals(TaskStatus.RUNNING, state.status)
+        assertTrue(state.chatMessages.last().contains("requires arguments"))
+    }
+
+    @Test
+    fun `parse only VLM turn injects per step recall and parses canonical function call`() = runBlocking {
+        VLMRecallContextProviderRegistry.register(
+            object : VLMRecallContextProvider {
+                override suspend fun enrich(request: VLMPageContextRequest): UIContext {
+                    return request.context.copy(
+                        stepSkillGuidance = request.context.stepSkillGuidance + "\n" +
+                            "OmniFlow function recall candidates for this current VLM step:\n" +
+                            "1. oob_function_run function_id=xhs_search_keyword score=0.98 description=小红书搜索关键词\n" +
+                            "   argument_policy: requires_arguments=true arguments={keyword:string required}",
+                        pageDiagnostics = request.context.pageDiagnostics + mapOf(
+                            "omniflow_recall_injected" to "true"
+                        )
+                    )
+                }
+            }
+        )
+        try {
+            var promptText = ""
+            val streamClient = object : VLMStreamClient {
+                override suspend fun streamTurn(
+                    request: ChatCompletionRequest,
+                    onReasoningUpdate: (suspend (String) -> Unit)?
+                ): SceneChatCompletionTurn {
+                    promptText = request.messages.last().content.toString()
+                    return SceneChatCompletionTurn(
+                        parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                        route = "scene.vlm.operation.primary",
+                        resolvedModel = "vlm-test-model",
+                        turn = ChatCompletionTurn(
+                            message = ChatCompletionMessage(
+                                role = "assistant",
+                                content = JsonPrimitive("""{"observation":"命中复用指令","thought":"调用搜索 Function","summary":""}"""),
+                                toolCalls = listOf(
+                                    AssistantToolCall(
+                                        id = "call_1",
+                                        function = AssistantToolCallFunction(
+                                            name = "oob_function_run",
+                                            arguments = """{"function_id":"xhs_search_keyword","arguments":{"keyword":"猫猫"}}"""
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                }
+            }
+
+            val result = VlmToolCoordinator.parseOnlyNextAction(
+                context = UIContext(
+                    overallTask = "小红书查看猫猫",
+                    currentStepGoal = "小红书查看猫猫",
+                    targetPackageName = "com.xingin.xhs",
+                ),
+                snapshot = VLMCurrentPageSnapshot(
+                    packageName = "com.xingin.xhs",
+                    xml = "<hierarchy><node text=\"搜索\" clickable=\"true\" bounds=\"[0,0][100,100]\" /></hierarchy>",
+                    screenshotBase64 = "RAW_IMAGE",
+                    displayWidth = 1080,
+                    displayHeight = 1920,
+                    capturedAtMs = 1234L,
+                ),
+                streamClient = streamClient,
+                vlmClient = VLMClient(
+                    systemPromptBuilder = { "test vlm system prompt" },
+                    turnPromptBuilder = { ctx, _ ->
+                        listOf(
+                            "goal=${ctx.activeGoal()}",
+                            "current_page_summary=${ctx.currentPageSummary}",
+                            "step_skill_guidance=${ctx.stepSkillGuidance}",
+                            "first_step_guidance=${ctx.firstStepGuidance}",
+                        ).joinToString("\n")
+                    },
+                ),
+            )
+
+            assertTrue(result.success)
+            assertEquals("oob_function_run", result.toolName)
+            assertTrue(promptText.contains("function_id=xhs_search_keyword"))
+            assertTrue(promptText.contains("arguments={keyword:string required}"))
+            assertEquals("true", result.pageDiagnostics["omniflow_recall_injected"])
+            val action = requireNotNull(result.action)
+            assertEquals("xhs_search_keyword", action["function_id"])
+            val parsedAction = requireNotNull(result.action)
+            val args = parsedAction["arguments"] as Map<*, *>
+            assertEquals("猫猫", args["keyword"])
+        } finally {
+            VLMRecallContextProviderRegistry.clear()
+        }
     }
 }

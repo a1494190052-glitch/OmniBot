@@ -13,10 +13,13 @@ import cn.com.omnimind.bot.agent.AgentToolRegistry
 import cn.com.omnimind.bot.agent.AgentWorkspaceDescriptor
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import cn.com.omnimind.bot.agent.AgentRuntimeContextRepository
+import cn.com.omnimind.bot.agent.AgentToolProgressSnapshot
 import cn.com.omnimind.bot.agent.ResolvedSkillContext
+import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
 import cn.com.omnimind.bot.agent.ToolExecutionResult
 import cn.com.omnimind.bot.agent.WorkspaceMemoryService
 import cn.com.omnimind.bot.agent.NoOpAgentRunControl
+import cn.com.omnimind.bot.omniflow.OobFunctionParameterBindingNormalizer
 import cn.com.omnimind.bot.workbench.WorkspaceFunctionStore
 import cn.com.omnimind.baselib.llm.AssistantToolCall
 import cn.com.omnimind.bot.runlog.OobFunctionSchemaBuilder
@@ -28,6 +31,7 @@ import java.io.File
 import java.nio.file.Files
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -89,6 +93,96 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
                 assertEquals("click", step["tool"])
                 assertEquals("OOB_ACCESSIBILITY_REQUIRED", step["error_code"])
             }
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `function replay observes before each primitive action`() = runBlocking {
+        val context = TempFilesContext()
+        val backend = RecordingBackend(
+            currentXml = CURRENT_PAGE_XML,
+            currentPackage = "com.example.current",
+            currentActivity = "CurrentActivity",
+        )
+        try {
+            val spec = functionSpec(
+                functionId = "two_clicks_observe_per_action",
+                steps = listOf(
+                    mapOf(
+                        "id" to "first_click",
+                        "title" to "First click",
+                        "kind" to "omniflow_action",
+                        "executor" to "omniflow",
+                        "model_free" to true,
+                        "scriptable" to true,
+                        "tool" to "click",
+                        "callable_tool" to "click",
+                        "args" to mapOf("x" to 100, "y" to 240),
+                    ),
+                    mapOf(
+                        "id" to "second_click",
+                        "title" to "Second click",
+                        "kind" to "omniflow_action",
+                        "executor" to "omniflow",
+                        "model_free" to true,
+                        "scriptable" to true,
+                        "tool" to "click",
+                        "callable_tool" to "click",
+                        "args" to mapOf("x" to 220, "y" to 360),
+                    ),
+                ),
+            )
+            OmniflowActionRuntime.useBackendForTesting(backend).use {
+                val run = handler(context, WorkspaceFunctionStore(context.root)).runMaterializedFunction(
+                    functionId = "two_clicks_observe_per_action",
+                    spec = spec,
+                    materializedSpec = OobReusableFunctionStore.materialize(spec, emptyMap()),
+                    allowAgentFallback = false,
+                )
+
+                assertEquals(true, run["success"])
+                assertEquals(2, backend.clickCount)
+                assertTrue(
+                    "Function execution must fresh observe per primitive action",
+                    backend.currentXmlReadCount >= 2,
+                )
+                val results = stepResults(run)
+                assertEquals(2, results.size)
+                results.forEach { step ->
+                    val timing = step["timing"] as? Map<*, *> ?: error("missing step timing")
+                    val phaseMs = timing["phase_ms"] as? Map<*, *> ?: error("missing phase timing")
+                    assertTrue("missing observe timing", phaseMs.containsKey("observe_ms"))
+                    assertTrue("missing checker timing", phaseMs.containsKey("checker_ms"))
+                    assertTrue("missing action transfer timing", phaseMs.containsKey("action_transfer_ms"))
+                    assertTrue("missing act timing", phaseMs.containsKey("act_ms"))
+                }
+            }
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `manual stop returns stopped run payload instead of throwing`() = runBlocking {
+        val context = TempFilesContext()
+        try {
+            val spec = functionSpec(
+                functionId = "stoppable_function",
+                steps = listOf(finishedStep("done")),
+            )
+            val run = handler(context, WorkspaceFunctionStore(context.root)).runMaterializedFunction(
+                functionId = "stoppable_function",
+                spec = spec,
+                materializedSpec = OobReusableFunctionStore.materialize(spec, emptyMap()),
+                toolHandle = StoppingToolHandle(),
+                allowAgentFallback = false,
+            )
+
+            assertEquals(false, run["success"])
+            assertEquals("OOB_FUNCTION_STOPPED", run["error_code"])
+            assertTrue(run["error_message"].toString().contains("停止"))
         } finally {
             context.root.deleteRecursively()
         }
@@ -800,7 +894,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
                                 toolName = "input_text",
                                 args = mapOf(
                                     "target_description" to "美团搜索框",
-                                    "content" to "咖啡",
+                                    "text" to "咖啡",
                                     "x" to 360,
                                     "y" to 180,
                                 ),
@@ -840,7 +934,10 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
             )
             val steps = OobFunctionSchemaBuilder.materializedSteps(materialized)
             assertEquals(listOf("open_app", "input_text", "click", "finished"), steps.map { it["tool"] })
-            assertEquals("奶茶", (steps[1]["args"] as Map<*, *>)["content"])
+            val inputArgs = steps[1]["args"] as Map<*, *>
+            assertEquals("奶茶", inputArgs["text"])
+            assertFalse(inputArgs.containsKey("content"))
+            assertFalse(inputArgs.containsKey("value"))
 
             OmniflowActionRuntime.useBackendForTesting(backend).use {
                 val run = handler(context, WorkspaceFunctionStore(context.root)).runMaterializedFunction(
@@ -856,6 +953,74 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
                 assertEquals(listOf("奶茶"), backend.inputTexts)
                 assertEquals(1, backend.clickCount)
                 assertEquals(4, stepResults(run).size)
+            }
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `input text runtime argument overrides recorded content during omniflow replay`() = runBlocking {
+        val context = TempFilesContext()
+        val backend = RecordingBackend(
+            currentXml = "<hierarchy><node text=\"搜索框\" package=\"com.xingin.xhs\"/></hierarchy>",
+            currentPackage = "com.xingin.xhs",
+            currentActivity = "MainActivity",
+        )
+        try {
+            val spec = OobFunctionParameterBindingNormalizer.normalize(
+                functionSpec(
+                    functionId = "xiaohongshu_search_keyword",
+                    steps = listOf(
+                        mapOf(
+                            "id" to "step_input_keyword",
+                            "title" to "Input keyword",
+                            "kind" to "omniflow_action",
+                            "executor" to "omniflow",
+                            "model_free" to true,
+                            "scriptable" to true,
+                            "tool" to "input_text",
+                            "callable_tool" to "input_text",
+                            "args" to mapOf(
+                                "text" to "彩票",
+                                "target_description" to "搜索框",
+                            ),
+                        ),
+                    ),
+                    extras = mapOf(
+                        "parameters" to mapOf(
+                            "type" to "object",
+                            "properties" to mapOf(
+                                "input_text_1" to mapOf(
+                                    "type" to "string",
+                                    "description" to "搜索关键词",
+                                    "default" to "彩票",
+                                ),
+                            ),
+                        ),
+                    ),
+                )
+            )
+            val materialized = OobReusableFunctionStore.materialize(
+                spec,
+                mapOf("input_text_1" to "猫猫"),
+            )
+            val materializedStepArgs = OobFunctionSchemaBuilder.materializedSteps(materialized)
+                .single()["args"] as Map<*, *>
+            assertEquals("猫猫", materializedStepArgs["text"])
+            assertFalse(materializedStepArgs.containsKey("content"))
+            assertFalse(materializedStepArgs.containsKey("value"))
+
+            OmniflowActionRuntime.useBackendForTesting(backend).use {
+                val run = handler(context, WorkspaceFunctionStore(context.root)).runMaterializedFunction(
+                    functionId = OobFunctionSchemaBuilder.functionId(spec),
+                    spec = spec,
+                    materializedSpec = materialized,
+                    allowAgentFallback = false,
+                )
+
+                assertEquals(true, run["success"])
+                assertEquals(listOf("猫猫"), backend.inputTexts)
             }
         } finally {
             context.root.deleteRecursively()
@@ -1051,7 +1216,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
                 """
                 {
                   "tool_title": "小红书搜索猫猫",
-                  "reusable_command_id": "search_cat",
+                  "function_id": "search_cat",
                   "arguments": {
                     "search_query": "猫猫"
                   }
@@ -1339,6 +1504,32 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
         override fun getFilesDir(): File = root
 
         override fun getSharedPreferences(name: String?, mode: Int): SharedPreferences = prefs
+    }
+
+    private class StoppingToolHandle : cn.com.omnimind.bot.agent.AgentToolExecutionHandle {
+        override val generation: Long = 1L
+        override val toolName: String = "oob_function_run"
+        override val toolCallId: String = "stop-test"
+
+        override fun bindCardId(cardId: String) = Unit
+
+        override fun currentCardId(): String? = null
+
+        override fun bindExecutionJob(job: Job) = Unit
+
+        override fun bindStopAction(action: (suspend () -> Unit)?) = Unit
+
+        override fun recordProgress(summary: String, extras: Map<String, Any?>) = Unit
+
+        override fun latestProgressSnapshot(): AgentToolProgressSnapshot = AgentToolProgressSnapshot()
+
+        override fun isManualStopRequested(): Boolean = true
+
+        override fun throwIfStopRequested() {
+            throw ManualToolStopCancellationException("test stop")
+        }
+
+        override fun complete() = Unit
     }
 
     private class NotReadyBackend : OmniflowActionBackend {

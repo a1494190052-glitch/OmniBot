@@ -160,7 +160,7 @@ class OobFunctionRunPolicy(
 
     private fun guardStep(step: Map<String, Any?>): Map<String, Any?> {
         val stepId = firstNonBlank(step["id"], step["step_id"])
-        val tool = firstNonBlank(step["tool"], step["omniflow_action"], step["callable_tool"], step["type"])
+        val tool = firstNonBlank(step["tool"])
         val normalizedTool = RunLogReplayPolicy.normalizeToolName(tool)
         val action = OobActionCodec.canonicalActionForName(normalizedTool) ?: normalizedTool
         val executor = step["executor"]?.toString()?.trim()?.lowercase().orEmpty()
@@ -315,9 +315,8 @@ class OobFunctionRunPolicy(
                     "step_id" to firstNonBlank(step["id"], step["step_id"], step["stepId"])
                         .ifBlank { "step_${index + 1}" },
                     "title" to firstNonBlank(step["title"]),
-                    "tool" to firstNonBlank(step["tool"], step["callable_tool"], step["omniflow_action"]),
+                    "tool" to firstNonBlank(step["tool"]),
                     "executor" to firstNonBlank(step["executor"]),
-                    "action" to firstNonBlank(step["omniflow_action"], step["local_action"], step["action"]),
                     "args" to mapArg(step["args"]).takeIf { it.isNotEmpty() },
                 ).filterValues { it != null }
             }
@@ -445,10 +444,6 @@ class OobFunctionRunPolicy(
             "kind",
             "executor",
             "tool",
-            "callable_tool",
-            "omniflow_action",
-            "local_action",
-            "type",
             "args",
         )
         private val GUARD_CONTEXT_KEYS = setOf(

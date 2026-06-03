@@ -1,13 +1,16 @@
 package cn.com.omnimind.bot.omniflow
 
+import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
 import cn.com.omnimind.bot.runlog.OobActionCodec
 import cn.com.omnimind.bot.runlog.OobFunctionSchemaBuilder
 
 /**
  * Normalizes runtime parameter bindings at the Function storage boundary.
  *
- * Enhancement agents are allowed to name parameters such as input_text_3, but
- * execution only honors explicit JSONPath bindings stored on the Function spec.
+ * Enhancement agents should produce semantic parameter names. The normalizer
+ * still accepts legacy mechanical names such as input_text_3 at import/storage
+ * boundaries, but execution only honors explicit JSONPath bindings stored on
+ * the Function spec.
  */
 object OobFunctionParameterBindingNormalizer {
     fun normalize(functionSpec: Map<String, Any?>): Map<String, Any?> {
@@ -171,10 +174,7 @@ object OobFunctionParameterBindingNormalizer {
             return emptyList()
         }
         val output = linkedSetOf<String>()
-        val args = OobActionCodec.argsForStep(step)
-        val stepArgKeys = INPUT_TEXT_ARG_KEYS.filter { key -> args.containsKey(key) }
-            .ifEmpty { listOf("text") }
-        stepArgKeys.forEach { key ->
+        INPUT_TEXT_ARG_KEYS.forEach { key ->
             output += "$.execution.steps[$stepIndex].args.$key"
         }
         actionBindingsForStep(spec, stepIndex).forEach(output::add)
@@ -298,17 +298,15 @@ object OobFunctionParameterBindingNormalizer {
         val actions = OobFunctionJson.listArg(spec["actions"])
         val action = OobFunctionJson.mapArg(actions.getOrNull(stepIndex))
         if (action.isEmpty()) return emptyList()
-        val actionType = OobFunctionJson.firstNonBlank(action["type"], action["name"], action["tool"])
+        val actionType = OobFunctionJson.firstNonBlank(action["tool"])
         if (OobActionCodec.canonicalActionForName(actionType) != OobActionCodec.ACTION_INPUT_TEXT) {
             return emptyList()
         }
         val output = linkedSetOf<String>()
-        INPUT_TEXT_ARG_KEYS.filter { key -> action.containsKey(key) }
-            .ifEmpty { listOf("text") }
-            .forEach { key -> output += "$.actions[$stepIndex].$key" }
-        val params = OobFunctionJson.mapArg(action["params"])
-        INPUT_TEXT_ARG_KEYS.filter { key -> params.containsKey(key) }
-            .forEach { key -> output += "$.actions[$stepIndex].params.$key" }
+        val args = OobFunctionJson.mapArg(action["args"])
+        if (args.isNotEmpty()) {
+            INPUT_TEXT_ARG_KEYS.forEach { key -> output += "$.actions[$stepIndex].args.$key" }
+        }
         return output.toList()
     }
 
@@ -329,6 +327,11 @@ object OobFunctionParameterBindingNormalizer {
     private fun bindingList(value: Any?): List<String> =
         OobFunctionJson.listArg(value)
             .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
+            .filter(::isCanonicalBindingPath)
+
+    private fun isCanonicalBindingPath(path: String): Boolean =
+        CANONICAL_EXECUTION_BINDING_REGEX.matches(path) ||
+            CANONICAL_ACTION_BINDING_REGEX.matches(path)
 
     private fun mutableMapArg(value: Any?): LinkedHashMap<String, Any?> =
         OobFunctionJson.mutableJsonMap(OobFunctionJson.mapArg(value))
@@ -344,8 +347,14 @@ object OobFunctionParameterBindingNormalizer {
     )
 
     private val INPUT_TEXT_NAME_REGEX = Regex("""input[_-]?text(?:[_-]?(\d+))?""", RegexOption.IGNORE_CASE)
-    private val INPUT_TEXT_ARG_KEYS = listOf("text", "content", "value")
+    private val INPUT_TEXT_ARG_KEYS =
+        OobCanonicalActionSchema.argNames(OobActionCodec.ACTION_INPUT_TEXT)
+            .filter { it == OobCanonicalActionSchema.ARG_TEXT }
     private val BINDING_PATH_PART_REGEX = Regex("""^([A-Za-z0-9_]+)(?:\[(\d+)])?$""")
+    private val CANONICAL_EXECUTION_BINDING_REGEX =
+        Regex("""^\$\.execution\.steps\[\d+]\.args\.[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+|\[\d+])*$""")
+    private val CANONICAL_ACTION_BINDING_REGEX =
+        Regex("""^\$\.actions\[\d+]\.args\.[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+|\[\d+])*$""")
     private const val MAX_BINDING_LIST_SCAN = 8
     private val BLOCKED_BINDING_KEYS = setOf(
         "x",

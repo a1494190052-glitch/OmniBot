@@ -149,7 +149,7 @@ class OobOmniFlowExplorerTest {
         val args = step["args"] as Map<*, *>
 
         assertEquals("omniflow", step["executor"])
-        assertEquals(OobActionCodec.ACTION_SWIPE, step["omniflow_action"])
+        assertEquals(OobActionCodec.ACTION_SCROLL, step["omniflow_action"])
         assertFalse(step.containsKey("coordinate_hook"))
         assertFalse(step.containsKey("replay_engine"))
         assertEquals("up", args["direction"])

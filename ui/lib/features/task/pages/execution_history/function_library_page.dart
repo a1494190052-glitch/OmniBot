@@ -3,7 +3,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:ui/features/task/pages/execution_history/function_run_result_sheet.dart';
 import 'package:ui/features/task/pages/execution_history/run_log_timeline_page.dart';
-import 'package:ui/features/task/pages/execution_history/widgets/reusable_command_card.dart';
+import 'package:ui/features/task/pages/execution_history/widgets/reusable_function_card.dart';
+import 'package:ui/features/task/run_log/oob_canonical_action_schema.dart';
 import 'package:ui/features/task/run_log/run_log_replay_policy.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/l10n/l10n.dart';
@@ -13,14 +14,14 @@ import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/widgets/common_app_bar.dart';
 
-class CommandLibraryPage extends StatefulWidget {
-  const CommandLibraryPage({super.key});
+class FunctionLibraryPage extends StatefulWidget {
+  const FunctionLibraryPage({super.key});
 
   @override
-  State<CommandLibraryPage> createState() => _CommandLibraryPageState();
+  State<FunctionLibraryPage> createState() => _FunctionLibraryPageState();
 }
 
-class _CommandLibraryPageState extends State<CommandLibraryPage> {
+class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
   static const int _pageSize = 30;
 
   List<_FunctionSummary> _functionSummaries = const [];
@@ -108,7 +109,7 @@ class _CommandLibraryPageState extends State<CommandLibraryPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(_text(context, '删除复用指令', 'Delete Reusable Command')),
+        title: Text(_text(context, '删除复用指令', 'Delete Reusable Function')),
         content: Text(
           _text(
             context,
@@ -165,8 +166,8 @@ class _CommandLibraryPageState extends State<CommandLibraryPage> {
         });
         showToast(
           group.variantCount > 1
-              ? _text(context, '已删除复用指令组', 'Reusable command group deleted')
-              : _text(context, '已删除复用指令', 'Reusable command deleted'),
+              ? _text(context, '已删除复用指令组', 'Reusable Function group deleted')
+              : _text(context, '已删除复用指令', 'Reusable Function deleted'),
           type: ToastType.success,
         );
       } else {
@@ -223,7 +224,7 @@ class _CommandLibraryPageState extends State<CommandLibraryPage> {
         await showFunctionRunResultSheet(
           context,
           result: result,
-          title: _text(context, '复用指令执行结果', 'Reusable command result'),
+          title: _text(context, '复用指令执行结果', 'Reusable Function result'),
           arguments: arguments,
         );
       }
@@ -247,7 +248,7 @@ class _CommandLibraryPageState extends State<CommandLibraryPage> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (sheetContext) => _CommandFunctionDetailSheet(
+      builder: (sheetContext) => _FunctionDetailSheet(
         group: group,
         specFuture: future,
         onSaved: _load,
@@ -262,7 +263,7 @@ class _CommandLibraryPageState extends State<CommandLibraryPage> {
     return Scaffold(
       backgroundColor: palette.pageBackground,
       appBar: CommonAppBar(
-        title: _text(context, '复用指令库', 'Reusable Commands'),
+        title: _text(context, '复用指令库', 'Reusable Functions'),
         primary: true,
         actions: [
           Tooltip(
@@ -309,7 +310,7 @@ class _CommandLibraryPageState extends State<CommandLibraryPage> {
     if (_functions.isEmpty) {
       return _EmptyState(
         icon: Icons.bolt_outlined,
-        title: _text(context, '暂无复用指令', 'No Reusable Commands Yet'),
+        title: _text(context, '暂无复用指令', 'No Reusable Functions Yet'),
         subtitle: _text(
           context,
           '可以直接学习一段完整的人类操作，保存后在这里复用。',
@@ -328,7 +329,7 @@ class _CommandLibraryPageState extends State<CommandLibraryPage> {
         itemBuilder: (context, index) {
           if (index >= _functions.length) {
             WidgetsBinding.instance.addPostFrameCallback((_) => _loadMore());
-            return const _CommandLibraryFooter();
+            return const _FunctionLibraryFooter();
           }
           final group = _functions[index];
           return _FunctionCard(
@@ -346,14 +347,14 @@ class _CommandLibraryPageState extends State<CommandLibraryPage> {
 }
 
 /// Embeddable version — no Scaffold, used inside PageView (e.g. Memory Center).
-class CommandLibraryEmbed extends StatefulWidget {
-  const CommandLibraryEmbed({super.key});
+class FunctionLibraryEmbed extends StatefulWidget {
+  const FunctionLibraryEmbed({super.key});
 
   @override
-  State<CommandLibraryEmbed> createState() => _CommandLibraryEmbedState();
+  State<FunctionLibraryEmbed> createState() => _FunctionLibraryEmbedState();
 }
 
-class _CommandLibraryEmbedState extends State<CommandLibraryEmbed>
+class _FunctionLibraryEmbedState extends State<FunctionLibraryEmbed>
     with AutomaticKeepAliveClientMixin {
   static const int _pageSize = 30;
 
@@ -445,7 +446,7 @@ class _CommandLibraryEmbedState extends State<CommandLibraryEmbed>
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(_text(context, '删除复用指令', 'Delete Reusable Command')),
+        title: Text(_text(context, '删除复用指令', 'Delete Reusable Function')),
         content: Text(
           _text(
             context,
@@ -502,8 +503,8 @@ class _CommandLibraryEmbedState extends State<CommandLibraryEmbed>
         });
         showToast(
           group.variantCount > 1
-              ? _text(context, '已删除复用指令组', 'Reusable command group deleted')
-              : _text(context, '已删除复用指令', 'Reusable command deleted'),
+              ? _text(context, '已删除复用指令组', 'Reusable Function group deleted')
+              : _text(context, '已删除复用指令', 'Reusable Function deleted'),
           type: ToastType.success,
         );
       } else {
@@ -549,7 +550,7 @@ class _CommandLibraryEmbedState extends State<CommandLibraryEmbed>
         await showFunctionRunResultSheet(
           context,
           result: result,
-          title: _text(context, '复用指令执行结果', 'Reusable command result'),
+          title: _text(context, '复用指令执行结果', 'Reusable Function result'),
           arguments: arguments,
         );
       }
@@ -573,7 +574,7 @@ class _CommandLibraryEmbedState extends State<CommandLibraryEmbed>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (sheetContext) => _CommandFunctionDetailSheet(
+      builder: (sheetContext) => _FunctionDetailSheet(
         group: group,
         specFuture: future,
         onSaved: _load,
@@ -611,7 +612,7 @@ class _CommandLibraryEmbedState extends State<CommandLibraryEmbed>
     if (_functions.isEmpty) {
       return _EmptyState(
         icon: Icons.bolt_outlined,
-        title: _text(context, '暂无复用指令', 'No Reusable Commands Yet'),
+        title: _text(context, '暂无复用指令', 'No Reusable Functions Yet'),
         subtitle: _text(
           context,
           '可以直接学习一段完整的人类操作，保存后在这里复用。',
@@ -630,7 +631,7 @@ class _CommandLibraryEmbedState extends State<CommandLibraryEmbed>
         itemBuilder: (context, index) {
           if (index >= _functions.length) {
             WidgetsBinding.instance.addPostFrameCallback((_) => _loadMore());
-            return const _CommandLibraryFooter();
+            return const _FunctionLibraryFooter();
           }
           final group = _functions[index];
           return _FunctionCard(
@@ -668,12 +669,12 @@ class _FunctionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final function = group.primary;
     final palette = context.omniPalette;
-    return ReusableCommandCard(
+    return ReusableFunctionCard(
       title: group.displayName,
       description: group.displayDescription,
       steps: function.stepSummaries
           .map(
-            (step) => ReusableCommandStepPreview(
+            (step) => ReusableFunctionStepPreview(
               index: step.index,
               title: step.title,
               tool: step.tool,
@@ -685,18 +686,22 @@ class _FunctionCard extends StatelessWidget {
       stepCount: function.stepCount,
       parameterCount: function.parameterNames.length,
       sourceRunCount: group.sourceRunIds.length,
+      runCount: group.runCount,
+      successCount: group.successCount,
+      failCount: group.failCount,
+      lastRunSuccess: group.lastRunSuccess,
       isRunning: isRunning,
       onRun: onRun,
       isBusy: isDeleting,
       actions: [
-        ReusableCommandCardAction(
+        ReusableFunctionCardAction(
           icon: Icons.info_outline_rounded,
           color: palette.textSecondary,
           backgroundColor: palette.surfaceSecondary,
           tooltip: _text(context, '详情', 'Details'),
           onTap: onOpenDetails,
         ),
-        ReusableCommandCardAction(
+        ReusableFunctionCardAction(
           icon: Icons.delete_outline_rounded,
           color: AppColors.alertRed,
           backgroundColor: AppColors.alertRed.withValues(alpha: 0.08),
@@ -708,8 +713,8 @@ class _FunctionCard extends StatelessWidget {
   }
 }
 
-class _CommandLibraryFooter extends StatelessWidget {
-  const _CommandLibraryFooter();
+class _FunctionLibraryFooter extends StatelessWidget {
+  const _FunctionLibraryFooter();
 
   @override
   Widget build(BuildContext context) {
@@ -765,8 +770,8 @@ extension _PositiveOffsetFallback on int {
   int takeIfPositive(int fallback) => this > 0 ? this : fallback;
 }
 
-class _CommandFunctionDetailSheet extends StatefulWidget {
-  const _CommandFunctionDetailSheet({
+class _FunctionDetailSheet extends StatefulWidget {
+  const _FunctionDetailSheet({
     required this.group,
     required this.specFuture,
     required this.onSaved,
@@ -779,12 +784,10 @@ class _CommandFunctionDetailSheet extends StatefulWidget {
   final Future<void> Function() onRun;
 
   @override
-  State<_CommandFunctionDetailSheet> createState() =>
-      _CommandFunctionDetailSheetState();
+  State<_FunctionDetailSheet> createState() => _FunctionDetailSheetState();
 }
 
-class _CommandFunctionDetailSheetState
-    extends State<_CommandFunctionDetailSheet> {
+class _FunctionDetailSheetState extends State<_FunctionDetailSheet> {
   Map<String, dynamic>? _savedSpec;
   bool _isSaving = false;
 
@@ -951,7 +954,7 @@ class _CommandFunctionDetailSheetState
                                       _text(
                                         context,
                                         '复用指令详情',
-                                        'Reusable Command Details',
+                                        'Reusable Function Details',
                                       ),
                                       style: TextStyle(
                                         fontSize: 12,
@@ -994,12 +997,12 @@ class _CommandFunctionDetailSheetState
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            ReusableCommandCard(
+                            ReusableFunctionCard(
                               title: detail.summary.displayName,
                               description: detail.summary.displayDescription,
                               steps: detail.steps
                                   .map(
-                                    (step) => ReusableCommandStepPreview(
+                                    (step) => ReusableFunctionStepPreview(
                                       index: step.index,
                                       title: step.displayTitle,
                                       tool: step.displayTool,
@@ -1013,6 +1016,10 @@ class _CommandFunctionDetailSheetState
                                   : detail.summary.stepCount,
                               parameterCount: detail.parameters.length,
                               sourceRunCount: detail.sourceRunIds.length,
+                              runCount: detail.summary.runCount,
+                              successCount: detail.summary.successCount,
+                              failCount: detail.summary.failCount,
+                              lastRunSuccess: detail.summary.lastRunSuccess,
                               isRunning: _isSaving,
                               onRun: _isSaving ? null : () => widget.onRun(),
                             ),
@@ -1330,6 +1337,8 @@ class _FunctionSummary {
     required this.runCount,
     required this.successCount,
     required this.failCount,
+    required this.lastRunAt,
+    required this.lastRunSuccess,
     required this.sourceRunIds,
     required this.stepSummaries,
   });
@@ -1337,6 +1346,7 @@ class _FunctionSummary {
   factory _FunctionSummary.fromMap(Map<String, dynamic> map) {
     final params = map['parameter_names'];
     final runStats = _asMap(map['run_stats']);
+    final lastRun = _asMap(map['last_run'] ?? runStats['last_run']);
     final sourceRunIds = map['source_run_ids'];
     final stepSummaries = map['step_summaries'];
     final stepCount = _asInt(map['step_count']);
@@ -1355,6 +1365,15 @@ class _FunctionSummary {
       runCount: _asInt(runStats['run_count'] ?? map['run_count']),
       successCount: _asInt(runStats['success_count'] ?? map['success_count']),
       failCount: _asInt(runStats['fail_count'] ?? map['fail_count']),
+      lastRunAt:
+          (runStats['last_run_at'] ??
+                  lastRun['created_at'] ??
+                  map['last_run_at'] ??
+                  '')
+              .toString(),
+      lastRunSuccess: _asNullableBool(
+        lastRun['success'] ?? runStats['last_success'] ?? map['last_success'],
+      ),
       sourceRunIds: sourceRunIds is List
           ? sourceRunIds.map((e) => e.toString()).toList(growable: false)
           : const [],
@@ -1384,6 +1403,8 @@ class _FunctionSummary {
   final int runCount;
   final int successCount;
   final int failCount;
+  final String lastRunAt;
+  final bool? lastRunSuccess;
   final List<String> sourceRunIds;
   final List<_StepSummary> stepSummaries;
 
@@ -1452,7 +1473,7 @@ class _FunctionSummary {
 
   static bool _looksLikeTechnicalId(String value) {
     final normalized = value.trim();
-    return normalized.startsWith('oob_cmd_') ||
+    return normalized.startsWith('oob_fn_') ||
         normalized.startsWith('debug_') ||
         RegExp(r'^[0-9a-fA-F]{8}[-_]').hasMatch(normalized);
   }
@@ -1460,7 +1481,7 @@ class _FunctionSummary {
   static bool _looksLikeTechnicalSummaryTitle(String value) {
     final normalized = value.trim().toLowerCase();
     return normalized.startsWith('debug') ||
-        normalized.startsWith('oob_cmd_') ||
+        normalized.startsWith('oob_fn_') ||
         normalized.contains('runlog') ||
         normalized == 'function' ||
         normalized == 'functions';
@@ -1470,7 +1491,7 @@ class _FunctionSummary {
     final normalized = value.trim();
     if (normalized.isEmpty) return '复用指令';
     final cleaned = normalized
-        .replaceFirst(RegExp(r'^oob_cmd_'), '')
+        .replaceFirst(RegExp(r'^oob_fn_'), '')
         .replaceFirst(RegExp(r'^debug_'), '')
         .replaceAll(RegExp(r'[_-]+'), ' ')
         .trim();
@@ -1503,16 +1524,9 @@ class _StepSummary {
     normalized.putIfAbsent('step_id', () => map['id'] ?? 'step_${index + 1}');
     normalized.putIfAbsent(
       'summary',
-      () =>
-          [
-                map['summary'],
-                map['title'],
-                map['tool'],
-                map['omniflow_action'],
-                map['step_id'],
-              ]
-              .map((value) => value?.toString().trim() ?? '')
-              .firstWhere((value) => value.isNotEmpty, orElse: () => ''),
+      () => [map['summary'], map['title'], map['tool'], map['step_id']]
+          .map((value) => value?.toString().trim() ?? '')
+          .firstWhere((value) => value.isNotEmpty, orElse: () => ''),
     );
     return _StepSummary(
       index: index,
@@ -1570,6 +1584,30 @@ class _FunctionGroup {
   int get variantCount => items.length;
 
   int get runCount => items.fold<int>(0, (sum, item) => sum + item.runCount);
+
+  int get successCount =>
+      items.fold<int>(0, (sum, item) => sum + item.successCount);
+
+  int get failCount => items.fold<int>(0, (sum, item) => sum + item.failCount);
+
+  bool? get lastRunSuccess {
+    _FunctionSummary? latest;
+    DateTime? latestTime;
+    for (final item in items) {
+      if (item.lastRunSuccess == null) continue;
+      final time = _parseTimestamp(item.lastRunAt);
+      if (latest == null) {
+        latest = item;
+        latestTime = time;
+        continue;
+      }
+      if (time != null && (latestTime == null || time.isAfter(latestTime))) {
+        latest = item;
+        latestTime = time;
+      }
+    }
+    return latest?.lastRunSuccess;
+  }
 
   String get displayName {
     for (final item in items) {
@@ -1746,6 +1784,30 @@ const _customStepToolValue = '__custom_step_tool__';
 
 enum _FunctionStepArgType { string, integer, number, boolean }
 
+_FunctionStepArgType _functionStepArgTypeFromSchema(OobActionArgType type) {
+  switch (type) {
+    case OobActionArgType.integer:
+      return _FunctionStepArgType.integer;
+    case OobActionArgType.number:
+      return _FunctionStepArgType.number;
+    case OobActionArgType.boolean:
+      return _FunctionStepArgType.boolean;
+    case OobActionArgType.string:
+    case OobActionArgType.object:
+    case OobActionArgType.stringArray:
+      return _FunctionStepArgType.string;
+  }
+}
+
+String _functionStepArgHintFromSchema(OobActionArgSpec arg) {
+  if (arg.enumValues.isNotEmpty) return arg.enumValues.join('/');
+  if (arg.minimum != null && arg.maximum != null) {
+    return '${arg.minimum}-${arg.maximum}';
+  }
+  if (arg.minimum != null) return '>= ${arg.minimum}';
+  return '';
+}
+
 class _FunctionStepArgField {
   const _FunctionStepArgField(
     this.key, {
@@ -1776,129 +1838,25 @@ class _FunctionStepOperationDefinition {
   String label(BuildContext context) => _text(context, zhLabel, enLabel);
 }
 
-const _functionStepOperations = <_FunctionStepOperationDefinition>[
-  _FunctionStepOperationDefinition(
-    value: 'click',
-    zhLabel: '点击',
-    enLabel: 'Click',
-    fields: [
-      _FunctionStepArgField(
-        'x',
-        type: _FunctionStepArgType.number,
-        hint: '0-1000',
+final _functionStepOperations = OobCanonicalActionSchema.editorVisibleTools
+    .map(
+      (tool) => _FunctionStepOperationDefinition(
+        value: tool.name,
+        zhLabel: tool.uiLabel.zhCn,
+        enLabel: tool.uiLabel.enUs,
+        argsTemplate: Map<String, dynamic>.from(tool.argsTemplate),
+        fields: tool.args
+            .map(
+              (arg) => _FunctionStepArgField(
+                arg.name,
+                type: _functionStepArgTypeFromSchema(arg.type),
+                hint: _functionStepArgHintFromSchema(arg),
+              ),
+            )
+            .toList(growable: false),
       ),
-      _FunctionStepArgField(
-        'y',
-        type: _FunctionStepArgType.number,
-        hint: '0-1000',
-      ),
-      _FunctionStepArgField('target_description'),
-    ],
-  ),
-  _FunctionStepOperationDefinition(
-    value: 'long_press',
-    zhLabel: '长按',
-    enLabel: 'Long press',
-    fields: [
-      _FunctionStepArgField(
-        'x',
-        type: _FunctionStepArgType.number,
-        hint: '0-1000',
-      ),
-      _FunctionStepArgField(
-        'y',
-        type: _FunctionStepArgType.number,
-        hint: '0-1000',
-      ),
-      _FunctionStepArgField('duration_ms', type: _FunctionStepArgType.integer),
-      _FunctionStepArgField('target_description'),
-    ],
-  ),
-  _FunctionStepOperationDefinition(
-    value: 'input_text',
-    zhLabel: '输入文本',
-    enLabel: 'Input text',
-    fields: [
-      _FunctionStepArgField('text'),
-      _FunctionStepArgField(
-        'x',
-        type: _FunctionStepArgType.number,
-        hint: '0-1000',
-      ),
-      _FunctionStepArgField(
-        'y',
-        type: _FunctionStepArgType.number,
-        hint: '0-1000',
-      ),
-      _FunctionStepArgField('target_description'),
-    ],
-  ),
-  _FunctionStepOperationDefinition(
-    value: 'swipe',
-    zhLabel: '滑动',
-    enLabel: 'Swipe',
-    fields: [
-      _FunctionStepArgField('x1', type: _FunctionStepArgType.number),
-      _FunctionStepArgField('y1', type: _FunctionStepArgType.number),
-      _FunctionStepArgField('x2', type: _FunctionStepArgType.number),
-      _FunctionStepArgField('y2', type: _FunctionStepArgType.number),
-      _FunctionStepArgField('duration_ms', type: _FunctionStepArgType.integer),
-      _FunctionStepArgField('direction'),
-    ],
-  ),
-  _FunctionStepOperationDefinition(
-    value: 'scroll',
-    zhLabel: '滚动',
-    enLabel: 'Scroll',
-    fields: [
-      _FunctionStepArgField('direction'),
-      _FunctionStepArgField('x1', type: _FunctionStepArgType.number),
-      _FunctionStepArgField('y1', type: _FunctionStepArgType.number),
-      _FunctionStepArgField('x2', type: _FunctionStepArgType.number),
-      _FunctionStepArgField('y2', type: _FunctionStepArgType.number),
-    ],
-  ),
-  _FunctionStepOperationDefinition(
-    value: 'open_app',
-    zhLabel: '打开应用',
-    enLabel: 'Open app',
-    argsTemplate: {'reset_task': true, 'launch_mode': 'fresh_task'},
-    fields: [
-      _FunctionStepArgField('package_name'),
-      _FunctionStepArgField('reset_task', type: _FunctionStepArgType.boolean),
-      _FunctionStepArgField('launch_mode'),
-    ],
-  ),
-  _FunctionStepOperationDefinition(
-    value: 'press_back',
-    zhLabel: '返回',
-    enLabel: 'Back',
-  ),
-  _FunctionStepOperationDefinition(
-    value: 'press_home',
-    zhLabel: '回到主页',
-    enLabel: 'Home',
-  ),
-  _FunctionStepOperationDefinition(
-    value: 'press_key',
-    zhLabel: '按键',
-    enLabel: 'Press key',
-    fields: [_FunctionStepArgField('key')],
-  ),
-  _FunctionStepOperationDefinition(
-    value: 'hot_key',
-    zhLabel: '组合键',
-    enLabel: 'Hot key',
-    fields: [_FunctionStepArgField('key')],
-  ),
-  _FunctionStepOperationDefinition(
-    value: 'finished',
-    zhLabel: '完成',
-    enLabel: 'Finished',
-    argsTemplate: {'content': 'Done'},
-    fields: [_FunctionStepArgField('content')],
-  ),
-];
+    )
+    .toList(growable: false);
 
 Future<Map<String, dynamic>?> _showFunctionStepEditorDialog(
   BuildContext context,
@@ -1934,10 +1892,7 @@ class _FunctionStepEditorDialogState extends State<_FunctionStepEditorDialog> {
   @override
   void initState() {
     super.initState();
-    final rawTool =
-        (widget.rawStep['tool'] ?? widget.rawStep['omniflow_action'] ?? '')
-            .toString()
-            .trim();
+    final rawTool = (widget.rawStep['tool'] ?? '').toString().trim();
     final operation = _operationDefinitionForTool(rawTool);
     _selectedTool = operation?.value ?? _customStepToolValue;
     _titleController = TextEditingController(
@@ -2249,14 +2204,11 @@ Map<String, dynamic> _newFunctionStepTemplate(int index) {
     'index': index,
     'title': action,
     'summary': action,
-    'kind': 'omniflow_action',
+    'kind': 'function',
     'executor': 'omniflow',
-    'omniflow_action': action,
-    'local_action': action,
     'model_free': true,
     'scriptable': true,
     'tool': action,
-    'callable_tool': action,
     'args': const <String, dynamic>{},
   };
 }
@@ -2337,7 +2289,6 @@ double _fieldWidth(_FunctionStepArgField field) {
   }
   switch (field.key) {
     case 'text':
-    case 'content':
     case 'package_name':
     case 'target_description':
       return 214;
@@ -2364,14 +2315,11 @@ Map<String, dynamic> _buildFunctionStepFromEdit({
   updated['args'] = _stringKeyMap(args);
 
   if (action != null) {
-    updated['kind'] = 'omniflow_action';
+    updated['kind'] = 'function';
     updated['executor'] = 'omniflow';
-    updated['omniflow_action'] = action;
-    updated['local_action'] = action;
     updated['model_free'] = true;
     updated['scriptable'] = true;
     updated['tool'] = action;
-    updated['callable_tool'] = action;
     updated.remove('agent_call');
     updated.remove('fallback_prompt');
     updated.remove('fallbackPrompt');
@@ -2384,9 +2332,9 @@ Map<String, dynamic> _buildFunctionStepFromEdit({
   } else {
     updated.remove('omniflow_action');
     updated.remove('local_action');
+    updated.remove('callable_tool');
     updated.remove('coordinate_hook');
     updated['tool'] = effectiveTool;
-    updated['callable_tool'] = effectiveTool;
     final existingExecutor = (rawStep['executor'] ?? '').toString().trim();
     if (existingExecutor == 'agent') {
       updated['executor'] = 'agent';
@@ -2494,7 +2442,7 @@ Map<String, dynamic> _functionStepAtIndex(
   step['id'] = stepId;
   step['step_id'] = stepId;
   step['index'] = index;
-  final tool = (step['tool'] ?? step['omniflow_action'] ?? '').toString();
+  final tool = (step['tool'] ?? '').toString();
   if ((step['title'] ?? '').toString().trim().isEmpty) {
     step['title'] = tool.trim().isEmpty ? stepId : tool;
   }
@@ -2559,9 +2507,7 @@ Map<String, dynamic>? _canonicalActionFromStep(
   Map<String, dynamic> step, {
   Map<String, dynamic>? existingAction,
 }) {
-  final rawTool =
-      (step['tool'] ?? step['omniflow_action'] ?? step['callable_tool'] ?? '')
-          .toString();
+  final rawTool = (step['tool'] ?? '').toString();
   final action =
       RunLogReplayPolicy.omniflowActionForToolName(rawTool) ??
       RunLogReplayPolicy.normalizeToolName(rawTool);
@@ -2570,6 +2516,7 @@ Map<String, dynamic>? _canonicalActionFromStep(
       .toString()
       .trim();
   final output = <String, dynamic>{};
+  output['tool'] = action;
   if (description.isNotEmpty) {
     output['description'] = description;
   }
@@ -2577,135 +2524,66 @@ Map<String, dynamic>? _canonicalActionFromStep(
   switch (action) {
     case 'click':
     case 'long_press':
-      output['type'] = action;
-      final target = _canonicalPointTarget(args);
-      if (target != null) output['target'] = target;
-      final prompt = _firstNonBlankArg(args, const [
-        'target_description',
-        'targetDescription',
-        'clickPrompt',
-        'label',
-      ]);
-      if (prompt.isNotEmpty) output['prompt'] = prompt;
+      output['args'] = _canonicalPointArgs(action, args);
       return output;
     case 'input_text':
-      output['type'] = 'input_text';
-      final existingText = (existingAction?['text'] ?? '').toString();
+      final nextArgs = _canonicalPointArgs(action, args);
+      final existingArgs = _stringKeyMap(existingAction?['args']);
+      final existingText = (existingArgs['text'] ?? '').toString();
       if (existingText.contains(r'${')) {
-        output['text'] = existingAction!['text'];
+        nextArgs['text'] = existingArgs['text'];
       } else {
-        final text = _firstPresentArg(args, const ['text', 'content', 'value']);
-        if (text != null) output['text'] = text;
+        final text = _firstPresentArg(args, const ['text']);
+        if (text != null) nextArgs['text'] = text;
       }
-      final target = _canonicalPointTarget(args);
-      if (target != null && target['kind'] == 'coords') {
-        output['target'] = target;
-      }
-      final prompt = _firstNonBlankArg(args, const [
-        'target_description',
-        'targetDescription',
-        'label',
-        'selector',
-      ]);
-      if (prompt.isNotEmpty) output['prompt'] = prompt;
+      output['args'] = nextArgs;
       return output;
     case 'scroll':
-    case 'swipe':
-      output['type'] = 'swipe';
-      final target = _canonicalSwipeTarget(args);
-      if (target != null) output['target'] = target;
-      final direction = _firstNonBlankArg(args, const [
-        'direction',
-        'scroll_direction',
-      ]);
-      if (direction.isNotEmpty) output['direction'] = direction;
-      final distance = _firstPresentArg(args, const [
-        'distance',
-        'scroll_distance',
-      ]);
-      if (distance != null) output['distance'] = distance;
-      final endX = _firstPresentArg(args, const ['x2', 'end_x', 'endX']);
-      final endY = _firstPresentArg(args, const ['y2', 'end_y', 'endY']);
-      final duration = _firstPresentArg(args, const [
-        'duration_ms',
-        'durationMs',
-      ]);
-      if (endX != null) output['end_x'] = endX;
-      if (endY != null) output['end_y'] = endY;
-      if (duration != null) output['duration_ms'] = duration;
+      output['args'] = _canonicalScrollArgs(args);
       return output;
     case 'open_app':
-      output['type'] = 'open_app';
-      final packageName = _firstNonBlankArg(args, const [
-        'package_name',
-        'packageName',
-      ]);
-      if (packageName.isNotEmpty) output['packageName'] = packageName;
+      final nextArgs = <String, dynamic>{};
+      final packageName = _firstNonBlankArg(args, const ['package_name']);
+      if (packageName.isNotEmpty) nextArgs['package_name'] = packageName;
+      output['args'] = nextArgs;
       return output;
     case 'press_home':
-      output['type'] = 'press_key';
-      output['key'] = 'home';
+      output['args'] = const <String, dynamic>{};
       return output;
     case 'press_back':
-      output['type'] = 'press_key';
-      output['key'] = 'back';
-      return output;
-    case 'press_key':
-    case 'hot_key':
-      output['type'] = 'press_key';
-      final key = _firstNonBlankArg(args, const ['key', 'hotkey', 'hot_key']);
-      if (key.isNotEmpty) output['key'] = key;
+      output['args'] = const <String, dynamic>{};
       return output;
     case 'finished':
-      output['type'] = 'finished';
-      final content = _firstPresentArg(args, const ['content', 'summary']);
-      final enableSummary = _firstPresentArg(args, const [
-        'enable_summary',
-        'enableSummary',
-      ]);
-      final summaryPrompt = _firstPresentArg(args, const [
-        'summary_prompt',
-        'summaryPrompt',
-      ]);
-      if (content != null) output['content'] = content;
-      if (enableSummary != null) output['enableSummary'] = enableSummary;
-      if (summaryPrompt != null) output['summaryPrompt'] = summaryPrompt;
+      output['args'] = _canonicalArgsBySchema(action, args);
       return output;
     default:
-      output['type'] = 'external_tool';
-      output['toolName'] = rawTool.trim().isEmpty ? action : rawTool.trim();
-      output['arguments'] = args;
+      output['tool'] = rawTool.trim().isEmpty ? action : rawTool.trim();
+      output['args'] = args;
       return output;
   }
 }
 
-Map<String, dynamic>? _canonicalPointTarget(Map<String, dynamic> args) {
-  final x = _firstPresentArg(args, const ['x', 'center_x', 'centerX']);
-  final y = _firstPresentArg(args, const ['y', 'center_y', 'centerY']);
-  if (x != null && y != null) {
-    return <String, dynamic>{
-      'kind': 'coords',
-      'x': x,
-      'y': y,
-      if (_firstPresentArg(args, const ['xml_ref', 'xmlRef']) != null)
-        'xmlRef': _firstPresentArg(args, const ['xml_ref', 'xmlRef']),
-    };
-  }
-  final prompt = _firstNonBlankArg(args, const [
-    'target_description',
-    'targetDescription',
-    'clickPrompt',
-    'label',
-  ]);
-  if (prompt.isEmpty) return null;
-  return <String, dynamic>{'kind': 'prompt', 'prompt': prompt};
+Map<String, dynamic> _canonicalPointArgs(
+  String action,
+  Map<String, dynamic> args,
+) {
+  return _canonicalArgsBySchema(action, args);
 }
 
-Map<String, dynamic>? _canonicalSwipeTarget(Map<String, dynamic> args) {
-  final x = _firstPresentArg(args, const ['x1', 'x', 'center_x', 'centerX']);
-  final y = _firstPresentArg(args, const ['y1', 'y', 'center_y', 'centerY']);
-  if (x == null || y == null) return null;
-  return <String, dynamic>{'kind': 'coords', 'x': x, 'y': y};
+Map<String, dynamic> _canonicalScrollArgs(Map<String, dynamic> args) {
+  return _canonicalArgsBySchema('scroll', args);
+}
+
+Map<String, dynamic> _canonicalArgsBySchema(
+  String action,
+  Map<String, dynamic> args,
+) {
+  final output = <String, dynamic>{};
+  for (final key in OobCanonicalActionSchema.argNames(action)) {
+    final value = _firstPresentArg(args, [key]);
+    if (value != null) output[key] = value;
+  }
+  return output;
 }
 
 dynamic _firstPresentArg(Map<String, dynamic> args, List<String> keys) {
@@ -3022,7 +2900,7 @@ Future<Map<String, dynamic>?> _showRunArgumentsDialog(
                         _text(
                           ctx,
                           '这个复用指令需要补充参数后才能执行。',
-                          'This reusable command needs arguments before running.',
+                          'This reusable Function needs arguments before running.',
                         ),
                         style: TextStyle(
                           fontSize: 13,
@@ -3219,6 +3097,23 @@ bool _asBool(dynamic value) {
   return false;
 }
 
+bool? _asNullableBool(dynamic value) {
+  if (value == null) return null;
+  if (value is bool) return value;
+  if (value is num) return value != 0;
+  if (value is String) {
+    final normalized = value.trim().toLowerCase();
+    if (normalized.isEmpty) return null;
+    if (normalized == 'true' || normalized == '1' || normalized == 'yes') {
+      return true;
+    }
+    if (normalized == 'false' || normalized == '0' || normalized == 'no') {
+      return false;
+    }
+  }
+  return null;
+}
+
 DateTime? _parseTimestamp(String raw) {
   final text = raw.trim();
   if (text.isEmpty) return null;
@@ -3242,7 +3137,7 @@ String _runSuccessMessage(BuildContext context, UtgManualRunResult result) {
     return _text(
       context,
       '复用指令已通过 VLM 执行完成',
-      'Reusable command completed by VLM',
+      'Reusable Function completed by VLM',
     );
   }
   if (result.startedAgentFallback) {
@@ -3254,7 +3149,7 @@ String _runSuccessMessage(BuildContext context, UtgManualRunResult result) {
     );
   }
   if (result.completedLocal) {
-    return _text(context, '复用指令已本地执行完成', 'Reusable command completed locally');
+    return _text(context, '复用指令已本地执行完成', 'Reusable Function completed locally');
   }
-  return _text(context, '复用指令已开始执行', 'Reusable command started');
+  return _text(context, '复用指令已开始执行', 'Reusable Function started');
 }

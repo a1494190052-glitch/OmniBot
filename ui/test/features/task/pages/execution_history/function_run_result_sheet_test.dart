@@ -18,7 +18,7 @@ void main() {
   });
 
   testWidgets(
-    'Reusable command result keeps timing internal and hidden from UI',
+    'Reusable Function result keeps timing internal and hidden from UI',
     (tester) async {
       final result = UtgManualRunResult.fromMap(<String, dynamic>{
         'success': true,
@@ -131,7 +131,7 @@ void main() {
   );
 
   testWidgets(
-    'Reusable command result separates local completion from Agent fallback',
+    'Reusable Function result separates local completion from Agent fallback',
     (tester) async {
       final result = UtgManualRunResult.fromMap(<String, dynamic>{
         'success': true,
@@ -192,57 +192,58 @@ void main() {
     },
   );
 
-  testWidgets('Reusable command result shows accessibility preflight message', (
-    tester,
-  ) async {
-    final result = UtgManualRunResult.fromMap(<String, dynamic>{
-      'success': false,
-      'goal': 'oob_reusable_function_run:tap_search',
-      'function_id': 'tap_search',
-      'execution_status': 'failed',
-      'error_code': 'OOB_ACCESSIBILITY_REQUIRED',
-      'error_message': '请先开启无障碍权限，复用指令才能执行点击、滑动和输入。',
-      'required_permission': 'accessibility',
-      'missing_permissions': <String>['accessibility'],
-      'terminal_state': <String, dynamic>{
-        'status': 'failed',
+  testWidgets(
+    'Reusable Function result shows accessibility preflight message',
+    (tester) async {
+      final result = UtgManualRunResult.fromMap(<String, dynamic>{
+        'success': false,
+        'goal': 'oob_reusable_function_run:tap_search',
+        'function_id': 'tap_search',
         'execution_status': 'failed',
-        'step_count': 1,
-        'success_step_count': 0,
-      },
-      'context': <String, dynamic>{
-        'step_results': <Map<String, dynamic>>[
-          <String, dynamic>{
-            'success': false,
-            'summary': '请先开启无障碍权限，复用指令才能执行点击、滑动和输入。',
-            'tool': 'click',
-            'executor': 'omniflow',
-            'error_code': 'OOB_ACCESSIBILITY_REQUIRED',
-          },
-        ],
-      },
-    });
+        'error_code': 'OOB_ACCESSIBILITY_REQUIRED',
+        'error_message': '请先开启无障碍权限，复用指令才能执行点击、滑动和输入。',
+        'required_permission': 'accessibility',
+        'missing_permissions': <String>['accessibility'],
+        'terminal_state': <String, dynamic>{
+          'status': 'failed',
+          'execution_status': 'failed',
+          'step_count': 1,
+          'success_step_count': 0,
+        },
+        'context': <String, dynamic>{
+          'step_results': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'success': false,
+              'summary': '请先开启无障碍权限，复用指令才能执行点击、滑动和输入。',
+              'tool': 'click',
+              'executor': 'omniflow',
+              'error_code': 'OOB_ACCESSIBILITY_REQUIRED',
+            },
+          ],
+        },
+      });
 
-    await tester.pumpWidget(
-      MaterialApp(
-        locale: const Locale('zh'),
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: Scaffold(
-          body: SingleChildScrollView(
-            child: FunctionRunResultInlinePanel(result: result),
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('zh'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: FunctionRunResultInlinePanel(result: result),
+            ),
           ),
         ),
-      ),
-    );
+      );
 
-    expect(result.errorCode, 'OOB_ACCESSIBILITY_REQUIRED');
-    expect(result.errorMessage, '请先开启无障碍权限，复用指令才能执行点击、滑动和输入。');
-    expect(_richTextContaining('状态  执行失败'), findsOneWidget);
-    expect(_richTextContaining('步骤  0/1'), findsOneWidget);
-    expect(find.text('请先开启无障碍权限，复用指令才能执行点击、滑动和输入。'), findsWidgets);
-    expect(find.text('OOB_ACCESSIBILITY_REQUIRED'), findsNothing);
-  });
+      expect(result.errorCode, 'OOB_ACCESSIBILITY_REQUIRED');
+      expect(result.errorMessage, '请先开启无障碍权限，复用指令才能执行点击、滑动和输入。');
+      expect(_richTextContaining('状态  执行失败'), findsOneWidget);
+      expect(_richTextContaining('步骤  0/1'), findsOneWidget);
+      expect(find.text('请先开启无障碍权限，复用指令才能执行点击、滑动和输入。'), findsWidgets);
+      expect(find.text('OOB_ACCESSIBILITY_REQUIRED'), findsNothing);
+    },
+  );
 
   testWidgets('Failed local replay offers explicit Agent continuation', (
     tester,
@@ -330,7 +331,7 @@ void main() {
 
     expect(calls, hasLength(1));
     final args = Map<String, dynamic>.from(calls.single.arguments as Map);
-    expect(args['functionId'], 'search_settings');
+    expect(args['function_id'], 'search_settings');
     expect(args.containsKey('allowVlmFallback'), isFalse);
     expect(
       Map<String, dynamic>.from(args['arguments'] as Map)['query'],

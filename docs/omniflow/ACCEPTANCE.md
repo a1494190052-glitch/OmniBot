@@ -38,7 +38,7 @@ When the host implements the OOB OmniFlow MCP contract:
   exposed.
 - `omniflow.explore_replay` can return a bounded
   `oob.omniflow_utg.v1` path plus a generated Function id without requiring
-  provider-side graph commands.
+  provider-side graph calls.
 - `oob_function_run` can execute the same Function directly and returns runner
   timing plus per-step timing.
 - `oob_run_log_convert` can convert `runlog_install_demo` into

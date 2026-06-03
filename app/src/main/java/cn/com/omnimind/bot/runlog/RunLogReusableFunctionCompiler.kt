@@ -122,9 +122,9 @@ object RunLogReusableFunctionCompiler {
             .replace(Regex("[^a-z0-9]+"), "_")
             .trim('_')
             .take(40)
-            .ifBlank { "cmd" }
+            .ifBlank { "function" }
         val suffix = record.runId.takeLast(8).replace(Regex("[^A-Za-z0-9]"), "")
-        return "oob_cmd_${base}_$suffix"
+        return "oob_fn_${base}_$suffix"
     }
 
 }

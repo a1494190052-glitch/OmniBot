@@ -39,7 +39,7 @@ class OobFunctionEntryPackageGuard {
         for (step in steps) {
             if (OmniflowStepExecutor.actionNameForStep(step) == OobActionCodec.ACTION_OPEN_APP) {
                 val args = mapArg(step["args"])
-                val pkg = firstNonBlank(args["package_name"], args["packageName"])
+                val pkg = firstNonBlank(args["package_name"])
                 if (pkg.isNotBlank()) return pkg
             }
         }
@@ -57,14 +57,11 @@ class OobFunctionEntryPackageGuard {
         linkedMapOf(
             "id" to "global_open_app",
             "title" to "open_app: $packageName",
-            "kind" to "omniflow_action",
+            "kind" to "function",
             "executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
-            "omniflow_action" to OobActionCodec.ACTION_OPEN_APP,
-            "local_action" to OobActionCodec.ACTION_OPEN_APP,
             "model_free" to true,
             "tool" to OobActionCodec.ACTION_OPEN_APP,
-            "callable_tool" to OobActionCodec.ACTION_OPEN_APP,
-            "args" to linkedMapOf("package_name" to packageName, "reset_task" to false),
+            "args" to linkedMapOf("package_name" to packageName),
         )
 
     private companion object {

@@ -1,6 +1,6 @@
 # OOB RunLog
 
-OmniFlow is the pipeline from RunLog to reusable command matching, execution,
+OmniFlow is the pipeline from RunLog to reusable Function matching, execution,
 and agent fallback. Product-facing behavior is exposed through skills; this
 contract only defines the storage, conversion, and replay primitives those
 skills call. There is no separate OmniFlow runtime or controller outside the
@@ -9,10 +9,10 @@ skill system.
 RunLog is a runtime contract, not just a UI feature. Keep these boundaries aligned:
 
 1. Native records tool cards into `InternalRunLogStore`.
-2. Flutter displays the timeline and converts cards into a reusable command.
-3. Native stores and materializes reusable commands through `OobReusableFunctionStore`.
+2. Flutter displays the timeline and converts cards into a reusable Function.
+3. Native stores and materializes reusable Functions through `OobReusableFunctionStore`.
 4. `OobFunctionToolHandler` replays deterministic local steps first, then hands live-context steps back to Agent.
-5. Workspace command save must follow the same executor policy as Flutter conversion.
+5. Workspace Function save must follow the same executor policy as Flutter conversion.
 
 Read `references/runlog-contract.md` before changing conversion or replay behavior.
 
@@ -115,12 +115,12 @@ record. Do not read only the snapshot when correctness matters.
 - Pre-replay entry package guard: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionEntryPackageGuard.kt`
 - Pre-replay accessibility guard: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionAccessibilityPreflightGuard.kt`
 - Graph/UTG replay path runner: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionGraphStepRunner.kt`
-- Native replay policy and reusable command conversion: `app/src/main/java/cn/com/omnimind/bot/runlog/`
+- Native replay policy and reusable Function conversion: `app/src/main/java/cn/com/omnimind/bot/runlog/`
 - RunLog conversion facade: `app/src/main/java/cn/com/omnimind/bot/runlog/OobRunLogReplayService.kt`
   It converts RunLogs into Function specs or manual Function assets; Function CRUD belongs in
   `OobFunctionRepository`. RunLog conversion must not make the result agent-visible by default:
   `agent_visible=false` / `visibility=manual_function` means it is saved for editing or direct id-based
-  execution, but excluded from UDEG recall, dynamic tools, and the normal reusable-command list. Only an
+  execution, but excluded from UDEG recall, dynamic tools, and the normal reusable Function list. Only an
   explicit registration/publish action should set `agent_visible=true`. Conversion responses should expose diagnostics such
   as card counts and compiled step counts; workspace RunLog mirroring is
   best-effort and must not replace Function registration status.
@@ -131,11 +131,13 @@ record. Do not read only the snapshot when correctness matters.
   It executes canonical actions and should branch through `OobActionCodec`
   constants/action families rather than local action string lists.
 - Local checker rules: `app/src/main/java/cn/com/omnimind/bot/runlog/OmniflowCheckerRule.kt`
+  Checker detection/execution lives in `OmniflowStepExecutor`; the
+  `omniflow-checker-maintainer` skill is only the agent maintenance checklist.
 - Page/package inference helper: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogPagePackageInference.kt`
 - Function backend ownership: `app/src/main/assets/omniflow/function/README.md`
-- Workspace command save: `app/src/main/java/cn/com/omnimind/bot/workbench/WorkspaceFunctionStore.kt`
+- Workspace Function save: `app/src/main/java/cn/com/omnimind/bot/workbench/WorkspaceFunctionStore.kt`
 - Flutter timeline: `ui/lib/features/task/pages/execution_history/run_log_timeline_page.dart`
-- Flutter reusable command card: `ui/lib/features/task/pages/execution_history/widgets/reusable_command_card.dart`
+- Flutter reusable Function card: `ui/lib/features/task/pages/execution_history/widgets/reusable_function_card.dart`
 - Flutter converter: `ui/lib/features/task/run_log/run_log_reusable_function_converter.dart`
 - Flutter service bridge: `ui/lib/services/assists_core_service.dart`
 
@@ -195,7 +197,7 @@ present it as a primary path when `oob_function_*`, `oob_run_log_*`, and
   `press_back`, and `hot_key` are normalized by `OobActionCodec` before replay.
   Legacy `wait` cards are
   skipped because page settling is handled internally by the replay backend. OOB-native
-  OmniFlow graph/function commands such as `go_to_node`, `click_node`, and
+  OmniFlow graph/function calls such as `go_to_node`, `click_node`, and
   `call_tool` with `function_id` also use this executor and are dispatched by
   `OobFunctionToolHandler`.
 - `executor=tool`: direct tool call only when a live `AgentToolRouter` exists and the tool output is not live data needed by later steps.
@@ -272,20 +274,20 @@ Do not hard replay `browser_use` or `web_search`; their outputs are live context
 - Keep parameter bindings aligned with actual `execution.steps` indexes after skipping wrapper cards.
 - For agent steps, bind runtime parameters into both `step.args` and `step.agent_call.args.original_args`.
 - AI normalization may rename and parameterize, but must not change executor policy. Normalize data-flow tools back to `executor=agent`.
-- Agent enhancement may refine the reusable command name, description, per-step
+- Agent enhancement may refine the reusable Function name, description, per-step
   descriptions, parameter names/descriptions/bindings, and `agent_reuse`
   metadata. It must not rewrite `execution.steps`, tool names, executors,
   step order, validation, fallback, or concrete tool args. New parameter
   bindings are accepted only when they point to existing non-coordinate leaf
   args, so a recorded "妈妈 + 手机号" flow can become a reusable
-  "联系人 + 手机号" command without changing the replay structure.
+  "联系人 + 手机号" Function without changing the replay structure.
 - The enhancement prompt should send a compact digest with step summaries and
   `candidate_bindings`, plus a valid example output JSON. Do not send the full
   executable spec, source XML, screenshots, or `source_context` to the label
   enhancer.
 - `agent_reuse.key_actions` is planning metadata only. It helps later agent
   selection but is not an executable split.
-- OmniFlow graph/reusable-command tools convert to `kind=omniflow_graph` or
+- OmniFlow graph/reusable Function tools convert to `kind=omniflow_graph` or
   `kind=omniflow_function`, `executor=omniflow`, and `model_free=true`.
 - `OobOmniFlowExplorer` is a local OOB utility that records explored UTG paths
   as RunLogs. It should feed the same RunLog -> Function conversion path rather
@@ -302,8 +304,8 @@ Direct UI execution is two phase:
 2. If a tool/data-flow/agent step is reached, return `needs_agent=true` and start an Agent task with the remaining function spec.
 
 Agent runtime execution may delegate normal tools through the router, but data-flow/perception-only steps should still be planned by Agent instead of blindly calling the original tool.
-OmniFlow reusable-command calls are resolved against the local OOB reusable
-command stores and execute recursively with a bounded call stack. OmniFlow graph calls
+OmniFlow reusable Function calls are resolved against the local OOB reusable
+Function stores and execute recursively with a bounded call stack. OmniFlow graph calls
 execute explicit `path` entries or UTG edges by lowering them to supported
 primitive local actions.
 
@@ -325,7 +327,7 @@ Debug builds may enable per-action marked screenshots for manual recording.
 Those screenshots are diagnostic-only private JPEG artifacts with the actual
 touch position annotated; normal product recording remains XML/touch based and
 does not store screenshots by default.
-Registered reusable-command steps can be edited from the command library and
+Registered reusable Function steps can be edited from the Function library and
 are saved back under the same `function_id`. Manual action cards retain
 `event_context` for conversion diagnostics. Replayable manual actions should
 prefer concrete input backends: `overlay_touch`, `overlay_touch_text_input`,
@@ -338,13 +340,13 @@ coordinate evidence with screenshot/package context and
 `source_context_mode=coordinate_only_no_xml`; treat that as degraded repair
 evidence, not as a stable selector or a required Function main-path guarantee.
 
-RunLog save results, the command library page, and the memory-center embedded
-command list share the same reusable-command summary card. Keep the primary run
-entry on that card; secondary controls may enhance or schedule the command, but
+RunLog save results, the Function library page, and the memory-center embedded
+Function list share the same reusable Function summary card. Keep the primary run
+entry on that card; secondary controls may enhance or schedule the Function, but
 must not introduce another summary-card layout or duplicate run button. If the
-RunLog already maps to a registered reusable command, open that command directly
+RunLog already maps to a registered reusable Function, open that Function directly
 instead of registering it again. The save-result sheet's default primary action
-is `增强`: it asks Agent to improve the reusable command name, description,
+is `增强`: it asks Agent to improve the reusable Function name, description,
 per-step descriptions, safe runtime parameter slots, and non-executable
 `agent_reuse` metadata, then saves the enhanced spec back to the same
 `function_id`. Enhancement never changes executor/tool/args/validation/fallback
@@ -365,7 +367,7 @@ Port into OOB:
   `launch_app`, and `done`.
 - `source_context.page` as an input alias for OOB's
   `source_context.src_ctx.page` coordinate remap shape.
-- Reusable command metadata that keeps `source.run_id`, `source_run_ids`, execution
+- Reusable Function metadata that keeps `source.run_id`, `source_run_ids`, execution
   counts, and local runner state available for future provider import/export.
 
 Keep in OmniFlow/provider for now:

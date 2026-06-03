@@ -90,7 +90,7 @@ is available. The GUI agent should operate the App screens:
 
 ```text
 Execution History / Run Logs -> Run details -> Convert to reusable Function
-Function Library / Command Library -> Inspect -> Run
+Function Library -> Inspect -> Run
 ```
 
 Read `GUI_AGENT_PLAYBOOK.md` for exact visual workflow expectations.
@@ -111,7 +111,7 @@ Activate OmniFlow when the user asks to:
 - Reuse a task from execution history.
 - Inspect, debug, or replay a recorded run.
 - Convert RunLog into a reusable Function.
-- Run a stored Function or command.
+- Run a stored Function.
 - Check whether a reusable Function is safe to run.
 
 Do not activate OmniFlow for one-off general chat, static document writing, or

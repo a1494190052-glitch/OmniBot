@@ -21,6 +21,16 @@ object OmniflowStepExecutor {
         val meta: Map<String, Any?> = emptyMap(),
     )
 
+    data class PreflightResult(
+        val args: Map<String, Any?>,
+        val transfer: Map<String, Any?> = emptyMap(),
+        val checker: Map<String, Any?> = emptyMap(),
+        val controlEffects: List<Map<String, Any?>> = emptyList(),
+        val timing: Map<String, Any?> = emptyMap(),
+        val currentXml: String? = null,
+        val currentPackageName: String? = null,
+    )
+
     private data class ReplayState(
         val snapshot: BackendSnapshot,
         val page: PageModel?,
@@ -226,18 +236,18 @@ object OmniflowStepExecutor {
         val summary = timing.measure("act_ms") {
             when (action) {
                 OobActionCodec.ACTION_CLICK -> {
-                    val x = numberArg(args, "x", "center_x", "centerX")?.toFloat()
+                    val x = numberArg(args, "x")?.toFloat()
                         ?: throw IllegalArgumentException("click requires x")
-                    val y = numberArg(args, "y", "center_y", "centerY")?.toFloat()
+                    val y = numberArg(args, "y")?.toFloat()
                         ?: throw IllegalArgumentException("click requires y")
                     backend.click(x, y)
                     OobActionCodec.ACTION_CLICK
                 }
 
                 OobActionCodec.ACTION_LONG_PRESS -> {
-                    val x = numberArg(args, "x", "center_x", "centerX")?.toFloat()
+                    val x = numberArg(args, "x")?.toFloat()
                         ?: throw IllegalArgumentException("long_press requires x")
-                    val y = numberArg(args, "y", "center_y", "centerY")?.toFloat()
+                    val y = numberArg(args, "y")?.toFloat()
                         ?: throw IllegalArgumentException("long_press requires y")
                     backend.longPress(
                         x = x,
@@ -247,7 +257,7 @@ object OmniflowStepExecutor {
                     OobActionCodec.ACTION_LONG_PRESS
                 }
 
-                OobActionCodec.ACTION_SWIPE -> {
+                OobActionCodec.ACTION_SCROLL -> {
                     val swipe = swipeSpec(args, replayState("act_swipe"))
                     backend.scrollWithContext(
                         x = swipe.x,
@@ -255,54 +265,47 @@ object OmniflowStepExecutor {
                         direction = swipe.direction,
                         distance = swipe.distance,
                         durationMs = durationMs(args, defaultMs = 1500L),
-                        targetDescription = stringArg(args, "target_description", "targetDescription").orEmpty()
+                        targetDescription = stringArg(args, "target_description").orEmpty()
                     )
                     action
                 }
 
                 OobActionCodec.ACTION_INPUT_TEXT -> {
-                    val text = stringArg(args, "content", "text", "value")
-                        ?: throw IllegalArgumentException("$action requires content")
+                    val text = stringArg(args, "text")
+                        ?: throw IllegalArgumentException("$action requires text")
                     backend.inputText(
                         text = text,
                         targetDescription = stringArg(
                             args,
                             "target_description",
-                            "targetDescription",
                             "label",
                             "selector",
                         ).orEmpty(),
-                        x = numberArg(args, "x", "center_x", "centerX")?.toFloat(),
-                        y = numberArg(args, "y", "center_y", "centerY")?.toFloat(),
+                        x = numberArg(args, "x")?.toFloat(),
+                        y = numberArg(args, "y")?.toFloat(),
                         nodeResourceId = stringArg(
                             args,
                             "node_resource_id",
-                            "nodeResourceId",
-                            "resource_id",
-                            "resourceId",
                         ).orEmpty(),
                     )
                     action
                 }
 
                 OobActionCodec.ACTION_OPEN_APP -> {
-                    val packageName = stringArg(args, "package_name", "packageName")
+                    val packageName = stringArg(args, "package_name")
                         ?: throw IllegalArgumentException("open_app requires package_name")
-                    val resetTask = boolArg(args["reset_task"]) ||
-                        stringArg(args, "launch_mode")?.equals("fresh_task", ignoreCase = true) == true
-                    if (resetTask) {
-                        backend.launchApplication(packageName, true)
-                    } else {
-                        backend.launchApplication(packageName)
-                    }
-                    stabilizeOpenAppLaunch(packageName, resetTask, timing)
+                    backend.launchApplication(packageName)
+                    stabilizeOpenAppLaunch(packageName, resetTask = false, timing)
                     OobActionCodec.ACTION_OPEN_APP
                 }
 
-                OobActionCodec.ACTION_PRESS_KEY -> {
-                    val key = stringArg(args, "key", "hotkey", "hot_key")
-                        ?: throw IllegalArgumentException("$action requires key")
-                    backend.pressHotKey(key)
+                OobActionCodec.ACTION_PRESS_BACK -> {
+                    backend.pressHotKey("BACK")
+                    action
+                }
+
+                OobActionCodec.ACTION_PRESS_HOME -> {
+                    backend.pressHotKey("HOME")
                     action
                 }
 
@@ -363,6 +366,145 @@ object OmniflowStepExecutor {
                 put("control_effects", controlEffects)
             }
         }
+    }
+
+    suspend fun preflight(
+        step: Map<String, Any?>,
+        checkerRules: List<OmniflowCheckerRule> = emptyList(),
+        checkerBudget: CheckerTriggerBudget = CheckerTriggerBudget(),
+        respectFixedReplayPolicy: Boolean = true,
+    ): PreflightResult {
+        val timing = ReplayStepTiming()
+        val action = actionNameForStep(step)
+        if (action !in OobActionCodec.executableActions) {
+            return PreflightResult(
+                args = normalizeArgsMap(step["args"]),
+                timing = timing.finish(),
+            )
+        }
+        val backend = OmniflowActionRuntime.backend
+        if (actionRequiresAccessibility(action) && !backend.isReady()) {
+            throw IllegalStateException("OmniFlow action backend is not ready")
+        }
+        val fixedReplay = respectFixedReplayPolicy && RunLogReplayPolicy.fixedReplayOnly
+        val initialArgs = OobActionCodec.argsForStep(step)
+        val transferRequested = !fixedReplay &&
+            action in OobActionCodec.coordinateActions &&
+            shouldUseCoordinateHook(step)
+        var currentState: ReplayState? = null
+
+        suspend fun replayState(reason: String): ReplayState {
+            val existing = currentState
+            if (existing != null) return existing
+            return observeReplayState(timing, reason).also { currentState = it }
+        }
+
+        suspend fun refreshReplayState(reason: String): ReplayState =
+            observeReplayState(timing, reason).also { currentState = it }
+
+        val preTransferControls = timing.measure("checker_ms") {
+            if (fixedReplay) {
+                emptyList()
+            } else {
+                runCheckerPhase(
+                    phase = OmniflowCheckerRule.PHASE_PRE_TRANSFER,
+                    state = replayState("before_step"),
+                    replayAction = ReplayAction(step, action, initialArgs),
+                    extraRules = checkerRules,
+                    checkerBudget = checkerBudget,
+                )
+            }
+        }
+        if (!fixedReplay && preTransferControls.isNotEmpty()) {
+            refreshReplayState("after_pre_transfer_controls")
+        }
+        val attemptedRemapResult = timing.measure("action_transfer_ms") {
+            if (fixedReplay) {
+                StepArgsResult(initialArgs)
+            } else {
+                try {
+                    remapStepArgsForState(step, replayState("action_transfer"))
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    StepArgsResult(
+                        args = initialArgs,
+                        meta = mapOf(
+                            "applied" to false,
+                            "reason" to "action_transfer_exception",
+                            "algorithm" to "anchor_projection",
+                            "error_message" to e.message.orEmpty(),
+                        )
+                    )
+                }
+            }
+        }
+        var remapResult = recordedReplayFallbackIfNeeded(
+            transferRequested = transferRequested,
+            attempted = attemptedRemapResult,
+            initialArgs = initialArgs,
+        )
+        var args = normalizeArgsMap(remapResult.args)
+        val preActionControls = timing.measure("checker_ms") {
+            if (fixedReplay) {
+                emptyList()
+            } else {
+                runCheckerPhase(
+                    phase = OmniflowCheckerRule.PHASE_PRE_ACTION,
+                    state = replayState("before_action"),
+                    replayAction = ReplayAction(step, action, args),
+                    extraRules = checkerRules,
+                    checkerBudget = checkerBudget,
+                )
+            }
+        }
+        if (!fixedReplay && preActionControls.isNotEmpty()) {
+            val refreshed = refreshReplayState("after_pre_action_controls")
+            if (transferRequested) {
+                val remappedAfterControl = timing.measure("action_transfer_ms") {
+                    try {
+                        remapStepArgsForState(step, refreshed)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        StepArgsResult(
+                            args = initialArgs,
+                            meta = mapOf(
+                                "applied" to false,
+                                "reason" to "action_transfer_exception",
+                                "algorithm" to "anchor_projection",
+                                "error_message" to e.message.orEmpty(),
+                            )
+                        )
+                    }
+                }
+                remapResult = recordedReplayFallbackIfNeeded(
+                    transferRequested = transferRequested,
+                    attempted = remappedAfterControl,
+                    initialArgs = initialArgs,
+                )
+                args = normalizeArgsMap(remapResult.args)
+            }
+        }
+        val controlEffects = preTransferControls + preActionControls
+        val checker = timing.measureOverhead("result_summary_ms") {
+            replayCheckerSummary(
+                action = action,
+                fixedReplay = fixedReplay,
+                transfer = remapResult.meta,
+                controlEffects = controlEffects,
+            )
+        }
+        val latestState = currentState?.snapshot
+        return PreflightResult(
+            args = args,
+            transfer = remapResult.meta,
+            checker = checker,
+            controlEffects = controlEffects,
+            timing = timing.finish(),
+            currentXml = latestState?.xml,
+            currentPackageName = latestState?.effectivePackage(),
+        )
     }
 
     private fun replayMode(
@@ -440,7 +582,7 @@ object OmniflowStepExecutor {
             OobActionCodec.ACTION_CLICK,
             OobActionCodec.ACTION_LONG_PRESS,
             OobActionCodec.ACTION_INPUT_TEXT -> remapPointActionArgs(tool, args, sourceXml, currentXml)
-            OobActionCodec.ACTION_SWIPE -> remapScrollActionArgs(tool, args, sourceXml, currentXml)
+            OobActionCodec.ACTION_SCROLL -> remapScrollActionArgs(tool, args, sourceXml, currentXml)
             else -> StepArgsResult(args)
         }
     }
@@ -477,11 +619,8 @@ object OmniflowStepExecutor {
     }
 
     private fun durationMs(args: Map<String, Any?>, defaultMs: Long): Long {
-        numberArg(args, "duration_ms", "durationMs")?.toLong()?.let {
+        numberArg(args, "duration_ms")?.toLong()?.let {
             return it.coerceAtLeast(0L)
-        }
-        numberArg(args, "duration")?.toDouble()?.let { seconds ->
-            return (seconds * 1000.0).toLong().coerceAtLeast(0L)
         }
         return defaultMs
     }
@@ -513,15 +652,15 @@ object OmniflowStepExecutor {
         }
 
         val direction = directionArg(args)
-            ?: throw IllegalArgumentException("swipe requires direction or x1/y1/x2/y2")
+            ?: throw IllegalArgumentException("scroll requires direction or x1/y1/x2/y2")
         val rootCenter = currentRootCenter(state)
-        val x: Float = numberArg(args, "x", "center_x", "centerX")?.toFloat()
+        val x: Float = numberArg(args, "x")?.toFloat()
             ?: rootCenter?.first
             ?: DEFAULT_SCREEN_CENTER_X
-        val y: Float = numberArg(args, "y", "center_y", "centerY")?.toFloat()
+        val y: Float = numberArg(args, "y")?.toFloat()
             ?: rootCenter?.second
             ?: DEFAULT_SCREEN_CENTER_Y
-        val distance: Float = numberArg(args, "distance", "distance_px", "distancePx")
+        val distance: Float = numberArg(args, "distance")
             ?.toFloat()
             ?.coerceAtLeast(1f)
             ?: DEFAULT_SWIPE_DISTANCE
@@ -529,7 +668,7 @@ object OmniflowStepExecutor {
     }
 
     private fun directionArg(args: Map<String, Any?>): ScrollDirection? {
-        val raw = stringArg(args, "direction", "scroll_direction", "scrollDirection")
+        val raw = stringArg(args, "direction")
             ?.trim()
             ?.lowercase()
             ?: return null
@@ -648,6 +787,8 @@ object OmniflowStepExecutor {
             checkerPackageMismatch(rule, state, replayAction)
         OmniflowCheckerRule.COND_AD_BLOCKING ->
             checkerAdBlocking(rule, state, replayAction)
+        OmniflowCheckerRule.COND_APP_UPGRADE_PROMPT ->
+            checkerAppUpgradePrompt(rule, state, replayAction)
         OmniflowCheckerRule.COND_OVERLAY_BLOCKING ->
             checkerOverlayBlocking(rule, state, replayAction)
         OmniflowCheckerRule.COND_KEYBOARD_OBSCURING ->
@@ -753,6 +894,8 @@ object OmniflowStepExecutor {
         replayAction: ReplayAction,
     ): Map<String, Any?>? {
         val page = state.page ?: return null
+        if (!looksLikePermissionDialog(page)) return null
+        if (recordedActionTargetsPermissionDialog(replayAction)) return null
         val candidate = permissionAllowCandidate(page) ?: return null
         OmniflowActionRuntime.backend.click(candidate.centerX, candidate.centerY)
         delay(PRE_ACTION_CONTROL_DELAY_MS)
@@ -761,17 +904,17 @@ object OmniflowStepExecutor {
             "effect" to "run_actions",
             "controller" to rule.id,
             "action" to OmniflowCheckerRule.ACTION_ALLOW,
-            "button_text" to nodeLabelText(candidate),
+            "button_text" to permissionNodeLabelText(candidate),
             "x" to candidate.centerX,
             "y" to candidate.centerY,
         )
     }
 
+    private fun looksLikePermissionDialog(page: PageModel): Boolean =
+        page.nodes.any(::isPermissionControllerNode)
+
     private fun permissionAllowCandidate(page: PageModel): UiNode? {
-        val hasPermissionPackage = page.nodes.any { node ->
-            PERMISSION_PACKAGES.any { node.packageName.startsWith(it) }
-        }
-        if (!hasPermissionPackage) return null
+        if (!looksLikePermissionDialog(page)) return null
         return page.nodes
             .asSequence()
             .filter { it.visible && it.enabled && it.clickable }
@@ -781,6 +924,16 @@ object OmniflowStepExecutor {
             }
             .maxByOrNull { it.second }
             ?.first
+    }
+
+    private fun isPermissionControllerNode(node: UiNode): Boolean {
+        val packageName = node.packageName.lowercase()
+        val resourceId = node.resourceId.lowercase()
+        return PERMISSION_PACKAGES.any { prefix ->
+            packageName.startsWith(prefix) || resourceId.startsWith("$prefix:")
+        } || PERMISSION_RESOURCE_PACKAGE_TERMS.any { term ->
+            resourceId.contains(term)
+        }
     }
 
     private fun resolverAlwaysCandidate(
@@ -892,7 +1045,7 @@ object OmniflowStepExecutor {
     }
 
     private fun allowButtonScore(node: UiNode): Float {
-        val label = nodeLabelText(node).lowercase()
+        val label = permissionNodeLabelText(node)
         val resource = node.resourceTail.lowercase()
         val resourceScore = when {
             ALLOW_RESOURCE_TAILS.any { resource == it } -> 400f
@@ -903,7 +1056,6 @@ object OmniflowStepExecutor {
             ALLOW_CONTAINS_LABELS.any { label.contains(it) } -> 150f
             else -> 0f
         }
-        // Penalise "only this time" style buttons — prefer broader grants.
         val oncePenalty = if (ALLOW_ONCE_LABELS.any { label.contains(it) }) -100f else 0f
         return resourceScore + labelScore + oncePenalty
     }
@@ -914,6 +1066,7 @@ object OmniflowStepExecutor {
         replayAction: ReplayAction,
     ): Map<String, Any?>? {
         if (targetLooksLikeDismiss(replayAction.args)) return null
+        if (recordedActionTargetsPermissionDialog(replayAction)) return null
         val expectedPkg = rule.params["package_name"]?.toString()?.trim()
             ?: stepSourcePackage(replayAction.step)
         if (expectedPkg.isBlank()) return null
@@ -956,6 +1109,30 @@ object OmniflowStepExecutor {
         )
     }
 
+    private suspend fun checkerAppUpgradePrompt(
+        rule: OmniflowCheckerRule,
+        state: ReplayState,
+        replayAction: ReplayAction,
+    ): Map<String, Any?>? {
+        if (targetLooksLikeDismiss(replayAction.args)) return null
+        val page = state.page ?: return null
+        val candidate = appUpgradeDismissCandidate(page) ?: return null
+        if (actionTargetHitsNode(replayAction.action, replayAction.args, candidate)) return null
+        OmniflowActionRuntime.backend.click(candidate.centerX, candidate.centerY)
+        delay(PRE_ACTION_CONTROL_DELAY_MS)
+        return linkedMapOf(
+            "phase" to rule.phase,
+            "effect" to "run_actions",
+            "controller" to rule.id,
+            "condition" to OmniflowCheckerRule.COND_APP_UPGRADE_PROMPT,
+            "action" to OmniflowCheckerRule.ACTION_DISMISS,
+            "button_text" to nodeLabelText(candidate),
+            "x" to candidate.centerX,
+            "y" to candidate.centerY,
+            "target_element" to summarizeNode(candidate),
+        )
+    }
+
     private suspend fun checkerOverlayBlocking(
         rule: OmniflowCheckerRule,
         state: ReplayState,
@@ -983,7 +1160,7 @@ object OmniflowStepExecutor {
         replayAction: ReplayAction,
     ): Map<String, Any?>? {
         val action = replayAction.action
-        if (action !in OobActionCodec.pointTargetActions + OobActionCodec.ACTION_SWIPE) return null
+        if (action !in OobActionCodec.pointTargetActions + OobActionCodec.ACTION_SCROLL) return null
         val page = state.page ?: return null
         val keyboardTop = keyboardTop(page) ?: return null
         if (!actionTargetIntersectsKeyboard(action, replayAction.args, keyboardTop)) return null
@@ -1134,6 +1311,20 @@ object OmniflowStepExecutor {
             ?.first
     }
 
+    private fun appUpgradeDismissCandidate(page: PageModel): UiNode? {
+        val hasUpgradeCue = page.nodes.any(::hasAppUpgradeCue)
+        if (!hasUpgradeCue) return null
+        return page.nodes
+            .asSequence()
+            .filter { it.visible && it.enabled && it.area > 1f && it.interactive }
+            .mapNotNull { node ->
+                val score = appUpgradeDismissCandidateScore(node, page.rootBounds)
+                if (score >= MIN_APP_UPGRADE_DISMISS_SCORE) node to score else null
+            }
+            .maxByOrNull { it.second }
+            ?.first
+    }
+
     private fun adDismissCandidateScore(
         node: UiNode,
         rootBounds: Rect,
@@ -1212,6 +1403,36 @@ object OmniflowStepExecutor {
         return labelScore + resourceScore + overlayScore + smallButtonScore + topRightScore
     }
 
+    private fun appUpgradeDismissCandidateScore(node: UiNode, rootBounds: Rect): Float {
+        val label = nodeLabelText(node)
+        val resource = node.resourceTail.lowercase()
+        val topRight = isTopRightSmallControl(node, rootBounds)
+        val small = node.area / rootBounds.area.coerceAtLeast(1f) <= 0.08f
+        val dismissByExact = APP_UPGRADE_DISMISS_EXACT_LABELS.any { label == it }
+        val dismissByContains = APP_UPGRADE_DISMISS_CONTAINS_LABELS.any { label.contains(it) }
+        val dismissByResource = APP_UPGRADE_DISMISS_RESOURCE_TAILS.any {
+            resource == it || resource.contains(it)
+        }
+        val closeControl = DISMISS_EXACT_LABELS.any { label == it } && (topRight || small)
+        val explicitDismiss = dismissByExact || dismissByContains || dismissByResource || closeControl
+        if (!explicitDismiss) return 0f
+        if (APP_UPGRADE_AFFIRMATIVE_LABELS.any { label == it || label.contains(it) } &&
+            !dismissByExact &&
+            !dismissByContains
+        ) {
+            return 0f
+        }
+
+        var score = 180f
+        if (dismissByExact) score += 520f
+        if (dismissByContains) score += 560f
+        if (dismissByResource) score += 360f
+        if (closeControl) score += 260f
+        if (small) score += 80f
+        if (topRight) score += 120f
+        return score
+    }
+
     private fun hasExplicitAdCue(node: UiNode): Boolean {
         val text = nodeLabelText(node)
         val classText = node.className.lowercase()
@@ -1220,6 +1441,15 @@ object OmniflowStepExecutor {
             text.contains(term) || classText.contains(term) || resource.contains(term)
         } || AD_RESOURCE_TOKEN_REGEX.containsMatchIn(resource) ||
             AD_RESOURCE_CUE_TERMS.any { resource.contains(it) }
+    }
+
+    private fun hasAppUpgradeCue(node: UiNode): Boolean {
+        val text = nodeLabelText(node)
+        val classText = node.className.lowercase()
+        val resource = node.resourceId.lowercase()
+        return APP_UPGRADE_CUE_TERMS.any { term ->
+            text.contains(term) || classText.contains(term) || resource.contains(term)
+        }
     }
 
     private fun hasAdOrModalCue(node: UiNode): Boolean {
@@ -1254,12 +1484,14 @@ object OmniflowStepExecutor {
 
     private fun targetLooksLikeDismiss(args: Map<String, Any?>): Boolean {
         val target = listOf(
-            stringArg(args, "target_description", "targetDescription"),
+            stringArg(args, "target_description"),
             stringArg(args, "label"),
             stringArg(args, "selector"),
         ).filterNotNull().joinToString(" ").lowercase()
         return DISMISS_EXACT_LABELS.any { target == it } ||
             DISMISS_CONTAINS_LABELS.any { target.contains(it) } ||
+            APP_UPGRADE_DISMISS_EXACT_LABELS.any { target == it } ||
+            APP_UPGRADE_DISMISS_CONTAINS_LABELS.any { target.contains(it) } ||
             AD_DISMISS_CONTAINS_LABELS.any { target.contains(it) } ||
             AD_SKIP_EXACT_LABELS.any { target == it || target.startsWith("$it ") } ||
             SKIP_COUNTDOWN_REGEX.containsMatchIn(target)
@@ -1267,7 +1499,7 @@ object OmniflowStepExecutor {
 
     private fun targetLooksLikeResolverConfirm(args: Map<String, Any?>): Boolean {
         val target = listOf(
-            stringArg(args, "target_description", "targetDescription"),
+            stringArg(args, "target_description"),
             stringArg(args, "label"),
             stringArg(args, "selector"),
         ).filterNotNull().joinToString(" ").lowercase()
@@ -1282,14 +1514,40 @@ object OmniflowStepExecutor {
         return parsePageModel(sourceXml)?.let(::looksLikeResolverDialog) == true
     }
 
+    private fun recordedActionTargetsPermissionDialog(replayAction: ReplayAction): Boolean {
+        if (replayAction.action !in OobActionCodec.pointTargetActions) return false
+        if (!shouldUseCoordinateHook(replayAction.step)) return false
+        val sourceXml = sourceXmlForStep(replayAction.step)
+        if (sourceXml.isBlank()) return false
+        val sourcePage = parsePageModel(sourceXml) ?: return false
+        if (!looksLikePermissionDialog(sourcePage)) return false
+        val x = numberArg(replayAction.args, "x")?.toFloat() ?: return false
+        val y = numberArg(replayAction.args, "y")?.toFloat() ?: return false
+        val sourceNode = selectPointSourceNode(sourcePage, x, y) ?: return false
+        if (!sourceNode.visible || !sourceNode.enabled || !sourceNode.interactive) return false
+        return sourcePage.nodes.any { node ->
+            isPermissionControllerNode(node) && node.bounds.contains(x, y)
+        }
+    }
+
+    private fun sourceXmlForStep(step: Map<String, Any?>): String {
+        val sourceContext = OobActionCodec.sourceContextForStep(step)
+        val srcCtx = OobActionCodec.mapArg(sourceContext["src_ctx"])
+        return firstNonBlank(
+            srcCtx["page"],
+            sourceContext["page"],
+            sourceContext["xml"],
+        )
+    }
+
     private fun actionTargetHitsNode(
         action: String,
         args: Map<String, Any?>,
         node: UiNode,
     ): Boolean {
         if (action !in OobActionCodec.coordinateActions) return false
-        val x = numberArg(args, "x", "center_x", "centerX")?.toFloat()
-        val y = numberArg(args, "y", "center_y", "centerY")?.toFloat()
+        val x = numberArg(args, "x")?.toFloat()
+        val y = numberArg(args, "y")?.toFloat()
         if (x != null && y != null) {
             return node.bounds.expanded(ACTION_TARGET_HIT_MARGIN_PX).contains(x, y)
         }
@@ -1325,18 +1583,25 @@ object OmniflowStepExecutor {
         keyboardTop: Float,
     ): Boolean {
         val threshold = keyboardTop - KEYBOARD_OBSCURE_MARGIN_PX
-        if (action == OobActionCodec.ACTION_SWIPE) {
+        if (action == OobActionCodec.ACTION_SCROLL) {
             val y1 = numberArg(args, "y1")?.toFloat()
             val y2 = numberArg(args, "y2")?.toFloat()
             return listOfNotNull(y1, y2).any { it >= threshold }
         }
-        val y = numberArg(args, "y", "center_y", "centerY")?.toFloat() ?: return false
+        val y = numberArg(args, "y")?.toFloat() ?: return false
         return y >= threshold
     }
 
     private fun nodeLabelText(node: UiNode): String =
         listOf(node.text, node.contentDesc, node.hintText, node.resourceTail)
             .filter { it.isNotBlank() }
+            .joinToString(" ")
+            .lowercase()
+
+    private fun permissionNodeLabelText(node: UiNode): String =
+        listOf(node.text, node.contentDesc, node.hintText, node.resourceTail, node.subtreeText)
+            .filter { it.isNotBlank() }
+            .distinct()
             .joinToString(" ")
             .lowercase()
 
@@ -1390,8 +1655,10 @@ object OmniflowStepExecutor {
         val text: String,
         val contentDesc: String,
         val hintText: String,
+        val subtreeText: String,
         val packageName: String,
         val clickable: Boolean,
+        val longClickable: Boolean,
         val focusable: Boolean,
         val editable: Boolean,
         val scrollable: Boolean,
@@ -1399,6 +1666,11 @@ object OmniflowStepExecutor {
         val visible: Boolean,
         val selected: Boolean,
         val checkable: Boolean,
+        val focused: Boolean,
+        val isLeaf: Boolean,
+        val hasSiblings: Boolean,
+        val structSignature: String,
+        val depth: Int = 0,
     ) {
         val centerX: Float get() = bounds.centerX
         val centerY: Float get() = bounds.centerY
@@ -1414,15 +1686,21 @@ object OmniflowStepExecutor {
         hintText = hintText,
         classSuffix = classSuffix,
         clickable = clickable,
+        longClickable = longClickable,
         focusable = focusable,
         editable = editable,
         scrollable = scrollable,
         checkable = checkable,
         enabled = enabled,
         selected = selected,
+        focused = focused,
+        isLeaf = isLeaf,
+        hasSiblings = hasSiblings,
+        structSignature = structSignature,
         areaRatio = area / rootArea.coerceAtLeast(1f),
         centerX = centerX,
         centerY = centerY,
+        depth = depth,
     )
 
     private data class PageModel(
@@ -1430,11 +1708,6 @@ object OmniflowStepExecutor {
         val nodes: List<UiNode>,
     )
 
-    private data class AnchorPair(
-        val source: UiNode,
-        val target: UiNode,
-        val similarity: Float,
-    )
 
     private data class TargetMatch(
         val node: UiNode,
@@ -1705,52 +1978,39 @@ object OmniflowStepExecutor {
         targetPage: PageModel,
         sourceNode: UiNode,
     ): TargetMatch? {
-        val anchors = buildAnchors(sourcePage, targetPage)
-        val pageDiagonal = hypot(targetPage.rootBounds.width, targetPage.rootBounds.height).coerceAtLeast(1f)
-        val scaleX = targetPage.rootBounds.width / (sourcePage.rootBounds.width + 1e-6f)
-        val scaleY = targetPage.rootBounds.height / (sourcePage.rootBounds.height + 1e-6f)
+        // Fast path: exact identity match bypasses Bayesian
+        signatureGuard(sourceNode, targetPage)?.let { return it }
 
-        val candidates = targetPage.nodes.filter { it.visible && it.enabled && it.area > 1f }
-        if (candidates.isEmpty()) return directSimilarityFallback(targetPage, sourceNode)
+        val srcArea = sourcePage.rootBounds.area.coerceAtLeast(1f)
+        val tgtArea = targetPage.rootBounds.area.coerceAtLeast(1f)
 
-        val tgtRootArea = targetPage.rootBounds.area.coerceAtLeast(1f)
-        val srcRootArea = sourcePage.rootBounds.area.coerceAtLeast(1f)
-        val srcInfo = sourceNode.toNodeInfo(srcRootArea)
-        val srcVec = OmniflowNodeMatcher.elementVector(srcInfo)
-        val candidateInfos = candidates.map { it.toNodeInfo(tgtRootArea) }
-        val candidateVecs = candidateInfos.map { OmniflowNodeMatcher.elementVector(it) }
+        // Compute all target NodeInfos and vectors once; reuse for anchors and candidates
+        val allTgtInfos = targetPage.nodes.map { it.toNodeInfo(tgtArea) }
+        val allTgtVecs = allTgtInfos.map { OmniflowNodeMatcher.vector(it) }
 
-        val matcherAnchors = anchors.map { a ->
-            OmniflowNodeMatcher.MatcherAnchor(
-                sourceCenterX = a.source.centerX,
-                sourceCenterY = a.source.centerY,
-                targetCenterX = a.target.centerX,
-                targetCenterY = a.target.centerY,
-                similarity = a.similarity,
-            )
-        }
+        val anchorSrcNodes = sourcePage.nodes.filter { isAnchorCandidate(it, sourcePage.rootBounds) }
+            .map { it.toNodeInfo(srcArea) }
+        val anchorSrcVecs = anchorSrcNodes.map { OmniflowNodeMatcher.vector(it) }
+        val anchorTgtIdx = targetPage.nodes.indices.filter { isAnchorCandidate(targetPage.nodes[it], targetPage.rootBounds) }
+        val anchorTgtInfos = anchorTgtIdx.map { allTgtInfos[it] }
+        val anchorTgtVecs = anchorTgtIdx.map { allTgtVecs[it] }
+        val anchors = OmniflowNodeMatcher.findAnchors(anchorSrcNodes, anchorSrcVecs, anchorTgtInfos, anchorTgtVecs)
 
-        val result = OmniflowNodeMatcher.matchBayesian(
-            sourceNode = srcInfo,
-            sourceVec = srcVec,
-            candidates = candidateInfos,
-            candidateVecs = candidateVecs,
-            anchors = matcherAnchors,
-            pageDiagonal = pageDiagonal,
-            scaleX = scaleX,
-            scaleY = scaleY,
-        )
+        val candIdx = targetPage.nodes.indices.filter { targetPage.nodes[it].let { n -> n.visible && n.enabled && n.area > 1f } }
+        if (candIdx.isEmpty()) return null
+        val candidates = candIdx.map { targetPage.nodes[it] }
+        val candInfos = candIdx.map { allTgtInfos[it] }
+        val candVecs = candIdx.map { allTgtVecs[it] }
 
-        if (result.abstain) {
-            val fallback = directSimilarityFallback(targetPage, sourceNode) ?: return null
-            return fallback.copy(
-                debug = fallback.debug + mapOf(
-                    "source_element" to summarizeNode(sourceNode),
-                    "anchor_count" to anchors.size,
-                    "bayesian" to result.debug,
-                )
-            )
-        }
+        val srcInfo = sourceNode.toNodeInfo(srcArea)
+        val srcVec = OmniflowNodeMatcher.vector(srcInfo)
+        val srcDiagonal = hypot(sourcePage.rootBounds.width, sourcePage.rootBounds.height).coerceAtLeast(1f)
+        val diagonal = hypot(targetPage.rootBounds.width, targetPage.rootBounds.height).coerceAtLeast(1f)
+        val scaleX = targetPage.rootBounds.width / sourcePage.rootBounds.width.coerceAtLeast(1e-6f)
+        val scaleY = targetPage.rootBounds.height / sourcePage.rootBounds.height.coerceAtLeast(1e-6f)
+
+        val result = OmniflowNodeMatcher.match(srcInfo, srcVec, candInfos, candVecs, anchors, srcDiagonal, diagonal, scaleX, scaleY)
+        if (result.abstain) return null
 
         val bestNode = candidates[result.index]
         return TargetMatch(
@@ -1762,77 +2022,40 @@ object OmniflowStepExecutor {
                 "source_element" to summarizeNode(sourceNode),
                 "target_element" to summarizeNode(bestNode),
                 "anchor_count" to anchors.size,
-            ) + result.debug
+            ) + result.debug,
         )
     }
 
-    private fun directSimilarityFallback(
-        targetPage: PageModel,
-        sourceNode: UiNode,
-    ): TargetMatch? {
-        val best = targetPage.nodes
-            .map { candidate -> candidate to nodeSimilarity(sourceNode, candidate) }
-            .maxByOrNull { it.second }
-            ?: return null
-        if (best.second < MIN_DIRECT_FALLBACK_SIMILARITY) {
-            return null
+    private fun signatureGuard(sourceNode: UiNode, targetPage: PageModel): TargetMatch? {
+        val resourceId = sourceNode.resourceId.takeIf { it.isNotBlank() }
+        val text = sourceNode.text.takeIf { it.isNotBlank() }
+        val contentDesc = sourceNode.contentDesc.takeIf { it.isNotBlank() }
+        if (resourceId == null && text == null && contentDesc == null) return null
+
+        val matches = targetPage.nodes.filter { t ->
+            t.visible && t.enabled && (
+                (resourceId != null && resourceId == t.resourceId) ||
+                (text != null && text == t.text) ||
+                (contentDesc != null && contentDesc == t.contentDesc))
         }
+        if (matches.size != 1) return null
+
+        val node = matches[0]
         return TargetMatch(
-            node = best.first,
-            confidence = best.second,
+            node = node,
+            confidence = 1f,
             anchorCount = 0,
-            mode = "direct_similarity_fallback",
+            mode = "unique_action_signature",
             debug = mapOf(
                 "source_element" to summarizeNode(sourceNode),
-                "target_element" to summarizeNode(best.first),
-                "direct_similarity" to best.second,
-                "anchor_count" to 0,
-            )
+                "target_element" to summarizeNode(node),
+                "matched_by" to listOfNotNull(
+                    "resource_id".takeIf { resourceId == node.resourceId },
+                    "text".takeIf { text == node.text },
+                    "content_desc".takeIf { contentDesc == node.contentDesc },
+                ),
+            ),
         )
-    }
-
-    private fun buildAnchors(
-        sourcePage: PageModel,
-        targetPage: PageModel,
-        maxAnchorCount: Int = MAX_ANCHOR_COUNT,
-    ): List<AnchorPair> {
-        val sourceNodes = sourcePage.nodes.filter { isAnchorCandidate(it, sourcePage.rootBounds) }
-        val targetNodes = targetPage.nodes.filter { isAnchorCandidate(it, targetPage.rootBounds) }
-        if (sourceNodes.isEmpty() || targetNodes.isEmpty()) return emptyList()
-
-        val srcRootArea = sourcePage.rootBounds.area.coerceAtLeast(1f)
-        val tgtRootArea = targetPage.rootBounds.area.coerceAtLeast(1f)
-        val sourceVecs = sourceNodes.map { OmniflowNodeMatcher.elementVector(it.toNodeInfo(srcRootArea)) }
-        val targetVecs = targetNodes.map { OmniflowNodeMatcher.elementVector(it.toNodeInfo(tgtRootArea)) }
-
-        val bestSourceByTarget = mutableMapOf<Int, Pair<UiNode, Float>>()
-        for (ti in targetNodes.indices) {
-            var bestSource: UiNode? = null
-            var bestSim = 0f
-            for (si in sourceNodes.indices) {
-                val sim = OmniflowNodeMatcher.cosine(sourceVecs[si], targetVecs[ti])
-                if (sim > bestSim) { bestSource = sourceNodes[si]; bestSim = sim }
-            }
-            if (bestSource != null) bestSourceByTarget[targetNodes[ti].index] = bestSource to bestSim
-        }
-
-        val anchors = mutableListOf<AnchorPair>()
-        for (si in sourceNodes.indices) {
-            var bestTarget: UiNode? = null
-            var bestSim = 0f
-            for (ti in targetNodes.indices) {
-                val sim = OmniflowNodeMatcher.cosine(sourceVecs[si], targetVecs[ti])
-                if (sim > bestSim) { bestTarget = targetNodes[ti]; bestSim = sim }
-            }
-            val reciprocal = bestTarget?.let { t ->
-                bestSourceByTarget[t.index]?.first?.index == sourceNodes[si].index
-            } == true
-            if (bestTarget != null && reciprocal && bestSim >= MIN_ANCHOR_SIMILARITY) {
-                anchors += AnchorPair(sourceNodes[si], bestTarget, bestSim)
-            }
-        }
-
-        return anchors.sortedByDescending { it.similarity }.take(maxAnchorCount)
     }
 
     private fun selectPointSourceNode(
@@ -1898,6 +2121,10 @@ object OmniflowStepExecutor {
                 element.stringAttr("class")
             }
             val resourceId = element.stringAttr("resource-id")
+            val clickable = element.boolAttr("clickable")
+            val focusable = element.boolAttr("focusable")
+            val editable = element.boolAttr("editable")
+            val scrollable = element.boolAttr("scrollable")
             nodes += UiNode(
                 index = i,
                 bounds = bounds,
@@ -1908,16 +2135,23 @@ object OmniflowStepExecutor {
                 text = normalizeText(element.getAttribute("text")),
                 contentDesc = normalizeText(element.getAttribute("content-desc")),
                 hintText = normalizeText(element.getAttribute("hint-text")),
+                subtreeText = if (clickable) subtreeLabelText(element) else "",
                 packageName = normalizeText(element.getAttribute("package")),
-                clickable = element.boolAttr("clickable"),
-                focusable = element.boolAttr("focusable"),
-                editable = element.boolAttr("editable"),
-                scrollable = element.boolAttr("scrollable"),
+                clickable = clickable,
+                longClickable = element.boolAttr("long-clickable"),
+                focusable = focusable,
+                editable = editable,
+                scrollable = scrollable,
                 enabled = element.boolAttr("enabled", defaultValue = true),
                 visible = element.boolAttr("visible-to-user", defaultValue = true) &&
                     element.boolAttr("displayed", defaultValue = true),
                 selected = element.boolAttr("selected"),
                 checkable = element.boolAttr("checkable"),
+                focused = element.boolAttr("focused"),
+                isLeaf = elementIsLeaf(element),
+                hasSiblings = elementHasSiblings(element),
+                structSignature = subtreeSignature(element, depth = 2),
+                depth = elementDepth(element),
             )
         }
         if (nodes.isEmpty()) {
@@ -1925,6 +2159,28 @@ object OmniflowStepExecutor {
         }
         val rootBounds = parseBounds(root.getAttribute("bounds")) ?: inferRootBounds(nodes)
         return PageModel(rootBounds = rootBounds, nodes = nodes)
+    }
+
+    private fun subtreeLabelText(element: Element): String {
+        val labels = mutableListOf<String>()
+
+        fun visit(current: Element) {
+            labels += normalizeText(current.getAttribute("text"))
+            labels += normalizeText(current.getAttribute("content-desc"))
+            labels += normalizeText(current.getAttribute("hint-text"))
+            val children = current.childNodes
+            for (index in 0 until children.length) {
+                val child = children.item(index) as? Element ?: continue
+                visit(child)
+            }
+        }
+
+        visit(element)
+        return labels
+            .asSequence()
+            .filter { it.isNotBlank() }
+            .distinct()
+            .joinToString(" ")
     }
 
     private fun parseXmlRoot(xml: String): Element? {
@@ -1946,6 +2202,37 @@ object OmniflowStepExecutor {
             val builder = factory.newDocumentBuilder()
             builder.parse(InputSource(StringReader(xml))).documentElement
         }.getOrNull()
+    }
+
+    private fun elementDepth(element: Element): Int {
+        var depth = 0
+        var node: org.w3c.dom.Node? = element.parentNode
+        while (node is Element) { depth++; node = node.parentNode }
+        return depth
+    }
+
+    private fun elementIsLeaf(element: Element): Boolean =
+        (0 until element.childNodes.length).none { element.childNodes.item(it) is Element }
+
+    private fun elementHasSiblings(element: Element): Boolean {
+        val parent = element.parentNode as? Element ?: return false
+        return (0 until parent.childNodes.length).count { parent.childNodes.item(it) is Element } > 1
+    }
+
+    /**
+     * Computes the subtree structural signature used for struct_hash.
+     * Matches Python ElementFeatureExtractor._subtree_signature(depth=2):
+     *   "ClassName|t{hasText}|c{childCount≤5}->[child1,child2,child3]"  (up to 3 children)
+     */
+    private fun subtreeSignature(element: Element, depth: Int): String {
+        val cn = element.stringAttr("class").ifEmpty { element.stringAttr("class-name") }.substringAfterLast('.')
+        val hasText = element.getAttribute("text").isNotBlank() || element.getAttribute("content-desc").isNotBlank()
+        val children = (0 until element.childNodes.length)
+            .mapNotNull { element.childNodes.item(it) as? Element }
+        val token = "$cn|t${if (hasText) 1 else 0}|c${children.size.coerceAtMost(5)}"
+        if (depth <= 0 || children.isEmpty()) return token
+        val childSigs = children.take(3).map { subtreeSignature(it, depth - 1) }.sorted()
+        return "$token->[${childSigs.joinToString(",")}]"
     }
 
     private fun inferRootBounds(nodes: List<UiNode>): Rect {
@@ -2099,8 +2386,8 @@ object OmniflowStepExecutor {
 
     private fun summarizeBounds(bounds: Rect): Map<String, Any?> = mapOf(
         "bounds" to listOf(bounds.left, bounds.top, bounds.right, bounds.bottom),
-        "center_x" to bounds.centerX,
-        "center_y" to bounds.centerY,
+        "x" to bounds.centerX,
+        "y" to bounds.centerY,
         "width" to bounds.width,
         "height" to bounds.height,
     )
@@ -2228,12 +2515,9 @@ object OmniflowStepExecutor {
     private const val DEFAULT_SCREEN_CENTER_Y = 960f
     private const val DEFAULT_SWIPE_DISTANCE = 600f
     private val BOUNDS_REGEX = Regex("""\[(-?\d+),(-?\d+)]\[(-?\d+),(-?\d+)]""")
-    private const val MAX_ANCHOR_COUNT = OmniflowNodeMatcher.MAX_ANCHOR_COUNT
-    private const val MIN_ANCHOR_SIMILARITY = OmniflowNodeMatcher.MIN_ANCHOR_SIMILARITY
-    private const val MIN_ANCHOR_MATCH_SCORE = 0.12f
-    private const val MIN_DIRECT_FALLBACK_SIMILARITY = 0.86f
     private const val MIN_AD_DISMISS_SCORE = 760f
     private const val MIN_DISMISS_OVERLAY_SCORE = 760f
+    private const val MIN_APP_UPGRADE_DISMISS_SCORE = 700f
     private const val KEYBOARD_OBSCURE_MARGIN_PX = 16f
     private const val ACTION_TARGET_HIT_MARGIN_PX = 24f
     private const val OPEN_APP_STABILITY_ATTEMPTS = 5
@@ -2363,6 +2647,101 @@ object OmniflowStepExecutor {
         "ad_close",
         "close_ad",
     )
+    private val APP_UPGRADE_CUE_TERMS = setOf(
+        "app update",
+        "app upgrade",
+        "new version",
+        "new_version",
+        "update available",
+        "upgrade available",
+        "version update",
+        "version upgrade",
+        "upgrade",
+        "更新提示",
+        "版本更新",
+        "版本升级",
+        "检测到新版本",
+        "发现新版本",
+        "新版本",
+        "新版",
+        "升级",
+        "更新",
+    )
+    private val APP_UPGRADE_DISMISS_EXACT_LABELS = setOf(
+        "not now",
+        "later",
+        "maybe later",
+        "skip",
+        "cancel",
+        "close",
+        "dismiss",
+        "x",
+        "×",
+        "稍后再说",
+        "以后再说",
+        "下次再说",
+        "暂不升级",
+        "暂不更新",
+        "暂不",
+        "稍后",
+        "以后",
+        "取消",
+        "忽略",
+        "跳过",
+        "关闭",
+    )
+    private val APP_UPGRADE_DISMISS_CONTAINS_LABELS = setOf(
+        "not now",
+        "maybe later",
+        "remind me later",
+        "skip update",
+        "skip upgrade",
+        "cancel update",
+        "cancel upgrade",
+        "稍后再说",
+        "以后再说",
+        "下次再说",
+        "暂不升级",
+        "暂不更新",
+        "取消升级",
+        "取消更新",
+        "跳过升级",
+        "跳过更新",
+    )
+    private val APP_UPGRADE_DISMISS_RESOURCE_TAILS = setOf(
+        "cancel",
+        "btn_cancel",
+        "button_cancel",
+        "later",
+        "btn_later",
+        "not_now",
+        "btn_not_now",
+        "skip",
+        "btn_skip",
+        "close",
+        "close_button",
+        "btn_close",
+        "iv_close",
+    )
+    private val APP_UPGRADE_AFFIRMATIVE_LABELS = setOf(
+        "update",
+        "upgrade",
+        "update now",
+        "upgrade now",
+        "install",
+        "download",
+        "立即更新",
+        "立即升级",
+        "马上更新",
+        "马上升级",
+        "去更新",
+        "去升级",
+        "下载安装",
+        "安装",
+        "下载",
+        "更新",
+        "升级",
+    )
     private val FULLSCREEN_AD_SURFACE_TERMS = setOf(
         "webview",
         "image",
@@ -2477,7 +2856,13 @@ object OmniflowStepExecutor {
 
     private val PERMISSION_PACKAGES = setOf(
         "com.android.permissioncontroller",
+        "com.google.android.permissioncontroller",
         "com.android.packageinstaller",
+    )
+
+    private val PERMISSION_RESOURCE_PACKAGE_TERMS = setOf(
+        ".permissioncontroller:id/",
+        ".packageinstaller:id/",
     )
 
     private const val DEFAULT_CHECKER_TRIGGER_LIMIT = 1

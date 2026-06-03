@@ -27,7 +27,7 @@ import 'package:ui/utils/ui.dart';
 import 'package:ui/features/memory/pages/memory_center/widgets/memory_card_list.dart';
 import 'package:ui/theme/app_text_styles.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:ui/features/task/pages/execution_history/command_library_page.dart';
+import 'package:ui/features/task/pages/execution_history/function_library_page.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/widgets/common_app_bar.dart';
 
@@ -1506,7 +1506,7 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
               children: [
                 _buildLocalMemoryPage(filteredCards, hasLocalMemories),
                 _buildCloudMemoryPage(hasMem0Section),
-                const CommandLibraryEmbed(),
+                const FunctionLibraryEmbed(),
               ],
             ),
           ),

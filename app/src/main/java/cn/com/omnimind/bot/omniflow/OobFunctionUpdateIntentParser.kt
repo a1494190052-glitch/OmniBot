@@ -121,7 +121,7 @@ class OobFunctionUpdateIntentParser {
         when {
             instruction.contains("长按") -> OobActionCodec.ACTION_LONG_PRESS
             instruction.contains("输入") || instruction.contains("填写") -> OobActionCodec.ACTION_INPUT_TEXT
-            instruction.contains("滑") || instruction.contains("滚") -> OobActionCodec.ACTION_SWIPE
+            instruction.contains("滑") || instruction.contains("滚") -> OobActionCodec.ACTION_SCROLL
             else -> OobActionCodec.ACTION_CLICK
         }
 

@@ -44,6 +44,7 @@ object McpToolExecutors {
         val needSummaryArg = args?.get("needSummary") as? Boolean
         val shouldSummary = shouldEnableSummary(goal, needSummaryArg)
         val startFromCurrent = boolArg(args, "startFromCurrent", "start_from_current", "skipGoHome", "skip_go_home")
+        val parseOnly = boolArg(args, "parseOnly", "parse_only", "dryRun", "dry_run")
         val disableOmniFlowRecall = boolArgOrDefault(
             args,
             default = false,
@@ -84,6 +85,16 @@ object McpToolExecutors {
         )
 
         try {
+            if (parseOnly) {
+                if (!AssistsUtil.Core.isAccessibilityServiceEnabled()) {
+                    return@withContext McpResponseBuilder.buildErrorText("Accessibility service is not enabled")
+                }
+                return@withContext VlmToolCoordinator.parseOnlyNextAction(
+                    context = context,
+                    request = request,
+                    scope = scope
+                ).toPayload()
+            }
             val outcome = VlmToolCoordinator.executeNewTask(
                 context = context,
                 request = request,
@@ -693,11 +704,7 @@ object McpToolExecutors {
         )
         val functionId = firstNonBlank(
             requestArgs["function_id"],
-            requestArgs["functionId"],
-            requestArgs["oob_function_id"],
-            requestArgs["oobFunctionId"],
             if (RunLogReplayPolicy.isOmniflowFunctionTool(toolName)) toolArgs["function_id"] else null,
-            if (RunLogReplayPolicy.isOmniflowFunctionTool(toolName)) toolArgs["functionId"] else null,
         )
         if (functionId.isNotEmpty()) {
             return OobOmniFlowToolkitService(context).runFunction(
