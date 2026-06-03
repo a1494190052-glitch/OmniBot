@@ -4,6 +4,9 @@ import cn.com.omnimind.assists.util.TimeUtil
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
 import cn.com.omnimind.baselib.i18n.PromptLocale
 import cn.com.omnimind.baselib.llm.ModelSceneRegistry
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import java.util.Locale
 
 /**
@@ -144,6 +147,10 @@ object PromptTemplate {
             appendLine("${t(locale, "关键记忆", "Key memory")}: $keyMemory")
             appendLine("${t(locale, "历史总结", "History summary")}: $summaryHistory")
             appendLine("${t(locale, "相关已安装应用", "Relevant installed apps")}: $installedApps")
+            renderFunctionToolUsage(context, locale).takeIf { it.isNotBlank() }?.let {
+                appendLine()
+                appendLine(it)
+            }
             appendLine()
             appendLine("${t(locale, "本轮提醒", "Turn reminder")}:")
             appendLine(
@@ -167,6 +174,36 @@ object PromptTemplate {
                     "If the screenshot is black/blank but the Accessibility tree, indexed evidence, or visible_texts contains the current page and target control, treat that tree/text evidence as current-page evidence and continue with click/swipe/type; do not output refresh-state, wait, or no-op actions."
                 )
             )
+        }.trim()
+    }
+
+    private fun renderFunctionToolUsage(context: UIContext, locale: PromptLocale): String {
+        val functionNames = context.dynamicToolDefinitions.mapNotNull { definition ->
+            (definition["function"] as? JsonObject)
+                ?.get("name")
+                ?.jsonPrimitive
+                ?.contentOrNull
+                ?.trim()
+                ?.takeIf(String::isNotEmpty)
+        }
+        if (functionNames.isEmpty()) return ""
+        return when (locale) {
+            PromptLocale.ZH_CN -> buildString {
+                appendLine("OmniFlow Function 工具:")
+                appendLine("- 本轮召回的 Function 已作为真实 model tool 暴露: ${functionNames.joinToString(", ")}。")
+                appendLine("- Function 是和 agent 一样的可组合复用片段：它可能完成整个目标，也可能只推进其中一段；调用后必须继续根据工具结果和 fresh page observe 判断下一步。")
+                appendLine("- 当用户目标和某个 Function 的名称、描述、适用条件、参数 schema 高置信匹配时，优先直接调用该 Function tool，并从用户目标填写 arguments。")
+                appendLine("- 不要把 Function 当成完成证明；Function 返回后，只有当前页面/工具结果证明目标完成时才调用 finished，否则继续选择 Function 或普通 GUI tool。")
+                appendLine("- 如果没有高置信匹配，或者缺少必填参数，就继续使用普通 GUI tools，不要空参数调用。")
+            }
+            PromptLocale.EN_US -> buildString {
+                appendLine("OmniFlow Function tools:")
+                appendLine("- Recalled Functions are exposed as real model tools this turn: ${functionNames.joinToString(", ")}.")
+                appendLine("- A Function has the same meaning as in the agent: a composable reusable segment. It may complete the whole task or only advance one part; after calling it, continue from the tool result and the next fresh page observe.")
+                appendLine("- If the user goal strongly matches a Function name, description, applicability, and parameter schema, prefer calling that Function tool directly and fill arguments from the user goal.")
+                appendLine("- Do not treat a Function call as completion proof; call finished only when the current page/tool result proves completion. Otherwise continue with another Function or a normal GUI tool.")
+                appendLine("- If confidence is low or required arguments are missing, use normal GUI tools instead of calling with empty arguments.")
+            }
         }.trim()
     }
 

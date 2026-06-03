@@ -74,6 +74,7 @@ class OobVlmFunctionRecallProvider(
             if (dynamicToolNames.isNotEmpty()) {
                 appendLine("The recalled Functions are exposed as real model tools this turn: ${dynamicToolNames.joinToString(", ")}")
                 appendLine("If one clearly matches the user goal, call that Function tool directly and fill its arguments from the user request.")
+                appendLine("Function semantics match the agent path: a Function is a composable reusable segment, not automatic task completion proof; after it runs, continue from the fresh result/page.")
             }
             appendLine(guidance.guidance)
             appendLine(
