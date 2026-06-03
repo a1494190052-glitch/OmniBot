@@ -10,6 +10,14 @@
             </intent-filter>
         </receiver>
         <receiver
+            android:name=".debug.DebugVlmCancelReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="cn.com.omnimind.bot.debug.CANCEL_VLM_TASK" />
+            </intent-filter>
+        </receiver>
+        <receiver
             android:name=".debug.DebugOobFunctionRunReceiver"
             android:enabled="true"
             android:exported="true">

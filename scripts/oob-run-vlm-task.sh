@@ -7,7 +7,9 @@ cd "$ROOT_DIR"
 DEVICE_SERIAL="${ANDROID_SERIAL:-emulator-5556}"
 PACKAGE_NAME="${PACKAGE_NAME:-cn.com.omnimind.bot.debug}"
 ACTION="cn.com.omnimind.bot.debug.RUN_VLM_RUNLOG"
+CANCEL_ACTION="cn.com.omnimind.bot.debug.CANCEL_VLM_TASK"
 RECEIVER_CLASS="cn.com.omnimind.bot.debug.DebugVlmRunLogReceiver"
+CANCEL_RECEIVER_CLASS="cn.com.omnimind.bot.debug.DebugVlmCancelReceiver"
 TASK=""
 OUTPUT_PATH=""
 MAX_STEPS="${MAX_STEPS:-6}"
@@ -20,13 +22,18 @@ usage() {
   cat <<'EOF'
 Usage:
   scripts/oob-run-vlm-task.sh --task "打开蓝牙" [--device SERIAL] [--output-path PATH]
+  scripts/oob-run-vlm-task.sh
 
 Runs one OOB native Kotlin VLM task and writes the returned InternalRunLog JSON.
 The script only sends adb broadcasts; VLM execution, RunLog collection, recall,
 and optional convert are handled inside the Android app.
 
+If --task is omitted, the script prompts for the vlm_task goal on stdin.
+Press Ctrl-C while waiting to broadcast CANCEL_VLM_TASK to the debug APK.
+
 Useful options:
   --max-steps N            Default: 6
+  --timeout SECONDS        Default: 180
   --start-from-current     Do not prelaunch Settings; run from current page
   --package PACKAGE        App package to prelaunch when not using --start-from-current
   --register               Let the debug receiver convert/register the successful run
@@ -84,7 +91,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "${TASK// }" ]]; then
-  echo "--task is required" >&2
+  if [[ -t 0 ]]; then
+    printf "vlm_task goal> " >&2
+  fi
+  IFS= read -r TASK || true
+fi
+
+if [[ -z "${TASK// }" ]]; then
+  echo "vlm_task goal is required" >&2
   usage >&2
   exit 2
 fi
@@ -98,9 +112,38 @@ mkdir -p "$(dirname "$OUTPUT_PATH")"
 
 ADB=(adb -s "$DEVICE_SERIAL")
 RECEIVER="$PACKAGE_NAME/$RECEIVER_CLASS"
+CANCEL_RECEIVER="$PACKAGE_NAME/$CANCEL_RECEIVER_CLASS"
 RESULT_FILE="files/debug-vlm-runlog-result.json"
+CANCEL_RESULT_FILE="files/debug-vlm-cancel-result.json"
 RESULT_TMP="$(mktemp -t oob-vlm-result.XXXXXX.json)"
-trap 'rm -f "$RESULT_TMP"' EXIT
+
+cleanup() {
+  rm -f "$RESULT_TMP"
+}
+
+cancel_task() {
+  echo "Stopping VLM task on $DEVICE_SERIAL..." >&2
+  "${ADB[@]}" shell am broadcast \
+    -a "$CANCEL_ACTION" \
+    -n "$CANCEL_RECEIVER" \
+    --es reason "cli_interrupt" >/dev/null 2>&1 || true
+  sleep 1
+  local cancel_json
+  cancel_json="$("${ADB[@]}" shell run-as "$PACKAGE_NAME" cat "$CANCEL_RESULT_FILE" 2>/dev/null || true)"
+  if [[ -n "${cancel_json// }" ]]; then
+    echo "$cancel_json" >&2
+  fi
+}
+
+on_interrupt() {
+  trap - INT TERM
+  cancel_task
+  cleanup
+  exit 130
+}
+
+trap cleanup EXIT
+trap on_interrupt INT TERM
 
 base64_text() {
   python3 - "$1" <<'PY'
@@ -116,7 +159,7 @@ read_app_file() {
 }
 
 "${ADB[@]}" get-state >/dev/null
-"${ADB[@]}" shell run-as "$PACKAGE_NAME" rm -f "$RESULT_FILE" >/dev/null 2>&1 || true
+"${ADB[@]}" shell run-as "$PACKAGE_NAME" rm -f "$RESULT_FILE" "$CANCEL_RESULT_FILE" >/dev/null 2>&1 || true
 
 GOAL_B64="$(base64_text "$TASK")"
 BROADCAST_ARGS=(
@@ -133,6 +176,8 @@ else
   BROADCAST_ARGS+=(--es packageName "$PACKAGE_TO_OPEN")
 fi
 
+echo "Starting VLM task on $DEVICE_SERIAL: $TASK" >&2
+echo "Press Ctrl-C to stop." >&2
 "${ADB[@]}" "${BROADCAST_ARGS[@]}" >/dev/null
 
 deadline=$((SECONDS + TIMEOUT_SECONDS))
