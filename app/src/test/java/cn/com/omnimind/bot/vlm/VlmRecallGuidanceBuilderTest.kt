@@ -37,9 +37,9 @@ class VlmRecallGuidanceBuilderTest {
 
         assertTrue(guidance.contains("OmniFlow UDEG node skill-like decision context"))
         assertTrue(guidance.contains("path=page match -> UDEG node -> node skill-like decision context -> VLM/tool decision"))
-        assertTrue(guidance.contains("function_execution_policy=direct_execution_requested_by_caller"))
-        assertTrue(guidance.contains("function_id=open_network_settings"))
-        assertTrue(guidance.contains("oob_function_run function_id=open_network_settings"))
+        assertTrue(guidance.contains("tool_execution_policy=direct_execution_requested_by_caller"))
+        assertTrue(guidance.contains("tool=open_network_settings"))
+        assertTrue(guidance.contains("tool=open_network_settings"))
         assertFalse(guidance.contains("step: 1. open_app"))
         assertFalse(guidance.contains("任务已完成"))
         assertFalse(guidance.contains("current task is complete"))
@@ -64,10 +64,10 @@ class VlmRecallGuidanceBuilderTest {
             )
         )
 
-        assertTrue(guidance.contains("function_execution_policy=optional_candidates_only"))
+        assertTrue(guidance.contains("tool_execution_policy=optional_candidates_only"))
         assertTrue(guidance.contains("do_not_auto_execute=true"))
-        assertTrue(guidance.contains("function_id=open_network_settings"))
-        assertFalse(guidance.contains("function_execution_policy=direct_execution_requested_by_caller"))
+        assertTrue(guidance.contains("tool=open_network_settings"))
+        assertFalse(guidance.contains("tool_execution_policy=direct_execution_requested_by_caller"))
     }
 
     @Test
@@ -149,7 +149,7 @@ class VlmRecallGuidanceBuilderTest {
         )
 
         assertTrue(guidance.contains("decision_policy: mode=node_skill_context_only"))
-        assertTrue(guidance.contains("capability 1: type=function scope=udeg_node oob_function_run function_id=open_network_settings"))
+        assertTrue(guidance.contains("capability 1: type=function scope=udeg_node tool=open_network_settings"))
         assertFalse(guidance.contains("capability_step: 1. click"))
         assertNull(
             VlmRecallGuidanceBuilder.directHitFunctionId(
@@ -191,9 +191,9 @@ class VlmRecallGuidanceBuilderTest {
             )
         )
 
-        assertTrue(guidance.contains("function_execution_policy=optional_candidates_only"))
+        assertTrue(guidance.contains("tool_execution_policy=optional_candidates_only"))
         assertTrue(guidance.contains("do_not_auto_execute=true"))
-        assertTrue(guidance.contains("1. oob_function_run function_id=open_network_settings"))
+        assertTrue(guidance.contains("1. tool=open_network_settings"))
         assertFalse(guidance.contains("step:"))
         assertFalse(guidance.contains("segment"))
         assertFalse(guidance.contains("start_step_index"))
@@ -262,8 +262,8 @@ class VlmRecallGuidanceBuilderTest {
         )
 
         assertTrue(guidance.contains("decision_policy: mode=function_catalog_context_only"))
-        assertTrue(guidance.contains("1. oob_function_run function_id=open_settings_from_history"))
-        assertTrue(guidance.contains("function_execution_policy=optional_candidates_only"))
+        assertTrue(guidance.contains("1. tool=open_settings_from_history"))
+        assertTrue(guidance.contains("tool_execution_policy=optional_candidates_only"))
         assertFalse(guidance.contains("step:"))
     }
 
@@ -396,7 +396,7 @@ class VlmRecallGuidanceBuilderTest {
         val guidance = VlmRecallGuidanceBuilder.renderGuidance(payload)
 
         assertNull(VlmRecallGuidanceBuilder.fromAgentPayload(payload, allowDirectExecutionDecision = true).directHitFunctionId)
-        assertTrue(guidance.contains("function_id=send_message"))
+        assertTrue(guidance.contains("tool=send_message"))
         assertTrue(guidance.contains("argument_policy: requires_arguments=true"))
         assertTrue(guidance.contains("arguments={contact:string required, message:string required}"))
         assertTrue(guidance.contains("function_profile: purpose=Send a chat message"))
@@ -429,7 +429,7 @@ class VlmRecallGuidanceBuilderTest {
                 )
             )
 
-            assertFalse(enriched.currentPageSummary.contains("UDEG page skill context"))
+            assertFalse(enriched.currentPageSummary.contains("OOB Page Skill"))
             assertEquals("true", enriched.pageDiagnostics["udeg_first_seen"])
             assertEquals("false", enriched.pageDiagnostics["udeg_context_injected"])
             assertEquals("1234", enriched.pageDiagnostics["snapshot_timestamp"])
@@ -477,13 +477,15 @@ class VlmRecallGuidanceBuilderTest {
                 )
             )
 
-            assertTrue(enriched.currentPageSummary.contains("UDEG page skill context"))
-            assertTrue(enriched.currentPageSummary.contains(OobUdegNodeStore.UDEG_DECISION_PATH))
+            assertTrue(enriched.currentPageSummary.contains("OOB Page Skill"))
+            assertTrue(enriched.currentPageSummary.contains("当前页面:"))
+            assertFalse(enriched.currentPageSummary.contains(OobUdegNodeStore.UDEG_DECISION_PATH))
             assertFalse(enriched.currentPageSummary.contains("UDEG attached Functions"))
             assertFalse(enriched.currentPageSummary.contains("function_id=open_network_settings"))
             assertFalse(enriched.currentPageSummary.contains("VLM调用格式: oob_function_run"))
-            assertTrue(enriched.currentPageSummary.contains("Function 候选只来自独立 OmniFlow recall"))
-            assertTrue(enriched.currentPageSummary.contains("动作仍必须基于本轮 live screenshot/XML/indexed evidence"))
+            assertFalse(enriched.currentPageSummary.contains("UDEG可见文本"))
+            assertFalse(enriched.currentPageSummary.contains("UDEG可交互元素"))
+            assertTrue(enriched.currentPageSummary.contains("只描述当前页面是什么"))
             assertEquals("false", enriched.pageDiagnostics["udeg_first_seen"])
             assertEquals("true", enriched.pageDiagnostics["udeg_context_injected"])
         } finally {
@@ -539,7 +541,7 @@ class VlmRecallGuidanceBuilderTest {
             )
 
             assertFalse(enriched.currentPageSummary.contains("function_id=open_network_settings"))
-            assertFalse(enriched.currentPageSummary.contains("UDEG page skill context"))
+            assertFalse(enriched.currentPageSummary.contains("OOB Page Skill"))
             assertEquals("true", enriched.pageDiagnostics["udeg_first_seen"])
             assertEquals("false", enriched.pageDiagnostics["udeg_context_injected"])
             assertEquals("5678", enriched.pageDiagnostics["snapshot_timestamp"])

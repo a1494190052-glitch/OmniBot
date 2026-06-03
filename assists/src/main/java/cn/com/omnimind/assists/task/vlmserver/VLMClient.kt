@@ -67,7 +67,7 @@ class VLMClient(
 
         OmniLog.i(
             TAG,
-            "buildUIOperationRequest scene=$model historyRounds=${conversationState.roundCount()} historyMessages=${historyMessages.size} totalMessages=${messages.size} currentImages=$imageCount visualPolicy=screenshot+a11_tree marked=${includeMarkedScreenshot && !markedScreenshot.isNullOrBlank()} retry=${retryState?.retryIndex ?: 0} tools=${tools.size} dynamicFunctionTools=${dynamicFunctionToolNames.size}"
+            "buildUIOperationRequest scene=$model historyRounds=${conversationState.roundCount()} historyMessages=${historyMessages.size} totalMessages=${messages.size} currentImages=$imageCount visualPolicy=screenshot+compact_indexed_evidence marked=${includeMarkedScreenshot && !markedScreenshot.isNullOrBlank()} retry=${retryState?.retryIndex ?: 0} tools=${tools.size} recalledTools=${dynamicFunctionToolNames.size}"
         )
 
         return VLMRequestEnvelope(
@@ -137,57 +137,11 @@ class VLMClient(
             toolCalls = assistantTurn.turn.message.toolCalls
         )
         val toolCallId = assistantTurn.turn.message.toolCalls?.firstOrNull()?.id.orEmpty()
+        val success = !(executedStep.result?.startsWith("执行失败") == true)
+        val postAction = VLMPostActionObservation.summarize(executedStep)
         val toolPayload = buildJsonObject {
-            put("success", JsonPrimitive(!(executedStep.result?.startsWith("执行失败") == true)))
-            put("action", JsonPrimitive(executedStep.action.name))
-            put("result", JsonPrimitive(executedStep.result.orEmpty()))
-            if (executedStep.observation.isNotBlank()) {
-                put("observation", JsonPrimitive(executedStep.observation))
-            }
-            if (executedStep.summary.isNotBlank()) {
-                put("summary", JsonPrimitive(executedStep.summary))
-            }
-            executedStep.actionResultData?.let { data ->
-                put("data", sanitizeModelVisibleJson(data))
-            }
-            VLMPostActionObservation.summarize(executedStep)?.let { post ->
-                put("screen_changed", JsonPrimitive(post.screenChanged))
-                put("package_changed", JsonPrimitive(post.packageChanged))
-                post.beforePackageName?.takeIf { it.isNotBlank() }?.let {
-                    put("before_package", JsonPrimitive(it))
-                }
-                post.afterPackageName?.takeIf { it.isNotBlank() }?.let {
-                    put("after_package", JsonPrimitive(it))
-                }
-                if (post.afterVisibleTexts.isNotEmpty()) {
-                    put(
-                        "after_visible_texts",
-                        buildJsonArray {
-                            post.afterVisibleTexts.forEach { add(JsonPrimitive(it)) }
-                        }
-                    )
-                }
-                if (post.appearedTexts.isNotEmpty()) {
-                    put(
-                        "appeared_texts",
-                        buildJsonArray {
-                            post.appearedTexts.forEach { add(JsonPrimitive(it)) }
-                        }
-                    )
-                }
-                if (post.disappearedTexts.isNotEmpty()) {
-                    put(
-                        "disappeared_texts",
-                        buildJsonArray {
-                            post.disappearedTexts.forEach { add(JsonPrimitive(it)) }
-                        }
-                    )
-                }
-                post.afterFocusedEditable?.takeIf { it.isNotBlank() }?.let {
-                    put("after_focused_editable", JsonPrimitive(it))
-                }
-                put("post_action_observation", JsonPrimitive(post.summaryText))
-            }
+            put("success", JsonPrimitive(success))
+            put("result", JsonPrimitive(compactToolResult(executedStep, postAction)))
         }.toString()
         return VLMConversationRound(
             userMessage = ChatCompletionMessage(
@@ -201,6 +155,21 @@ class VLMClient(
                 toolCallId = toolCallId.ifBlank { null }
             )
         )
+    }
+
+    private fun compactToolResult(
+        executedStep: UIStep,
+        post: VLMPostActionObservation.Summary?
+    ): String {
+        val parts = buildList {
+            executedStep.result?.trim()?.takeIf { it.isNotEmpty() }?.let { add(it) }
+            executedStep.summary.trim().takeIf { it.isNotEmpty() }?.let { add("summary=$it") }
+            post?.summaryText?.takeIf { it.isNotBlank() }?.let { add(it) }
+            post?.afterVisibleTexts?.takeIf { it.isNotEmpty() }?.let {
+                add("after_visible_texts=${it.take(MAX_TOOL_RESULT_VISIBLE_TEXTS).joinToString(" / ")}")
+            }
+        }
+        return parts.joinToString("; ").ifBlank { "no result details" }.take(MAX_TOOL_RESULT_CHARS)
     }
 
     private fun sanitizeModelVisibleJson(value: kotlinx.serialization.json.JsonElement): kotlinx.serialization.json.JsonElement {
@@ -262,7 +231,7 @@ class VLMClient(
             is PressHomeAction -> "press_home"
             is PressBackAction -> "press_back"
             is GetStateAction -> "get_state ${action.reason.take(MAX_HISTORY_ACTION_CHARS)}"
-            is FunctionRunAction -> "oob_function_run ${action.functionId}"
+            is FunctionRunAction -> "${action.functionId} ${action.arguments.toString().take(MAX_HISTORY_ACTION_CHARS)}"
             is FinishedAction -> "finished"
             is RequireUserChoiceAction -> "require_user_choice"
             is RequireUserConfirmationAction -> "require_user_confirmation"
@@ -773,6 +742,8 @@ class VLMClient(
 
     private fun toolNames(dynamicFunctionToolNames: Set<String> = emptySet()): Set<String> =
         OobCanonicalActionSchema.modelVisibleTools.mapTo(linkedSetOf()) { it.name }.apply {
+            remove(OobCanonicalActionSchema.TOOL_GET_STATE)
+            remove(OobCanonicalActionSchema.TOOL_OOB_FUNCTION_RUN)
             addAll(dynamicFunctionToolNames)
         }
 
@@ -929,6 +900,8 @@ class VLMClient(
         private const val MAX_HISTORY_ACTION_CHARS = 160
         private const val MAX_HISTORY_RESULT_CHARS = 220
         private const val MAX_HISTORY_OBSERVATION_CHARS = 360
+        private const val MAX_TOOL_RESULT_CHARS = 900
+        private const val MAX_TOOL_RESULT_VISIBLE_TEXTS = 12
         private val TOOL_CALL_TAG_REGEX = Regex("""(?is)<tool_call>\s*(.*?)\s*</tool_call>""")
         private val ARG_PAIR_REGEX = Regex(
             """(?is)<arg_key>\s*([^<]+?)\s*</arg_key>\s*<arg_value>\s*(.*?)\s*(?=</arg_value>|</tool_call>|```|$)(?:</arg_value>)?"""

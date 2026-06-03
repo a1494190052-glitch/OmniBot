@@ -34,7 +34,9 @@ class VLMOperationService(
     private val onPauseCheck: suspend () -> Unit = {}, // 暂停检查回调：用于检测用户主动暂停
     private val onStepStarted: suspend (Int, UIStep) -> Unit = { _, _ -> },
     private val onStepCompleted: suspend (Int, UIStep, Boolean, String?) -> Unit = { _, _, _, _ -> },
-    private val isSubTask: Boolean = false // 标识当前是否为子任务
+    private val isSubTask: Boolean = false, // 标识当前是否为子任务
+    private val taskId: String = "",
+    private val runId: String = "",
 
 ) {
     private data class XmlHealth(
@@ -637,6 +639,14 @@ class VLMOperationService(
         fun usageAggregate(): VLMTokenUsage? = VLMTokenUsageMapper.aggregate(tokenUsageAttempts)
 
         fun usageAttemptsSnapshot(): List<VLMTokenUsage> = tokenUsageAttempts.toList()
+        val phaseMs = linkedMapOf<String, Long>()
+
+        fun markPhase(name: String, startedAtMs: Long) {
+            phaseMs[name] = (System.currentTimeMillis() - startedAtMs).coerceAtLeast(0L)
+        }
+
+        fun phaseDiagnostics(): Map<String, String> =
+            phaseMs.mapValues { it.value.toString() }
 
         var stabilityAttempt = 0
         while (stabilityAttempt < maxRetries) {
@@ -648,7 +658,9 @@ class VLMOperationService(
                     "executeSingleStep: stabilityAttempt=$stabilityAttempt, overallTask=${_context.overallTask}, currentStepGoal=${_context.activeGoal()}"
                 )
                 println("executeSingleStep: stabilityAttempt=$stabilityAttempt, overallTask=${_context.overallTask}, currentStepGoal=${_context.activeGoal()}")
+                val observeStartedAt = System.currentTimeMillis()
                 val pageSnapshot = captureCurrentPageSnapshot("attempt_$stabilityAttempt")
+                markPhase("fresh_observe_ms", observeStartedAt)
                 val screenshot = pageSnapshot.screenshotBase64
                 val beforeXml = pageSnapshot.xml
                 _context = _context.copy(
@@ -657,12 +669,17 @@ class VLMOperationService(
                     pageDiagnostics = emptyMap(),
                     dynamicToolDefinitions = emptyList()
                 )
+                _context = _context.copy(pageDiagnostics = phaseDiagnostics())
+                val firstStepStartedAt = System.currentTimeMillis()
                 _context = VLMFirstStepOptimizer.enrichContext(
                     context = _context,
                     currentXml = beforeXml,
                     currentPackageName = pageSnapshot.packageName,
                     stepIndex = stepIndex
                 )
+                markPhase("first_step_optimizer_ms", firstStepStartedAt)
+                _context = _context.copy(pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics())
+                val pageSkillStartedAt = System.currentTimeMillis()
                 _context = VLMPageContextProviderRegistry.enrich(
                     VLMPageContextRequest(
                         context = _context,
@@ -673,6 +690,9 @@ class VLMOperationService(
                         snapshot = pageSnapshot
                     )
                 )
+                markPhase("page_skill_ms", pageSkillStartedAt)
+                _context = _context.copy(pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics())
+                val functionRecallStartedAt = System.currentTimeMillis()
                 _context = VLMRecallContextProviderRegistry.enrich(
                     VLMPageContextRequest(
                         context = _context,
@@ -684,19 +704,27 @@ class VLMOperationService(
                         disableOmniFlowRecall = disableOmniFlowRecallForCurrentTask
                     )
                 )
+                markPhase("function_recall_ms", functionRecallStartedAt)
+                _context = _context.copy(pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics())
+                val indexedEvidenceStartedAt = System.currentTimeMillis()
                 _context = VLMIndexedPageContext.enrich(
                     context = _context,
                     currentXml = beforeXml,
                     displayWidth = pageSnapshot.displayWidth,
                     displayHeight = pageSnapshot.displayHeight
                 )
+                markPhase("indexed_evidence_ms", indexedEvidenceStartedAt)
+                _context = _context.copy(pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics())
                 val markedScreenshot = if (SEND_MARKED_SCREENSHOT_BY_DEFAULT) {
+                    val markedScreenshotStartedAt = System.currentTimeMillis()
                     VLMIndexedPageContext.renderMarkedScreenshot(
                         screenshotBase64 = screenshot,
                         currentXml = beforeXml,
                         displayWidth = pageSnapshot.displayWidth,
                         displayHeight = pageSnapshot.displayHeight
-                    )
+                    ).also {
+                        markPhase("marked_screenshot_ms", markedScreenshotStartedAt)
+                    }
                 } else {
                     null
                 }
@@ -718,6 +746,7 @@ class VLMOperationService(
                     val includeCurrentScreenshot = true
                     val requestScreenshot = screenshot.takeIf { includeCurrentScreenshot }
                     val requestMarkedScreenshot = markedScreenshot.takeIf { includeCurrentScreenshot }
+                    val requestBuildStartedAt = System.currentTimeMillis()
                     val requestEnvelope = vlmClient.buildUIOperationRequest(
                         context = _context,
                         screenshot = requestScreenshot,
@@ -727,10 +756,13 @@ class VLMOperationService(
                         retryState = retryState,
                         includeMarkedScreenshot = SEND_MARKED_SCREENSHOT_BY_DEFAULT && includeCurrentScreenshot
                     )
+                    markPhase("request_build_ms", requestBuildStartedAt)
                     lastRequestEnvelope = requestEnvelope
                     currentUserTextSnapshot = requestEnvelope.currentUserText
                     _context = _context.copy(
-                        pageDiagnostics = _context.pageDiagnostics + buildRequestEnvelopeDiagnostics(requestEnvelope)
+                        pageDiagnostics = _context.pageDiagnostics +
+                            phaseDiagnostics() +
+                            buildRequestEnvelopeDiagnostics(requestEnvelope)
                     )
                     OmniLog.i(
                         Tag,
@@ -760,7 +792,7 @@ class VLMOperationService(
                             result = "VLM流式请求失败",
                             tokenUsage = usageAggregate(),
                             tokenUsageAttempts = usageAttemptsSnapshot(),
-                            pageDiagnostics = _context.pageDiagnostics
+                            pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics()
                         )
                         return VLMOperationResult(
                             success = false,
@@ -769,6 +801,7 @@ class VLMOperationService(
                             context = _context
                         )
                     }
+                    markPhase("vlm_stream_ms", httpClientStartTime)
                     sceneTurn = streamedTurn
                     VLMTokenUsageMapper.fromTurn(
                         turn = streamedTurn,
@@ -806,11 +839,14 @@ class VLMOperationService(
                     }
 
                     // 解析链路统一由主场景解析器处理
+                    val parseStartedAt = System.currentTimeMillis()
                     vlmResult = vlmClient.parseVLMResponse(
                         response = streamedTurn,
                         modelOrScene = model,
                         dynamicFunctionToolNames = requestEnvelope.dynamicFunctionToolNames
                     )
+                    markPhase("parse_response_ms", parseStartedAt)
+                    _context = _context.copy(pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics())
                     safePauseCheck("after_parse_${stabilityAttempt}_retry_$toolCallRetryCount")
 
                     if (
@@ -1017,20 +1053,28 @@ class VLMOperationService(
                     pageDiagnostics = _context.pageDiagnostics
                 )
                 onStepStarted(stepIndex, runningStep)
+                val actionDispatchStartedAt = System.currentTimeMillis()
                 val executedStep = actionExecutor.act(
                     VLMStep(
                         observation = processedStep.observation,
                         thought = processedStep.thought,
                         action = processedStep.action,
                         summary = processedStep.summary
+                    ),
+                    functionRunContext = VLMFunctionRunContext(
+                        taskId = taskId,
+                        runId = runId.ifBlank { taskId },
                     )
                 )
+                markPhase("action_dispatch_ms", actionDispatchStartedAt)
                 val actionFinishedAtMs = System.currentTimeMillis()
                 safePauseCheck("after_action_${processedStep.action.name}_${stabilityAttempt}")
+                val postObserveStartedAt = System.currentTimeMillis()
                 val afterActionXml = waitForPostActionStableXml(
                     beforeXml = dispatchXml,
                     expectPageChange = shouldWaitForChangedPostActionPage(processedStep.action)
                 )
+                markPhase("post_action_observe_ms", postObserveStartedAt)
                 val afterPackageName = AccessibilityController.Companion.getPackageName()
                 var finalStep = executedStep.copy(
                     summary = processedStep.summary,
@@ -1043,7 +1087,7 @@ class VLMOperationService(
                     finishedAtMs = actionFinishedAtMs,
                     tokenUsage = usageAggregate(),
                     tokenUsageAttempts = usageAttemptsSnapshot(),
-                    pageDiagnostics = _context.pageDiagnostics
+                    pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics()
                 )
                 if (processedStep.action is GetStateAction) {
                     finalStep = finalStep.copy(

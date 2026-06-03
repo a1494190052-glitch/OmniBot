@@ -5,6 +5,8 @@ import kotlinx.serialization.json.JsonObject
 data class VLMFunctionRunRequest(
     val functionId: String,
     val arguments: JsonObject,
+    val taskId: String = "",
+    val runId: String = "",
 )
 
 interface VLMFunctionRunHandler {

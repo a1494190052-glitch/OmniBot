@@ -93,6 +93,24 @@ class ManualRecordingPolicyTest {
     }
 
     @Test
+    fun `manual recording persists each action incrementally without duplicate append on finish`() {
+        val recorderSource = readSource(
+            "assists/src/main/java/cn/com/omnimind/assists/task/vlmserver/ManualVlmTraceRecorder.kt"
+        )
+        val sessionSource = readSource(
+            "assists/src/main/java/cn/com/omnimind/assists/HumanTrajectoryLearningSession.kt"
+        )
+
+        assertTrue(recorderSource.contains("private val onActionRecorded: ((Int, ManualVlmRecordedAction) -> Unit)? = null"))
+        assertTrue(recorderSource.contains("val index = recordedActions.size + 1"))
+        assertTrue(recorderSource.contains("callback(index, action)"))
+        assertTrue(sessionSource.contains("onActionRecorded = { index, action ->"))
+        assertTrue(sessionSource.contains("persistRecordedAction("))
+        assertTrue(sessionSource.contains("InternalRunLogStore.upsertCard("))
+        assertFalse(sessionSource.contains("InternalRunLogStore.appendCards("))
+    }
+
+    @Test
     fun `overlay replay result distinguishes execution from recording`() {
         assertFalse(ManualOverlayGestureReplayResult(executed = false).recorded)
         assertTrue(ManualOverlayGestureReplayResult(executed = true).recorded)

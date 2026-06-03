@@ -198,6 +198,9 @@ class App : BaseApplication() {
                         linkedMapOf(
                             "function_id" to request.functionId,
                             "arguments" to jsonObjectToPlainMap(request.arguments),
+                            "frontend_task_id" to request.taskId,
+                            "frontend_run_id" to request.runId,
+                            "frontend_parent" to "vlm_task",
                         )
                     )
                     val success = payload["success"] == true

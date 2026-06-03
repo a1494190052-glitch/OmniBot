@@ -57,56 +57,21 @@ class OobVlmPageContextProvider(
         if (nodeId.isBlank()) return ""
         val pageAnalysis = mapArg(payload["page_analysis"])
         val summary = mapArg(pageAnalysis["summary"])
-        val nodeSkillContext = mapArg(payload["node_skill_context"])
-        val skill = mapArg(nodeSkillContext["skill"])
-        val decisionContext = mapArg(nodeSkillContext["decision_context"])
-            .ifEmpty { mapArg(payload["decision_context"]) }
-        val visibleTexts = listArg(summary["visible_texts"])
-            .take(MAX_ITEMS)
-            .joinToString(" / ") { it.toString() }
-        val actionables = listArg(summary["actionables"])
-            .take(MAX_ITEMS)
-            .joinToString(" / ") { it.toString() }
-        val hints = listArg(pageAnalysis["decision_hints"])
-            .take(MAX_HINTS)
-            .joinToString(" ")
-        val decisionRules = listArg(skill["decision_rules"])
-            .take(MAX_HINTS)
-            .joinToString(" ") { it.toString() }
-        val usageRules = listArg(decisionContext["usage"])
-            .take(MAX_HINTS)
-            .joinToString(" ") { it.toString() }
+        val title = firstNonBlank(summary["title"])
+        val pageRole = firstNonBlank(summary["page_role"])
+        val identityTexts = listArg(summary["visible_texts"])
+            .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
+            .distinct()
+            .take(MAX_IDENTITY_TEXTS)
+            .joinToString(" / ")
+        if (title.isBlank() && pageRole.isBlank() && identityTexts.isBlank()) return ""
 
         return buildString {
-            append("UDEG page skill context (current-turn page match; app-card-like decision context, not executable proof):")
-            append("\npath=").append(OobUdegNodeStore.UDEG_DECISION_PATH)
-            append("\nnode_id=").append(nodeId)
-            append(" page_similarity=").append(observed.pageSimilarity)
-            append(" first_seen=").append(observed.firstSeen)
-            firstNonBlank(summary["title"]).takeIf { it.isNotBlank() }?.let {
-                append("\n页面标题: ").append(it)
-            }
-            firstNonBlank(summary["page_role"]).takeIf { it.isNotBlank() }?.let {
-                append("\n页面类型: ").append(it)
-            }
-            if (visibleTexts.isNotBlank()) {
-                append("\nUDEG可见文本: ").append(visibleTexts)
-            }
-            if (actionables.isNotBlank()) {
-                append("\nUDEG可交互元素: ").append(actionables)
-            }
-            if (hints.isNotBlank()) {
-                append("\nUDEG决策提示: ").append(hints)
-            }
-            if (decisionRules.isNotBlank()) {
-                append("\nUDEG节点规则: ").append(decisionRules)
-            }
-            if (usageRules.isNotBlank()) {
-                append("\nUDEG使用方式: ").append(usageRules)
-            }
-            append("\n约束: 这是当前页决策上下文；下一步动作仍必须基于本轮 live screenshot 和 compact indexed evidence。")
-            append("\n约束: Function 候选只来自独立 OmniFlow recall，不在 page skill 中注入。")
-            append("\nUDEG观测来源: live page match；raw XML 仅供系统内部匹配，不进入模型上下文。")
+            append("OOB Page Skill (current page identity only):")
+            if (title.isNotBlank()) append("\n当前页面: ").append(title)
+            if (pageRole.isNotBlank()) append("\n页面类型: ").append(pageRole)
+            if (identityTexts.isNotBlank()) append("\n页面识别文本: ").append(identityTexts)
+            append("\n约束: 只描述当前页面是什么；复用指令由 Function Recall 注入，弹窗/键盘/广告由 Checker 处理。")
         }.take(MAX_GUIDANCE_CHARS)
     }
 
@@ -130,9 +95,8 @@ class OobVlmPageContextProvider(
     }
 
     private companion object {
-        private const val MAX_ITEMS = 8
-        private const val MAX_HINTS = 3
-        private const val MAX_GUIDANCE_CHARS = 1_400
-        private const val MAX_CONTEXT_CHARS = 2_400
+        private const val MAX_IDENTITY_TEXTS = 18
+        private const val MAX_GUIDANCE_CHARS = 1_200
+        private const val MAX_CONTEXT_CHARS = 4_000
     }
 }

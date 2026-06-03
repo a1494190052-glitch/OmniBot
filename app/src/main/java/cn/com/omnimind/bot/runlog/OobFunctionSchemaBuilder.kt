@@ -99,7 +99,7 @@ object OobFunctionSchemaBuilder {
         index: Int,
         action: Map<String, Any?>,
     ): Map<String, Any?>? {
-        val rawType = firstNonBlank(action["tool"])
+        val rawType = firstNonBlank(action["tool"], action["type"], action["action"])
         if (rawType.isEmpty()) return null
         val normalizedType = OobActionCodec.canonicalActionForName(rawType)
             ?: OobActionCodec.normalizeName(rawType)

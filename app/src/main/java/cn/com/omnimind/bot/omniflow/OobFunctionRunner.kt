@@ -31,6 +31,9 @@ class OobFunctionRunner(
         resumeFromStep: Int = 0,
         fallbackSessionId: String = "",
         fallbackAttempt: Int = 0,
+        frontendRunId: String = "",
+        frontendTaskId: String = "",
+        frontendParent: String = "",
     ): Map<String, Any?> = withContext(Dispatchers.Default) {
         val timing = FunctionExecutionTiming()
         val spec = timing.measure("load_function_spec_ms") {
@@ -72,7 +75,10 @@ class OobFunctionRunner(
                     allowToolDelegationWithoutRouter = false,
                     resumeFromStep = resumeFromStep,
                     fallbackSessionId = fallbackSessionId,
-                    fallbackAttempt = fallbackAttempt
+                    fallbackAttempt = fallbackAttempt,
+                    frontendRunId = frontendRunId,
+                    frontendTaskId = frontendTaskId,
+                    frontendParent = frontendParent,
                 )
             }
         }.getOrElse { error ->

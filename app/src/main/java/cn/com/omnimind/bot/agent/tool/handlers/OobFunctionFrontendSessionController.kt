@@ -26,14 +26,24 @@ class OobFunctionFrontendSessionController(
         toolHandle: cn.com.omnimind.bot.agent.AgentToolExecutionHandle?,
         callStack: List<String>,
         fallbackRunIdProvider: () -> String,
+        frontendRunId: String = "",
+        frontendTaskId: String = "",
+        frontendParent: String = "",
     ): Session? {
         if (stepCount <= 0 || callStack.isNotEmpty()) return null
         if (!canUseMainDispatcher()) return null
-        val runId = toolHandle?.runId
+        val embeddedInVlmTask = frontendParent.trim() == "vlm_task"
+        val runId = frontendRunId
+            .trim()
+            .takeIf { it.isNotEmpty() }
+            ?: toolHandle?.runId
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
             ?: fallbackRunIdProvider()
-        val taskId = "${runId}_omniflow_ui"
+        val taskId = frontendTaskId
+            .trim()
+            .takeIf { it.isNotEmpty() }
+            ?: "${runId}_omniflow_ui"
         val stopRequested = AtomicBoolean(false)
         val label = frontendLabel(functionId, spec)
         OmniFlowUiSession.registerRun(
@@ -44,7 +54,7 @@ class OobFunctionFrontendSessionController(
         OmniFlowUiSession.beginTask(runId, taskId)
         runCatching {
             withContext(Dispatchers.Main) {
-                ScreenMaskLoader.loadGoneViewScreenMask()
+                ScreenMaskLoader.loadLockScreenMask()
                 DraggableBallInstance.loadBall()
                 DraggableBallInstance.setDoing(
                     message = helper.localized("准备执行复用指令"),
@@ -64,6 +74,7 @@ class OobFunctionFrontendSessionController(
             stopRequested = stopRequested,
             label = label,
             helper = helper,
+            embeddedInVlmTask = embeddedInVlmTask,
         )
     }
 
@@ -91,6 +102,7 @@ class OobFunctionFrontendSessionController(
         private val stopRequested: AtomicBoolean,
         private val label: String,
         private val helper: SharedHelper,
+        private val embeddedInVlmTask: Boolean,
     ) {
         fun throwIfStopRequested() {
             if (stopRequested.get()) {
@@ -106,7 +118,7 @@ class OobFunctionFrontendSessionController(
             )
             runCatching {
                 withContext(Dispatchers.Main) {
-                    ScreenMaskLoader.loadGoneViewScreenMask()
+                    ScreenMaskLoader.loadLockScreenMask()
                     DraggableBallInstance.setDoing(
                         message = message,
                         isShowTakeOver = false,
@@ -128,8 +140,20 @@ class OobFunctionFrontendSessionController(
             if (!end.wasActive) return
             runCatching {
                 withContext(NonCancellable + Dispatchers.Main) {
-                    ScreenMaskLoader.loadGoneViewScreenMask()
-                    DraggableBallInstance.finishDoingTask(message)
+                    if (embeddedInVlmTask) {
+                        ScreenMaskLoader.loadLockScreenMask()
+                        DraggableBallInstance.setDoing(
+                            message = helper.localized("复用指令执行完成"),
+                            isShowTakeOver = false,
+                            subMessage = helper.localized("智能执行中"),
+                            isShowStop = true,
+                            isTouchable = true,
+                            forceOnTop = true
+                        )
+                    } else {
+                        ScreenMaskLoader.loadGoneViewScreenMask()
+                        DraggableBallInstance.finishDoingTask(message)
+                    }
                 }
             }.onFailure {
                 OmniLog.w(TAG, "finish OmniFlow frontend failed: ${it.message}")

@@ -22,6 +22,7 @@ import java.io.File
 
 class DebugManualTraceReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
+        val pendingResult = goAsync()
         val appContext = context.applicationContext
         val durationMs = intent?.getLongExtra("durationMs", DEFAULT_DURATION_MS)
             ?.coerceIn(MIN_DURATION_MS, MAX_DURATION_MS)
@@ -34,27 +35,32 @@ class DebugManualTraceReceiver : BroadcastReceiver() {
             intent?.getBooleanExtra("rawTouch", false) == true
         val enableDebugScreenshots = debugScreenshotsEnabled(intent)
 
+        OmniLog.i(TAG, "received debug manual trace session=$sessionLabel durationMs=$durationMs")
         scope.launch {
-            val result = runCatching {
-                runManualTrace(
-                    appContext,
-                    sessionLabel,
-                    durationMs,
-                    enableRawTouch,
-                    enableDebugScreenshots
-                )
-            }.getOrElse { error ->
-                linkedMapOf<String, Any?>(
-                    "success" to false,
-                    "phase" to "exception",
-                    "error_message" to error.message.orEmpty(),
-                    "error_type" to error.javaClass.name,
-                    "token_usage_total" to 0,
-                )
+            try {
+                val result = runCatching {
+                    runManualTrace(
+                        appContext,
+                        sessionLabel,
+                        durationMs,
+                        enableRawTouch,
+                        enableDebugScreenshots
+                    )
+                }.getOrElse { error ->
+                    linkedMapOf<String, Any?>(
+                        "success" to false,
+                        "phase" to "exception",
+                        "error_message" to error.message.orEmpty(),
+                        "error_type" to error.javaClass.name,
+                        "token_usage_total" to 0,
+                    )
+                }
+                val json = gson.toJson(result)
+                File(appContext.filesDir, RESULT_FILE).writeText(json)
+                OmniLog.i(TAG, json)
+            } finally {
+                pendingResult.finish()
             }
-            val json = gson.toJson(result)
-            File(appContext.filesDir, RESULT_FILE).writeText(json)
-            OmniLog.i(TAG, json)
         }
     }
 
@@ -66,9 +72,11 @@ class DebugManualTraceReceiver : BroadcastReceiver() {
         enableDebugScreenshots: Boolean,
     ): Map<String, Any?> {
         val timing = DebugTiming()
+        OmniLog.i(TAG, "manual trace: waiting for accessibility")
         timing.measure("wait_accessibility_ms") {
             waitForAccessibility(context)
         }
+        OmniLog.i(TAG, "manual trace: accessibility ready")
         val recorder = ManualVlmTraceRecorder(
             context = context,
             sessionLabel = sessionLabel,
@@ -78,6 +86,7 @@ class DebugManualTraceReceiver : BroadcastReceiver() {
         val started = timing.measure("start_recorder_ms") {
             recorder.start()
         }
+        OmniLog.i(TAG, "manual trace: recorder started=$started")
         val eventProbe = DebugEventProbe()
         if (started) {
             AssistsService.addListener(eventProbe.listener)
@@ -121,6 +130,7 @@ class DebugManualTraceReceiver : BroadcastReceiver() {
             }
         }
         val actionNames = traceResult.actions.map { it.actionName }
+        val swipeCount = actionNames.count { it == "scroll" || it == "swipe" }
         return linkedMapOf<String, Any?>(
             "success" to traceResult.actions.isNotEmpty(),
             "phase" to "validated",
@@ -129,7 +139,7 @@ class DebugManualTraceReceiver : BroadcastReceiver() {
             "action_count" to traceResult.actionCount,
             "action_names" to actionNames,
             "has_click" to actionNames.contains("click"),
-            "has_swipe" to actionNames.contains("swipe"),
+            "has_swipe" to (swipeCount > 0),
             "summary" to traceResult.summary,
             "diagnostics" to traceResult.diagnostics.takeIf { it.isNotEmpty() },
             "actions" to traceResult.actions.map { action ->
@@ -152,7 +162,7 @@ class DebugManualTraceReceiver : BroadcastReceiver() {
                 counts = mapOf(
                     "action_count" to traceResult.actionCount,
                     "click_count" to actionNames.count { it == "click" },
-                    "swipe_count" to actionNames.count { it == "swipe" },
+                    "swipe_count" to swipeCount,
                 )
             ),
             "event_probe" to eventProbe.snapshot(),

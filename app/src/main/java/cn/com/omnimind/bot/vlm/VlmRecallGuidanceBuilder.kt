@@ -156,7 +156,7 @@ object VlmRecallGuidanceBuilder {
                 val score = candidate["score"]?.toString()?.trim().orEmpty()
                 val description = firstNonBlank(candidate["description"], candidate["name"], functionId)
                     .take(MAX_DESCRIPTION_CHARS)
-                appendLine("${index + 1}. oob_function_run function_id=$functionId score=$score description=$description")
+                appendLine("${index + 1}. tool=$functionId score=$score description=$description")
                 renderFunctionProfile(candidate).takeIf { it.isNotBlank() }?.let {
                     appendLine("   function_profile: $it")
                 }
@@ -175,7 +175,7 @@ object VlmRecallGuidanceBuilder {
                 val description = firstNonBlank(capability["description"], capability["name"], functionId)
                     .take(MAX_DESCRIPTION_CHARS)
                 appendLine(
-                    "capability ${index + 1}: type=$type scope=$scope oob_function_run function_id=$functionId " +
+                    "capability ${index + 1}: type=$type scope=$scope tool=$functionId " +
                         "score=$score description=$description"
                 )
                 renderFunctionProfile(capability).takeIf { it.isNotBlank() }?.let {
@@ -262,9 +262,9 @@ object VlmRecallGuidanceBuilder {
 
     private fun functionExecutionPolicyLine(directDecision: Boolean): String =
         if (directDecision) {
-            "function_execution_policy=direct_execution_requested_by_caller; parameterized_hits_may_be_called_by_agent_or_vlm_with_filled_arguments=true"
+            "tool_execution_policy=direct_execution_requested_by_caller; parameterized_hits_may_be_called_by_agent_or_vlm_with_filled_arguments=true"
         } else {
-            "function_execution_policy=optional_candidates_only; do_not_auto_execute=true; require_explicit_oob_function_run_selection=true; function_candidates_may_be_called_by_agent_or_vlm_with_filled_arguments=true"
+            "tool_execution_policy=optional_candidates_only; do_not_auto_execute=true; require_explicit_model_tool_selection=true; recalled_tools_may_be_called_by_agent_or_vlm_with_filled_arguments=true"
         }
 
     private fun isDirectExecutionRequested(

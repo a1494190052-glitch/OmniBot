@@ -225,12 +225,11 @@ class VLMClientRequestTest {
         )
 
         val payload = json.parseToJsonElement(round.toolMessage.content!!.jsonPrimitive.contentOrNull!!).jsonObject
-        assertTrue(payload["screen_changed"]!!.jsonPrimitive.boolean)
-        assertTrue(payload["package_changed"]!!.jsonPrimitive.boolean)
-        assertEquals("com.android.settings", payload["after_package"]!!.jsonPrimitive.contentOrNull)
-        assertTrue(payload["after_visible_texts"].toString().contains("Network & internet"))
-        assertTrue(payload["appeared_texts"].toString().contains("Network & internet"))
-        assertTrue(payload["post_action_observation"].toString().contains("after action screen changed"))
+        assertEquals(setOf("success", "result"), payload.keys)
+        assertTrue(payload["success"]!!.jsonPrimitive.boolean)
+        assertTrue(payload["result"].toString().contains("Network & internet"))
+        assertFalse(payload.containsKey("state_delta"))
+        assertFalse(payload.containsKey("continuation"))
     }
 
     @Test
@@ -322,11 +321,11 @@ class VLMClientRequestTest {
         )
 
         val payloadText = round.toolMessage.content!!.jsonPrimitive.contentOrNull.orEmpty()
+        val payload = json.parseToJsonElement(payloadText).jsonObject
+        assertEquals(setOf("success", "result"), payload.keys)
+        assertTrue(payload["success"]!!.jsonPrimitive.boolean)
         assertFalse(payloadText.contains("<hierarchy"))
         assertFalse(payloadText.contains("<node"))
-        assertTrue(payloadText.contains("observation_xml_chars"))
-        assertTrue(payloadText.contains("current_xml_chars"))
-        assertTrue(payloadText.contains("model_visible"))
     }
 
     @Test
@@ -365,7 +364,7 @@ class VLMClientRequestTest {
     }
 
     @Test
-    fun `openai tool action parser supports oob function run with arguments`() {
+    fun `openai tool action parser rejects legacy oob function run without dynamic tool`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(
             SceneChatCompletionTurn(
@@ -390,10 +389,8 @@ class VLMClientRequestTest {
             modelOrScene = "scene.vlm.operation.primary"
         )
 
-        assertTrue(result.success)
-        val action = requireNotNull(result.step).action as FunctionRunAction
-        assertEquals("xiaohongshu_search", action.functionId)
-        assertEquals("美食", action.arguments["keyword"]!!.jsonPrimitive.contentOrNull)
+        assertFalse(result.success)
+        assertTrue(result.error.orEmpty().contains("tool_calls"))
     }
 
     @Test
@@ -481,7 +478,7 @@ class VLMClientRequestTest {
     }
 
     @Test
-    fun `text fallback tool parser supports inline oob function run json`() {
+    fun `text fallback tool parser rejects inline legacy oob function run json`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(
             SceneChatCompletionTurn(
@@ -501,14 +498,12 @@ class VLMClientRequestTest {
             modelOrScene = "scene.vlm.operation.primary"
         )
 
-        assertTrue(result.success)
-        val action = requireNotNull(result.step).action as FunctionRunAction
-        assertEquals("xhs_search_keyword", action.functionId)
-        assertEquals("猫猫", action.arguments["keyword"]!!.jsonPrimitive.contentOrNull)
+        assertFalse(result.success)
+        assertTrue(result.error.orEmpty().contains("tool_calls"))
     }
 
     @Test
-    fun `text fallback tool parser supports function invocation syntax`() {
+    fun `text fallback tool parser supports dynamic saved workflow invocation syntax`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(
             SceneChatCompletionTurn(
@@ -520,12 +515,13 @@ class VLMClientRequestTest {
                     message = ChatCompletionMessage(
                         role = "assistant",
                         content = JsonPrimitive(
-                            """oob_function_run({"function_id":"xhs_search_keyword","arguments":{"keyword":"美食"}})"""
+                            """xhs_search_keyword({"keyword":"美食"})"""
                         )
                     )
                 )
             ),
-            modelOrScene = "scene.vlm.operation.primary"
+            modelOrScene = "scene.vlm.operation.primary",
+            dynamicFunctionToolNames = setOf("xhs_search_keyword")
         )
 
         assertTrue(result.success)

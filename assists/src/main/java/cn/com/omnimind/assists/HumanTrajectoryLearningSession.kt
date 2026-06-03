@@ -164,7 +164,15 @@ object HumanTrajectoryLearningSession {
             context = appContext,
             sessionLabel = "human_trajectory:$runId",
             enableRawTouch = enableRawTouch,
-            enableDebugScreenshots = enableDebugScreenshots
+            enableDebugScreenshots = enableDebugScreenshots,
+            onActionRecorded = { index, action ->
+                persistRecordedAction(
+                    context = appContext,
+                    runId = runId,
+                    index = index,
+                    action = action
+                )
+            }
         )
         synchronized(lock) {
             // Auto-cancel any stale session whose coroutine was cancelled without
@@ -328,11 +336,17 @@ object HumanTrajectoryLearningSession {
             buildCardsMs = System.currentTimeMillis() - buildStartedAtMs
             if (cards.isNotEmpty()) {
                 val appendStartedAtMs = System.currentTimeMillis()
-                InternalRunLogStore.appendCards(
-                    context = session.context,
-                    runId = session.runId,
-                    cards = cards
-                )
+                cards.forEachIndexed { index, card ->
+                    val cardId = card["card_id"]?.toString()?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                        ?: "${session.runId}-human-${index + 1}"
+                    InternalRunLogStore.upsertCard(
+                        context = session.context,
+                        runId = session.runId,
+                        cardId = cardId,
+                        card = card
+                    )
+                }
                 appendCardsMs = System.currentTimeMillis() - appendStartedAtMs
             }
             if (trace.diagnostics.isNotEmpty()) {
@@ -431,6 +445,24 @@ object HumanTrajectoryLearningSession {
             )
         }
         return true
+    }
+
+    private fun persistRecordedAction(
+        context: Context,
+        runId: String,
+        index: Int,
+        action: ManualVlmRecordedAction
+    ) {
+        val card = buildRunLogCard(runId, index, action)
+        val cardId = card["card_id"]?.toString()?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: "$runId-human-$index"
+        InternalRunLogStore.upsertCard(
+            context = context,
+            runId = runId,
+            cardId = cardId,
+            card = card
+        )
     }
 
     fun cancelActive(message: String = "人工轨迹学习已取消"): Boolean {

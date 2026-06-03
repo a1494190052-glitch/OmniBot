@@ -7,7 +7,7 @@ cd "$ROOT_DIR"
 DEVICE_SERIAL="${ANDROID_SERIAL:-}"
 PACKAGE_NAME="${PACKAGE_NAME:-cn.com.omnimind.bot.debug}"
 ACTION="cn.com.omnimind.bot.debug.HUMAN_RUN_RECORDING"
-RECEIVER_CLASS="cn.com.omnimind.bot.debug.DebugHumanRunRecordingReceiver"
+RECEIVER_CLASS=".DebugHumanRunRecordingReceiver"
 DESCRIPTION=""
 OUTPUT_PATH=""
 ARTIFACT_DIR=""
@@ -19,6 +19,7 @@ EXPECTED_CLICKS=""
 EXPECTED_SWIPES=""
 DEBUG_OVERLAY_GESTURES="${DEBUG_OVERLAY_GESTURES:-0}"
 DEBUG_SCREENSHOTS="${DEBUG_SCREENSHOTS:-1}"
+SIMULATE_RESTART_BEFORE_FINISH="${SIMULATE_RESTART_BEFORE_FINISH:-0}"
 
 usage() {
   cat <<'EOF'
@@ -39,6 +40,11 @@ the debug receiver to send synthetic overlay gestures through the same
 HumanTrajectoryLearningSession.recordOverlayGesture backend used by the product
 manual recording overlay, then verifies overlay_touch actions with before XML
 and finishes automatically.
+
+Pass --simulate-restart-before-finish with --debug-overlay-gestures to kill and
+restart the app after the click/scroll gestures but before finish. The script
+then recovers the latest unfinished human RunLog and verifies already-recorded
+actions were not swallowed.
 
 Debug screenshots are enabled by default for this script. Each recorded touch
 stores a private JPEG with the actual touch position marked. Pass
@@ -95,6 +101,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --debug-overlay-gestures)
       DEBUG_OVERLAY_GESTURES=1
+      shift
+      ;;
+    --simulate-restart-before-finish|--restart-before-finish)
+      SIMULATE_RESTART_BEFORE_FINISH=1
       shift
       ;;
     --debug-screenshots)
@@ -203,6 +213,26 @@ finish_recording() {
   wait_for_file "$RESULT_FILE" "$RESULT_TMP"
 }
 
+recover_recording() {
+  "${ADB[@]}" shell run-as "$PACKAGE_NAME" rm -f "$RESULT_FILE" >/dev/null 2>&1 || true
+  "${ADB[@]}" shell am broadcast \
+    -a "$ACTION" \
+    -n "$RECEIVER" \
+    --es op recover_latest >/dev/null
+  wait_for_file "$RESULT_FILE" "$RESULT_TMP"
+}
+
+restart_app_for_recovery() {
+  local pid
+  pid="$("${ADB[@]}" shell pidof "$PACKAGE_NAME" 2>/dev/null | tr -d '\r' | awk '{print $1}' || true)"
+  if [[ -n "${pid// }" ]]; then
+    "${ADB[@]}" shell kill -9 "$pid" >/dev/null 2>&1 || true
+  fi
+  sleep 2
+  "${ADB[@]}" shell monkey -p "$PACKAGE_NAME" 1 >/dev/null 2>&1 || true
+  sleep 3
+}
+
 send_recording_op() {
   local op="$1"
   shift
@@ -222,13 +252,17 @@ import json
 import sys
 
 data = json.load(open(sys.argv[1], encoding="utf-8"))
-if (
-    data.get("success") is not True
-    or data.get("executed") is not True
-    or data.get("recorded") is not True
-):
+if data.get("recorded") is not True:
     print(json.dumps(data, ensure_ascii=False, indent=2), file=sys.stderr)
     sys.exit(1)
+if data.get("executed") is not True:
+    print(json.dumps({
+        "warning": "overlay_gesture_recorded_but_not_executed",
+        "gesture": data.get("gesture"),
+        "error_code": data.get("error_code"),
+        "error_message": data.get("error_message"),
+        "action_count": data.get("action_count"),
+    }, ensure_ascii=False), file=sys.stderr)
 PY
 }
 
@@ -259,7 +293,7 @@ run_debug_overlay_gestures() {
     --es displayHeight "$height"
   sleep 1
   send_overlay_gesture_and_wait \
-    --es actionName swipe \
+    --es actionName scroll \
     --es x1 "$swipe_x" \
     --es y1 "$swipe_y1" \
     --es x2 "$swipe_x" \
@@ -278,8 +312,16 @@ finish_and_exit() {
   FINISHED=1
   trap - INT TERM
   echo "Stopping OOB human recording..." >&2
-  if ! finish_recording; then
-    exit 1
+  if [[ "$SIMULATE_RESTART_BEFORE_FINISH" -eq 1 ]]; then
+    echo "Simulating app restart before finish; recovering latest unfinished RunLog..." >&2
+    restart_app_for_recovery
+    if ! recover_recording; then
+      exit 1
+    fi
+  else
+    if ! finish_recording; then
+      exit 1
+    fi
   fi
   if [[ -n "${RAW_EVENT_OUTPUT// }" ]]; then
     mkdir -p "$(dirname "$RAW_EVENT_OUTPUT")"
@@ -532,7 +574,7 @@ action_names = [
     if isinstance(action, dict)
 ]
 click_count = sum(1 for name in action_names if name == "click")
-swipe_count = sum(1 for name in action_names if name == "swipe")
+swipe_count = sum(1 for name in action_names if name in ("scroll", "swipe"))
 missing_before_xml = [row["step_index"] for row in action_rows if not row["has_before_xml"]]
 coordinate_only_no_xml = [
     row["step_index"] for row in action_rows

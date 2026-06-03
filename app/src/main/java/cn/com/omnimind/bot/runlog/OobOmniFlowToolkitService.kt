@@ -305,6 +305,9 @@ class OobOmniFlowToolkitService(
             request["fallback_attempt"],
             defaultValue = 0
         ).coerceAtLeast(0)
+        val frontendRunId = firstNonBlank(request["frontend_run_id"], request["frontendRunId"])
+        val frontendTaskId = firstNonBlank(request["frontend_task_id"], request["frontendTaskId"])
+        val frontendParent = firstNonBlank(request["frontend_parent"], request["frontendParent"])
         val executionMode = firstNonBlank(request["execution_mode"])
             .ifBlank { "foreground" }
 
@@ -347,7 +350,10 @@ class OobOmniFlowToolkitService(
                 allowAgentFallback = true,
                 resumeFromStep = resumeFromStep,
                 fallbackSessionId = fallbackSessionId,
-                fallbackAttempt = fallbackAttempt
+                fallbackAttempt = fallbackAttempt,
+                frontendRunId = frontendRunId,
+                frontendTaskId = frontendTaskId,
+                frontendParent = frontendParent,
             )
         }
         runPayload = callTiming.attachTo(runPayload)

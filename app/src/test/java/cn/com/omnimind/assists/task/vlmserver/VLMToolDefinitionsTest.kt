@@ -2,7 +2,8 @@ package cn.com.omnimind.assists.task.vlmserver
 
 import cn.com.omnimind.baselib.i18n.PromptLocale
 import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
-import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.put
@@ -25,29 +26,43 @@ class VLMToolDefinitionsTest {
         assertTrue(toolNames.contains("input_text"))
         assertFalse(toolNames.contains("type"))
         assertTrue(toolNames.contains("scroll"))
-        assertTrue(toolNames.contains("oob_function_run"))
+        assertFalse(toolNames.contains("oob_function_run"))
         assertFalse(toolNames.contains("get_state"))
         assertTrue(toolNames.contains("finished"))
         assertFalse(toolNames.contains("call_function"))
         assertFalse(toolNames.contains("run_function"))
-        assertTrue(toolNames.containsAll(OobCanonicalActionSchema.modelVisibleTools.map { it.name }))
+        assertTrue(toolNames.containsAll(
+            OobCanonicalActionSchema.modelVisibleTools
+                .map { it.name }
+                .filterNot { it in setOf("get_state", "oob_function_run") }
+        ))
     }
 
     @Test
-    fun `oob function run is exposed as callable candidate tool with open arguments`() {
-        val tool = VLMToolDefinitions.tools(PromptLocale.EN_US)
-            .single { it.function.name == "oob_function_run" }
+    fun `dynamic saved workflow tools are exposed directly by id`() {
+        val tool = VLMToolDefinitions.dynamicToolsFromDefinitions(listOf(buildJsonObject {
+            put("type", "function")
+            put("function", buildJsonObject {
+                put("name", "xhs_search_keyword")
+                put("description", "Saved workflow that searches a keyword")
+                put("parameters", buildJsonObject {
+                    put("type", "object")
+                    put("properties", buildJsonObject {
+                        put("keyword", buildJsonObject { put("type", "string") })
+                    })
+                    put("required", buildJsonArray { add("keyword") })
+                })
+            })
+        })).single()
         val parameters = tool.function.parameters
         val properties = parameters["properties"]!!.jsonObject
-        val argumentsSchema = properties["arguments"]!!.jsonObject
         val required = parameters["required"]!!.jsonArray.map { it.jsonPrimitive.content }
 
-        assertTrue(tool.function.description.contains("current-turn OmniFlow recall context"))
-        assertTrue(properties.containsKey("function_id"))
-        assertTrue(properties.containsKey("arguments"))
-        assertTrue(properties.keys == setOf("function_id", "arguments"))
-        assertTrue(required.containsAll(listOf("function_id", "arguments")))
-        assertTrue(argumentsSchema["additionalProperties"]!!.jsonPrimitive.boolean)
+        assertTrue(tool.function.name == "xhs_search_keyword")
+        assertTrue(properties.containsKey("keyword"))
+        assertFalse(properties.containsKey("function_id"))
+        assertFalse(properties.containsKey("arguments"))
+        assertTrue(required.contains("keyword"))
     }
 
     @Test
@@ -93,7 +108,8 @@ class VLMToolDefinitionsTest {
         assertFalse(promptGuide.contains("wait("))
         assertFalse(promptGuide.contains("waiting actions"))
         assertTrue(promptGuide.contains("input_text(target_description, text, element_index?, x, y)"))
-        assertTrue(promptGuide.contains("oob_function_run(function_id, arguments)"))
+        assertFalse(promptGuide.contains("oob_function_run(function_id, arguments)"))
+        assertTrue(promptGuide.contains("saved workflow tools"))
         assertFalse(promptGuide.contains("get_state("))
         assertFalse(promptGuide.contains("call_function("))
         assertFalse(promptGuide.contains("run_function("))

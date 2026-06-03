@@ -156,6 +156,12 @@ data class VlmParseOnlyResult(
 
 typealias VlmToolProgressReporter = suspend (progress: String, extras: Map<String, Any?>) -> Unit
 
+data class VlmFunctionCacheGateDecision(
+    val allowed: Boolean,
+    val reason: String,
+    val functionId: String? = null,
+)
+
 object VlmToolCoordinator {
     private const val TAG = "[VlmToolCoordinator]"
     private const val SUMMARY_WAIT_GRACE_MS = 20_000L
@@ -167,6 +173,10 @@ object VlmToolCoordinator {
     private const val DEFAULT_MAX_STEPS = 12
     private const val MAX_MAX_STEPS = 64
     private const val DRY_RUN_PROMPT_PREVIEW_CHARS = 6000
+    internal const val CACHE_GATE_AUTO_EXECUTE_DISABLED = "auto_execute_disabled"
+    internal const val CACHE_GATE_REQUIRES_ARGUMENTS = "requires_arguments"
+    internal const val CACHE_GATE_NO_STRICT_HIT = "no_strict_hit"
+    internal const val CACHE_GATE_STRICT_HIT = "strict_hit_no_arguments"
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -1049,7 +1059,7 @@ object VlmToolCoordinator {
             ?: return null
         if (recallHitRequiresArguments(recallGuidance)) {
             taskState.addChatMessage(
-                "[SYSTEM] OmniFlow recall hit $functionId requires arguments; skipping local auto-execute and letting VLM choose oob_function_run with arguments."
+                "[SYSTEM] OmniFlow recall hit $functionId requires arguments; skipping local auto-execute and letting VLM choose the recalled tool with arguments."
             )
             return null
         }
@@ -1146,13 +1156,59 @@ object VlmToolCoordinator {
         progressReporter: VlmToolProgressReporter,
         runFunction: suspend (String) -> Map<String, Any?>,
     ): VlmToolOutcome? {
-        if (!request.allowOmniFlowFunctionAutoExecute) return null
+        val gate = evaluateFunctionCacheGate(request, recallGuidance)
+        if (!gate.allowed) {
+            if (gate.reason == CACHE_GATE_REQUIRES_ARGUMENTS && !gate.functionId.isNullOrBlank()) {
+                taskState.addChatMessage(
+                    "[SYSTEM] OmniFlow recall hit ${gate.functionId} requires arguments; " +
+                        "skipping local auto-execute and letting VLM choose the recalled tool with arguments."
+                )
+            }
+            return null
+        }
         return tryExecuteRecallHit(
             taskState = taskState,
             goal = request.goal,
             recallGuidance = recallGuidance,
             progressReporter = progressReporter,
             runFunction = runFunction,
+        )
+    }
+
+    internal fun evaluateFunctionCacheGate(
+        request: VlmTaskRequest,
+        recallGuidance: VlmRecallGuidance,
+    ): VlmFunctionCacheGateDecision {
+        val hit = mapValue(recallGuidance.payload["hit"])
+        val candidateFunctionId = firstNonBlank(
+            recallGuidance.directHitFunctionId,
+            hit["function_id"],
+            recallGuidance.payload["function_id"],
+        ).takeIf { it.isNotBlank() }
+        if (!request.allowOmniFlowFunctionAutoExecute) {
+            return VlmFunctionCacheGateDecision(
+                allowed = false,
+                reason = CACHE_GATE_AUTO_EXECUTE_DISABLED,
+                functionId = candidateFunctionId,
+            )
+        }
+        if (candidateFunctionId != null && recallHitRequiresArguments(recallGuidance)) {
+            return VlmFunctionCacheGateDecision(
+                allowed = false,
+                reason = CACHE_GATE_REQUIRES_ARGUMENTS,
+                functionId = candidateFunctionId,
+            )
+        }
+        val strictFunctionId = recallGuidance.directHitFunctionId?.trim()?.takeIf { it.isNotEmpty() }
+            ?: return VlmFunctionCacheGateDecision(
+                allowed = false,
+                reason = CACHE_GATE_NO_STRICT_HIT,
+                functionId = candidateFunctionId,
+            )
+        return VlmFunctionCacheGateDecision(
+            allowed = true,
+            reason = CACHE_GATE_STRICT_HIT,
+            functionId = strictFunctionId,
         )
     }
 

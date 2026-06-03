@@ -229,9 +229,9 @@ object OobFunctionSkillProfile {
     ): String {
         val suffix = when (locale) {
             PromptLocale.ZH_CN ->
-                "这是一个可组合的 OOB Function 片段，可能只完成用户目标的一部分；调用后根据结果继续选择下一个 Function、VLM 或其他工具。"
+                "这是一个已保存的手机操作流程 tool，会复用过去成功执行过的一段动作，可能连续执行多步，也可能只完成用户目标的一部分；调用后根据 success/result 和下一轮 fresh observe 继续选择下一个 tool 或 finished。"
             PromptLocale.EN_US ->
-                "This is a composable OOB Function segment and may only complete part of the user goal; after the result, continue with the next Function, VLM, or other tool as needed."
+                "This is a saved mobile workflow tool that reuses a previously successful action sequence. It may execute multiple phone actions and may complete only part of the user goal; after success/result and the next fresh observe, continue with another tool or finished."
         }
         return "${base.take(360)} $suffix".trim().take(600)
     }

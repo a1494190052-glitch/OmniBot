@@ -156,9 +156,7 @@ class OobFunctionGraphStepRunner(
     }
 
     private fun edgeToOmniflowStep(edge: Map<String, Any?>): Map<String, Any?>? {
-        val action = firstNonBlank(
-            edge["tool"],
-        )
+        val action = firstNonBlank(edge["tool"], edge["type"], edge["action"])
         val localAction = RunLogReplayPolicy.omniflowActionForToolName(action) ?: return null
         val edgeArgs = linkedMapOf<String, Any?>()
         edgeArgs.putAll(mapArg(edge["args"]))

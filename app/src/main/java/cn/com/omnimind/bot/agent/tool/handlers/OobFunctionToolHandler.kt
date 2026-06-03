@@ -250,6 +250,9 @@ class OobFunctionToolHandler(
         resumeFromStep: Int = 0,
         fallbackSessionId: String = "",
         fallbackAttempt: Int = 0,
+        frontendRunId: String = "",
+        frontendTaskId: String = "",
+        frontendParent: String = "",
     ): Map<String, Any?> {
         val runStartedAtMs = System.currentTimeMillis()
         val timing = runResultBuilder.timing(runStartedAtMs)
@@ -327,6 +330,9 @@ class OobFunctionToolHandler(
             toolHandle = toolHandle,
             callStack = callStack,
             fallbackRunIdProvider = { nextRunId(System.currentTimeMillis()) },
+            frontendRunId = frontendRunId,
+            frontendTaskId = frontendTaskId,
+            frontendParent = frontendParent,
         )
         var frontendFinished = false
         var frontendFinishMessage = helper.localized("任务已完成")

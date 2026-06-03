@@ -23,6 +23,10 @@ import kotlinx.serialization.json.put
 object VLMToolDefinitions {
     private const val MAX_COMPACT_ACTION_SCHEMA_CHARS = 1_600
     private const val TOOL_TITLE_FIELD = "tool_title"
+    private val HIDDEN_BASE_TOOL_NAMES = setOf(
+        OobCanonicalActionSchema.TOOL_GET_STATE,
+        OobCanonicalActionSchema.TOOL_OOB_FUNCTION_RUN,
+    )
 
     data class ToolSpec(
         val name: String,
@@ -44,7 +48,9 @@ object VLMToolDefinitions {
         t(locale, zhCn, enUs)
 
     private fun buildToolSpecs(locale: PromptLocale): List<ToolSpec> =
-        OobCanonicalActionSchema.modelVisibleTools.map { schema ->
+        OobCanonicalActionSchema.modelVisibleTools
+            .filterNot { it.name in HIDDEN_BASE_TOOL_NAMES }
+            .map { schema ->
             ToolSpec(
                 name = schema.name,
                 description = schema.description.text(locale),
@@ -123,8 +129,8 @@ object VLMToolDefinitions {
             append(
                 t(
                     locale,
-                    "注意：每个 tool call 的 JSON 参数必须是严格合法的 object；oob_function_run 的业务参数必须写入 arguments。把 OOB indexed page evidence 作为主要 grounding：click/input_text/long_press 优先填写 element_index，scroll 优先填写 scrollable_index。坐标必须分别写入 x / y / x1 / y1 / x2 / y2 字段，不要写成 \"x\": 827, 76 这类非法格式，坐标只作为兜底。不要返回停留、延时或空操作类动作；页面停留和稳定检测由系统内部处理。",
-                    "Important: every tool call JSON argument value must be a strict object; oob_function_run business parameters must go under arguments. Use OOB indexed page evidence as the primary grounding: for click/input_text/long_press prefer element_index, and for scroll prefer scrollable_index. Coordinates must be written into x / y / x1 / y1 / x2 / y2 as separate scalar fields; do not emit invalid forms such as \"x\": 827, 76. Coordinates are fallback only. Do not return idle, delay, or no-op actions; page settling and stability detection are handled internally."
+                    "注意：每个 tool call 的 JSON 参数必须是严格合法的 object；如果本轮 tools[] 里出现额外已保存流程 tool，直接按该 tool 的参数 schema 填写业务参数。把 OOB indexed page evidence 作为主要 grounding：click/input_text/long_press 优先填写 element_index，scroll 优先填写 scrollable_index。坐标必须分别写入 x / y / x1 / y1 / x2 / y2 字段，不要写成 \"x\": 827, 76 这类非法格式，坐标只作为兜底。不要返回停留、延时或空操作类动作；页面停留和稳定检测由系统内部处理。",
+                    "Important: every tool call JSON argument value must be a strict object. If this turn's tools[] contains additional saved workflow tools, fill their business parameters directly according to that tool's schema. Use OOB indexed page evidence as the primary grounding: for click/input_text/long_press prefer element_index, and for scroll prefer scrollable_index. Coordinates must be written into x / y / x1 / y1 / x2 / y2 as separate scalar fields; do not emit invalid forms such as \"x\": 827, 76. Coordinates are fallback only. Do not return idle, delay, or no-op actions; page settling and stability detection are handled internally."
                 )
             )
         }

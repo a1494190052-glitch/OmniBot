@@ -183,7 +183,8 @@ class ManualVlmTraceRecorder(
     private val context: Context,
     private val sessionLabel: String,
     private val enableRawTouch: Boolean = false,
-    private val enableDebugScreenshots: Boolean = false
+    private val enableDebugScreenshots: Boolean = false,
+    private val onActionRecorded: ((Int, ManualVlmRecordedAction) -> Unit)? = null
 ) {
     private val ownPackageName = context.packageName
     private val recordingLock = java.lang.Object()
@@ -2445,7 +2446,14 @@ class ManualVlmTraceRecorder(
     }
 
     private fun appendRecordedAction(action: ManualVlmRecordedAction) {
+        val index = recordedActions.size + 1
         recordedActions += action
+        onActionRecorded?.let { callback ->
+            runCatching { callback(index, action) }
+                .onFailure { error ->
+                    OmniLog.w(TAG, "manual trace action persist callback failed: ${error.message}")
+                }
+        }
         OmniLog.d(TAG, "manual trace recorded: ${action.actionName} ${action.summary}")
     }
 

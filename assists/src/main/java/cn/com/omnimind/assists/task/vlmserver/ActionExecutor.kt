@@ -79,7 +79,8 @@ class ActionExecutor(
      * 注意：只执行动作，不更新上下文
      */
     suspend fun executeAction(
-        vlmStep: VLMStep
+        vlmStep: VLMStep,
+        functionRunContext: VLMFunctionRunContext = VLMFunctionRunContext(),
     ): UIStep {
 
         val actionStart = System.currentTimeMillis()
@@ -163,6 +164,8 @@ class ActionExecutor(
                     VLMFunctionRunRequest(
                         functionId = action.functionId,
                         arguments = action.arguments,
+                        taskId = functionRunContext.taskId,
+                        runId = functionRunContext.runId,
                     )
                 )
             }
@@ -266,11 +269,19 @@ class ActionExecutor(
     }
 
 
-    suspend fun act(vlmStep: VLMStep): UIStep {
-        return executeAction(vlmStep)
+    suspend fun act(
+        vlmStep: VLMStep,
+        functionRunContext: VLMFunctionRunContext = VLMFunctionRunContext(),
+    ): UIStep {
+        return executeAction(vlmStep, functionRunContext)
     }
 
     private companion object {
         private const val INPUT_TEXT_FOCUS_DELAY_MS = 350L
     }
 }
+
+data class VLMFunctionRunContext(
+    val taskId: String = "",
+    val runId: String = "",
+)

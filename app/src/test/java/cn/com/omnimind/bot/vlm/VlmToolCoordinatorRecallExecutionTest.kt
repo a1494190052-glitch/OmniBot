@@ -20,8 +20,12 @@ import cn.com.omnimind.bot.mcp.TaskStatus
 import cn.com.omnimind.bot.mcp.VlmTaskRequest
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -202,6 +206,17 @@ class VlmToolCoordinatorRecallExecutionTest {
         assertNull(outcome)
         assertEquals(false, called)
         assertEquals(TaskStatus.RUNNING, state.status)
+        val gate = VlmToolCoordinator.evaluateFunctionCacheGate(
+            request = request,
+            recallGuidance = VlmRecallGuidance(
+                decision = "hit",
+                guidance = "OmniFlow UDEG node skill-like decision context",
+                payload = mapOf("success" to true),
+                directHitFunctionId = "open_settings_function",
+            ),
+        )
+        assertFalse(gate.allowed)
+        assertEquals(VlmToolCoordinator.CACHE_GATE_AUTO_EXECUTE_DISABLED, gate.reason)
     }
 
     @Test
@@ -243,6 +258,17 @@ class VlmToolCoordinatorRecallExecutionTest {
         assertNotNull(outcome)
         assertEquals(true, called)
         assertEquals(TaskStatus.FINISHED, state.status)
+        val gate = VlmToolCoordinator.evaluateFunctionCacheGate(
+            request = request,
+            recallGuidance = VlmRecallGuidance(
+                decision = "hit",
+                guidance = "OmniFlow UDEG node skill-like decision context",
+                payload = mapOf("success" to true),
+                directHitFunctionId = "open_settings_function",
+            ),
+        )
+        assertTrue(gate.allowed)
+        assertEquals(VlmToolCoordinator.CACHE_GATE_STRICT_HIT, gate.reason)
     }
 
     @Test
@@ -264,7 +290,7 @@ class VlmToolCoordinatorRecallExecutionTest {
             taskState = state,
             recallGuidance = VlmRecallGuidance(
                 decision = "hit",
-                guidance = "oob_function_run function_id=xhs_search_keyword argument_policy: requires_arguments=true arguments={keyword:string required}",
+                guidance = "tool=xhs_search_keyword argument_policy: requires_arguments=true arguments={keyword:string required}",
                 payload = mapOf(
                     "success" to true,
                     "decision" to "hit",
@@ -307,7 +333,7 @@ class VlmToolCoordinatorRecallExecutionTest {
             taskState = state,
             recallGuidance = VlmRecallGuidance(
                 decision = "hit",
-                guidance = "oob_function_run function_id=xhs_search_keyword arguments={keyword:string required}",
+                guidance = "tool=xhs_search_keyword arguments={keyword:string required}",
                 payload = mapOf(
                     "success" to true,
                     "decision" to "hit",
@@ -335,18 +361,37 @@ class VlmToolCoordinatorRecallExecutionTest {
         assertFalse(called)
         assertEquals(TaskStatus.RUNNING, state.status)
         assertTrue(state.chatMessages.last().contains("requires arguments"))
+        val gate = VlmToolCoordinator.evaluateFunctionCacheGate(
+            request = request,
+            recallGuidance = VlmRecallGuidance(
+                decision = "hit",
+                guidance = "tool=xhs_search_keyword argument_policy: requires_arguments=true arguments={keyword:string required}",
+                payload = mapOf(
+                    "success" to true,
+                    "decision" to "hit",
+                    "hit" to mapOf(
+                        "function_id" to "xhs_search_keyword",
+                        "requires_arguments" to true,
+                    ),
+                ),
+                directHitFunctionId = "xhs_search_keyword",
+            ),
+        )
+        assertFalse(gate.allowed)
+        assertEquals(VlmToolCoordinator.CACHE_GATE_REQUIRES_ARGUMENTS, gate.reason)
     }
 
     @Test
-    fun `parse only VLM turn injects per step recall and parses canonical function call`() = runBlocking {
+    fun `mock vlm task recall exposes dynamic function tool without real vlm call`() = runBlocking {
         VLMRecallContextProviderRegistry.register(
             object : VLMRecallContextProvider {
                 override suspend fun enrich(request: VLMPageContextRequest): UIContext {
                     return request.context.copy(
                         stepSkillGuidance = request.context.stepSkillGuidance + "\n" +
                             "OmniFlow function recall candidates for this current VLM step:\n" +
-                            "1. oob_function_run function_id=xhs_search_keyword score=0.98 description=小红书搜索关键词\n" +
+                            "1. tool=xhs_search_keyword score=0.98 description=小红书搜索关键词\n" +
                             "   argument_policy: requires_arguments=true arguments={keyword:string required}",
+                        dynamicToolDefinitions = listOf(dynamicFunctionToolDefinition("xhs_search_keyword")),
                         pageDiagnostics = request.context.pageDiagnostics + mapOf(
                             "omniflow_recall_injected" to "true"
                         )
@@ -356,12 +401,14 @@ class VlmToolCoordinatorRecallExecutionTest {
         )
         try {
             var promptText = ""
+            var requestToolNames = emptyList<String>()
             val streamClient = object : VLMStreamClient {
                 override suspend fun streamTurn(
                     request: ChatCompletionRequest,
                     onReasoningUpdate: (suspend (String) -> Unit)?
                 ): SceneChatCompletionTurn {
                     promptText = request.messages.last().content.toString()
+                    requestToolNames = request.tools.orEmpty().map { it.function.name }
                     return SceneChatCompletionTurn(
                         parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
                         route = "scene.vlm.operation.primary",
@@ -374,8 +421,8 @@ class VlmToolCoordinatorRecallExecutionTest {
                                     AssistantToolCall(
                                         id = "call_1",
                                         function = AssistantToolCallFunction(
-                                            name = "oob_function_run",
-                                            arguments = """{"function_id":"xhs_search_keyword","arguments":{"keyword":"猫猫"}}"""
+                                            name = "xhs_search_keyword",
+                                            arguments = """{"keyword":"猫猫"}"""
                                         )
                                     )
                                 )
@@ -415,9 +462,14 @@ class VlmToolCoordinatorRecallExecutionTest {
 
             assertTrue(result.success)
             assertEquals("oob_function_run", result.toolName)
-            assertTrue(promptText.contains("function_id=xhs_search_keyword"))
+            assertTrue(requestToolNames.contains("xhs_search_keyword"))
+            assertTrue(requestToolNames.contains("click"))
+            assertTrue(result.screenshotIncluded)
+            assertTrue(promptText.contains("tool=xhs_search_keyword"))
             assertTrue(promptText.contains("arguments={keyword:string required}"))
             assertEquals("true", result.pageDiagnostics["omniflow_recall_injected"])
+            assertTrue(result.phaseMs.containsKey("function_recall_ms"))
+            assertTrue(result.phaseMs.containsKey("vlm_stream_ms"))
             val action = requireNotNull(result.action)
             assertEquals("xhs_search_keyword", action["function_id"])
             val parsedAction = requireNotNull(result.action)
@@ -426,5 +478,25 @@ class VlmToolCoordinatorRecallExecutionTest {
         } finally {
             VLMRecallContextProviderRegistry.clear()
         }
+    }
+
+    private fun dynamicFunctionToolDefinition(name: String) = buildJsonObject {
+        put("type", "function")
+        put("function", buildJsonObject {
+            put("name", name)
+            put("toolType", "oob_function")
+            put("description", "Saved mobile workflow")
+            put("parameters", buildJsonObject {
+                put("type", "object")
+                put("properties", buildJsonObject {
+                    put("keyword", buildJsonObject {
+                        put("type", "string")
+                    })
+                })
+                put("required", buildJsonArray {
+                    add("keyword")
+                })
+            })
+        })
     }
 }

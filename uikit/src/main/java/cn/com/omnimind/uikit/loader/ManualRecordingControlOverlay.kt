@@ -42,7 +42,6 @@ object ManualRecordingControlOverlay {
     private var dragging = false
     private var transientStatusToken = 0
     private var captureStateCallback: (suspend () -> Map<String, Any?>)? = null
-    private var topEnsuredForCurrentAttachment: Boolean = false
 
     enum class State {
         PREPARING,
@@ -82,7 +81,7 @@ object ManualRecordingControlOverlay {
         }
         val shown = ManualTouchRecordLoader.show(context ?: UIKit.appContext)
         if (shown) {
-            keepControlsAboveTouchRecorderOnce()
+            keepControlsAboveTouchRecorder()
         } else {
             recordingControlScope.launch {
                 HumanTrajectoryLearningSession.pauseActive()
@@ -160,7 +159,6 @@ object ManualRecordingControlOverlay {
         windowManager = null
         overlayParams = null
         captureStateCallback = null
-        topEnsuredForCurrentAttachment = false
         if (view != null && manager != null && view.isAttachedToWindow) {
             runCatching { manager.removeView(view) }
                 .onFailure { OmniLog.w(TAG, "dismiss failed: ${it.message}") }
@@ -218,7 +216,6 @@ object ManualRecordingControlOverlay {
             windowManager = manager
             overlayView = view
             overlayParams = params
-            topEnsuredForCurrentAttachment = false
             OmniLog.d(
                 TAG,
                 "manual recording control overlay shown type=application state=$state"
@@ -234,9 +231,8 @@ object ManualRecordingControlOverlay {
         }
     }
 
-    private fun keepControlsAboveTouchRecorderOnce() {
+    private fun keepControlsAboveTouchRecorder() {
         synchronized(this) {
-            if (topEnsuredForCurrentAttachment) return
             val view = overlayView ?: return
             val manager = windowManager ?: return
             val params = overlayParams ?: return
@@ -244,7 +240,6 @@ object ManualRecordingControlOverlay {
             runCatching {
                 manager.removeView(view)
                 manager.addView(view, params)
-                topEnsuredForCurrentAttachment = true
             }.onFailure { error ->
                 OmniLog.w(TAG, "keep controls above touch recorder failed: ${error.message}")
             }

@@ -180,14 +180,14 @@ object PromptTemplate {
         return buildString {
             appendLine(t(locale, "统一 action schema:", "Unified action schema:"))
             appendLine(VLMToolDefinitions.renderCompactActionSchemaGuide(locale))
-            renderFunctionToolUsage(context, locale).takeIf { it.isNotBlank() }?.let {
+            renderDynamicToolUsage(context, locale).takeIf { it.isNotBlank() }?.let {
                 appendLine(it)
             }
         }.trim()
     }
 
-    private fun renderFunctionToolUsage(context: UIContext, locale: PromptLocale): String {
-        val functionNames = context.dynamicToolDefinitions.mapNotNull { definition ->
+    private fun renderDynamicToolUsage(context: UIContext, locale: PromptLocale): String {
+        val toolNames = context.dynamicToolDefinitions.mapNotNull { definition ->
             (definition["function"] as? JsonObject)
                 ?.get("name")
                 ?.jsonPrimitive
@@ -195,32 +195,34 @@ object PromptTemplate {
                 ?.trim()
                 ?.takeIf(String::isNotEmpty)
         }
-        if (functionNames.isEmpty()) return ""
+        if (toolNames.isEmpty()) return ""
         return when (locale) {
             PromptLocale.ZH_CN -> buildString {
-                appendLine("OmniFlow Function 工具:")
-                appendLine("- 本轮召回的 Function 已作为真实 model tool 暴露: ${functionNames.joinToString(", ")}。")
-                appendLine("- Function 是和 agent 一样的可组合复用片段：它可能完成整个目标，也可能只推进其中一段；调用后必须继续根据工具结果和 fresh page observe 判断下一步。")
-                appendLine("- 当用户目标和某个 Function 的名称、描述、适用条件、参数 schema 高置信匹配时，优先直接调用该 Function tool，并从用户目标填写 arguments。")
-                appendLine("- 不要把 Function 当成完成证明；Function 返回后，只有当前页面/工具结果证明目标完成时才调用 finished，否则继续选择 Function 或普通 GUI tool。")
-                appendLine("- 如果没有高置信匹配，或者缺少必填参数，就继续使用普通 GUI tools，不要空参数调用。")
-                appendLine("动态 Function action schema:")
-                appendLine(renderDynamicFunctionSchemaSummary(context.dynamicToolDefinitions, locale))
+                appendLine("本轮额外可用 tools:")
+                appendLine("- 已召回并加入 tools[]: ${toolNames.joinToString(", ")}。")
+                appendLine("- 这些 tools 是已保存的手机操作流程：可以复用过去成功执行过的一段动作，例如打开某个页面、搜索关键词、填写表单、保存/发送内容。")
+                appendLine("- 它们和 click/input_text/scroll 一样用原生 tool_call 调用，但一次调用可能会连续执行多步手机操作。")
+                appendLine("- 一个已保存流程可能完成整个目标，也可能只完成其中一段；如果名称、描述、适用条件和参数 schema 高置信匹配用户目标，直接调用对应 tool。")
+                appendLine("- 每个已保存流程返回后，根据 tool 结果、历史上下文和下一轮 fresh page observe 决定 finished、继续调用下一个 tool，或改用 GUI tool。")
+                appendLine("- 如果没有高置信匹配，或者缺少必填参数，就继续使用其它 tools，不要空参数调用。")
+                appendLine("额外 tool schema:")
+                appendLine(renderDynamicToolSchemaSummary(context.dynamicToolDefinitions, locale))
             }
             PromptLocale.EN_US -> buildString {
-                appendLine("OmniFlow Function tools:")
-                appendLine("- Recalled Functions are exposed as real model tools this turn: ${functionNames.joinToString(", ")}.")
-                appendLine("- A Function has the same meaning as in the agent: a composable reusable segment. It may complete the whole task or only advance one part; after calling it, continue from the tool result and the next fresh page observe.")
-                appendLine("- If the user goal strongly matches a Function name, description, applicability, and parameter schema, prefer calling that Function tool directly and fill arguments from the user goal.")
-                appendLine("- Do not treat a Function call as completion proof; call finished only when the current page/tool result proves completion. Otherwise continue with another Function or a normal GUI tool.")
-                appendLine("- If confidence is low or required arguments are missing, use normal GUI tools instead of calling with empty arguments.")
-                appendLine("Dynamic Function action schema:")
-                appendLine(renderDynamicFunctionSchemaSummary(context.dynamicToolDefinitions, locale))
+                appendLine("Additional tools available this turn:")
+                appendLine("- Recalled tools have been added to tools[]: ${toolNames.joinToString(", ")}.")
+                appendLine("- These tools are saved mobile workflows: they reuse a previously successful action sequence, such as opening a page, searching a keyword, filling a form, or saving/sending content.")
+                appendLine("- They use the same native tool_call interface as click/input_text/scroll, but one call may execute multiple phone actions.")
+                appendLine("- A saved workflow may complete the whole goal or only one part; if the name, description, applicability, and parameter schema strongly match the user goal, call that tool directly.")
+                appendLine("- After each saved workflow returns, use the tool result, history context, and the next fresh page observe to decide whether to call finished, another tool, or a GUI tool.")
+                appendLine("- If confidence is low or required arguments are missing, use other tools instead of calling with empty arguments.")
+                appendLine("Additional tool schema:")
+                appendLine(renderDynamicToolSchemaSummary(context.dynamicToolDefinitions, locale))
             }
         }.trim()
     }
 
-    private fun renderDynamicFunctionSchemaSummary(
+    private fun renderDynamicToolSchemaSummary(
         definitions: List<JsonObject>,
         locale: PromptLocale
     ): String {

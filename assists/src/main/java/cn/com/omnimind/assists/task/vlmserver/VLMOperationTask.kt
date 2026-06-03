@@ -131,7 +131,9 @@ open class VLMOperationTask(
             onStepCompleted = { stepIndex, step, success, error ->
                 handleVlmStepCompleted(stepIndex, step, success, error)
             },
-            isSubTask = isSubTask
+            isSubTask = isSubTask,
+            taskId = id,
+            runId = id
 
         )
         androidDeviceOperator = AndroidDeviceOperator(executionTaskEventApi, taskContext)
@@ -848,7 +850,7 @@ open class VLMOperationTask(
             is PressHomeAction -> "返回桌面"
             is PressBackAction -> "返回"
             is GetStateAction -> "刷新页面状态"
-            is FunctionRunAction -> "执行复用指令"
+            is FunctionRunAction -> "执行工具 ${action.functionId}"
             is WaitAction -> "旧版停留"
             is RecordAction -> "记录信息"
             is FinishedAction -> "完成任务"

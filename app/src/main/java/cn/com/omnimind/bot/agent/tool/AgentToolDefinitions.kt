@@ -592,7 +592,7 @@ object AgentToolDefinitions {
             put("toolType", "builtin")
             put(
                 "description",
-                "使用视觉语言模型执行手机当前屏幕操作任务，只用于点击、滑动、输入、打开 App 或跨 App 自动化。一次 vlm_task 调用代表一次完整设备执行流程；打开 App 是该完整流程的第一步，不要先单独调用 vlm_task 打开 App、再第二次调用 vlm_task 执行后续目标。内部点击/输入/滚动会作为 vlm_step 进度持续上报。不要用于用户上传图片/截图/照片的识别、OCR、解释、总结或对比；这类图片已在多模态对话里，应该直接回答。该工具会阻塞等待到任务完成、需要用户输入、屏幕锁定或超时，再把终态结果返回给模型。若需要最终整理文本，必须设置 needSummary=true。默认 false 时，在线 VLM 每轮 fresh observe 后会注入 UDEG page skill 和 OmniFlow Function recall 候选；Function 候选只能由 VLM 显式选择 oob_function_run(function_id, arguments) 调用。只有需要让 VLM 在执行前自动运行无参数且强命中的 Function 时，才设置 allowOmniFlowFunctionAutoExecute=true；参数化 Function 仍必须由模型填写 arguments 后显式调用。外层 Agent 的 Function 管理、guard 和 replay 策略由 OmniFlow skill 约束。"
+                "使用视觉语言模型执行手机当前屏幕操作任务，只用于点击、滑动、输入、打开 App 或跨 App 自动化。一次 vlm_task 调用代表一次完整设备执行流程；打开 App 是该完整流程的第一步，不要先单独调用 vlm_task 打开 App、再第二次调用 vlm_task 执行后续目标。内部点击/输入/滚动会作为 vlm_step 进度持续上报。不要用于用户上传图片/截图/照片的识别、OCR、解释、总结或对比；这类图片已在多模态对话里，应该直接回答。该工具会阻塞等待到任务完成、需要用户输入、屏幕锁定或超时，再把终态结果返回给模型。若需要最终整理文本，必须设置 needSummary=true。默认 false 时，在线 VLM 每轮 fresh observe 后会注入 UDEG page skill 和已召回的保存流程 tools；这些保存流程会作为本轮真实 native model tools 暴露，由 VLM 像选择 click/input_text 一样直接选择对应 tool id 并填写参数。只有需要让 VLM 在执行前自动运行无参数且强命中的保存流程时，才设置 allowOmniFlowFunctionAutoExecute=true；参数化保存流程仍必须由模型填写参数后显式调用。外层 Agent 的 Function 管理、guard 和 replay 策略由 OmniFlow skill 约束。"
             )
             putJsonObject("parameters") {
                 put("type", "object")

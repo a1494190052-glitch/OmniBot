@@ -70,17 +70,18 @@ class OobVlmFunctionRecallProvider(
 
         val recallBlock = buildString {
             appendLine(RECALL_START_MARKER)
-            appendLine("OmniFlow Function recall for this current VLM step:")
+            appendLine("OmniFlow tool recall for this current VLM step:")
             if (dynamicToolNames.isNotEmpty()) {
-                appendLine("The recalled Functions are exposed as real model tools this turn: ${dynamicToolNames.joinToString(", ")}")
-                appendLine("If one clearly matches the user goal, call that Function tool directly and fill its arguments from the user request.")
-                appendLine("Function semantics match the agent path: a Function is a composable reusable segment, not automatic task completion proof; after it runs, continue from the fresh result/page.")
+                appendLine("The recalled saved mobile workflows are exposed as native model tools this turn: ${dynamicToolNames.joinToString(", ")}")
+                appendLine("Each recalled tool can reuse a previously successful multi-step phone workflow, such as opening a page, searching, filling a form, or saving/sending content.")
+                appendLine("Use the same tool_call interface as GUI tools; one call may execute multiple phone actions.")
+                appendLine("If one clearly matches the user goal, call that tool directly and fill its arguments from the user request.")
+                appendLine("After each saved workflow tool runs, continue from the tool result, history context, and the next fresh page observe; call another tool if the goal is not done.")
             }
             appendLine(guidance.guidance)
             appendLine(
-                "Policy: these are optional callable Functions from fresh current-page recall. " +
-                    "Dynamic Function tools are preferred over the legacy oob_function_run alias. " +
-                    "Otherwise continue with normal VLM actions."
+                "Policy: these are optional saved workflow tools from fresh current-page recall. " +
+                    "They share the same model tool interface as GUI tools, but one call may execute a reusable multi-step phone workflow."
             )
             append(RECALL_END_MARKER)
         }.trim()

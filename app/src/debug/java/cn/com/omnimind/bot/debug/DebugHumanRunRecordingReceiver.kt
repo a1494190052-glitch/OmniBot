@@ -8,6 +8,7 @@ import cn.com.omnimind.assists.HumanTrajectoryLearningResult
 import cn.com.omnimind.assists.HumanTrajectoryLearningSession
 import cn.com.omnimind.assists.ManualOverlayTouchGesture
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
+import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.util.AssistsUtil
@@ -25,6 +26,7 @@ import kotlin.math.sqrt
 
 class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
+        val pendingResult = goAsync()
         val appContext = context.applicationContext
         val op = intent?.getStringExtra("op")?.trim()?.lowercase().orEmpty()
             .ifBlank { "status" }
@@ -35,40 +37,46 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
             intent?.getBooleanExtra("rawTouch", false) == true
         val enableDebugScreenshots = debugScreenshotsEnabled(intent)
 
+        OmniLog.i(TAG, "received debug human recording op=$op")
         scope.launch {
-            val payload = runCatching {
-                when (op) {
-                    "start" -> startRecording(
-                        appContext,
-                        name,
-                        description,
-                        enableRawTouch,
-                        enableDebugScreenshots
+            try {
+                val payload = runCatching {
+                    when (op) {
+                        "start" -> startRecording(
+                            appContext,
+                            name,
+                            description,
+                            enableRawTouch,
+                            enableDebugScreenshots
+                        )
+                        "pause" -> pauseRecording()
+                        "resume" -> resumeRecording()
+                        "gesture", "overlay_gesture" -> recordOverlayGesture(intent)
+                        "finish", "stop", "complete" -> finishRecording(appContext)
+                        "recover", "recover_latest", "finish_latest" -> recoverLatestRecording(appContext)
+                        "cancel" -> cancelRecording(appContext)
+                        "status" -> statusPayload()
+                        else -> errorPayload("UNKNOWN_OP", "Unsupported op: $op")
+                    }
+                }.getOrElse { error ->
+                    OmniLog.e(TAG, "debug human run recording failed: ${error.fullMessage()}", error)
+                    errorPayload(
+                        code = "EXCEPTION",
+                        message = error.fullMessage(),
+                        extra = linkedMapOf(
+                            "error_type" to error.javaClass.name,
+                            "error_cause_chain" to error.causeChain()
+                        )
                     )
-                    "pause" -> pauseRecording()
-                    "resume" -> resumeRecording()
-                    "gesture", "overlay_gesture" -> recordOverlayGesture(intent)
-                    "finish", "stop", "complete" -> finishRecording(appContext)
-                    "cancel" -> cancelRecording(appContext)
-                    "status" -> statusPayload()
-                    else -> errorPayload("UNKNOWN_OP", "Unsupported op: $op")
                 }
-            }.getOrElse { error ->
-                OmniLog.e(TAG, "debug human run recording failed: ${error.fullMessage()}", error)
-                errorPayload(
-                    code = "EXCEPTION",
-                    message = error.fullMessage(),
-                    extra = linkedMapOf(
-                        "error_type" to error.javaClass.name,
-                        "error_cause_chain" to error.causeChain()
-                    )
-                )
+                writeJson(appContext, resultFileFor(op), payload)
+                if (op != "status") {
+                    writeJson(appContext, STATUS_FILE, statusPayload())
+                }
+                OmniLog.i(TAG, gson.toJson(payload))
+            } finally {
+                pendingResult.finish()
             }
-            writeJson(appContext, resultFileFor(op), payload)
-            if (op != "status") {
-                writeJson(appContext, STATUS_FILE, statusPayload())
-            }
-            OmniLog.i(TAG, gson.toJson(payload))
         }
     }
 
@@ -82,8 +90,11 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
         if (activeResult != null || HumanTrajectoryLearningSession.isActive()) {
             return errorPayload("ALREADY_RECORDING", "A human recording session is already active")
         }
+        OmniLog.i(TAG, "start: waiting for accessibility")
         waitForAccessibility(context)
+        OmniLog.i(TAG, "start: accessibility ready")
         val startedAtMs = System.currentTimeMillis()
+        OmniLog.i(TAG, "start: starting HumanTrajectoryLearningSession")
         val result = HumanTrajectoryLearningSession.start(
             context = context,
             name = name,
@@ -96,6 +107,7 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
         activeName = name
         activeDescription = description.ifBlank { name }
         val status = HumanTrajectoryLearningSession.status().asMap()
+        OmniLog.i(TAG, "start: session started action_count=${status["action_count"]}")
         return linkedMapOf(
             "success" to true,
             "phase" to "started",
@@ -158,9 +170,11 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
         if (HumanTrajectoryLearningSession.isPaused()) {
             return errorPayload("RECORDING_PAUSED", "Resume the human recording before sending a gesture")
         }
-        val actionName = stringExtra(intent, "actionName")
+        val actionName = normalizeGestureActionName(
+            stringExtra(intent, "actionName")
             ?: stringExtra(intent, "action")
             ?: "click"
+        )
         val startX = floatExtra(intent, "x1")
             ?: floatExtra(intent, "startX")
             ?: floatExtra(intent, "x")
@@ -177,7 +191,7 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
             ?: startY
         val durationMs = longExtra(intent, "durationMs")
             ?: longExtra(intent, "duration")
-            ?: if (actionName == "swipe") 500L else 80L
+            ?: if (actionName == OobCanonicalActionSchema.TOOL_SCROLL) 500L else 80L
         val distancePx = floatExtra(intent, "distancePx")
             ?: distance(startX, startY, endX, endY)
         val finishedAtMs = System.currentTimeMillis()
@@ -244,6 +258,53 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
             return errorPayload("NO_ACTIVE_RECORDING", "No active human recording session")
         }
         return awaitResult(context, result, "cancelled")
+    }
+
+    private fun recoverLatestRecording(context: Context): Map<String, Any?> {
+        if (activeResult != null || HumanTrajectoryLearningSession.isActive()) {
+            return errorPayload(
+                "ACTIVE_RECORDING",
+                "A live human recording session is active; finish it normally before recovery"
+            )
+        }
+        val record = InternalRunLogStore.listRunRecords(context, limit = 50)
+            .filter { candidate ->
+                candidate.source == "human_trajectory" && candidate.finishedAtMs == null
+            }
+            .maxByOrNull { candidate -> candidate.startedAtMs }
+            ?: return errorPayload("NO_RECOVERABLE_RECORDING", "No unfinished human recording RunLog found")
+        val replayableActionCount = record.cards.count(::isManualReplayActionCard)
+        val success = replayableActionCount > 0
+        InternalRunLogStore.finishRun(
+            context = context,
+            runId = record.runId,
+            success = success,
+            doneReason = if (success) {
+                "recovered_after_restart"
+            } else {
+                "empty_recording_after_restart"
+            },
+            errorMessage = if (success) {
+                null
+            } else {
+                "未记录到可复用的人类操作"
+            }
+        )
+        val runLog = InternalRunLogStore.timelinePayload(context, record.runId)
+        return linkedMapOf(
+            "success" to success,
+            "phase" to "recovered",
+            "recording_active" to false,
+            "run_id" to record.runId,
+            "name" to record.operationDescription,
+            "description" to record.goal,
+            "action_count" to replayableActionCount,
+            "summary" to "Recovered unfinished human recording RunLog after app restart",
+            "error_message" to if (success) null else "未记录到可复用的人类操作",
+            "run_log" to runLog,
+            "token_usage_total" to 0,
+            "source" to "oob_debug_human_run_recording"
+        ).filterValues { it != null }
     }
 
     private suspend fun awaitResult(
@@ -340,7 +401,36 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
         else -> RESULT_FILE
     }
 
+    private fun normalizeGestureActionName(actionName: String): String {
+        return when (val normalized = actionName.trim().lowercase()) {
+            "tap" -> OobCanonicalActionSchema.TOOL_CLICK
+            "swipe" -> OobCanonicalActionSchema.TOOL_SCROLL
+            "long_click", "long-click", "longpress" -> OobCanonicalActionSchema.TOOL_LONG_PRESS
+            else -> normalized
+        }
+    }
+
+    private fun isManualReplayActionCard(card: Map<String, Any?>): Boolean {
+        val compileKind = card["compile_kind"]?.toString()?.trim()
+            ?: card["compileKind"]?.toString()?.trim()
+        val toolType = card["tool_type"]?.toString()?.trim()
+            ?: card["toolType"]?.toString()?.trim()
+        if (compileKind != "manual_recording" && toolType != "manual_recording") {
+            return false
+        }
+        val action = card["action_type"]?.toString()?.trim()
+            ?: card["tool_name"]?.toString()?.trim()
+            ?: card["toolName"]?.toString()?.trim()
+        return action in setOf(
+            OobCanonicalActionSchema.TOOL_CLICK,
+            OobCanonicalActionSchema.TOOL_LONG_PRESS,
+            OobCanonicalActionSchema.TOOL_SCROLL,
+            OobCanonicalActionSchema.TOOL_INPUT_TEXT
+        )
+    }
+
     private fun writeJson(context: Context, fileName: String, payload: Map<String, Any?>) {
+        OmniLog.i(TAG, "writing $fileName")
         File(context.filesDir, fileName).writeText(gson.toJson(payload))
     }
 
