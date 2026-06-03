@@ -427,7 +427,8 @@ object VlmToolCoordinator {
         var workingContext = context.copy(
             currentPageSummary = "",
             firstStepGuidance = "",
-            pageDiagnostics = emptyMap()
+            pageDiagnostics = emptyMap(),
+            dynamicToolDefinitions = emptyList()
         )
         workingContext = timed("first_step_optimizer_ms") {
             VLMFirstStepOptimizer.enrichContext(
@@ -474,7 +475,11 @@ object VlmToolCoordinator {
             streamClient.streamTurn(requestEnvelope.request)
         }
         val parsed = timed("parse_response_ms") {
-            vlmClient.parseVLMResponse(turn, model)
+            vlmClient.parseVLMResponse(
+                response = turn,
+                modelOrScene = model,
+                dynamicFunctionToolNames = requestEnvelope.dynamicFunctionToolNames,
+            )
         }
         val action = parsed.step?.action
         return VlmParseOnlyResult(

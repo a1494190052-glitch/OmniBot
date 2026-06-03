@@ -56,7 +56,7 @@ object OobFunctionSkillProfile {
         return runCatching {
             OobFunctionRepository(context)
                 .listSpecs(MAX_DYNAMIC_FUNCTION_TOOLS)
-                .mapNotNull { spec -> toDynamicFunctionToolDefinition(spec, locale) }
+                .mapNotNull { spec -> dynamicFunctionToolDefinition(spec, locale) }
         }.onFailure {
             OmniLog.w("OobFunctionSkillProfile", "load dynamic Function tools failed: ${it.message}")
         }.getOrDefault(emptyList())
@@ -190,7 +190,7 @@ object OobFunctionSkillProfile {
         }
     }
 
-    private fun toDynamicFunctionToolDefinition(
+    fun dynamicFunctionToolDefinition(
         spec: Map<String, Any?>,
         locale: PromptLocale
     ): JsonObject? {

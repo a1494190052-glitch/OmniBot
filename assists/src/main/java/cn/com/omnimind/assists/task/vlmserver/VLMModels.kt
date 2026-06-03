@@ -262,6 +262,8 @@ data class UIContext(
     val firstStepGuidance: String = "",
     @SerialName("page_diagnostics")
     val pageDiagnostics: Map<String, String> = emptyMap(),
+    @SerialName("dynamic_tool_definitions")
+    val dynamicToolDefinitions: List<JsonObject> = emptyList(),
     val trace: List<UIStep> = emptyList(),
     @SerialName("key_memory")
     val keyMemory: List<String> = emptyList(),
@@ -385,7 +387,9 @@ class VLMConversationState(
 
 data class VLMRequestEnvelope(
     val request: cn.com.omnimind.baselib.llm.ChatCompletionRequest,
-    val currentUserText: String
+    val currentUserText: String,
+    val dynamicFunctionToolNames: Set<String> = emptySet(),
+    val toolNames: List<String> = emptyList()
 )
 
 @Serializable

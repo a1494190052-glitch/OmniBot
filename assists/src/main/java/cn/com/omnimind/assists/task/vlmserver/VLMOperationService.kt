@@ -654,7 +654,8 @@ class VLMOperationService(
                 _context = _context.copy(
                     currentPageSummary = "",
                     firstStepGuidance = "",
-                    pageDiagnostics = emptyMap()
+                    pageDiagnostics = emptyMap(),
+                    dynamicToolDefinitions = emptyList()
                 )
                 _context = VLMFirstStepOptimizer.enrichContext(
                     context = _context,
@@ -707,6 +708,7 @@ class VLMOperationService(
                 var retryState: VLMToolCallRetryState? = null
                 var vlmResult: VLMResult
                 var sceneTurn: SceneChatCompletionTurn? = null
+                var lastRequestEnvelope: VLMRequestEnvelope? = null
                 var currentUserTextSnapshot = ""
                 conversationState.updateStreamingReasoning("")
                 lastReasoningOverlay = ""
@@ -725,6 +727,7 @@ class VLMOperationService(
                         retryState = retryState,
                         includeMarkedScreenshot = SEND_MARKED_SCREENSHOT_BY_DEFAULT && includeCurrentScreenshot
                     )
+                    lastRequestEnvelope = requestEnvelope
                     currentUserTextSnapshot = requestEnvelope.currentUserText
                     OmniLog.i(
                         Tag,
@@ -800,7 +803,11 @@ class VLMOperationService(
                     }
 
                     // 解析链路统一由主场景解析器处理
-                    vlmResult = vlmClient.parseVLMResponse(streamedTurn, model)
+                    vlmResult = vlmClient.parseVLMResponse(
+                        response = streamedTurn,
+                        modelOrScene = model,
+                        dynamicFunctionToolNames = requestEnvelope.dynamicFunctionToolNames
+                    )
                     safePauseCheck("after_parse_${stabilityAttempt}_retry_$toolCallRetryCount")
 
                     if (
@@ -850,7 +857,10 @@ class VLMOperationService(
                         result = "解析失败，第${parseFailureCount}次失败",
                         tokenUsage = usageAggregate(),
                         tokenUsageAttempts = usageAttemptsSnapshot(),
-                        pageDiagnostics = _context.pageDiagnostics
+                        pageDiagnostics = _context.pageDiagnostics + buildParseFailureDiagnostics(
+                            sceneTurn = sceneTurn,
+                            requestEnvelope = lastRequestEnvelope
+                        )
                     )
 
                     return VLMOperationResult(
@@ -1189,6 +1199,40 @@ class VLMOperationService(
             return "模型多次未返回标准 tool_calls，可能仍停留在思考阶段或不支持标准工具调用$finishReasonSuffix"
         }
         return vlmResult.error ?: "VLM推理失败"
+    }
+
+    private fun buildParseFailureDiagnostics(
+        sceneTurn: SceneChatCompletionTurn?,
+        requestEnvelope: VLMRequestEnvelope?
+    ): Map<String, String> {
+        val diagnostics = linkedMapOf<String, String>()
+        requestEnvelope?.let { envelope ->
+            diagnostics["vlm_request_tool_count"] = envelope.toolNames.size.toString()
+            diagnostics["vlm_request_tool_names"] = envelope.toolNames.joinToString(",").take(4000)
+            diagnostics["vlm_request_dynamic_function_tool_count"] =
+                envelope.dynamicFunctionToolNames.size.toString()
+            diagnostics["vlm_request_dynamic_function_tool_names"] =
+                envelope.dynamicFunctionToolNames.joinToString(",").take(4000)
+        }
+        sceneTurn?.let { turn ->
+            diagnostics["vlm_response_route"] = turn.route.orEmpty()
+            diagnostics["vlm_response_resolved_model"] = turn.resolvedModel
+            diagnostics["vlm_response_finish_reason"] = turn.turn.finishReason.orEmpty()
+            diagnostics["vlm_response_tool_call_count"] =
+                (turn.turn.message.toolCalls?.size ?: 0).toString()
+            diagnostics["vlm_response_tool_names"] = turn.turn.message.toolCalls
+                .orEmpty()
+                .map { it.function.name }
+                .joinToString(",")
+                .take(4000)
+            val rawContent = turn.turn.message.contentText()
+                .ifBlank { turn.turn.reasoning }
+                .trim()
+            if (rawContent.isNotBlank()) {
+                diagnostics["vlm_response_raw_content_preview"] = rawContent.take(4000)
+            }
+        }
+        return diagnostics
     }
 
     private fun normalizeOverlayText(text: String, maxLen: Int): String {

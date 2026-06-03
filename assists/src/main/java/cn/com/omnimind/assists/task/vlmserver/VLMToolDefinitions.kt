@@ -71,6 +71,21 @@ object VLMToolDefinitions {
         }
     }
 
+    fun dynamicToolsFromDefinitions(definitions: List<JsonObject>): List<ChatCompletionTool> {
+        return definitions.mapNotNull { definition ->
+            val function = definition["function"] as? JsonObject ?: return@mapNotNull null
+            val name = function["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            if (name.isBlank()) return@mapNotNull null
+            ChatCompletionTool(
+                function = ChatCompletionFunction(
+                    name = name,
+                    description = function["description"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    parameters = (function["parameters"] as? JsonObject) ?: JsonObject(emptyMap())
+                )
+            )
+        }
+    }
+
     fun renderPromptGuide(locale: PromptLocale = currentLocale()): String {
         val guides = toolSpecs(locale).joinToString(separator = "\n") { it.promptGuide }
         return buildString {

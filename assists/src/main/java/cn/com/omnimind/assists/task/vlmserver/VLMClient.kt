@@ -60,10 +60,14 @@ class VLMClient(
             retryState = retryState
         )
         val imageCount = listOf(screenshot, effectiveMarkedScreenshot).count { !it.isNullOrBlank() }
+        val baseTools = VLMToolDefinitions.tools()
+        val dynamicTools = VLMToolDefinitions.dynamicToolsFromDefinitions(context.dynamicToolDefinitions)
+        val tools = (baseTools + dynamicTools).distinctBy { it.function.name }
+        val dynamicFunctionToolNames = dynamicTools.mapTo(linkedSetOf()) { it.function.name }
 
         OmniLog.i(
             TAG,
-            "buildUIOperationRequest scene=$model historyRounds=${conversationState.roundCount()} historyMessages=${historyMessages.size} totalMessages=${messages.size} currentImages=$imageCount visualPolicy=screenshot+a11_tree marked=${includeMarkedScreenshot && !markedScreenshot.isNullOrBlank()} retry=${retryState?.retryIndex ?: 0}"
+            "buildUIOperationRequest scene=$model historyRounds=${conversationState.roundCount()} historyMessages=${historyMessages.size} totalMessages=${messages.size} currentImages=$imageCount visualPolicy=screenshot+a11_tree marked=${includeMarkedScreenshot && !markedScreenshot.isNullOrBlank()} retry=${retryState?.retryIndex ?: 0} tools=${tools.size} dynamicFunctionTools=${dynamicFunctionToolNames.size}"
         )
 
         return VLMRequestEnvelope(
@@ -75,17 +79,24 @@ class VLMClient(
                 temperature = 0.2,
                 stream = true,
                 streamOptions = ChatCompletionStreamOptions(includeUsage = true),
-                tools = VLMToolDefinitions.tools(),
+                tools = tools,
                 toolChoice = JsonPrimitive("required"),
                 parallelToolCalls = false
             ),
-            currentUserText = currentUserText
+            currentUserText = currentUserText,
+            dynamicFunctionToolNames = dynamicFunctionToolNames,
+            toolNames = tools.map { it.function.name }
         )
     }
 
-    fun parseVLMResponse(response: SceneChatCompletionTurn, modelOrScene: String): VLMResult {
+    fun parseVLMResponse(
+        response: SceneChatCompletionTurn,
+        modelOrScene: String,
+        dynamicFunctionToolNames: Set<String> = emptySet()
+    ): VLMResult {
         return when (response.parser) {
-            ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS -> parseToolActionResponse(response)
+            ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS ->
+                parseToolActionResponse(response, dynamicFunctionToolNames)
             ModelSceneRegistry.ResponseParser.JSON_CONTENT ->
                 VLMResult(false, null, "主 VLM parser 不支持 JSON_CONTENT: $modelOrScene")
             ModelSceneRegistry.ResponseParser.TEXT_CONTENT ->
@@ -231,7 +242,10 @@ class VLMClient(
         }
     }
 
-    private fun parseToolActionResponse(response: SceneChatCompletionTurn): VLMResult {
+    private fun parseToolActionResponse(
+        response: SceneChatCompletionTurn,
+        dynamicFunctionToolNames: Set<String>
+    ): VLMResult {
         val content = response.turn.message.contentText()
         val metadata = parseStepMetadata(content, response.turn.reasoning)
         val thinking = buildThinkingContext(
@@ -242,7 +256,7 @@ class VLMClient(
         )
         val toolCalls = response.turn.message.toolCalls.orEmpty()
         if (toolCalls.isEmpty()) {
-            val fallbackToolCall = parseTextToolCall(content)
+            val fallbackToolCall = parseTextToolCall(content, dynamicFunctionToolNames)
             if (fallbackToolCall != null) {
                 return parseSingleToolCall(
                     toolCall = fallbackToolCall,
@@ -250,7 +264,8 @@ class VLMClient(
                     thinking = thinking,
                     content = content,
                     reasoning = response.turn.reasoning,
-                    source = "text_tool_call"
+                    source = "text_tool_call",
+                    dynamicFunctionToolNames = dynamicFunctionToolNames
                 )
             }
             return VLMResult(
@@ -275,7 +290,8 @@ class VLMClient(
             thinking = thinking,
             content = content,
             reasoning = response.turn.reasoning,
-            source = "tool_calls"
+            source = "tool_calls",
+            dynamicFunctionToolNames = dynamicFunctionToolNames
         )
     }
 
@@ -285,10 +301,11 @@ class VLMClient(
         thinking: VLMThinkingContext,
         content: String,
         reasoning: String,
-        source: String
+        source: String,
+        dynamicFunctionToolNames: Set<String>
     ): VLMResult {
         return try {
-            val action = parseActionFromToolCall(toolCall)
+            val action = parseActionFromToolCall(toolCall, dynamicFunctionToolNames)
             val thought = metadata.thought.ifBlank { reasoning.ifBlank { content } }
             if (source != "tool_calls") {
                 OmniLog.w(
@@ -455,8 +472,17 @@ class VLMClient(
         }
     }
 
-    private fun parseActionFromToolCall(toolCall: AssistantToolCall): UIAction {
+    private fun parseActionFromToolCall(
+        toolCall: AssistantToolCall,
+        dynamicFunctionToolNames: Set<String>
+    ): UIAction {
         val toolName = toolCall.function.name
+        if (toolName in dynamicFunctionToolNames) {
+            return FunctionRunAction(
+                functionId = toolName,
+                arguments = parseLooseArguments(toolCall.function.arguments)
+            )
+        }
         val args = parseArguments(toolName, toolCall.function.arguments)
         return when (toolName) {
             OobCanonicalActionSchema.TOOL_CLICK -> ClickAction(
@@ -530,16 +556,29 @@ class VLMClient(
         return VLMToolArgumentParser.parse(toolName, rawArguments)
     }
 
-    private fun parseTextToolCall(content: String): AssistantToolCall? {
-        val normalized = content.trim()
-        if (normalized.isEmpty()) return null
-        return parseJsonTextToolCall(normalized)
-            ?: parseFunctionInvocationTextToolCall(normalized)
-            ?: parseTaggedJsonTextToolCall(normalized)
-            ?: parseHtmlArgTextToolCall(normalized)
+    private fun parseLooseArguments(rawArguments: String): JsonObject {
+        val normalized = rawArguments.trim().ifEmpty { "{}" }
+        val parsed = runCatching { json.parseToJsonElement(normalized) as? JsonObject }.getOrNull()
+        if (parsed != null) return parsed
+        val topLevel = extractTopLevelObject(normalized)
+        if (!topLevel.isNullOrBlank()) {
+            return runCatching { json.parseToJsonElement(topLevel) as? JsonObject }
+                .getOrNull()
+                ?: JsonObject(emptyMap())
+        }
+        return JsonObject(emptyMap())
     }
 
-    private fun parseJsonTextToolCall(content: String): AssistantToolCall? {
+    private fun parseTextToolCall(content: String, dynamicFunctionToolNames: Set<String>): AssistantToolCall? {
+        val normalized = content.trim()
+        if (normalized.isEmpty()) return null
+        return parseJsonTextToolCall(normalized, dynamicFunctionToolNames)
+            ?: parseFunctionInvocationTextToolCall(normalized, dynamicFunctionToolNames)
+            ?: parseTaggedJsonTextToolCall(normalized, dynamicFunctionToolNames)
+            ?: parseHtmlArgTextToolCall(normalized, dynamicFunctionToolNames)
+    }
+
+    private fun parseJsonTextToolCall(content: String, dynamicFunctionToolNames: Set<String>): AssistantToolCall? {
         val candidates = buildList {
             val toolCallBody = TOOL_CALL_TAG_REGEX.find(content)?.groups?.get(1)?.value?.trim()
             if (!toolCallBody.isNullOrEmpty()) add(toolCallBody)
@@ -571,13 +610,16 @@ class VLMClient(
                     else -> arguments.toString()
                 }
             } ?: buildInlineActionArguments(parsed).toString()
-            return buildFallbackToolCall(name, args)
+            return buildFallbackToolCall(name, args, dynamicFunctionToolNames)
         }
         return null
     }
 
-    private fun parseFunctionInvocationTextToolCall(content: String): AssistantToolCall? {
-        toolNames().forEach { toolName ->
+    private fun parseFunctionInvocationTextToolCall(
+        content: String,
+        dynamicFunctionToolNames: Set<String>
+    ): AssistantToolCall? {
+        toolNames(dynamicFunctionToolNames).forEach { toolName ->
             var searchStart = 0
             while (searchStart < content.length) {
                 val nameIndex = content.indexOf(toolName, startIndex = searchStart, ignoreCase = false)
@@ -598,7 +640,7 @@ class VLMClient(
                 }
                 val args = extractBalancedParenthesized(content, openParen)
                 if (!args.isNullOrBlank()) {
-                    return buildFallbackToolCall(toolName, args)
+                    return buildFallbackToolCall(toolName, args, dynamicFunctionToolNames)
                 }
                 searchStart = nameIndex + toolName.length
             }
@@ -620,7 +662,7 @@ class VLMClient(
         return JsonObject(parsed.filterKeys { it !in ignoredKeys })
     }
 
-    private fun parseTaggedJsonTextToolCall(content: String): AssistantToolCall? {
+    private fun parseTaggedJsonTextToolCall(content: String, dynamicFunctionToolNames: Set<String>): AssistantToolCall? {
         val name = Regex("""(?i)<(?:function|tool|name)\s*=\s*name>\s*([^<\s]+)""")
             .find(content)
             ?.groups
@@ -635,14 +677,14 @@ class VLMClient(
             ?.value
             ?.trim()
             ?: "{}"
-        return buildFallbackToolCall(name, args)
+        return buildFallbackToolCall(name, args, dynamicFunctionToolNames)
     }
 
-    private fun parseHtmlArgTextToolCall(content: String): AssistantToolCall? {
+    private fun parseHtmlArgTextToolCall(content: String, dynamicFunctionToolNames: Set<String>): AssistantToolCall? {
         val closeTagIndex = content.indexOf("</tool_call>", ignoreCase = true)
         if (closeTagIndex < 0) return null
         val prefix = content.take(closeTagIndex)
-        val name = toolNames()
+        val name = toolNames(dynamicFunctionToolNames)
             .firstOrNull { toolName ->
                 Regex("""(?<![A-Za-z0-9_])${Regex.escape(toolName)}(?![A-Za-z0-9_])""")
                     .containsMatchIn(prefix)
@@ -657,11 +699,15 @@ class VLMClient(
                 }
             }
         }
-        return buildFallbackToolCall(name, args.toString())
+        return buildFallbackToolCall(name, args.toString(), dynamicFunctionToolNames)
     }
 
-    private fun buildFallbackToolCall(name: String, arguments: String): AssistantToolCall? {
-        val normalizedName = normalizeToolName(name) ?: return null
+    private fun buildFallbackToolCall(
+        name: String,
+        arguments: String,
+        dynamicFunctionToolNames: Set<String>
+    ): AssistantToolCall? {
+        val normalizedName = normalizeToolName(name, dynamicFunctionToolNames) ?: return null
         return AssistantToolCall(
             id = "text_tool_call",
             function = AssistantToolCallFunction(
@@ -671,13 +717,15 @@ class VLMClient(
         )
     }
 
-    private fun normalizeToolName(name: String): String? {
+    private fun normalizeToolName(name: String, dynamicFunctionToolNames: Set<String>): String? {
         val normalized = name.trim().removePrefix("functions.").removePrefix("function.").trim()
-        return toolNames().firstOrNull { it == normalized }
+        return toolNames(dynamicFunctionToolNames).firstOrNull { it == normalized }
     }
 
-    private fun toolNames(): Set<String> =
-        OobCanonicalActionSchema.modelVisibleTools.mapTo(linkedSetOf()) { it.name }
+    private fun toolNames(dynamicFunctionToolNames: Set<String> = emptySet()): Set<String> =
+        OobCanonicalActionSchema.modelVisibleTools.mapTo(linkedSetOf()) { it.name }.apply {
+            addAll(dynamicFunctionToolNames)
+        }
 
     private fun extractTopLevelObject(raw: String): String? {
         val start = raw.indexOf('{')

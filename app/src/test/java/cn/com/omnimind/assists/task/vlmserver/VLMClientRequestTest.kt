@@ -9,10 +9,12 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -111,6 +113,29 @@ class VLMClientRequestTest {
             "data:image/png;base64,MARKED_IMAGE",
             blocks[4].jsonObject["image_url"]!!.jsonObject["url"]!!.jsonPrimitive.contentOrNull
         )
+    }
+
+    @Test
+    fun `operation request appends recalled function tools`() {
+        val client = VLMClient(
+            systemPromptBuilder = { "system prompt" },
+            turnPromptBuilder = { context, _ -> context.overallTask }
+        )
+
+        val envelope = client.buildUIOperationRequest(
+            context = UIContext(
+                overallTask = "Open Settings",
+                dynamicToolDefinitions = listOf(dynamicFunctionToolDefinition("debug_agent_function_open_settings"))
+            ),
+            screenshot = null,
+            conversationState = VLMConversationState()
+        )
+
+        val toolNames = envelope.request.tools.orEmpty().map { it.function.name }
+        assertTrue(toolNames.contains("click"))
+        assertTrue(toolNames.contains("debug_agent_function_open_settings"))
+        assertTrue(envelope.dynamicFunctionToolNames.contains("debug_agent_function_open_settings"))
+        assertEquals(toolNames, envelope.toolNames)
     }
 
     @Test
@@ -312,6 +337,39 @@ class VLMClientRequestTest {
     }
 
     @Test
+    fun `openai tool action parser supports dynamic function tool call`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "vlm-test-model",
+                turn = ChatCompletionTurn(
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        toolCalls = listOf(
+                            AssistantToolCall(
+                                id = "call_1",
+                                function = AssistantToolCallFunction(
+                                    name = "xhs_search_keyword",
+                                    arguments = """{"keyword":"猫猫"}"""
+                                )
+                            )
+                        )
+                    )
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary",
+            dynamicFunctionToolNames = setOf("xhs_search_keyword")
+        )
+
+        assertTrue(result.success)
+        val action = requireNotNull(result.step).action as FunctionRunAction
+        assertEquals("xhs_search_keyword", action.functionId)
+        assertEquals("猫猫", action.arguments["keyword"]!!.jsonPrimitive.contentOrNull)
+    }
+
+    @Test
     fun `text fallback tool parser supports input_text`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(
@@ -451,6 +509,23 @@ class VLMClientRequestTest {
     }
 
     companion object {
+        private fun dynamicFunctionToolDefinition(name: String) = buildJsonObject {
+            put("type", "function")
+            put("function", buildJsonObject {
+                put("name", name)
+                put("toolType", "oob_function")
+                put("description", "Reusable Function")
+                put("parameters", buildJsonObject {
+                    put("type", "object")
+                    put("properties", buildJsonObject {
+                        put("keyword", buildJsonObject {
+                            put("type", "string")
+                        })
+                    })
+                })
+            })
+        }
+
         private const val BEFORE_XML =
             """
             <hierarchy>
