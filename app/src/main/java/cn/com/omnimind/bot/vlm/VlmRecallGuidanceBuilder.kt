@@ -358,14 +358,15 @@ object VlmRecallGuidanceBuilder {
         linkedMapOf<String, Any?>().apply {
             value.forEach { (rawKey, rawItem) ->
                 val key = rawKey?.toString() ?: return@forEach
-                if (key in AGENT_HIDDEN_RECALL_KEYS) return@forEach
+                val normalizedKey = key.trim().lowercase()
+                if (normalizedKey in AGENT_HIDDEN_RECALL_KEYS || normalizedKey.endsWith("_xml")) return@forEach
                 put(key, sanitizeForAgent(rawItem))
             }
         }
 
-    private const val DEFAULT_RECALL_COUNT = 50
-    private const val MAX_GUIDANCE_CANDIDATES = 20
-    private const val MAX_DESCRIPTION_CHARS = 96
+    private const val DEFAULT_RECALL_COUNT = 5
+    private const val MAX_GUIDANCE_CANDIDATES = 3
+    private const val MAX_DESCRIPTION_CHARS = 72
     private const val DIRECT_HIT_MIN_SCORE = 0.92
     private const val DIRECT_HIT_MIN_PAGE_SCORE = 0.90
     private const val DIRECT_HIT_MIN_TEXT_SCORE = 0.85
@@ -376,5 +377,10 @@ object VlmRecallGuidanceBuilder {
         "finished_at_ms",
         "phase_ms",
         "runner_duration_ms",
+        "xml",
+        "current_xml",
+        "observation_xml",
+        "before_xml",
+        "after_xml",
     )
 }

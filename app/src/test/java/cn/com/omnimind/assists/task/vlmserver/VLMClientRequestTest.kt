@@ -8,7 +8,9 @@ import cn.com.omnimind.baselib.llm.ModelSceneRegistry
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
@@ -59,7 +61,7 @@ class VLMClientRequestTest {
     }
 
     @Test
-    fun `operation request defaults to one screenshot plus a11 tree text`() {
+    fun `operation request defaults to one screenshot plus compact indexed evidence text`() {
         val client = VLMClient(
             systemPromptBuilder = { "system prompt" },
             turnPromptBuilder = { context, _ -> "${context.overallTask}\n${context.currentPageSummary}" }
@@ -68,7 +70,7 @@ class VLMClientRequestTest {
         val envelope = client.buildUIOperationRequest(
             context = UIContext(
                 overallTask = "Open Settings",
-                currentPageSummary = "OOB Accessibility tree / indexed page evidence:\n#0 label=\"Settings\""
+                currentPageSummary = "OOB indexed page evidence:\n#0 label=\"Settings\""
             ),
             screenshot = "RAW_IMAGE",
             markedScreenshot = "MARKED_IMAGE",
@@ -78,7 +80,7 @@ class VLMClientRequestTest {
         val currentUser = envelope.request.messages.last()
         val blocks = currentUser.content!!.jsonArray
         assertEquals(3, blocks.size)
-        assertTrue(blocks[0].jsonObject["text"]!!.jsonPrimitive.contentOrNull!!.contains("Accessibility tree"))
+        assertTrue(blocks[0].jsonObject["text"]!!.jsonPrimitive.contentOrNull!!.contains("indexed page evidence"))
         assertEquals("Current screenshot.", blocks[1].jsonObject["text"]!!.jsonPrimitive.contentOrNull)
         assertEquals(
             "data:image/png;base64,RAW_IMAGE",
@@ -136,6 +138,17 @@ class VLMClientRequestTest {
         assertTrue(toolNames.contains("debug_agent_function_open_settings"))
         assertTrue(envelope.dynamicFunctionToolNames.contains("debug_agent_function_open_settings"))
         assertEquals(toolNames, envelope.toolNames)
+        assertEquals("required", envelope.request.toolChoice!!.jsonPrimitive.contentOrNull)
+        assertTrue(envelope.systemPromptChars > 0)
+        assertTrue(envelope.currentUserTextChars > 0)
+
+        val dynamicTool = envelope.request.tools.single { it.function.name == "debug_agent_function_open_settings" }
+        val parameters = dynamicTool.function.parameters
+        val properties = parameters["properties"]!!.jsonObject
+        val required = parameters["required"]!!.jsonArray.map { it.jsonPrimitive.contentOrNull }
+        assertFalse(properties.containsKey("tool_title"))
+        assertFalse(required.contains("tool_title"))
+        assertTrue(properties.containsKey("keyword"))
     }
 
     @Test
@@ -148,7 +161,7 @@ class VLMClientRequestTest {
         val envelope = client.buildUIOperationRequest(
             context = UIContext(
                 overallTask = "Open Settings",
-                currentPageSummary = "OOB Accessibility tree / indexed page evidence:\n#0 label=\"Settings\""
+                currentPageSummary = "OOB indexed page evidence:\n#0 label=\"Settings\""
             ),
             screenshot = null,
             markedScreenshot = null,
@@ -164,7 +177,7 @@ class VLMClientRequestTest {
         val currentUser = envelope.request.messages[1]
         val blocks = currentUser.content!!.jsonArray
         assertEquals(1, blocks.size)
-        assertTrue(blocks[0].jsonObject["text"]!!.jsonPrimitive.contentOrNull!!.contains("Accessibility tree"))
+        assertTrue(blocks[0].jsonObject["text"]!!.jsonPrimitive.contentOrNull!!.contains("indexed page evidence"))
         assertFalse(currentUser.content.toString().contains("image_url"))
         assertFalse(currentUser.content.toString().contains("MARKED_IMAGE"))
         assertEquals("assistant", envelope.request.messages[2].role)
@@ -225,7 +238,7 @@ class VLMClientRequestTest {
         val client = VLMClient()
         val verbosePrompt = """
             用户任务: Open Settings
-            OOB Accessibility tree / indexed page evidence:
+            OOB indexed page evidence:
             #0 label="Settings" bounds=[0,0][720,1280]
         """.trimIndent()
         val round = client.buildConversationRound(
@@ -265,8 +278,55 @@ class VLMClientRequestTest {
         assertTrue(compactUser.contains("Previous turn compact context"))
         assertTrue(compactUser.contains("Prior action: click Settings"))
         assertTrue(compactUser.contains("Post-action observation"))
-        assertFalse(compactUser.contains("OOB Accessibility tree / indexed page evidence"))
+        assertFalse(compactUser.contains("OOB indexed page evidence"))
         assertFalse(compactUser.contains("bounds=[0,0][720,1280]"))
+    }
+
+    @Test
+    fun `conversation tool result omits raw xml from function result data`() {
+        val client = VLMClient()
+        val round = client.buildConversationRound(
+            currentUserText = "current turn",
+            assistantTurn = SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "vlm-test-model",
+                turn = ChatCompletionTurn(
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        toolCalls = listOf(
+                            AssistantToolCall(
+                                id = "call_1",
+                                function = AssistantToolCallFunction(
+                                    name = "debug_agent_function_open_settings",
+                                    arguments = "{}"
+                                )
+                            )
+                        )
+                    )
+                )
+            ),
+            executedStep = UIStep(
+                observation = "before",
+                thought = "call function",
+                action = FunctionRunAction(functionId = "debug_agent_function_open_settings"),
+                result = "OK",
+                actionResultData = buildJsonObject {
+                    put("function_id", "debug_agent_function_open_settings")
+                    put("observation_xml", "<hierarchy><node text=\"Settings\" /></hierarchy>")
+                    put("nested", buildJsonObject {
+                        put("current_xml", "<node text=\"Network\" />")
+                    })
+                }
+            )
+        )
+
+        val payloadText = round.toolMessage.content!!.jsonPrimitive.contentOrNull.orEmpty()
+        assertFalse(payloadText.contains("<hierarchy"))
+        assertFalse(payloadText.contains("<node"))
+        assertTrue(payloadText.contains("observation_xml_chars"))
+        assertTrue(payloadText.contains("current_xml_chars"))
+        assertTrue(payloadText.contains("model_visible"))
     }
 
     @Test
@@ -396,6 +456,31 @@ class VLMClientRequestTest {
     }
 
     @Test
+    fun `text fallback tool parser rejects legacy action field`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "vlm-test-model",
+                turn = ChatCompletionTurn(
+                    finishReason = "stop",
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        content = JsonPrimitive(
+                            """{"action":"click","arguments":{"target_description":"Settings","x":480,"y":702}}"""
+                        )
+                    )
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary"
+        )
+
+        assertFalse(result.success)
+        assertTrue(result.error.orEmpty().contains("tool_calls"))
+    }
+
+    @Test
     fun `text fallback tool parser supports inline oob function run json`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(
@@ -518,9 +603,16 @@ class VLMClientRequestTest {
                 put("parameters", buildJsonObject {
                     put("type", "object")
                     put("properties", buildJsonObject {
+                        put("tool_title", buildJsonObject {
+                            put("type", "string")
+                        })
                         put("keyword", buildJsonObject {
                             put("type", "string")
                         })
+                    })
+                    put("required", buildJsonArray {
+                        add("tool_title")
+                        add("keyword")
                     })
                 })
             })

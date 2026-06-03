@@ -83,7 +83,7 @@ object VLMIndexedPageContext {
         }
 
         return buildString {
-            appendLine("OOB Accessibility tree / indexed page evidence (live Accessibility XML; coordinates are 0-1000 normalized):")
+            appendLine("OOB indexed page evidence (compact live page summary; coordinates are 0-1000 normalized):")
             candidates.forEachIndexed { index, node ->
                 append("#").append(index)
                     .append(" center=(").append(norm(node.bounds.centerX, screen.left, screen.width))

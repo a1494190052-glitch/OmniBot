@@ -100,4 +100,16 @@ class VLMToolDefinitionsTest {
         assertTrue(promptGuide.contains("Coordinates are fallback only"))
         assertTrue(promptGuide.contains("page settling and stability detection are handled internally"))
     }
+
+    @Test
+    fun `compact action schema requires native tool call and rejects legacy formats`() {
+        val promptGuide = VLMToolDefinitions.renderCompactActionSchemaGuide(PromptLocale.EN_US)
+
+        assertTrue(promptGuide.contains("native tool_call only"))
+        assertTrue(promptGuide.contains("Do not use legacy action/swipe/coordinate/coordinate2"))
+        assertFalse(promptGuide.contains("fallback JSON"))
+        assertFalse(promptGuide.contains("\"tool\":\"tool_name\""))
+        assertFalse(promptGuide.contains("get_state"))
+        assertFalse(promptGuide.contains("wait"))
+    }
 }

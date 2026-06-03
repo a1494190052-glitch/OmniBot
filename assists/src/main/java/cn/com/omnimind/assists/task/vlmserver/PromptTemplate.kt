@@ -119,8 +119,8 @@ object PromptTemplate {
             appendLine(
                 t(
                     locale,
-                    "以下是当前这一轮的动态上下文，请结合当前截图和 Accessibility tree / indexed page evidence 选择下一步动作。",
-                    "Below is the dynamic context for the current turn. Use it together with the current screenshot and Accessibility tree / indexed page evidence to choose the next action."
+                    "以下是当前这一轮的动态上下文，请结合当前截图和 OOB indexed page evidence 选择下一步动作。原始 XML 只供系统内部使用，不会作为模型上下文提供。",
+                    "Below is the dynamic context for the current turn. Use it together with the current screenshot and OOB indexed page evidence to choose the next action. Raw XML is internal-only and is not provided as model context."
                 )
             )
             appendLine("${t(locale, "场景", "Scene")}: $resolvedSceneId")
@@ -155,8 +155,8 @@ object PromptTemplate {
             appendLine(
                 t(
                     locale,
-                    "遵守统一 action schema：每轮恰好一个原生 tool_call；如果模型接口无法生成原生 tool_calls，也只能输出同一 schema 的 {\"tool\":\"...\",\"arguments\":{...}} 兜底 JSON。不要输出旧格式 action/swipe/coordinate/coordinate2。",
-                    "Follow the unified action schema: exactly one native tool_call per turn; if the model API cannot emit native tool_calls, output only a same-schema fallback JSON {\"tool\":\"...\",\"arguments\":{...}}. Do not output legacy action/swipe/coordinate/coordinate2 formats."
+                    "遵守统一 action schema：每轮恰好一个原生 tool_call。不要输出文本动作、Markdown、旧格式 action/swipe/coordinate/coordinate2，或任何不在 tools[] 里的工具名。",
+                    "Follow the unified action schema: exactly one native tool_call per turn. Do not output text actions, Markdown, legacy action/swipe/coordinate/coordinate2 formats, or tool names that are not in tools[]."
                 )
             )
             appendLine(
@@ -169,8 +169,8 @@ object PromptTemplate {
             appendLine(
                 t(
                     locale,
-                    "如果截图是黑屏/空白，但 Accessibility tree、indexed evidence 或 visible_texts 包含当前页面和目标控件，请把这些文本树证据视为当前页面证据并继续选择统一 schema 中的工具；不要输出刷新状态、等待或空操作。",
-                    "If the screenshot is black/blank but the Accessibility tree, indexed evidence, or visible_texts contains the current page and target control, treat that tree/text evidence as current-page evidence and continue with a tool from the unified schema; do not output refresh-state, wait, or no-op actions."
+                    "如果截图是黑屏/空白，但 indexed evidence 或 visible_texts 包含当前页面和目标控件，请把这些压缩证据视为当前页面证据并继续选择统一 schema 中的工具；不要输出刷新状态、等待或空操作。",
+                    "If the screenshot is black/blank but indexed evidence or visible_texts contains the current page and target control, treat that compact evidence as current-page evidence and continue with a tool from the unified schema; do not output refresh-state, wait, or no-op actions."
                 )
             )
         }.trim()
@@ -179,7 +179,7 @@ object PromptTemplate {
     private fun renderUnifiedActionSchema(context: UIContext, locale: PromptLocale): String {
         return buildString {
             appendLine(t(locale, "统一 action schema:", "Unified action schema:"))
-            appendLine(VLMToolDefinitions.renderPromptGuide(locale))
+            appendLine(VLMToolDefinitions.renderCompactActionSchemaGuide(locale))
             renderFunctionToolUsage(context, locale).takeIf { it.isNotBlank() }?.let {
                 appendLine(it)
             }
@@ -204,7 +204,6 @@ object PromptTemplate {
                 appendLine("- 当用户目标和某个 Function 的名称、描述、适用条件、参数 schema 高置信匹配时，优先直接调用该 Function tool，并从用户目标填写 arguments。")
                 appendLine("- 不要把 Function 当成完成证明；Function 返回后，只有当前页面/工具结果证明目标完成时才调用 finished，否则继续选择 Function 或普通 GUI tool。")
                 appendLine("- 如果没有高置信匹配，或者缺少必填参数，就继续使用普通 GUI tools，不要空参数调用。")
-                appendLine("- 如果当前模型不能产生原生 tool_calls，兜底文本 JSON 也必须使用同一套 action schema，例如 {\"tool\":\"${functionNames.first()}\",\"arguments\":{}}。")
                 appendLine("动态 Function action schema:")
                 appendLine(renderDynamicFunctionSchemaSummary(context.dynamicToolDefinitions, locale))
             }
@@ -215,7 +214,6 @@ object PromptTemplate {
                 appendLine("- If the user goal strongly matches a Function name, description, applicability, and parameter schema, prefer calling that Function tool directly and fill arguments from the user goal.")
                 appendLine("- Do not treat a Function call as completion proof; call finished only when the current page/tool result proves completion. Otherwise continue with another Function or a normal GUI tool.")
                 appendLine("- If confidence is low or required arguments are missing, use normal GUI tools instead of calling with empty arguments.")
-                appendLine("- If the current model cannot emit native tool_calls, fallback text JSON must still use the same action schema, for example {\"tool\":\"${functionNames.first()}\",\"arguments\":{}}.")
                 appendLine("Dynamic Function action schema:")
                 appendLine(renderDynamicFunctionSchemaSummary(context.dynamicToolDefinitions, locale))
             }
@@ -234,12 +232,14 @@ object PromptTemplate {
             val description = function["description"]?.jsonPrimitive?.contentOrNull
                 ?.replace(Regex("\\s+"), " ")
                 ?.trim()
-                ?.take(180)
+                ?.take(100)
                 .orEmpty()
             val parameters = function["parameters"] as? JsonObject ?: JsonObject(emptyMap())
-            val properties = parameters["properties"] as? JsonObject ?: JsonObject(emptyMap())
+            val rawProperties = parameters["properties"] as? JsonObject ?: JsonObject(emptyMap())
+            val properties = JsonObject(rawProperties.filterKeys { it != TOOL_TITLE_FIELD })
             val required = (parameters["required"] as? JsonArray)
                 ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotEmpty) }
+                ?.filter { it != TOOL_TITLE_FIELD }
                 ?.toSet()
                 .orEmpty()
             val args = if (properties.isEmpty()) {
@@ -392,15 +392,15 @@ object PromptTemplate {
             appendLine(
                 t(
                     locale,
-                    "如果当前模型接口无法生成原生 tool_calls，也必须只输出一个使用统一 action schema 的工具调用 JSON，例如 ${dynamicFunctionFallbackExample(context) ?: "{\"tool\":\"click\",\"arguments\":{\"target_description\":\"目标控件\",\"element_index\":1,\"x\":500,\"y\":500}}"}。",
-                    "If the current model API cannot emit native tool_calls, output exactly one tool-call JSON using the unified action schema, for example ${dynamicFunctionFallbackExample(context) ?: "{\"tool\":\"click\",\"arguments\":{\"target_description\":\"target control\",\"element_index\":1,\"x\":500,\"y\":500}}"}."
+                    "必须改用原生 tool_calls，且工具名必须来自本轮 tools[]；不要用文本 JSON 表达动作。",
+                    "Switch to native tool_calls, and the tool name must come from this turn's tools[]; do not express actions as text JSON."
                 )
             )
             appendLine(
                 t(
                     locale,
-                    "不要只输出 observation/thought/summary JSON，不要提前宣布任务完成；如果被迫使用 assistant.content 兜底，它的全部内容必须只是一个工具调用 JSON。",
-                    "Do not output only observation/thought/summary JSON and do not announce completion prematurely; if you must use assistant.content as fallback, its entire content must be exactly one tool-call JSON."
+                    "不要只输出 observation/thought/summary JSON，不要提前宣布任务完成。",
+                    "Do not output only observation/thought/summary JSON and do not announce completion prematurely."
                 )
             )
             appendLine(
@@ -456,21 +456,10 @@ object PromptTemplate {
         return if (normalized.length <= maxLen) normalized else normalized.take(maxLen) + "..."
     }
 
-    private fun dynamicFunctionFallbackExample(context: UIContext): String? {
-        val name = context.dynamicToolDefinitions.firstNotNullOfOrNull { definition ->
-            (definition["function"] as? JsonObject)
-                ?.get("name")
-                ?.jsonPrimitive
-                ?.contentOrNull
-                ?.trim()
-                ?.takeIf(String::isNotEmpty)
-        } ?: return null
-        return """{"tool":"$name","arguments":{}}"""
-    }
-
     private const val MAX_FOCUSED_INSTALLED_APPS = 12
     private const val MAX_APP_QUERY_TERMS = 24
-    private const val MAX_DYNAMIC_FUNCTION_SCHEMA_CHARS = 2_400
+    private const val MAX_DYNAMIC_FUNCTION_SCHEMA_CHARS = 900
+    private const val TOOL_TITLE_FIELD = "tool_title"
     private val APP_QUERY_STOP_WORDS = setOf(
         "the",
         "and",

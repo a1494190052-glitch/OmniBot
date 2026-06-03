@@ -104,9 +104,9 @@ class OobVlmPageContextProvider(
             if (usageRules.isNotBlank()) {
                 append("\nUDEG使用方式: ").append(usageRules)
             }
-            append("\n约束: 这是当前页决策上下文；下一步动作仍必须基于本轮 live screenshot/XML/indexed evidence。")
+            append("\n约束: 这是当前页决策上下文；下一步动作仍必须基于本轮 live screenshot 和 compact indexed evidence。")
             append("\n约束: Function 候选只来自独立 OmniFlow recall，不在 page skill 中注入。")
-            append("\nUDEG观测来源: live screenshot/XML page match")
+            append("\nUDEG观测来源: live page match；raw XML 仅供系统内部匹配，不进入模型上下文。")
         }.take(MAX_GUIDANCE_CHARS)
     }
 

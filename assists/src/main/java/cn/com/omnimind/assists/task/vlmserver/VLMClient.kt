@@ -85,7 +85,9 @@ class VLMClient(
             ),
             currentUserText = currentUserText,
             dynamicFunctionToolNames = dynamicFunctionToolNames,
-            toolNames = tools.map { it.function.name }
+            toolNames = tools.map { it.function.name },
+            systemPromptChars = systemPrompt.length,
+            currentUserTextChars = currentUserText.length,
         )
     }
 
@@ -146,7 +148,7 @@ class VLMClient(
                 put("summary", JsonPrimitive(executedStep.summary))
             }
             executedStep.actionResultData?.let { data ->
-                put("data", data)
+                put("data", sanitizeModelVisibleJson(data))
             }
             VLMPostActionObservation.summarize(executedStep)?.let { post ->
                 put("screen_changed", JsonPrimitive(post.screenChanged))
@@ -199,6 +201,55 @@ class VLMClient(
                 toolCallId = toolCallId.ifBlank { null }
             )
         )
+    }
+
+    private fun sanitizeModelVisibleJson(value: kotlinx.serialization.json.JsonElement): kotlinx.serialization.json.JsonElement {
+        return when (value) {
+            is JsonObject -> buildJsonObject {
+                value.forEach { (key, child) ->
+                    val normalizedKey = key.trim().lowercase()
+                    if (isRawXmlKey(normalizedKey)) {
+                        put("${key}_chars", JsonPrimitive(rawXmlCharCount(child)))
+                        put("${key}_model_visible", JsonPrimitive(false))
+                    } else {
+                        put(key, sanitizeModelVisibleJson(child))
+                    }
+                }
+            }
+            is JsonArray -> buildJsonArray {
+                value.forEach { add(sanitizeModelVisibleJson(it)) }
+            }
+            is JsonPrimitive -> {
+                val text = value.contentOrNull
+                if (text != null && looksLikeRawXml(text)) {
+                    JsonPrimitive(
+                        "raw_xml_omitted(chars=${text.length}, model_visible=false)"
+                    )
+                } else {
+                    value
+                }
+            }
+        }
+    }
+
+    private fun isRawXmlKey(normalizedKey: String): Boolean {
+        return normalizedKey == "xml" ||
+            normalizedKey == "current_xml" ||
+            normalizedKey == "observation_xml" ||
+            normalizedKey == "before_xml" ||
+            normalizedKey == "after_xml" ||
+            normalizedKey.endsWith("_xml")
+    }
+
+    private fun rawXmlCharCount(value: kotlinx.serialization.json.JsonElement): Int {
+        return (value as? JsonPrimitive)?.contentOrNull?.length ?: value.toString().length
+    }
+
+    private fun looksLikeRawXml(text: String): Boolean {
+        val trimmed = text.trimStart()
+        return trimmed.startsWith("<hierarchy") ||
+            trimmed.startsWith("<node") ||
+            trimmed.contains("<node ")
     }
 
     internal fun buildCompactHistoryUserMessage(currentUserText: String, executedStep: UIStep): String {
@@ -592,7 +643,6 @@ class VLMClient(
                 ?: parsed["function"]?.jsonPrimitive?.contentOrNull?.trim()
                 ?: parsed["tool"]?.jsonPrimitive?.contentOrNull?.trim()
                 ?: parsed["tool_name"]?.jsonPrimitive?.contentOrNull?.trim()
-                ?: parsed["action"]?.jsonPrimitive?.contentOrNull?.trim()
                 ?: return@forEach
             val hasInlineFunctionId = parsed[OobCanonicalActionSchema.ARG_FUNCTION_ID] != null
             val args = if (hasInlineFunctionId) {
@@ -654,7 +704,6 @@ class VLMClient(
             "function",
             "tool",
             "tool_name",
-            "action",
             "observation",
             "thought",
             "summary",

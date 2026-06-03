@@ -136,8 +136,8 @@ class OobVlmFunctionRecallProvider(
     private companion object {
         private const val RECALL_START_MARKER = "[[OOB_OMNIFLOW_STEP_RECALL_START]]"
         private const val RECALL_END_MARKER = "[[OOB_OMNIFLOW_STEP_RECALL_END]]"
-        private const val MAX_STEP_SKILL_GUIDANCE_CHARS = 6_000
-        private const val MAX_DYNAMIC_FUNCTION_TOOLS = 8
+        private const val MAX_STEP_SKILL_GUIDANCE_CHARS = 2_500
+        private const val MAX_DYNAMIC_FUNCTION_TOOLS = 3
         private val recallBlockRegex = Regex(
             pattern = "\\n*\\Q$RECALL_START_MARKER\\E.*?\\Q$RECALL_END_MARKER\\E\\n*",
             options = setOf(RegexOption.DOT_MATCHES_ALL),

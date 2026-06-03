@@ -389,7 +389,9 @@ data class VLMRequestEnvelope(
     val request: cn.com.omnimind.baselib.llm.ChatCompletionRequest,
     val currentUserText: String,
     val dynamicFunctionToolNames: Set<String> = emptySet(),
-    val toolNames: List<String> = emptyList()
+    val toolNames: List<String> = emptyList(),
+    val systemPromptChars: Int = 0,
+    val currentUserTextChars: Int = currentUserText.length,
 )
 
 @Serializable

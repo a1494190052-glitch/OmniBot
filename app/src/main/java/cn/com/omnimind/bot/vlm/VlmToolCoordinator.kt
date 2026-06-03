@@ -164,7 +164,6 @@ object VlmToolCoordinator {
     private const val RECALL_OBSERVE_INTERVAL_MS = 250L
     private const val MIN_WAIT_TIMEOUT_MS = 30_000L
     private const val MAX_WAIT_TIMEOUT_MS = 600_000L
-    private const val MAX_RECALL_RECOVERY_XML_CHARS = 6000
     private const val DEFAULT_MAX_STEPS = 12
     private const val MAX_MAX_STEPS = 64
     private const val DRY_RUN_PROMPT_PREVIEW_CHARS = 6000
@@ -1165,11 +1164,6 @@ object VlmToolCoordinator {
         val recovery = findRecoveryPayload(result)
         val packageName = firstNonBlank(recovery?.get("effective_package"), recovery?.get("package_name"))
         val activityName = firstNonBlank(recovery?.get("activity_name"))
-        val xml = recovery?.get("observation_xml")
-            ?.toString()
-            ?.trim()
-            ?.take(MAX_RECALL_RECOVERY_XML_CHARS)
-            .orEmpty()
         val reason = recallFallbackReason(result)
         return buildString {
             append("OmniFlow 本地重放未完成，下一步必须回到 VLM 视觉执行。")
@@ -1187,11 +1181,11 @@ object VlmToolCoordinator {
             }
             if (packageName.isNotBlank()) append("\n失败后重新获取的当前包名：").append(packageName)
             if (activityName.isNotBlank()) append("\n失败后重新获取的 Activity：").append(activityName)
-            if (xml.isNotBlank()) {
-                append("\n失败后重新获取的当前页面 XML（截断）：\n")
-                append(xml)
-            }
-            append("\n请基于最新截图和最新 Accessibility tree 重新判断下一步，不要复用失败重放里的旧坐标、旧页面或旧节点。")
+            val xmlChars = recovery?.get("observation_xml")?.toString()?.length ?: 0
+            append("\n失败后页面已重新观测：raw_xml_available=").append(xmlChars > 0)
+            append(" raw_xml_chars=").append(xmlChars)
+            append(" raw_xml_model_visible=false")
+            append("\n请基于最新截图和 compact indexed evidence 重新判断下一步，不要复用失败重放里的旧坐标、旧页面或旧节点。")
         }
     }
 

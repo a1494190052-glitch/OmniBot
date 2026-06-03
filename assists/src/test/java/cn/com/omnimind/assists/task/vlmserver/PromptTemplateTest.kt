@@ -1,5 +1,9 @@
 package cn.com.omnimind.assists.task.vlmserver
 
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -56,8 +60,68 @@ class PromptTemplateTest {
             assertTrue(prompt.contains("black/blank"))
             assertTrue(prompt.contains("The system refreshes page state automatically each turn"))
             assertTrue(prompt.contains("do not output refresh-state"))
+            assertTrue(prompt.contains("Do not output text actions"))
+            assertTrue(prompt.contains("Raw XML is internal-only"))
             assertFalse(prompt.contains("1. Pick the next action directly from the tools list"))
             assertFalse(prompt.contains("8. Do not output any idle"))
+            assertFalse(prompt.contains("fallback JSON"))
+            assertFalse(prompt.contains("\"action\":\"swipe\""))
+            assertFalse(prompt.contains("Accessibility tree"))
+        } finally {
+            Locale.setDefault(previousLocale)
+        }
+    }
+
+    @Test
+    fun `system prompt does not expose stale get state or type tools`() {
+        val previousLocale = Locale.getDefault()
+        Locale.setDefault(Locale.US)
+        try {
+            val prompt = PromptTemplate.buildSystemPrompt("scene.vlm.operation.primary")
+
+            assertTrue(prompt.contains("tools[]"))
+            assertTrue(prompt.contains("Raw XML is internal-only"))
+            assertTrue(prompt.contains("compact indexed page evidence"))
+            assertFalse(prompt.contains("get_state"))
+            assertFalse(prompt.contains("type,"))
+            assertFalse(prompt.contains("Accessibility tree"))
+        } finally {
+            Locale.setDefault(previousLocale)
+        }
+    }
+
+    @Test
+    fun `dynamic function prompt summary hides tool title presentation field`() {
+        val previousLocale = Locale.getDefault()
+        Locale.setDefault(Locale.US)
+        try {
+            val prompt = PromptTemplate.buildTurnUserPrompt(
+                UIContext(
+                    overallTask = "Search cats",
+                    dynamicToolDefinitions = listOf(buildJsonObject {
+                        put("type", "function")
+                        put("function", buildJsonObject {
+                            put("name", "xhs_search_keyword")
+                            put("description", "Search a keyword")
+                            put("parameters", buildJsonObject {
+                                put("type", "object")
+                                put("properties", buildJsonObject {
+                                    put("tool_title", buildJsonObject { put("type", "string") })
+                                    put("keyword", buildJsonObject { put("type", "string") })
+                                })
+                                put("required", buildJsonArray {
+                                    add("tool_title")
+                                    add("keyword")
+                                })
+                            })
+                        })
+                    })
+                )
+            )
+
+            assertTrue(prompt.contains("tool=xhs_search_keyword"))
+            assertTrue(prompt.contains("keyword:string:required"))
+            assertFalse(prompt.contains("tool_title"))
         } finally {
             Locale.setDefault(previousLocale)
         }

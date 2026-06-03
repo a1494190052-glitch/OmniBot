@@ -729,6 +729,9 @@ class VLMOperationService(
                     )
                     lastRequestEnvelope = requestEnvelope
                     currentUserTextSnapshot = requestEnvelope.currentUserText
+                    _context = _context.copy(
+                        pageDiagnostics = _context.pageDiagnostics + buildRequestEnvelopeDiagnostics(requestEnvelope)
+                    )
                     OmniLog.i(
                         Tag,
                         "Dispatching VLM stream request: attempt=$stabilityAttempt toolRetry=$toolCallRetryCount scene=$model activeGoal=${_context.activeGoal()} traceSize=${_context.trace.size} historyRounds=${conversationState.roundCount()} currentScreenshot=$includeCurrentScreenshot"
@@ -1207,12 +1210,7 @@ class VLMOperationService(
     ): Map<String, String> {
         val diagnostics = linkedMapOf<String, String>()
         requestEnvelope?.let { envelope ->
-            diagnostics["vlm_request_tool_count"] = envelope.toolNames.size.toString()
-            diagnostics["vlm_request_tool_names"] = envelope.toolNames.joinToString(",").take(4000)
-            diagnostics["vlm_request_dynamic_function_tool_count"] =
-                envelope.dynamicFunctionToolNames.size.toString()
-            diagnostics["vlm_request_dynamic_function_tool_names"] =
-                envelope.dynamicFunctionToolNames.joinToString(",").take(4000)
+            diagnostics += buildRequestEnvelopeDiagnostics(envelope)
         }
         sceneTurn?.let { turn ->
             diagnostics["vlm_response_route"] = turn.route.orEmpty()
@@ -1234,6 +1232,20 @@ class VLMOperationService(
         }
         return diagnostics
     }
+
+    private fun buildRequestEnvelopeDiagnostics(envelope: VLMRequestEnvelope): Map<String, String> =
+        linkedMapOf(
+            "vlm_request_has_tools" to envelope.request.tools.isNotEmpty().toString(),
+            "vlm_request_tool_choice" to envelope.request.toolChoice?.toString().orEmpty(),
+            "vlm_request_parallel_tool_calls" to envelope.request.parallelToolCalls?.toString().orEmpty(),
+            "vlm_request_tool_count" to envelope.toolNames.size.toString(),
+            "vlm_request_tool_names" to envelope.toolNames.joinToString(",").take(4000),
+            "vlm_request_dynamic_function_tool_count" to envelope.dynamicFunctionToolNames.size.toString(),
+            "vlm_request_dynamic_function_tool_names" to
+                envelope.dynamicFunctionToolNames.joinToString(",").take(4000),
+            "vlm_request_system_prompt_chars" to envelope.systemPromptChars.toString(),
+            "vlm_request_current_user_text_chars" to envelope.currentUserTextChars.toString(),
+        )
 
     private fun normalizeOverlayText(text: String, maxLen: Int): String {
         val normalized = text.replace("\r\n", "\n").trim()
@@ -1793,7 +1805,6 @@ class VLMOperationService(
         val normalizedPackage = packageName?.trim().orEmpty()
         val appName = installedApps[normalizedPackage]?.trim().orEmpty()
         val page = summarizeGetStateXml(currentXml)
-        val xmlPreview = currentXml.trim().take(MAX_GET_STATE_XML_CHARS)
         return buildString {
             appendLine("get_state refreshed current page")
             reason.trim().takeIf { it.isNotEmpty() }?.let { appendLine("reason: $it") }
@@ -1818,13 +1829,10 @@ class VLMOperationService(
             if (page.scrollableCount > 0) {
                 appendLine("- scrollable_regions: ${page.scrollableCount}")
             }
-            appendLine("xml:")
-            appendLine("- length: ${currentXml.length}")
-            if (xmlPreview.isNotBlank()) {
-                append(xmlPreview)
-            } else {
-                append("missing")
-            }
+            appendLine("diagnostics:")
+            appendLine("- raw_xml_available: ${currentXml.isNotBlank()}")
+            appendLine("- raw_xml_chars: ${currentXml.length}")
+            appendLine("- raw_xml_model_visible: false")
         }.take(MAX_GET_STATE_RESULT_CHARS)
     }
 
@@ -1997,8 +2005,7 @@ private const val MAX_GET_STATE_NODE_SCAN = 180
 private const val MAX_GET_STATE_VISIBLE_TEXTS = 18
 private const val MAX_GET_STATE_ACTIONABLES = 18
 private const val MAX_GET_STATE_LABEL_CHARS = 80
-private const val MAX_GET_STATE_XML_CHARS = 6000
-private const val MAX_GET_STATE_RESULT_CHARS = 9000
+private const val MAX_GET_STATE_RESULT_CHARS = 2200
 private const val DEFAULT_VLM_MAX_STEPS = 12
 private val PACKAGE_ATTR_PATTERN = Regex("""\bpackage\s*=\s*["']([^"']+)["']""")
 private val RESOURCE_ID_PACKAGE_PATTERN =

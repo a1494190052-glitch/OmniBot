@@ -21,6 +21,9 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 object VLMToolDefinitions {
+    private const val MAX_COMPACT_ACTION_SCHEMA_CHARS = 1_600
+    private const val TOOL_TITLE_FIELD = "tool_title"
+
     data class ToolSpec(
         val name: String,
         val description: String,
@@ -80,9 +83,36 @@ object VLMToolDefinitions {
                 function = ChatCompletionFunction(
                     name = name,
                     description = function["description"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-                    parameters = (function["parameters"] as? JsonObject) ?: JsonObject(emptyMap())
+                    parameters = sanitizeVlmDynamicFunctionParameters(
+                        (function["parameters"] as? JsonObject) ?: JsonObject(emptyMap())
+                    )
                 )
             )
+        }
+    }
+
+    private fun sanitizeVlmDynamicFunctionParameters(parameters: JsonObject): JsonObject {
+        if (parameters.isEmpty()) return parameters
+        return buildJsonObject {
+            parameters.forEach { (key, value) ->
+                when (key) {
+                    "properties" -> {
+                        val properties = value as? JsonObject ?: JsonObject(emptyMap())
+                        put("properties", JsonObject(properties.filterKeys { it != TOOL_TITLE_FIELD }))
+                    }
+                    "required" -> {
+                        val required = value as? JsonArray ?: JsonArray(emptyList())
+                        put("required", buildJsonArray {
+                            required.forEach { item ->
+                                if (item.jsonPrimitive.contentOrNull?.trim() != TOOL_TITLE_FIELD) {
+                                    add(item)
+                                }
+                            }
+                        })
+                    }
+                    else -> put(key, value)
+                }
+            }
         }
     }
 
@@ -98,6 +128,23 @@ object VLMToolDefinitions {
                 )
             )
         }
+    }
+
+    fun renderCompactActionSchemaGuide(locale: PromptLocale = currentLocale()): String {
+        val toolLines = toolSpecs(locale).joinToString(separator = "\n") { spec ->
+            val required = requiredFieldsFor(spec.name, locale).joinToString(",").ifBlank { "-" }
+            "- ${spec.name}: required=[$required]"
+        }
+        return buildString {
+            appendLine(toolLines)
+            append(
+                t(
+                    locale,
+                    "统一格式：只能使用原生 tool_call。click/input_text/long_press 优先 element_index；scroll 优先 scrollable_index；坐标只用 x/y 或 x1/y1/x2/y2 单个数值；不要使用旧 action/swipe/coordinate/coordinate2。",
+                    "Unified format: native tool_call only. Prefer element_index for click/input_text/long_press and scrollable_index for scroll. Coordinates may only use scalar x/y or x1/y1/x2/y2. Do not use legacy action/swipe/coordinate/coordinate2."
+                )
+            )
+        }.take(MAX_COMPACT_ACTION_SCHEMA_CHARS)
     }
 
     fun responseContract(locale: PromptLocale = currentLocale()): String {
