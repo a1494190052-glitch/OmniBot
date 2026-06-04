@@ -1174,8 +1174,7 @@ class ManualVlmTraceRecorder(
         // Package name from XML is null for SurfaceView/WebView apps (no accessible nodes).
         // Fall back to the accessibility service's current window package so that the
         // compiled Function step carries a valid src_ctx.package_name for the checker.
-        val resolvedPackageName = target.packageName
-            ?: AccessibilityController.getPackageName()
+        val resolvedPackageName = resolvedActionPackageName(target, beforeXml)
         appendRecordedAction(
             ManualVlmRecordedAction(
                 actionName = recordedActionName,
@@ -1246,8 +1245,7 @@ class ManualVlmTraceRecorder(
             dispatchOutcome,
             beforeXmlCaptureMs = beforeXmlCaptureMs
         )).filterValues { it != null }
-        val resolvedPackageName = target.packageName
-            ?: AccessibilityController.getPackageName()
+        val resolvedPackageName = resolvedActionPackageName(target, beforeXml)
         appendRecordedAction(
             ManualVlmRecordedAction(
                 actionName = OobCanonicalActionSchema.TOOL_SCROLL,
@@ -1683,6 +1681,24 @@ class ManualVlmTraceRecorder(
         val normalized = packageName?.trim().orEmpty()
         return normalized.isNotEmpty() && normalized == ownPackageName
     }
+
+    private fun usableTargetPackageName(packageName: String?): String? =
+        packageName?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.takeUnless { it == ownPackageName }
+
+    private fun usableFallbackPackageName(packageName: String?): String? =
+        usableTargetPackageName(packageName)
+            ?.takeUnless { it == SYSTEM_UI_PACKAGE }
+            ?.takeUnless { it.endsWith(".systemuiplugin", ignoreCase = true) }
+
+    private fun resolvedActionPackageName(
+        target: ManualEventTarget,
+        xml: String?
+    ): String? =
+        usableTargetPackageName(target.packageName)
+            ?: packageNameFromXml(xml)
+            ?: usableFallbackPackageName(AccessibilityController.getPackageName())
 
     private fun navigationActionFor(packageName: String?, label: String): String? {
         if (packageName != SYSTEM_UI_PACKAGE) return null
@@ -2155,7 +2171,8 @@ class ManualVlmTraceRecorder(
     }
 
     private fun packageNameFromXml(xml: String?): String? =
-        parseXmlNodeCandidates(xml).firstOrNull { !it.packageName.isNullOrBlank() }?.packageName
+        parseXmlNodeCandidates(xml)
+            .firstNotNullOfOrNull { usableTargetPackageName(it.packageName) }
 
     private fun pageStableFingerprint(xml: String?): String {
         if (xml.isNullOrBlank()) return ""
