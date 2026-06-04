@@ -619,12 +619,14 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     _messageController.dispose();
     _normalMessageScrollController.dispose();
     _openClawMessageScrollController.dispose();
+    _planMessageScrollController.dispose();
     _codexMessageScrollController.dispose();
     _modePageController.dispose();
     _inputFocusNode.dispose();
     _vlmAnswerController.dispose();
     _normalUserMessageEditController.dispose();
     _openClawUserMessageEditController.dispose();
+    _planUserMessageEditController.dispose();
     _codexUserMessageEditController.dispose();
     _openClawBaseUrlController.dispose();
     _openClawTokenController.dispose();
@@ -778,6 +780,8 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
   ScrollController _scrollControllerForMode(ChatPageMode mode) {
     return mode == ChatPageMode.openclaw
         ? _openClawMessageScrollController
+        : mode == ChatPageMode.plan
+        ? _planMessageScrollController
         : mode == ChatPageMode.codex
         ? _codexMessageScrollController
         : _normalMessageScrollController;
@@ -860,9 +864,11 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
       return;
     }
 
-    final targetConversationMode = _activeConversationMode == ChatPageMode.codex
-        ? ChatPageMode.codex
-        : ChatPageMode.normal;
+    final targetConversationMode = switch (_activeConversationMode) {
+      ChatPageMode.plan => ChatPageMode.plan,
+      ChatPageMode.codex => ChatPageMode.codex,
+      ChatPageMode.normal || ChatPageMode.openclaw => ChatPageMode.normal,
+    };
     await _ensureConversationModeReady(targetConversationMode);
     if (isStaleRequest()) return;
     setState(() {
@@ -871,7 +877,8 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
       _resetNormalSurfaceModelRevealInterruption();
       _setChatIslandDisplayLayerForMode(
         targetConversationMode,
-        targetConversationMode == ChatPageMode.normal
+        targetConversationMode == ChatPageMode.normal ||
+                targetConversationMode == ChatPageMode.plan
             ? ChatIslandDisplayLayer.tools
             : ChatIslandDisplayLayer.mode,
       );
@@ -881,7 +888,8 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     unawaited(_syncVisibleChatConversation());
     if (isStaleRequest()) return;
     _hideSlashCommandPanel();
-    if (targetConversationMode == ChatPageMode.normal) {
+    if (targetConversationMode == ChatPageMode.normal ||
+        targetConversationMode == ChatPageMode.plan) {
       unawaited(_loadNormalChatModelContext());
     }
     if (syncPage) _jumpToCurrentModePage();

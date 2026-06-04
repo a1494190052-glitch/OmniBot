@@ -98,12 +98,14 @@ class _PureChatToggleHarness extends StatefulWidget {
     this.selected = false,
     this.locked = false,
     this.showAgentTapCount = false,
+    this.showPlanTapCount = false,
     this.showCodexTapCount = false,
   });
 
   final bool selected;
   final bool locked;
   final bool showAgentTapCount;
+  final bool showPlanTapCount;
   final bool showCodexTapCount;
 
   @override
@@ -115,6 +117,7 @@ class _PureChatToggleHarnessState extends State<_PureChatToggleHarness> {
   late final bool _locked = widget.locked;
   int _toggleCount = 0;
   int _agentTapCount = 0;
+  int _planTapCount = 0;
   int _codexTapCount = 0;
 
   @override
@@ -130,6 +133,11 @@ class _PureChatToggleHarnessState extends State<_PureChatToggleHarness> {
                 onAgentTap: () {
                   setState(() {
                     _agentTapCount += 1;
+                  });
+                },
+                onPlanTap: () {
+                  setState(() {
+                    _planTapCount += 1;
                   });
                 },
                 onPureChatToggleTap: () {
@@ -160,6 +168,7 @@ class _PureChatToggleHarnessState extends State<_PureChatToggleHarness> {
               Text('locked:$_locked'),
               Text('toggles:$_toggleCount'),
               if (widget.showAgentTapCount) Text('agentTaps:$_agentTapCount'),
+              if (widget.showPlanTapCount) Text('planTaps:$_planTapCount'),
               if (widget.showCodexTapCount) Text('codexTaps:$_codexTapCount'),
             ],
           ),
@@ -829,12 +838,13 @@ void main() {
     expect(find.text('toggles:0'), findsOneWidget);
   });
 
-  testWidgets('opens mode menu with agent codex and pure chat actions', (
+  testWidgets('opens mode menu with agent plan codex and pure chat actions', (
     tester,
   ) async {
     await tester.pumpWidget(
       const _PureChatToggleHarness(
         showAgentTapCount: true,
+        showPlanTapCount: true,
         showCodexTapCount: true,
       ),
     );
@@ -846,6 +856,10 @@ void main() {
 
     expect(
       find.byKey(const ValueKey('chat-app-bar-mode-menu-agent')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('chat-app-bar-mode-menu-plan')),
       findsOneWidget,
     );
     expect(
@@ -865,6 +879,7 @@ void main() {
     expect(pureChatMenuIcon.width, 18);
     expect(pureChatMenuIcon.height, 18);
     expect(find.text('Agent 模式'), findsNothing);
+    expect(find.text('Plan 模式'), findsNothing);
     expect(find.text('Codex 模式'), findsNothing);
     expect(find.text('纯聊天模式'), findsNothing);
 
@@ -874,6 +889,15 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('agentTaps:1'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey('chat-app-bar-pure-chat-button')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('chat-app-bar-mode-menu-plan')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('planTaps:1'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey('chat-app-bar-pure-chat-button')),
@@ -1076,6 +1100,7 @@ void main() {
   testWidgets('uses current chat mode icon in surface slider', (tester) async {
     Future<void> pumpAppBar({
       bool isAgentSelected = false,
+      bool isPlanSelected = false,
       bool isCodexSelected = false,
       bool isPureChatSelected = false,
     }) async {
@@ -1096,6 +1121,7 @@ void main() {
                 onTerminalTap: () {},
                 onBrowserTap: () {},
                 isAgentSelected: isAgentSelected,
+                isPlanSelected: isPlanSelected,
                 isCodexSelected: isCodexSelected,
                 isPureChatSelected: isPureChatSelected,
               ),
@@ -1115,6 +1141,9 @@ void main() {
 
     await pumpAppBar(isAgentSelected: true);
     expect(primaryIconAsset(), contains('assets/home/chat/agent.svg'));
+
+    await pumpAppBar(isPlanSelected: true);
+    expect(primaryIconAsset(), contains('assets/home/chat/plan.svg'));
 
     await pumpAppBar(isCodexSelected: true);
     expect(primaryIconAsset(), contains('assets/home/chat/codex.svg'));
@@ -1183,7 +1212,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('chat-island-browser-button')));
     await tester.pumpAndSettle();
 
-    expect(find.text('browserTaps:0'), findsOneWidget);
+    expect(find.text('browserTaps:1'), findsOneWidget);
 
     await tester.drag(
       find.byKey(const ValueKey('chat-island-terminal-button')),

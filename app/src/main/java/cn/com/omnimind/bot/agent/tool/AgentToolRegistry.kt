@@ -44,6 +44,9 @@ class AgentToolRegistry(
         val shizukuStatus = ShizukuCapabilityManager.get(context).getStatus()
         val runtimeDefinitions = mutableListOf<JsonObject>()
         runtimeDefinitions.addAll(AgentToolDefinitions.staticTools(locale))
+        if (AgentConversationModePolicy.isPlanMode(conversationMode)) {
+            runtimeDefinitions.add(AgentToolDefinitions.todoWriteTool(locale))
+        }
         if (shizukuStatus.isGranted()) {
             val privilegedVisibleActions = shizukuStatus.availableActions.ifEmpty {
                 PrivilegedActionPolicy.visibleAgentActions(
@@ -147,6 +150,9 @@ class AgentToolRegistry(
     override fun validateArguments(toolName: String, arguments: JsonObject) {
         val schema = toolSchemas[toolName] ?: return
         validateWithSchema(toolName, schema, arguments)
+        if (toolName == AgentConversationModePolicy.TODO_WRITE_TOOL) {
+            AgentConversationModePolicy.validateTodoWriteArguments(arguments)
+        }
     }
 
     private fun validateWithSchema(

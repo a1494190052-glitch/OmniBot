@@ -22,6 +22,9 @@ interface AgentExecutionEnvironment {
     /** Long-term memory slug index. Null when unavailable; tools handle gracefully. */
     val longTermMemoryIndex: LongTermMemoryIndex? get() = null
 
+    /** Live Plan-mode todo state for the current agent run. */
+    val todoState: AgentTodoState? get() = null
+
     /**
      * Tracks which memory ids/slugs have been loaded in the current turn so we
      * don't re-attach the same content twice. Null = treat all loads as new.
@@ -44,7 +47,8 @@ data class DefaultAgentExecutionEnvironment(
     override val terminalEnvironment: Map<String, String> = emptyMap(),
     override val runControl: AgentRunControl = NoOpAgentRunControl,
     override val longTermMemoryIndex: LongTermMemoryIndex? = null,
-    override val turnMemoryLoadTracker: TurnMemoryLoadTracker? = null
+    override val turnMemoryLoadTracker: TurnMemoryLoadTracker? = null,
+    override val todoState: AgentTodoState = AgentTodoState()
 ) : AgentExecutionEnvironment
 
 interface AgentToolCatalog {

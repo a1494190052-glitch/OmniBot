@@ -135,6 +135,7 @@ class OmniAgentExecutor(
                 skillsRootAndroidPath = workspaceManager.skillsRoot().absolutePath,
                 resolvedSkills = resolvedSkills,
                 memoryContext = promptMemoryContext,
+                conversationMode = conversationMode,
                 prefetchedMemoryHits = prefetchedMemoryHits
             )
 
@@ -241,6 +242,7 @@ class OmniAgentExecutor(
         skillsRootAndroidPath: String,
         resolvedSkills: List<ResolvedSkillContext>,
         memoryContext: WorkspaceMemoryPromptContext?,
+        conversationMode: String,
         prefetchedMemoryHits: List<WorkspaceMemorySearchHit> = emptyList()
     ): List<cn.com.omnimind.baselib.llm.ChatCompletionMessage> {
         val historyMessages = promptSeed.historyMessages.toMutableList()
@@ -255,6 +257,7 @@ class OmniAgentExecutor(
             skillsRootAndroidPath = skillsRootAndroidPath,
             resolvedSkills = resolvedSkills,
             memoryContext = memoryContext,
+            conversationMode = conversationMode,
             locale = AppLocaleManager.resolvePromptLocale(context)
         )
         messages.add(

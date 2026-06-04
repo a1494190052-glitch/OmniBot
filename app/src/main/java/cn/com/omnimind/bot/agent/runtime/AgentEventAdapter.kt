@@ -37,7 +37,8 @@ class AgentEventAdapter(
             result is ToolExecutionResult.MemoryResult ||
             result is ToolExecutionResult.TerminalResult ||
             result is ToolExecutionResult.Interrupted ||
-            result is ToolExecutionResult.ContextResult
+            (result is ToolExecutionResult.ContextResult &&
+                result.toolName != AgentConversationModePolicy.TODO_WRITE_TOOL)
     }
 
     fun isConversationStoppingResult(result: ToolExecutionResult): Boolean {

@@ -12,6 +12,7 @@ object AgentSystemPrompt {
         skillsRootAndroidPath: String,
         resolvedSkills: List<ResolvedSkillContext>,
         memoryContext: WorkspaceMemoryPromptContext?,
+        conversationMode: String = AgentConversationModePolicy.NORMAL_MODE,
         locale: PromptLocale = AppLocaleManager.currentPromptLocale()
     ): String {
         val visibleInstalledSkills = installedSkills.filter { skill ->
@@ -134,6 +135,34 @@ object AgentSystemPrompt {
             zhCN = "Workspace 记忆未加载，本轮按无记忆上下文执行。",
             enUS = "Workspace memory is unavailable, so continue without memory context for this turn."
         ).resolve(locale)
+        val planTodoSection = if (AgentConversationModePolicy.isPlanMode(conversationMode)) {
+            when (locale) {
+                PromptLocale.ZH_CN -> """
+                    Plan 模式 todo 规则：
+                    - 本模式下每个可执行用户任务都必须使用 `todo_write` 维护 todo list，简单任务也至少创建一个 todo。
+                    - 接到任务后的第一条 assistant 动作必须是标准 `todo_write` tool_call，先写入完整 todo list；不要只在思考或文本里列步骤，也不要把 todo JSON 当作普通文本输出。
+                    - `todo_write` 列表每项包含 content、activeForm、status。
+                    - 始终最多只有一个 `in_progress`；开始做某项前把它设为 `in_progress`，并使用 activeForm 描述正在进行的动作。
+                    - 完成某项后立刻再次调用 `todo_write` 标记为 `completed`，不要等到整轮最后。
+                    - 如发现 todo 已不相关、重复或顺序需要调整，调用 `todo_write` 提交新的完整列表。
+                    - 涉及代码、文件、配置、数据或外部结果时，把必要的验证、测试、检查或总结步骤也加入 todo。
+                    - `todo_write` 只是维护计划状态，不替代实际工具执行或最终回复。
+                """.trimIndent()
+                PromptLocale.EN_US -> """
+                    Plan-mode todo rules:
+                    - In this mode, every executable user task must maintain a todo list with `todo_write`; even simple tasks need at least one todo.
+                    - The first assistant action after receiving the task must be a standard `todo_write` tool_call with the full todo list; do not only list steps in reasoning or text, and do not emit todo JSON as ordinary text.
+                    - Each `todo_write` item has content, activeForm, and status.
+                    - Keep at most one item `in_progress`; before working on an item, mark it `in_progress` and use activeForm for the active-progress wording.
+                    - As soon as an item is done, call `todo_write` again and mark it `completed`; do not wait until the whole turn is finished.
+                    - When todos become irrelevant, duplicated, or need reordering, call `todo_write` with the new complete list.
+                    - For code, file, config, data, or external-result work, include needed verification, testing, checking, or summary steps as todos.
+                    - `todo_write` only maintains planning state; it does not replace actual tool execution or the final response.
+                """.trimIndent()
+            }
+        } else {
+            ""
+        }
 
         return when (locale) {
             PromptLocale.ZH_CN -> """
@@ -197,6 +226,7 @@ object AgentSystemPrompt {
                 $loadedSkillSection
                 $soulSection
                 $memorySection
+                $planTodoSection
             """.trimIndent()
             PromptLocale.EN_US -> """
                 You are an AI Agent operating inside an Alpine workspace environment, and you can also control the user's phone through tool calls.
@@ -259,6 +289,7 @@ object AgentSystemPrompt {
                 $loadedSkillSection
                 $soulSection
                 $memorySection
+                $planTodoSection
             """.trimIndent()
         }
     }

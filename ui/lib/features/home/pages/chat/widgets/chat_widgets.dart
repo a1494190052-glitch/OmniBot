@@ -24,6 +24,7 @@ const String _kChatAppBarUpdateSparklesAsset =
     'assets/home/chat/update_sparkles.svg';
 const String _kChatAppBarAgentIconAsset = 'assets/home/chat/agent.svg';
 const String _kChatAppBarCodexIconAsset = 'assets/home/chat/codex.svg';
+const String _kChatAppBarPlanIconAsset = 'assets/home/chat/plan.svg';
 const String _kChatAppBarModeMenuClosedIconAsset =
     'assets/home/chat/mode_menu_closed.svg';
 const String _kChatAppBarModeMenuOpenIconAsset =
@@ -54,6 +55,7 @@ const List<ChatSurfaceMode> kVisibleChatSurfaceModes = <ChatSurfaceMode>[
 class ChatAppBar extends StatelessWidget {
   final VoidCallback onMenuTap;
   final VoidCallback? onAgentTap;
+  final VoidCallback? onPlanTap;
   final VoidCallback? onPureChatToggleTap;
   final VoidCallback? onCodexTap;
   final VoidCallback? onPrimaryModeTap;
@@ -77,6 +79,7 @@ class ChatAppBar extends StatelessWidget {
   final bool isCodexConnected;
   final bool isCodexLoading;
   final bool isCodexSelected;
+  final bool isPlanSelected;
   final bool isAgentSelected;
   final bool showAppUpdateIndicator;
   final VoidCallback? onAppUpdateTap;
@@ -95,6 +98,7 @@ class ChatAppBar extends StatelessWidget {
     super.key,
     required this.onMenuTap,
     this.onAgentTap,
+    this.onPlanTap,
     this.onPureChatToggleTap,
     this.onCodexTap,
     this.onPrimaryModeTap,
@@ -118,6 +122,7 @@ class ChatAppBar extends StatelessWidget {
     this.isCodexConnected = false,
     this.isCodexLoading = false,
     this.isCodexSelected = false,
+    this.isPlanSelected = false,
     this.isAgentSelected = true,
     this.showAppUpdateIndicator = false,
     this.onAppUpdateTap,
@@ -141,7 +146,9 @@ class ChatAppBar extends StatelessWidget {
         : context.isDarkTheme
         ? palette.textPrimary
         : Colors.grey[800]!;
-    final primaryModeIconAsset = isCodexSelected
+    final primaryModeIconAsset = isPlanSelected
+        ? _kChatAppBarPlanIconAsset
+        : isCodexSelected
         ? _kChatAppBarCodexIconAsset
         : isPureChatSelected
         ? _kChatAppBarPureChatIconAsset
@@ -151,7 +158,6 @@ class ChatAppBar extends StatelessWidget {
         showWorkspacePaneButton && onWorkspacePaneTap != null;
     final showUpdateShortcutButton =
         showAppUpdateIndicator && onAppUpdateTap != null;
-    const showModeShortcutButton = true;
     final appBarBackgroundColor = showSurfaceSwitcher
         ? palette.pageBackground
         : palette.surfacePrimary;
@@ -172,7 +178,7 @@ class ChatAppBar extends StatelessWidget {
               final rightActionCount =
                   (showUpdateShortcutButton ? 1 : 0) +
                   (showWorkspaceButton ? 1 : 0) +
-                  (showModeShortcutButton ? 1 : 0);
+                  1;
               final rightReservedSpace =
                   rightActionCount * _kChatAppBarRightActionSlotWidth +
                   _kChatAppBarAccessoryGap;
@@ -324,27 +330,28 @@ class ChatAppBar extends StatelessWidget {
                               ),
                             ),
                           ),
-                        if (showModeShortcutButton)
-                          SizedBox(
-                            width: _kChatAppBarRightActionSlotWidth,
-                            height: _kChatAppBarRightActionSlotWidth,
-                            child: Center(
-                              child: _ChatAppBarModeShortcutButton(
-                                key: const ValueKey(
-                                  'chat-app-bar-pure-chat-button',
-                                ),
-                                iconTint: iconTint,
-                                isCodexLoading: isCodexLoading,
-                                isCodexSelected: isCodexSelected,
-                                isAgentSelected: isAgentSelected,
-                                isPureChatSelected: isPureChatSelected,
-                                isPureChatToggleLocked: isPureChatToggleLocked,
-                                onAgentTap: onAgentTap,
-                                onCodexTap: onCodexTap,
-                                onPureChatToggleTap: onPureChatToggleTap,
+                        SizedBox(
+                          width: _kChatAppBarRightActionSlotWidth,
+                          height: _kChatAppBarRightActionSlotWidth,
+                          child: Center(
+                            child: _ChatAppBarModeShortcutButton(
+                              key: const ValueKey(
+                                'chat-app-bar-pure-chat-button',
                               ),
+                              iconTint: iconTint,
+                              isCodexLoading: isCodexLoading,
+                              isCodexSelected: isCodexSelected,
+                              isPlanSelected: isPlanSelected,
+                              isAgentSelected: isAgentSelected,
+                              isPureChatSelected: isPureChatSelected,
+                              isPureChatToggleLocked: isPureChatToggleLocked,
+                              onAgentTap: onAgentTap,
+                              onPlanTap: onPlanTap,
+                              onCodexTap: onCodexTap,
+                              onPureChatToggleTap: onPureChatToggleTap,
                             ),
                           ),
+                        ),
                       ],
                     ),
                   ),
@@ -358,7 +365,7 @@ class ChatAppBar extends StatelessWidget {
   }
 }
 
-enum _ChatAppBarModeShortcutAction { agent, codex, pureChat }
+enum _ChatAppBarModeShortcutAction { agent, plan, codex, pureChat }
 
 class _ChatAppBarCompanionButton extends StatelessWidget {
   const _ChatAppBarCompanionButton({
@@ -447,10 +454,12 @@ class _ChatAppBarModeShortcutButton extends StatefulWidget {
     required this.iconTint,
     required this.isCodexLoading,
     required this.isCodexSelected,
+    required this.isPlanSelected,
     required this.isAgentSelected,
     required this.isPureChatSelected,
     required this.isPureChatToggleLocked,
     required this.onAgentTap,
+    required this.onPlanTap,
     required this.onCodexTap,
     required this.onPureChatToggleTap,
   });
@@ -458,10 +467,12 @@ class _ChatAppBarModeShortcutButton extends StatefulWidget {
   final Color iconTint;
   final bool isCodexLoading;
   final bool isCodexSelected;
+  final bool isPlanSelected;
   final bool isAgentSelected;
   final bool isPureChatSelected;
   final bool isPureChatToggleLocked;
   final VoidCallback? onAgentTap;
+  final VoidCallback? onPlanTap;
   final VoidCallback? onCodexTap;
   final VoidCallback? onPureChatToggleTap;
 
@@ -510,6 +521,14 @@ class _ChatAppBarModeShortcutButtonState
             iconSize: 20,
           ),
           _ChatAppBarModeShortcutMenuItemData(
+            action: _ChatAppBarModeShortcutAction.plan,
+            iconAsset: _kChatAppBarPlanIconAsset,
+            tooltip: isEnglish ? 'Plan mode' : 'Plan 模式',
+            selected: widget.isPlanSelected,
+            enabled: widget.onPlanTap != null,
+            iconSize: 20,
+          ),
+          _ChatAppBarModeShortcutMenuItemData(
             action: _ChatAppBarModeShortcutAction.codex,
             iconAsset: _kChatAppBarCodexIconAsset,
             tooltip: isEnglish ? 'Codex mode' : 'Codex 模式',
@@ -538,6 +557,9 @@ class _ChatAppBarModeShortcutButtonState
       case _ChatAppBarModeShortcutAction.agent:
         widget.onAgentTap?.call();
         break;
+      case _ChatAppBarModeShortcutAction.plan:
+        widget.onPlanTap?.call();
+        break;
       case _ChatAppBarModeShortcutAction.codex:
         widget.onCodexTap?.call();
         break;
@@ -550,6 +572,9 @@ class _ChatAppBarModeShortcutButtonState
   }
 
   String _closedIconAsset() {
+    if (widget.isPlanSelected) {
+      return _kChatAppBarPlanIconAsset;
+    }
     if (widget.isCodexSelected) {
       return _kChatAppBarCodexIconAsset;
     }
@@ -597,6 +622,7 @@ class _ChatAppBarModeShortcutButtonState
     final selectedColor = palette.accentPrimary;
     final hasSelectedMode =
         widget.isAgentSelected ||
+        widget.isPlanSelected ||
         widget.isCodexSelected ||
         widget.isPureChatSelected;
     final effectiveIconColor = _isOpen || hasSelectedMode
@@ -740,9 +766,7 @@ class _ChatAppBarModeShortcutMenuContent extends StatelessWidget {
       child: OmniGlassPanel(
         // 上边直 + 下半圆 (radius 20 = 半宽),跟上方触发按钮的"上半圆 + 下边直"
         // 在中线 zero-gap 处无缝拼接,整体看上去是一个完整的胶囊。
-        borderRadius: const BorderRadius.vertical(
-          bottom: Radius.circular(20),
-        ),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
         // 接缝处:省略顶边 1px 边线 + 关闭顶部高光条,
         // 否则与上方触发按钮的下边线会叠成可见的横线。
         omitTopBorder: true,
@@ -781,6 +805,15 @@ class _ChatAppBarModeShortcutMenuRow extends StatelessWidget {
   final Color iconTint;
   final Color disabledTint;
 
+  String get _keySuffix {
+    return switch (item.action) {
+      _ChatAppBarModeShortcutAction.agent => 'agent',
+      _ChatAppBarModeShortcutAction.plan => 'plan',
+      _ChatAppBarModeShortcutAction.codex => 'codex',
+      _ChatAppBarModeShortcutAction.pureChat => 'pure-chat',
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final color = !item.enabled
@@ -789,6 +822,7 @@ class _ChatAppBarModeShortcutMenuRow extends StatelessWidget {
     return Tooltip(
       message: item.tooltip,
       child: InkWell(
+        key: ValueKey<String>('chat-app-bar-mode-menu-$_keySuffix'),
         onTap: item.enabled
             ? () => Navigator.of(context).pop(item.action)
             : null,
@@ -1219,7 +1253,8 @@ class _ChatToolSlider extends StatelessWidget {
                     context: context,
                     key: const ValueKey('chat-island-browser-button'),
                     isSelected: _isBrowserActive,
-                    isEnabled: isBrowserEnabled,
+                    isEnabled: true,
+                    muted: !isBrowserEnabled,
                     tooltip: isBrowserEnabled
                         ? (LegacyTextLocalizer.isEnglish
                               ? 'Open browser for current session'
@@ -1294,11 +1329,12 @@ class _ChatToolSlider extends StatelessWidget {
     required String tooltip,
     required VoidCallback onTap,
     required Widget child,
+    bool muted = false,
   }) {
     final inactiveColor = context.isDarkTheme
         ? context.omniPalette.textSecondary
         : visualProfile.secondaryTextColor;
-    final color = !isEnabled
+    final color = !isEnabled || muted
         ? inactiveColor.withValues(alpha: 0.72)
         : isSelected
         ? Theme.of(context).colorScheme.onPrimary

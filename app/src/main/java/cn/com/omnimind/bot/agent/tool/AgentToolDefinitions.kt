@@ -2161,6 +2161,74 @@ object AgentToolDefinitions {
     fun subagentTools(locale: PromptLocale = currentLocale()): List<JsonObject> =
         subagentToolDefinitions.map { decorateToolDefinition(it, locale) }
 
+    fun todoWriteTool(locale: PromptLocale = currentLocale()): JsonObject {
+        val description = when (locale) {
+            PromptLocale.ZH_CN ->
+                "创建并维护 Plan 模式当前会话的结构化 todo list。请主动且经常使用它来跟踪用户任务进度：收到新任务后立即写入完整列表，开始某项前标记为 in_progress，完成后立刻标记为 completed。每次调用都提交完整列表，并保证最多一个 in_progress。"
+            PromptLocale.EN_US ->
+                "Create and maintain the structured Plan-mode todo list for the current session. Use this proactively and often to track progress: immediately capture new user tasks, mark an item in_progress before starting it, and mark it completed as soon as it is done. Always submit the complete list and keep at most one item in_progress."
+        }
+        val contentDescription = when (locale) {
+            PromptLocale.ZH_CN -> "todo 的命令式内容，描述需要完成什么，例如“运行测试”。"
+            PromptLocale.EN_US -> "Imperative todo content describing what needs to be done, for example \"Run tests\"."
+        }
+        val activeFormDescription = when (locale) {
+            PromptLocale.ZH_CN -> "该项正在执行时展示的进行时短句，例如“正在运行测试”。"
+            PromptLocale.EN_US -> "Short present-continuous phrase shown while this item is active, for example \"Running tests\"."
+        }
+        val statusDescription = when (locale) {
+            PromptLocale.ZH_CN -> "todo 当前状态。"
+            PromptLocale.EN_US -> "Current todo status."
+        }
+        return buildJsonObject {
+            put("type", "function")
+            putJsonObject("function") {
+                put("name", AgentConversationModePolicy.TODO_WRITE_TOOL)
+                put("displayName", "Todo")
+                put("toolType", "todo")
+                put("description", description)
+                putJsonObject("parameters") {
+                    put("type", "object")
+                    putJsonObject("properties") {
+                        putJsonObject("todos") {
+                            put("type", "array")
+                            putJsonObject("items") {
+                                put("type", "object")
+                                putJsonObject("properties") {
+                                    putJsonObject("content") {
+                                        put("type", "string")
+                                        put("description", contentDescription)
+                                    }
+                                    putJsonObject("activeForm") {
+                                        put("type", "string")
+                                        put("description", activeFormDescription)
+                                    }
+                                    putJsonObject("status") {
+                                        put("type", "string")
+                                        put("description", statusDescription)
+                                        putJsonArray("enum") {
+                                            add("pending")
+                                            add("in_progress")
+                                            add("completed")
+                                        }
+                                    }
+                                }
+                                putJsonArray("required") {
+                                    add("content")
+                                    add("activeForm")
+                                    add("status")
+                                }
+                            }
+                        }
+                    }
+                    putJsonArray("required") {
+                        add("todos")
+                    }
+                }
+            }
+        }
+    }
+
     fun staticTools(locale: PromptLocale = currentLocale()): List<JsonObject> =
         builtinTools(locale) + scheduleTools(locale) + alarmTools(locale) + calendarTools(locale) + musicTools(locale)
 }

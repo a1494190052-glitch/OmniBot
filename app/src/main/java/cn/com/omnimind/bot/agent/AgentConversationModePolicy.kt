@@ -1,12 +1,17 @@
 package cn.com.omnimind.bot.agent
 
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
 object AgentConversationModePolicy {
     const val NORMAL_MODE = "normal"
+    const val PLAN_MODE = "plan"
     const val SUBAGENT_MODE = "subagent"
+    const val TODO_WRITE_TOOL = "todo_write"
+
+    val todoStatuses = setOf("pending", "in_progress", "completed")
 
     private val subagentRestrictedToolNames = setOf(
         "schedule_task_create",
@@ -29,6 +34,10 @@ object AgentConversationModePolicy {
 
     fun isSubagentMode(conversationMode: String?): Boolean {
         return conversationMode?.trim()?.equals(SUBAGENT_MODE, ignoreCase = true) == true
+    }
+
+    fun isPlanMode(conversationMode: String?): Boolean {
+        return conversationMode?.trim()?.equals(PLAN_MODE, ignoreCase = true) == true
     }
 
     fun isToolRestrictedInConversationMode(
@@ -65,6 +74,36 @@ object AgentConversationModePolicy {
                 ?.trim()
                 .orEmpty()
             restricted.contains(toolName)
+        }
+    }
+
+    fun validateTodoWriteArguments(arguments: JsonObject) {
+        val todos = arguments["todos"] as? JsonArray
+            ?: throw IllegalArgumentException("Tool todo_write missing required argument: todos")
+        var inProgressCount = 0
+        todos.forEachIndexed { index, element ->
+            val todo = element as? JsonObject
+                ?: throw IllegalArgumentException("Tool todo_write todos[$index] must be object")
+            val content = todo["content"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            val activeForm = todo["activeForm"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            val status = todo["status"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            if (content.isEmpty()) {
+                throw IllegalArgumentException("Tool todo_write todos[$index].content is empty")
+            }
+            if (activeForm.isEmpty()) {
+                throw IllegalArgumentException("Tool todo_write todos[$index].activeForm is empty")
+            }
+            if (!todoStatuses.contains(status)) {
+                throw IllegalArgumentException(
+                    "Tool todo_write todos[$index].status must be one of pending,in_progress,completed"
+                )
+            }
+            if (status == "in_progress") {
+                inProgressCount += 1
+            }
+        }
+        if (inProgressCount > 1) {
+            throw IllegalArgumentException("Tool todo_write allows at most one in_progress todo")
         }
     }
 }

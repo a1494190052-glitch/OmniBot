@@ -93,6 +93,16 @@ class AgentOrchestrator(
         var missingToolCallRecoveryRounds = 0
         var terminated = false
         var terminalError: AgentResult.Error? = null
+        val isPlanMode = AgentConversationModePolicy.isPlanMode(
+            input.executionEnv.conversationMode
+        )
+        val planTodoWriteAvailable = toolRegistry.toolsForModel.any { tool ->
+            tool.function.name == AgentConversationModePolicy.TODO_WRITE_TOOL
+        }
+        var hasPlanTodoWrite = false
+        if (isPlanMode && planTodoWriteAvailable) {
+            memory.add(buildPlanTodoWriteReminderMessage())
+        }
 
         try {
             roundLoop@ while (true) {
@@ -108,7 +118,8 @@ class AgentOrchestrator(
                 }
                 logInfo(
                     tag,
-                    "round=$round request_tools=${toolRegistry.toolsForModel.size}"
+                    "round=$round request_tools=${toolRegistry.toolsForModel.size} " +
+                        "tool_choice=${toolChoiceForRound?.toString().orEmpty()}"
                 )
                 val disableThinking = input.executionEnv.reasoningEffort == "no"
                 val turn = try {
@@ -185,6 +196,21 @@ class AgentOrchestrator(
                 }
 
                 if (toolCalls.isEmpty()) {
+                    if (
+                        isPlanMode &&
+                        planTodoWriteAvailable &&
+                        !hasPlanTodoWrite &&
+                        missingToolCallRecoveryRounds < maxMissingToolCallRecoveryRounds
+                    ) {
+                        missingToolCallRecoveryRounds += 1
+                        memory.add(buildPlanTodoWriteRecoveryMessage())
+                        logInfo(
+                            tag,
+                            "round=$round plan_todo_missing auto_recover=" +
+                                "$missingToolCallRecoveryRounds/$maxMissingToolCallRecoveryRounds"
+                        )
+                        continue@roundLoop
+                    }
                     if (
                         isLengthFinishReason(lastFinishReason) &&
                         rawAssistantContent.isNotBlank() &&
@@ -273,7 +299,9 @@ class AgentOrchestrator(
                             result = result
                         )
                         executedTools.add(result)
-                        callback.onToolCallComplete(toolCall.function.name, result)
+                        if (!shouldSuppressToolActivity(toolCall.function.name)) {
+                            callback.onToolCallComplete(toolCall.function.name, result)
+                        }
                         appendToolResultMessage(
                             memory = memory,
                             toolCall = toolCall,
@@ -302,7 +330,9 @@ class AgentOrchestrator(
                             result = result
                         )
                         executedTools.add(result)
-                        callback.onToolCallComplete(toolCall.function.name, result)
+                        if (!shouldSuppressToolActivity(toolCall.function.name)) {
+                            callback.onToolCallComplete(toolCall.function.name, result)
+                        }
                         appendToolResultMessage(
                             memory = memory,
                             toolCall = toolCall,
@@ -352,7 +382,9 @@ class AgentOrchestrator(
                                             descriptor = desc,
                                             parsedArgs = args
                                         )
-                                        callback.onToolCallComplete(call.function.name, result)
+                                        if (!shouldSuppressToolActivity(call.function.name)) {
+                                            callback.onToolCallComplete(call.function.name, result)
+                                        }
                                         call to result
                                     }
                                 }.awaitAll()
@@ -370,7 +402,9 @@ class AgentOrchestrator(
                                     descriptor = desc,
                                     parsedArgs = args
                                 )
-                                callback.onToolCallComplete(call.function.name, result)
+                                if (!shouldSuppressToolActivity(call.function.name)) {
+                                    callback.onToolCallComplete(call.function.name, result)
+                                }
                                 singles.add(call to result)
                             }
                             batchResults = singles
@@ -383,6 +417,13 @@ class AgentOrchestrator(
                             val desc = descriptorMap.getValue(call.id)
                             val args = parsedArgsMap.getValue(call.id)
                             executedTools.add(result)
+                            if (
+                                call.function.name ==
+                                AgentConversationModePolicy.TODO_WRITE_TOOL &&
+                                result !is ToolExecutionResult.Error
+                            ) {
+                                hasPlanTodoWrite = true
+                            }
                             val failureLearning = buildFailureLearningPayload(
                                 env = input.executionEnv,
                                 toolCall = call,
@@ -437,7 +478,7 @@ class AgentOrchestrator(
             throw e
         } catch (e: Exception) {
             callback.onError("Agent execution failed: ${e.message}")
-            return AgentResult.Error("Agent execution failed", e as? Exception)
+            return AgentResult.Error("Agent execution failed", e)
         } finally {
             runCatching { toolRouter.dispose() }
         }
@@ -547,7 +588,9 @@ class AgentOrchestrator(
             toolName = toolCall.function.name,
             toolCallId = toolCall.id
         )
-        callback.onToolCallStart(toolCall.function.name, parsedArgs)
+        if (!shouldSuppressToolActivity(toolCall.function.name)) {
+            callback.onToolCallStart(toolCall.function.name, parsedArgs)
+        }
         return try {
             coroutineScope {
                 val deferred = async {
@@ -575,6 +618,11 @@ class AgentOrchestrator(
         } finally {
             toolHandle.complete()
         }
+    }
+
+    @Suppress("UNUSED_PARAMETER")
+    private fun shouldSuppressToolActivity(toolName: String): Boolean {
+        return false
     }
 
     private fun appendToolResultMessage(
@@ -1072,6 +1120,30 @@ class AgentOrchestrator(
                 t(
                     "你上一条回复还停留在执行中间态，但没有真正发起 tool_call，也没有给出完整最终答案。请继续同一任务：如果还需要操作、查询、点击、筛选或导航，必须返回标准 tool_call；如果不需要工具，请直接给出完整最终答案。不要只回复“我先查一下”“接下来继续处理”这类过渡语。",
                     "Your previous reply was still in an in-progress execution state, but you did not emit a tool_call or provide a complete final answer. Continue the same task: if any action, lookup, click, filter, or navigation is still needed, you must return a standard tool_call; if no tool is needed, reply with the complete final answer directly. Do not answer with transitional text such as 'let me check' or 'next I will continue' only."
+                )
+            )
+        )
+    }
+
+    private fun buildPlanTodoWriteReminderMessage(): ChatCompletionMessage {
+        return ChatCompletionMessage(
+            role = "user",
+            content = JsonPrimitive(
+                t(
+                    "系统提醒：当前是 Plan 模式，`todo_write` 是可用工具。收到用户任务后，先用标准 tool_call 调用 `todo_write` 写入完整 todo list，并把第一项设为 `in_progress`；之后再调用终端、浏览器、文件等正常工具执行任务。这个提醒只用于行为约束，绝不要在回复中提到。",
+                    "System reminder: Plan mode is active and the `todo_write` tool is available. After receiving the user's task, first call `todo_write` as a standard tool_call with the complete todo list and mark the first item `in_progress`; then continue with the normal terminal, browser, file, or other tools needed for the task. This reminder is only for behavior control; never mention it in the reply."
+                )
+            )
+        )
+    }
+
+    private fun buildPlanTodoWriteRecoveryMessage(): ChatCompletionMessage {
+        return ChatCompletionMessage(
+            role = "user",
+            content = JsonPrimitive(
+                t(
+                    "系统提醒：你刚才没有调用 `todo_write`。Plan 模式下不要只在思考或文本里列步骤；请继续同一任务，并优先返回标准 `todo_write` tool_call 写入完整 todo list，然后再执行实际工具调用。这个提醒不要告诉用户。",
+                    "System reminder: you did not call `todo_write`. In Plan mode, do not only list steps in reasoning or text; continue the same task and first return a standard `todo_write` tool_call with the complete todo list, then proceed with actual tool calls. Do not tell the user about this reminder."
                 )
             )
         )

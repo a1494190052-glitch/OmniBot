@@ -163,6 +163,153 @@ class AgentOrchestratorTest {
     }
 
     @Test
+    fun planModeKeepsNormalToolRequestAndExecutesTodoWrite() = runBlocking {
+        val todoArguments = """
+            {
+              "todos": [
+                {
+                  "content": "处理用户请求",
+                  "activeForm": "正在处理用户请求",
+                  "status": "in_progress"
+                }
+              ]
+            }
+        """.trimIndent()
+        val llmClient = FakeLlmClient(
+            turns = listOf(
+                assistantTurn(
+                    toolCalls = listOf(
+                        toolCall(
+                            name = AgentConversationModePolicy.TODO_WRITE_TOOL,
+                            arguments = todoArguments
+                        )
+                    )
+                ),
+                assistantTurn(content = "已完成。")
+            )
+        )
+        val toolExecutor = FakeToolExecutor(
+            results = mapOf(
+                AgentConversationModePolicy.TODO_WRITE_TOOL to listOf(
+                    ToolExecutionResult.ContextResult(
+                        toolName = AgentConversationModePolicy.TODO_WRITE_TOOL,
+                        summaryText = "Todo 已更新",
+                        previewJson = "{}",
+                        rawResultJson = "{}",
+                        success = true
+                    )
+                )
+            )
+        )
+        val callback = RecordingCallback()
+        val planToolNames = listOf(
+            AgentConversationModePolicy.TODO_WRITE_TOOL,
+            "browser_use",
+            "terminal_execute"
+        )
+
+        createOrchestrator(
+            llmClient = llmClient,
+            toolExecutor = toolExecutor,
+            toolCatalog = FakeToolCatalog(
+                toolNames = planToolNames
+            )
+        ).run(
+            AgentOrchestrator.Input(
+                callback = callback,
+                initialMessages = initialMessages("帮我处理这个任务"),
+                executionEnv = FakeExecutionEnvironment(
+                    userMessage = "帮我处理这个任务",
+                    conversationMode = AgentConversationModePolicy.PLAN_MODE
+                )
+            )
+        )
+
+        val firstRequest = llmClient.requests.first()
+        assertEquals(JsonPrimitive("auto"), firstRequest.toolChoice)
+        assertEquals(planToolNames, firstRequest.tools.map { it.function.name })
+        assertTrue(firstRequest.parallelToolCalls ?: false)
+        assertTrue(
+            firstRequest.messages.last().contentText().contains("当前是 Plan 模式")
+        )
+        assertEquals(
+            listOf(AgentConversationModePolicy.TODO_WRITE_TOOL),
+            toolExecutor.executeCalls
+        )
+    }
+
+    @Test
+    fun planModeAddsTodoWriteReminderWhenModelOnlyWritesSteps() = runBlocking {
+        val todoArguments = """
+            {
+              "todos": [
+                {
+                  "content": "处理用户请求",
+                  "activeForm": "正在处理用户请求",
+                  "status": "in_progress"
+                }
+              ]
+            }
+        """.trimIndent()
+        val llmClient = FakeLlmClient(
+            turns = listOf(
+                assistantTurn(content = "我先拆解一下步骤。"),
+                assistantTurn(
+                    toolCalls = listOf(
+                        toolCall(
+                            name = AgentConversationModePolicy.TODO_WRITE_TOOL,
+                            arguments = todoArguments
+                        )
+                    )
+                ),
+                assistantTurn(content = "已完成。")
+            )
+        )
+        val toolExecutor = FakeToolExecutor(
+            results = mapOf(
+                AgentConversationModePolicy.TODO_WRITE_TOOL to listOf(
+                    ToolExecutionResult.ContextResult(
+                        toolName = AgentConversationModePolicy.TODO_WRITE_TOOL,
+                        summaryText = "Todo 已更新",
+                        previewJson = "{}",
+                        rawResultJson = "{}",
+                        success = true
+                    )
+                )
+            )
+        )
+        val planToolNames = listOf(
+            AgentConversationModePolicy.TODO_WRITE_TOOL,
+            "browser_use"
+        )
+
+        createOrchestrator(
+            llmClient = llmClient,
+            toolExecutor = toolExecutor,
+            toolCatalog = FakeToolCatalog(toolNames = planToolNames)
+        ).run(
+            AgentOrchestrator.Input(
+                callback = RecordingCallback(),
+                initialMessages = initialMessages("帮我处理这个任务"),
+                executionEnv = FakeExecutionEnvironment(
+                    userMessage = "帮我处理这个任务",
+                    conversationMode = AgentConversationModePolicy.PLAN_MODE
+                )
+            )
+        )
+
+        assertEquals(3, llmClient.requests.size)
+        assertEquals(planToolNames, llmClient.requests.first().tools.map { it.function.name })
+        assertTrue(
+            llmClient.requests[1].messages.last().contentText().contains("没有调用 `todo_write`")
+        )
+        assertEquals(
+            listOf(AgentConversationModePolicy.TODO_WRITE_TOOL),
+            toolExecutor.executeCalls
+        )
+    }
+
+    @Test
     fun actionIntentWithoutToolCallsTriggersSingleRecoveryRound() = runBlocking {
         val llmClient = FakeLlmClient(
             turns = listOf(
@@ -906,11 +1053,12 @@ class AgentOrchestratorTest {
         llmClient: FakeLlmClient,
         toolExecutor: FakeToolExecutor,
         toolImageContinuationPolicy: AgentToolImageContinuationPolicy =
-            AgentToolImageContinuationPolicy.DEFAULT
+            AgentToolImageContinuationPolicy.DEFAULT,
+        toolCatalog: AgentToolCatalog = FakeToolCatalog()
     ): AgentOrchestrator {
         return AgentOrchestrator(
             llmClient = llmClient,
-            toolRegistry = FakeToolCatalog(),
+            toolRegistry = toolCatalog,
             toolRouter = toolExecutor,
             eventAdapter = AgentEventAdapter(eventJson),
             model = "test-model",
@@ -1012,9 +1160,12 @@ class AgentOrchestratorTest {
     }
 
     private class FakeToolCatalog(
-        private val validationErrors: Map<String, String> = emptyMap()
+        private val validationErrors: Map<String, String> = emptyMap(),
+        toolNames: List<String> = emptyList()
     ) : AgentToolCatalog {
-        override val toolsForModel: List<ChatCompletionTool> = emptyList()
+        override val toolsForModel: List<ChatCompletionTool> = toolNames.map { name ->
+            ChatCompletionTool(function = ChatCompletionFunction(name = name))
+        }
 
         override fun runtimeDescriptor(toolName: String): AgentToolRegistry.RuntimeToolDescriptor {
             return AgentToolRegistry.RuntimeToolDescriptor(

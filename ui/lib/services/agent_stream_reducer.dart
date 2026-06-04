@@ -13,6 +13,7 @@ class AgentStreamTaskState {
     this.phase = AgentStreamPhase.idle,
     this.thinkingStage = 1,
     this.isDeepThinking = false,
+    this.todoItems = const <AgentTodoItem>[],
     this.browserSnapshot,
   });
 
@@ -26,6 +27,7 @@ class AgentStreamTaskState {
   final AgentStreamPhase phase;
   final int thinkingStage;
   final bool isDeepThinking;
+  final List<AgentTodoItem> todoItems;
   final ChatBrowserSessionSnapshot? browserSnapshot;
 
   AgentStreamTaskState copyWith({
@@ -40,6 +42,7 @@ class AgentStreamTaskState {
     AgentStreamPhase? phase,
     int? thinkingStage,
     bool? isDeepThinking,
+    List<AgentTodoItem>? todoItems,
     ChatBrowserSessionSnapshot? browserSnapshot,
     bool clearBrowserSnapshot = false,
   }) {
@@ -58,6 +61,7 @@ class AgentStreamTaskState {
       phase: phase ?? this.phase,
       thinkingStage: thinkingStage ?? this.thinkingStage,
       isDeepThinking: isDeepThinking ?? this.isDeepThinking,
+      todoItems: todoItems ?? this.todoItems,
       browserSnapshot: clearBrowserSnapshot
           ? null
           : (browserSnapshot ?? this.browserSnapshot),
@@ -115,6 +119,7 @@ class AgentStreamReducer {
     var activeThinkingEntryId = previousThinkingEntryId;
     var activeAssistantEntryId = previousAssistantEntryId;
     var browserSnapshot = previousState.browserSnapshot;
+    var todoItems = previousState.todoItems;
     var isNewThinkingEntry = false;
     var isNewAssistantEntry = false;
     var clearActiveThinkingEntryId = false;
@@ -155,6 +160,9 @@ class AgentStreamReducer {
               !assistantSegments.containsKey(activeAssistantEntryId);
           assistantSegments[activeAssistantEntryId] = roundIndex;
         }
+        break;
+      case AgentStreamEventKind.todoSnapshot:
+        todoItems = event.todos;
         break;
       case AgentStreamEventKind.toolStarted:
       case AgentStreamEventKind.toolProgress:
@@ -210,6 +218,7 @@ class AgentStreamReducer {
       phase: phase,
       thinkingStage: thinkingStage,
       isDeepThinking: isDeepThinking,
+      todoItems: todoItems,
       browserSnapshot: browserSnapshot,
     );
     return AgentStreamReduceResult(

@@ -166,6 +166,32 @@ sealed class ToolExecutionResult {
     ) : ToolExecutionResult()
 }
 
+data class AgentTodoItem(
+    val content: String,
+    val activeForm: String,
+    val status: String
+) {
+    fun toPayload(): Map<String, Any?> = mapOf(
+        "content" to content,
+        "activeForm" to activeForm,
+        "status" to status
+    )
+}
+
+class AgentTodoState {
+    private var todos: List<AgentTodoItem> = emptyList()
+
+    @Synchronized
+    fun snapshot(): List<AgentTodoItem> = todos
+
+    @Synchronized
+    fun replace(nextTodos: List<AgentTodoItem>): List<AgentTodoItem> {
+        val previous = todos
+        todos = nextTodos.toList()
+        return previous
+    }
+}
+
 /**
  * Agent 状态
  */
@@ -210,6 +236,14 @@ interface AgentCallback {
      * 工具调用完成
      */
     suspend fun onToolCallComplete(toolName: String, result: ToolExecutionResult)
+
+    /**
+     * Plan 模式 todo 列表快照更新。
+     */
+    suspend fun onTodoListSnapshot(
+        todos: List<AgentTodoItem>,
+        oldTodos: List<AgentTodoItem>
+    ) = Unit
     
     /**
      * 聊天消息

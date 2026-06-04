@@ -14,6 +14,7 @@ import cn.com.omnimind.bot.agent.tool.handlers.SkillsToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.SubagentToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.SystemToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.TerminalToolHandler
+import cn.com.omnimind.bot.agent.tool.handlers.TodoToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.ToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.VlmToolHandler
 import kotlinx.coroutines.CoroutineScope
@@ -52,6 +53,7 @@ class AgentToolRouter(
         SystemToolHandler(helper, scheduleToolBridge, workspaceManager),
         MemoryToolHandler(helper),
         MemoryLoadToolHandler(helper),
+        TodoToolHandler(helper),
         SubagentToolHandler(helper, subagentDispatcher)
     )
 

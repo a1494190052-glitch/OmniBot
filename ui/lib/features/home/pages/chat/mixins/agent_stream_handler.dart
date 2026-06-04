@@ -107,6 +107,9 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
   // Agent 文本消息更新后交给具体页面决定是否补充额外结构化内容。
   void onAgentTextMessageUpdated(String messageId, {bool isFinal = true}) {}
 
+  // Plan 模式 todo 快照更新后交给具体页面决定如何展示。
+  void onAgentTodoSnapshotUpdated(AgentStreamEvent event) {}
+
   @protected
   Set<String> activeAgentStreamTaskIds() {
     final ids = <String>{};
@@ -163,6 +166,9 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
           event,
           completedThinkingCardId: thinkingCardToFinalize,
         );
+        return;
+      case AgentStreamEventKind.todoSnapshot:
+        onAgentTodoSnapshotUpdated(event);
         return;
       case AgentStreamEventKind.toolStarted:
       case AgentStreamEventKind.toolProgress:
@@ -750,6 +756,8 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
         return reduceResult.isNewThinkingEntry
             ? reduceResult.previousThinkingEntryId
             : null;
+      case AgentStreamEventKind.todoSnapshot:
+        return null;
       case AgentStreamEventKind.textSnapshot:
       case AgentStreamEventKind.retrying:
       case AgentStreamEventKind.toolStarted:

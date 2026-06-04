@@ -282,11 +282,12 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
   @override
   Future<void> _applyConversationReasoningEffort(String reasoningEffort) async {
     final normalizedEffort = _normalizeReasoningEffort(reasoningEffort);
-    if (normalizedEffort == null || _activeMode != ChatPageMode.normal) {
+    if (normalizedEffort == null ||
+        (_activeMode != ChatPageMode.normal &&
+            _activeMode != ChatPageMode.plan)) {
       return;
     }
-    final normalConversationId =
-        _currentConversationIdByMode[ChatPageMode.normal];
+    final normalConversationId = _currentConversationIdByMode[_activeMode];
     if (normalConversationId == null) {
       if (!mounted) return;
       setState(() {
@@ -424,7 +425,8 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
   Future<void> _openConversationModelSelector(
     BuildContext anchorContext,
   ) async {
-    if (_activeMode != ChatPageMode.normal) {
+    if (_activeMode != ChatPageMode.normal &&
+        _activeMode != ChatPageMode.plan) {
       return;
     }
     if (_showSlashCommandPanel ||

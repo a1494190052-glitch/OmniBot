@@ -27,6 +27,7 @@ import 'package:ui/services/codex_diff_parser.dart';
 const String kChatRuntimeModeNormal = 'normal';
 const String kChatRuntimeModeOpenClaw = 'openclaw';
 const String kChatRuntimeModeCodex = 'codex';
+const String kChatRuntimeModePlan = 'plan';
 const int _kStreamingTextChunkFlushThreshold = 5;
 
 enum _StreamingTextStreamKind {
@@ -80,7 +81,8 @@ class ChatConversationRuntimeState {
   ChatConversationRuntimeState({
     required this.conversationId,
     required this.mode,
-  }) : chatIslandDisplayLayer = mode == kChatRuntimeModeNormal
+  }) : chatIslandDisplayLayer =
+           mode == kChatRuntimeModeNormal || mode == kChatRuntimeModePlan
            ? ChatIslandDisplayLayer.tools
            : ChatIslandDisplayLayer.mode;
 
@@ -123,6 +125,7 @@ class ChatConversationRuntimeState {
   ChatIslandDisplayLayer chatIslandDisplayLayer;
   String? lastAgentToolType;
   ChatBrowserSessionSnapshot? browserSessionSnapshot;
+  List<AgentTodoItem> planTodos = const <AgentTodoItem>[];
 
   bool get hasInFlightTask =>
       isAiResponding ||
@@ -341,6 +344,7 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     ChatIslandDisplayLayer chatIslandDisplayLayer = ChatIslandDisplayLayer.mode,
     String? lastAgentToolType,
     ChatBrowserSessionSnapshot? browserSessionSnapshot,
+    List<AgentTodoItem>? planTodos,
     bool preserveLiveStreamingState = false,
   }) {
     final runtime = ensureRuntime(
@@ -397,6 +401,7 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     runtime.chatIslandDisplayLayer = chatIslandDisplayLayer;
     runtime.lastAgentToolType = lastAgentToolType;
     runtime.browserSessionSnapshot = browserSessionSnapshot;
+    runtime.planTodos = planTodos ?? runtime.planTodos;
     runtime.agentStreamStates.clear();
     runtime._streamingTextBatches.clear();
     runtime.codexEntrySequences.clear();
@@ -629,6 +634,7 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     runtime.activeThinkingCardId = null;
     runtime.activeContextCompactionMarkerId = null;
     runtime.agentStreamStates.clear();
+    runtime.planTodos = const <AgentTodoItem>[];
     runtime.pendingThinkingRoundSplit = false;
     runtime.toolCardSequence = 0;
     runtime.thinkingRound = 0;
@@ -1629,6 +1635,9 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
           completedThinkingCardId: thinkingCardToFinalize,
         );
         return;
+      case AgentStreamEventKind.todoSnapshot:
+        _applyAgentTodoSnapshotStreamEvent(runtime, event);
+        return;
       case AgentStreamEventKind.toolStarted:
       case AgentStreamEventKind.toolProgress:
       case AgentStreamEventKind.toolCompleted:
@@ -1714,6 +1723,7 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     return switch (ConversationMode.fromStorageValue(rawMode)) {
       ConversationMode.openclaw => kChatRuntimeModeOpenClaw,
       ConversationMode.codex => kChatRuntimeModeCodex,
+      ConversationMode.plan => kChatRuntimeModePlan,
       _ => kChatRuntimeModeNormal,
     };
   }
@@ -1733,6 +1743,7 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     runtime.pendingThinkingRoundSplit = false;
     runtime.browserSessionSnapshot =
         state.browserSnapshot ?? runtime.browserSessionSnapshot;
+    runtime.planTodos = state.todoItems;
     runtime.pendingAgentTextTaskId =
         event.kind == AgentStreamEventKind.textSnapshot && !event.isFinal
         ? event.taskId
@@ -1745,6 +1756,14 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
         runtime.activeToolCardId = null;
       }
     }
+  }
+
+  void _applyAgentTodoSnapshotStreamEvent(
+    ChatConversationRuntimeState runtime,
+    AgentStreamEvent event,
+  ) {
+    runtime.planTodos = event.todos;
+    notifyListeners();
   }
 
   void _applyAgentThinkingStreamEvent(
@@ -1910,7 +1929,9 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     );
     final isThinkingCardTarget =
         entryId.isNotEmpty &&
-        runtime.messages.any((message) => message.id == entryId && message.type == 2);
+        runtime.messages.any(
+          (message) => message.id == entryId && message.type == 2,
+        );
     if (!isThinkingCardTarget) {
       _finalizeThinkingCard(
         runtime,
@@ -1930,8 +1951,12 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
         lockCompleted: false,
       );
     } else {
-      final messageId = entryId.isNotEmpty ? entryId : _nextAgentTextMessageId(runtime, event.taskId);
-      final index = runtime.messages.indexWhere((message) => message.id == messageId);
+      final messageId = entryId.isNotEmpty
+          ? entryId
+          : _nextAgentTextMessageId(runtime, event.taskId);
+      final index = runtime.messages.indexWhere(
+        (message) => message.id == messageId,
+      );
       if (index == -1) {
         final content = <String, dynamic>{'text': '', 'id': messageId};
         _applyAgentRetryPresentation(content, event, retryText);
@@ -2054,7 +2079,9 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
   }) {
     final entryId = (event.entryId ?? '').trim();
     final shouldMarkError = event.raw['persistAsError'] == true;
-    final errorText = (event.raw['errorText'] ?? event.errorMessage).toString().trim();
+    final errorText = (event.raw['errorText'] ?? event.errorMessage)
+        .toString()
+        .trim();
     if (entryId.isNotEmpty) {
       final index = runtime.messages.indexWhere(
         (message) => message.id == entryId,
@@ -3069,6 +3096,8 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
         return reduceResult.isNewThinkingEntry
             ? reduceResult.previousThinkingEntryId
             : null;
+      case AgentStreamEventKind.todoSnapshot:
+        return null;
       case AgentStreamEventKind.textSnapshot:
       case AgentStreamEventKind.retrying:
       case AgentStreamEventKind.toolStarted:
@@ -3754,6 +3783,8 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
         ? ConversationMode.openclaw
         : mode == kChatRuntimeModeCodex
         ? ConversationMode.codex
+        : mode == kChatRuntimeModePlan
+        ? ConversationMode.plan
         : switch (conversation?.mode) {
             ConversationMode.chatOnly => ConversationMode.chatOnly,
             ConversationMode.subagent => ConversationMode.subagent,

@@ -14,6 +14,7 @@ import '../../../../models/conversation_model.dart';
 import '../../../../models/conversation_thread_target.dart';
 import '../../../../models/chat_link_preview.dart';
 import '../../../../models/chat_message_model.dart';
+import '../../../../models/agent_stream_event.dart';
 import '../../../../services/agent_stream_meta.dart';
 import '../../../../services/assists_core_service.dart';
 import '../../widgets/home_drawer.dart';
@@ -75,6 +76,7 @@ import 'chat_page_models.dart';
 import 'tool_activity_utils.dart';
 import 'widgets/chat_widgets.dart';
 import 'widgets/chat_browser_overlay.dart';
+import 'widgets/chat_plan_todo_strip.dart';
 import 'widgets/chat_tool_activity_strip.dart';
 import 'package:ui/widgets/app_update_dialog.dart';
 import 'package:ui/widgets/app_background_widgets.dart';
@@ -90,7 +92,7 @@ part 'chat_page_codex.dart';
 part 'chat_page_conversation_flow.dart';
 part 'chat_page_ui.dart';
 
-enum ChatPageMode { normal, openclaw, codex }
+enum ChatPageMode { normal, openclaw, plan, codex }
 
 enum _SlashCommandPanelRoute { root, effort, codexModel }
 
@@ -116,6 +118,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _normalMessageScrollController = ScrollController();
   final ScrollController _openClawMessageScrollController = ScrollController();
+  final ScrollController _planMessageScrollController = ScrollController();
   final ScrollController _codexMessageScrollController = ScrollController();
   final PageController _modePageController = PageController(initialPage: 0);
   final FocusNode _inputFocusNode = FocusNode();
@@ -123,6 +126,8 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   final TextEditingController _normalUserMessageEditController =
       TextEditingController();
   final TextEditingController _openClawUserMessageEditController =
+      TextEditingController();
+  final TextEditingController _planUserMessageEditController =
       TextEditingController();
   final TextEditingController _codexUserMessageEditController =
       TextEditingController();
@@ -181,11 +186,13 @@ abstract class _ChatPageStateBase extends State<ChatPage>
       {
         ChatPageMode.normal: <ChatInputAttachment>[],
         ChatPageMode.openclaw: <ChatInputAttachment>[],
+        ChatPageMode.plan: <ChatInputAttachment>[],
         ChatPageMode.codex: <ChatInputAttachment>[],
       };
   final Map<ChatPageMode, String> _draftMessageByMode = {
     ChatPageMode.normal: '',
     ChatPageMode.openclaw: '',
+    ChatPageMode.plan: '',
     ChatPageMode.codex: '',
   };
   final KeyboardInsetMotionTracker _emptyGreetingKeyboardLiftTracker =
@@ -194,160 +201,203 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   _chatIslandDisplayLayerByMode = {
     ChatPageMode.normal: ChatIslandDisplayLayer.tools,
     ChatPageMode.openclaw: ChatIslandDisplayLayer.mode,
+    ChatPageMode.plan: ChatIslandDisplayLayer.tools,
     ChatPageMode.codex: ChatIslandDisplayLayer.mode,
   };
   final Map<ChatPageMode, String?> _lastAgentToolTypeByMode = {
     ChatPageMode.normal: null,
     ChatPageMode.openclaw: null,
+    ChatPageMode.plan: null,
     ChatPageMode.codex: null,
   };
   final Map<ChatPageMode, String> _runtimeChromeSignatureByMode = {
     ChatPageMode.normal: '',
     ChatPageMode.openclaw: '',
+    ChatPageMode.plan: '',
     ChatPageMode.codex: '',
   };
   final Map<ChatPageMode, int> _runtimeMessageMutationRevisionByMode = {
     ChatPageMode.normal: 0,
     ChatPageMode.openclaw: 0,
+    ChatPageMode.plan: 0,
     ChatPageMode.codex: 0,
   };
   final Map<ChatPageMode, ChatBrowserSessionSnapshot?>
   _browserSessionSnapshotByMode = {
     ChatPageMode.normal: null,
     ChatPageMode.openclaw: null,
+    ChatPageMode.plan: null,
     ChatPageMode.codex: null,
+  };
+  final Map<ChatPageMode, List<AgentTodoItem>> _planTodosByMode = {
+    ChatPageMode.normal: const <AgentTodoItem>[],
+    ChatPageMode.openclaw: const <AgentTodoItem>[],
+    ChatPageMode.plan: const <AgentTodoItem>[],
+    ChatPageMode.codex: const <AgentTodoItem>[],
   };
 
   // 输入框/任务执行状态
   final Map<ChatPageMode, bool> _isInputAreaVisibleByMode = {
     ChatPageMode.normal: true,
     ChatPageMode.openclaw: true,
+    ChatPageMode.plan: true,
     ChatPageMode.codex: true,
   };
   final Map<ChatPageMode, bool> _isExecutingTaskByMode = {
     ChatPageMode.normal: false,
     ChatPageMode.openclaw: false,
+    ChatPageMode.plan: false,
     ChatPageMode.codex: false,
   };
 
   final Map<ChatPageMode, List<ChatMessageModel>> _messagesByMode = {
     ChatPageMode.normal: <ChatMessageModel>[],
     ChatPageMode.openclaw: <ChatMessageModel>[],
+    ChatPageMode.plan: <ChatMessageModel>[],
     ChatPageMode.codex: <ChatMessageModel>[],
   };
   final Map<ChatPageMode, String?> _editingUserMessageIdByMode = {
     ChatPageMode.normal: null,
     ChatPageMode.openclaw: null,
+    ChatPageMode.plan: null,
     ChatPageMode.codex: null,
   };
   final Map<ChatPageMode, double> _toolActivityOccupiedHeightByMode = {
     ChatPageMode.normal: 0,
     ChatPageMode.openclaw: 0,
+    ChatPageMode.plan: 0,
+    ChatPageMode.codex: 0,
+  };
+  final Map<ChatPageMode, double> _planTodoOccupiedHeightByMode = {
+    ChatPageMode.normal: 0,
+    ChatPageMode.openclaw: 0,
+    ChatPageMode.plan: 0,
     ChatPageMode.codex: 0,
   };
   final Map<ChatPageMode, double> _slashCommandPanelOccupiedHeightByMode = {
     ChatPageMode.normal: 0,
     ChatPageMode.openclaw: 0,
+    ChatPageMode.plan: 0,
     ChatPageMode.codex: 0,
   };
   final Map<ChatPageMode, bool> _slashCommandExpandedByMode = {
     ChatPageMode.normal: false,
     ChatPageMode.openclaw: false,
+    ChatPageMode.plan: false,
     ChatPageMode.codex: false,
   };
   final Map<ChatPageMode, bool> _toolActivityExpandedByMode = {
     ChatPageMode.normal: false,
     ChatPageMode.openclaw: false,
+    ChatPageMode.plan: false,
     ChatPageMode.codex: false,
   };
   final Map<ChatPageMode, Set<String>> _expandedAgentRunTaskIdsByMode = {
     ChatPageMode.normal: <String>{},
     ChatPageMode.openclaw: <String>{},
+    ChatPageMode.plan: <String>{},
     ChatPageMode.codex: <String>{},
   };
   final Map<ChatPageMode, List<String>> _expandedAgentRunTaskOrderByMode = {
     ChatPageMode.normal: <String>[],
     ChatPageMode.openclaw: <String>[],
+    ChatPageMode.plan: <String>[],
     ChatPageMode.codex: <String>[],
   };
   final Map<ChatPageMode, double> _inputAreaHeightByMode = {
     ChatPageMode.normal: 0,
     ChatPageMode.openclaw: 0,
+    ChatPageMode.plan: 0,
     ChatPageMode.codex: 0,
   };
   final Map<ChatPageMode, bool> _isAiRespondingByMode = {
     ChatPageMode.normal: false,
     ChatPageMode.openclaw: false,
+    ChatPageMode.plan: false,
     ChatPageMode.codex: false,
   };
   final Map<ChatPageMode, bool> _isContextCompressingByMode = {
     ChatPageMode.normal: false,
     ChatPageMode.openclaw: false,
+    ChatPageMode.plan: false,
     ChatPageMode.codex: false,
   };
   final Map<ChatPageMode, bool> _isCheckingExecutableTaskByMode = {
     ChatPageMode.normal: false,
     ChatPageMode.openclaw: false,
+    ChatPageMode.plan: false,
     ChatPageMode.codex: false,
   };
   final Map<ChatPageMode, bool> _isSubmittingVlmReplyByMode = {
     ChatPageMode.normal: false,
     ChatPageMode.openclaw: false,
+    ChatPageMode.plan: false,
     ChatPageMode.codex: false,
   };
   final Map<ChatPageMode, String?> _vlmInfoQuestionByMode = {
     ChatPageMode.normal: null,
     ChatPageMode.openclaw: null,
+    ChatPageMode.plan: null,
     ChatPageMode.codex: null,
   };
   final Map<ChatPageMode, Map<String, String>> _currentAiMessagesByMode = {
     ChatPageMode.normal: <String, String>{},
     ChatPageMode.openclaw: <String, String>{},
+    ChatPageMode.plan: <String, String>{},
     ChatPageMode.codex: <String, String>{},
   };
   final Map<ChatPageMode, String> _deepThinkingContentByMode = {
     ChatPageMode.normal: '',
     ChatPageMode.openclaw: '',
+    ChatPageMode.plan: '',
     ChatPageMode.codex: '',
   };
   final Map<ChatPageMode, bool> _isDeepThinkingByMode = {
     ChatPageMode.normal: false,
     ChatPageMode.openclaw: false,
+    ChatPageMode.plan: false,
     ChatPageMode.codex: false,
   };
   final Map<ChatPageMode, String?> _currentDispatchTaskIdByMode = {
     ChatPageMode.normal: null,
     ChatPageMode.openclaw: null,
+    ChatPageMode.plan: null,
     ChatPageMode.codex: null,
   };
   final Map<ChatPageMode, int> _currentThinkingStageByMode = {
     ChatPageMode.normal: 1,
     ChatPageMode.openclaw: 1,
+    ChatPageMode.plan: 1,
     ChatPageMode.codex: 1,
   };
   final Map<ChatPageMode, int?> _currentConversationIdByMode = {
     ChatPageMode.normal: null,
     ChatPageMode.openclaw: null,
+    ChatPageMode.plan: null,
     ChatPageMode.codex: null,
   };
   final Map<ChatPageMode, ConversationModel?> _currentConversationByMode = {
     ChatPageMode.normal: null,
     ChatPageMode.openclaw: null,
+    ChatPageMode.plan: null,
     ChatPageMode.codex: null,
   };
   final Map<ChatPageMode, bool> _hasMoreMessagesByMode = {
     ChatPageMode.normal: false,
     ChatPageMode.openclaw: false,
+    ChatPageMode.plan: false,
     ChatPageMode.codex: false,
   };
   final Map<ChatPageMode, int> _messageOffsetByMode = {
     ChatPageMode.normal: 0,
     ChatPageMode.openclaw: 0,
+    ChatPageMode.plan: 0,
     ChatPageMode.codex: 0,
   };
   final Map<ChatPageMode, bool> _isLoadingMoreByMode = {
     ChatPageMode.normal: false,
     ChatPageMode.openclaw: false,
+    ChatPageMode.plan: false,
     ChatPageMode.codex: false,
   };
   bool _isAwaitingAuthorizeResult = false;
@@ -436,6 +486,9 @@ abstract class _ChatPageStateBase extends State<ChatPage>
 
   ChatPageMode get _activeMode => _activeConversationMode;
   ConversationMode _conversationModeForPageMode(ChatPageMode mode) {
+    if (mode == ChatPageMode.plan) {
+      return ConversationMode.plan;
+    }
     if (mode == ChatPageMode.codex) {
       return ConversationMode.codex;
     }
@@ -462,6 +515,8 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   ChatPageMode _pageModeForConversationMode(ConversationMode mode) =>
       mode == ConversationMode.openclaw
       ? ChatPageMode.openclaw
+      : mode == ConversationMode.plan
+      ? ChatPageMode.plan
       : mode == ConversationMode.codex
       ? ChatPageMode.codex
       : ChatPageMode.normal;
@@ -472,6 +527,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   String _modeKey(ChatPageMode mode) => switch (mode) {
     ChatPageMode.normal => kChatRuntimeModeNormal,
     ChatPageMode.openclaw => kChatRuntimeModeOpenClaw,
+    ChatPageMode.plan => kChatRuntimeModePlan,
     ChatPageMode.codex => kChatRuntimeModeCodex,
   };
   ChatConversationRuntimeState? _runtimeForMode(ChatPageMode mode) {
@@ -540,7 +596,19 @@ abstract class _ChatPageStateBase extends State<ChatPage>
       runtime.chatIslandDisplayLayer.wireName,
       runtime.lastAgentToolType ?? '',
       _browserSnapshotSignature(runtime.browserSessionSnapshot),
+      _todoListSignature(runtime.planTodos),
     ].join('|');
+  }
+
+  String _todoListSignature(List<AgentTodoItem> todos) {
+    if (todos.isEmpty) {
+      return '';
+    }
+    return todos
+        .map(
+          (item) => '${item.status.value}:${item.content}:${item.activeForm}',
+        )
+        .join('\n');
   }
 
   void _rememberRuntimeUiSnapshot(ChatPageMode mode) {
@@ -708,6 +776,19 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     }
   }
 
+  Future<void> _handlePlanModeShortcutTap() async {
+    if (_activeMode == ChatPageMode.plan) {
+      return;
+    }
+    _storeDraftForActiveConversationMode();
+    await _persistVisibleThreadTargetIfNeeded();
+    final target = _newThreadTargetForConversationMode(ConversationMode.plan);
+    if (!mounted) {
+      return;
+    }
+    await _applyConversationThreadTarget(target);
+  }
+
   Future<void> _handlePureChatModeShortcutTap() async {
     if (_activeMode == ChatPageMode.codex) {
       final target = _newThreadTargetForConversationMode(
@@ -734,14 +815,15 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     await _applyConversationThreadTarget(nextTarget);
   }
 
-  String get _expectedBrowserWorkspaceId => chatConversationWorkspaceId(
-    _currentConversationIdByMode[ChatPageMode.normal],
-  );
+  String get _expectedBrowserWorkspaceId =>
+      chatConversationWorkspaceId(_currentConversationIdByMode[_activeMode]);
 
   List<ChatMessageModel> get _messages =>
       _activeRuntime?.messages ?? _messagesByMode[_activeMode]!;
   double get _toolActivityOccupiedHeight =>
       _toolActivityOccupiedHeightByMode[_activeMode] ?? 0;
+  double get _planTodoOccupiedHeight =>
+      _planTodoOccupiedHeightByMode[_activeMode] ?? 0;
   double get _slashCommandPanelOccupiedHeight =>
       _slashCommandPanelOccupiedHeightByMode[_activeMode] ?? 0;
   bool get _isSlashCommandExpanded =>
@@ -907,7 +989,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   }
 
   String? get _activeConversationReasoningEffort =>
-      _activeMode != ChatPageMode.normal
+      (_activeMode != ChatPageMode.normal && _activeMode != ChatPageMode.plan)
       ? null
       : _pendingConversationReasoningEffort ?? _conversationReasoningEffort;
 
@@ -1082,8 +1164,50 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     _browserSessionSnapshotByMode[_activeMode] = value;
   }
 
+  void _setBrowserSessionSnapshotForMode(
+    ChatPageMode mode,
+    ChatBrowserSessionSnapshot? value,
+  ) {
+    final runtime = _runtimeForMode(mode);
+    if (runtime != null) {
+      runtime.browserSessionSnapshot = value;
+      return;
+    }
+    _browserSessionSnapshotByMode[mode] = value;
+  }
+
+  ChatPageMode? _pageModeForBrowserWorkspaceId(String workspaceId) {
+    if (chatConversationWorkspaceId(
+          _currentConversationIdByMode[_activeMode],
+        ) ==
+        workspaceId) {
+      return _activeMode;
+    }
+    for (final mode in ChatPageMode.values) {
+      if (chatConversationWorkspaceId(_currentConversationIdByMode[mode]) ==
+          workspaceId) {
+        return mode;
+      }
+    }
+    return null;
+  }
+
+  List<AgentTodoItem> get _activePlanTodos =>
+      _activeRuntime?.planTodos ??
+      _planTodosByMode[_activeMode] ??
+      const <AgentTodoItem>[];
+  set _activePlanTodos(List<AgentTodoItem> value) {
+    final runtime = _activeRuntime;
+    if (runtime != null) {
+      runtime.planTodos = value;
+    }
+    _planTodosByMode[_activeMode] = value;
+  }
+
   bool get _supportsReasoningEffortCommand =>
-      _activeMode == ChatPageMode.normal && !_isOpenClawSurface;
+      (_activeMode == ChatPageMode.normal ||
+          _activeMode == ChatPageMode.plan) &&
+      !_isOpenClawSurface;
 
   _SlashCommandPanelRoute _resolveSlashCommandPanelRoute(String text) {
     final trimmed = text.trimLeft();
@@ -1185,6 +1309,8 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   TextEditingController _userMessageEditControllerForMode(ChatPageMode mode) =>
       mode == ChatPageMode.openclaw
       ? _openClawUserMessageEditController
+      : mode == ChatPageMode.plan
+      ? _planUserMessageEditController
       : mode == ChatPageMode.codex
       ? _codexUserMessageEditController
       : _normalUserMessageEditController;
@@ -1457,7 +1583,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
       conversation: conversation,
       messages: messages,
     );
-    if (pageMode == ChatPageMode.normal) {
+    if (pageMode == ChatPageMode.normal || pageMode == ChatPageMode.plan) {
       unawaited(
         _persistPendingConversationModelOverrideIfNeeded(conversationId),
       );
@@ -1603,6 +1729,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     _scheduleBrowserSessionRefreshIfNeeded();
     final mode = _activeMode;
     final runtime = _activeRuntime!;
+    _planTodosByMode[mode] = runtime.planTodos;
     final nextChromeSignature = _runtimeChromeSignature(runtime);
     final previousChromeSignature = _runtimeChromeSignatureByMode[mode] ?? '';
     final nextMutationRevision = runtime.messages.lastMutationRevision;
@@ -1619,6 +1746,15 @@ abstract class _ChatPageStateBase extends State<ChatPage>
             runtime.messages.lastMutationAffectsPageChrome)) {
       setState(() {});
     }
+  }
+
+  @override
+  void onAgentTodoSnapshotUpdated(AgentStreamEvent event) {
+    _activePlanTodos = event.todos;
+    if (!mounted) {
+      return;
+    }
+    setState(() {});
   }
 
   void _resetLocalConversationState(ChatPageMode mode) {
@@ -1638,13 +1774,16 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     _currentConversationByMode[mode] = null;
     _isInputAreaVisibleByMode[mode] = true;
     _isExecutingTaskByMode[mode] = false;
-    _chatIslandDisplayLayerByMode[mode] = mode == ChatPageMode.normal
+    _chatIslandDisplayLayerByMode[mode] =
+        mode == ChatPageMode.normal || mode == ChatPageMode.plan
         ? ChatIslandDisplayLayer.tools
         : ChatIslandDisplayLayer.mode;
     _lastAgentToolTypeByMode[mode] = null;
     _runtimeChromeSignatureByMode[mode] = '';
     _runtimeMessageMutationRevisionByMode[mode] = 0;
     _browserSessionSnapshotByMode[mode] = null;
+    _planTodosByMode[mode] = const <AgentTodoItem>[];
+    _planTodoOccupiedHeightByMode[mode] = 0;
     _pendingAttachmentsByMode[mode]!.clear();
     _editingUserMessageIdByMode[mode] = null;
     _userMessageEditControllerForMode(mode).clear();

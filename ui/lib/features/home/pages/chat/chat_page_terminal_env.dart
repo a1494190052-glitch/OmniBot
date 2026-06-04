@@ -40,7 +40,8 @@ mixin _ChatPageTerminalEnvMixin on _ChatPageStateBase {
   Future<void> _openTerminalEnvironmentEditor(
     BuildContext anchorContext,
   ) async {
-    if (_activeMode != ChatPageMode.normal) {
+    if (_activeMode != ChatPageMode.normal &&
+        _activeMode != ChatPageMode.plan) {
       return;
     }
     _cancelNormalSurfaceModelReveal();

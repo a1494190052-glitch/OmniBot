@@ -70,6 +70,7 @@ import cn.com.omnimind.bot.agent.AgentScheduleToolBridge
 import cn.com.omnimind.bot.agent.AgentRunControl
 import cn.com.omnimind.bot.agent.AgentToolExecutionHandle
 import cn.com.omnimind.bot.agent.AgentToolProgressSnapshot
+import cn.com.omnimind.bot.agent.AgentTodoItem
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import cn.com.omnimind.bot.agent.LiveAgentBrowserSessionManager
 import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
@@ -4792,6 +4793,19 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                             )
                             FlutterChatSyncBridge.dispatchBrowserSnapshotUpdated(snapshot)
                         }
+                    }
+
+                    override suspend fun onTodoListSnapshot(
+                        todos: List<AgentTodoItem>,
+                        oldTodos: List<AgentTodoItem>
+                    ) {
+                        sendStreamEvent(
+                            kind = "todo_snapshot",
+                            extras = mapOf(
+                                "todos" to todos.map { it.toPayload() },
+                                "oldTodos" to oldTodos.map { it.toPayload() }
+                            )
+                        )
                     }
 
                     override suspend fun onChatMessage(message: String) {

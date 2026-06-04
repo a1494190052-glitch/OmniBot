@@ -5,6 +5,7 @@ enum AgentStreamEventKind {
   thinkingSnapshot('thinking_snapshot'),
   retrying('retrying'),
   textSnapshot('text_snapshot'),
+  todoSnapshot('todo_snapshot'),
   toolStarted('tool_started'),
   toolProgress('tool_progress'),
   toolCompleted('tool_completed'),
@@ -40,6 +41,60 @@ enum AgentStreamPhase {
   permissionRequired,
 }
 
+enum AgentTodoStatus {
+  pending('pending'),
+  inProgress('in_progress'),
+  completed('completed');
+
+  const AgentTodoStatus(this.value);
+
+  final String value;
+
+  static AgentTodoStatus fromValue(String? raw) {
+    final normalized = raw?.trim().toLowerCase() ?? '';
+    for (final status in AgentTodoStatus.values) {
+      if (status.value == normalized) {
+        return status;
+      }
+    }
+    return AgentTodoStatus.pending;
+  }
+}
+
+class AgentTodoItem {
+  const AgentTodoItem({
+    required this.content,
+    required this.activeForm,
+    required this.status,
+  });
+
+  final String content;
+  final String activeForm;
+  final AgentTodoStatus status;
+
+  bool get isInProgress => status == AgentTodoStatus.inProgress;
+  bool get isCompleted => status == AgentTodoStatus.completed;
+
+  factory AgentTodoItem.fromMap(Map<dynamic, dynamic> map) {
+    final raw = Map<String, dynamic>.from(
+      map.map((key, value) => MapEntry(key.toString(), value)),
+    );
+    return AgentTodoItem(
+      content: (raw['content'] ?? '').toString(),
+      activeForm: (raw['activeForm'] ?? raw['active_form'] ?? '').toString(),
+      status: AgentTodoStatus.fromValue(raw['status']?.toString()),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'content': content,
+      'activeForm': activeForm,
+      'status': status.value,
+    };
+  }
+}
+
 class AgentStreamEvent {
   const AgentStreamEvent({
     required this.taskId,
@@ -69,6 +124,8 @@ class AgentStreamEvent {
     this.question = '',
     this.missingFields = const <String>[],
     this.missingPermissions = const <String>[],
+    this.todos = const <AgentTodoItem>[],
+    this.oldTodos = const <AgentTodoItem>[],
     this.browserSnapshot,
     this.raw = const <String, dynamic>{},
   });
@@ -100,6 +157,8 @@ class AgentStreamEvent {
   final String question;
   final List<String> missingFields;
   final List<String> missingPermissions;
+  final List<AgentTodoItem> todos;
+  final List<AgentTodoItem> oldTodos;
   final ChatBrowserSessionSnapshot? browserSnapshot;
   final Map<String, dynamic> raw;
 
@@ -141,8 +200,7 @@ class AgentStreamEvent {
       roundIndex: _asInt(raw['roundIndex']) ?? 0,
       isFinal: raw['isFinal'] == true,
       text: (raw['text'] ?? raw['message'] ?? '').toString(),
-      thinking:
-          (raw['thinking'] ?? raw['reasoning_content'] ?? '').toString(),
+      thinking: (raw['thinking'] ?? raw['reasoning_content'] ?? '').toString(),
       stage: _asInt(raw['stage']) ?? 1,
       prefillTokensPerSecond: _asDouble(raw['prefillTokensPerSecond']),
       decodeTokensPerSecond: _asDouble(raw['decodeTokensPerSecond']),
@@ -169,9 +227,26 @@ class AgentStreamEvent {
               ?.map((item) => item.toString())
               .toList(growable: false) ??
           const <String>[],
+      todos: _parseTodos(raw['todos']),
+      oldTodos: _parseTodos(raw['oldTodos']),
       browserSnapshot: browserSnapshot,
       raw: raw,
     );
+  }
+
+  static List<AgentTodoItem> _parseTodos(dynamic raw) {
+    if (raw is! List) {
+      return const <AgentTodoItem>[];
+    }
+    return raw
+        .map((item) {
+          if (item is Map) {
+            return AgentTodoItem.fromMap(item);
+          }
+          return null;
+        })
+        .whereType<AgentTodoItem>()
+        .toList(growable: false);
   }
 
   static int? _asInt(dynamic raw) {

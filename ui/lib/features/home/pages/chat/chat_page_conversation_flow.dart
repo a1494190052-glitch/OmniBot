@@ -94,6 +94,7 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
       browserSessionSnapshot:
           runtime?.browserSessionSnapshot ??
           _browserSessionSnapshotByMode[mode],
+      planTodos: runtime?.planTodos ?? _planTodosByMode[mode],
     );
     _rememberRuntimeUiSnapshot(mode);
   }
@@ -376,7 +377,9 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
 
   @override
   Future<bool> _ensureNormalChatModelConfigurationForSend() async {
-    if (_activeMode != ChatPageMode.normal || _isOpenClawSurface) {
+    if ((_activeMode != ChatPageMode.normal &&
+            _activeMode != ChatPageMode.plan) ||
+        _isOpenClawSurface) {
       return true;
     }
     if (_hasConfiguredNormalChatProviderModel()) {

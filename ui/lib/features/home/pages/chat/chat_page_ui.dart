@@ -18,10 +18,11 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
   static const double _kHdPadPaneCollapseMinWidthFactor = 0.72;
   final Set<String> _pendingManualAgentRetryTaskIds = <String>{};
 
-  ChatPageMode get _primaryChatMessagePageMode =>
-      _activeMode == ChatPageMode.codex
-      ? ChatPageMode.codex
-      : ChatPageMode.normal;
+  ChatPageMode get _primaryChatMessagePageMode => switch (_activeMode) {
+    ChatPageMode.plan => ChatPageMode.plan,
+    ChatPageMode.codex => ChatPageMode.codex,
+    ChatPageMode.normal || ChatPageMode.openclaw => ChatPageMode.normal,
+  };
 
   void _applyHomeQuickPrompt(HomeQuickPrompt prompt) {
     _suppressNextOutsideTapKeyboardHide = true;
@@ -640,6 +641,21 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     });
   }
 
+  void _schedulePlanTodoInsetSync(double height) {
+    final normalized = height.isFinite ? height : 0.0;
+    if ((_planTodoOccupiedHeight - normalized).abs() < 0.5) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || (_planTodoOccupiedHeight - normalized).abs() < 0.5) {
+        return;
+      }
+      setState(() {
+        _planTodoOccupiedHeightByMode[_activeMode] = normalized;
+      });
+    });
+  }
+
   void _setToolActivityExpanded(bool expanded) {
     if (_isToolActivityExpanded == expanded) {
       return;
@@ -658,8 +674,10 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     required AgentToolActivitySnapshot snapshot,
   }) {
     if (mode != _activeMode ||
+        mode == ChatPageMode.plan ||
         !_isInputAreaVisible ||
         _showSlashCommandPanel ||
+        _showModelMentionPanel ||
         _openClawPanelExpanded) {
       return false;
     }
@@ -838,6 +856,16 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       mode: mode,
       snapshot: toolActivitySnapshot,
     );
+    final showPlanTodoStrip =
+        mode == _activeMode &&
+        mode == ChatPageMode.plan &&
+        _isInputAreaVisible &&
+        _activePlanTodos.isNotEmpty &&
+        !_showSlashCommandPanel &&
+        !_showModelMentionPanel &&
+        !_openClawPanelExpanded;
+    final isNormalAgentMode =
+        mode == ChatPageMode.normal || mode == ChatPageMode.plan;
     final bottomInset = MediaQuery.maybeOf(context)?.viewInsets.bottom ?? 0.0;
     final liftEmptyGreeting =
         mode == _activeMode &&
@@ -867,25 +895,26 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       bottomOverlayInset:
           bottomOverlayInset +
           (mode == _activeMode ? _slashCommandPanelOccupiedHeight : 0) +
-          (showToolActivityStrip ? _toolActivityOccupiedHeight : 0),
+          (showToolActivityStrip ? _toolActivityOccupiedHeight : 0) +
+          (showPlanTodoStrip ? _planTodoOccupiedHeight : 0),
       onBeforeTaskExecute: handleBeforeTaskExecute,
       onCancelTask: _onCancelTaskFromCard,
-      onRequestAuthorize: mode == ChatPageMode.normal
+      onRequestAuthorize: isNormalAgentMode
           ? _requestAuthorizeForExecution
           : null,
-      onUserMessageLongPressStart: mode == ChatPageMode.normal
+      onUserMessageLongPressStart: isNormalAgentMode
           ? _handleUserMessageLongPressStart
           : null,
-      editingUserMessageId: mode == ChatPageMode.normal
+      editingUserMessageId: isNormalAgentMode
           ? _editingUserMessageIdByMode[mode]
           : null,
-      userMessageEditController: mode == ChatPageMode.normal
+      userMessageEditController: isNormalAgentMode
           ? _userMessageEditControllerForMode(mode)
           : null,
-      onUserMessageEditCancelled: mode == ChatPageMode.normal
+      onUserMessageEditCancelled: isNormalAgentMode
           ? _cancelUserMessageEditing
           : null,
-      onUserMessageEditSaved: mode == ChatPageMode.normal
+      onUserMessageEditSaved: isNormalAgentMode
           ? _saveAndResendEditedUserMessage
           : null,
       onLoadMore: loadMoreMessages,
@@ -1117,11 +1146,22 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       mode: _activeMode,
       snapshot: toolActivitySnapshot,
     );
-    final toolActivityCanExpand = toolActivityCards.length > 1;
+    final planTodos = _activePlanTodos;
+    final showPlanTodoStrip =
+        _activeMode == ChatPageMode.plan &&
+        _isInputAreaVisible &&
+        planTodos.isNotEmpty &&
+        !showSlashCommandStrip &&
+        !_showModelMentionPanel &&
+        !_openClawPanelExpanded;
+    final toolActivityCanExpand =
+        showToolActivityStrip && toolActivityCards.length > 1;
+    final planTodoCanExpand = showPlanTodoStrip && planTodos.length > 1;
     final suppressToolActivitySurfaceShadow =
         _inputFocusNode.hasFocus &&
         (MediaQuery.maybeOf(context)?.viewInsets.bottom ?? 0.0) > 0;
-    final overlayAnchor = (toolActivityCards.isEmpty && !showSlashCommandStrip)
+    final overlayAnchor =
+        (!showToolActivityStrip && !showPlanTodoStrip && !showSlashCommandStrip)
         ? null
         : _resolveToolActivityAnchorGeometry(
             layoutContext: layoutContext,
@@ -1134,13 +1174,16 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
         _toolActivityOccupiedHeight > 0) {
       _scheduleToolActivityInsetSync(0);
     }
+    if (!showPlanTodoStrip && _planTodoOccupiedHeight > 0) {
+      _schedulePlanTodoInsetSync(0);
+    }
     if (!showSlashCommandStrip &&
         !_showModelMentionPanel &&
         !_openClawPanelExpanded &&
         _slashCommandPanelOccupiedHeight > 0) {
       _scheduleSlashCommandOccupiedHeightSync(0);
     }
-    if ((!toolActivityCanExpand || !showToolActivityStrip) &&
+    if ((!toolActivityCanExpand && !planTodoCanExpand) &&
         _isToolActivityExpanded) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _setToolActivityExpanded(false);
@@ -1165,6 +1208,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     final activeAppBarModelId = appBarMode == ChatSurfaceMode.normal
         ? switch (_activeMode) {
             ChatPageMode.normal => _activeNormalChatModelId,
+            ChatPageMode.plan => _activeNormalChatModelId,
             ChatPageMode.codex => _activeCodexModelId,
             ChatPageMode.openclaw => null,
           }
@@ -1173,6 +1217,9 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
         appBarMode == ChatSurfaceMode.normal
         ? switch (_activeMode) {
             ChatPageMode.normal => (anchorContext) {
+              unawaited(_openConversationModelSelector(anchorContext));
+            },
+            ChatPageMode.plan => (anchorContext) {
               unawaited(_openConversationModelSelector(anchorContext));
             },
             ChatPageMode.codex => (anchorContext) {
@@ -1204,6 +1251,9 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
               onMenuTap: onMenuTap,
               onAgentTap: () {
                 unawaited(_handleAgentModeShortcutTap());
+              },
+              onPlanTap: () {
+                unawaited(_handlePlanModeShortcutTap());
               },
               onPureChatToggleTap: () {
                 unawaited(_handlePureChatModeShortcutTap());
@@ -1242,6 +1292,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
               isCodexConnected: _codexStatus.connected,
               isCodexLoading: _isCodexStatusLoading,
               isCodexSelected: _activeMode == ChatPageMode.codex,
+              isPlanSelected: _activeMode == ChatPageMode.plan,
               isAgentSelected:
                   _activeMode == ChatPageMode.normal && !_isPureChatSelected,
               showAppUpdateIndicator: showAppUpdateIndicator,
@@ -1387,7 +1438,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
             ),
           ),
         if (!hideWorkspaceOverlays &&
-            toolActivityCanExpand &&
+            (toolActivityCanExpand || planTodoCanExpand) &&
             _isToolActivityExpanded)
           Positioned.fill(
             child: GestureDetector(
@@ -1395,7 +1446,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
               onTap: () => _setToolActivityExpanded(false),
             ),
           ),
-        if (showToolActivityStrip)
+        if (showPlanTodoStrip)
           Positioned(
             left: overlayAnchor?.rect.left ?? 24,
             width:
@@ -1404,13 +1455,36 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
             bottom: overlayAnchor?.bottom ?? 0,
             child: _buildNormalSurfaceTransition(
               viewportWidth: constraints.maxWidth,
+              child: ChatPlanTodoStrip(
+                todos: planTodos,
+                anchorRect: overlayAnchor?.rect,
+                onOccupiedHeightChanged: _schedulePlanTodoInsetSync,
+                expanded: planTodoCanExpand ? _isToolActivityExpanded : false,
+                onExpandedChanged: _setToolActivityExpanded,
+                suppressSurfaceShadow: suppressToolActivitySurfaceShadow,
+              ),
+            ),
+          ),
+        if (showToolActivityStrip)
+          Positioned(
+            left: overlayAnchor?.rect.left ?? 24,
+            width:
+                overlayAnchor?.rect.width ??
+                math.max(0.0, constraints.maxWidth - 48),
+            bottom:
+                (overlayAnchor?.bottom ?? 0) +
+                (showPlanTodoStrip ? _planTodoOccupiedHeight : 0),
+            child: _buildNormalSurfaceTransition(
+              viewportWidth: constraints.maxWidth,
               child: ChatToolActivityStrip(
                 messages: toolActivityMessages,
                 showPreviewThumbnail: toolActivitySnapshot.isActiveRun,
                 openActiveCardOnTap: isPinnedCompletedToolActivity,
                 anchorRect: overlayAnchor?.rect,
                 onOccupiedHeightChanged: _scheduleToolActivityInsetSync,
-                expanded: _isToolActivityExpanded,
+                expanded: toolActivityCanExpand
+                    ? _isToolActivityExpanded
+                    : false,
                 onExpandedChanged: _setToolActivityExpanded,
                 suppressSurfaceShadow: suppressToolActivitySurfaceShadow,
                 onStopToolCall: _handleToolActivityStopRequested,

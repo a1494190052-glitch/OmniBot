@@ -845,6 +845,7 @@ class _WebChatHomeState extends State<_WebChatHome> {
       case AgentStreamEventKind.thinkingSnapshot:
       case AgentStreamEventKind.retrying:
       case AgentStreamEventKind.textSnapshot:
+      case AgentStreamEventKind.todoSnapshot:
       case AgentStreamEventKind.toolStarted:
       case AgentStreamEventKind.toolProgress:
       case AgentStreamEventKind.permissionRequired:
