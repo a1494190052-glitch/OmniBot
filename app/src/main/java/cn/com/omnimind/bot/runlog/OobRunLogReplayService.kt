@@ -6,6 +6,8 @@ import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import cn.com.omnimind.bot.omniflow.OobFunctionRepository
+import cn.com.omnimind.bot.omniflow.ir.OmniflowCompiler
+import cn.com.omnimind.bot.omniflow.ir.OmniflowFunctionStore
 import cn.com.omnimind.bot.workbench.WorkspaceFunctionStore
 
 /**
@@ -99,6 +101,18 @@ class OobRunLogReplayService(
         }
 
         mirrorRunLogForWorkspace(record)
+        // Compile and persist IR alongside the legacy Map spec
+        runCatching {
+            val irFunction = OmniflowCompiler.compile(
+                cards = record.cards,
+                functionId = functionId,
+                goal = record.goal.ifBlank { record.operationDescription },
+                packageName = null,
+                skipPerceptionTools = true,
+            )
+            OmniflowFunctionStore.save(context, irFunction)
+        }.onFailure { OmniLog.w(TAG, "IR compile/save failed for $functionId: ${it.message}") }
+
         return functionRepository.register(spec).toMutableMap().apply {
             put("registered", this["success"] == true)
             put("run_id", normalizedRunId)

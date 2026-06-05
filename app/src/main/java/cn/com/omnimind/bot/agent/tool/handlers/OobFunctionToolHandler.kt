@@ -1,6 +1,11 @@
 package cn.com.omnimind.bot.agent.tool.handlers
 
 import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
+import cn.com.omnimind.bot.omniflow.ir.OmniflowFunction
+import cn.com.omnimind.bot.omniflow.ir.OmniflowFunctionStore
+import cn.com.omnimind.bot.omniflow.ir.OmniflowStep
+import cn.com.omnimind.bot.omniflow.ir.ParameterValue
+import cn.com.omnimind.bot.omniflow.ir.resolveArgPath
 import cn.com.omnimind.bot.agent.AgentToolJson.mapToJsonElement
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
 import cn.com.omnimind.bot.omniflow.OobFunctionArgumentBindingValidator
@@ -802,6 +807,192 @@ class OobFunctionToolHandler(
             )
         }
     )
+
+    // -----------------------------------------------------------------------
+    // IR execution path
+    // -----------------------------------------------------------------------
+
+    suspend fun runIrFunction(
+        fn: OmniflowFunction,
+        startIndex: Int = 0,
+        allowAgentFallback: Boolean = false,
+        allowToolDelegationWithoutRouter: Boolean = false,
+        callback: cn.com.omnimind.bot.agent.AgentCallback? = null,
+        toolHandle: cn.com.omnimind.bot.agent.AgentToolExecutionHandle? = null,
+        env: cn.com.omnimind.bot.agent.AgentExecutionEnvironment? = null,
+    ): Map<String, Any?> {
+        val runStartedAtMs = System.currentTimeMillis()
+        val auditRunId = nextRunId(runStartedAtMs)
+        val stepResults = mutableListOf<Map<String, Any?>>()
+        var failureReason: String? = null
+        var modelRequired = false
+        var delegatedToolUsed = false
+
+        for ((relativeIdx, step) in fn.executableSteps.withIndex()) {
+            val absIdx = relativeIdx + startIndex
+            if (relativeIdx < startIndex) continue
+
+            // Stop check
+            toolHandle?.throwIfStopRequested()
+
+            val stepStartedAtMs = System.currentTimeMillis()
+            val resolvedArgs = step.resolveArguments(emptyMap())
+
+            val stepResult: Map<String, Any?> = when {
+                // agent_call step: needs VLM if local dispatch unavailable
+                step.agentCallContext != null && !canDispatchLocally(step.toolName) -> {
+                    if (allowAgentFallback) {
+                        modelRequired = true
+                        runResultBuilder.agentFallbackStep(
+                            stepId = step.id,
+                            tool = step.agentCallContext.originalTool,
+                            prompt = step.agentCallContext.reason.ifBlank { step.title },
+                            summary = "Agent step requires VLM continuation: ${step.title}",
+                        )
+                    } else {
+                        runResultBuilder.failureStep(
+                            stepId = step.id,
+                            tool = step.agentCallContext.originalTool,
+                            executor = RunLogReplayPolicy.EXECUTOR_AGENT,
+                            summary = "Agent step cannot run locally: ${step.title}",
+                            errorCode = "OOB_VLM_CONTINUATION_REQUIRED",
+                        )
+                    }
+                }
+                // Function call: recurse via IR or fall back to Map path
+                OmniflowFunctionStore.contains(context, step.toolName) -> {
+                    delegatedToolUsed = true
+                    val nestedFn = OmniflowFunctionStore.get(context, step.toolName)
+                        ?.materialize(resolvedArgs)
+                    if (nestedFn != null) {
+                        runIrFunction(
+                            fn = nestedFn,
+                            allowAgentFallback = allowAgentFallback,
+                            allowToolDelegationWithoutRouter = allowToolDelegationWithoutRouter,
+                        )
+                    } else {
+                        runResultBuilder.failureStep(
+                            stepId = step.id, tool = step.toolName,
+                            executor = RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
+                            summary = "Nested function not found: ${step.toolName}",
+                            errorCode = "OOB_FUNCTION_NOT_FOUND",
+                        )
+                    }
+                }
+                // Omniflow primitive action: dispatch via OmniflowStepExecutor
+                RunLogReplayPolicy.omniflowActions.contains(step.toolName) -> {
+                    val syntheticStep = linkedMapOf<String, Any?>(
+                        "id" to step.id,
+                        "title" to step.title,
+                        "tool" to step.toolName,
+                        "executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
+                        "args" to resolvedArgs,
+                        "source_context" to step.sourceContext,
+                    )
+                    try {
+                        OmniflowStepExecutor.execute(
+                            step = syntheticStep,
+                            stepId = step.id,
+                            stepTitle = step.title,
+                            checkerRules = step.checkerRules.map { r ->
+                                cn.com.omnimind.bot.runlog.OmniflowCheckerRule.fromMap(
+                                    mapOf("id" to r.id, "phase" to r.phase,
+                                        "condition" to r.condition, "action" to r.action,
+                                        "enabled" to r.enabled, "params" to r.params)
+                                )
+                            }.filterNotNull(),
+                        )
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        val failReason = e.message ?: "omniflow step failed"
+                        if (allowAgentFallback) {
+                            modelRequired = true
+                            runResultBuilder.agentFallbackStep(
+                                stepId = step.id,
+                                tool = step.toolName,
+                                prompt = agentFallbackController.prompt(syntheticStep, step.title),
+                                summary = "Omniflow step requires VLM continuation: ${step.title}",
+                            )
+                        } else {
+                            runResultBuilder.failureStep(
+                                stepId = step.id, tool = step.toolName,
+                                executor = RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
+                                summary = failReason,
+                                errorCode = "OOB_OMNIFLOW_STEP_FAILED",
+                            )
+                        }
+                    }
+                }
+                // Live tool: delegate via router
+                router != null && env != null -> {
+                    delegatedToolUsed = true
+                    delegateStep(
+                        step = linkedMapOf("id" to step.id, "title" to step.title,
+                            "tool" to step.toolName, "args" to resolvedArgs),
+                        stepId = step.id,
+                        stepTitle = step.title,
+                        callableTool = step.toolName,
+                        env = env!!,
+                        callback = callback,
+                        toolHandle = toolHandle,
+                        parentToolCallId = null,
+                        toolName = fn.id,
+                        router = router!!,
+                    )
+                }
+                allowAgentFallback -> {
+                    modelRequired = true
+                    runResultBuilder.agentFallbackStep(
+                        stepId = step.id, tool = step.toolName,
+                        prompt = step.title,
+                        summary = "Step requires VLM: ${step.title}",
+                    )
+                }
+                else -> runResultBuilder.failureStep(
+                    stepId = step.id, tool = step.toolName,
+                    executor = RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
+                    summary = "No handler for tool: ${step.toolName}",
+                    errorCode = "OOB_VLM_CONTINUATION_REQUIRED",
+                )
+            }
+
+            val finishedAtMs = System.currentTimeMillis()
+            val timedResult = LinkedHashMap<String, Any?>().apply {
+                putAll(stepResult)
+                putIfAbsent("index", absIdx)
+                putIfAbsent("started_at_ms", stepStartedAtMs)
+                putIfAbsent("finished_at_ms", finishedAtMs)
+                putIfAbsent("duration_ms", (finishedAtMs - stepStartedAtMs).coerceAtLeast(0))
+            }
+            stepResults += timedResult
+            if (timedResult["model_required"] == true) modelRequired = true
+            if (timedResult["success"] == false) {
+                failureReason = timedResult["summary"]?.toString()
+                break
+            }
+        }
+
+        return linkedMapOf(
+            "success" to (failureReason == null),
+            "function_id" to fn.id,
+            "runner" to "omniflow_ir_runner",
+            "step_count" to fn.executableSteps.size,
+            "success_step_count" to stepResults.count { it["success"] != false },
+            "model_used" to modelRequired,
+            "model_required" to modelRequired,
+            "delegated_tool_used" to delegatedToolUsed,
+            "error_message" to (failureReason ?: ""),
+            "step_results" to stepResults,
+            "run_id" to auditRunId,
+            "started_at_ms" to runStartedAtMs,
+            "finished_at_ms" to System.currentTimeMillis(),
+        )
+    }
+
+    private fun canDispatchLocally(toolName: String): Boolean =
+        RunLogReplayPolicy.omniflowActions.contains(toolName) ||
+            router != null
 
     private fun materializedSteps(materializedSpec: Map<String, Any?>): List<Map<String, Any?>> =
         OobFunctionSchemaBuilder.materializedSteps(materializedSpec)

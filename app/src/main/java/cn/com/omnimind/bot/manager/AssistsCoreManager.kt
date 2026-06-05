@@ -55,6 +55,7 @@ import cn.com.omnimind.baselib.llm.SceneVoiceConfig
 import cn.com.omnimind.baselib.llm.SceneVoiceConfigStore
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
+import cn.com.omnimind.bot.omniflow.ir.OmniflowFunctionStore
 import cn.com.omnimind.baselib.util.APPPackageUtil
 import cn.com.omnimind.baselib.util.ImageQuality
 import cn.com.omnimind.baselib.util.OmniLog
@@ -3936,7 +3937,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 }
                 return@launch
             }
-            val materializedSpec = OobReusableFunctionStore.materialize(spec, callArguments)
             val providedLocalReplayResult = normalizeProvidedLocalReplayResult(
                 args["localReplayResult"] ?: args["local_replay_result"]
             )
@@ -3947,18 +3947,34 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 this.workspaceFunctionStore = workspaceFunctionStore
             }
 
+            // Prefer new IR execution path when the function was compiled to IR.
+            val irFunction = OmniflowFunctionStore.get(context, functionId)
+                ?.materialize(callArguments.mapValues { it.value?.toString() ?: "" })
+
             // Phase 1 for direct UI calls: execute the deterministic local prefix only.
             // Tool/data-flow/agent steps need the full Agent runtime, so the runner marks
             // the first such step as an agent executor handoff instead of failing a synthetic tool call.
+            val materializedSpec = if (irFunction == null) {
+                OobReusableFunctionStore.materialize(spec, callArguments)
+            } else null
+
             val runPayload = providedLocalReplayResult ?: runCatching {
                 withContext(Dispatchers.Default) {
-                    runner.runMaterializedFunction(
-                        functionId = functionId,
-                        spec = spec,
-                        materializedSpec = materializedSpec,
-                        allowAgentFallback = false,
-                        allowToolDelegationWithoutRouter = false
-                    )
+                    if (irFunction != null) {
+                        runner.runIrFunction(
+                            fn = irFunction,
+                            allowAgentFallback = false,
+                            allowToolDelegationWithoutRouter = false,
+                        )
+                    } else {
+                        runner.runMaterializedFunction(
+                            functionId = functionId,
+                            spec = spec,
+                            materializedSpec = materializedSpec!!,
+                            allowAgentFallback = false,
+                            allowToolDelegationWithoutRouter = false
+                        )
+                    }
                 }
             }.getOrElse { error ->
                 linkedMapOf(
