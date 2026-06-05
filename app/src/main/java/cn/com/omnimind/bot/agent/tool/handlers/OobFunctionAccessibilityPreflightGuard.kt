@@ -36,6 +36,9 @@ class OobFunctionAccessibilityPreflightGuard(
             errorMessage = message,
             extras = linkedMapOf(
                 "step_count" to steps.size,
+                "failed_step_index" to indexedStep.index,
+                "current_step_index" to indexedStep.index,
+                "current_step_number" to indexedStep.index + 1,
                 "required_permission" to "accessibility",
                 "missing_permissions" to listOf("accessibility"),
                 "blocked_step_index" to indexedStep.index,

@@ -863,7 +863,7 @@ class OobFunctionToolHandler(
     }
 
     // -----------------------------------------------------------------------
-    // IR execution path
+    // OmniFlow execution path
     // -----------------------------------------------------------------------
 
     suspend fun runFunction(
@@ -953,7 +953,7 @@ class OobFunctionToolHandler(
             return it
         }
 
-        // Function-level checker rules from IR metadata
+        // Function-level checker rules from Function metadata
         val functionCheckerRules = fn.metadata.checkerRules.mapNotNull { r ->
             OmniflowCheckerRule.fromMap(
                 mapOf("id" to r.id, "phase" to r.phase, "condition" to r.condition,
@@ -975,7 +975,7 @@ class OobFunctionToolHandler(
                 }
                 put("success", failureReason == null)
                 put("function_id", fn.id)
-                put("runner", "omniflow_ir_runner")
+                put("runner", RunLogReplayPolicy.fixedReplayRunner)
                 put("step_count", fn.executableSteps.size)
                 put("active_step_count", activeSteps.size)
                 put("success_step_count", successCount)
@@ -1029,7 +1029,7 @@ class OobFunctionToolHandler(
                             )
                         }
                     }
-                    // Function call: recurse via IR or fall back to Map path
+                    // Function call: recurse via Function store or fall back to Map path
                     OmniflowFunctionStore.contains(context, step.toolName) -> {
                         delegatedToolUsed = true
                         val nestedFn = OmniflowFunctionStore.get(context, step.toolName)

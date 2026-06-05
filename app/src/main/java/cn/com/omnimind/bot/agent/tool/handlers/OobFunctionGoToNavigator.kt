@@ -4,6 +4,7 @@ import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
 import cn.com.omnimind.bot.runlog.OobActionCodec
 import cn.com.omnimind.bot.runlog.OobUdegNodeStore
 import cn.com.omnimind.bot.runlog.OmniflowStepExecutor
+import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 
 /**
  * Handles pre-execution navigation: if the current screen doesn't match the
@@ -48,7 +49,7 @@ class OobFunctionGoToNavigator(
         if (currentXml.isBlank()) return Result()
         if (udegStore.pageMatchesNode(currentXml, currentPackage, targetNodeId)) return Result()
 
-        val ctx = NavContext(functionId, spec, auditRunId, startedAtMs, targetNodeId)
+        val ctx = NavContext(functionId, spec, auditRunId, startedAtMs, targetNodeId, activeSteps)
         val goToEdges = udegStore.findGoToFunctions(
             currentXml = currentXml,
             currentPackage = currentPackage,
@@ -130,20 +131,46 @@ class OobFunctionGoToNavigator(
         val auditRunId: String,
         val startedAtMs: Long,
         val targetNodeId: String,
+        val activeSteps: List<Map<String, Any?>>,
     ) {
         fun notReached(
             message: String,
             errorCode: String = "OOB_FUNCTION_SOURCE_NOT_REACHED",
             extras: Map<String, Any?> = emptyMap(),
-        ): Map<String, Any?> = runResultBuilder.failedRun(
-            functionId = functionId,
-            spec = spec,
-            auditRunId = auditRunId,
-            startedAtMs = startedAtMs,
-            errorCode = errorCode,
-            errorMessage = message,
-            extras = mapOf("target_start_node_id" to targetNodeId) + extras,
-        )
+        ): Map<String, Any?> {
+            val firstStep = activeSteps.firstOrNull().orEmpty()
+            val stepId = firstStep["id"]?.toString().orEmpty().ifBlank { "step_1" }
+            val action = OmniflowStepExecutor.actionNameForStep(firstStep).ifBlank {
+                firstStep["tool"]?.toString().orEmpty().ifBlank { "unknown" }
+            }
+            val progress = linkedMapOf<String, Any?>(
+                "target_start_node_id" to targetNodeId,
+                "step_count" to activeSteps.size,
+                "active_step_count" to activeSteps.size,
+                "failed_step_index" to 0,
+                "current_step_index" to 0,
+                "current_step_number" to 1,
+                "step_results" to listOf(
+                    runResultBuilder.failureStep(
+                        stepId = stepId,
+                        tool = action,
+                        executor = RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
+                        summary = message,
+                        errorCode = errorCode,
+                        extras = linkedMapOf("index" to 0),
+                    )
+                ),
+            )
+            return runResultBuilder.failedRun(
+                functionId = functionId,
+                spec = spec,
+                auditRunId = auditRunId,
+                startedAtMs = startedAtMs,
+                errorCode = errorCode,
+                errorMessage = message,
+                extras = progress.apply { putAll(extras) },
+            )
+        }
     }
 
     private fun firstExecutableSource(activeSteps: List<Map<String, Any?>>): FunctionSourcePage? {

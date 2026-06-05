@@ -463,6 +463,40 @@ class VLMClientRequestTest {
     }
 
     @Test
+    fun `text fallback parser maps Chinese completion JSON to finished action`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "qwen-vl-max",
+                turn = ChatCompletionTurn(
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        content = JsonPrimitive(
+                            """
+                            {
+                              "observation": "当前页面为设置应用主界面，已成功打开",
+                              "thought": "用户任务是重新打开设置应用，当前页面已显示设置应用内容，任务完成",
+                              "summary": "设置应用已成功打开，任务完成"
+                            }
+                            """.trimIndent()
+                        )
+                    ),
+                    finishReason = "stop"
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary"
+        )
+
+        assertTrue(result.success)
+        val step = requireNotNull(result.step)
+        assertTrue(step.action is FinishedAction)
+        assertEquals("设置应用已成功打开，任务完成", step.summary)
+        assertFalse(result.shouldRetryForToolCall)
+    }
+
+    @Test
     fun `text fallback tool parser supports input_text`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(

@@ -385,7 +385,10 @@ class VLMClient(
             "no further actions are needed",
             "no further action is needed",
             "任务已完成",
+            "任务完成",
+            "任务已成功",
             "已经完成",
+            "已成功",
             "无需继续",
             "不需要继续",
         ).any { it in combined }

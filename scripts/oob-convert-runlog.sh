@@ -15,17 +15,22 @@ NAME=""
 DESCRIPTION=""
 OUTPUT_PATH=""
 RUN_AFTER_CONVERT=0
+AGENT_VISIBLE=0
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-60}"
 
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/oob-convert-runlog.sh --run-id <id> [--device SERIAL] [--output-path PATH]
-  scripts/oob-convert-runlog.sh --run-log-path runtime/runlogs/foo.run_log.json [--device SERIAL]
+  scripts/oob-convert-runlog.sh --run-id <id> [--device SERIAL] [--output-path PATH] [--agent-visible]
+  scripts/oob-convert-runlog.sh --run-log-path runtime/runlogs/foo.run_log.json [--device SERIAL] [--agent-visible]
 
 Converts an OOB InternalRunLog into a native reusable Function through Kotlin.
 The script only sends adb broadcasts; RunLog conversion and registration happen
 inside OOB's OobRunLogReplayService/OobOmniFlowToolkitService.
+
+By default the converted Function stays a manual hidden asset. Use
+--agent-visible only when intentionally publishing it for online VLM call_tool
+recall.
 EOF
 }
 
@@ -65,6 +70,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --run)
       RUN_AFTER_CONVERT=1
+      shift
+      ;;
+    --agent-visible|--agent_visible)
+      AGENT_VISIBLE=1
       shift
       ;;
     --timeout)
@@ -127,6 +136,7 @@ BROADCAST_ARGS=(
   -a "$ACTION"
   -n "$RECEIVER"
   --ez run "$([[ "$RUN_AFTER_CONVERT" -eq 1 ]] && echo true || echo false)"
+  --ez agentVisible "$([[ "$AGENT_VISIBLE" -eq 1 ]] && echo true || echo false)"
 )
 if [[ -n "${RUN_ID// }" ]]; then
   BROADCAST_ARGS+=(--es runId "$RUN_ID")

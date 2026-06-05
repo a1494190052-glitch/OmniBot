@@ -927,6 +927,8 @@ class OobOmniFlowLoopAcceptanceTest {
             assertEquals(true, convert["success"])
             assertEquals(functionId, convert["function_id"])
             assertEquals(true, convert["registered"])
+            assertEquals(true, convert["agent_visible"])
+            assertEquals("agent_reusable", convert["visibility"])
 
             val recall = toolkit.recall(
                 mapOf(

@@ -101,7 +101,7 @@ class OobRunLogReplayService(
         }
 
         mirrorRunLogForWorkspace(record)
-        // Compile and persist IR alongside the legacy Map spec
+        // Compile and persist the Function model alongside the JSON spec.
         runCatching {
             val irFunction = OmniflowCompiler.compile(
                 cards = record.cards,
@@ -111,7 +111,7 @@ class OobRunLogReplayService(
                 skipPerceptionTools = true,
             )
             OmniflowFunctionStore.save(context, irFunction)
-        }.onFailure { OmniLog.w(TAG, "IR compile/save failed for $functionId: ${it.message}") }
+        }.onFailure { OmniLog.w(TAG, "Function model compile/save failed for $functionId: ${it.message}") }
 
         return functionRepository.register(spec).toMutableMap().apply {
             put("registered", this["success"] == true)
@@ -241,19 +241,40 @@ class OobRunLogReplayService(
             ?.let { OobFunctionRepository.normalizeFunctionId(it) }
         val name = nameOverride?.trim()?.takeIf { it.isNotEmpty() }
         val description = descriptionOverride?.trim()?.takeIf { it.isNotEmpty() }
-        if (functionId == null && name == null && description == null && !agentVisible) {
-            return markManualDraft(spec)
-        }
         return linkedMapOf<String, Any?>().apply {
             putAll(spec)
             functionId?.let { put("function_id", it) }
             name?.let { put("name", it) }
             description?.let { put("description", it) }
-            if (!agentVisible) {
-                putAll(markManualDraft(this))
-            }
+            putAll(
+                if (agentVisible) {
+                    markAgentReusable(this)
+                } else {
+                    markManualDraft(this)
+                }
+            )
         }
     }
+
+    private fun markAgentReusable(spec: Map<String, Any?>): Map<String, Any?> =
+        linkedMapOf<String, Any?>().apply {
+            putAll(spec)
+            put("agent_visible", true)
+            put("visibility", "agent_reusable")
+            val metadata = (spec["metadata"] as? Map<*, *>)
+                ?.mapNotNull { (key, value) -> key?.toString()?.let { it to value } }
+                ?.toMap()
+                ?: emptyMap()
+            put(
+                "metadata",
+                linkedMapOf<String, Any?>().apply {
+                    putAll(metadata)
+                    put("agent_visible", true)
+                    put("visibility", "agent_reusable")
+                    put("registered_via", metadata["registered_via"] ?: "run_log_agent_visible_convert")
+                }
+            )
+        }
 
     private fun markManualDraft(spec: Map<String, Any?>): Map<String, Any?> =
         linkedMapOf<String, Any?>().apply {

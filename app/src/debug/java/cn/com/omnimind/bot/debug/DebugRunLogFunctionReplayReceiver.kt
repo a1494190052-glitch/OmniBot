@@ -30,6 +30,9 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
         val goal = intent.decodeBase64Extra("goalBase64")
             ?: intent?.getStringExtra("goal").orEmpty()
         val shouldRun = intent?.getBooleanExtra("run", true) ?: true
+        val agentVisible = intent.booleanExtra("agentVisible")
+            ?: intent.booleanExtra("agent_visible")
+            ?: false
         val rawRunLog = intent.decodeBase64Extra("runLogBase64")
             ?.let(::decodeRunLog)
             ?: emptyMap()
@@ -40,6 +43,7 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                 val convertArgs = linkedMapOf<String, Any?>(
                     "run_id" to runId,
                     "register" to true,
+                    "agent_visible" to agentVisible,
                 )
                 if (rawRunLog.isNotEmpty()) {
                     convertArgs.remove("run_id")
@@ -87,6 +91,7 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                         }
                     ),
                     "function_id" to createdFunctionId,
+                    "agent_visible" to agentVisible,
                     "convert" to convert,
                     "function_spec" to functionSpec,
                     "replay" to replay,
@@ -124,6 +129,9 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                 .takeIf { it.isNotEmpty() }
         }.getOrNull()
     }
+
+    private fun Intent?.booleanExtra(name: String): Boolean? =
+        this?.takeIf { it.hasExtra(name) }?.getBooleanExtra(name, false)
 
     private fun decodeRunLog(rawJson: String): Map<String, Any?> {
         return runCatching {
