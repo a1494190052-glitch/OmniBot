@@ -182,8 +182,10 @@ class _EditProfilePageState extends State<EditProfilePage> {
                       onPressed: isLoading
                           ? null
                           : () async {
+                              final nav = Navigator.of(context);
                               await _saveUserData();
-                              Navigator.pop(context, {
+                              if (!mounted) return;
+                              nav.pop({
                                 'avatarIndex': selectedAvatarIndex,
                                 'nickname': nickname,
                               });

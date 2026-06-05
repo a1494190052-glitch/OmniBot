@@ -58,7 +58,7 @@ class MyPageState extends State<MyPage> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      print('✅ ExecutionRecordPage resumed - reloading memory summary');
+      debugPrint('✅ ExecutionRecordPage resumed - reloading memory summary');
       _loadMemorySummary();
     }
   }
@@ -84,7 +84,7 @@ class MyPageState extends State<MyPage> with WidgetsBindingObserver {
 
     // 只有在用户主动滚动时才响应（排除回弹动画）
     if (userScrollDirection != ScrollDirection.idle) {
-      // print('User scroll direction: $userScrollDirection, current offset: $currentOffset');
+      // debugPrint('User scroll direction: $userScrollDirection, current offset: $currentOffset');
       // 向下滑动且偏移量大于阈值时收起
       if (userScrollDirection == ScrollDirection.reverse &&
           currentOffset > 50) {
@@ -113,9 +113,9 @@ class MyPageState extends State<MyPage> with WidgetsBindingObserver {
         vibrationEnabled = enabled;
       });
 
-      print('Vibration state loaded: $vibrationEnabled');
+      debugPrint('Vibration state loaded: $vibrationEnabled');
     } catch (e) {
-      print('Error loading vibration state: $e');
+      debugPrint('Error loading vibration state: $e');
     }
   }
 
@@ -129,12 +129,12 @@ class MyPageState extends State<MyPage> with WidgetsBindingObserver {
         nickname = savedNickname;
       });
     } catch (e) {
-      print('Error loading user data: $e');
+      debugPrint('Error loading user data: $e');
     }
   }
 
   Future<void> refreshMemorySummary() async {
-    print('Refreshing memory summary...');
+    debugPrint('Refreshing memory summary...');
     await _loadMemorySummary();
   }
 
@@ -169,7 +169,7 @@ class MyPageState extends State<MyPage> with WidgetsBindingObserver {
         );
       });
     } catch (e) {
-      print('Error loading memory summary: $e');
+      debugPrint('Error loading memory summary: $e');
     }
   }
 

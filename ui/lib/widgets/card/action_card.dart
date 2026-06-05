@@ -2,9 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
 import '../bot_status.dart';
 import '../buttons_group_two.dart';
-import '../normal_choices_group.dart';
 import '../../models/block_models.dart';
-import 'package:ui/l10n/app_text_localizer.dart';
 
 class ActionCard extends StatefulWidget {
   final ActionStepsBlock block;
@@ -13,12 +11,12 @@ class ActionCard extends StatefulWidget {
   final Function(ButtonModel)? onButtonConsumed;
 
   const ActionCard({
-    Key? key,
+    super.key,
     required this.block,
     this.shouldAnimate = true,
     this.onAnimationCompleted,
     this.onButtonConsumed,
-  }) : super(key: key);
+  });
 
   @override
   State<ActionCard> createState() => _ActionCardState();
@@ -79,14 +77,14 @@ class _ActionCardState extends State<ActionCard>
     setState(() {
       _executing = false;
     });
-    print('Execute action steps');
+    debugPrint('Execute action steps');
   }
 
   void onCancel() {
     setState(() {
       _executing = false;
     });
-    print('Cancel action steps');
+    debugPrint('Cancel action steps');
   }
 
   void onButtonPressed(ButtonModel button) {
@@ -369,6 +367,8 @@ class _StepChip extends StatelessWidget {
 
 // 使用示例
 class ActionCardExample extends StatelessWidget {
+  const ActionCardExample({super.key});
+
   @override
   Widget build(BuildContext context) {
     return ActionCard(

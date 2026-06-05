@@ -91,7 +91,7 @@ class PermissionService {
             final result = await spePermission.invokeMethod(spec.checkMethod);
             return result ?? false;
           } catch (e) {
-            print('检查权限 ${spec.id} 失败: $e');
+            debugPrint('检查权限 ${spec.id} 失败: $e');
             return false;
           }
         },
@@ -115,7 +115,7 @@ class PermissionService {
         // 优先使用自定义检查方法
         if (spec.customCheckMethod != null) {
           final granted = await spec.customCheckMethod!();
-          print('权限 ${spec.id} 授权状态(自定义检查): $granted');
+          debugPrint('权限 ${spec.id} 授权状态(自定义检查): $granted');
           if (!granted) {
             missing.add(spec);
           }
@@ -123,12 +123,12 @@ class PermissionService {
         }
 
         final granted = await spePermission.invokeMethod(spec.checkMethod);
-        print('权限 ${spec.id} 授权状态: $granted');
+        debugPrint('权限 ${spec.id} 授权状态: $granted');
         if (granted != true) {
           missing.add(spec);
         }
       } catch (e) {
-        print('检查权限 ${spec.id} 失败: $e');
+        debugPrint('检查权限 ${spec.id} 失败: $e');
         missing.add(spec);
       }
     }

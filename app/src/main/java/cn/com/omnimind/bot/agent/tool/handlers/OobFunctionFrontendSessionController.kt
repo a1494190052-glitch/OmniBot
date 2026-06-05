@@ -220,7 +220,10 @@ internal class OobFunctionStopOverlay(
                 setColor(0xE6C62828.toInt())
             }
             elevation = 8.dp().toFloat()
-            setOnClickListener { onStop() }
+            setOnClickListener {
+                hide()
+                onStop()
+            }
         }
         val params = WindowManager.LayoutParams(
             56.dp(),

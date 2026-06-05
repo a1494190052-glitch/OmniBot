@@ -7,11 +7,11 @@ class RecordList extends StatelessWidget {
   final void Function(int recordId, bool targetStatus)? onRecommendPressed;
 
   const RecordList({
-    Key? key,
+    super.key,
     required this.recordModels,
     required this.onMorePressed,
     this.onRecommendPressed,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

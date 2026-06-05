@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:ui/theme/app_colors.dart';
 import 'package:ui/theme/app_text_styles.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -16,12 +15,12 @@ class EditTaskSheet extends StatefulWidget {
   final Future<bool> Function(String)? onCheckNameExists;
 
   const EditTaskSheet({
-    Key? key,
+    super.key,
     this.initialText = '',
     this.maxLength = 18,
     required this.onSave,
     this.onCheckNameExists,
-  }) : super(key: key);
+  });
 
   @override
   State<EditTaskSheet> createState() => _EditTaskSheetState();
@@ -91,6 +90,7 @@ class _EditTaskSheetState extends State<EditTaskSheet> {
       if (!result) return;
       try {
         final ok = await widget.onSave(_ctrl.text.trim());
+        if (!mounted) return;
         if (ok) {
           Navigator.of(context).pop();
         } else {
@@ -142,7 +142,7 @@ class _EditTaskSheetState extends State<EditTaskSheet> {
                         width: 14,
                         height: 14,
                         alignment: Alignment.center,
-                        color: AppColors.text90,
+                        colorFilter: ColorFilter.mode(AppColors.text90, BlendMode.srcIn),
                         errorBuilder: (ctx, err, stack) {
                           return const Icon(Icons.close, size: 14, color: AppColors.text90);
                         }

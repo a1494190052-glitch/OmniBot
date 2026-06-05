@@ -9,13 +9,13 @@ class NormalOptionsCard extends StatefulWidget {
   final bool multiSelect;
 
   const NormalOptionsCard({
-    Key? key,
+    super.key,
     required this.title,
     required this.subtitle,
     required this.options,
     this.onSelectionChanged,
     this.multiSelect = true,
-  }) : super(key: key);
+  });
 
   @override
   State<NormalOptionsCard> createState() => _NormalOptionsCardState();
@@ -203,7 +203,7 @@ class OptionItem {
 
 // 使用示例
 class NormalOptionsCardExample extends StatelessWidget {
-  const NormalOptionsCardExample({Key? key}) : super(key: key);
+  const NormalOptionsCardExample({super.key});
 
   @override
   Widget build(BuildContext context) {

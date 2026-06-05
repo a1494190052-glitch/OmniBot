@@ -13,6 +13,7 @@ APK="$ROOT_DIR/app/build/outputs/apk/developStandard/debug/app-develop-standard-
 FLUTTER_TARGET="${OOB_FLUTTER_TARGET:-lib/main_standard.dart}"
 PACKAGE_NAME="${OOB_PACKAGE_NAME:-cn.com.omnimind.bot.debug}"
 SKIP_BUILD=0
+SKIP_FLUTTER_WEB="${OOB_SKIP_FLUTTER_WEB:-0}"
 DEVICE_SERIAL=""
 
 usage() {
@@ -22,6 +23,8 @@ Usage:
 
 Options:
   --skip-build          Skip Gradle build; install the last built APK directly.
+  --skip-flutter-web    Skip the Flutter Web bundle during Gradle build.
+  --fast                Alias for --skip-flutter-web.
   --device <serial>     Target a specific device (passed to adb -s).
   --apk <path>          Install this APK instead of the default debug APK.
   --flutter-target <p>  Flutter entrypoint for Gradle -Ptarget. Default: lib/main_standard.dart.
@@ -67,6 +70,7 @@ is_device_locked() {
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --skip-build) SKIP_BUILD=1 ;;
+    --skip-flutter-web|--fast) SKIP_FLUTTER_WEB=1 ;;
     --device)
       [[ $# -lt 2 ]] && { echo "--device requires a serial" >&2; exit 1; }
       DEVICE_SERIAL="$2"; shift ;;
@@ -118,10 +122,17 @@ if [[ "$SKIP_BUILD" -eq 0 ]]; then
   echo ""
   echo "Building develop debug APK..."
   chmod +x ./gradlew
-  ./gradlew assembleDevelopStandardDebug \
-    -Ptarget="$FLUTTER_TARGET" \
-    --build-cache \
+  GRADLE_ARGS=(
+    assembleDevelopStandardDebug
+    -Ptarget="$FLUTTER_TARGET"
+    --build-cache
     -q
+  )
+  if [[ "$SKIP_FLUTTER_WEB" == "1" || "$SKIP_FLUTTER_WEB" == "true" ]]; then
+    echo "  -> skipping Flutter Web bundle"
+    GRADLE_ARGS+=(-POOB_SKIP_FLUTTER_WEB=true)
+  fi
+  ./gradlew "${GRADLE_ARGS[@]}"
   echo "Build complete."
 fi
 

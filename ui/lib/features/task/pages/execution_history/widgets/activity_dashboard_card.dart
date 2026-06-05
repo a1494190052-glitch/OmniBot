@@ -263,8 +263,6 @@ class _ActivityDashboardCardState extends State<ActivityDashboardCard>
   Color _cloudPillBg(bool d) => d ? const Color(0xFF1A3A5C) : const Color(0xFFE8F2FC);
   Color _cloudPillText(bool d) => d ? const Color(0xFF3B9FE8) : const Color(0xFF2C7FEB);
   Color _cachedColor(bool d) => d ? const Color(0xFFB8860B) : const Color(0xFFD4A017);
-  Color _cachedPillBg(bool d) => d ? const Color(0xFF3A3018) : const Color(0xFFFFF3DC);
-  Color _cachedPillText(bool d) => d ? const Color(0xFFE8C547) : const Color(0xFFB8860B);
 
   // -----------------------------------------------------------------------
   //  Build

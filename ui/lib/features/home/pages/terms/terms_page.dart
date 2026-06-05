@@ -5,11 +5,10 @@ class TermsPage extends StatelessWidget {
   final String title;
   final String content;
 
-  TermsPage({required this.title, required this.content});
+  const TermsPage({super.key, required this.title, required this.content});
 
   @override
   Widget build(BuildContext context) {
-    const primaryBlack = Color(0xFF333333);
     const darkGrey = Color(0xFF666666);
     
     return Scaffold(

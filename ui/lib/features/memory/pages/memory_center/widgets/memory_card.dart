@@ -24,7 +24,7 @@ class MemoryCard extends StatelessWidget {
   final bool isSelected;
 
   const MemoryCard({
-    Key? key,
+    super.key,
     required this.title,
     this.description,
     required this.time,
@@ -40,7 +40,7 @@ class MemoryCard extends StatelessWidget {
     this.onLongPress,
     this.isSelectionMode = false,
     this.isSelected = false,
-  }) : super(key: key);
+  });
 
   /// 移除markdown语法标记，只保留纯文本
   String _stripMarkdown(String text) {
@@ -277,7 +277,7 @@ class MemoryCard extends StatelessWidget {
                     width: 85,
                     height: 98,
                     decoration: BoxDecoration(
-                      color: Colors.grey.withOpacity(0.5),
+                      color: Colors.grey.withValues(alpha: 0.5),
                     ),
                     child: ImageUtil.buildImage(imagePath!),
                   ),
@@ -300,7 +300,7 @@ class MemoryCard extends StatelessWidget {
               if (isSelectionMode) ...[
                 const SizedBox(width: 8),
 
-                Container(
+                SizedBox(
                   width: 20,
                   height: 20,
                   child: SvgPicture.asset(

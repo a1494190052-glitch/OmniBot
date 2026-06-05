@@ -11,10 +11,10 @@ class BatchDeleteConfirmSheet extends StatelessWidget {
   final String unit;
 
   const BatchDeleteConfirmSheet({
-    Key? key,
+    super.key,
     required this.count,
     this.unit = '记忆',
-  }) : super(key: key);
+  });
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -26,7 +26,7 @@ class BatchDeleteConfirmSheet extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.15),
+            color: Colors.black.withValues(alpha: 0.15),
             blurRadius: 4,
             offset: Offset(0, 0),
           ),

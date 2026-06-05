@@ -56,7 +56,7 @@ class ChatMessageModel {
   /// 获取文本内容
   String? get text {
     final value = content?['text'];
-    return value == null ? null : value.toString();
+    return value?.toString();
   }
 
   /// 获取卡片数据
@@ -74,7 +74,7 @@ class ChatMessageModel {
   /// 获取内容ID（用于卡片）
   String? get contentId {
     final value = content?['id'];
-    return value == null ? null : value.toString();
+    return value?.toString();
   }
 
   /// 获取数据库ID（用于本地存储和渲染key）

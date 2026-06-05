@@ -7,11 +7,11 @@ class PermissionSection extends StatelessWidget {
   final VoidCallback? onPermissionChanged;
 
   const PermissionSection({
-    Key? key,
+    super.key,
     required this.permissions,
     this.spacing = 40,
     this.onPermissionChanged,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

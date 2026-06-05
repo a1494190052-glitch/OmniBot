@@ -8,12 +8,12 @@ class NormalChoicesGroup extends StatefulWidget {
   final bool multiSelect;
 
   const NormalChoicesGroup({
-    Key? key,
+    super.key,
     required this.options,
     this.selectedOptions,
     this.onSelectionChanged,
     this.multiSelect = false,
-  }) : super(key: key);
+  });
 
   @override
   State<NormalChoicesGroup> createState() => _NormalChoicesGroupState();
@@ -52,7 +52,7 @@ class _NormalChoicesGroupState extends State<NormalChoicesGroup> {
   @override
   Widget build(BuildContext context) {
     // 选项按钮组
-    return Container(
+    return SizedBox(
       width: double.infinity,
       child: Wrap(
         spacing: 8.0,
@@ -136,7 +136,7 @@ class ChoiceOption {
 
 // 使用示例
 class NormalChoicesGroupExample extends StatelessWidget {
-  const NormalChoicesGroupExample({Key? key}) : super(key: key);
+  const NormalChoicesGroupExample({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -164,7 +164,7 @@ class NormalChoicesGroupExample extends StatelessWidget {
         ),
       ],
       onSelectionChanged: (selectedOptions) {
-        print('Selected: ${selectedOptions.map((e) => e.label).toList()}');
+        debugPrint('Selected: ${selectedOptions.map((e) => e.label).toList()}');
       },
     );
   }

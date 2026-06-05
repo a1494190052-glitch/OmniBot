@@ -5,10 +5,10 @@ class ThirdWelcomePage extends StatefulWidget {
   final double screenHeight;
 
   const ThirdWelcomePage({
-    Key? key,
+    super.key,
     required this.screenWidth,
     required this.screenHeight,
-  }) : super(key: key);
+  });
 
   @override
   State<ThirdWelcomePage> createState() => _ThirdWelcomePageState();
@@ -58,7 +58,7 @@ class _ThirdWelcomePageState extends State<ThirdWelcomePage> {
           top: 160,
           left: 24,
           right: 24,
-          child: Container(
+          child: SizedBox(
             width: 293,
             child: Image(
               image: image2,
@@ -71,7 +71,7 @@ class _ThirdWelcomePageState extends State<ThirdWelcomePage> {
         Positioned(
           top: 386,
           left: 240,
-          child: Container(
+          child: SizedBox(
             width: 91,
             child: Image(
               image: image3,

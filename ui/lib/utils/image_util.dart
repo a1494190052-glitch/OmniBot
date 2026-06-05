@@ -16,7 +16,7 @@ class ImageUtil {
                 fit: fit,
                 errorBuilder: (context, error, stackTrace) {
                   return Container(
-                    color: Colors.grey.withOpacity(0.3),
+                    color: Colors.grey.withValues(alpha: 0.3),
                     child: Icon(
                       Icons.image,
                       color: Colors.grey.shade600,
@@ -31,7 +31,7 @@ class ImageUtil {
                 fit: fit,
                 errorBuilder: (context, error, stackTrace) {
                   return Container(
-                    color: Colors.grey.withOpacity(0.3),
+                    color: Colors.grey.withValues(alpha: 0.3),
                     child: Icon(
                       Icons.image,
                       color: Colors.grey.shade600,
@@ -79,14 +79,14 @@ class ImageUtil {
         final raw = iconMap[pkg];
         
         // 优先使用 icon_path
-        final iconPath = raw?.icon_path;
+        final iconPath = raw?.iconPath;
         if (iconPath != null && iconPath.isNotEmpty) {
           iconProviders[pkg] = buildImageProvider(iconPath);
           continue;
         }
 
         // 其次使用 icon_base64
-        final iconBase64 = raw?.icon_base64;
+        final iconBase64 = raw?.iconBase64;
         if (iconBase64 != null && iconBase64.isNotEmpty) {
           final bytes = _getBytesFromBase64(iconBase64);
           if (bytes.isNotEmpty) {
@@ -98,10 +98,9 @@ class ImageUtil {
         iconProviders[pkg] = null;
       }
     } catch (e) {
-      print('批量获取应用图标失败: $e');
+      debugPrint('批量获取应用图标失败: $e');
       // 发生错误时，确保所有包名都有对应的 null 值
-      for (final pkg in packageNames) {
-        iconProviders[pkg] ??= null;
+      for (final _ in packageNames) {
       }
     }
 
@@ -113,7 +112,7 @@ class ImageUtil {
           try {
             await precacheImage(provider, context);
           } catch (e) {
-            print('预缓存图标失败 (${entry.key}): $e');
+            debugPrint('预缓存图标失败 (${entry.key}): $e');
           }
         }
       }
@@ -132,7 +131,7 @@ class ImageUtil {
     try {
       return base64Decode(cleaned);
     } catch (e) {
-      print('Base64 解码失败: $e');
+      debugPrint('Base64 解码失败: $e');
       // 返回空字节数组作为降级方案
       return Uint8List(0);
     }

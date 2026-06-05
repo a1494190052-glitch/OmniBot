@@ -11,11 +11,11 @@ class RecordListItem extends StatelessWidget {
   final void Function(int recordId, bool targetStatus)? onRecommendPressed;
 
   const RecordListItem({
-    Key? key,
+    super.key,
     required this.recordModel,
     this.onMorePressed,
     this.onRecommendPressed,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

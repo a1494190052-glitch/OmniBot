@@ -630,6 +630,30 @@ class VLMClientRequestTest {
     }
 
     @Test
+    fun `text fallback tool parser supports bare qwen command line`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "qwen-vl-max",
+                turn = ChatCompletionTurn(
+                    finishReason = "stop",
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        content = JsonPrimitive("open_app package_name=com.android.deskclock")
+                    )
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary"
+        )
+
+        assertTrue(result.error.orEmpty(), result.success)
+        val action = requireNotNull(result.step).action as OpenAppAction
+        assertEquals("com.android.deskclock", action.packageName)
+    }
+
+    @Test
     fun `text fallback tool parser supports inline tool call arguments from qwen`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(

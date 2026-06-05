@@ -45,6 +45,8 @@ void main() {
           'runner': 'oob_omniflow_replay',
           'step_count': 1,
           'success_step_count': 1,
+          'current_step_index': 0,
+          'current_step_number': 1,
         },
         'context': <String, dynamic>{
           'step_results': <Map<String, dynamic>>[
@@ -72,6 +74,8 @@ void main() {
       expect(result.phaseMs['page_match_ms'], 6);
       expect(result.phaseMs['rank_functions_ms'], 7);
       expect(result.phaseMs['segment_match_ms'], 8);
+      expect(result.currentStepIndex, 0);
+      expect(result.currentStepNumber, 1);
 
       await tester.pumpWidget(
         MaterialApp(
@@ -104,6 +108,7 @@ void main() {
       expect(_selectableTextContaining('page_match_ms'), findsNothing);
       expect(_selectableTextContaining('rank_functions_ms'), findsNothing);
       expect(_selectableTextContaining('segment_match_ms'), findsNothing);
+      expect(find.textContaining('执行到第 1/1 步'), findsOneWidget);
       expect(find.text('执行步骤 · 1'), findsOneWidget);
       expect(find.text('open_app'), findsNothing);
       expect(find.text('120ms'), findsNothing);

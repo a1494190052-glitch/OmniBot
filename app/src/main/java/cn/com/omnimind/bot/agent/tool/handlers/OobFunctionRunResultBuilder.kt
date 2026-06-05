@@ -107,6 +107,9 @@ class OobFunctionRunResultBuilder {
         val successCount = stepResults.count { it["success"] != false }
         val allSuccess = stepResults.size == activeSteps.size && stepResults.none { it["success"] == false }
         val failedStepIndex = stepResults.firstOrNull { it["success"] == false }?.get("index")
+        val lastStepIndex = stepResults.lastOrNull()?.get("index")
+        val currentStepIndex = failedStepIndex ?: lastStepIndex
+        val currentStepNumber = (currentStepIndex as? Number)?.toInt()?.plus(1)
         return linkedMapOf(
             "success" to allSuccess,
             "run_id" to auditRunId,
@@ -132,6 +135,8 @@ class OobFunctionRunResultBuilder {
             "model_required" to modelRequired,
             "delegated_tool_used" to delegatedToolUsed,
             "failed_step_index" to failedStepIndex,
+            "current_step_index" to currentStepIndex,
+            "current_step_number" to currentStepNumber,
             "error_code" to stepResults.firstOrNull { it["success"] == false }?.get("error_code"),
             "error_message" to failureReason,
             "step_results" to stepResults

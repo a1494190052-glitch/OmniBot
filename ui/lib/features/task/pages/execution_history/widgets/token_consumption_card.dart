@@ -176,12 +176,6 @@ class _TokenConsumptionCardState extends State<TokenConsumptionCard>
   Color _cachedColor(bool isDark) =>
       isDark ? const Color(0xFFB8860B) : const Color(0xFFD4A017);
 
-  Color _cachedPillBg(bool isDark) =>
-      isDark ? const Color(0xFF3A3018) : const Color(0xFFFFF3DC);
-
-  Color _cachedPillText(bool isDark) =>
-      isDark ? const Color(0xFFE8C547) : const Color(0xFFB8860B);
-
   @override
   Widget build(BuildContext context) {
     final palette = context.omniPalette;

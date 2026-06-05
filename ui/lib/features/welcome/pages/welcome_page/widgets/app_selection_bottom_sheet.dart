@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/theme/app_colors.dart';
 import 'package:ui/widgets/bottom_sheet_bg.dart';
-import 'package:ui/widgets/gradient_button.dart';
 
 /// 目标应用配置
 class TargetApp {
@@ -197,7 +196,7 @@ class _AppSelectionBottomSheetState extends State<AppSelectionBottomSheet> {
             width: 1,
           ),
           color: isSelected
-              ? Color(0xFF3B74FF).withOpacity(0.1)
+              ? Color(0xFF3B74FF).withValues(alpha: 0.1)
               : Colors.transparent,
         ),
         child: Center(

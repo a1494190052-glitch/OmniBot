@@ -209,7 +209,6 @@ class ObservableChatMessageList extends ChangeNotifier
     if (start == end) {
       return;
     }
-    final removedMessages = _messages.sublist(start, end);
     final removedNotifiers = _messageNotifiers.sublist(start, end);
     _messages.removeRange(start, end);
     _messageNotifiers.removeRange(start, end);

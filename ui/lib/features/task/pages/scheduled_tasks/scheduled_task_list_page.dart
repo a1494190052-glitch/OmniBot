@@ -100,7 +100,7 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
         _isLoading = false;
       });
     } catch (e) {
-      print('Error loading scheduled page data: $e');
+      debugPrint('Error loading scheduled page data: $e');
       if (!mounted) return;
       setState(() {
         _isLoading = false;
@@ -126,7 +126,7 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
         _scheduledTasks = tasks;
       });
     } catch (e) {
-      print('Error reloading scheduled tasks: $e');
+      debugPrint('Error reloading scheduled tasks: $e');
     }
   }
 
@@ -148,7 +148,7 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
         _exactAlarms = items;
       });
     } catch (e) {
-      print('Error reloading exact alarms: $e');
+      debugPrint('Error reloading exact alarms: $e');
     }
   }
 
@@ -1180,7 +1180,7 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
       future: CacheUtil.getAppIconByPackageName(packageName),
       builder: (context, snapshot) {
         if (snapshot.hasData && snapshot.data != null) {
-          final iconPath = snapshot.data!.icon_path;
+          final iconPath = snapshot.data!.iconPath;
           if (iconPath.isNotEmpty) {
             return _buildGrayFiltered(
               enabled: isExpired,

@@ -132,7 +132,7 @@ class _TaskExecutionDetailPageState extends State<TaskExecutionDetailPage> {
         });
       }
     } catch (e) {
-      print('加载执行记录详情失败: $e');
+      debugPrint('加载执行记录详情失败: $e');
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -158,7 +158,7 @@ class _TaskExecutionDetailPageState extends State<TaskExecutionDetailPage> {
         _isLoadingMore = false;
       });
     } catch (e) {
-      print('加载更多执行记录失败: $e');
+      debugPrint('加载更多执行记录失败: $e');
       if (mounted) {
         setState(() => _isLoadingMore = false);
       }

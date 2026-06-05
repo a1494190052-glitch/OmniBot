@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:intl/intl.dart';
 import '../buttons_group_two.dart';
 import '../../models/block_models.dart';
-import '../../services/task_storage_service.dart';
 import '../../models/task_models.dart';
 import 'package:ui/utils/popup_menu_anchor_position.dart';
 
@@ -19,7 +17,7 @@ class EditTaskCard extends StatefulWidget {
   final VoidCallback? onCancel;
 
   const EditTaskCard({
-    Key? key,
+    super.key,
     required this.selectedDate,
     required this.selectedTime,
     this.repeatOption = RepeatOption.never,
@@ -28,7 +26,7 @@ class EditTaskCard extends StatefulWidget {
     this.onRepeatChanged,
     this.onSave,
     this.onCancel,
-  }) : super(key: key);
+  });
 
   @override
   State<EditTaskCard> createState() => _EditTaskCardState();
@@ -77,7 +75,7 @@ class _EditTaskCardState extends State<EditTaskCard> {
           _selectedTime.hour,
           _selectedTime.minute,
         );
-        return Container(
+        return SizedBox(
           height: 300,
           child: Column(
             children: [
@@ -150,7 +148,7 @@ class _EditTaskCardState extends State<EditTaskCard> {
         final now = DateTime.now();
         final minDate = DateTime(now.year, now.month, now.day).subtract(const Duration(days: 365 * 1));
         final maxDate = minDate.add(const Duration(days: 365 * 2));
-        return Container(
+        return SizedBox(
           height: 300,
           child: Column(
             children: [
@@ -413,6 +411,8 @@ class _EditTaskCardState extends State<EditTaskCard> {
 
 // 使用示例
 class EditTaskCardExample extends StatefulWidget {
+  const EditTaskCardExample({super.key});
+
   @override
   State<EditTaskCardExample> createState() => _EditTaskCardExampleState();
 }
@@ -447,10 +447,10 @@ class _EditTaskCardExampleState extends State<EditTaskCardExample> {
             });
           },
           onSave: () {
-            print('保存任务');
+            debugPrint('保存任务');
           },
           onCancel: () {
-            print('取消编辑');
+            debugPrint('取消编辑');
           },
         ),
       ),

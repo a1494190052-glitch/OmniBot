@@ -53,6 +53,13 @@ class ManualRecordingPermissionGuard {
     BuildContext context,
   ) async {
     final deviceInfo = await DeviceService.getDeviceInfo();
+    if (!context.mounted) {
+      return ManualRecordingPermissionCheck(
+        deviceBrand: 'other',
+        permissions: const [],
+        missingPermissionIds: requiredPermissionIds,
+      );
+    }
     final brand = (deviceInfo?['brand'] as String?)?.toLowerCase() ?? 'other';
     final specs = PermissionRegistry.getPermissions(brand: brand)
         .where((spec) => requiredPermissionIds.contains(spec.id))

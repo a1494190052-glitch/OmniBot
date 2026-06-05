@@ -6,9 +6,9 @@ class ScreenshotCard extends StatefulWidget {
   final ScreenShotCardBlock block;
 
   const ScreenshotCard({
-    Key? key,
+    super.key,
     required this.block,
-  }) : super(key: key);
+  });
 
   @override
   State<ScreenshotCard> createState() => _ScreenshotCardState();
@@ -21,18 +21,14 @@ class _ScreenshotCardState extends State<ScreenshotCard> with TickerProviderStat
     super.initState();
   }
 
-  @override
-  void dispose() {
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
     final block = widget.block;
-    final dateTime = block?.dateTime;
-    final title = block?.title;
-    final tag = block?.tag;
-    final imagePath = block?.imagePath;
+    final dateTime = block.dateTime;
+    final title = block.title;
+    final tag = block.tag;
+    final imagePath = block.imagePath;
     return Container(
       margin: const EdgeInsets.fromLTRB(0, 0, 0, 0),
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
@@ -49,7 +45,7 @@ class _ScreenshotCardState extends State<ScreenshotCard> with TickerProviderStat
               // 日期时间
               if (dateTime != null)
                 Text(
-                  dateTime!,
+                  dateTime,
                   style: const TextStyle(
                     color: Color(0xFF666666),
                     fontSize: 12,
@@ -60,7 +56,7 @@ class _ScreenshotCardState extends State<ScreenshotCard> with TickerProviderStat
               // 标题
               if (title != null)
                 Text(
-                  title!,
+                  title,
                   style: const TextStyle(
                     color: Colors.black,
                     fontSize: 16,
@@ -91,7 +87,7 @@ class _ScreenshotCardState extends State<ScreenshotCard> with TickerProviderStat
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          tag!,
+                          tag,
                           style: const TextStyle(
                             color: Color(0xFF007AFF),
                             fontSize: 12,

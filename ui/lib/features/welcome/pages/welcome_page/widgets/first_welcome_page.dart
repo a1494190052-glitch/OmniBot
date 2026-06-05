@@ -5,10 +5,10 @@ class FirstWelcomePage extends StatefulWidget {
   final double screenHeight;
 
   const FirstWelcomePage({
-    Key? key,
+    super.key,
     required this.screenWidth,
     required this.screenHeight,
-  }) : super(key: key);
+  });
 
   @override
   State<FirstWelcomePage> createState() => _FirstWelcomePageState();

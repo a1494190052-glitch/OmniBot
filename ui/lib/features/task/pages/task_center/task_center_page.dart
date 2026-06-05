@@ -1,8 +1,5 @@
-import 'dart:ffi';
 
 import 'package:flutter/material.dart';
-import '../../../../widgets/card/edit_task_card.dart';
-import '../../../../models/chat_models.dart';
 import '../../../../services/task_storage_service.dart';
 import '../../../../models/task_models.dart';
 import '../task_edit/task_edit_page.dart';
@@ -19,9 +16,6 @@ class TaskCenterPage extends StatefulWidget {
 
 class _TaskCenterPageState extends State<TaskCenterPage> {
   List<TaskData> tasks = [];
-
-  bool _isEditing = false;
-  TaskData? _editingTask;
 
   @override
   void initState() {
@@ -85,7 +79,7 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
       body: Column(
         children: [
           Expanded(
-            child: tasks.length > 0
+            child: tasks.isNotEmpty
                 ? ListView.builder(
                     padding: const EdgeInsets.symmetric(
                         vertical: 10, horizontal: 20),
@@ -132,7 +126,6 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
   }
 
   Widget _buildTaskCard(TaskData task) {
-    const primaryBlack = Color(0xFF333333);
     return Container(
       margin: const EdgeInsets.only(bottom: 15),
       decoration: BoxDecoration(
@@ -140,7 +133,7 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -166,7 +159,7 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
                 ),
                 Row(
                   children: [
-                    Container(
+                    SizedBox(
                       width: 20,
                       height: 20,
                       child: Transform.scale(
@@ -195,7 +188,7 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  task.repeatOption.label+'${task.time.hour.toString().padLeft(2, '0')}:${task.time.minute.toString().padLeft(2, '0')}',
+                  '${task.repeatOption.label}${task.time.hour.toString().padLeft(2, '0')}:${task.time.minute.toString().padLeft(2, '0')}',
                   style: TextStyle(
                     fontSize: 14,
                     color: Colors.grey[500],
@@ -332,17 +325,18 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
                 Expanded(
                   child: ElevatedButton(
                     onPressed: () async {
+                      final navigator = Navigator.of(context);
+                      final messenger = ScaffoldMessenger.of(context);
                       final success =
                           await TaskStorageService.deleteTask(task.id);
-                      Navigator.pop(context);
-
+                      navigator.pop();
                       if (success) {
                         _loadTasks();
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        messenger.showSnackBar(
                           SnackBar(content: Text(AppTextLocalizer.choose(en: 'Deleted task: ${task.title}', zh: '已删除任务：${task.title}'))),
                         );
                       } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        messenger.showSnackBar(
                           SnackBar(content: Text(AppTextLocalizer.choose(en: 'Failed to delete task', zh: '删除任务失败'))),
                         );
                       }

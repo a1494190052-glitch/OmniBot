@@ -526,14 +526,28 @@ class OobOmniFlowToolkitService(
             runPayload["success_step_count"],
             defaultValue = stepResults.count { raw -> mapArg(raw)["success"] != false },
         )
+        val stepCount = intArg(runPayload["step_count"], defaultValue = stepResults.size)
+        val failedStepIndex = runPayload["failed_step_index"] ?: fallbackMetadata["failed_step_index"]
+        val resumeFromStepResult = runPayload["resume_from_step"] ?: fallbackMetadata["resume_from_step"]
+        val currentStepIndex = runPayload["current_step_index"]
+            ?: failedStepIndex
+            ?: stepResults.lastOrNull()?.let { mapArg(it)["index"] }
+        val currentStepNumber = runPayload["current_step_number"]
+            ?: when (currentStepIndex) {
+                is Number -> currentStepIndex.toInt().plus(1)
+                is String -> currentStepIndex.trim().toIntOrNull()?.plus(1)
+                else -> null
+            }
         return linkedMapOf<String, Any?>(
             "success" to (runPayload["success"] == true),
             "run_id" to runPayload["run_id"],
             "audit_run_id" to runPayload["audit_run_id"],
             "function_id" to functionId,
             "runner" to runPayload["runner"],
-            "step_count" to intArg(runPayload["step_count"], defaultValue = stepResults.size),
+            "step_count" to stepCount,
+            "active_step_count" to runPayload["active_step_count"],
             "success_step_count" to successStepCount,
+            "completed_step_count" to (runPayload["completed_step_count"] ?: successStepCount),
             "actions_executed" to successStepCount,
             "guard_decision" to decision,
             "risk_level" to guard["risk_level"],
@@ -545,8 +559,10 @@ class OobOmniFlowToolkitService(
             "runner_duration_ms" to durationMs,
             "timing" to timing,
             "fallback_session_id" to fallbackMetadata["fallback_session_id"],
-            "failed_step_index" to fallbackMetadata["failed_step_index"],
-            "resume_from_step" to fallbackMetadata["resume_from_step"],
+            "failed_step_index" to failedStepIndex,
+            "resume_from_step" to resumeFromStepResult,
+            "current_step_index" to currentStepIndex,
+            "current_step_number" to currentStepNumber,
             "fallback_attempt" to fallbackMetadata["fallback_attempt"],
             "fallback_unavailable_reason" to fallbackMetadata["fallback_unavailable_reason"],
             "fallback_context" to fallbackMetadata["fallback_context"],

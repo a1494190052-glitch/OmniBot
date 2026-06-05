@@ -965,11 +965,26 @@ class OobFunctionToolHandler(
 
         fun buildResult(finishedAtMs: Long = System.currentTimeMillis()): LinkedHashMap<String, Any?> =
             LinkedHashMap<String, Any?>().apply {
+                val successCount = stepResults.count { it["success"] != false }
+                val failedStepIndex = stepResults.firstOrNull { it["success"] == false }?.get("index")
+                val lastStepIndex = stepResults.lastOrNull()?.get("index")
+                val currentResultStepIndex = when {
+                    currentStepIndex >= 0 -> currentStepIndex
+                    failedStepIndex != null -> failedStepIndex
+                    lastStepIndex != null -> lastStepIndex
+                    else -> null
+                }
                 put("success", failureReason == null)
                 put("function_id", fn.id)
                 put("runner", "omniflow_ir_runner")
                 put("step_count", fn.executableSteps.size)
-                put("success_step_count", stepResults.count { it["success"] != false })
+                put("active_step_count", activeSteps.size)
+                put("success_step_count", successCount)
+                put("completed_step_count", (normalizedStartIndex + successCount).coerceAtMost(fn.executableSteps.size))
+                put("resume_from_step", normalizedStartIndex)
+                put("failed_step_index", failedStepIndex)
+                put("current_step_index", currentResultStepIndex)
+                put("current_step_number", (currentResultStepIndex as? Number)?.toInt()?.plus(1))
                 put("model_used", modelRequired)
                 put("model_required", modelRequired)
                 put("delegated_tool_used", delegatedToolUsed)

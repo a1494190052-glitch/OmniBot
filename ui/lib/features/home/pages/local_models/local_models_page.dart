@@ -1721,6 +1721,7 @@ class _LocalModelsPageState extends State<LocalModelsPage>
                     } catch (e) {
                       debugPrint('[LocalModels] button: startDownload error model=${model.id}, error=$e');
                       _refreshMarket(silent: true);
+                      if (!mounted) return;
                       showToast(context.l10n.localModelsDownloadStartFailed, type: ToastType.error);
                     }
                   },
@@ -1764,6 +1765,7 @@ class _LocalModelsPageState extends State<LocalModelsPage>
                     } catch (e) {
                       debugPrint('[LocalModels] button: pauseDownload error model=${model.id}, error=$e');
                       _refreshMarket(silent: true);
+                      if (!mounted) return;
                       showToast(context.l10n.localModelsDownloadPauseFailed, type: ToastType.error);
                     }
                   },
@@ -1942,9 +1944,9 @@ class _LocalModelsPageState extends State<LocalModelsPage>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: accentColor.withOpacity(0.12),
+        color: accentColor.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: accentColor.withOpacity(0.3)),
+        border: Border.all(color: accentColor.withValues(alpha: 0.3)),
       ),
       child: Text(
         value,

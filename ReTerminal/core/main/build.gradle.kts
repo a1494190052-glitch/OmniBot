@@ -144,7 +144,9 @@ val prepareEmbeddedTerminalRuntime by tasks.registering {
     }
 }
 
-tasks.named("preBuild") {
+tasks.matching { task ->
+    task.name.startsWith("merge") && task.name.endsWith("Assets")
+}.configureEach {
     dependsOn(prepareEmbeddedTerminalRuntime)
 }
 

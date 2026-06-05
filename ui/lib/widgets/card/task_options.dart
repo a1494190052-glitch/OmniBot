@@ -9,9 +9,9 @@ class TaskOptionsCard extends StatefulWidget {
   final TaskOptionsBlock block;
 
   const TaskOptionsCard({
-    Key? key,
+    super.key,
     required this.block,
-  }) : super(key: key);
+  });
 
   @override
   State<TaskOptionsCard> createState() => _TaskOptionsCardState();
@@ -26,17 +26,13 @@ class _TaskOptionsCardState extends State<TaskOptionsCard>
     super.initState();
   }
 
-  @override
-  void dispose() {
-    super.dispose();
-  }
 
   void onTaskConfirm() {
-    print('Confirmed tasks: ${_selected.map((t) => t.name).toList()}');
+    debugPrint('Confirmed tasks: ${_selected.map((t) => t.name).toList()}');
   }
 
   void onTaskCancel() {
-    print('Task selection cancelled');
+    debugPrint('Task selection cancelled');
   }
 
   void onButtonPressed(ButtonModel button) {
@@ -51,7 +47,7 @@ class _TaskOptionsCardState extends State<TaskOptionsCard>
   }
   
   void onTaskSelectionChanged() {
-    print('Task selection changed');
+    debugPrint('Task selection changed');
   }
 
   @override
@@ -91,7 +87,7 @@ class _TaskOptionsCardState extends State<TaskOptionsCard>
                       .map((c) => b.options.firstWhere((a) => a.name == c.title))
                       .toList();
                   onTaskSelectionChanged();
-                  print(
+                  debugPrint(
                     'Selected tasks: ${_selected.map((t) => t.name).toList()}'
                   );
                 },

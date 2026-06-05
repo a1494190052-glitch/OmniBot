@@ -28,6 +28,8 @@ import java.io.File
 class DebugVlmRunLogReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         val appContext = context.applicationContext
+        val requestId = intent?.getStringExtra("requestId")?.trim().orEmpty()
+        File(appContext.filesDir, "debug-vlm-runlog-result.json").delete()
         val goal = intent.decodeBase64Extra("goalBase64")
             ?: intent?.getStringExtra("goal")?.takeIf { it.isNotBlank() }
             ?: "打开 Settings"
@@ -78,9 +80,11 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
                     disableOmniFlowRecall,
                     parseOnly,
                 )
+                    .withRequestId(requestId)
             }.getOrElse { error ->
                 linkedMapOf<String, Any?>(
                     "success" to false,
+                    "request_id" to requestId,
                     "phase" to "exception",
                     "error_message" to error.message.orEmpty(),
                     "error_type" to error.javaClass.name,
@@ -89,6 +93,13 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             val json = gson.toJson(result)
             File(appContext.filesDir, "debug-vlm-runlog-result.json").writeText(json)
             OmniLog.i(TAG, json)
+        }
+    }
+
+    private fun Map<String, Any?>.withRequestId(requestId: String): Map<String, Any?> {
+        if (requestId.isBlank()) return this
+        return linkedMapOf<String, Any?>("request_id" to requestId).apply {
+            putAll(this@withRequestId)
         }
     }
 

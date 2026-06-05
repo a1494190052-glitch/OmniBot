@@ -44,7 +44,7 @@ class AutoStartGuideBottomSheet extends StatefulWidget {
       isDismissible: false,
       enableDrag: false,
       backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withOpacity(0.5),
+      barrierColor: Colors.black.withValues(alpha: 0.5),
       builder: (context) => AutoStartGuideBottomSheet(
         onGoToSettings: onGoToSettings,
         onCompleted: onCompleted,
@@ -210,7 +210,7 @@ class _AutoStartGuideBottomSheetState extends State<AutoStartGuideBottomSheet>
             child: Text(
               '稍后设置',
               style: TextStyle(
-                color: Colors.black.withOpacity(0.50),
+                color: Colors.black.withValues(alpha: 0.50),
                 fontSize: 12,
                 fontWeight: FontWeight.w400,
                 height: 1.50,
@@ -316,7 +316,7 @@ class _AutoStartGuideBottomSheetState extends State<AutoStartGuideBottomSheet>
                 'assets/welcome/next_page.svg',
                 width: 16,
                 height: 11,
-                color: const Color(0xFF3B74FF),
+                colorFilter: const ColorFilter.mode(Color(0xFF3B74FF), BlendMode.srcIn),
               ),
             ],
           )

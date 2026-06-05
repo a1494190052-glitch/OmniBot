@@ -29,7 +29,12 @@ void main() {
                 'status': 'completed_local',
                 'execution_status': 'completed_local',
                 'step_count': 1,
+                'active_step_count': 1,
                 'success_step_count': 1,
+                'completed_step_count': 1,
+                'resume_from_step': 0,
+                'current_step_index': 0,
+                'current_step_number': 1,
               },
               'context': <String, dynamic>{
                 'step_results': <Map<String, dynamic>>[
@@ -62,7 +67,12 @@ void main() {
       expect(result.completedLocal, isTrue);
       expect(result.startedAgentFallback, isFalse);
       expect(result.stepCount, 1);
+      expect(result.activeStepCount, 1);
       expect(result.successStepCount, 1);
+      expect(result.completedStepCount, 1);
+      expect(result.resumeFromStep, 0);
+      expect(result.currentStepIndex, 0);
+      expect(result.currentStepNumber, 1);
     });
 
     test(

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'dart:ui';
 
@@ -70,7 +71,7 @@ class StorageService {
           : jsonEncode(value.toJson());
       return await setString(key, jsonString);
     } catch (e) {
-      print('StorageService: setJson 失败 - $e');
+      debugPrint('StorageService: setJson 失败 - $e');
       return false;
     }
   }
@@ -91,7 +92,7 @@ class StorageService {
       }
       return decoded as T?;
     } catch (e) {
-      print('StorageService: getJson 失败 - $e');
+      debugPrint('StorageService: getJson 失败 - $e');
       return null;
     }
   }

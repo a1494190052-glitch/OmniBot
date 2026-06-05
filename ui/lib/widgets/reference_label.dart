@@ -50,8 +50,6 @@ class ReferenceLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     const backGroundColor = Color(0xFFF8F8F8);
     const lightGrey = Color(0xFF999999);
     return GestureDetector(

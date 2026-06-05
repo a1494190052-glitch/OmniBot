@@ -641,6 +641,7 @@ class VLMClient(
         if (normalized.isEmpty()) return null
         return parseJsonTextToolCall(normalized, dynamicFunctionToolNames)
             ?: parseLineTextToolCall(normalized, dynamicFunctionToolNames)
+            ?: parseBareCommandTextToolCall(normalized, dynamicFunctionToolNames)
             ?: parseFunctionInvocationTextToolCall(normalized, dynamicFunctionToolNames)
             ?: parseTaggedJsonTextToolCall(normalized, dynamicFunctionToolNames)
             ?: parseHtmlArgTextToolCall(normalized, dynamicFunctionToolNames)
@@ -697,6 +698,28 @@ class VLMClient(
             content = content
         )
         return buildFallbackToolCall(name, args.toString(), dynamicFunctionToolNames)
+    }
+
+    private fun parseBareCommandTextToolCall(
+        content: String,
+        dynamicFunctionToolNames: Set<String>
+    ): AssistantToolCall? {
+        content.lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .forEach { line ->
+                val match = BARE_COMMAND_REGEX.matchEntire(line) ?: return@forEach
+                val name = match.groups[1]?.value?.trim().orEmpty()
+                val normalizedName = normalizeToolName(name, dynamicFunctionToolNames) ?: return@forEach
+                val argText = match.groups[2]?.value?.trim().orEmpty()
+                val args = normalizeFallbackLineArguments(
+                    toolName = normalizedName,
+                    args = parseInlineArguments(argText),
+                    content = content
+                )
+                return buildFallbackToolCall(normalizedName, args.toString(), dynamicFunctionToolNames)
+            }
+        return null
     }
 
     private fun parseLineArguments(raw: String): JsonObject {
@@ -1069,6 +1092,7 @@ class VLMClient(
             """(?is)<arg_key>\s*([^<]+?)\s*</arg_key>\s*<arg_value>\s*(.*?)\s*(?=</arg_value>|</tool_call>|```|$)(?:</arg_value>)?"""
         )
         private val LINE_TOOL_CALL_REGEX = Regex("""(?im)^\s*tool_call\s*:\s*([A-Za-z0-9_.-]+)(?:\s+(.+?))?\s*$""")
+        private val BARE_COMMAND_REGEX = Regex("""^([A-Za-z_][A-Za-z0-9_.-]*)(?:\s+(.+))?$""")
         private val LINE_ARGUMENT_REGEX = Regex("""^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.+?)\s*$""")
         private val INLINE_ARGUMENT_REGEX = Regex(
             """([A-Za-z_][A-Za-z0-9_]*)\s*[:=]\s*("[^"]*"|'[^']*'|[^\s,]+)"""

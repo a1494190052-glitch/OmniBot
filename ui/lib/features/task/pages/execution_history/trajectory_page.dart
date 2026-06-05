@@ -73,7 +73,7 @@ class _TrajectoryPageState extends State<TrajectoryPage>
   @override
   void onPageResumed() {
     if (_hasLoadedOnce) {
-      print('✅ ExecutionRecordPage resumed - reloading data silently');
+      debugPrint('✅ ExecutionRecordPage resumed - reloading data silently');
       _loadData(silent: true);
       _loadScheduledTaskKeys();
     }
@@ -114,7 +114,7 @@ class _TrajectoryPageState extends State<TrajectoryPage>
       });
       _hasLoadedOnce = true;
     } catch (e) {
-      print('Error loading data: $e');
+      debugPrint('Error loading data: $e');
       if (!silent) {
         setState(() {
           _isLoading = false;
@@ -139,7 +139,7 @@ class _TrajectoryPageState extends State<TrajectoryPage>
             .toSet();
       });
     } catch (e) {
-      print('Error loading scheduled task keys: $e');
+      debugPrint('Error loading scheduled task keys: $e');
     }
   }
 
@@ -165,7 +165,7 @@ class _TrajectoryPageState extends State<TrajectoryPage>
         _nextExecutionInfoOffset = offset + records.length;
       });
     } catch (e) {
-      print('Error loading execution records: $e');
+      debugPrint('Error loading execution records: $e');
     }
   }
 
@@ -324,10 +324,10 @@ class _TrajectoryPageState extends State<TrajectoryPage>
         }
 
         // 2. 添加技能类型图标（suggestion iconUrl 或默认类型图标）
-        print(
+        debugPrint(
           'Adding type icon for ${info.title} with iconUrl: ${info.iconUrl}',
         );
-        print('ExecutionRecordType: ${info.type}');
+        debugPrint('ExecutionRecordType: ${info.type}');
         iconsList.add(_buildTypeIcon(info.type, info.iconUrl));
 
         // 3. 判断是否可执行（参照 SkillGridItem 的判断逻辑）
@@ -368,7 +368,7 @@ class _TrajectoryPageState extends State<TrajectoryPage>
         executionRecordViewModels = modelsWithIcons;
       });
     } catch (e) {
-      print('Error loading execution tags: $e');
+      debugPrint('Error loading execution tags: $e');
     }
   }
 
@@ -700,6 +700,7 @@ class _TrajectoryPageState extends State<TrajectoryPage>
 
       // 显示删除结果
       if (successCount > 0) {
+        if (!mounted) return;
         showToast(context.l10n.skillDeleted, type: ToastType.success);
       }
     }
@@ -726,7 +727,7 @@ class _TrajectoryPageState extends State<TrajectoryPage>
       }
       return success;
     } catch (e) {
-      print('Error deleting task records: $e');
+      debugPrint('Error deleting task records: $e');
       return false;
     }
   }
@@ -751,6 +752,7 @@ class _TrajectoryPageState extends State<TrajectoryPage>
   Future<void> _performExecutionDelete(int recordId) async {
     try {
       bool success = await CacheUtil.deleteExecutionRecordById(recordId);
+      if (!mounted) return;
       if (!success) {
         showToast(context.l10n.skillDeleteFailed, type: ToastType.error);
         return;
@@ -766,7 +768,8 @@ class _TrajectoryPageState extends State<TrajectoryPage>
       // 重新加载标签统计
       await _loadExecutionTags();
     } catch (e) {
-      print('Error deleting card: $e');
+      debugPrint('Error deleting card: $e');
+      if (!mounted) return;
       showToast(context.l10n.skillDeleteFailed, type: ToastType.error);
     }
   }
@@ -1014,11 +1017,11 @@ class _TrajectoryPageState extends State<TrajectoryPage>
     if (date.year == today.year &&
         date.month == today.month &&
         date.day == today.day) {
-      return '${context.trText('今天')} ' + DateFormat('HH:mm').format(date);
+      return '${context.trText('今天')} ${DateFormat('HH:mm').format(date)}';
     } else if (date.year == today.year &&
         date.month == today.month &&
         date.day == today.day - 1) {
-      return '${context.trText('昨天')} ' + DateFormat('HH:mm').format(date);
+      return '${context.trText('昨天')} ${DateFormat('HH:mm').format(date)}';
     } else {
       return DateFormat('yyyy/MM/dd HH:mm').format(date);
     }

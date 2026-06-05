@@ -11,7 +11,6 @@ import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/services/floating_overlay_service.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/utils/cache_util.dart';
-import 'package:ui/services/hide_from_recents_service.dart';
 import 'package:ui/services/mcp_server_service.dart';
 import 'package:ui/services/special_permission.dart';
 import 'package:ui/services/workspace_memory_service.dart';
@@ -133,21 +132,6 @@ class _SettingsPageState extends State<SettingsPage> {
       return;
     }
     showToast(context.trText(value ? '小万悬浮窗已开启' : '小万悬浮窗已关闭'));
-  }
-
-  Future<void> _onHideFromRecentsChanged(bool value) async {
-    setState(() {
-      hideFromRecentsEnabled = value;
-    });
-
-    final success = await HideFromRecentsService.setExcludeFromRecents(value);
-    if (!success) {
-      if (!mounted) return;
-      setState(() {
-        hideFromRecentsEnabled = !value;
-      });
-      showToast(context.l10n.settingsHideRecentsFailed, type: ToastType.error);
-    }
   }
 
   Future<void> _loadAutoBackToChatAfterTaskState() async {

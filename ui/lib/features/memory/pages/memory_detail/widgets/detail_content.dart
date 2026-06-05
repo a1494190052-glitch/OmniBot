@@ -19,7 +19,7 @@ class DetailContent extends StatelessWidget {
   final List<AppTag>? tags;
 
   const DetailContent({
-    Key? key,
+    super.key,
     required this.title,
     required this.timestamp,
     required this.content,
@@ -27,7 +27,7 @@ class DetailContent extends StatelessWidget {
     this.appIconProvider,
     this.appSvgPath,
     this.tags,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

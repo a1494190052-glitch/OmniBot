@@ -19,6 +19,14 @@ fun prop(name: String, defaultValue: String = ""): String {
     return defaultValue
 }
 
+fun propFlag(name: String, defaultValue: Boolean = false): Boolean {
+    val value = prop(name).lowercase()
+    if (value.isBlank()) {
+        return defaultValue
+    }
+    return value in setOf("1", "true", "yes", "on")
+}
+
 fun envValue(name: String): String = System.getenv(name)?.trim().orEmpty()
 
 fun quotedBuildConfigString(value: String): String =
@@ -49,10 +57,12 @@ val omnibotImageApiKey = prop("OMNIBOT_IMAGE_API_KEY")
 val flutterWebBuildDir = rootProject.file("ui/build/web")
 val flutterWebAssetsRootDir = layout.buildDirectory.dir("generated/omnibot_assets").get().asFile
 val flutterWebAssetsDir = File(flutterWebAssetsRootDir, "flutter_web")
+val skipFlutterWebBundle = propFlag("OOB_SKIP_FLUTTER_WEB")
 
 val buildFlutterWebBundle by tasks.registering(Exec::class) {
     group = "flutter web"
     description = "Build the dedicated web chat Flutter bundle."
+    enabled = !skipFlutterWebBundle
     workingDir = rootProject.file("ui")
     val flutterCmd = if (org.gradle.internal.os.OperatingSystem.current().isWindows) "flutter.bat" else "flutter"
     commandLine(
@@ -78,6 +88,7 @@ val buildFlutterWebBundle by tasks.registering(Exec::class) {
 val syncFlutterWebBundle by tasks.registering(Copy::class) {
     group = "flutter web"
     description = "Copy Flutter Web build output into Android assets."
+    enabled = !skipFlutterWebBundle
     dependsOn(buildFlutterWebBundle)
     from(flutterWebBuildDir)
     into(flutterWebAssetsDir)
@@ -253,8 +264,12 @@ kotlin {
     }
 }
 
-tasks.named("preBuild").configure {
-    dependsOn(syncFlutterWebBundle)
+if (!skipFlutterWebBundle) {
+    tasks.matching { task ->
+        task.name.startsWith("merge") && task.name.endsWith("Assets")
+    }.configureEach {
+        dependsOn(syncFlutterWebBundle)
+    }
 }
 dependencies {
     implementation(project(":flutter"))

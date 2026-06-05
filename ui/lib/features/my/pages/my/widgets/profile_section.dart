@@ -1,4 +1,3 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:ui/theme/app_colors.dart';
@@ -9,7 +8,7 @@ class ProfileSection extends StatelessWidget {
   final String avatarUrl;
   final VoidCallback? onTap;
   
-  const ProfileSection({
+  const ProfileSection({super.key, 
     required this.username,
     required this.avatarUrl,
     this.onTap,
@@ -31,7 +30,7 @@ class ProfileSection extends StatelessWidget {
                   border: Border.all(color: Colors.white, width: 4),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
+                      color: Colors.black.withValues(alpha: 0.05),
                       blurRadius: 10,
                       spreadRadius: 0,
                       offset: const Offset(3, 4),
@@ -61,7 +60,7 @@ class ProfileSection extends StatelessWidget {
                       'assets/my/edit-1.svg',
                       width: 16,
                       height: 16,
-                      color: AppColors.primaryBlue,
+                      colorFilter: ColorFilter.mode(AppColors.primaryBlue, BlendMode.srcIn),
                       errorBuilder: (context, error, stackTrace) =>
                         const Icon(Icons.edit, size: 1, color: Colors.white),
                     ),
@@ -72,7 +71,7 @@ class ProfileSection extends StatelessWidget {
           ),
           const SizedBox(height: 24),
           Text(
-            'Hi, ' + username,
+            'Hi, $username',
             style: TextStyle(
               fontSize: AppTextStyles.fontSizeH2,
               fontWeight: AppTextStyles.fontWeightMedium,

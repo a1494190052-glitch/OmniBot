@@ -156,12 +156,13 @@ data class OmniflowFunction(
     val executableSteps: List<OmniflowStep> get() = steps.filter { !it.skip }
 
     fun materialize(args: Map<String, String>): OmniflowFunction {
+        val bindings = resolveParameterBindings(args)
         val resolvedSteps = steps.map { step ->
             step.copy(
                 arguments = step.arguments.mapValues { (_, v) ->
                     when (v) {
                         is ParameterValue.Literal -> v
-                        is ParameterValue.Bound   -> ParameterValue.Literal(args[v.parameterId] ?: v.resolve(args))
+                        is ParameterValue.Bound -> ParameterValue.Literal(v.resolve(bindings))
                     }
                 }
             )
@@ -170,6 +171,79 @@ data class OmniflowFunction(
     }
 
     fun missingRequiredArguments(suppliedArgs: Map<String, String>): List<String> =
-        parameters.filter { it.required && it.id !in suppliedArgs && it.default == null }
+        parameters.filter { it.required && it.id !in resolveParameterBindings(suppliedArgs) && it.default == null }
             .map { it.id }
+
+    private fun resolveParameterBindings(args: Map<String, String>): Map<String, String> {
+        val normalizedArgs = linkedMapOf<String, Map.Entry<String, String>>()
+        args.entries.forEach { entry ->
+            normalizedArgs.putIfAbsent(normalizeParameterName(entry.key), entry)
+        }
+        val consumedKeys = mutableSetOf<String>()
+        return linkedMapOf<String, String>().apply {
+            parameters.forEach { parameter ->
+                parameterValueFor(parameter, args, normalizedArgs, consumedKeys)?.let { value ->
+                    put(parameter.id, value)
+                }
+            }
+        }
+    }
+
+    private fun parameterValueFor(
+        parameter: FunctionParameter,
+        args: Map<String, String>,
+        normalizedArgs: Map<String, Map.Entry<String, String>>,
+        consumedKeys: MutableSet<String>,
+    ): String? {
+        val aliases = parameterAliases(parameter)
+        aliases.forEach { alias ->
+            if (alias !in consumedKeys && args.containsKey(alias)) {
+                consumedKeys += alias
+                return args[alias]
+            }
+        }
+        aliases.forEach { alias ->
+            val entry = normalizedArgs[normalizeParameterName(alias)] ?: return@forEach
+            if (entry.key !in consumedKeys) {
+                consumedKeys += entry.key
+                return entry.value
+            }
+        }
+        return parameter.default
+    }
+
+    private fun parameterAliases(parameter: FunctionParameter): LinkedHashSet<String> =
+        linkedSetOf<String>().apply {
+            add(parameter.id)
+            val normalizedId = normalizeParameterName(parameter.id)
+            add(normalizedId)
+            if (normalizedId.startsWith("text_")) {
+                normalizedId.removePrefix("text_")
+                    .takeIf { it.isNotBlank() }
+                    ?.let(::add)
+            }
+            parameter.bindings.forEach { binding ->
+                val leaf = normalizeParameterName(
+                    binding.argPath.substringAfterLast(".").substringBefore("[")
+                )
+                if (leaf.isBlank()) return@forEach
+                add(leaf)
+                if (leaf in INPUT_TEXT_ARG_KEYS) {
+                    add("input_text")
+                    add("input_text_${binding.stepIndex + 1}")
+                    add("text_step_${binding.stepIndex + 1}")
+                }
+            }
+        }
+
+    private fun normalizeParameterName(value: String): String =
+        value.trim()
+            .replace(Regex("""([a-z0-9])([A-Z])"""), "$1_$2")
+            .replace(Regex("""[^A-Za-z0-9]+"""), "_")
+            .trim('_')
+            .lowercase()
+
+    private companion object {
+        val INPUT_TEXT_ARG_KEYS = setOf("text", "input", "value", "content")
+    }
 }

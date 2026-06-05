@@ -1,4 +1,3 @@
-import 'dart:collection';
 
 import 'package:ui/services/storage_service.dart';
 
@@ -56,7 +55,7 @@ class ChatTerminalEnvironmentService {
   static List<ChatTerminalEnvironmentVariable> normalizeVariables(
     Iterable<ChatTerminalEnvironmentVariable> variables,
   ) {
-    final ordered = LinkedHashMap<String, String>();
+    final ordered = <String, String>{};
     for (final item in variables) {
       final key = item.normalizedKey;
       if (key.isEmpty || !isValidKey(key)) {
@@ -125,7 +124,7 @@ class ChatTerminalEnvironmentService {
   static Map<String, String> buildEnvironmentMap(
     Iterable<ChatTerminalEnvironmentVariable> variables,
   ) {
-    final ordered = LinkedHashMap<String, String>();
+    final ordered = <String, String>{};
     for (final item in normalizeVariables(variables)) {
       ordered[item.key] = item.value;
     }

@@ -287,7 +287,9 @@ class _ImagePreviewPageState extends State<_ImagePreviewPage>
         },
         child: Transform(
           transform: Matrix4.identity()
+            // ignore: deprecated_member_use
             ..translate(_dismissOffset.dx, _dismissOffset.dy)
+            // ignore: deprecated_member_use
             ..scale(scale, scale),
           alignment: Alignment.center,
           child: Stack(
@@ -574,10 +576,12 @@ class _OmnibotInteractiveImageViewState
       final position = details.localPosition;
       const targetScale = 2.5;
       final zoomed = Matrix4.identity()
+        // ignore: deprecated_member_use
         ..translate(
           -position.dx * (targetScale - 1),
           -position.dy * (targetScale - 1),
         )
+        // ignore: deprecated_member_use
         ..scale(targetScale);
       _transformController.value = zoomed;
       widget.onScaleChanged?.call(true);

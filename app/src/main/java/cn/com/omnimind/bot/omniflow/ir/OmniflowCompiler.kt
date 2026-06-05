@@ -144,8 +144,12 @@ object OmniflowCompiler {
     }
 
     private fun paramIdForInputStep(step: Map<String, Any?>, index: Int): String {
-        val title = firstNonBlank(step["title"]).take(30).replace(Regex("[^a-zA-Z0-9_]"), "_")
-        return if (title.isNotBlank()) "text_${title.lowercase()}" else "text_step_${index + 1}"
+        val title = firstNonBlank(step["title"], step["summary"])
+            .take(30)
+            .replace(Regex("[^A-Za-z0-9_]+"), "_")
+            .trim('_')
+            .lowercase()
+        return title.takeIf { it.isNotBlank() } ?: "input_text"
     }
 
     private fun uniqueId(base: String, used: Set<String>): String {

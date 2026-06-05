@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'tag_chip.dart';
 import 'package:ui/theme/app_colors.dart';
@@ -63,7 +62,7 @@ class TagSection extends StatefulWidget {
   final double chipHeight;
 
   const TagSection({
-    Key? key,
+    super.key,
     required this.items,
     this.selectedId,
     this.onSelected,
@@ -71,7 +70,7 @@ class TagSection extends StatefulWidget {
     this.onSelectionChanged,
     this.maxCollapsedRows = 1,
     this.chipHeight = 24,
-  }) : super(key: key);
+  });
 
   @override
   State<TagSection> createState() => _TagSectionState();
@@ -135,7 +134,7 @@ class _TagSectionState extends State<TagSection> with TickerProviderStateMixin {
           }
         },
         child: TagChip(
-          title: '${t.label}' + (selected ? ' ${t.count}' : ''),
+          title: '${t.label}${selected ? ' ${t.count}' : ''}',
           iconPath: t.icon ?? Icons.label,
           svgPath: t.svgPath,
           appIconProvider: t.appIconProvider,
@@ -196,7 +195,7 @@ class _TagSectionState extends State<TagSection> with TickerProviderStateMixin {
                         _expanded ? 'assets/common/chevron-up.svg' : 'assets/common/chevron-down.svg',
                         width: 18,
                         height: 18,
-                        color: AppColors.iconPrimary,
+                        colorFilter: ColorFilter.mode(AppColors.iconPrimary, BlendMode.srcIn),
                       ),
                     )
                   ),

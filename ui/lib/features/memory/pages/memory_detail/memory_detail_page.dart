@@ -18,10 +18,10 @@ class MemoryDetailPage extends StatelessWidget {
   final Future<bool> Function(int cardId) onDelete;
 
   const MemoryDetailPage({
-    Key? key,
+    super.key,
     required this.memory,
     required this.onDelete,
-  }) : super(key: key);
+  });
 
   void _showImageDialog(BuildContext context) {
     showDialog(
@@ -46,7 +46,7 @@ class MemoryDetailPage extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 40, top: 10),
               child: GestureDetector(
                 onTap: () => _downloadImage(context),
-                child: Container(
+                child: SizedBox(
                   height: 40,
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -91,9 +91,10 @@ class MemoryDetailPage extends StatelessWidget {
   }
 
   void _showContextMenu(MemoryCardModel vm, BuildContext context, Offset position) async {
+    final navigator = Navigator.of(context);
     final action = await showRecordContextMenu(
-      context: context, 
-      position: position, 
+      context: context,
+      position: position,
       deleteLabel: '删除',
       deleteIconAsset: 'assets/memory/memory_delete.svg',
       showEdit: false
@@ -102,7 +103,7 @@ class MemoryDetailPage extends StatelessWidget {
       case RecordMenuAction.delete:
         final res = await onDelete(vm.id);
         if (res) {
-          Navigator.pop(context); // 返回记忆中心
+          navigator.pop(); // 返回记忆中心
         }
         break;
       default:
@@ -199,7 +200,7 @@ class MemoryDetailPage extends StatelessWidget {
                   children: [
                     DetailContent(
                       title: memory.title,
-                      timestamp: memory.updatedAt ?? 0,
+                      timestamp: memory.updatedAt,
                       content: memory.description ?? '暂无详细内容',
                       appName: memory.appName,
                       appIconProvider: memory.appIcon,
@@ -218,7 +219,7 @@ class MemoryDetailPage extends StatelessWidget {
                             begin: Alignment.topCenter,
                             end: Alignment.bottomCenter,
                             colors: [
-                              Colors.white.withOpacity(0), // 顶部透明
+                              Colors.white.withValues(alpha: 0), // 顶部透明
                               Colors.white, // 底部白色（与背景色一致）
                             ],
                           ),
@@ -241,6 +242,8 @@ class MemoryDetailPage extends StatelessWidget {
       showToast('暂无可保存的图片', type: ToastType.warning);
       return;
     }
+
+    final navigator = Navigator.of(dialogContext);
 
     final granted = await _ensureSavePermission();
     if (!granted) {
@@ -271,8 +274,8 @@ class MemoryDetailPage extends StatelessWidget {
     } catch (e) {
       showToast('保存失败：$e', type: ToastType.error);
     } finally {
-      if (Navigator.of(dialogContext).canPop()) {
-        Navigator.of(dialogContext).pop();
+      if (navigator.canPop()) {
+        navigator.pop();
       }
     }
   }

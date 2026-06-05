@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -745,6 +746,61 @@ class UtgManualRunResult {
         context['success_step_count'],
   );
 
+  int? get activeStepCount => _nullableIntValue(
+    _firstPresent([
+      terminalState['active_step_count'],
+      rawJson['active_step_count'],
+      context['active_step_count'],
+    ]),
+  );
+
+  int? get completedStepCount => _nullableIntValue(
+    _firstPresent([
+      terminalState['completed_step_count'],
+      rawJson['completed_step_count'],
+      context['completed_step_count'],
+    ]),
+  );
+
+  int? get resumeFromStep => _nullableIntValue(
+    _firstPresent([
+      terminalState['resume_from_step'],
+      rawJson['resume_from_step'],
+      context['resume_from_step'],
+    ]),
+  );
+
+  int? get failedStepIndex => _nullableIntValue(
+    _firstPresent([
+      terminalState['failed_step_index'],
+      rawJson['failed_step_index'],
+      context['failed_step_index'],
+    ]),
+  );
+
+  int? get currentStepIndex => _nullableIntValue(
+    _firstPresent([
+      terminalState['current_step_index'],
+      rawJson['current_step_index'],
+      context['current_step_index'],
+      failedStepIndex,
+    ]),
+  );
+
+  int? get currentStepNumber {
+    final explicit = _nullableIntValue(
+      _firstPresent([
+        terminalState['current_step_number'],
+        rawJson['current_step_number'],
+        context['current_step_number'],
+      ]),
+    );
+    if (explicit != null && explicit > 0) return explicit;
+    final index = currentStepIndex;
+    if (index != null && index >= 0) return index + 1;
+    return null;
+  }
+
   String get runner =>
       (terminalState['runner'] ?? rawJson['runner'] ?? context['runner'] ?? '')
           .toString()
@@ -888,6 +944,13 @@ class UtgManualRunResult {
     if (value is num) return value.toInt();
     if (value is String) return int.tryParse(value.trim()) ?? 0;
     return 0;
+  }
+
+  static int? _nullableIntValue(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value.trim());
+    return null;
   }
 }
 
@@ -1703,7 +1766,7 @@ class AssistsMessageService {
           break;
 
         case 'onTaskFinish':
-          print('任务完成');
+          debugPrint('任务完成');
           _onTaskFinishCallback?.call();
           break;
         case 'onAgentAiConfigChanged':
@@ -1759,7 +1822,7 @@ class AssistsMessageService {
           final Map<String, dynamic> data = Map<String, dynamic>.from(
             call.arguments,
           );
-          print(
+          debugPrint(
             'onChatMessage content: ${data['content']}, type: ${data['type']}',
           );
           _onChatTaskMessageCallBack?.call(
@@ -1784,21 +1847,21 @@ class AssistsMessageService {
           final Map<String, dynamic> data = Map<String, dynamic>.from(
             call.arguments,
           );
-          print('onVLMRequestUserInput question: ${data['question']}');
+          debugPrint('onVLMRequestUserInput question: ${data['question']}');
           _onVLMRequestUserInputCallBack?.call(
             data['question'],
             data['taskId']?.toString(),
           );
           break;
         case 'onVLMTaskFinish':
-          print('任务完成');
+          debugPrint('任务完成');
           // 通知所有注册的回调
           for (final callback in _onVLMTaskFinishCallBacks) {
             callback((call.arguments as Map?)?['taskId']?.toString());
           }
           break;
         case 'onCommonTaskFinish':
-          print('任务完成');
+          debugPrint('任务完成');
           // 通知所有注册的回调
           for (final callback in _onCommonTaskFinishCallBacks) {
             callback();
@@ -1931,10 +1994,10 @@ class AssistsMessageService {
           );
 
         default:
-          print('未处理的方法: ${call.method}');
+          debugPrint('未处理的方法: ${call.method}');
       }
     } catch (e) {
-      print('处理方法调用时出错: $e');
+      debugPrint('处理方法调用时出错: $e');
       rethrow;
     }
   }
@@ -2096,7 +2159,7 @@ class AssistsMessageService {
       });
       return result == "SUCCESS";
     } on PlatformException catch (e) {
-      print('发送按钮点击事件失败: ${e.message}');
+      debugPrint('发送按钮点击事件失败: ${e.message}');
       return false;
     }
   }
@@ -2122,7 +2185,7 @@ class AssistsMessageService {
       );
       return result == "SUCCESS";
     } on PlatformException catch (e) {
-      print('取消运行中任务失败: ${e.message}');
+      debugPrint('取消运行中任务失败: ${e.message}');
       return false;
     }
   }
@@ -2142,7 +2205,7 @@ class AssistsMessageService {
           .toList(growable: false);
     } on Exception catch (e) {
       final message = e is PlatformException ? e.message : e.toString();
-      print('查询运行中 Agent 失败: $message');
+      debugPrint('查询运行中 Agent 失败: $message');
       return const [];
     }
   }
@@ -2159,7 +2222,7 @@ class AssistsMessageService {
       );
       return result == "SUCCESS";
     } on PlatformException catch (e) {
-      print('停止工具调用失败: ${e.message}');
+      debugPrint('停止工具调用失败: ${e.message}');
       return false;
     }
   }
@@ -2171,7 +2234,7 @@ class AssistsMessageService {
       var result = await assistCore.invokeMethod('cancelCompanionGoHome');
       return result == "SUCCESS";
     } on PlatformException catch (e) {
-      print('取消回到桌面失败: ${e.message}');
+      debugPrint('取消回到桌面失败: ${e.message}');
       return false;
     }
   }
@@ -2182,7 +2245,7 @@ class AssistsMessageService {
       var result = await assistCore.invokeMethod('pressHome');
       return result == "SUCCESS";
     } on PlatformException catch (e) {
-      print('pressHome failed: ${e.message}');
+      debugPrint('pressHome failed: ${e.message}');
       return false;
     }
   }
@@ -2913,7 +2976,7 @@ class AssistsMessageService {
       });
       return result == "SUCCESS";
     } on PlatformException catch (e) {
-      print('复制到剪贴板失败: ${e.message}');
+      debugPrint('复制到剪贴板失败: ${e.message}');
       return false;
     }
   }
@@ -2923,7 +2986,7 @@ class AssistsMessageService {
       final result = await assistCore.invokeMethod<String>('getClipboardText');
       return result;
     } on PlatformException catch (e) {
-      print('读取剪贴板失败: ${e.message}');
+      debugPrint('读取剪贴板失败: ${e.message}');
       return null;
     }
   }
@@ -2942,7 +3005,7 @@ class AssistsMessageService {
     List<Map<String, dynamic>> userAttachments = const [],
   }) async {
     try {
-      print('createChatTask taskID: $taskID content: $content');
+      debugPrint('createChatTask taskID: $taskID content: $content');
       final args = {'taskID': taskID, 'content': content};
       if (provider != null) {
         args['provider'] = provider;
@@ -2971,7 +3034,7 @@ class AssistsMessageService {
       final result = await assistCore.invokeMethod('createChatTask', args);
       return result == "SUCCESS";
     } on PlatformException catch (e) {
-      print('createChatTask failed: ${e.message}');
+      debugPrint('createChatTask failed: ${e.message}');
       return false;
     }
   }
@@ -2986,7 +3049,7 @@ class AssistsMessageService {
     bool needSummary = false,
     bool skipGoHome = false, // 是否跳过回到主页，从当前页面开始执行
   }) async {
-    print(
+    debugPrint(
       'createVLMOperationTask goal: $goal model: $model  maxSteps: $maxSteps packageName: $packageName needSummary: $needSummary skipGoHome: $skipGoHome',
     );
     var result = await assistCore.invokeMethod('createVLMOperationTask', {
@@ -3011,7 +3074,7 @@ class AssistsMessageService {
       );
       return result == true;
     } on PlatformException catch (e) {
-      print('提供用户输入失败: ${e.message}');
+      debugPrint('提供用户输入失败: ${e.message}');
       return false;
     }
   }
@@ -3040,7 +3103,7 @@ class AssistsMessageService {
       final result = await assistCore.invokeMethod<bool>('pauseVLMTask');
       return result == true;
     } on PlatformException catch (e) {
-      print('暂停VLM任务失败: ${e.message}');
+      debugPrint('暂停VLM任务失败: ${e.message}');
       return false;
     }
   }
@@ -3050,7 +3113,7 @@ class AssistsMessageService {
       final result = await assistCore.invokeMethod<bool>('resumeVLMTask');
       return result == true;
     } on PlatformException catch (e) {
-      print('恢复VLM任务失败: ${e.message}');
+      debugPrint('恢复VLM任务失败: ${e.message}');
       return false;
     }
   }
@@ -3063,7 +3126,7 @@ class AssistsMessageService {
       );
       return result == "SUCCESS";
     } on PlatformException catch (e) {
-      print('通知总结Sheet准备就绪失败: ${e.message}');
+      debugPrint('通知总结Sheet准备就绪失败: ${e.message}');
       return false;
     }
   }
@@ -3083,7 +3146,7 @@ class AssistsMessageService {
       }
       return [];
     } on PlatformException catch (e) {
-      print('获取已安装应用失败: ${e.message}');
+      debugPrint('获取已安装应用失败: ${e.message}');
       return [];
     }
   }
@@ -3100,7 +3163,7 @@ class AssistsMessageService {
       }
       return [];
     } on PlatformException catch (e) {
-      print('获取已安装应用(附带图标更新)失败: ${e.message}');
+      debugPrint('获取已安装应用(附带图标更新)失败: ${e.message}');
       return [];
     }
   }
@@ -3118,7 +3181,7 @@ class AssistsMessageService {
       );
       return result ?? false;
     } on PlatformException catch (e) {
-      print('检查包名授权状态失败: ${e.message}');
+      debugPrint('检查包名授权状态失败: ${e.message}');
       return false;
     }
   }
@@ -3136,7 +3199,7 @@ class AssistsMessageService {
     String? subTitle, //子标题
     String? extraJson, //额外参数,获取info时会返回
   }) async {
-    print(
+    debugPrint(
       'scheduleVLMOperationTask goal: $goal, times: $times, model: $model, maxSteps: $maxSteps, packageName: $packageName',
     );
     try {
@@ -3153,7 +3216,7 @@ class AssistsMessageService {
           });
       return result;
     } on PlatformException catch (e) {
-      print('预约VLM操作任务失败: ${e.message}');
+      debugPrint('预约VLM操作任务失败: ${e.message}');
       return null;
     }
   }
@@ -3169,7 +3232,7 @@ class AssistsMessageService {
       }
       return null;
     } on PlatformException catch (e) {
-      print('获取预约任务信息失败: ${e.message}');
+      debugPrint('获取预约任务信息失败: ${e.message}');
       return null;
     }
   }
@@ -3180,7 +3243,7 @@ class AssistsMessageService {
       final result = await assistCore.invokeMethod('clearScheduleTask');
       return result == "SUCCESS";
     } on PlatformException catch (e) {
-      print('清除预约任务失败: ${e.message}');
+      debugPrint('清除预约任务失败: ${e.message}');
       return false;
     }
   }
@@ -3191,7 +3254,7 @@ class AssistsMessageService {
       final result = await assistCore.invokeMethod('doScheduleNow');
       return result == "SUCCESS";
     } on PlatformException catch (e) {
-      print('立即执行预约任务失败: ${e.message}');
+      debugPrint('立即执行预约任务失败: ${e.message}');
       return false;
     }
   }
@@ -3202,7 +3265,7 @@ class AssistsMessageService {
       final result = await assistCore.invokeMethod('cancelScheduleTask');
       return result == "SUCCESS";
     } on PlatformException catch (e) {
-      print('取消预约任务失败: ${e.message}');
+      debugPrint('取消预约任务失败: ${e.message}');
       return false;
     }
   }
@@ -3221,7 +3284,7 @@ class AssistsMessageService {
         return <String, dynamic>{};
       }).toList();
     } on PlatformException catch (e) {
-      print('查询应用内闹钟失败: ${e.message}');
+      debugPrint('查询应用内闹钟失败: ${e.message}');
       return [];
     }
   }
@@ -3235,7 +3298,7 @@ class AssistsMessageService {
       );
       return result?['success'] == true;
     } on PlatformException catch (e) {
-      print('删除应用内闹钟失败: ${e.message}');
+      debugPrint('删除应用内闹钟失败: ${e.message}');
       return false;
     }
   }
@@ -3249,7 +3312,7 @@ class AssistsMessageService {
       );
       return result?['success'] == true;
     } on PlatformException catch (e) {
-      print('清空应用内闹钟失败: ${e.message}');
+      debugPrint('清空应用内闹钟失败: ${e.message}');
       return false;
     }
   }
@@ -3261,7 +3324,7 @@ class AssistsMessageService {
       );
       return Map<String, dynamic>.from(result ?? const {});
     } on PlatformException catch (e) {
-      print('读取闹钟设置失败: ${e.message}');
+      debugPrint('读取闹钟设置失败: ${e.message}');
       return {};
     }
   }
@@ -3278,7 +3341,7 @@ class AssistsMessageService {
       );
       return Map<String, dynamic>.from(result ?? const {});
     } on PlatformException catch (e) {
-      print('保存闹钟设置失败: ${e.message}');
+      debugPrint('保存闹钟设置失败: ${e.message}');
       return {'success': false, 'message': e.message ?? '保存失败'};
     }
   }
@@ -3289,7 +3352,7 @@ class AssistsMessageService {
       final result = await assistCore.invokeMethod<int>('getNanoTime');
       return result;
     } on PlatformException catch (e) {
-      print('获取nanoTime失败: ${e.message}');
+      debugPrint('获取nanoTime失败: ${e.message}');
       return null;
     }
   }
@@ -3302,21 +3365,21 @@ class AssistsMessageService {
       });
       return result == "SUCCESS";
     } on PlatformException catch (e) {
-      print('执行首次任务失败: ${e.message}');
+      debugPrint('执行首次任务失败: ${e.message}');
       return false;
     }
   }
 
   /// 初始化半屏引擎并启动首次体验
   static Future<void> initializeAndStartFirstUse(String packageName) async {
-    print('🎯 [FirstUse] 开始初始化半屏引擎并启动首次体验');
+    debugPrint('🎯 [FirstUse] 开始初始化半屏引擎并启动首次体验');
 
     // 1. 首先初始化半屏引擎
     final initSuccess = await AppStateService.initHalfScreenEngine();
     if (initSuccess) {
-      print('✅ [FirstUse] 半屏引擎初始化成功');
+      debugPrint('✅ [FirstUse] 半屏引擎初始化成功');
     } else {
-      print('⚠️ [FirstUse] 半屏引擎初始化失败');
+      debugPrint('⚠️ [FirstUse] 半屏引擎初始化失败');
     }
 
     // 2. 延迟启动首次体验，确保引擎完全就绪
@@ -3325,9 +3388,9 @@ class AssistsMessageService {
     // 3. 启动首次体验
     final startSuccess = await startFirstUse(packageName);
     if (startSuccess) {
-      print('✅ [FirstUse] 首次体验启动成功');
+      debugPrint('✅ [FirstUse] 首次体验启动成功');
     } else {
-      print('⚠️ [FirstUse] 首次体验启动失败');
+      debugPrint('⚠️ [FirstUse] 首次体验启动失败');
     }
   }
 
@@ -3346,7 +3409,7 @@ class AssistsMessageService {
       });
       return result;
     } on PlatformException catch (e) {
-      print('调用LLM chat失败: ${e.message}');
+      debugPrint('调用LLM chat失败: ${e.message}');
       return null;
     }
   }
@@ -3372,7 +3435,7 @@ class AssistsMessageService {
       );
       return result;
     } on PlatformException catch (e) {
-      print('生成记忆中心问候语失败: ${e.message}');
+      debugPrint('生成记忆中心问候语失败: ${e.message}');
       return null;
     }
   }
@@ -3448,7 +3511,7 @@ class AssistsMessageService {
       });
       return result == "SUCCESS";
     } on PlatformException catch (e) {
-      print('创建 Agent 任务失败: ${e.message}');
+      debugPrint('创建 Agent 任务失败: ${e.message}');
       return false;
     }
   }
@@ -3472,7 +3535,7 @@ class AssistsMessageService {
       if (result == null) return null;
       return result.map((key, value) => MapEntry(key.toString(), value));
     } on PlatformException catch (e) {
-      print('捕获 Workbench 标注截图失败: ${e.message}');
+      debugPrint('捕获 Workbench 标注截图失败: ${e.message}');
       return null;
     }
   }
@@ -3494,7 +3557,7 @@ class AssistsMessageService {
           });
       return Map<String, dynamic>.from(result ?? const {});
     } on PlatformException catch (e) {
-      print('手动压缩上下文失败: ${e.message}');
+      debugPrint('手动压缩上下文失败: ${e.message}');
       return {
         'compacted': false,
         'reason': 'failed',
@@ -3514,7 +3577,7 @@ class AssistsMessageService {
       if (result == null) return null;
       return result.map((k, v) => MapEntry(k.toString(), v));
     } on PlatformException catch (e) {
-      print('更新原生定时任务失败: ${e.message}');
+      debugPrint('更新原生定时任务失败: ${e.message}');
       return null;
     }
   }
@@ -3528,7 +3591,7 @@ class AssistsMessageService {
       if (result == null) return false;
       return result['deleted'] == true;
     } on PlatformException catch (e) {
-      print('删除原生定时任务失败: ${e.message}');
+      debugPrint('删除原生定时任务失败: ${e.message}');
       return false;
     }
   }
@@ -3547,7 +3610,7 @@ class AssistsMessageService {
       if (count is String) return int.tryParse(count) ?? 0;
       return 0;
     } on PlatformException catch (e) {
-      print('同步原生定时任务失败: ${e.message}');
+      debugPrint('同步原生定时任务失败: ${e.message}');
       return 0;
     }
   }
@@ -3562,7 +3625,7 @@ class AssistsMessageService {
           .map((item) => item.map((k, v) => MapEntry(k.toString(), v)))
           .toList();
     } on PlatformException catch (e) {
-      print('读取 Agent skills 失败: ${e.message}');
+      debugPrint('读取 Agent skills 失败: ${e.message}');
       return const [];
     }
   }
@@ -3578,7 +3641,7 @@ class AssistsMessageService {
       if (result == null) return null;
       return result.map((k, v) => MapEntry(k.toString(), v));
     } on PlatformException catch (e) {
-      print('安装 Agent skill 失败: ${e.message}');
+      debugPrint('安装 Agent skill 失败: ${e.message}');
       return null;
     }
   }
@@ -3595,7 +3658,7 @@ class AssistsMessageService {
       if (result == null) return null;
       return result.map((k, v) => MapEntry(k.toString(), v));
     } on PlatformException catch (e) {
-      print('切换 Agent skill 启用状态失败: ${e.message}');
+      debugPrint('切换 Agent skill 启用状态失败: ${e.message}');
       return null;
     }
   }
@@ -3609,7 +3672,7 @@ class AssistsMessageService {
       if (result == null) return false;
       return result['deleted'] == true;
     } on PlatformException catch (e) {
-      print('删除 Agent skill 失败: ${e.message}');
+      debugPrint('删除 Agent skill 失败: ${e.message}');
       return false;
     }
   }
@@ -3625,7 +3688,7 @@ class AssistsMessageService {
       if (result == null) return null;
       return result.map((k, v) => MapEntry(k.toString(), v));
     } on PlatformException catch (e) {
-      print('安装内置 Agent skill 失败: ${e.message}');
+      debugPrint('安装内置 Agent skill 失败: ${e.message}');
       return null;
     }
   }
@@ -3638,7 +3701,7 @@ class AssistsMessageService {
       if (result == null) return null;
       return result.map((k, v) => MapEntry(k.toString(), v));
     } on PlatformException catch (e) {
-      print('同步官方 Agent skills 失败: ${e.message}');
+      debugPrint('同步官方 Agent skills 失败: ${e.message}');
       return null;
     }
   }
@@ -3678,7 +3741,7 @@ class AssistsMessageService {
       });
       return result;
     } on PlatformException catch (e) {
-      print('调用openAPPMarket失败: ${e.message}');
+      debugPrint('调用openAPPMarket失败: ${e.message}');
       return null;
     }
   }
@@ -3689,7 +3752,7 @@ class AssistsMessageService {
       final result = await assistCore.invokeMethod<bool>('isDesktop');
       return result ?? false;
     } on PlatformException catch (e) {
-      print('检查是否在桌面失败: ${e.message}');
+      debugPrint('检查是否在桌面失败: ${e.message}');
       return false;
     }
   }
@@ -3705,7 +3768,7 @@ class AssistsMessageService {
       }
       return null;
     } on PlatformException catch (e) {
-      print('获取桌面包名失败: ${e.message}');
+      debugPrint('获取桌面包名失败: ${e.message}');
       return null;
     }
   }
@@ -3719,7 +3782,7 @@ class AssistsMessageService {
       );
       return result;
     } on PlatformException catch (e) {
-      print('获取当前应用包名失败: ${e.message}');
+      debugPrint('获取当前应用包名失败: ${e.message}');
       return null;
     }
   }
@@ -3733,7 +3796,7 @@ class AssistsMessageService {
       );
       return result == 'SUCCESS';
     } on PlatformException catch (e) {
-      print('同步自动回聊天设置失败: ${e.message}');
+      debugPrint('同步自动回聊天设置失败: ${e.message}');
       return false;
     }
   }
@@ -3748,7 +3811,7 @@ class AssistsMessageService {
       );
       return result == 'SUCCESS';
     } on PlatformException catch (e) {
-      print('Failed to sync prevent sleep setting: ${e.message}');
+      debugPrint('Failed to sync prevent sleep setting: ${e.message}');
       return false;
     }
   }
@@ -3761,7 +3824,7 @@ class AssistsMessageService {
       );
       return result == 'SUCCESS';
     } on PlatformException catch (e) {
-      print(
+      debugPrint(
         'Failed to sync task completion notification setting: ${e.message}',
       );
       return false;
@@ -3782,7 +3845,7 @@ class AssistsMessageService {
           });
       return result == 'SUCCESS';
     } on PlatformException catch (e) {
-      print('Failed to sync visible chat conversation: ${e.message}');
+      debugPrint('Failed to sync visible chat conversation: ${e.message}');
       return false;
     }
   }
@@ -3803,7 +3866,7 @@ class AssistsMessageService {
           });
       return result == 'SUCCESS';
     } on PlatformException catch (e) {
-      print('Failed to show task completion notification: ${e.message}');
+      debugPrint('Failed to show task completion notification: ${e.message}');
       return false;
     }
   }
@@ -3817,7 +3880,7 @@ class AssistsMessageService {
       );
       return result == 'SUCCESS';
     } on PlatformException catch (e) {
-      print('跳转到主引擎路由失败: ${e.message}');
+      debugPrint('跳转到主引擎路由失败: ${e.message}');
       return false;
     }
   }
@@ -3839,7 +3902,7 @@ class AssistsMessageService {
       );
       return result == 'SUCCESS';
     } on PlatformException catch (e) {
-      print('显示定时任务提醒失败: ${e.message}');
+      debugPrint('显示定时任务提醒失败: ${e.message}');
       return false;
     }
   }
@@ -3850,7 +3913,7 @@ class AssistsMessageService {
       final result = await assistCore.invokeMethod('hideScheduledTaskReminder');
       return result == 'SUCCESS';
     } on PlatformException catch (e) {
-      print('隐藏定时任务提醒失败: ${e.message}');
+      debugPrint('隐藏定时任务提醒失败: ${e.message}');
       return false;
     }
   }
@@ -3861,7 +3924,7 @@ class AssistsMessageService {
       final result = await assistCore.invokeMethod('reopenChatBotAfterAuth');
       return result == 'SUCCESS';
     } on PlatformException catch (e) {
-      print('重新打开ChatBot失败: ${e.message}');
+      debugPrint('重新打开ChatBot失败: ${e.message}');
       return false;
     }
   }

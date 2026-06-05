@@ -98,7 +98,7 @@ class _PermissionGuidePageState extends State<PermissionGuidePage> {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 18,
             offset: const Offset(0, 8),
           ),
@@ -116,7 +116,7 @@ class _PermissionGuidePageState extends State<PermissionGuidePage> {
                     vertical: 5,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.9),
+                    color: Colors.white.withValues(alpha: 0.9),
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(

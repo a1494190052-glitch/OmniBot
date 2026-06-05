@@ -195,7 +195,7 @@ class _ExecutableTaskCardState extends State<ExecutableTaskCard> {
 
       const String execMode = 'VLM';
 
-      print(
+      debugPrint(
         '执行任务 - packageName: $packageName, isHomeTask: $isHomeTask, execMode: $execMode',
       );
 
@@ -230,7 +230,7 @@ class _ExecutableTaskCardState extends State<ExecutableTaskCard> {
         showToast('任务执行出错', type: ToastType.error);
       }
     } catch (e) {
-      print('执行任务出错: $e');
+      debugPrint('执行任务出错: $e');
       if (mounted) {
         setState(() {
           _isExecuting = false;

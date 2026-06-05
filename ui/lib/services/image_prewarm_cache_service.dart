@@ -20,7 +20,7 @@ class ImagePrewarmCacheService {
         defaultValue: 0,
       );
 
-      print('[ImagePrewarmCache] 缓存时间戳: $timestamp');
+      debugPrint('[ImagePrewarmCache] 缓存时间戳: $timestamp');
 
       if (timestamp == 0) {
         return null;
@@ -42,7 +42,7 @@ class ImagePrewarmCacheService {
 
       return urls.isNotEmpty ? urls : null;
     } catch (e) {
-      print('[ImagePrewarmCache] 获取缓存失败: $e');
+      debugPrint('[ImagePrewarmCache] 获取缓存失败: $e');
       return null;
     }
   }
@@ -55,11 +55,11 @@ class ImagePrewarmCacheService {
         _timestampCacheKey,
         DateTime.now().millisecondsSinceEpoch,
       );
-      print(
+      debugPrint(
         '[ImagePrewarmCache] 缓存了 ${urls.length} 个 URL, 时间戳更新为 ${DateTime.now().millisecondsSinceEpoch}',
       );
     } catch (e) {
-      print('[ImagePrewarmCache] 缓存失败: $e');
+      debugPrint('[ImagePrewarmCache] 缓存失败: $e');
     }
   }
 
@@ -69,7 +69,7 @@ class ImagePrewarmCacheService {
       await CacheService.setStringList(_urlsCacheKey, []);
       await CacheService.setInt(_timestampCacheKey, 0);
     } catch (e) {
-      print('[ImagePrewarmCache] 清除缓存失败: $e');
+      debugPrint('[ImagePrewarmCache] 清除缓存失败: $e');
     }
   }
 
@@ -135,20 +135,21 @@ class SuggestionImagePrewarmService {
       final cachedUrls = await ImagePrewarmCacheService.getCachedUrls();
       if (cachedUrls != null && cachedUrls.isNotEmpty) {
         iconUrls = cachedUrls;
-        print('[$tag] 使用缓存的 ${iconUrls.length} 个 URL');
+        debugPrint('[$tag] 使用缓存的 ${iconUrls.length} 个 URL');
       } else {
         // 开源版不拉取远端推荐任务图标
         iconUrls = const [];
       }
 
       if (iconUrls.isNotEmpty) {
+        if (!context.mounted) return;
         await prewarmImagesToMemory(context, iconUrls);
-        print(
+        debugPrint(
           '[$tag] 预热 ${iconUrls.length} 张图片完成, 耗时: ${DateTime.now().difference(initStart).inMilliseconds}ms',
         );
       }
     } catch (e) {
-      print('[$tag] 预热图片失败: $e');
+      debugPrint('[$tag] 预热图片失败: $e');
     } finally {
       _isPrewarming = false;
     }

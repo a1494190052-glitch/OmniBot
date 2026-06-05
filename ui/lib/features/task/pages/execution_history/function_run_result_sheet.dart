@@ -350,6 +350,12 @@ class _RunResultMetrics extends StatelessWidget {
     final successCount = result.successStepCount > 0
         ? result.successStepCount
         : steps.where((step) => step['success'] != false).length;
+    final currentStepNumber = result.currentStepNumber;
+    final currentStepValue = currentStepNumber != null && currentStepNumber > 0
+        ? (stepCount > 0
+              ? '$currentStepNumber/$stepCount'
+              : '$currentStepNumber')
+        : '';
     return Wrap(
       spacing: 8,
       runSpacing: 8,
@@ -358,6 +364,15 @@ class _RunResultMetrics extends StatelessWidget {
           label: _text(context, '状态', 'Status'),
           value: _runStateText(context, result, rawStatus: status),
         ),
+        if (currentStepValue.isNotEmpty)
+          _MetricPill(
+            label: _text(context, '执行到', 'Current'),
+            value: _text(
+              context,
+              '第 $currentStepValue 步',
+              'Step $currentStepValue',
+            ),
+          ),
         if (stepCount > 0)
           _MetricPill(
             label: _text(context, '步骤', 'Steps'),
@@ -446,8 +461,8 @@ class _StepResultTile extends StatelessWidget {
     final color = skipped
         ? palette.textTertiary
         : success
-            ? _successColor(context)
-            : _errorColor(context);
+        ? _successColor(context)
+        : _errorColor(context);
     final title = _firstNonBlank([
       step['summary'],
       step['title'],
@@ -553,8 +568,8 @@ class _StepResultTile extends StatelessWidget {
               skipped
                   ? Icons.remove_circle_outline_rounded
                   : success
-                      ? Icons.check_circle_outline_rounded
-                      : Icons.error_outline_rounded,
+                  ? Icons.check_circle_outline_rounded
+                  : Icons.error_outline_rounded,
               size: 16,
               color: color,
             ),
@@ -845,9 +860,13 @@ String _runSubtitle(BuildContext context, UtgManualRunResult result) {
   final successCount = result.successStepCount > 0
       ? result.successStepCount
       : result.stepResults.where((step) => step['success'] != false).length;
+  final progressText = _runProgressText(context, result);
   final parts = <String>[
     _runStateText(context, result),
-    if (stepCount > 0) '$successCount/$stepCount',
+    if (progressText.isNotEmpty)
+      progressText
+    else if (stepCount > 0)
+      '$successCount/$stepCount',
   ].where((value) => value.trim().isNotEmpty).toList(growable: false);
   if (parts.isEmpty) {
     return result.success
@@ -855,6 +874,20 @@ String _runSubtitle(BuildContext context, UtgManualRunResult result) {
         : _text(context, '执行失败', 'Run failed');
   }
   return parts.join(' · ');
+}
+
+String _runProgressText(BuildContext context, UtgManualRunResult result) {
+  final currentStepNumber = result.currentStepNumber;
+  final stepCount = result.stepCount > 0
+      ? result.stepCount
+      : result.stepResults.length;
+  if (currentStepNumber != null && currentStepNumber > 0) {
+    final value = stepCount > 0
+        ? '$currentStepNumber/$stepCount'
+        : '$currentStepNumber';
+    return _text(context, '执行到第 $value 步', 'Step $value');
+  }
+  return '';
 }
 
 String _runStateText(
@@ -916,14 +949,6 @@ List<MapEntry<String, String>> _runArtifactEntries(
     _firstNonBlank([result.goal, result.rawJson['goal']]),
   );
   return entries;
-}
-
-Map<String, dynamic> _asMap(dynamic value) {
-  if (value is Map<String, dynamic>) return value;
-  if (value is Map) {
-    return value.map((key, item) => MapEntry(key.toString(), item));
-  }
-  return const <String, dynamic>{};
 }
 
 String _firstNonBlank(Iterable<dynamic> values) {

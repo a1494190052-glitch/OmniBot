@@ -309,6 +309,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
     if (specJson.isEmpty) {
       specJson = _minimalRegisteredFunctionSpecFromPayload(payload, functionId);
     }
+    if (!mounted) return null;
     final useEnglish = _localeValue(context, zh: false, en: true);
     final agentPrompt = RunLogReusableFunctionConverter.buildAgentPrompt(
       specJson,
@@ -4190,39 +4191,68 @@ class _ReusableFunctionSpecSheetState
   }
 
   String _runSuccessMessage(BuildContext context, UtgManualRunResult result) {
+    final progressText = _runProgressText(context, result);
     if (result.completedVlmFallback) {
-      return _text(
-        context,
-        '复用指令已通过 VLM 执行完成',
-        'Reusable Function completed by VLM',
+      return _appendRunProgress(
+        _text(
+          context,
+          '复用指令已通过 VLM 执行完成',
+          'Reusable Function completed by VLM',
+        ),
+        progressText,
       );
     }
     if (result.startedAgentFallback) {
       final taskId = result.taskId;
-      return _localeValue(
-        context,
-        zh: taskId.isEmpty ? '已交给 Agent 继续执行' : '已交给 Agent 继续执行：$taskId',
-        en: taskId.isEmpty
-            ? 'Handed off to Agent'
-            : 'Handed off to Agent: $taskId',
+      return _appendRunProgress(
+        _localeValue(
+          context,
+          zh: taskId.isEmpty ? '已交给 Agent 继续执行' : '已交给 Agent 继续执行：$taskId',
+          en: taskId.isEmpty
+              ? 'Handed off to Agent'
+              : 'Handed off to Agent: $taskId',
+        ),
+        progressText,
       );
     }
     if (result.completedLocal) {
-      return _text(
-        context,
-        '复用指令已本地执行完成',
-        'Reusable Function completed locally',
+      return _appendRunProgress(
+        _text(context, '复用指令已本地执行完成', 'Reusable Function completed locally'),
+        progressText,
       );
     }
-    return _text(context, '复用指令已开始执行', 'Reusable Function started');
+    return _appendRunProgress(
+      _text(context, '复用指令已开始执行', 'Reusable Function started'),
+      progressText,
+    );
   }
 
   String _runFailureMessage(BuildContext context, UtgManualRunResult result) {
+    final progressText = _runProgressText(context, result);
     final error = result.errorMessage?.trim();
     if (error != null && error.isNotEmpty) {
-      return error;
+      return _appendRunProgress(error, progressText);
     }
-    return _text(context, '复用指令执行失败', 'Reusable Function failed');
+    return _appendRunProgress(
+      _text(context, '复用指令执行失败', 'Reusable Function failed'),
+      progressText,
+    );
+  }
+
+  String _runProgressText(BuildContext context, UtgManualRunResult result) {
+    final currentStepNumber = result.currentStepNumber;
+    final stepCount = result.stepCount;
+    if (currentStepNumber != null && currentStepNumber > 0) {
+      final value = stepCount > 0
+          ? '$currentStepNumber/$stepCount'
+          : '$currentStepNumber';
+      return _text(context, '执行到第 $value 步', 'Step $value');
+    }
+    return '';
+  }
+
+  String _appendRunProgress(String message, String progressText) {
+    return progressText.isEmpty ? message : '$message · $progressText';
   }
 }
 
@@ -5784,8 +5814,11 @@ class _FunctionApiStatusBox extends StatelessWidget {
   }
 
   String _runStatusText(BuildContext context, UtgManualRunResult result) {
+    final progressText = _runProgressText(context, result);
     final stepCount = result.stepCount;
-    final stepText = stepCount > 0
+    final stepText = progressText.isNotEmpty
+        ? ' · $progressText'
+        : stepCount > 0
         ? ' · ${result.successStepCount}/$stepCount'
         : '';
     if (result.completedVlmFallback) {
@@ -5813,6 +5846,18 @@ class _FunctionApiStatusBox extends StatelessWidget {
       return _text(context, '执行：失败$stepText', 'Run: failed$stepText');
     }
     return _text(context, '执行：已开始$stepText', 'Run: started$stepText');
+  }
+
+  String _runProgressText(BuildContext context, UtgManualRunResult result) {
+    final currentStepNumber = result.currentStepNumber;
+    final stepCount = result.stepCount;
+    if (currentStepNumber != null && currentStepNumber > 0) {
+      final value = stepCount > 0
+          ? '$currentStepNumber/$stepCount'
+          : '$currentStepNumber';
+      return _text(context, '执行到第 $value 步', 'Step $value');
+    }
+    return '';
   }
 }
 

@@ -9,9 +9,9 @@ class AppOptionsCard extends StatefulWidget {
   final AppOptionsBlock block;
 
   const AppOptionsCard({
-    Key? key,
+    super.key,
     required this.block,
-  }) : super(key: key);
+  });
 
   @override
   State<AppOptionsCard> createState() => _AppOptionsCardState();
@@ -29,7 +29,7 @@ class _AppOptionsCardState extends State<AppOptionsCard>
       _executing = false;
     });
     _ctrl.reset();
-    print('Confirmed apps: ${_selected.map((a) => a.name).toList()}');
+    debugPrint('Confirmed apps: ${_selected.map((a) => a.name).toList()}');
   }
 
   void onAppCancel() {
@@ -38,7 +38,7 @@ class _AppOptionsCardState extends State<AppOptionsCard>
       _executing = false;
     });
     _ctrl.reset();
-    print('App selection cancelled');
+    debugPrint('App selection cancelled');
   }
 
   void onButtonPressed(ButtonModel button) {
@@ -50,7 +50,7 @@ class _AppOptionsCardState extends State<AppOptionsCard>
   }
 
   void onAppSelectionChanged(List<AppOption> selected) {
-    print('App selection changed');
+    debugPrint('App selection changed');
   }
   
   @override

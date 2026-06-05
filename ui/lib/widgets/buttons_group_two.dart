@@ -10,13 +10,13 @@ class ButtonsGroupTwo extends StatelessWidget {
   final Function(ButtonModel)? onButtonPressed;
 
   const ButtonsGroupTwo({
-    Key? key,
+    super.key,
     this.countdownAnimation,
     this.isExecuting = false,
     this.leftButton,
     this.rightButton,
     this.onButtonPressed,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

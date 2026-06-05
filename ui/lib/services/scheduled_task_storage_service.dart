@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -27,7 +28,7 @@ class ScheduledTaskStorageService {
       }
       return saved;
     } catch (e) {
-      print('保存定时任务失败: $e');
+      debugPrint('保存定时任务失败: $e');
       return false;
     }
   }
@@ -51,7 +52,7 @@ class ScheduledTaskStorageService {
         return ScheduledTask.fromJson(json);
       }).toList();
     } catch (e) {
-      print('加载定时任务失败: $e');
+      debugPrint('加载定时任务失败: $e');
       return [];
     }
   }
@@ -71,7 +72,7 @@ class ScheduledTaskStorageService {
 
       return await saveScheduledTasks(tasks);
     } catch (e) {
-      print('添加定时任务失败: $e');
+      debugPrint('添加定时任务失败: $e');
       return false;
     }
   }
@@ -89,7 +90,7 @@ class ScheduledTaskStorageService {
       tasks[index] = task;
       return await saveScheduledTasks(tasks);
     } catch (e) {
-      print('更新定时任务失败: $e');
+      debugPrint('更新定时任务失败: $e');
       return false;
     }
   }
@@ -101,7 +102,7 @@ class ScheduledTaskStorageService {
       tasks.removeWhere((task) => task.id == taskId);
       return await saveScheduledTasks(tasks);
     } catch (e) {
-      print('删除定时任务失败: $e');
+      debugPrint('删除定时任务失败: $e');
       return false;
     }
   }
@@ -134,7 +135,7 @@ class ScheduledTaskStorageService {
       }
       return cleared;
     } catch (e) {
-      print('清空定时任务失败: $e');
+      debugPrint('清空定时任务失败: $e');
       return false;
     }
   }

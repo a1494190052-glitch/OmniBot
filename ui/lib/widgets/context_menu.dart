@@ -46,7 +46,7 @@ Future<RecordMenuAction?> showRecordContextMenu({
                 width: 22.5,
                 height: 18.28,
                 colorFilter: ColorFilter.mode(
-                  Colors.black.withOpacity(0.70),
+                  Colors.black.withValues(alpha: 0.70),
                   BlendMode.srcIn,
                 ),
                 errorBuilder: (ctx, err, stack) {
@@ -130,10 +130,10 @@ Future<RecordMenuAction?> showRecordContextMenu({
       globalOffset: position,
       estimatedMenuHeight: showEdit && showDelete ? 120 : 90,
     ),
-    color: const Color(0xFFF9F9F9).withOpacity(0.9),
+    color: const Color(0xFFF9F9F9).withValues(alpha: 0.9),
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     elevation: 5,
-    shadowColor: Colors.black.withOpacity(0.05),
+    shadowColor: Colors.black.withValues(alpha: 0.05),
     menuPadding: EdgeInsets.zero,
     constraints: BoxConstraints(maxWidth: maxWidth),
     items: items,

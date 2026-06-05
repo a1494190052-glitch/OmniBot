@@ -475,10 +475,16 @@ internal fun buildOobReusableFunctionVlmContinuationPayload(
     argumentCount: Int,
 ): Map<String, Any?> {
     val executionStatus = OOB_REUSABLE_EXECUTION_STATUS_VLM_CONTINUATION_REQUIRED
-    val stepCount = stepResults.size
+    val stepCount = (runPayload["step_count"] as? Number)?.toInt() ?: stepResults.size
     val successStepCount = stepResults.count { it["success"] != false }
     val timing = runPayload["timing"]
     val runner = runPayload["runner"] ?: "oob_mixed_runner"
+    val pendingStepIndex = pendingModelStepCount.takeIf { it > 0 }?.let {
+        stepResults.firstOrNull(::isOobReusableFunctionPendingModelStep)?.get("index")
+    }
+    val currentStepIndex = runPayload["current_step_index"] ?: pendingStepIndex
+    val currentStepNumber = runPayload["current_step_number"]
+        ?: (currentStepIndex as? Number)?.toInt()?.plus(1)
     val sharedExecutionMeta = linkedMapOf<String, Any?>(
         "taskId" to continuationId,
         "continuation_id" to continuationId,
@@ -489,7 +495,13 @@ internal fun buildOobReusableFunctionVlmContinuationPayload(
         "local_steps_completed" to completedStepCount,
         "model_steps_pending" to pendingModelStepCount,
         "step_count" to stepCount,
+        "active_step_count" to runPayload["active_step_count"],
         "success_step_count" to successStepCount,
+        "completed_step_count" to (runPayload["completed_step_count"] ?: completedStepCount),
+        "resume_from_step" to runPayload["resume_from_step"],
+        "failed_step_index" to runPayload["failed_step_index"],
+        "current_step_index" to currentStepIndex,
+        "current_step_number" to currentStepNumber,
         "arguments_applied" to true,
         "model_required" to (runPayload["model_required"] == true),
         "timing" to timing
@@ -538,12 +550,24 @@ internal fun buildOobReusableFunctionLocalPayload(
         ?: stepResults.count { it["success"] != false }
     val timing = runPayload["timing"]
     val runner = runPayload["runner"] ?: "oob_mixed_runner"
+    val failedStepIndex = runPayload["failed_step_index"]
+    val currentStepIndex = runPayload["current_step_index"]
+        ?: failedStepIndex
+        ?: stepResults.lastOrNull()?.get("index")
+    val currentStepNumber = runPayload["current_step_number"]
+        ?: (currentStepIndex as? Number)?.toInt()?.plus(1)
     val sharedExecutionMeta = linkedMapOf<String, Any?>(
         "source" to "omniflow_replay",
         "run_source" to "omniflow_replay",
         "runner" to runner,
         "step_count" to stepCount,
+        "active_step_count" to runPayload["active_step_count"],
         "success_step_count" to successStepCount,
+        "completed_step_count" to (runPayload["completed_step_count"] ?: successStepCount),
+        "resume_from_step" to runPayload["resume_from_step"],
+        "failed_step_index" to failedStepIndex,
+        "current_step_index" to currentStepIndex,
+        "current_step_number" to currentStepNumber,
         "model_used" to (runPayload["model_used"] == true),
         "model_required" to (runPayload["model_required"] == true),
         "delegated_tool_used" to (runPayload["delegated_tool_used"] == true),

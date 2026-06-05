@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:ui/services/assists_core_service.dart';
 
 /// AI聊天服务
@@ -25,13 +26,13 @@ class AiChatService {
   }
 
   void _handleChatMessageCallback(String taskId, String content, String? type) {
-    print(
+    debugPrint(
       '_handleChatMessageCallback called: taskId=$taskId, content=$content, type=$type',
     );
     try {
       _onMessageCallback?.call(taskId, content, type);
     } catch (e) {
-      print('解析聊天消息失败: $e');
+      debugPrint('解析聊天消息失败: $e');
     }
   }
 

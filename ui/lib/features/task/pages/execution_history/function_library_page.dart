@@ -216,7 +216,7 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
       showToast(
         result.success
             ? _runSuccessMessage(context, result)
-            : (result.errorMessage ?? _text(context, '执行失败', 'Failed')),
+            : _runFailureMessage(context, result),
         type: result.success ? ToastType.success : ToastType.error,
         duration: const Duration(seconds: 3),
       );
@@ -564,7 +564,7 @@ class _FunctionLibraryEmbedState extends State<FunctionLibraryEmbed>
       showToast(
         result.success
             ? _runSuccessMessage(context, result)
-            : (result.errorMessage ?? _text(context, '执行失败', 'Failed')),
+            : _runFailureMessage(context, result),
         type: result.success ? ToastType.success : ToastType.error,
         duration: const Duration(seconds: 3),
       );
@@ -1850,23 +1850,57 @@ String _text(BuildContext context, String zh, String en) {
 }
 
 String _runSuccessMessage(BuildContext context, UtgManualRunResult result) {
+  final progressText = _runProgressText(context, result);
   if (result.completedVlmFallback) {
-    return _text(
-      context,
-      '复用指令已通过 VLM 执行完成',
-      'Reusable Function completed by VLM',
+    return _appendRunProgress(
+      _text(context, '复用指令已通过 VLM 执行完成', 'Reusable Function completed by VLM'),
+      progressText,
     );
   }
   if (result.startedAgentFallback) {
     final taskId = result.taskId;
-    return _text(
-      context,
-      taskId.isEmpty ? '已交给 Agent 继续执行' : '已交给 Agent 继续执行：$taskId',
-      taskId.isEmpty ? 'Handed off to Agent' : 'Handed off to Agent: $taskId',
+    return _appendRunProgress(
+      _text(
+        context,
+        taskId.isEmpty ? '已交给 Agent 继续执行' : '已交给 Agent 继续执行：$taskId',
+        taskId.isEmpty ? 'Handed off to Agent' : 'Handed off to Agent: $taskId',
+      ),
+      progressText,
     );
   }
   if (result.completedLocal) {
-    return _text(context, '复用指令已本地执行完成', 'Reusable Function completed locally');
+    return _appendRunProgress(
+      _text(context, '复用指令已本地执行完成', 'Reusable Function completed locally'),
+      progressText,
+    );
   }
-  return _text(context, '复用指令已开始执行', 'Reusable Function started');
+  return _appendRunProgress(
+    _text(context, '复用指令已开始执行', 'Reusable Function started'),
+    progressText,
+  );
+}
+
+String _runFailureMessage(BuildContext context, UtgManualRunResult result) {
+  final progressText = _runProgressText(context, result);
+  final error = result.errorMessage?.trim();
+  return _appendRunProgress(
+    error == null || error.isEmpty ? _text(context, '执行失败', 'Failed') : error,
+    progressText,
+  );
+}
+
+String _runProgressText(BuildContext context, UtgManualRunResult result) {
+  final currentStepNumber = result.currentStepNumber;
+  final stepCount = result.stepCount;
+  if (currentStepNumber != null && currentStepNumber > 0) {
+    final value = stepCount > 0
+        ? '$currentStepNumber/$stepCount'
+        : '$currentStepNumber';
+    return _text(context, '执行到第 $value 步', 'Step $value');
+  }
+  return '';
+}
+
+String _appendRunProgress(String message, String progressText) {
+  return progressText.isEmpty ? message : '$message · $progressText';
 }

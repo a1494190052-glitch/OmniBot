@@ -110,7 +110,7 @@ class _WelcomePlaceHolderState extends State<WelcomePlaceHolder> {
         mainAxisSize: MainAxisSize.min,
         children: [
           SizedBox(height: 100),
-          Container(
+          SizedBox(
             width: 160,
             height: 140,
             child: Image.asset(

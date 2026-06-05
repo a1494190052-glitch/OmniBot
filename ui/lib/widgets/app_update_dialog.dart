@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart' show LaunchMode;
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/services/app_update_service.dart';

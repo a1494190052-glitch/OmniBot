@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
-import 'package:ui/theme/app_colors.dart';
-import 'package:ui/theme/app_text_styles.dart';
 import 'package:ui/features/task/pages/execution_history/widgets/execution_record_list_item.dart';
 
 class ExecutionRecordList extends StatelessWidget {
@@ -18,7 +16,7 @@ class ExecutionRecordList extends StatelessWidget {
   final Function(ExecutionRecordListItemData)? onSchedulePressed;
   final Set<String> scheduledTaskKeys;
 
-  const ExecutionRecordList({
+  const ExecutionRecordList({super.key, 
     required this.records,
     required this.onDelete,
     required this.onMore,
@@ -95,22 +93,4 @@ class ExecutionRecordList extends StatelessWidget {
     );
   }
 
-  Widget _buildSectionHeader(String section) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      alignment: Alignment.centerLeft,
-      height: 20,
-      child: Text(
-        section,
-        style: TextStyle(
-          fontSize: AppTextStyles.fontSizeSmall,
-          color: AppColors.text50,
-          fontWeight: AppTextStyles.fontWeightRegular,
-          height: AppTextStyles.lineHeightH2,
-          letterSpacing: AppTextStyles.letterSpacingNormal,
-        ),
-      ),
-    );
-  }
 }

@@ -385,7 +385,6 @@ class LegacyTextLocalizer {
     '错误信息': 'Error',
     '请求 JSON': 'Request JSON',
     '响应 JSON': 'Response JSON',
-    '刷新': 'Refresh',
     '重试': 'Retry',
     '加载请求日志失败': 'Failed to load request logs',
     '最近还没有 AI 请求日志': 'No AI request logs yet',
