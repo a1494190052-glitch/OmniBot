@@ -259,6 +259,40 @@ class VlmRecallGuidanceBuilderTest {
     }
 
     @Test
+    fun `catalog function candidate renders preferred call_tool guidance`() {
+        val guidance = VlmRecallGuidanceBuilder.renderGuidance(
+            mapOf(
+                "success" to true,
+                "decision" to "recall",
+                "decision_policy" to mapOf(
+                    "mode" to "function_catalog_context",
+                    "requires_vlm_or_tool_decision" to true,
+                ),
+                "candidates" to listOf(
+                    mapOf(
+                        "function_id" to "open_settings_from_history",
+                        "name" to "Open Settings",
+                        "description" to "Open Android Settings from any current screen.",
+                        "score" to 0.99,
+                        "text_score" to 0.99,
+                        "recall_scope" to "function_catalog",
+                        "requires_arguments" to false,
+                        "function_profile" to mapOf(
+                            "purpose" to "Open Android Settings",
+                            "package_name" to "com.android.settings",
+                        ),
+                    )
+                ),
+            )
+        )
+
+        assertTrue(guidance.contains("preferred_call_tool"))
+        assertTrue(guidance.contains("\"name\":\"call_tool\""))
+        assertTrue(guidance.contains("open_settings_from_history"))
+        assertTrue(guidance.contains("mode=function_catalog_context"))
+    }
+
+    @Test
     fun `agent safe payload removes recall timing fields`() {
         val safe = VlmRecallGuidanceBuilder.agentSafePayload(
             mapOf(

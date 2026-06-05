@@ -1393,14 +1393,22 @@ class OobOmniFlowLoopAcceptanceTest {
                 )
             )
             assertEquals(true, recall["success"])
-            assertEquals("miss", recall["decision"])
-            assertEquals("missing_current_page_for_udeg_page_match", recall["reason"])
+            assertEquals("recall", recall["decision"])
+            assertEquals("function_catalog_goal_match_without_current_page", recall["reason"])
+            assertEquals("oob_native_function_catalog_recall", recall["source"])
+            val recallCandidates = recall["candidates"] as? List<*>
+            val firstRecallCandidate = recallCandidates?.firstOrNull() as? Map<*, *>
+            assertEquals(childFunctionId, firstRecallCandidate?.get("function_id"))
+            assertEquals("function_catalog", firstRecallCandidate?.get("recall_scope"))
+            val decisionPolicy = recall["decision_policy"] as? Map<*, *>
+            assertEquals("function_catalog_context", decisionPolicy?.get("mode"))
             val recallTiming = requireNotNull(recall["timing"] as? Map<*, *>)
             assertEquals("oob_omniflow_recall", recallTiming["source"])
             assertTrue((recallTiming["duration_ms"] as Number).toLong() >= 0L)
             assertRecallTimingPhases(recallTiming)
             val recallCounts = recallTiming["counts"] as? Map<*, *>
             assertFalse(recallCounts.orEmpty().containsKey("segment_candidates"))
+            assertTrue(((recallCounts?.get("catalog_function_candidates") as? Number)?.toInt() ?: 0) > 0)
 
             val firstRun = toolkit.runFunction(
                 mapOf(
