@@ -6,7 +6,7 @@ import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentToolDefinitions
 import cn.com.omnimind.bot.agent.AgentToolJson.mapToJsonElement
 import cn.com.omnimind.bot.agent.config.AgentToolFeatureStore
-import cn.com.omnimind.bot.runlog.OobFunctionSchemaBuilder
+import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add

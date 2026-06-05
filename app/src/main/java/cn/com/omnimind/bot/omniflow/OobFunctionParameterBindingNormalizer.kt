@@ -2,7 +2,7 @@ package cn.com.omnimind.bot.omniflow
 
 import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
 import cn.com.omnimind.bot.runlog.OobActionCodec
-import cn.com.omnimind.bot.runlog.OobFunctionSchemaBuilder
+import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
 
 /**
  * Normalizes runtime parameter bindings at the Function storage boundary.

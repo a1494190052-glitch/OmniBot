@@ -12,7 +12,7 @@ import cn.com.omnimind.bot.agent.AgentToolJson.mapToJsonElement
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
 import cn.com.omnimind.bot.omniflow.OobFunctionArgumentBindingValidator
 import cn.com.omnimind.bot.runlog.OmniflowCheckerRule
-import cn.com.omnimind.bot.runlog.OobFunctionSchemaBuilder
+import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
 import cn.com.omnimind.bot.runlog.OobActionCodec
 import cn.com.omnimind.bot.runlog.OobUdegNodeStore
 import cn.com.omnimind.bot.runlog.OmniflowStepExecutor

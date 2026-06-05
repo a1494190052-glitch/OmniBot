@@ -2,7 +2,7 @@ package cn.com.omnimind.bot.workbench
 
 import android.content.Context
 import cn.com.omnimind.bot.runlog.RunLogReusableFunctionCompiler
-import cn.com.omnimind.bot.runlog.OobFunctionSchemaBuilder
+import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
 import cn.com.omnimind.baselib.runlog.InternalRunLogRecord
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
 import cn.com.omnimind.baselib.util.OmniLog

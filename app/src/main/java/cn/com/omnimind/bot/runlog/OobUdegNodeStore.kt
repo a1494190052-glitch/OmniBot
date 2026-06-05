@@ -1,6 +1,7 @@
 package cn.com.omnimind.bot.runlog
 
 import android.content.Context
+import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
 import com.google.gson.GsonBuilder
 import org.w3c.dom.Element
 import org.xml.sax.InputSource
