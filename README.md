@@ -48,12 +48,9 @@ OpenOmniBot is an on-device AI agent built with native Android Kotlin and Flutte
 - **Productivity tools**: Read and write files, browse the workspace, use the browser, and access the terminal.
 
 <p align="center">
-  <img src="docs/tutorial/example.png" alt="Example" width="360" />
+  <img src="docs/tutorial/example.png" alt="Example" />
 </p>
 
-<p align="center">
-  <img src="docs/tutorial/ui.png" alt="ui" width="360" />
-</p>
 
 <details>
 <summary id="quick-start"><strong>Quick Start</strong></summary>
@@ -141,6 +138,16 @@ Scheduled tasks can execute work such as VLM tasks and subagent flows. Alarms ar
   <img src="docs/tutorial/workspace.jpg" alt="Workspace" width="260" />
 </p>
 
+### Remote Codex bridge
+
+To use Codex mode with Codex running on a PC or Mac, start `codex-bridge` on the computer where the Codex CLI is installed and logged in:
+
+```bash
+npx @thuocean/codex-bridge
+```
+
+Choose the LAN address and token mode in the terminal setup UI, then scan the printed QR code from OpenOmniBot's Codex settings. For advanced options and troubleshooting, see the [codex-bridge README](tools/codex-bridge/README.md).
+
 </details>
 
 <h2 id="development-guide">Development Guide</h2>
@@ -205,7 +212,7 @@ OpenOmniBot/
 
 <h2 id="community">Community</h2>
 
-Thanks to the community （ including [LINUX](linux.do) ）developers supporting OpenOmniBot.
+Thanks to the community （ including linux.do ）developers supporting OpenOmniBot.
 
 Special thanks to these open-source projects:
 

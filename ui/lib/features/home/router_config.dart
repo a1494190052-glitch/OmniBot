@@ -217,6 +217,7 @@ List<GoRoute> homeRoutes = [
         shellPath: extra['shellPath']?.toString(),
         exists: extra['exists'] != false,
         startInEditMode: extra['startInEditMode'] == true,
+        showPathBar: false,
       );
     },
   ),

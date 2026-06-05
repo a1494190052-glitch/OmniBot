@@ -1,11 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/features/home/pages/chat/tool_activity_utils.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_transcript.dart';
 import 'package:ui/features/task/pages/execution_history/run_log_timeline_page.dart';
 import 'package:ui/services/agent_tool_card_policy.dart';
 import 'package:ui/services/app_background_service.dart';
+import 'package:ui/services/codex_diff_parser.dart';
+import 'package:ui/services/codex_tool_call_parser.dart';
 import 'package:ui/theme/theme_context.dart';
 
 class AgentToolSummaryCard extends StatelessWidget {
@@ -50,13 +53,9 @@ class AgentToolSummaryCard extends StatelessWidget {
             palette.surfaceSecondary,
           )
         : statusColor.withValues(alpha: 0.08);
-    final cardBorderColor = context.isDarkTheme
-        ? Color.lerp(
-            palette.borderSubtle,
-            statusColor,
-            0.18,
-          )!.withValues(alpha: 0.92)
-        : Colors.transparent;
+    final cardBorder = context.isDarkTheme
+        ? null
+        : Border.all(color: Colors.transparent);
     final statusTagBackgroundColor = context.isDarkTheme
         ? Color.alphaBlend(
             statusColor.withValues(alpha: 0.14),

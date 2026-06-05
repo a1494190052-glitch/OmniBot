@@ -5,6 +5,7 @@ import 'package:flutter_switch/flutter_switch.dart';
 import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/features/home/state/habitual_hand_controller.dart';
 import 'package:ui/l10n/l10n.dart';
+import 'package:ui/models/chat_startup_behavior.dart';
 import 'package:ui/models/habitual_hand.dart';
 import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/services/hide_from_recents_service.dart';
@@ -31,6 +32,7 @@ class _ExperienceMiscSettingPageState
   bool _preventScreenSleepDuringTasksEnabled = true;
   bool _taskCompletionNotificationEnabled = true;
   bool _useIndependentChatSendButton = true;
+  ChatStartupBehavior _chatStartupBehavior = ChatStartupBehavior.resumeLast;
 
   @override
   void initState() {
@@ -57,6 +59,7 @@ class _ExperienceMiscSettingPageState
 
     _useIndependentChatSendButton =
         StorageService.isIndependentChatSendButtonEnabled();
+    _chatStartupBehavior = StorageService.getChatStartupBehavior();
     _loadHideFromRecentsState();
     _loadVibrationState();
     _loadAutoBackToChatAfterTaskState();
@@ -234,6 +237,21 @@ class _ExperienceMiscSettingPageState
     });
   }
 
+  Future<void> _onChatStartupBehaviorChanged(ChatStartupBehavior? value) async {
+    if (value == null) {
+      return;
+    }
+    final saved = await StorageService.setChatStartupBehavior(value);
+    if (!mounted) return;
+    if (!saved) {
+      showToast(context.l10n.settingsSaveFailed, type: ToastType.error);
+      return;
+    }
+    setState(() {
+      _chatStartupBehavior = value;
+    });
+  }
+
   Future<void> _onHabitualHandChanged(HabitualHand? value) async {
     if (value == null) {
       return;
@@ -269,6 +287,12 @@ class _ExperienceMiscSettingPageState
             onTap: () {
               GoRouterManager.push('/home/home_setting');
             },
+          ),
+          _SettingItem(
+            icon: Icons.power_settings_new_rounded,
+            title: context.trLegacy('启动时'),
+            subtitle: context.trLegacy('选择应用启动后打开的对话'),
+            trailing: _buildStartupBehaviorDropdown(_chatStartupBehavior),
           ),
           _SettingItem(
             icon: Icons.visibility_off_outlined,
@@ -546,6 +570,46 @@ class _ExperienceMiscSettingPageState
 
   Widget _buildDropdownText(String text) {
     return Text(text, maxLines: 1, overflow: TextOverflow.ellipsis);
+  }
+
+  Widget _buildStartupBehaviorDropdown(ChatStartupBehavior value) {
+    final palette = context.omniPalette;
+    return Padding(
+      padding: const EdgeInsets.only(left: 12),
+      child: SizedBox(
+        width: 132,
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<ChatStartupBehavior>(
+            value: value,
+            isDense: true,
+            isExpanded: true,
+            borderRadius: BorderRadius.circular(10),
+            dropdownColor: palette.surfacePrimary,
+            style: TextStyle(
+              color: palette.textPrimary,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+            icon: Icon(
+              Icons.keyboard_arrow_down_rounded,
+              size: 18,
+              color: palette.textTertiary,
+            ),
+            items: ChatStartupBehavior.values
+                .map(
+                  (behavior) => DropdownMenuItem(
+                    value: behavior,
+                    child: _buildDropdownText(
+                      context.trLegacy(behavior.legacyLabel),
+                    ),
+                  ),
+                )
+                .toList(),
+            onChanged: _onChatStartupBehaviorChanged,
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildSwitchTrailing({

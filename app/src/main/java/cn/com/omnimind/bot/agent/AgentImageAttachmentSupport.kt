@@ -15,6 +15,7 @@ internal object AgentImageAttachmentSupport {
     private const val NO_BYPASS_THRESHOLD = 0L
 
     internal data class PreparedAttachments(
+        val runtimeAttachments: List<Map<String, Any?>>,
         val modelAttachments: List<Map<String, Any?>>,
         val historyAttachments: List<Map<String, Any?>>
     )
@@ -92,20 +93,47 @@ internal object AgentImageAttachmentSupport {
 
     fun prepareAttachments(rawAttachments: List<Map<String, Any?>>): PreparedAttachments {
         if (rawAttachments.isEmpty()) {
-            return PreparedAttachments(emptyList(), emptyList())
+            return PreparedAttachments(
+                runtimeAttachments = emptyList(),
+                modelAttachments = emptyList(),
+                historyAttachments = emptyList()
+            )
         }
+        val runtimeAttachments = mutableListOf<Map<String, Any?>>()
         val modelAttachments = mutableListOf<Map<String, Any?>>()
         val historyAttachments = mutableListOf<Map<String, Any?>>()
         rawAttachments.forEach { raw ->
             val prepared = prepareSingleAttachment(raw) ?: return@forEach
-            if (shouldSendAttachmentToModel(raw)) {
+            val shouldSendToModel = shouldSendAttachmentToModel(raw)
+            val isImage = prepared.second["isImage"] == true
+            if (shouldSendToModel && isImage) {
                 modelAttachments += prepared.first
+            }
+            runtimeAttachments += if (shouldSendToModel && isImage) {
+                prepared.first
+            } else {
+                prepared.second
             }
             historyAttachments += prepared.second
         }
         return PreparedAttachments(
+            runtimeAttachments = runtimeAttachments,
             modelAttachments = modelAttachments,
             historyAttachments = historyAttachments
+        )
+    }
+
+    internal fun isImageAttachment(attachment: Map<String, Any?>): Boolean {
+        val localPath = localPathFromAttachment(attachment)
+        val remoteUrl = remoteUrlFromAttachment(attachment)
+        val dataUrl = dataUrlFromAttachment(attachment)
+        val mimeType = mimeTypeFromAttachment(attachment)
+        return detectImageAttachment(
+            attachment = attachment,
+            mimeType = mimeType,
+            localPath = localPath,
+            remoteUrl = remoteUrl,
+            dataUrl = dataUrl
         )
     }
 
@@ -176,7 +204,7 @@ internal object AgentImageAttachmentSupport {
         val remoteUrl = remoteUrlFromAttachment(raw)
         val dataUrl = dataUrlFromAttachment(raw)
         val mimeType = mimeTypeFromAttachment(raw)
-        val isImage = isImageAttachment(
+        val isImage = detectImageAttachment(
             attachment = raw,
             mimeType = mimeType,
             localPath = localPath,
@@ -353,7 +381,7 @@ internal object AgentImageAttachmentSupport {
         }?.takeIf { it >= 0L }
     }
 
-    private fun isImageAttachment(
+    private fun detectImageAttachment(
         attachment: Map<String, Any?>,
         mimeType: String,
         localPath: String?,

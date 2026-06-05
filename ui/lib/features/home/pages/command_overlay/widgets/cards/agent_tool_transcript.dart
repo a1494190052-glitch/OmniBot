@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:ui/features/home/pages/chat/tool_activity_utils.dart';
+import 'package:ui/features/home/pages/command_overlay/widgets/cards/codex_diff_viewer.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/terminal_output_utils.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/services/agent_tool_card_policy.dart';
@@ -740,6 +742,24 @@ class _AgentToolDetailSheetFrameState
     });
   }
 
+  void _persistHeightFactor() {
+    final heightFactor = _heightFactor;
+    if (heightFactor == null) {
+      return;
+    }
+    try {
+      unawaited(
+        ChatDetailSheetPreferences.saveHeightFactor(
+          heightFactor,
+          min: _minHeightFactor,
+          max: _maxHeightFactor,
+        ).catchError((_) {}),
+      );
+    } catch (_) {
+      // Storage may not be initialized in tests or cold-start edge cases.
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
@@ -759,7 +779,7 @@ class _AgentToolDetailSheetFrameState
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOutCubic,
         padding: EdgeInsets.only(bottom: mediaQuery.viewInsets.bottom),
-        child: SizedBox(
+        child: OmniGlassPanel(
           key: kAgentToolDetailSheetKey,
           height: availableHeight * heightFactor,
           width: double.infinity,
@@ -812,12 +832,31 @@ class _AgentToolDetailSheetFrameState
                     ),
                   ],
                 ),
-              ),
+                Expanded(
+                  child: _AgentToolDetailContent(
+                    cardData: widget.cardData,
+                    headerPadding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
+                    scrollPadding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
       ),
     );
+  }
+
+  double _resolveStoredHeightFactor(double viewportHeight) {
+    try {
+      return ChatDetailSheetPreferences.resolveHeightFactor(
+        fallback: _initialHeightFactor(viewportHeight),
+        min: _minHeightFactor,
+        max: _maxHeightFactor,
+      );
+    } catch (_) {
+      return _initialHeightFactor(viewportHeight);
+    }
   }
 }
 

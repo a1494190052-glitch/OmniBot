@@ -37,6 +37,8 @@ import 'package:ui/services/app_background_service.dart';
 import 'package:ui/services/agent_browser_session_service.dart';
 import 'package:ui/services/chat_terminal_environment_service.dart';
 import 'package:ui/services/codex_app_server_service.dart';
+import 'package:ui/services/codex_diff_parser.dart';
+import 'package:ui/services/codex_tool_call_parser.dart';
 import 'package:ui/services/conversation_model_override_service.dart';
 import 'package:ui/services/conversation_history_service.dart';
 import 'package:ui/services/conversation_service.dart';
@@ -52,7 +54,6 @@ import 'package:ui/services/shared_open_draft_service.dart';
 import 'package:ui/features/local_model/local_model_feature.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/services/special_permission.dart';
-import 'package:ui/utils/popup_menu_anchor_position.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
@@ -83,6 +84,8 @@ import 'widgets/chat_tool_activity_strip.dart';
 import 'widgets/user_dialog_registry.dart';
 import 'package:ui/widgets/app_update_dialog.dart';
 import 'package:ui/widgets/app_background_widgets.dart';
+import 'package:ui/widgets/glass_popup.dart';
+import 'package:ui/widgets/omni_glass.dart';
 
 part 'chat_page_browser.dart';
 part 'chat_page_lifecycle.dart';
@@ -388,18 +391,32 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   StreamSubscription<Map<String, dynamic>>?
   _browserSessionSnapshotChangedSubscription;
   StreamSubscription<Map<String, dynamic>>? _codexEventSubscription;
+  Timer? _remoteCodexSessionSyncTimer;
+  bool _remoteCodexSessionSyncInFlight = false;
+  String? _remoteCodexSessionSyncThreadId;
+  String _remoteCodexSessionSyncSignature = '';
+  String? _remoteCodexActivityThreadId;
+  String _remoteCodexActivityContentSignature = '';
+  int? _remoteCodexLastContentChangeAtMs;
   CodexStatus _codexStatus = CodexStatus.disconnected;
   bool _isCodexStatusLoading = false;
   int? _activeCodexRemoteRuntimeId;
   String? _activeCodexThreadId;
   String? _activeCodexTurnId;
   String? _activeCodexModelId;
+  String? _activeCodexReasoningEffort;
   String? _activeCodexCollaborationMode;
   bool _isCodexModelListLoading = false;
   bool _isCodexCollaborationModeListLoading = false;
   String? _codexModelListError;
   String? _codexCollaborationModeListError;
   List<String> _codexModelOptions = const <String>[];
+  List<String> _codexReasoningEffortOptions = const <String>[
+    'low',
+    'medium',
+    'high',
+    'xhigh',
+  ];
   List<String> _codexCollaborationModes = const <String>[];
   CodexPermissionMode _codexPermissionMode = CodexPermissionMode.fullAccess;
   ChatBrowserSessionSnapshot? _liveBrowserSessionSnapshot;
@@ -1721,6 +1738,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     _userMessageEditControllerForMode(mode).clear();
     _draftMessageByMode[mode] = '';
     if (mode == ChatPageMode.codex) {
+      _stopRemoteCodexSessionSync();
       _activeCodexRemoteRuntimeId = null;
       _activeCodexThreadId = null;
       _activeCodexTurnId = null;
@@ -1865,7 +1883,9 @@ abstract class _ChatPageStateBase extends State<ChatPage>
 
   Future<void> _loadCodexCollaborationModes({bool force = false});
 
-  Future<void> _selectCodexModel(String modelId);
+  Future<void> _selectCodexModel(String modelId, {bool clearComposer = true});
+
+  Future<void> _selectCodexReasoningEffort(String effort);
 
   Future<void> _activateCodexPlanMode({bool persistOnly = false});
 
@@ -1890,6 +1910,8 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   );
 
   void _handleCodexAppServerEvent(Map<String, dynamic> event);
+
+  void _stopRemoteCodexSessionSync();
 
   Future<void> _sendCodexMessage(
     String aiMessageId,

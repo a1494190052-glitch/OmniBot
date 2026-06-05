@@ -3,7 +3,7 @@ import 'package:url_launcher/url_launcher_string.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/services/app_update_service.dart';
 import 'package:ui/services/special_permission.dart';
-import 'package:ui/theme/app_colors.dart';
+import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/ui.dart';
 
 Future<void> showAppUpdateDialog(
@@ -27,6 +27,7 @@ Future<void> showAppUpdateDialog(
     confirmButtonColor: AppColors.buttonPrimary,
     content: _AppUpdateDialogContent(status: status),
     barrierDismissible: true,
+    glassStyle: true,
   );
 
   if (confirmed != true || !context.mounted) {
@@ -122,7 +123,7 @@ class _AppUpdateDialogContent extends StatelessWidget {
             style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: AppColors.text,
+              color: palette.textPrimary,
             ),
           ),
           const SizedBox(height: 6),
@@ -131,17 +132,17 @@ class _AppUpdateDialogContent extends StatelessWidget {
             width: double.infinity,
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: const Color(0xFFF6F8FA),
+              color: notesSurfaceColor,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFE6EDF5)),
+              border: Border.all(color: notesBorderColor),
             ),
             child: SingleChildScrollView(
               child: Text(
                 status.releaseNotes,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12,
                   height: 1.6,
-                  color: AppColors.text70,
+                  color: palette.textSecondary,
                 ),
               ),
             ),
@@ -160,15 +161,16 @@ class _InfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.omniPalette;
     return Row(
       children: [
         SizedBox(
           width: 68,
           child: Text(
             label,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
-              color: AppColors.text50,
+              color: palette.textTertiary,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -176,9 +178,9 @@ class _InfoRow extends StatelessWidget {
         Expanded(
           child: Text(
             value,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 13,
-              color: AppColors.text,
+              color: palette.textPrimary,
               fontWeight: FontWeight.w600,
             ),
           ),

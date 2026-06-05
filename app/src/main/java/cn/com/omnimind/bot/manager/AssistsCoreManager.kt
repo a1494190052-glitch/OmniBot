@@ -75,6 +75,7 @@ import cn.com.omnimind.bot.agent.AgentAiCapabilityConfigSync
 import cn.com.omnimind.bot.agent.config.AgentToolFeatureStore
 import cn.com.omnimind.bot.agent.AgentConversationContextCompactor
 import cn.com.omnimind.bot.agent.AgentImageAttachmentSupport
+import cn.com.omnimind.bot.agent.AgentWorkspaceAttachmentSupport
 import cn.com.omnimind.bot.agent.AgentStreamEvent
 import cn.com.omnimind.bot.agent.AgentTextSanitizer
 import cn.com.omnimind.bot.agent.AgentModelOverride
@@ -773,6 +774,10 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         var promptTokenThreshold: Int? = null
     )
 
+    private data class FailedAgentRetryContext(
+        val arguments: Map<String, Any?>
+    )
+
     private class ActiveAgentRunContext(
         val taskId: String,
         val job: Job,
@@ -964,6 +969,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     private val activeAgentLock = Any()
 
     private val activeAgentRuns: MutableMap<String, ActiveAgentRunContext> = mutableMapOf()
+    private val failedAgentRetryContexts: MutableMap<String, FailedAgentRetryContext> = mutableMapOf()
     private val chatTaskPersistenceStates: MutableMap<String, ChatTaskPersistenceState> =
         mutableMapOf()
     private val conversationDomainService by lazy { ConversationDomainService(context) }
@@ -1007,6 +1013,24 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     private fun registerChatTaskPersistenceState(taskId: String, state: ChatTaskPersistenceState) {
         synchronized(activeAgentLock) {
             chatTaskPersistenceStates[taskId] = state
+        }
+    }
+
+    private fun registerFailedAgentRetryContext(taskId: String, context: FailedAgentRetryContext) {
+        synchronized(activeAgentLock) {
+            failedAgentRetryContexts[taskId] = context
+        }
+    }
+
+    private fun getFailedAgentRetryContext(taskId: String): FailedAgentRetryContext? {
+        return synchronized(activeAgentLock) {
+            failedAgentRetryContexts[taskId]
+        }
+    }
+
+    private fun removeFailedAgentRetryContext(taskId: String): FailedAgentRetryContext? {
+        return synchronized(activeAgentLock) {
+            failedAgentRetryContexts.remove(taskId)
         }
     }
 
@@ -2498,6 +2522,43 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             OmniLog.e(TAG, "通知总结Sheet准备就绪失败: ${e.message}")
             mainJob.launch(Dispatchers.Main) {
                 result.error("NOTIFY_SUMMARY_SHEET_READY_ERROR", e.message, null)
+            }
+        }
+    }
+
+    fun retryAgentTask(
+        call: MethodCall,
+        result: MethodChannel.Result
+    ) {
+        mainJob.launch {
+            try {
+                val taskId = call.argument<String>("taskId")?.trim().orEmpty()
+                if (taskId.isBlank()) {
+                    withContext(Dispatchers.Main) {
+                        result.error("INVALID_ARGUMENTS", "taskId is required", null)
+                    }
+                    return@launch
+                }
+                val retryContext = getFailedAgentRetryContext(taskId)
+                if (retryContext == null) {
+                    withContext(Dispatchers.Main) {
+                        result.error(
+                            "NO_RETRY_CONTEXT",
+                            "No retryable agent context found for taskId=$taskId",
+                            null
+                        )
+                    }
+                    return@launch
+                }
+                createAgentTask(
+                    MethodCall("createAgentTask", retryContext.arguments),
+                    result
+                )
+            } catch (e: Exception) {
+                OmniLog.e(TAG, "retryAgentTask error: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    result.error("RETRY_AGENT_TASK_ERROR", e.message, null)
+                }
             }
         }
     }
@@ -6426,17 +6487,27 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     }
 
     fun createAgentTask(call: MethodCall, result: MethodChannel.Result) {
+        val rawCallArguments = (call.arguments as? Map<*, *>)
+            ?.entries
+            ?.filter { it.key != null }
+            ?.associate { it.key.toString() to it.value }
+            ?: emptyMap()
         val taskId = (call.argument<String>("taskId") ?: "").trim()
         val userMessage = AgentTextSanitizer.sanitizeUtf16(
             (call.argument<String>("userMessage") ?: "").toString()
         )
         val legacyConversationHistory =
             call.argument<List<Map<String, Any?>>>("conversationHistory") ?: emptyList()
-        val attachments = (call.argument<List<Map<String, Any?>>>("attachments") ?: emptyList())
+        val rawAttachments = (call.argument<List<Map<String, Any?>>>("attachments") ?: emptyList())
             .map(::sanitizeInteropMap)
-        val modelAttachments = AgentImageAttachmentSupport
-            .prepareAttachments(attachments)
-            .modelAttachments
+        val normalizedAttachments = AgentWorkspaceAttachmentSupport.prepareAttachmentsForRuntime(
+            context = context,
+            taskId = taskId,
+            rawAttachments = rawAttachments
+        )
+        val preparedAttachments = AgentImageAttachmentSupport.prepareAttachments(normalizedAttachments)
+        val runtimeAttachments = preparedAttachments.runtimeAttachments
+        val historyAttachments = preparedAttachments.historyAttachments
         val userMessageCreatedAt = call.argument<Number>("userMessageCreatedAt")?.toLong()
         val conversationId = call.argument<Number>("conversationId")?.toLong()?.takeIf { it > 0L }
         val requestedConversationMode =
@@ -6468,6 +6539,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             result.error("INVALID_ARGUMENTS", "taskId is empty", null)
             return
         }
+        removeFailedAgentRetryContext(taskId)
         if (legacyConversationHistory.isNotEmpty()) {
             OmniLog.d(
                 TAG,
@@ -6567,7 +6639,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                                 conversationMode = resolvedConversationMode,
                                 entryId = "$taskId-user",
                                 text = userMessage,
-                                attachments = attachments,
+                                attachments = historyAttachments,
                                 createdAt = userMessageCreatedAt ?: System.currentTimeMillis()
                             )
                         }
@@ -6581,7 +6653,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     legacyConversationHistory,
                     runtimeContextRepository,
                     currentPackageName,
-                    modelAttachments,
+                    runtimeAttachments,
                     conversationId,
                     resolvedConversationMode,
                     modelOverride,

@@ -20,17 +20,14 @@ String get kSummaryCompleteText => AppTextLocalizer.text('总结如下');
 
 /// 流式文本显示组件，支持平滑渐显效果
 ///
-/// 用于显示流式推送的文本内容，每次新增的文字都会平滑扩展并渐显
-/// 支持可选的Markdown渲染功能
+/// 用于显示流式推送的文本内容
 ///
-/// 示例：
-/// ```dart
-/// StreamingText(
-///   fullText: _content,
-///   style: TextStyle(fontSize: 14),
-///   enableMarkdown: true, // 启用Markdown支持
-/// )
-/// ```
+/// **性能策略**：
+/// - 启用 Markdown 时，绝不在动画帧里重新解析 markdown。
+///   - 已有 [markdownRenderedLength]（>0 且 <fullText）时：走 fast-path，
+///     固化 markdown 前缀 + 纯文本尾部，仅对尾部做 Opacity 渐入。
+///   - 否则：一次性渲染最新 markdown，不做逐字动画。
+/// - 未启用 Markdown 时仍走 TweenAnimationBuilder 做逐字渐显（轻量）。
 class StreamingText extends StatefulWidget {
   /// 完整的文本内容（会随着流式推送逐渐增加）
   final String fullText;
@@ -673,6 +670,116 @@ class _StreamingOpenCodeBlock extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 流式尾部文本（fast-path 内嵌）。
+///
+/// 当 [text] 增长时，对新增片段做 Opacity 0.3 → 1.0 的渐入动画，
+/// 已稳定的字符保持不透明；shrink（如 flush 把尾部"吃掉"）则瞬时收敛。
+///
+/// 整体动画仅触发本地小区域重绘，不会拉动外层 markdown 子树。
+class _AnimatedStreamingTail extends StatefulWidget {
+  const _AnimatedStreamingTail({
+    super.key,
+    required this.text,
+    required this.style,
+    this.trailing,
+  });
+
+  final String text;
+  final TextStyle style;
+  final Widget? trailing;
+
+  @override
+  State<_AnimatedStreamingTail> createState() => _AnimatedStreamingTailState();
+}
+
+class _AnimatedStreamingTailState extends State<_AnimatedStreamingTail>
+    with SingleTickerProviderStateMixin {
+  static const Duration _kFadeDuration = Duration(milliseconds: 220);
+
+  late final AnimationController _controller;
+  int _frozenLength = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: _kFadeDuration,
+      value: 1.0,
+    );
+    _frozenLength = widget.text.length;
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(_AnimatedStreamingTail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.text == oldWidget.text) {
+      return;
+    }
+    if (widget.text.length > oldWidget.text.length &&
+        widget.text.startsWith(oldWidget.text)) {
+      _frozenLength = oldWidget.text.length;
+      _controller.forward(from: 0.0);
+    } else {
+      // 文本回退或被替换：放弃动画，直接到末态。
+      _frozenLength = widget.text.length;
+      _controller.value = 1.0;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasTrailing = widget.trailing != null;
+    if (widget.text.isEmpty && !hasTrailing) {
+      return const SizedBox.shrink();
+    }
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, _) {
+          final t = _controller.value;
+          final frozenLen = _frozenLength.clamp(0, widget.text.length);
+          final frozenText = widget.text.substring(0, frozenLen);
+          final freshText = widget.text.substring(frozenLen);
+          final baseColor = widget.style.color;
+          final freshOpacity = (0.3 + 0.7 * t).clamp(0.0, 1.0);
+          final freshColor = baseColor?.withValues(
+            alpha: (baseColor.a) * freshOpacity,
+          );
+
+          return Text.rich(
+            TextSpan(
+              style: widget.style,
+              children: <InlineSpan>[
+                if (frozenText.isNotEmpty) TextSpan(text: frozenText),
+                if (freshText.isNotEmpty)
+                  TextSpan(
+                    text: freshText,
+                    style: widget.style.copyWith(color: freshColor),
+                  ),
+                if (hasTrailing)
+                  WidgetSpan(
+                    alignment: PlaceholderAlignment.middle,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 4),
+                      child: widget.trailing!,
+                    ),
+                  ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }

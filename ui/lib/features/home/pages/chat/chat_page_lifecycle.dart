@@ -159,6 +159,12 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
       return normalizedIncomingTarget;
     }
 
+    if (normalizedPreferredMode == null &&
+        StorageService.getChatStartupBehavior() ==
+            ChatStartupBehavior.newConversation) {
+      return _newThreadTargetForConversationMode(ConversationMode.normal);
+    }
+
     if (normalizedPreferredMode == null) {
       final lastVisible =
           await ConversationHistoryService.getLastVisibleThreadTarget();
@@ -669,6 +675,7 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     _openClawBaseUrlController.dispose();
     _openClawTokenController.dispose();
     _openClawUserIdController.dispose();
+    _stopRemoteCodexSessionSync();
     _codexEventSubscription?.cancel();
     super.dispose();
   }

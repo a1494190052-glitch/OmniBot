@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:ui/features/home/pages/chat/chat_page_models.dart';
@@ -23,6 +24,7 @@ import 'package:ui/services/agent_tool_card_policy.dart';
 import 'package:ui/services/voice_playback_coordinator.dart';
 import 'package:ui/services/agent_stream_meta.dart';
 import 'package:ui/utils/data_parser.dart';
+import 'package:ui/services/codex_diff_parser.dart';
 
 const String kChatRuntimeModeNormal = 'normal';
 const String kChatRuntimeModeOpenClaw = 'openclaw';
@@ -139,6 +141,7 @@ class ChatConversationRuntimeState {
   final Map<String, Timer> toolEventFlushTimers = <String, Timer>{};
   final Map<String, int> codexEntrySequences = <String, int>{};
   final Map<String, int> codexEntryStartTimes = <String, int>{};
+  final Map<String, int> codexReplayDeltaOffsets = <String, int>{};
   int codexNextEntrySequence = 0;
   bool isAiResponding = false;
   bool isContextCompressing = false;
@@ -206,6 +209,7 @@ class ChatConversationRuntimeState {
     toolEventFlushTimers.clear();
     codexEntrySequences.clear();
     codexEntryStartTimes.clear();
+    codexReplayDeltaOffsets.clear();
     messages.dispose();
   }
 }
@@ -391,12 +395,30 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     ChatIslandDisplayLayer chatIslandDisplayLayer = ChatIslandDisplayLayer.mode,
     String? lastAgentToolType,
     ChatBrowserSessionSnapshot? browserSessionSnapshot,
+    bool preserveLiveStreamingState = false,
   }) {
     final runtime = ensureRuntime(
       conversationId: conversationId,
       mode: mode,
       conversation: conversation,
     );
+    // When the caller is polling a remote codex thread while reducer push
+    // events are still actively streaming into this runtime, we MUST NOT
+    // blow away the push-driven streaming state. Otherwise the chat list
+    // collapses for a single frame between each poll tick — the symptom
+    // the user calls "codex 输出时自动折叠了一下又展开"。
+    //
+    // In that mode we only refresh the visible message list and conversation
+    // metadata; everything else (isAiResponding, currentAiMessages,
+    // currentThinkingMessages, currentDispatchTaskId, …) stays exactly as
+    // the reducer left it.
+    if (preserveLiveStreamingState) {
+      runtime.messages.replaceAllMessages(messages);
+      runtime.conversation = conversation ?? runtime.conversation;
+      _pruneCodexReplayDeltaOffsets(runtime, messages);
+      notifyListeners();
+      return;
+    }
     _flushRuntimeStreamingText(runtime);
     runtime.messages.replaceAllMessages(messages);
     runtime.conversation = conversation ?? runtime.conversation;
@@ -433,8 +455,33 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     runtime._streamingTextBatches.clear();
     runtime.codexEntrySequences.clear();
     runtime.codexEntryStartTimes.clear();
+    _pruneCodexReplayDeltaOffsets(runtime, messages);
     runtime.codexNextEntrySequence = 0;
     notifyListeners();
+  }
+
+  void _pruneCodexReplayDeltaOffsets(
+    ChatConversationRuntimeState runtime,
+    List<ChatMessageModel> messages,
+  ) {
+    if (runtime.codexReplayDeltaOffsets.isEmpty) {
+      return;
+    }
+    final liveEntryIds = <String>{};
+    for (final message in messages) {
+      liveEntryIds.add(message.id);
+      final entryId = message.streamMeta?['entryId']?.toString().trim();
+      if (entryId != null && entryId.isNotEmpty) {
+        liveEntryIds.add(entryId);
+      }
+      final cardId = message.cardData?['cardId']?.toString().trim();
+      if (cardId != null && cardId.isNotEmpty) {
+        liveEntryIds.add(cardId);
+      }
+    }
+    runtime.codexReplayDeltaOffsets.removeWhere(
+      (entryId, _) => !liveEntryIds.contains(entryId),
+    );
   }
 
   void registerTask({
@@ -1396,6 +1443,7 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       if (markdownRenderedLength != null) {
         content['markdownRenderedLength'] = markdownRenderedLength;
       }
+      _clearAgentRetryPresentation(content);
       runtime.messages.insert(
         0,
         ChatMessageModel(
@@ -1427,6 +1475,7 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     if (isFinal && decodeTokensPerSecond != null) {
       content['decodeTokensPerSecond'] = decodeTokensPerSecond;
     }
+    _clearAgentRetryPresentation(content);
     runtime.messages[index] = existing.copyWith(
       content: content,
       isError: isError,
@@ -1897,6 +1946,14 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
           completedThinkingCardId: thinkingCardToFinalize,
         );
         return;
+      case AgentStreamEventKind.retrying:
+        _applyAgentRetryingStreamEvent(
+          runtime,
+          binding,
+          event,
+          completedThinkingCardId: thinkingCardToFinalize,
+        );
+        return;
       case AgentStreamEventKind.textSnapshot:
         _applyAgentTextStreamEvent(
           runtime,
@@ -2351,6 +2408,76 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     );
   }
 
+  void _applyAgentRetryingStreamEvent(
+    ChatConversationRuntimeState runtime,
+    _TaskBinding binding,
+    AgentStreamEvent event, {
+    String? completedThinkingCardId,
+  }) {
+    final entryId = (event.entryId ?? '').trim();
+    final retryText = _buildAgentRetryingText(event);
+    final streamMeta = ensureAgentStreamMessageMeta(
+      _streamMetaFromEvent(event),
+      entryId: entryId.isEmpty ? null : entryId,
+      isFinal: false,
+    );
+    final isThinkingCardTarget =
+        entryId.isNotEmpty &&
+        runtime.messages.any((message) => message.id == entryId && message.type == 2);
+    if (!isThinkingCardTarget) {
+      _finalizeThinkingCard(
+        runtime,
+        event.taskId,
+        cardId: completedThinkingCardId,
+      );
+    }
+    if (isThinkingCardTarget) {
+      _updateThinkingCard(
+        runtime,
+        event.taskId,
+        cardId: entryId,
+        thinkingContent: retryText,
+        isLoading: true,
+        stage: 1,
+        streamMeta: streamMeta,
+        lockCompleted: false,
+      );
+    } else {
+      final messageId = entryId.isNotEmpty ? entryId : _nextAgentTextMessageId(runtime, event.taskId);
+      final index = runtime.messages.indexWhere((message) => message.id == messageId);
+      if (index == -1) {
+        final content = <String, dynamic>{'text': '', 'id': messageId};
+        _applyAgentRetryPresentation(content, event, retryText);
+        runtime.messages.insert(
+          0,
+          ChatMessageModel(
+            id: messageId,
+            type: 1,
+            user: 2,
+            content: content,
+            streamMeta: streamMeta,
+          ),
+        );
+      } else {
+        final existing = runtime.messages[index];
+        final content = Map<String, dynamic>.from(existing.content ?? const {});
+        content['id'] = messageId;
+        _applyAgentRetryPresentation(content, event, retryText);
+        runtime.messages[index] = existing.copyWith(
+          content: content,
+          streamMeta: streamMeta ?? existing.streamMeta,
+          isError: false,
+        );
+      }
+    }
+    runtime.isAiResponding = true;
+    notifyListeners();
+    schedulePersistRuntimeConversation(
+      conversationId: binding.conversationId,
+      mode: binding.mode,
+    );
+  }
+
   void _applyAgentClarifyStreamEvent(
     ChatConversationRuntimeState runtime,
     _TaskBinding binding,
@@ -2519,13 +2646,23 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
   }) {
     final entryId = (event.entryId ?? '').trim();
     final shouldMarkError = event.raw['persistAsError'] == true;
-    if (entryId.isNotEmpty && shouldMarkError) {
+    final errorText = (event.raw['errorText'] ?? event.errorMessage).toString().trim();
+    if (entryId.isNotEmpty) {
       final index = runtime.messages.indexWhere(
         (message) => message.id == entryId,
       );
       if (index != -1) {
+        final existing = runtime.messages[index];
+        final content = Map<String, dynamic>.from(existing.content ?? const {});
+        _applyAgentErrorPresentation(content, event, errorText);
         runtime.messages[index] = runtime.messages[index].copyWith(
-          isError: true,
+          content: content,
+          isError: shouldMarkError,
+          streamMeta: ensureAgentStreamMessageMeta(
+            _streamMetaFromEvent(event),
+            entryId: entryId,
+            isFinal: true,
+          ),
         );
       }
     }
@@ -3535,6 +3672,7 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
             ? reduceResult.previousThinkingEntryId
             : null;
       case AgentStreamEventKind.textSnapshot:
+      case AgentStreamEventKind.retrying:
       case AgentStreamEventKind.toolStarted:
       case AgentStreamEventKind.toolProgress:
       case AgentStreamEventKind.toolCompleted:

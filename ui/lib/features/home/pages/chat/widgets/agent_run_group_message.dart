@@ -25,6 +25,7 @@ class AgentRunGroupMessage extends StatefulWidget {
     required this.onToggleExpanded,
     required this.onBeforeTaskExecute,
     this.onCancelTask,
+    this.onRetryAgentMessage,
     this.parentScrollController,
     this.onParentScrollHandoff,
     this.onRequestAuthorize,
@@ -38,6 +39,7 @@ class AgentRunGroupMessage extends StatefulWidget {
   final VoidCallback onToggleExpanded;
   final OnBeforeTaskExecute onBeforeTaskExecute;
   final void Function(String taskId)? onCancelTask;
+  final ValueChanged<ChatMessageModel>? onRetryAgentMessage;
   final ScrollController? parentScrollController;
   final VoidCallback? onParentScrollHandoff;
   final OnRequestAuthorize? onRequestAuthorize;
@@ -99,6 +101,9 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
   @override
   void didUpdateWidget(covariant AgentRunGroupMessage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.group.taskId != oldWidget.group.taskId) {
+      _expandedToolGroupKeys.clear();
+    }
     if (widget.expanded == oldWidget.expanded) {
       return;
     }
@@ -158,6 +163,7 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
       children: [
         _AgentRunSummaryHeader(
           key: ValueKey('agent-run-summary-${widget.group.taskId}'),
+          group: widget.group,
           taskId: widget.group.taskId,
           runLogId: widget.group.runLogId,
           isActiveRun: widget.group.isActiveRun,
@@ -183,6 +189,8 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
             message: message,
             onBeforeTaskExecute: widget.onBeforeTaskExecute,
             onCancelTask: widget.onCancelTask,
+            onRetryAgentMessage: () =>
+                widget.onRetryAgentMessage?.call(message),
             enableThinkingCollapse: false,
             parentScrollController: widget.parentScrollController,
             onParentScrollHandoff: widget.onParentScrollHandoff,
@@ -423,9 +431,216 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
   }
 }
 
+bool _isAgentToolSummaryMessage(ChatMessageModel message) {
+  return (message.cardData?['type'] ?? '').toString() ==
+      kAgentToolSummaryCardType;
+}
+
+const String _kCodexAgentRunAvatarAsset = 'assets/home/chat/codex.svg';
+
+/// A run group is treated as "codex" if any of its messages (visible or
+/// collapsed) was produced by the codex reducer — those carry
+/// cardData.uiStyle == 'codex_tool'. We use this to swap the avatar for the
+/// codex glyph and to keep the collapsed-state header concise ("已处理"
+/// instead of "已运行 N 条命令 · 已读取 M 个文件…").
+bool _agentRunGroupIsCodex(AgentRunTimelineGroup group) {
+  bool hasCodexStyle(ChatMessageModel message) {
+    return (message.cardData?['uiStyle'] ?? '').toString().trim() ==
+        'codex_tool';
+  }
+
+  for (final message in group.processMessagesNewestFirst) {
+    if (hasCodexStyle(message)) return true;
+  }
+  for (final message in group.visibleMessagesNewestFirst) {
+    if (hasCodexStyle(message)) return true;
+  }
+  return false;
+}
+
+String _toolGroupKey(String taskId, List<ChatMessageModel> messages) {
+  return '$taskId-${messages.map((message) => message.id).join('-')}';
+}
+
+// NOTE: `_toolCountSummary` was the previous source of the
+// "已运行 X 条命令 · 已读取 Y 个文件 …" header label. The user explicitly
+// asked for both the collapsed AND expanded agent-run headers (and the
+// inner tool-group capsule) to read the generic "已处理" instead, so this
+// helper now has no callers and was deleted. The per-message-type
+// counters live on individually rendered tool cards if anyone needs them
+// later.
+
+class _AgentToolCallGroup extends StatelessWidget {
+  const _AgentToolCallGroup({
+    super.key,
+    required this.groupKey,
+    required this.messages,
+    required this.expanded,
+    required this.onToggle,
+    required this.buildMessageBubble,
+  });
+
+  final String groupKey;
+  final List<ChatMessageModel> messages;
+  final bool expanded;
+  final VoidCallback onToggle;
+  final MessageBubble Function(
+    ChatMessageModel message, {
+    String? firstThinkingMessageId,
+  })
+  buildMessageBubble;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    final primaryCard = _primaryCardData(messages);
+    final status = (primaryCard['status'] ?? 'running').toString();
+    final toolType = (primaryCard['toolType'] ?? '').toString();
+    final mutedColor = palette.textSecondary.withValues(
+      alpha: context.isDarkTheme ? 0.78 : 0.68,
+    );
+    final titleColor = palette.textSecondary.withValues(
+      alpha: context.isDarkTheme ? 0.94 : 0.88,
+    );
+    final overlayColor = palette.accentPrimary.withValues(
+      alpha: context.isDarkTheme ? 0.10 : 0.06,
+    );
+    final isEnglish =
+        Localizations.maybeLocaleOf(context)?.languageCode == 'en';
+    final title = _toolGroupTitle(messages, isEnglish: isEnglish);
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(top: 6, bottom: 4),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.sizeOf(context).width * 0.90,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Tooltip(
+              message: _toolGroupTooltip(messages),
+              child: Material(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  key: ValueKey('agent-tool-call-group-toggle-$groupKey'),
+                  onTap: onToggle,
+                  splashColor: overlayColor,
+                  highlightColor: overlayColor,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(2, 5, 5, 5),
+                    child: Row(
+                      children: [
+                        Icon(
+                          resolveAgentToolStatusIcon(status, toolType),
+                          size: 16,
+                          color: mutedColor,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: titleColor,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              letterSpacing: 0,
+                              height: 1.18,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '${messages.length}',
+                          style: TextStyle(
+                            color: mutedColor,
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                            height: 1,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        AnimatedRotation(
+                          turns: expanded ? 0.5 : 0,
+                          duration: const Duration(milliseconds: 220),
+                          curve: Curves.easeOutCubic,
+                          child: Icon(
+                            LucideIcons.chevronDown,
+                            size: 18,
+                            color: mutedColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 260),
+              curve: Curves.easeOutCubic,
+              alignment: Alignment.topLeft,
+              child: expanded
+                  ? Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: messages
+                            .map((message) => buildMessageBubble(message))
+                            .toList(growable: false),
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Map<String, dynamic> _primaryCardData(List<ChatMessageModel> messages) {
+    for (final message in messages) {
+      final cardData = message.cardData;
+      if ((cardData?['status'] ?? '').toString() == 'running') {
+        return cardData!;
+      }
+    }
+    return messages.first.cardData ?? const <String, dynamic>{};
+  }
+
+  String _toolGroupTitle(
+    List<ChatMessageModel> messages, {
+    required bool isEnglish,
+  }) {
+    // The inner tool-group capsule (multiple consecutive tool cards
+    // collapsed into one chevron) was previously surfacing the per-tool
+    // count summary too ("已运行 1 条命令 · 已读取 1 个文件"). The user
+    // explicitly asked for the expanded run UI to match the collapsed
+    // header, so this capsule also shows the generic "已处理" — its own
+    // count text was the only place left after fixing the outer header.
+    return isEnglish ? 'Processed' : '已处理';
+  }
+
+  String _toolGroupTooltip(List<ChatMessageModel> messages) {
+    return messages
+        .map((message) => message.cardData)
+        .whereType<Map<String, dynamic>>()
+        .map(resolveAgentToolTitle)
+        .where((title) => title.trim().isNotEmpty)
+        .join('\n');
+  }
+}
+
 class _AgentRunSummaryHeader extends StatelessWidget {
   const _AgentRunSummaryHeader({
     super.key,
+    required this.group,
     required this.taskId,
     required this.runLogId,
     required this.isActiveRun,
@@ -440,6 +655,7 @@ class _AgentRunSummaryHeader extends StatelessWidget {
     required this.showRunLogButton,
   });
 
+  final AgentRunTimelineGroup group;
   final String taskId;
   final String runLogId;
   final bool isActiveRun;

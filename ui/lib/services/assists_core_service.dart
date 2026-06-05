@@ -1666,6 +1666,7 @@ class AgentToolEventData {
   final String displayName;
   final String toolTitle;
   final String toolType;
+  final String uiStyle;
   final String? serverName;
   final String status;
   final String argsJson;
@@ -1677,6 +1678,7 @@ class AgentToolEventData {
   final String terminalOutputDelta;
   final String? terminalSessionId;
   final String terminalStreamState;
+  final Map<String, dynamic> raw;
   final String? workspaceId;
   final String? interruptedBy;
   final String? interruptionReason;
@@ -1694,6 +1696,7 @@ class AgentToolEventData {
     required this.displayName,
     this.toolTitle = '',
     required this.toolType,
+    this.uiStyle = '',
     this.serverName,
     this.status = '',
     this.argsJson = '',
@@ -1705,6 +1708,7 @@ class AgentToolEventData {
     this.terminalOutputDelta = '',
     this.terminalSessionId,
     this.terminalStreamState = '',
+    this.raw = const <String, dynamic>{},
     this.workspaceId,
     this.interruptedBy,
     this.interruptionReason,
@@ -1716,7 +1720,23 @@ class AgentToolEventData {
   });
 
   factory AgentToolEventData.fromMap(Map<dynamic, dynamic>? map) {
-    final raw = map ?? const {};
+    final raw = Map<String, dynamic>.from(
+      (map ?? const <dynamic, dynamic>{}).map(
+        (key, value) => MapEntry(key.toString(), value),
+      ),
+    );
+    final itemType = _asNonEmptyString(raw['type']);
+    final normalized = normalizeCodexToolCall(
+      raw,
+      itemType: itemType,
+      fallbackToolType: _asNonEmptyString(raw['toolType']) ?? 'builtin',
+      fallbackTitle:
+          _asNonEmptyString(raw['toolTitle']) ??
+          _asNonEmptyString(raw['displayName']),
+      fallbackStatus: _asNonEmptyString(raw['status']) ?? '',
+    );
+    final explicitStatus = codexToolStatusIsExplicit(raw);
+    final isCodexTool = itemType != null && isCodexToolItemType(itemType);
     return AgentToolEventData(
       taskId: (raw['taskId'] ?? '').toString(),
       cardId: (raw['cardId'] ?? '').toString(),
@@ -1736,6 +1756,7 @@ class AgentToolEventData {
       terminalOutputDelta: (raw['terminalOutputDelta'] ?? '').toString(),
       terminalSessionId: raw['terminalSessionId']?.toString(),
       terminalStreamState: (raw['terminalStreamState'] ?? '').toString(),
+      raw: raw,
       workspaceId: raw['workspaceId']?.toString(),
       interruptedBy: raw['interruptedBy']?.toString(),
       interruptionReason: raw['interruptionReason']?.toString(),
@@ -1753,6 +1774,11 @@ class AgentToolEventData {
       ),
       success: raw['success'] != false,
     );
+  }
+
+  static String? _asNonEmptyString(dynamic value) {
+    final text = value?.toString().trim() ?? '';
+    return text.isEmpty ? null : text;
   }
 
   static List<Map<String, dynamic>> _readSubagentEvents(dynamic value) {
@@ -2344,6 +2370,19 @@ class AssistsMessageService {
       return result == "SUCCESS";
     } on PlatformException catch (e) {
       debugPrint('停止工具调用失败: ${e.message}');
+      return false;
+    }
+  }
+
+  static Future<bool> retryAgentTask({required String taskId}) async {
+    try {
+      final result = await assistCore.invokeMethod(
+        'retryAgentTask',
+        <String, String>{'taskId': taskId},
+      );
+      return result == "SUCCESS";
+    } on PlatformException catch (e) {
+      print('retryAgentTask failed: ${e.message}');
       return false;
     }
   }

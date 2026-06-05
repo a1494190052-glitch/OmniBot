@@ -129,6 +129,7 @@ class ObservableChatMessageList extends ChangeNotifier
           _messageAffectsPageChrome(previous) ||
           _messageAffectsPageChrome(value),
     );
+    notifyListeners();
   }
 
   @override

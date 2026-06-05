@@ -187,7 +187,8 @@ internal data class CodexRemoteBridgeProbe(
     val ready: Boolean,
     val version: String?,
     val error: String?,
-    val cwd: String?
+    val cwd: String?,
+    val details: Map<String, Any?> = emptyMap()
 )
 
 internal suspend fun listCodexRemoteBridgeDirectory(
@@ -452,14 +453,16 @@ internal suspend fun probeCodexRemoteBridge(
                         version = null,
                         error = json?.stringValue("error")
                             ?: "Bridge health check failed: HTTP ${response.code}",
-                        cwd = json?.stringValue("cwd")
+                        cwd = json?.stringValue("cwd"),
+                        details = json?.toKotlinMap().orEmpty()
                     )
                 }
                 CodexRemoteBridgeProbe(
                     ready = json?.get("ok")?.asBooleanOrNull() ?: true,
                     version = json?.stringValue("codexVersion") ?: json?.stringValue("version"),
                     error = json?.stringValue("error"),
-                    cwd = json?.stringValue("cwd")
+                    cwd = json?.stringValue("cwd"),
+                    details = json?.toKotlinMap().orEmpty()
                 )
             }
         }.getOrElse { error ->
@@ -536,4 +539,8 @@ private fun JsonElement.toKotlinValue(): Any? {
         return primitive.asString
     }
     return null
+}
+
+private fun JsonObject.toKotlinMap(): Map<String, Any?> {
+    return entrySet().associate { (key, value) -> key to value.toKotlinValue() }
 }

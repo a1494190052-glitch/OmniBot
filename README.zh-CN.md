@@ -49,12 +49,9 @@ OpenOmniBot 是一个基于 Android 原生 Kotlin 与 Flutter 构建的端侧 AI
 - **生产力工具**：支持读写文件、浏览工作区、调用浏览器、调用终端。
 
 <p align="center">
-  <img src="docs/tutorial/example.png" alt="示例" width="360" />
+  <img src="docs/tutorial/example.png" alt="示例" />
 </p>
 
-<p align="center">
-  <img src="docs/tutorial/ui.png" alt="界面" width="360" />
-</p>
 
 <details>
 <summary id="quick-start"><strong>快速开始</strong></summary>
@@ -139,6 +136,16 @@ Provider base URL、API key 和场景模型绑定改为在应用设置中运行�
 <p align="center">
   <img src="docs/tutorial/workspace.jpg" alt="Workspace" width="260" />
 </p>
+
+### Remote Codex bridge
+
+如果希望在手机端使用运行在电脑上的 Codex 模式，请在已安装并登录 Codex CLI 的电脑上启动 `codex-bridge`：
+
+```bash
+npx @thuocean/codex-bridge
+```
+
+在终端交互中选择监听的局域网地址和 token 模式，然后在 OpenOmniBot 的 Codex 设置中扫码连接。更多选项和排障说明见 [codex-bridge README](tools/codex-bridge/README.md)。
 
 </details>
 

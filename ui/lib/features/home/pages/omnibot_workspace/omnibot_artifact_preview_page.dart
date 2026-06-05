@@ -5,11 +5,13 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/services/assists_core_service.dart';
+import 'package:ui/services/chat_detail_sheet_preferences.dart';
 import 'package:ui/services/omnibot_resource_service.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/widgets/common_app_bar.dart';
 import 'package:ui/widgets/image_preview_overlay.dart';
+import 'package:ui/widgets/omni_glass.dart';
 import 'package:ui/widgets/omnibot_markdown_body.dart';
 import 'package:ui/widgets/omnibot_resource_widgets.dart';
 
@@ -27,7 +29,9 @@ class OmnibotArtifactPreviewPage extends StatefulWidget {
   final bool showPathBar;
   final bool appBarPrimary;
   final bool showLeading;
+  final bool glassSurface;
   final VoidCallback? onClose;
+  final ValueChanged<bool>? onEditingChanged;
 
   const OmnibotArtifactPreviewPage({
     super.key,
@@ -42,7 +46,9 @@ class OmnibotArtifactPreviewPage extends StatefulWidget {
     this.showPathBar = true,
     this.appBarPrimary = true,
     this.showLeading = true,
+    this.glassSurface = false,
     this.onClose,
+    this.onEditingChanged,
   });
 
   @override
@@ -82,6 +88,12 @@ class _OmnibotArtifactPreviewPageState
     _loadIfNeeded();
     _fileChangedSubscription = AssistsMessageService.agentAiConfigChangedStream
         .listen(_handleExternalFileChanged);
+    if (_isEditing) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        widget.onEditingChanged?.call(true);
+      });
+    }
   }
 
   @override
@@ -190,6 +202,7 @@ class _OmnibotArtifactPreviewPageState
         selection: TextSelection.collapsed(offset: (_textContent ?? '').length),
       );
     });
+    widget.onEditingChanged?.call(true);
   }
 
   Future<void> _handleCancelEditing() async {
@@ -217,6 +230,7 @@ class _OmnibotArtifactPreviewPageState
         selection: TextSelection.collapsed(offset: (_textContent ?? '').length),
       );
     });
+    widget.onEditingChanged?.call(false);
   }
 
   Future<void> _handleSaveText() async {
@@ -590,10 +604,14 @@ class _OmnibotArtifactPreviewPageState
       canPop: _allowPop || !(_isEditing && _isDirty),
       onPopInvokedWithResult: (didPop, _) => _handleBackNavigation(didPop),
       child: Scaffold(
-        backgroundColor: palette.pageBackground,
+        resizeToAvoidBottomInset: !widget.glassSurface,
+        backgroundColor: widget.glassSurface
+            ? Colors.transparent
+            : palette.pageBackground,
         appBar: CommonAppBar(
           title: widget.title,
           primary: widget.appBarPrimary,
+          backgroundColor: widget.glassSurface ? Colors.transparent : null,
           showLeading: widget.showLeading,
           onBackPressed: widget.onClose,
           actions: _buildActions(),
@@ -682,9 +700,12 @@ class _OmnibotArtifactPreviewSheetFrame extends StatefulWidget {
 class _OmnibotArtifactPreviewSheetFrameState
     extends State<_OmnibotArtifactPreviewSheetFrame> {
   static const double _minHeightFactor = 0.36;
+  static const double _editingMinHeightFactor = 0.58;
+  static const double _keyboardEditingMinHeightFactor = 0.82;
   static const double _maxHeightFactor = 0.94;
 
   double? _heightFactor;
+  bool _isEditing = false;
 
   double _initialHeightFactor(double viewportHeight) {
     return viewportHeight < 720 ? 0.72 : 0.62;
@@ -694,16 +715,76 @@ class _OmnibotArtifactPreviewSheetFrameState
     if (availableHeight <= 0) {
       return;
     }
+    final mediaQuery = MediaQuery.of(context);
+    final minHeightFactor = _effectiveMinHeightFactor(
+      keyboardVisible: mediaQuery.viewInsets.bottom > 0,
+    );
     final delta = details.primaryDelta ?? details.delta.dy;
     setState(() {
       final current =
-          _heightFactor ??
-          _initialHeightFactor(MediaQuery.sizeOf(context).height);
+          (_heightFactor ??
+                  ChatDetailSheetPreferences.resolveHeightFactor(
+                    fallback: _initialHeightFactor(
+                      MediaQuery.sizeOf(context).height,
+                    ),
+                    min: _minHeightFactor,
+                    max: _maxHeightFactor,
+                  ))
+              .clamp(minHeightFactor, _maxHeightFactor);
       _heightFactor = (current - delta / availableHeight).clamp(
-        _minHeightFactor,
+        minHeightFactor,
         _maxHeightFactor,
       );
     });
+  }
+
+  double _effectiveMinHeightFactor({required bool keyboardVisible}) {
+    if (!_isEditing) {
+      return _minHeightFactor;
+    }
+    return keyboardVisible
+        ? _keyboardEditingMinHeightFactor
+        : _editingMinHeightFactor;
+  }
+
+  double _resolveHeightFactor(MediaQueryData mediaQuery) {
+    final minHeightFactor = _effectiveMinHeightFactor(
+      keyboardVisible: mediaQuery.viewInsets.bottom > 0,
+    );
+    return (_heightFactor ??
+            ChatDetailSheetPreferences.resolveHeightFactor(
+              fallback: _initialHeightFactor(MediaQuery.sizeOf(context).height),
+              min: _minHeightFactor,
+              max: _maxHeightFactor,
+            ))
+        .clamp(minHeightFactor, _maxHeightFactor)
+        .toDouble();
+  }
+
+  void _handleEditingChanged(bool isEditing) {
+    if (_isEditing == isEditing) {
+      return;
+    }
+    setState(() {
+      _isEditing = isEditing;
+    });
+  }
+
+  void _persistHeightFactor() {
+    if (_isEditing) {
+      return;
+    }
+    final heightFactor = _heightFactor;
+    if (heightFactor == null) {
+      return;
+    }
+    unawaited(
+      ChatDetailSheetPreferences.saveHeightFactor(
+        heightFactor,
+        min: _minHeightFactor,
+        max: _maxHeightFactor,
+      ),
+    );
   }
 
   @override
@@ -716,62 +797,71 @@ class _OmnibotArtifactPreviewSheetFrameState
           mediaQuery.padding.top -
           mediaQuery.viewInsets.bottom,
     );
-    final heightFactor =
-        _heightFactor ?? _initialHeightFactor(mediaQuery.size.height);
+    final heightFactor = _resolveHeightFactor(mediaQuery);
+    final sheetHeight = availableHeight * heightFactor;
+    const borderRadius = BorderRadius.vertical(top: Radius.circular(24));
     return SafeArea(
       top: false,
       child: AnimatedPadding(
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOutCubic,
         padding: EdgeInsets.only(bottom: mediaQuery.viewInsets.bottom),
-        child: SizedBox(
-          height: availableHeight * heightFactor,
-          width: double.infinity,
-          child: ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            child: Material(
-              color: palette.pageBackground,
-              child: Column(
-                children: [
-                  GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onVerticalDragUpdate: (details) =>
-                        _handleDragUpdate(details, availableHeight),
-                    child: SizedBox(
-                      height: 22,
-                      width: double.infinity,
-                      child: Center(
-                        child: Container(
-                          width: 42,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: palette.textSecondary.withValues(
-                              alpha: 0.28,
+        child: TweenAnimationBuilder<double>(
+          tween: Tween<double>(end: sheetHeight),
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          builder: (context, animatedHeight, _) {
+            return OmniGlassPanel(
+              height: animatedHeight,
+              width: double.infinity,
+              borderRadius: borderRadius,
+              child: Material(
+                color: Colors.transparent,
+                child: Column(
+                  children: [
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onVerticalDragUpdate: (details) =>
+                          _handleDragUpdate(details, availableHeight),
+                      onVerticalDragEnd: (_) => _persistHeightFactor(),
+                      child: SizedBox(
+                        height: 22,
+                        width: double.infinity,
+                        child: Center(
+                          child: Container(
+                            width: 42,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: palette.textSecondary.withValues(
+                                alpha: 0.34,
+                              ),
+                              borderRadius: BorderRadius.circular(999),
                             ),
-                            borderRadius: BorderRadius.circular(999),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                  Expanded(
-                    child: OmnibotArtifactPreviewPage(
-                      path: widget.metadata.path,
-                      uri: widget.metadata.uri,
-                      title: widget.metadata.title,
-                      previewKind: widget.metadata.previewKind,
-                      mimeType: widget.metadata.mimeType,
-                      shellPath: widget.metadata.shellPath,
-                      exists: widget.metadata.exists,
-                      showPathBar: false,
-                      appBarPrimary: false,
-                      showLeading: false,
+                    Expanded(
+                      child: OmnibotArtifactPreviewPage(
+                        path: widget.metadata.path,
+                        uri: widget.metadata.uri,
+                        title: widget.metadata.title,
+                        previewKind: widget.metadata.previewKind,
+                        mimeType: widget.metadata.mimeType,
+                        shellPath: widget.metadata.shellPath,
+                        exists: widget.metadata.exists,
+                        showPathBar: false,
+                        appBarPrimary: false,
+                        showLeading: false,
+                        glassSurface: true,
+                        onEditingChanged: _handleEditingChanged,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ),
+            );
+          },
         ),
       ),
     );

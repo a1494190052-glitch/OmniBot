@@ -562,6 +562,21 @@ String resolveAgentToolPreview(
       return _compactToolText(output, maxChars: _kToolCardPreviewMaxChars);
     }
   }
+  if (toolType == 'file') {
+    final additions = _asNonNegativeInt(cardData['additions']);
+    final deletions = _asNonNegativeInt(cardData['deletions']);
+    final changedFiles = _asNonNegativeInt(cardData['changedFiles']);
+    if (changedFiles > 0 || additions > 0 || deletions > 0) {
+      final fileLabel = changedFiles <= 1
+          ? LegacyTextLocalizer.localize('1 个文件')
+          : LegacyTextLocalizer.localize('$changedFiles 个文件');
+      return '$fileLabel · ${formatCodexDiffStat(additions: additions, deletions: deletions)}';
+    }
+    final filePath = (cardData['filePath'] ?? '').toString().trim();
+    if (filePath.isNotEmpty) {
+      return filePath;
+    }
+  }
 
   final progress = _nonPlaceholderText(cardData['progress']);
   final summary = _nonPlaceholderText(cardData['summary']);
