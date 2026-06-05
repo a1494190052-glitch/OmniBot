@@ -162,16 +162,17 @@ class UIBaseEventImpl : UIBaseEvent {
         }
         if (AssistsService.isInit()) {
             withContext(Dispatchers.Main) {
-                ScreenMaskLoader.loadUnlockScreenMask()
-            }        //通过携程切换IO层执行
-            delay(lockScreenDelay)
-            VibrationUtil.vibrateLight()
-            val data = block()
-            withContext(Dispatchers.Main) {
-                ScreenMaskLoader.loadLockScreenMask()
-                DraggableBallInstance.moveBack()
+                ScreenMaskLoader.gone()
             }
-            return data
+            VibrationUtil.vibrateLight()
+            return try {
+                block()
+            } finally {
+                withContext(Dispatchers.Main) {
+                    ScreenMaskLoader.gone()
+                    DraggableBallInstance.moveBack()
+                }
+            }
         } else {
             return block()
         }
@@ -180,14 +181,14 @@ class UIBaseEventImpl : UIBaseEvent {
     override suspend fun lockScreenMask() = withContext(Dispatchers.Main) {
         if (!isFloatingUiEnabled()) return@withContext
         if (AssistsService.isInit()) {
-            ScreenMaskLoader.loadUnlockScreenMask()
+            ScreenMaskLoader.gone()
         }
     }
 
     override suspend fun cancelLockScreenMask() = withContext(Dispatchers.Main) {
         if (!isFloatingUiEnabled()) return@withContext
         if (AssistsService.isInit()) {
-            ScreenMaskLoader.loadLockScreenMask()
+            ScreenMaskLoader.gone()
         }
     }
 }
