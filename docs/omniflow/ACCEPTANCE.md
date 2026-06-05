@@ -3,10 +3,9 @@
 The kit is acceptable when an external GUI agent can complete these checks using
 only the shipped docs, skill, and MCP tools.
 
-Note: this acceptance file still records older external MCP names for historical
-coverage. Current OOB Function replay is `oob_function_run`; `call_function`,
-`run_function`, and `omniflow.call_function` are compatibility aliases or old
-source evidence only.
+Note: current model-visible Function invocation uses
+`call_tool(function_id, arguments)`. `oob_function_run` remains the direct local
+runner/debug MCP tool for deterministic replay audits.
 
 ## Documentation Checks
 
@@ -182,15 +181,15 @@ Pass criteria:
 - From the external project directory, `omniflow-agentkit mcp-recall ...` finds
   `settings_click_path_demo`.
 - From the external project directory,
-  `omniflow-agentkit mcp-call-function settings_click_path_demo ...` triggers
+  `omniflow-agentkit mcp-call-tool settings_click_path_demo ...` triggers
   that Function and returns a run id, runner timing, 7 steps, and 4 click steps.
 - From the external project directory,
   `omniflow-agentkit mcp-ingest-runlog runlog_install_demo ...` registers a
   Function converted from a RunLog.
 - From the external project directory,
-  `omniflow-agentkit mcp-call-function install_sample_apk_demo ...` runs the
+  `omniflow-agentkit mcp-call-tool install_sample_apk_demo ...` runs the
   ingested Function and returns a run id.
-- Codex CLI runs only `probe-repo`, `mcp-recall`, `mcp-call-function`,
+- Codex CLI runs only `probe-repo`, `mcp-recall`, `mcp-call-tool`,
   `mcp-ingest-runlog`, `mcp-list-functions`, `mcp-guard-check`,
   `mcp-run-function`, `mcp-convert-runlog`, and the background
   `mcp-run-function` from the external project directory and reports success,
@@ -212,7 +211,7 @@ The expected RunLog registration and replay markers are:
 ```text
 canonical_recall=ok
 canonical_hit_function_id=settings_click_path_demo
-canonical_call_function=ok
+canonical_call_tool=ok
 canonical_run_id=<real-run-id>
 canonical_click_step_count=4
 canonical_ingest_runlog=ok

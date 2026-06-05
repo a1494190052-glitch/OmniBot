@@ -20,7 +20,7 @@ These are the only deterministic local replay actions that should be written
 into new Function steps.
 
 Nested saved Function execution is not a GUI action. New nested Function steps
-should use the tool name `oob_function_run`; `call_function` and `run_function`
+should use the tool name `oob_function_run`; `call_tool` and `run_function`
 are legacy import names only.
 
 ## Legacy Aliases
@@ -60,7 +60,7 @@ kept as agent fallback steps when live perception is required.
 ## Code Owners
 
 - Parser and args summary: `OobActionCodec.kt`
-- Runtime executor: `OmniflowStepExecutor.kt`
+- Runtime executor: `UIStepExecutor.kt`
 - UDEG edge indexing: `OobUdegNodeStore.kt`
 - RunLog card cleanup and compilation: `RunLogReplayStepCompiler.kt`,
   `RunLogReplayStepNoiseNormalizer.kt`, and `OobStepRoleClassifier.kt`

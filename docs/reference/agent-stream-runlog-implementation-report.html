@@ -217,13 +217,13 @@
       <li>失败 card 不参与“已有可回放动作”判断，避免失败 click 把 VLM-only fallback 跳过后生成空 Function。</li>
       <li><code>android_privileged_action</code> 中的本地 UI action 会从 <code>arguments</code> 展平成端侧执行器需要的 <code>x/y/text/package_name</code> 等字段。</li>
       <li>纯端侧 action 标记为 <code>executor=omniflow</code> 和 <code>model_free=true</code>；browser/search/memory/runlog 等 data-flow 工具保留 <code>executor=agent</code>。</li>
-      <li>provider-owned 图执行工具，例如 <code>go_to_node</code>, <code>click_node</code>, 旧 <code>call_function</code> source label，不降级成本地坐标脚本，统一标记为需要 OmniFlow/provider fallback；当前 Function 重放工具名是 <code>oob_function_run</code>。</li>
+      <li>provider-owned 图执行工具，例如 <code>go_to_node</code>, <code>click_node</code>, 旧 <code>call_tool</code> source label，不降级成本地坐标脚本，统一标记为需要 OmniFlow/provider fallback；当前 Function 重放工具名是 <code>oob_function_run</code>。</li>
       <li>Flutter 侧 <code>RunLogReplayPolicy</code> 与 Android asset <code>replay_policy.json</code> 有测试对齐，避免 UI 转换器和 native runner 分叉。</li>
     </ul>
 
     <h3>4. 端侧重放和坐标修正</h3>
     <ul>
-      <li><code>OmniflowStepExecutor.kt</code> 支持 <code>click</code>, <code>long_press</code>, <code>scroll/swipe</code>, <code>type/input_text</code>, <code>open_app</code>, <code>press_key</code>, <code>wait</code>, <code>finished</code>。</li>
+      <li><code>UIStepExecutor.kt</code> 支持 <code>click</code>, <code>long_press</code>, <code>scroll/swipe</code>, <code>type/input_text</code>, <code>open_app</code>, <code>press_key</code>, <code>wait</code>, <code>finished</code>。</li>
       <li>如果有 source XML 和当前 XML，坐标动作通过 anchor projection 重新投影，避免录制时坐标在当前页面偏移。</li>
       <li><code>ActionTargetGrounder.kt</code> 对实时 VLM click/long_press 做二次修正：先用目标描述匹配节点文本，再结合原坐标附近性，命中后点击节点中心。</li>
       <li>低置信度、不相关目标、缺失 XML 时不强行改坐标，避免把 VLM 的原始意图破坏掉。</li>
@@ -257,7 +257,7 @@
         <tr><td>Flutter stream</td><td><code>ui/lib/widgets/streaming_text.dart</code></td><td>Markdown committed/pending 分段渲染。</td></tr>
         <tr><td>RunLog</td><td><code>baselib/src/main/java/cn/com/omnimind/baselib/runlog/InternalRunLogStore.kt</code></td><td>事件日志、snapshot、timeline 恢复。</td></tr>
         <tr><td>Replay</td><td><code>app/src/main/java/cn/com/omnimind/bot/runlog/RunLogReusableFunctionCompiler.kt</code></td><td>RunLog card 到 reusable Function spec 的编译。</td></tr>
-        <tr><td>Replay</td><td><code>app/src/main/java/cn/com/omnimind/bot/runlog/OmniflowStepExecutor.kt</code></td><td>本机 model-free action 执行和坐标重映射。</td></tr>
+        <tr><td>Replay</td><td><code>app/src/main/java/cn/com/omnimind/bot/runlog/UIStepExecutor.kt</code></td><td>本机 model-free action 执行和坐标重映射。</td></tr>
         <tr><td>VLM</td><td><code>assists/src/main/java/cn/com/omnimind/assists/task/vlmserver/ActionTargetGrounder.kt</code></td><td>当前 Accessibility XML 上的语义目标 grounding。</td></tr>
         <tr><td>External</td><td><code>omniflow_agentkit/mcp.py</code></td><td>无依赖 JSON-RPC MCP client。</td></tr>
         <tr><td>Stream projection</td><td><code>ui/lib/services/agent_stream_run_projection.dart</code></td><td>Agent stream event 到稳定 run part 的共享投影规则。</td></tr>

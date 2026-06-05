@@ -59,7 +59,7 @@ Offline OmniFlow and replay:
   - compiles RunLog cards into `oob.reusable_function.v1`.
 - `app/src/main/java/cn/com/omnimind/bot/runlog/OobUdegNodeStore.kt`
   - page-vector UDEG nodes, node-skill context, Function/segment attachment.
-- `app/src/main/java/cn/com/omnimind/bot/runlog/OmniflowStepExecutor.kt`
+- `app/src/main/java/cn/com/omnimind/bot/runlog/UIStepExecutor.kt`
   - deterministic primitive replay executor and four-part per-step replay timing.
 - `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolHandler.kt`
   - materialized Function runner, nested `oob_function_run` tool-card events,
@@ -172,13 +172,11 @@ Startup and device normalization:
 - Raw `duration_ms`, `started_at_ms`, `finished_at_ms`, and `phase_ms` are
   internal observability fields. They are recorded in RunLog/results/tests but
   should not be shown as raw debug labels in normal user-facing UI.
-- `oob_function_run` is the model-visible reusable Function replay tool. When
-  it appears as a nested step inside a reusable Function, it must emit normal
-  `tool_started` / `tool_completed` cards with `toolName=oob_function_run`,
-  `toolType=oob_function`, readable "复用指令" labels,
-  `argsJson.function_id`, and completion status. Legacy `call_function` labels
-  may still appear in old RunLogs or parser inputs, but they should normalize to
-  the same replay path and not be documented as the primary tool.
+- `call_tool(function_id, arguments)` is the model-visible reusable Function
+  invocation language. When a Function call appears as a nested step, it must
+  emit normal `tool_started` / `tool_completed` cards with `toolName=call_tool`,
+  readable "复用指令" labels, `argsJson.function_id`, and completion status.
+  `oob_function_run` remains the direct local runner/debug MCP tool.
 
 ## Online Entry Flow
 
@@ -709,9 +707,8 @@ agent card schema produced by `AssistsCoreManager.buildAgentToolRunLogCard(...)`
 - `rawResultJson`
 - `compile_kind = "agent_tool"`
 
-For reusable Function cards, `toolName=oob_function_run`, `toolType=oob_function`,
-and `argsJson` must include `function_id` plus optional `arguments`. Legacy
-cards with `toolName=call_function` are accepted as old evidence only.
+For reusable Function cards, `toolName=call_tool`, `toolType=oob_function`, and
+`argsJson` must include `function_id` plus optional `arguments`.
 
 ## Manual Takeover Recording
 
@@ -1087,13 +1084,12 @@ read with `runner_phase_ms` and each primitive step's timing below.
 4. Runs accessibility preflight. If any non-skipped step needs accessibility
    and backend is not ready, returns `OOB_ACCESSIBILITY_REQUIRED`.
 5. Executes each step:
-   - OmniFlow primitive through `OmniflowStepExecutor`
+   - OmniFlow primitive through `UIStepExecutor`
    - nested OmniFlow tool/function/graph tools when present
    - delegated agent tool if router/environment are available
    - otherwise returns agent fallback requirement
 6. Emits explicit start/complete tool-card events for every nested
-   `oob_function_run` / `call_tool(function_id=...)` step when a callback is
-   present. Legacy `call_function` source labels normalize to the same path.
+   `call_tool(function_id=...)` step when a callback is present.
    Missing function id, missing function, missing arguments, recursion, and
    nested success/failure all produce a completed card instead of silently
    disappearing into `step_results`.
@@ -1132,7 +1128,7 @@ timing.phase_ms = {
 }
 ```
 
-Primitive replay in `OmniflowStepExecutor` supports:
+Primitive replay in `UIStepExecutor` supports:
 
 - `click`
 - `long_press`

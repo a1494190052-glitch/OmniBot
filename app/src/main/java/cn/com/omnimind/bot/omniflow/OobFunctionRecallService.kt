@@ -35,7 +35,7 @@ class OobFunctionRecallService(
             )
         }
         val currentNodeId = firstNonBlank(request["current_node_id"], request["currentNodeId"])
-        val k = intArg(request["k"], defaultValue = DEFAULT_RECALL_LIMIT).coerceIn(1, MAX_RECALL_FUNCTIONS)
+        val k = intArg(request["k"], defaultValue = DEFAULT_RECALL_LIMIT).coerceIn(1, MAX_RECALLED_FUNCTIONS)
         val allowDirectExecutionDecision = boolArg(request["auto_execute"]) ||
             boolArg(request["autoExecute"]) ||
             boolArg(request["allow_direct_hit"]) ||
@@ -302,7 +302,7 @@ class OobFunctionRecallService(
     ): List<RankedFunction> {
         if (goal.isBlank()) return emptyList()
         return functionRepository
-            .listSpecs(limit = MAX_RECALL_FUNCTIONS, includeHidden = false)
+            .listSpecs(limit = MAX_RECALLED_FUNCTIONS, includeHidden = false)
             .mapNotNull { spec ->
                 if (!OobFunctionRepository.isAgentVisible(spec)) return@mapNotNull null
                 val functionId = OobFunctionSchemaBuilder.functionId(spec)
@@ -328,7 +328,7 @@ class OobFunctionRecallService(
                 compareByDescending<RankedFunction> { it.score }
                     .thenBy { it.functionId }
             )
-            .take(topK.coerceIn(1, MAX_RECALL_FUNCTIONS))
+            .take(topK.coerceIn(1, MAX_RECALLED_FUNCTIONS))
     }
 
     private fun mergeRankedFunctions(
@@ -344,7 +344,7 @@ class OobFunctionRecallService(
         }
         return byId.values
             .sortedWith(rankedComparator)
-            .take(limit.coerceIn(1, MAX_RECALL_FUNCTIONS))
+            .take(limit.coerceIn(1, MAX_RECALLED_FUNCTIONS))
     }
 
     private val rankedComparator: Comparator<RankedFunction> =
@@ -934,6 +934,6 @@ class OobFunctionRecallService(
         private const val GOAL_MATCH_WEIGHT = 0.30
         private const val CATALOG_MIN_TEXT_SCORE = 0.55
         private const val DEFAULT_RECALL_LIMIT = 50
-        private const val MAX_RECALL_FUNCTIONS = 50
+        private const val MAX_RECALLED_FUNCTIONS = 50
     }
 }

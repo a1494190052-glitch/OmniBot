@@ -38,7 +38,7 @@ prompt = kit.agent_prompt("Convert the latest successful RunLog into a reusable 
 
 Current OOB Function replay is exposed as `oob_function_run`. The Python helper
 method `run_function(...)` calls that direct tool. Older helper names such as
-`call_function(...)` and CLI commands such as `mcp-call-function` are kept only
+`call_tool(...)` and CLI commands such as `mcp-call-tool` are kept only
 as compatibility wrappers for older MCP servers and test fixtures.
 
 ```python
@@ -61,7 +61,7 @@ if client.has_canonical_omniflow():
     recalled = client.recall("open Android Settings")
     function_id = recalled["hit"]["function_id"]
     # Compatibility wrapper for old canonical MCP servers.
-    result = client.call_function(function_id, {})
+    result = client.call_tool(function_id, {})
     explored = client.explore_replay(
         "open network settings",
         package_name="com.android.settings",
@@ -100,13 +100,13 @@ python -m omniflow_agentkit mcp-run-function settings_click_path_demo --mcp-url 
 python -m omniflow_agentkit mcp-convert-runlog runlog_install_demo --mcp-url http://127.0.0.1:8765/mcp
 python -m omniflow_agentkit mcp-run-function install_sample_apk_demo --mcp-url http://127.0.0.1:8765/mcp --execution-mode background --confirmed
 python -m omniflow_agentkit mcp-recall "open Android Settings" --mcp-url http://127.0.0.1:8765/mcp
-python -m omniflow_agentkit mcp-call-function settings_click_path_demo --mcp-url http://127.0.0.1:8765/mcp
+python -m omniflow_agentkit mcp-call-tool settings_click_path_demo --mcp-url http://127.0.0.1:8765/mcp
 python -m omniflow_agentkit mcp-ingest-runlog runlog_install_demo --mcp-url http://127.0.0.1:8765/mcp
 python -m omniflow_agentkit mcp-explore-replay "open network settings" --mcp-url http://127.0.0.1:8765/mcp --package-name com.android.settings --stop-text Network --no-replay
 python -m omniflow_agentkit openai-smoke "Inspect OmniFlow readiness" --repo /tmp/mobilegpt
 ```
 
-`mcp-call-function` is a legacy command name. Prefer `mcp-run-function` for new
+`mcp-call-tool` is a legacy command name. Prefer `mcp-run-function` for new
 scripts and agent examples.
 
 `openai-smoke` uses `OPENAI_API_KEY` when present. It does not print or inspect

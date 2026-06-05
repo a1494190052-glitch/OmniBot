@@ -31,7 +31,7 @@ queue，不根据页面状态自动跳过中间步骤，不做 semantic/navigati
 | --- | --- | --- | --- |
 | RunLog | 记录一次真实执行或人工录制的证据 | `oob_run_log_*` | inline 临时 replay 规则 |
 | Function | 可复用 GUI 工作流资产 | `oob_function_*` | legacy reusable-workflow wording |
-| Replay | 顺序执行 `Function.steps` | `oob_function_run` | `call_function` / `run_function` 主路径 |
+| Replay | 顺序执行 `Function.steps` | `oob_function_run` | `call_tool` / `run_function` 主路径 |
 | Recall | 本地候选检索并写入上下文 | VLM page context / guidance | recall 前置强规则自动执行 |
 | Checker | 可选条件处理，如广告/弹窗/权限 | Function metadata / checker rules | 必经 happy path step |
 | Fallback | replay 失败后的结构化交接 | `fallback_context` | 隐式 VLM fallback 状态机 |
@@ -59,14 +59,13 @@ oob_run_log_convert
 recall 返回 `inputSchema`、`function_profile`、`argument_policy`，agent/VLM 像普通
 tool 一样填参数再调用。
 
-### 兼容工具名
+### 外部/直接工具名
 
-这些名字只为旧客户端、旧 RunLog、旧 MCP adapter 保留：
+这些名字按边界使用：`call_tool` 是统一调用语言，`oob_function_run` 是直接本地执行工具。
 
 ```text
-call_function
+call_tool
 run_function
-omniflow.call_function
 omniflow.call_tool
 omniflow.recall
 omniflow.ingest_run_log
@@ -111,7 +110,7 @@ metadata，不把旧名字写回主路径。
 | `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogReplayStepCompiler.kt` | 单个 RunLog card 到 replay step | 不做 store/update/replay |
 | `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogReplayStepNoiseNormalizer.kt` | wait、失败 card、重复输入等确定性清理 | 清理发生在编译期，不做运行时跳步 |
 | `app/src/main/java/cn/com/omnimind/bot/runlog/OobFunctionSchemaBuilder.kt` | 生成 Function schema/profile/export 字段 | 不做 action 判定 |
-| `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogReplayPolicy.kt` | RunLog replay tool/action 策略常量 | 旧 `call_function` 只作为 legacy input |
+| `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogReplayPolicy.kt` | RunLog replay tool/action 策略常量 | 统一 `call_tool` 与直接 replay 工具边界 |
 | `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogCardAccessors.kt` | RunLog card 字段读取 | 避免各处散落 JSON 访问 |
 
 ### Action 和 Step 统一判断
@@ -127,7 +126,7 @@ metadata，不把旧名字写回主路径。
 
 | 文件 | 责任 | 维护规则 |
 | --- | --- | --- |
-| `app/src/main/java/cn/com/omnimind/bot/runlog/OmniflowStepExecutor.kt` | 具体 GUI action 执行和 re-grounding | 只执行当前 step，不决定跳过未来 step |
+| `app/src/main/java/cn/com/omnimind/bot/runlog/UIStepExecutor.kt` | 具体 GUI action 执行和 re-grounding | 只执行当前 step，不决定跳过未来 step |
 | `app/src/main/java/cn/com/omnimind/bot/runlog/OmniflowActionBackend.kt` | 底层 action backend 抽象 | 不放 Function spec 语义 |
 | `app/src/main/java/cn/com/omnimind/bot/runlog/OmniflowCheckerRule.kt` | checker rule 表达 | checker 是条件处理，不是 planner |
 | `app/src/main/java/cn/com/omnimind/bot/runlog/OobRunLogReplayService.kt` | RunLog replay service 入口 | 作为兼容/工具服务，不分叉 Function runner |
@@ -161,7 +160,7 @@ metadata，不把旧名字写回主路径。
 | --- | --- | --- |
 | `app/src/main/java/cn/com/omnimind/bot/agent/tool/AgentToolDefinitions.kt` | agent tool schema | `oob_function_run` 是主工具说明 |
 | `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolHandler.kt` | Function tools handler 主入口 | list/get/register/update/guard/run/delete/clear 汇聚 |
-| `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionCallRequestResolver.kt` | run 请求解析、旧字段兼容 | 不产生第二套 call_function 语义 |
+| `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionCallRequestResolver.kt` | run 请求解析、旧字段兼容 | 不产生第二套 call_tool 语义 |
 | `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionGraphStepRunner.kt` | graph/function step 运行 | 不维护 pending stack |
 | `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionRunResultBuilder.kt` | run 输出和 fallback 输出 | 失败时输出 `fallback_context`/resume 字段 |
 | `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionNestedFunctionExecutor.kt` | nested Function step 执行 | 调 `oob_function_run` |

@@ -4,20 +4,19 @@ Date: 2026-05-17
 
 These checks validate that the OmniFlow Agent Kit can be handed to external
 GUI-agent projects as a directly callable library plus skill package. The public
-MCP surface used by these historical external-project checks includes the older
-canonical OmniFlow tools:
+MCP surface used by these external-project checks includes the canonical
+OmniFlow tools:
 
 ```text
 omniflow.recall
-omniflow.call_function
+omniflow.call_tool
 omniflow.ingest_run_log
 omniflow.explore_replay
 ```
 
-Current OOB model-visible Function replay should use `oob_function_run`.
-`omniflow.call_function` and `call_function` remain compatibility names in older
-MCP clients, test records, and source evidence; do not introduce them as a new
-primary replay path.
+Current model-visible Function invocation should use
+`call_tool(function_id, arguments)` / `omniflow.call_tool`. `oob_function_run`
+remains available as the direct local runner/debug MCP tool.
 
 The OOB MCP server and Agent Kit also expose direct Function/RunLog tools for
 debugging and deterministic replay audits:
@@ -56,10 +55,10 @@ cd /private/tmp/omniflow-probe-mobilegpt
 /private/tmp/omniflow-acceptance/venv/bin/omniflow-agentkit probe-repo .
 /private/tmp/omniflow-acceptance/venv/bin/omniflow-agentkit prompt "Run the safest saved Function" --repo .
 /private/tmp/omniflow-acceptance/venv/bin/omniflow-agentkit mcp-recall "open Android Settings"
-/private/tmp/omniflow-acceptance/venv/bin/omniflow-agentkit mcp-call-function settings_click_path_demo
+/private/tmp/omniflow-acceptance/venv/bin/omniflow-agentkit mcp-call-tool settings_click_path_demo
 /private/tmp/omniflow-acceptance/venv/bin/omniflow-agentkit mcp-ingest-runlog runlog_install_demo
 /private/tmp/omniflow-acceptance/venv/bin/omniflow-agentkit mcp-explore-replay "open network settings" --package-name com.android.settings --stop-text Network --no-replay
-/private/tmp/omniflow-acceptance/venv/bin/omniflow-agentkit mcp-call-function install_sample_apk_demo
+/private/tmp/omniflow-acceptance/venv/bin/omniflow-agentkit mcp-call-tool install_sample_apk_demo
 ```
 
 The MCP commands require a real OOB MCP endpoint. Set `OMNIFLOW_MCP_URL` or
@@ -84,9 +83,9 @@ Run exactly these commands and no variants:
 
 /private/tmp/omniflow-acceptance/venv/bin/omniflow-agentkit probe-repo .
 /private/tmp/omniflow-acceptance/venv/bin/omniflow-agentkit mcp-recall "open Android Settings and click through the demo path"
-/private/tmp/omniflow-acceptance/venv/bin/omniflow-agentkit mcp-call-function settings_click_path_demo
+/private/tmp/omniflow-acceptance/venv/bin/omniflow-agentkit mcp-call-tool settings_click_path_demo
 /private/tmp/omniflow-acceptance/venv/bin/omniflow-agentkit mcp-ingest-runlog runlog_install_demo
-/private/tmp/omniflow-acceptance/venv/bin/omniflow-agentkit mcp-call-function install_sample_apk_demo
+/private/tmp/omniflow-acceptance/venv/bin/omniflow-agentkit mcp-call-tool install_sample_apk_demo
 
 Then summarize whether all commands succeeded, include recommended_mode if present,
 and include the function_id, run_id, runner_duration_ms, and click step count.
@@ -105,7 +104,7 @@ replay run_id: <real-run-id>
 ```
 
 `read-only` and `workspace-write` Codex sandboxes were also checked; both
-blocked the loopback MCP call before `omniflow.call_function`. The successful
+blocked the loopback MCP call before `omniflow.call_tool`. The successful
 Codex simulation therefore uses `danger-full-access` while instructing the
 agent not to modify files.
 
@@ -156,7 +155,7 @@ if client.has_canonical_omniflow():
     function_id = recalled["hit"]["function_id"]
     # Historical compatibility wrapper. New OOB clients should use
     # oob_function_run / client.run_function when direct tools are exposed.
-    result = client.call_function(function_id, {})
+    result = client.call_tool(function_id, {})
 ```
 
 Acceptance result:
@@ -164,7 +163,7 @@ Acceptance result:
 ```text
 canonical_recall=ok
 canonical_hit_function_id=settings_click_path_demo
-canonical_call_function=ok
+canonical_call_tool=ok
 canonical_run_id=<real-run-id>
 canonical_click_step_count=4
 canonical_ingest_runlog=ok
@@ -205,7 +204,7 @@ Acceptance result:
 
 ```text
 canonical_recall=ok
-canonical_call_function=ok
+canonical_call_tool=ok
 canonical_run_id=<real-run-id>
 canonical_ingest_runlog=ok
 canonical_call_ingested_function=ok
@@ -237,9 +236,9 @@ How mobile-mcp should use OmniFlow:
 
 - Prefer direct MCP mode.
 - Discover with `tools/list`.
-- Prefer direct OOB tools, especially `oob_function_run`, when exposed. Use
-  `omniflow.recall`, compatibility `omniflow.call_function`, and
-  `omniflow.ingest_run_log` only for older external MCP surfaces.
+- Prefer `omniflow.recall`, `omniflow.call_tool`, and
+  `omniflow.ingest_run_log` for the canonical external MCP surface. Use direct
+  OOB tools such as `oob_function_run` for local replay audits when exposed.
 - Treat the Python kit as a contract/test client or export
   `python -m omniflow_agentkit pack` as JSON for Node-side agent context.
 
@@ -247,7 +246,7 @@ Acceptance result:
 
 ```text
 canonical_recall=ok
-canonical_call_function=ok
+canonical_call_tool=ok
 canonical_run_id=<real-run-id>
 canonical_ingest_runlog=ok
 canonical_call_ingested_function=ok
@@ -267,11 +266,9 @@ omniflow_mobile_mcp_acceptance=ok
 - mobile-mcp is detected as an MCP project and gets `direct_mcp`.
 - Each tested external project can recall the existing
   `settings_click_path_demo` Function through MCP.
-- Each tested external project can run that Function through current
-  `oob_function_run` or compatibility `omniflow.call_function` and receives a
-  real run id.
+- Each tested external project can run that Function through
+  `omniflow.call_tool` and receives a real run id.
 - Each tested external project can ingest `runlog_install_demo` into
   `install_sample_apk_demo`.
-- Each tested external project can run the ingested Function through current
-  `oob_function_run` or compatibility `omniflow.call_function` and receives a
-  real run id.
+- Each tested external project can run the ingested Function through
+  `omniflow.call_tool` and receives a real run id.

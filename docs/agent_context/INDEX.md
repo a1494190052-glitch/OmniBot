@@ -69,7 +69,7 @@ Last Updated: 2026-06-01
    - `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogReplayStepCompiler.kt`
    - `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogReplayStepNoiseNormalizer.kt`
    - `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogReusableFunctionCompiler.kt`
-   - `app/src/main/java/cn/com/omnimind/bot/runlog/OmniflowStepExecutor.kt`
+   - `app/src/main/java/cn/com/omnimind/bot/runlog/UIStepExecutor.kt`
    - `app/src/main/java/cn/com/omnimind/bot/mcp/McpToolDefinitions.kt`
    - `app/src/main/java/cn/com/omnimind/bot/vlm/VlmToolCoordinator.kt`
    - `app/src/main/java/cn/com/omnimind/bot/vlm/VlmRecallGuidanceBuilder.kt`

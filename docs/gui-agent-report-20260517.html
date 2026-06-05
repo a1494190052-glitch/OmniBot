@@ -191,7 +191,7 @@
           <td>OmniFlow / Reusable Function</td>
           <td><code>app/src/main/java/.../runlog/</code>、<code>OobFunctionToolHandler.kt</code></td>
           <td>把成功 RunLog 转成可复用 Function；回放时优先执行 deterministic local steps，失败再 fallback 到 Agent/VLM。</td>
-          <td><span class="badge info">可复用</span> 当前 OmniFlow 已有 <code>OmniflowStepExecutor.remapStepArgs</code> 基于 source/current XML 做 anchor projection；它解决“回放时页面变了”的问题。</td>
+          <td><span class="badge info">可复用</span> 当前 OmniFlow 已有 <code>UIStepExecutor.remapStepArgs</code> 基于 source/current XML 做 anchor projection；它解决“回放时页面变了”的问题。</td>
         </tr>
       </tbody>
     </table>
@@ -306,7 +306,7 @@
     <p>在 <code>VLMOperationService.executeSingleStep</code> 中，坐标映射后、XML 稳定性检查前执行 <code>groundActionTarget(processedStep, beforeXml)</code>。这保证执行稳定性检查和真实点击使用的是已校准坐标。</p>
 
     <h3>3. 编译阻塞修复</h3>
-    <p><code>app/src/main/java/cn/com/omnimind/bot/runlog/OmniflowStepExecutor.kt</code> 中 RunLog 滑动距离字段统一为 <code>Float</code>，避免 debug APK 编译失败。</p>
+    <p><code>app/src/main/java/cn/com/omnimind/bot/runlog/UIStepExecutor.kt</code> 中 RunLog 滑动距离字段统一为 <code>Float</code>，避免 debug APK 编译失败。</p>
 
     <h3>4. 单元测试</h3>
     <p>新增 <code>assists/src/test/java/cn/com/omnimind/assists/task/vlmserver/ActionTargetGrounderTest.kt</code>，覆盖：</p>
@@ -336,7 +336,7 @@
         </tr>
         <tr>
           <td>RunLog replay native 对齐</td>
-          <td><code>./gradlew --no-daemon :app:testDevelopStandardDebugUnitTest --tests cn.com.omnimind.bot.runlog.RunLogReusableFunctionCompilerTest --tests cn.com.omnimind.bot.runlog.OmniflowStepExecutorTest</code></td>
+          <td><code>./gradlew --no-daemon :app:testDevelopStandardDebugUnitTest --tests cn.com.omnimind.bot.runlog.RunLogReusableFunctionCompilerTest --tests cn.com.omnimind.bot.runlog.UIStepExecutorTest</code></td>
           <td><span class="badge ok">通过</span></td>
         </tr>
         <tr>

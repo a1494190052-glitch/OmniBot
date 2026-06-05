@@ -118,8 +118,8 @@ Calls one OOB/OmniFlow capability. When `function_id` is provided, it executes
 one selected Function segment through the same local runner as
 `oob_function_run`. This call is a composable step in the caller's plan, not a
 guarantee that the entire user goal is done.
-`omniflow.call_function` may still be accepted by old servers as a compatibility
-alias, but new agents should not use it as a separate path.
+This is the canonical external MCP entry for selecting a recalled Function or
+allowed OOB capability from the shared action language.
 
 Input:
 

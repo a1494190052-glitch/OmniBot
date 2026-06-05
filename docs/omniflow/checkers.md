@@ -74,6 +74,6 @@ checker that competes with it.
 ## Runtime Files
 
 - Rule model: `OmniflowCheckerRule.kt`
-- Rule execution: `OmniflowStepExecutor.kt`
+- Rule execution: `UIStepExecutor.kt`
 - Function patching: `OobFunctionCheckerPatchService.kt`
 - Agent maintenance workflow: `omniflow-checker-maintainer`

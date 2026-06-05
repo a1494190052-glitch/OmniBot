@@ -47,7 +47,7 @@ RunLog events
 -> oob_function_guard_check
 -> guard check
 -> oob_function_run
--> OmniflowStepExecutor
+-> UIStepExecutor
 -> fallback_context when replay fails
 ```
 

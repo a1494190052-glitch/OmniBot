@@ -605,7 +605,7 @@
         <p class="section-copy">
           脚本现在会从 MCP 返回 JSON 中读取 <code>result.timing.runner_duration_ms</code> 和
           <code>result.step_results[*].duration_ms</code>，并写入 <code>timing.tsv</code>。
-          其中 <code>canonical_call_function_*</code> 前缀来自 <code>mcp-call-function</code>/<code>omniflow.call_function</code>，
+          其中 <code>canonical_call_tool_*</code> 前缀来自 <code>mcp-call-tool</code>/<code>omniflow.call_tool</code>，
           <code>function_run_existing_*</code> 前缀来自 direct <code>mcp-run-function</code>/<code>oob_function_run</code>。
           两者都表示 Function runner 内部执行耗时，不包含 CLI 启动、HTTP 往返、JSON 序列化等外层成本。
           最新批量验收中，canonical 最慢 runner 是 MobileGPT <strong>139ms</strong>，
@@ -626,26 +626,26 @@
             <tr>
               <td><strong>MobileGPT</strong></td>
               <td><code>settings_click_path_demo</code></td>
-              <td><code>omniflow.call_function</code></td>
+              <td><code>omniflow.call_tool</code></td>
               <td><strong>139ms</strong></td>
               <td><code>click step 6=29ms</code></td>
-              <td><code>canonical_call_function_runner</code></td>
+              <td><code>canonical_call_tool_runner</code></td>
             </tr>
             <tr>
               <td><strong>mobile-use</strong></td>
               <td><code>settings_click_path_demo</code></td>
-              <td><code>omniflow.call_function</code></td>
+              <td><code>omniflow.call_tool</code></td>
               <td><strong>134ms</strong></td>
               <td><code>click step 6=29ms</code></td>
-              <td><code>canonical_call_function_runner</code></td>
+              <td><code>canonical_call_tool_runner</code></td>
             </tr>
             <tr>
               <td><strong>mobile-mcp</strong></td>
               <td><code>settings_click_path_demo</code></td>
-              <td><code>omniflow.call_function</code></td>
+              <td><code>omniflow.call_tool</code></td>
               <td><strong>130ms</strong></td>
               <td><code>click step 2=26ms</code></td>
-              <td><code>canonical_call_function_runner</code></td>
+              <td><code>canonical_call_tool_runner</code></td>
             </tr>
             <tr>
               <td><strong>MobileGPT</strong></td>
@@ -674,7 +674,7 @@
             <tr>
               <td><strong>MobileGPT</strong></td>
               <td><code>install_sample_apk_demo</code></td>
-              <td><code>omniflow.call_function</code></td>
+              <td><code>omniflow.call_tool</code></td>
               <td><strong>12ms</strong></td>
               <td><code>package_install=12ms</code></td>
               <td><code>canonical_ingested_function_runner</code></td>
@@ -682,7 +682,7 @@
             <tr>
               <td><strong>mobile-use</strong></td>
               <td><code>install_sample_apk_demo</code></td>
-              <td><code>omniflow.call_function</code></td>
+              <td><code>omniflow.call_tool</code></td>
               <td><strong>12ms</strong></td>
               <td><code>package_install=12ms</code></td>
               <td><code>canonical_ingested_function_runner</code></td>
@@ -690,7 +690,7 @@
             <tr>
               <td><strong>mobile-mcp</strong></td>
               <td><code>install_sample_apk_demo</code></td>
-              <td><code>omniflow.call_function</code></td>
+              <td><code>omniflow.call_tool</code></td>
               <td><strong>12ms</strong></td>
               <td><code>package_install=12ms</code></td>
               <td><code>canonical_ingested_function_runner</code></td>
@@ -703,7 +703,7 @@
         <h2>Click Function Step 用时</h2>
         <p class="section-copy">
           <code>settings_click_path_demo</code> 是本轮新的实际验收 Function：7 个 step，4 个 click。
-          下表来自 canonical <code>omniflow.call_function</code> 的真实 <code>step_results[*].duration_ms</code>。
+          下表来自 canonical <code>omniflow.call_tool</code> 的真实 <code>step_results[*].duration_ms</code>。
           最耗时的是第 6 步 click，MobileGPT 和 mobile-use 均为 <strong>29ms</strong>。
         </p>
         <table class="matrix">
@@ -761,7 +761,7 @@
           跨项目看，<code>venv_create</code> 与 <code>wheel_build</code> 是主要耗时来源。
           真实 direct replay 中最慢 runner 是 <code>MobileGPT function_run_existing_runner=140ms</code>，
           最慢 step 是 <code>MobileGPT function_run_existing_step_6_click=29ms</code>；
-          canonical replay 中最慢 runner 是 <code>MobileGPT canonical_call_function_runner=139ms</code>。
+          canonical replay 中最慢 runner 是 <code>MobileGPT canonical_call_tool_runner=139ms</code>。
         </p>
         <table class="matrix">
           <thead>
@@ -851,7 +851,7 @@
         <p class="section-copy" style="margin-top: 22px;">
           可选历史采样中，含 Codex CLI 的 MobileGPT 模拟总耗时为 <strong>36.568s</strong>，
           其中 <code>codex_cli=30.788s</code>，占 <strong>84.2%</strong>。
-          本次默认验收未开启 <code>OMNIFLOW_RUN_CODEX=1</code>，核心判断以 canonical <code>omniflow.call_function</code> 为准。
+          本次默认验收未开启 <code>OMNIFLOW_RUN_CODEX=1</code>，核心判断以 canonical <code>omniflow.call_tool</code> 为准。
           这说明“另一个高能力 agent 读指令并执行命令”的验证成本远高于 OmniFlow MCP 调用成本。
         </p>
         <table class="matrix">
@@ -918,8 +918,8 @@
             <tr><td><code>cli_probe_repo</code></td><td>CLI 仓库探测</td><td>508ms</td><td>348ms</td><td>385ms</td></tr>
             <tr><td><code>cli_prompt_build</code></td><td>生成给 GUI agent 的 prompt</td><td>65ms</td><td>64ms</td><td>62ms</td></tr>
             <tr><td><code>mcp_recall</code></td><td>语义召回 Function</td><td>76ms</td><td>75ms</td><td>78ms</td></tr>
-            <tr><td><code>mcp_call_function</code></td><td>canonical 触发 7-step click Function</td><td>已通过</td><td>已通过</td><td>已通过</td></tr>
-            <tr><td><code>canonical_call_function_runner</code></td><td>canonical Function runner 内部耗时</td><td><strong>139ms</strong></td><td><strong>134ms</strong></td><td><strong>130ms</strong></td></tr>
+            <tr><td><code>mcp_call_tool</code></td><td>canonical 触发 7-step click Function</td><td>已通过</td><td>已通过</td><td>已通过</td></tr>
+            <tr><td><code>canonical_call_tool_runner</code></td><td>canonical Function runner 内部耗时</td><td><strong>139ms</strong></td><td><strong>134ms</strong></td><td><strong>130ms</strong></td></tr>
             <tr><td><code>function_run_existing_runner</code></td><td>direct Function runner 内部耗时</td><td><strong>140ms</strong></td><td><strong>139ms</strong></td><td><strong>137ms</strong></td></tr>
             <tr><td><code>mcp_ingest_runlog</code></td><td>canonical 注册 RunLog</td><td>79ms</td><td>78ms</td><td>82ms</td></tr>
             <tr><td><code>mcp_call_ingested_function</code></td><td>canonical 触发注册后的 Function</td><td>86ms</td><td>88ms</td><td>88ms</td></tr>
@@ -959,14 +959,14 @@
             </tr>
             <tr>
               <td><strong>触发已有 Function</strong></td>
-              <td><code>mcp-call-function settings_click_path_demo</code></td>
-              <td><code>omniflow.call_function</code></td>
+              <td><code>mcp-call-tool settings_click_path_demo</code></td>
+              <td><code>omniflow.call_tool</code></td>
               <td><span class="pill green">7 steps / 4 clicks</span></td>
             </tr>
             <tr>
               <td><strong>触发 ingest 后 Function</strong></td>
-              <td><code>mcp-call-function install_sample_apk_demo</code></td>
-              <td><code>omniflow.call_function</code></td>
+              <td><code>mcp-call-tool install_sample_apk_demo</code></td>
+              <td><code>omniflow.call_tool</code></td>
               <td><span class="pill green">&lt;real-run-id&gt;</span></td>
             </tr>
             <tr>
@@ -1028,7 +1028,7 @@
           <div class="stage">
             <div class="num">04</div>
             <h3>Call Function</h3>
-            <p>调用 <code>omniflow.call_function</code>，触发已有 <code>settings_click_path_demo</code>。</p>
+            <p>调用 <code>omniflow.call_tool</code>，触发已有 <code>settings_click_path_demo</code>。</p>
           </div>
           <div class="stage">
             <div class="num">05</div>
@@ -1038,7 +1038,7 @@
           <div class="stage">
             <div class="num">06</div>
             <h3>Call Ingested Function</h3>
-            <p>调用 <code>omniflow.call_function</code>，运行安装型 Function。</p>
+            <p>调用 <code>omniflow.call_tool</code>，运行安装型 Function。</p>
           </div>
         </div>
       </section>
@@ -1122,7 +1122,7 @@ bash -n scripts/omniflow_acceptance_all_guiagents.sh
             <h3>正式接入面</h3>
             <p>
               外部 agent 应优先使用 canonical MCP tools：<code>omniflow.recall</code>、
-              <code>omniflow.call_function</code>、<code>omniflow.ingest_run_log</code>；
+              <code>omniflow.call_tool</code>、<code>omniflow.ingest_run_log</code>；
               也可以使用公开 direct tools：<code>oob_function_*</code> 与 <code>oob_run_log_*</code>。
               direct run 主要用于外部 agent 明确要求 replay、guard preflight 和 step timing 的场景。
               Skill 和 docs 负责激活条件与操作约束，不承担可信执行。

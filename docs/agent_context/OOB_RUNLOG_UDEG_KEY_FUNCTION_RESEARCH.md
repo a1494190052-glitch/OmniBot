@@ -77,8 +77,8 @@ does not fully implement the proposed OOB design.
 
 - `src/integrations/utg_api/_import.py`
   - Imports one canonical run log into one Function-like asset.
-  - Preserves concrete actions, including legacy `call_function` source
-    evidence when older traces contain it.
+  - Preserves concrete actions, including `call_tool` source evidence when
+    traces contain it.
   - Updates source run ids when a run reused an existing Function.
   - Writes imported Functions back into the runtime/compiler cache.
   - It does not by default split one RunLog into multiple key Functions during
@@ -117,8 +117,7 @@ Useful ideas to borrow:
 
 - Node precondition before executing a Function.
 - Function-call edges as a programmable composition primitive. In OOB, expose
-  this as `oob_function_run`; keep `call_function` only as legacy source
-  evidence or parser compatibility.
+  this through `call_tool(function_id, arguments)`.
 - Compose merge as cached Function-path materialization.
 - Conservative abort/fallback when a precondition or child Function is missing.
 
@@ -166,13 +165,11 @@ OOB already has a substantial native foundation.
 
 - `OobFunctionToolHandler`
   - Runs materialized Functions locally.
-  - Supports nested Function-run steps and explicit `oob_function_run` tool
-    cards. Legacy `call_function` labels are accepted only as parser/source
-    compatibility.
+  - Supports nested Function-run steps and explicit `call_tool` tool cards.
   - Fails locally without VLM fallback when fallback is disabled.
   - Supports a `go_to_node` graph step in tests.
 
-- `OmniflowStepExecutor`
+- `UIStepExecutor`
   - Executes primitive OOB/OmniFlow steps.
   - Uses current page reads and action-transfer/checker diagnostics.
   - Returns structured failure instead of silently inventing fallback behavior.

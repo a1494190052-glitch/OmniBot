@@ -36,7 +36,7 @@ Use this vocabulary in code, docs, prompts, and tests:
 | --- | --- | --- | --- |
 | Function | Saved reusable GUI workflow | `oob_function_*` | legacy reusable-workflow wording |
 | RunLog | Evidence from an execution or manual recording | `oob_run_log_*` | inline legacy logs |
-| Replay | Deterministic execution of explicit Function steps | `oob_function_run` | `call_function`, `run_function`, `omniflow.call_function` |
+| Replay | Deterministic execution of explicit Function steps | `oob_function_run` | `call_tool`, `run_function`, `omniflow.call_tool` |
 | Recall | Local candidate lookup before VLM/tool choice | guidance/page context | auto-execution before VLM |
 | Repair/enhance | Saved Function mutation | `update_function` | direct JSON mutation |
 | Fallback | Structured handoff after replay failure | `fallback_context` | hidden VLM fallback state |
@@ -46,7 +46,7 @@ be documented as a parallel product path. If an old client still has records
 under the previous vocabulary, migrate or expose them as Functions.
 
 Internal graph edges that represent callable Functions should use
-`kind=function_call`. Legacy edge inputs with `call_function`, `run_function`,
+`kind=function_call`. Legacy edge inputs with `call_tool`, `run_function`,
 or `function_transition` can still be normalized on ingestion, but new graph
 payloads should not use a tool name as the edge kind.
 
@@ -135,18 +135,17 @@ while still preventing automatic wrong-function execution.
 The model-visible Function action is:
 
 ```text
-oob_function_run(function_id, arguments?)
+call_tool(function_id, arguments?)
 ```
 
-`call_function`, `run_function`, and `omniflow.call_function` are compatibility
-names only. They may remain in parser, old RunLog, and old MCP adapter code, but
-they must not be the primary agent-facing tool, prompt, or schema.
+`oob_function_run` remains the direct local runner/debug MCP tool. New prompts,
+schemas, and online VLM guidance should expose Function selection through
+`call_tool`.
 
 New compiled or registered Function steps that invoke another Function should
-write `tool=oob_function_run` and `callable_tool=oob_function_run`. If the
-source evidence came from `call_function`, keep that fact only in `source_tool`
-or import metadata. This makes the main replay path read the same way in
-Function specs, tool-card events, VLM guidance, and MCP schemas.
+write `tool=call_tool` and `callable_tool=call_tool` with `function_id` in
+arguments. This makes the main replay path read the same way in Function specs,
+tool-card events, VLM guidance, and MCP schemas.
 
 ### Fallback
 
@@ -218,8 +217,8 @@ omniflow.recall
 omniflow.call_tool
 omniflow.ingest_run_log
 omniflow.explore_replay
-omniflow.call_function
-call_function
+omniflow.call_tool
+call_tool
 run_function
 ```
 
@@ -232,7 +231,7 @@ When a VLM task receives tool definitions, `oob_function_run` should appear next
 to normal GUI tools such as click, scroll, and input. The model can choose it
 and fill arguments when the recall guidance says a candidate Function is likely.
 
-Do not expose `call_function` or `run_function` as primary model-visible tool
+Do not expose `call_tool` or `run_function` as primary model-visible tool
 names. They are accepted only where compatibility is required:
 
 - old RunLog cards,
@@ -460,7 +459,7 @@ Replay and RunLog policy:
 - `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogReplayStepNoiseNormalizer.kt`
 - `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogReusableFunctionCompiler.kt`
 - `app/src/main/java/cn/com/omnimind/bot/runlog/OobFunctionSchemaBuilder.kt`
-- `app/src/main/java/cn/com/omnimind/bot/runlog/OmniflowStepExecutor.kt`
+- `app/src/main/java/cn/com/omnimind/bot/runlog/UIStepExecutor.kt`
 - `app/src/main/java/cn/com/omnimind/bot/runlog/OobOmniFlowToolkitService.kt`
 
 Agent/MCP tool surface:
@@ -529,9 +528,9 @@ Use this list when continuing simplification:
 
 ## Acceptance Checklist
 
-- Model-visible VLM tools expose `oob_function_run`, not `call_function` or
+- Model-visible VLM tools expose `oob_function_run`, not `call_tool` or
   `run_function`.
-- MCP fixed tools expose `oob_function_run`; `omniflow.call_function` is not a
+- MCP fixed tools expose `oob_function_run`; `omniflow.call_tool` is not a
   fixed primary tool.
 - Recall returns candidate context and timing, not automatic execution.
 - Parameterized recall candidates include enough schema/profile/policy for the
@@ -545,5 +544,6 @@ Use this list when continuing simplification:
   an agent prompt.
 - `update_function(functionId, run_id, analysis, patch)` saves analysis metadata
   and safe patches.
-- Active docs and built-in skills name `oob_function_run` as the main replay
-  tool and mark `call_function` names as compatibility only.
+- Active docs and built-in skills name `call_tool` as the shared Function
+  invocation language, with `oob_function_run` reserved for direct local runner
+  audits.
