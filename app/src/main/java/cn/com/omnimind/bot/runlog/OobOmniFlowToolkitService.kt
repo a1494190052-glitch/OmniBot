@@ -8,8 +8,6 @@ import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import cn.com.omnimind.bot.omniflow.OobFunctionRecallService
 import cn.com.omnimind.bot.omniflow.OobFunctionRepository
 import cn.com.omnimind.bot.omniflow.OobFunctionRunPolicy
-import cn.com.omnimind.bot.omniflow.OobFunctionSpecBuilder
-import cn.com.omnimind.bot.omniflow.OobFunctionSpecVocabulary
 import cn.com.omnimind.bot.omniflow.OobFunctionUpdateService
 import cn.com.omnimind.bot.omniflow.OobFunctionRunner
 import cn.com.omnimind.bot.runlog.OobActionCodec.boolArg
@@ -40,8 +38,7 @@ class OobOmniFlowToolkitService(
     private val functionRecallService = OobFunctionRecallService(context, functionRepository)
     private val functionRunner = OobFunctionRunner(context, workspaceFunctionStore, functionRepository)
     private val functionRunPolicy = OobFunctionRunPolicy(functionRepository)
-    private val functionSpecBuilder = OobFunctionSpecBuilder()
-    private val functionUpdateService = OobFunctionUpdateService(context, functionRepository, functionSpecBuilder)
+    private val functionUpdateService = OobFunctionUpdateService(context, functionRepository)
     private val explorer = OobOmniFlowExplorer(context)
 
     fun recall(args: Map<String, Any?>?): Map<String, Any?> =
@@ -263,17 +260,151 @@ class OobOmniFlowToolkitService(
 
     fun registerFunction(args: Map<String, Any?>?): Map<String, Any?> {
         val request = args ?: emptyMap()
-        val functionSpec = functionSpecBuilder.functionSpecForRegistration(request)
+        val functionSpec = buildFunctionSpecForRegistration(request)
         if (functionSpec.isEmpty()) {
             return errorPayload(
                 code = "FUNCTION_SPEC_EMPTY",
                 message = "functionSpec or steps are required"
             )
         }
-        val mode = if (functionSpecBuilder.hasExplicitFunctionSpec(request)) "function_spec" else "simple"
+        val mode = if (hasExplicitFunctionSpec(request)) "function_spec" else "simple"
         return functionRepository.register(functionSpec) + linkedMapOf(
             "registration_input_mode" to mode,
             "simple_schema_supported" to true,
+        )
+    }
+
+    private fun hasExplicitFunctionSpec(request: Map<String, Any?>): Boolean =
+        mapArg(request["function_spec"]).isNotEmpty() ||
+            mapArg(request["functionSpec"]).isNotEmpty() ||
+            ((request.containsKey("function_id") || request.containsKey("name")) &&
+                (mapArg(request["execution"]).isNotEmpty() || listArg(request["actions"]).isNotEmpty()))
+
+    private fun buildFunctionSpecForRegistration(request: Map<String, Any?>): Map<String, Any?> {
+        val explicit = mapArg(request["function_spec"]).ifEmpty { mapArg(request["functionSpec"]) }
+            .ifEmpty { if (hasExplicitFunctionSpec(request)) request else emptyMap() }
+        if (explicit.isNotEmpty()) return explicit
+        val rawSteps = listArg(request["steps"])
+            .ifEmpty { listArg(request["execution_steps"]) }
+            .ifEmpty { listArg(request["executionSteps"]) }
+            .mapNotNull { raw -> mapArg(raw).takeIf { it.isNotEmpty() } }
+        if (rawSteps.isEmpty()) return emptyMap()
+        val now = System.currentTimeMillis().toString()
+        val rawFunctionId = firstNonBlank(request["function_id"], request["functionId"], request["id"])
+        val name = firstNonBlank(request["name"], request["title"], rawFunctionId).ifBlank { "OOB reusable function" }
+        val description = firstNonBlank(request["description"], request["goal"], request["summary"], name)
+        val functionId = rawFunctionId.ifBlank {
+            val seed = "$name $description".lowercase().replace(Regex("[^a-z0-9]+"), "_")
+                .replace(Regex("_+"), "_").trim('_').take(48).ifBlank { "registered_function" }
+            "oob_fn_${seed}_${now.takeLast(6)}"
+        }
+        val sourceContext = sourceContextFromRegistration(request)
+        val sourcePackageName = firstNonBlank(
+            mapArg(sourceContext["src_ctx"])["package_name"],
+            mapArg(sourceContext["src_ctx"])["packageName"],
+        )
+        val packageName = firstNonBlank(
+            request["packageName"], request["package_name"], request["current_package"], request["currentPackage"],
+            mapArg(request["source_page"])["package_name"], mapArg(request["source_page"])["packageName"],
+            mapArg(request["sourcePage"])["package_name"], mapArg(request["sourcePage"])["packageName"],
+            sourcePackageName,
+        )
+        val normalizedSteps = rawSteps.mapIndexed { index, raw ->
+            cn.com.omnimind.bot.omniflow.OobFunctionStepNormalizer.normalizeSimpleRegisteredStep(
+                raw = raw,
+                index = index,
+                inheritedSourceContext = if (index == 0) sourceContext else emptyMap(),
+            )
+        }
+        val capabilities = cn.com.omnimind.bot.omniflow.OobFunctionStepNormalizer.executionCapabilities(normalizedSteps)
+        val explicitAgentVisible = request["agent_visible"] ?: request["agentVisible"]
+        val explicitVisibility = firstNonBlank(request["visibility"])
+        return linkedMapOf<String, Any?>(
+            "schema_version" to "oob.reusable_function.v1",
+            "function_id" to functionId,
+            "name" to name,
+            "description" to description,
+            "agent_visible" to explicitAgentVisible,
+            "visibility" to explicitVisibility.takeIf { it.isNotBlank() },
+            "parameters" to listArg(request["parameters"]).mapNotNull { raw -> mapArg(raw).takeIf { it.isNotEmpty() } },
+            "constraints" to linkedMapOf("package_name" to packageName.takeIf { it.isNotBlank() }).filterValues { it != null },
+            "source" to linkedMapOf(
+                "kind" to "agent_registered_function",
+                "goal" to firstNonBlank(request["goal"], description),
+                "package_name" to packageName.takeIf { it.isNotBlank() },
+                "registered_via" to "oob_function_register.simple",
+                "source_context_mode" to firstNonBlank(mapArg(sourceContext["_oob_meta"])["mode"], "none")
+                    .takeIf { sourceContext.isNotEmpty() },
+                "registered_at" to now,
+            ).filterValues { it != null },
+            "execution" to linkedMapOf(
+                "kind" to "tool_sequence",
+                "runner" to "oob_tool_sequence",
+                "entrypoint" to "execute",
+                "capabilities" to capabilities,
+                "steps" to normalizedSteps,
+                "step_count" to normalizedSteps.size,
+                "omniflow_step_count" to capabilities["omniflow_step_count"],
+                "agent_step_count" to capabilities["agent_step_count"],
+                "has_agent_steps" to capabilities["has_agent_steps"],
+            ),
+            "_oob_registry" to linkedMapOf(
+                "registered_at" to now,
+                "updated_at" to now,
+                "runner" to "oob_agent_reusable_function",
+                "storage" to "workspace",
+                "registration_input_mode" to "simple",
+            ),
+        ).filterValues { it != null }
+    }
+
+    private fun sourceContextFromRegistration(request: Map<String, Any?>): Map<String, Any?> {
+        val explicit = mapArg(request["source_context"]).ifEmpty { mapArg(request["sourceContext"]) }
+        if (explicit.isNotEmpty()) return explicit
+        val sourcePage = mapArg(request["source_page"]).ifEmpty { mapArg(request["sourcePage"]) }
+            .ifEmpty { mapArg(request["currentPage"]) }.ifEmpty { mapArg(request["current_page"]) }
+        val pageXmlFromRequest = firstNonBlank(
+            sourcePage["page"], sourcePage["xml"], sourcePage["observation_xml"], sourcePage["observationXml"],
+            request["current_xml"], request["currentXml"], request["source_xml"], request["sourceXml"], request["xml"],
+        )
+        val requestPackageName = firstNonBlank(
+            sourcePage["package_name"], sourcePage["packageName"], request["package_name"],
+            request["packageName"], request["current_package"], request["currentPackage"],
+        )
+        val requestActivityName = firstNonBlank(
+            sourcePage["activity_name"], sourcePage["activityName"],
+            request["activity_name"], request["activityName"],
+        )
+        val autoCaptureDisabled = boolArg(request["disable_current_page_capture"]) ||
+            boolArg(request["disableCurrentPageCapture"]) ||
+            boolArg(request["no_current_page_capture"]) || boolArg(request["noCurrentPageCapture"])
+        val capturedPage = if (pageXmlFromRequest.isBlank() && !autoCaptureDisabled) {
+            runCatching {
+                val pageXml = OmniflowActionRuntime.backend.currentXml()?.trim().orEmpty()
+                if (pageXml.isBlank()) return@runCatching emptyMap()
+                val pkg = OmniflowActionRuntime.backend.currentPackageName()?.trim().orEmpty()
+                val act = OmniflowActionRuntime.backend.currentActivityName()?.trim().orEmpty()
+                linkedMapOf("src_ctx" to linkedMapOf<String, Any?>(
+                    "page" to pageXml, "package_name" to pkg.takeIf { it.isNotBlank() },
+                    "activity_name" to act.takeIf { it.isNotBlank() },
+                    "require_unique_action_signature" to false,
+                ).filterValues { it != null })
+            }.getOrDefault(emptyMap())
+        } else emptyMap()
+        val capturedSrcCtx = mapArg(capturedPage["src_ctx"])
+        val pageXml = firstNonBlank(pageXmlFromRequest, capturedSrcCtx["page"])
+        if (pageXml.isBlank()) return emptyMap()
+        val packageName = firstNonBlank(requestPackageName, capturedSrcCtx["package_name"], capturedSrcCtx["packageName"])
+        val activityName = firstNonBlank(requestActivityName, capturedSrcCtx["activity_name"], capturedSrcCtx["activityName"])
+        val mode = if (pageXmlFromRequest.isBlank()) "current_page_capture" else "explicit_request"
+        return linkedMapOf(
+            "src_ctx" to linkedMapOf<String, Any?>(
+                "page" to pageXml,
+                "package_name" to packageName.takeIf { it.isNotBlank() },
+                "activity_name" to activityName.takeIf { it.isNotBlank() },
+                "require_unique_action_signature" to false,
+            ).filterValues { it != null },
+            "_oob_meta" to linkedMapOf("mode" to mode, "captured_current_page" to (mode == "current_page_capture")),
         )
     }
 
@@ -557,7 +688,7 @@ class OobOmniFlowToolkitService(
             "step_count" to (execution["step_count"] ?: steps.size),
             "omniflow_step_count" to execution["omniflow_step_count"],
             "agent_step_count" to execution["agent_step_count"],
-            "has_agent_steps" to OobFunctionSpecVocabulary.agentStepFlag(execution),
+            "has_agent_steps" to (execution["has_agent_steps"] ?: execution["requires_agent_fallback"]),
             "parameter_names" to OobFunctionSchemaBuilder.parameterNames(spec),
             "step_summaries" to stepSummaries(spec),
             "source" to spec["source"],

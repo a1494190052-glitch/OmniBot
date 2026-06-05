@@ -2786,11 +2786,14 @@ class AssistsMessageService {
     int limit = 100,
     int offset = 0,
     bool autoRegister = false,
+    bool includeHidden = false,
   }) async {
     final result = await assistCore.invokeMethod('listOobReusableFunctions', {
       'limit': limit,
       'offset': offset,
       'autoRegister': autoRegister,
+      'includeHidden': includeHidden,
+      'include_hidden': includeHidden,
     });
     return _jsonSafeDynamicMap(result);
   }

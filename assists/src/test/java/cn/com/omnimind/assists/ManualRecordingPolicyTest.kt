@@ -58,7 +58,7 @@ class ManualRecordingPolicyTest {
         assertTrue(source.contains("\"a11_text_input_anchor_policy\" to \"real_touch_or_focused_start\""))
         assertTrue(
             Regex(
-                "var anchor = textInputAnchor\\s*" +
+                "val anchor = textInputAnchor\\s*" +
                     "if \\(anchor == null\\) \\{\\s*" +
                     "suppressA11OnlyActionEvent\\(event\\)\\s*" +
                     "return\\s*\\}",
@@ -233,7 +233,10 @@ class ManualRecordingPolicyTest {
         assertFalse(source.contains("HumanTrajectoryLearningSession.recordImeSubmitGesture(gesture)"))
         assertTrue(recorderSource.contains("TEXT_INPUT_ANCHOR_ACTIVE_TTL_MS"))
         assertFalse(recorderSource.contains("if (target == null && !beforeXml.isNullOrBlank())"))
-        assertTrue(recorderSource.contains("val anchorTarget = target ?: coordinateTextAnchorTarget("))
+        assertFalse(recorderSource.contains("val anchorTarget = target ?: coordinateTextAnchorTarget("))
+        assertTrue(recorderSource.contains("if (target == null) {"))
+        assertTrue(recorderSource.contains("textInputAnchor = null"))
+        assertTrue(recorderSource.contains("if (!hasTextChangedFromAnchor(anchor, safeText)) return false"))
         assertTrue(recorderSource.contains("materializePendingTextFromXml("))
         assertTrue(recorderSource.contains("FOCUSED_XML_TEXT_FALLBACK"))
         assertTrue(recorderSource.contains("normalizeInputTextContent("))
@@ -290,9 +293,9 @@ class ManualRecordingPolicyTest {
         assertTrue(source.contains("\"xml_capture\" to linkedMapOf"))
         assertTrue(source.contains("\"schema_version\" to \"oob.manual_recording.xml_capture_timing.v1\""))
         assertTrue(source.contains("\"avg_ms\" to if (xmlCaptureCount > 0)"))
-        assertTrue(source.contains("coordinateTextAnchorTarget("))
-        assertTrue(source.contains("coordinate_text_anchor_unresolved"))
-        assertTrue(source.contains("sourceTarget == null"))
+        assertFalse(source.contains("coordinateTextAnchorTarget("))
+        assertFalse(source.contains("coordinate_text_anchor_unresolved"))
+        assertTrue(source.contains("if (target == null) {"))
         val sessionSource = readSource(
             "assists/src/main/java/cn/com/omnimind/assists/HumanTrajectoryLearningSession.kt"
         )
@@ -347,18 +350,33 @@ class ManualRecordingPolicyTest {
         val frontendSource = readSource(
             "app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionFrontendSessionController.kt"
         )
-        assertTrue(frontendSource.contains("isShowStop = true"))
-        assertTrue(frontendSource.contains("isTouchable = true"))
+        assertTrue(frontendSource.contains("isShowStop = false"))
+        assertTrue(frontendSource.contains("isTouchable = false"))
         assertTrue(frontendSource.contains("forceOnTop = true"))
         assertTrue(frontendSource.contains("val progressText = progress.trim().ifBlank { label }.take(48)"))
         assertTrue(frontendSource.contains("subMessage = helper.localized(progressText)"))
+        assertTrue(frontendSource.contains("message = helper.localized(message.ifBlank { \"任务已完成\" })"))
+        assertTrue(frontendSource.contains("OobFunctionStopOverlay("))
+        assertTrue(frontendSource.contains("OmniFlowUiSession.requestStopSession(runId)"))
+        assertTrue(frontendSource.contains("stopOverlay.show()"))
+        assertTrue(frontendSource.contains("stopOverlay.hide()"))
+        assertTrue(frontendSource.contains("if (closeAfterMs > 0L)"))
+        assertTrue(frontendSource.contains("DraggableBallInstance.finishDoingTask("))
         assertFalse(frontendSource.contains("subMessage = helper.localized(\"执行中\")"))
-        assertFalse(frontendSource.contains("isShowStop = false"))
-        assertFalse(frontendSource.contains("isTouchable = false"))
+        assertFalse(frontendSource.contains("isShowStop = true"))
+        assertFalse(frontendSource.contains("isTouchable = true"))
         val functionHandlerSource = readSource(
             "app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolHandler.kt"
         )
+        val assistsCoreManagerSource = readSource(
+            "app/src/main/java/cn/com/omnimind/bot/manager/AssistsCoreManager.kt"
+        )
         assertTrue(functionHandlerSource.contains("frontendSession?.update(\"第 \$stepIndex/\${steps.size} 步 \$stepTitle\")"))
+        assertTrue(functionHandlerSource.contains("FRONTEND_SUCCESS_POPUP_VISIBLE_MS = 900L"))
+        assertTrue(functionHandlerSource.contains("FRONTEND_TERMINAL_POPUP_VISIBLE_MS = 2500L"))
+        assertTrue(functionHandlerSource.contains("frontendSession?.finish(frontendFinishMessage, closeAfterMs = frontendCloseAfterMs)"))
+        assertFalse(assistsCoreManagerSource.contains("hideForReplay()"))
+        assertFalse(assistsCoreManagerSource.contains("restoreAfterReplay()"))
         assertTrue(
             Regex(
                 "frontendSession\\?\\.throwIfStopRequested\\(\\)\\s*" +

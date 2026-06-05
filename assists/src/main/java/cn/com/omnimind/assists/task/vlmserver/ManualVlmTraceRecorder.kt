@@ -214,6 +214,8 @@ class ManualVlmTraceRecorder(
     private var accessibilityEventCount: Int = 0
     private var accessibilityIgnoredPackageCount: Int = 0
     private val accessibilityEventTypeCounts = linkedMapOf<String, Int>()
+    private var unanchoredTextChangedRecordedCount: Int = 0
+    private var unanchoredTextChangedSuppressedCount: Int = 0
     private var rawGestureStartedCount: Int = 0
     private var rawGestureFinishedCount: Int = 0
     private var rawGestureRecordedCount: Int = 0
@@ -381,11 +383,7 @@ class ManualVlmTraceRecorder(
         if (anchor != null) {
             val freshAnchor = System.currentTimeMillis() - anchor.finishedAtMs <=
                 TEXT_INPUT_ANCHOR_ACTIVE_TTL_MS
-            if (freshAnchor && (
-                    !anchor.isCoordinateOnlyTextAnchor() ||
-                        anchor.beforeXml.isNullOrBlank()
-                    )
-            ) {
+            if (freshAnchor) {
                 return@synchronized true
             }
         }
@@ -1288,26 +1286,26 @@ class ManualVlmTraceRecorder(
             text
         }
         if (safeText.isBlank()) return
-        var anchor = textInputAnchor
+        val anchor = textInputAnchor
         if (anchor == null) {
-            suppressA11OnlyActionEvent(event)
+            recordUnanchoredTextChanged(
+                event = event,
+                packageName = packageName,
+                beforeXml = beforeXml,
+                beforeScreenshot = beforeScreenshot,
+                source = source,
+                safeText = safeText,
+                now = now
+            )
             return
         }
+        if (!hasTextChangedFromAnchor(anchor, safeText)) return
         val sourceTarget = source?.toTextTarget(packageName)
-        val unresolvedCoordinateText = anchor.isCoordinateOnlyTextAnchor() &&
-            (sourceTarget == null ||
-                (!sourceTarget.bounds.containsPoint(anchor.x, anchor.y) &&
-                    !isTextInputClass(sourceTarget.className)))
-        val effectiveSourceTarget = if (unresolvedCoordinateText) null else sourceTarget
         val target = textReplayTargetFromAnchor(
             anchor = anchor,
-            sourceTarget = effectiveSourceTarget,
+            sourceTarget = sourceTarget,
             inputText = safeText,
-            resolutionSuffix = if (unresolvedCoordinateText) {
-                "ime_text_event_unresolved"
-            } else {
-                "real_touch_text_anchor"
-            }
+            resolutionSuffix = "real_touch_text_anchor"
         )
         val bounds = target.bounds
         val key = target.stableKey
@@ -1342,18 +1340,72 @@ class ManualVlmTraceRecorder(
         lastScreenshotSnapshot = beforeScreenshot ?: lastScreenshotSnapshot
     }
 
+    private fun recordUnanchoredTextChanged(
+        event: AccessibilityEvent,
+        packageName: String?,
+        beforeXml: String?,
+        beforeScreenshot: ManualVlmScreenshotRef?,
+        source: AccessibilitySourceSnapshot?,
+        safeText: String,
+        now: Long
+    ) {
+        val target = unanchoredTextReplayTarget(
+            packageName = packageName,
+            xml = beforeXml,
+            source = source,
+            inputText = safeText
+        )
+        if (shouldIgnoreTarget(
+                packageName = target.packageName,
+                label = target.label,
+                resourceId = target.resourceId
+            )
+        ) {
+            unanchoredTextChangedSuppressedCount += 1
+            suppressA11OnlyActionEvent(event)
+            return
+        }
+        val key = target.stableKey
+        val existingPending = pendingText
+        if (existingPending != null && existingPending.nodeKey != key) {
+            flushPendingText(existingPending.beforeXml ?: lastXmlSnapshot)
+        }
+        val sameNodePending = pendingText?.takeIf { it.nodeKey == key }
+        pendingText = PendingTextAction(
+            nodeKey = key,
+            anchorId = sameNodePending?.anchorId ?: textEventAnchorId(target, now),
+            packageName = target.packageName ?: packageName,
+            label = target.label.ifBlank { "输入框" },
+            text = safeText,
+            bounds = target.bounds,
+            className = target.className,
+            resourceId = target.resourceId,
+            resolution = target.resolution,
+            recordingBackend = sameNodePending?.recordingBackend ?: A11Y_TEXT_EVENT_BACKEND,
+            beforeXml = sameNodePending?.beforeXml ?: beforeXml,
+            beforeScreenshot = sameNodePending?.beforeScreenshot ?: beforeScreenshot,
+            startedAtMs = sameNodePending?.startedAtMs ?: eventWallTime(event.eventTime, now),
+            updatedAtMs = now,
+            eventContext = sameNodePending?.eventContext ?: unanchoredTextInputEventContextFor(
+                event = event,
+                target = target,
+                sourceSnapshot = source
+            )
+        )
+        unanchoredTextChangedRecordedCount += 1
+        clearPostInputClickWindowLocked()
+        lastXmlSnapshot = beforeXml ?: lastXmlSnapshot
+        lastScreenshotSnapshot = beforeScreenshot ?: lastScreenshotSnapshot
+    }
+
     private fun materializePendingTextFromXml(
         xml: String?,
         screenshot: ManualVlmScreenshotRef?,
         resolutionSuffix: String
     ): Boolean {
         if (xml.isNullOrBlank()) return false
-        val anchor = textInputAnchor
-        val sourceCandidate = if (anchor != null) {
-            currentTextInputCandidateFromXml(xml, anchor)
-        } else {
-            focusedTextInputCandidateFromXml(xml)
-        } ?: return false
+        val anchor = textInputAnchor ?: return false
+        val sourceCandidate = currentTextInputCandidateFromXml(xml, anchor) ?: return false
         val rawText = sourceCandidate.text.orEmpty()
         val safeText = if (sourceCandidate.password) {
             REDACTED_TEXT
@@ -1361,23 +1413,17 @@ class ManualVlmTraceRecorder(
             normalizeInputTextContent(rawText)
         }
         if (safeText.isBlank()) return false
+        if (!hasTextChangedFromAnchor(anchor, safeText)) return false
         val sourceTarget = sourceCandidate.toManualTarget(
             fallbackPackageName = packageNameFromXml(xml),
             resolution = "focused_xml_text"
         )
-        val target = if (anchor != null) {
-            textReplayTargetFromAnchor(
-                anchor = anchor,
-                sourceTarget = sourceTarget,
-                inputText = safeText,
-                resolutionSuffix = resolutionSuffix
-            )
-        } else {
-            sourceTarget.copy(
-                label = sourceTarget.label.takeUnless { it == safeText } ?: "输入框",
-                resolution = "${sourceTarget.resolution}+$resolutionSuffix"
-            )
-        }
+        val target = textReplayTargetFromAnchor(
+            anchor = anchor,
+            sourceTarget = sourceTarget,
+            inputText = safeText,
+            resolutionSuffix = resolutionSuffix
+        )
         val now = System.currentTimeMillis()
         val key = target.stableKey
         val existingPending = pendingText
@@ -1388,7 +1434,7 @@ class ManualVlmTraceRecorder(
         suppressRecentOverlayTextChangeClickLocked(now, anchor, target)
         pendingText = PendingTextAction(
             nodeKey = key,
-            anchorId = sameNodePending?.anchorId ?: anchor?.id ?: focusedXmlTextAnchorId(target, now),
+            anchorId = sameNodePending?.anchorId ?: anchor.id,
             packageName = target.packageName ?: packageNameFromXml(xml),
             label = target.label.ifBlank { "输入框" },
             text = safeText,
@@ -1397,28 +1443,18 @@ class ManualVlmTraceRecorder(
             resourceId = target.resourceId,
             resolution = target.resolution,
             recordingBackend = sameNodePending?.recordingBackend
-                ?: anchor?.let { textInputBackendFor(it.backend) }
-                ?: FOCUSED_XML_TEXT_INPUT_BACKEND,
-            beforeXml = sameNodePending?.beforeXml ?: anchor?.beforeXml ?: xml,
-            beforeScreenshot = sameNodePending?.beforeScreenshot ?: anchor?.beforeScreenshot ?: screenshot,
-            startedAtMs = sameNodePending?.startedAtMs ?: anchor?.startedAtMs ?: now,
+                ?: textInputBackendFor(anchor.backend),
+            beforeXml = sameNodePending?.beforeXml ?: anchor.beforeXml ?: xml,
+            beforeScreenshot = sameNodePending?.beforeScreenshot ?: anchor.beforeScreenshot ?: screenshot,
+            startedAtMs = sameNodePending?.startedAtMs ?: anchor.startedAtMs,
             updatedAtMs = now,
-            eventContext = sameNodePending?.eventContext ?: if (anchor != null) {
-                xmlTextInputEventContextFor(
-                    target = target,
-                    sourceCandidate = sourceCandidate,
-                    anchor = anchor,
-                    rawText = rawText,
-                    resolutionSuffix = resolutionSuffix
-                )
-            } else {
-                focusedXmlTextInputEventContextFor(
-                    target = target,
-                    sourceCandidate = sourceCandidate,
-                    rawText = rawText,
-                    resolutionSuffix = resolutionSuffix
-                )
-            }
+            eventContext = sameNodePending?.eventContext ?: xmlTextInputEventContextFor(
+                target = target,
+                sourceCandidate = sourceCandidate,
+                anchor = anchor,
+                rawText = rawText,
+                resolutionSuffix = resolutionSuffix
+            )
         )
         lastXmlSnapshot = xml
         lastScreenshotSnapshot = screenshot ?: lastScreenshotSnapshot
@@ -1552,11 +1588,7 @@ class ManualVlmTraceRecorder(
         val beforeLabel = anchorTarget.label.trim()
         val stableLabel = beforeLabel.takeIf {
             it.isNotBlank() && it != inputText && it != REDACTED_TEXT
-        } ?: sourceTarget?.label ?: if (anchor.isCoordinateOnlyTextAnchor()) {
-            "输入框"
-        } else {
-            anchorTarget.label
-        }
+        } ?: sourceTarget?.label ?: anchorTarget.label.ifBlank { "输入框" }
         return anchorTarget.copy(
             label = stableLabel,
             packageName = anchorTarget.packageName ?: sourceTarget?.packageName,
@@ -1620,6 +1652,12 @@ class ManualVlmTraceRecorder(
         val prefix = normalized.substring(0, splitIndex).trim().lowercase()
         if (prefix !in TEXT_FIELD_ACCESSIBILITY_PREFIXES) return normalized
         return normalized.substring(splitIndex + 1).trim()
+    }
+
+    private fun hasTextChangedFromAnchor(anchor: TextInputAnchor, safeText: String): Boolean {
+        if (safeText == REDACTED_TEXT) return true
+        val beforeText = normalizeInputTextContent(anchor.target.text.orEmpty())
+        return beforeText.isBlank() || beforeText != safeText
     }
 
     private fun flushPendingTextUnlessAnchoredTo(anchorId: String?, xmlOverride: String? = lastXmlSnapshot) {
@@ -1982,25 +2020,23 @@ class ManualVlmTraceRecorder(
             fallbackPackageName = fallbackPackageName,
             backend = backend
         )
-        val anchorTarget = target ?: coordinateTextAnchorTarget(
+        if (target == null) {
+            synchronized(recordingLock) {
+                textInputAnchor = null
+            }
+            return
+        }
+        val anchor = TextInputAnchor(
+            id = anchorId,
+            backend = backend,
             beforeXml = beforeXml,
+            beforeScreenshot = beforeScreenshot,
+            target = target,
             x = x,
             y = y,
-            backend = backend
+            startedAtMs = startedAtMs,
+            finishedAtMs = finishedAtMs
         )
-        val anchor = anchorTarget.let {
-            TextInputAnchor(
-                id = anchorId,
-                backend = backend,
-                beforeXml = beforeXml,
-                beforeScreenshot = beforeScreenshot,
-                target = it,
-                x = x,
-                y = y,
-                startedAtMs = startedAtMs,
-                finishedAtMs = finishedAtMs
-            )
-        }
         synchronized(recordingLock) {
             textInputAnchor = anchor
         }
@@ -2076,22 +2112,6 @@ class ManualVlmTraceRecorder(
             RAW_TOUCH_BACKEND -> RAW_TOUCH_TEXT_INPUT_BACKEND
             else -> REAL_TOUCH_TEXT_INPUT_BACKEND
         }
-    }
-
-    private fun coordinateTextAnchorTarget(
-        beforeXml: String?,
-        x: Float,
-        y: Float,
-        backend: String
-    ): ManualEventTarget {
-        val resolution = when (backend) {
-            OVERLAY_TOUCH_BACKEND -> "overlay_touch_coordinate_text_anchor_unresolved"
-            RAW_TOUCH_BACKEND -> "raw_touch_coordinate_text_anchor_unresolved"
-            else -> "real_touch_coordinate_text_anchor_unresolved"
-        }
-        return coordinateOnlyTarget(beforeXml, x, y, resolution).copy(
-            packageName = packageNameFromXml(beforeXml)
-        )
     }
 
     private fun overlayTextAnchorId(gesture: ManualOverlayTouchGesture): String {
@@ -2944,8 +2964,6 @@ class ManualVlmTraceRecorder(
             "has_before_screenshot" to (beforeScreenshot != null)
         ).filterValues { it != null }
 
-        fun isCoordinateOnlyTextAnchor(): Boolean =
-            target.resolution.contains("coordinate_text_anchor")
     }
 
     private data class ManualEventTarget(

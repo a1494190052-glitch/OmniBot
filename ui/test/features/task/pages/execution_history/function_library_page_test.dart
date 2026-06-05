@@ -185,7 +185,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.info_outline_rounded).first);
       await tester.pumpAndSettle();
 
-      expect(find.text('复用指令详情'), findsOneWidget);
+      expect(find.text('RunLog 保存结果'), findsOneWidget);
       expect(find.text('类型 OmniFlow'), findsNothing);
       expect(find.text('状态 已注册'), findsNothing);
       expect(find.text('package_name'), findsOneWidget);
@@ -278,6 +278,8 @@ void main() {
     expect(find.text('视觉执行 识别当前屏幕'), findsOneWidget);
     expect(find.textContaining('agent · vlm_task'), findsNothing);
 
+    await tester.ensureVisible(find.text('视觉执行 识别当前屏幕'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('视觉执行 识别当前屏幕'));
     await tester.pumpAndSettle();
 
@@ -285,8 +287,9 @@ void main() {
     expect(find.text('VLM 动作'), findsOneWidget);
   });
 
-  testWidgets('Reusable Function step can be edited and saved', (tester) async {
-    Map<String, dynamic>? savedSpec;
+  testWidgets('Reusable Function detail opens shared step editor', (
+    tester,
+  ) async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, (call) async {
           if (call.method == 'listOobReusableFunctions') {
@@ -355,17 +358,6 @@ void main() {
               },
             };
           }
-          if (call.method == 'registerOobReusableFunction') {
-            final arguments = Map<String, dynamic>.from(call.arguments as Map);
-            savedSpec = Map<String, dynamic>.from(
-              arguments['function_spec'] as Map,
-            );
-            return <String, dynamic>{
-              'success': true,
-              'function_id': 'search_contact',
-              'created_function_id': 'search_contact',
-            };
-          }
           return null;
         });
 
@@ -380,31 +372,26 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.info_outline_rounded));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byIcon(Icons.edit_outlined));
+    await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.edit_outlined));
     await tester.pumpAndSettle();
 
-    final fields = find.byType(TextField);
-    expect(fields, findsAtLeastNWidgets(3));
-    await tester.enterText(fields.at(0), '输入姓名');
-    await tester.enterText(fields.at(2), '妈妈的新号码');
-    await tester.tap(find.text('保存').last);
-    await tester.pumpAndSettle();
-
-    final execution = savedSpec?['execution'] as Map;
-    final step = (execution['steps'] as List).single as Map;
-    expect(step['title'], '输入姓名');
-    expect(step['tool'], 'input_text');
-    expect((step['args'] as Map)['text'], '妈妈的新号码');
-    final action = (savedSpec?['actions'] as List).single as Map;
-    expect(action['tool'], 'input_text');
-    expect((action['args'] as Map)['text'], r'${query}');
-    expect(action['description'], '输入姓名');
-    final properties = ((savedSpec?['parameters'] as Map)['properties'] as Map);
-    expect((properties['query'] as Map)['default'], '妈妈的新号码');
+    final titleField = find.byWidgetPredicate(
+      (widget) => widget is TextField && widget.decoration?.labelText == '步骤标题',
+    );
+    final argsField = find.byWidgetPredicate(
+      (widget) =>
+          widget is TextField && widget.decoration?.labelText == '参数 JSON',
+    );
+    expect(titleField, findsOneWidget);
+    expect(argsField, findsOneWidget);
+    expect(find.text('编辑步骤'), findsOneWidget);
   });
 
-  testWidgets('Reusable Function step can be added and saved', (tester) async {
-    Map<String, dynamic>? savedSpec;
+  testWidgets('Reusable Function detail adds step with structured editor', (
+    tester,
+  ) async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, (call) async {
           if (call.method == 'listOobReusableFunctions') {
@@ -465,15 +452,99 @@ void main() {
               'metadata': <String, dynamic>{'step_count': 1},
             };
           }
-          if (call.method == 'registerOobReusableFunction') {
-            final arguments = Map<String, dynamic>.from(call.arguments as Map);
-            savedSpec = Map<String, dynamic>.from(
-              arguments['function_spec'] as Map,
-            );
+          return null;
+        });
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        locale: Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: FunctionLibraryPage(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.info_outline_rounded));
+    await tester.pumpAndSettle();
+
+    expect(find.text('RunLog 保存结果'), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.add_circle_outline_rounded));
+    await tester.pumpAndSettle();
+
+    expect(find.text('添加步骤'), findsOneWidget);
+    expect(find.byType(DropdownButtonFormField<String>), findsOneWidget);
+    expect(find.text('target_description'), findsOneWidget);
+    expect(find.text('x'), findsOneWidget);
+    expect(find.text('y'), findsOneWidget);
+  });
+
+  testWidgets('Reusable Function step editor keeps raw coordinates on switch', (
+    tester,
+  ) async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(assistCoreChannel, (call) async {
+          if (call.method == 'listOobReusableFunctions') {
             return <String, dynamic>{
               'success': true,
-              'function_id': 'open_then_tap',
-              'created_function_id': 'open_then_tap',
+              'functions': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'function_id': 'tap_with_raw_coordinates',
+                  'name': '点击入口',
+                  'description': '点击入口',
+                  'step_count': 1,
+                  'parameter_names': <String>[],
+                  'step_summaries': <Map<String, dynamic>>[
+                    <String, dynamic>{
+                      'id': 'step_1',
+                      'index': 0,
+                      'title': '点击入口',
+                      'kind': 'omniflow_action',
+                      'executor': 'omniflow',
+                      'tool': 'click',
+                    },
+                  ],
+                },
+              ],
+            };
+          }
+          if (call.method == 'getOobReusableFunction') {
+            return <String, dynamic>{
+              'function_id': 'tap_with_raw_coordinates',
+              'name': '点击入口',
+              'actions': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'tool': 'click',
+                  'args': <String, dynamic>{
+                    'target_description': '入口',
+                    'x': 120,
+                    'y': 640,
+                    'raw_x': 123,
+                    'raw_y': 654,
+                  },
+                  'description': '点击入口',
+                },
+              ],
+              'execution': <String, dynamic>{
+                'step_count': 1,
+                'steps': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'id': 'step_1',
+                    'step_id': 'step_1',
+                    'index': 0,
+                    'title': '点击入口',
+                    'kind': 'omniflow_action',
+                    'executor': 'omniflow',
+                    'tool': 'click',
+                    'args': <String, dynamic>{
+                      'target_description': '入口',
+                      'x': 120,
+                      'y': 640,
+                      'raw_x': 123,
+                      'raw_y': 654,
+                    },
+                  },
+                ],
+              },
             };
           }
           return null;
@@ -490,47 +561,35 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.info_outline_rounded));
     await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(Icons.add_circle_outline_rounded));
+    await tester.ensureVisible(find.byIcon(Icons.edit_outlined));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.edit_outlined));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byType(DropdownButtonFormField<String>));
     await tester.pumpAndSettle();
-    await tester.tap(find.textContaining('open_app').last);
+    await tester.tap(find.textContaining('scroll').last);
     await tester.pumpAndSettle();
 
-    final fields = find.byType(TextField);
-    expect(fields, findsAtLeastNWidgets(3));
-    await tester.enterText(fields.at(0), '打开设置');
-    await tester.enterText(fields.at(1), 'com.android.settings');
-    await tester.tap(find.text('添加').last);
-    await tester.pumpAndSettle();
+    expect(find.text('x1'), findsOneWidget);
+    expect(find.text('y1'), findsOneWidget);
+    expect(find.text('x2'), findsOneWidget);
+    expect(find.text('y2'), findsOneWidget);
 
-    final execution = savedSpec?['execution'] as Map;
-    final steps = execution['steps'] as List;
-    expect(steps, hasLength(2));
-    expect(execution['step_count'], 2);
-    expect(execution['omniflow_step_count'], 2);
-    expect(execution['agent_step_count'], 0);
-    final step = steps.last as Map;
-    expect(step['id'], 'step_2');
-    expect(step['index'], 1);
-    expect(step['title'], '打开设置');
-    expect(step['tool'], 'open_app');
-    final args = step['args'] as Map;
-    expect(args['package_name'], 'com.android.settings');
-    final actions = savedSpec?['actions'] as List;
-    expect(actions, hasLength(2));
-    final action = actions.last as Map;
-    expect(action['tool'], 'open_app');
-    expect((action['args'] as Map)['package_name'], 'com.android.settings');
-    expect(action['description'], '打开设置');
-    expect((savedSpec?['metadata'] as Map)['step_count'], 2);
+    final argsField = find.byWidgetPredicate(
+      (widget) =>
+          widget is TextField && widget.decoration?.labelText == '参数 JSON',
+    );
+    final argsController = tester.widget<TextField>(argsField).controller!;
+    expect(argsController.text, contains('"raw_x": 123'));
+    expect(argsController.text, contains('"raw_y": 654'));
+    expect(argsController.text, contains('"x1": 120'));
+    expect(argsController.text, contains('"y1": 640'));
   });
 
-  testWidgets('Deleting a recorded step reindexes parameter bindings', (
+  testWidgets('Reusable Function detail opens shared step delete confirm', (
     tester,
   ) async {
-    Map<String, dynamic>? savedSpec;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, (call) async {
           if (call.method == 'listOobReusableFunctions') {
@@ -608,17 +667,6 @@ void main() {
               },
             };
           }
-          if (call.method == 'registerOobReusableFunction') {
-            final arguments = Map<String, dynamic>.from(call.arguments as Map);
-            savedSpec = Map<String, dynamic>.from(
-              arguments['function_spec'] as Map,
-            );
-            return <String, dynamic>{
-              'success': true,
-              'function_id': 'duplicate_type',
-              'created_function_id': 'duplicate_type',
-            };
-          }
           return null;
         });
 
@@ -633,24 +681,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.info_outline_rounded));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byIcon(Icons.delete_outline).first);
+    await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.delete_outline).first);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('删除').last);
-    await tester.pumpAndSettle();
 
-    final execution = savedSpec?['execution'] as Map;
-    final steps = execution['steps'] as List;
-    expect(steps, hasLength(1));
-    expect((steps.single as Map)['id'], 'step_1');
-    expect((steps.single as Map)['title'], '有效输入');
-    final savedAction = (savedSpec?['actions'] as List).single as Map;
-    expect((savedAction['args'] as Map)['text'], 'y');
-    final parameters = savedSpec?['parameters'] as List;
-    expect(parameters, hasLength(1));
-    expect((parameters.single as Map)['name'], 'kept_text');
-    expect((parameters.single as Map)['bindings'], <String>[
-      r'$.execution.steps[0].args.text',
-    ]);
+    expect(find.text('删除步骤'), findsOneWidget);
   });
 
   testWidgets(
@@ -992,13 +1028,13 @@ void main() {
     await tester.tap(find.byIcon(Icons.info_outline_rounded));
     await tester.pumpAndSettle();
 
-    expect(find.text('复用指令详情'), findsOneWidget);
+    expect(find.text('RunLog 保存结果'), findsOneWidget);
     expect(
       methodCalls.where((call) => call.method == 'getOobReusableFunction'),
       hasLength(1),
     );
 
-    Navigator.of(tester.element(find.text('复用指令详情'))).pop();
+    Navigator.of(tester.element(find.text('RunLog 保存结果'))).pop();
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('执行'));

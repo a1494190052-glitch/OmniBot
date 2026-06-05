@@ -56,6 +56,7 @@ class ReusableFunctionCard extends StatelessWidget {
     required this.failCount,
     required this.isRunning,
     required this.onRun,
+    this.agentVisible,
     this.lastRunSuccess,
     this.isBusy = false,
     this.actions = const <ReusableFunctionCardAction>[],
@@ -71,6 +72,7 @@ class ReusableFunctionCard extends StatelessWidget {
   final int successCount;
   final int failCount;
   final bool? lastRunSuccess;
+  final bool? agentVisible;
   final bool isRunning;
   final VoidCallback? onRun;
   final bool isBusy;
@@ -232,6 +234,19 @@ class ReusableFunctionCard extends StatelessWidget {
                       backgroundColor: lastRunSuccess!
                           ? Colors.green.withValues(alpha: 0.10)
                           : Colors.red.withValues(alpha: 0.10),
+                    ),
+                  if (agentVisible != null)
+                    _MetricPill(
+                      label: 'Agent',
+                      value: agentVisible!
+                          ? _text(context, '已注册', 'Registered')
+                          : _text(context, '未注册', 'Manual'),
+                      color: agentVisible!
+                          ? Colors.green.shade700
+                          : palette.textSecondary,
+                      backgroundColor: agentVisible!
+                          ? Colors.green.withValues(alpha: 0.10)
+                          : palette.surfaceSecondary,
                     ),
                 ],
               ),

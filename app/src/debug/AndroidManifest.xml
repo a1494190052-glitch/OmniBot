@@ -18,6 +18,14 @@
             </intent-filter>
         </receiver>
         <receiver
+            android:name=".debug.DebugGetStateReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="cn.com.omnimind.bot.debug.RUN_GET_STATE" />
+            </intent-filter>
+        </receiver>
+        <receiver
             android:name=".debug.DebugOobFunctionRunReceiver"
             android:enabled="true"
             android:exported="true">

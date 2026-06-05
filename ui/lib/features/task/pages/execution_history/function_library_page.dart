@@ -4,10 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:ui/features/task/pages/execution_history/function_run_result_sheet.dart';
 import 'package:ui/features/task/pages/execution_history/run_log_timeline_page.dart';
 import 'package:ui/features/task/pages/execution_history/widgets/reusable_function_card.dart';
-import 'package:ui/features/task/run_log/oob_canonical_action_schema.dart';
-import 'package:ui/features/task/run_log/run_log_replay_policy.dart';
+import 'package:ui/features/task/run_log/run_log_reusable_function_converter.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
-import 'package:ui/l10n/l10n.dart';
 import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/theme/app_colors.dart';
 import 'package:ui/theme/theme_context.dart';
@@ -33,6 +31,7 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
   String? _error;
   final Set<String> _deletingIds = {};
   final Set<String> _runningIds = {};
+  final Set<String> _registeringIds = {};
   bool _isLearning = false;
 
   @override
@@ -51,6 +50,7 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
         limit: _pageSize,
         offset: 0,
         autoRegister: false,
+        includeHidden: true,
       );
       if (!mounted) return;
       final list = _functionSummariesFromResult(result);
@@ -82,6 +82,7 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
         limit: _pageSize,
         offset: _nextOffset,
         autoRegister: false,
+        includeHidden: true,
       );
       if (!mounted) return;
       final nextItems = _functionSummariesFromResult(result);
@@ -239,22 +240,39 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
     }
   }
 
+  Future<void> _registerForAgent(_FunctionGroup group) async {
+    if (_registeringIds.contains(group.signature)) return;
+    setState(() => _registeringIds.add(group.signature));
+    try {
+      final target = group.agentHiddenPrimary;
+      final spec = await AssistsMessageService.getOobReusableFunction(
+        target.functionId,
+      );
+      if (!mounted || spec == null) return;
+      final result = await AssistsMessageService.registerOobReusableFunction(
+        functionSpec: _functionJsonForAgentVisibility(spec, agentVisible: true),
+      );
+      if (!mounted) return;
+      if (result.success) {
+        showToast(_text(context, '已注册给 Agent', 'Registered for Agent'));
+        await _load();
+      } else {
+        showToast(
+          result.errorMessage ?? _text(context, '注册失败', 'Register failed'),
+          type: ToastType.error,
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      showToast(e.toString(), type: ToastType.error);
+    } finally {
+      if (mounted) setState(() => _registeringIds.remove(group.signature));
+    }
+  }
+
   Future<void> _openDetails(_FunctionGroup group) async {
     if (!mounted) return;
-    final future = AssistsMessageService.getOobReusableFunction(
-      group.primary.functionId,
-    );
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) => _FunctionDetailSheet(
-        group: group,
-        specFuture: future,
-        onSaved: _load,
-        onRun: () => _run(group),
-      ),
-    );
+    await _showFunctionSpecDetails(context, group: group, onClosed: _load);
   }
 
   @override
@@ -336,8 +354,10 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
             group: group,
             isDeleting: _deletingIds.contains(group.signature),
             isRunning: _runningIds.contains(group.signature),
+            isRegistering: _registeringIds.contains(group.signature),
             onRun: () => _run(group),
             onDelete: () => _delete(group),
+            onRegisterForAgent: () => _registerForAgent(group),
             onOpenDetails: () => _openDetails(group),
           );
         },
@@ -367,6 +387,7 @@ class _FunctionLibraryEmbedState extends State<FunctionLibraryEmbed>
   String? _error;
   final Set<String> _deletingIds = {};
   final Set<String> _runningIds = {};
+  final Set<String> _registeringIds = {};
   bool _isLearning = false;
 
   @override
@@ -388,6 +409,7 @@ class _FunctionLibraryEmbedState extends State<FunctionLibraryEmbed>
         limit: _pageSize,
         offset: 0,
         autoRegister: false,
+        includeHidden: true,
       );
       if (!mounted) return;
       final list = _functionSummariesFromResult(result);
@@ -419,6 +441,7 @@ class _FunctionLibraryEmbedState extends State<FunctionLibraryEmbed>
         limit: _pageSize,
         offset: _nextOffset,
         autoRegister: false,
+        includeHidden: true,
       );
       if (!mounted) return;
       final nextItems = _functionSummariesFromResult(result);
@@ -565,22 +588,39 @@ class _FunctionLibraryEmbedState extends State<FunctionLibraryEmbed>
     }
   }
 
+  Future<void> _registerForAgent(_FunctionGroup group) async {
+    if (_registeringIds.contains(group.signature)) return;
+    setState(() => _registeringIds.add(group.signature));
+    try {
+      final target = group.agentHiddenPrimary;
+      final spec = await AssistsMessageService.getOobReusableFunction(
+        target.functionId,
+      );
+      if (!mounted || spec == null) return;
+      final result = await AssistsMessageService.registerOobReusableFunction(
+        functionSpec: _functionJsonForAgentVisibility(spec, agentVisible: true),
+      );
+      if (!mounted) return;
+      if (result.success) {
+        showToast(_text(context, '已注册给 Agent', 'Registered for Agent'));
+        await _load();
+      } else {
+        showToast(
+          result.errorMessage ?? _text(context, '注册失败', 'Register failed'),
+          type: ToastType.error,
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      showToast(e.toString(), type: ToastType.error);
+    } finally {
+      if (mounted) setState(() => _registeringIds.remove(group.signature));
+    }
+  }
+
   Future<void> _openDetails(_FunctionGroup group) async {
     if (!mounted) return;
-    final future = AssistsMessageService.getOobReusableFunction(
-      group.primary.functionId,
-    );
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) => _FunctionDetailSheet(
-        group: group,
-        specFuture: future,
-        onSaved: _load,
-        onRun: () => _run(group),
-      ),
-    );
+    await _showFunctionSpecDetails(context, group: group, onClosed: _load);
   }
 
   Future<void> _startLearning() async {
@@ -638,8 +678,10 @@ class _FunctionLibraryEmbedState extends State<FunctionLibraryEmbed>
             group: group,
             isDeleting: _deletingIds.contains(group.signature),
             isRunning: _runningIds.contains(group.signature),
+            isRegistering: _registeringIds.contains(group.signature),
             onRun: () => _run(group),
             onDelete: () => _delete(group),
+            onRegisterForAgent: () => _registerForAgent(group),
             onOpenDetails: () => _openDetails(group),
           );
         },
@@ -653,16 +695,20 @@ class _FunctionCard extends StatelessWidget {
     required this.group,
     required this.isDeleting,
     required this.isRunning,
+    required this.isRegistering,
     required this.onRun,
     required this.onDelete,
+    required this.onRegisterForAgent,
     required this.onOpenDetails,
   });
 
   final _FunctionGroup group;
   final bool isDeleting;
   final bool isRunning;
+  final bool isRegistering;
   final VoidCallback onRun;
   final VoidCallback onDelete;
+  final VoidCallback onRegisterForAgent;
   final VoidCallback onOpenDetails;
 
   @override
@@ -690,10 +736,19 @@ class _FunctionCard extends StatelessWidget {
       successCount: group.successCount,
       failCount: group.failCount,
       lastRunSuccess: group.lastRunSuccess,
+      agentVisible: group.isAgentVisible,
       isRunning: isRunning,
       onRun: onRun,
-      isBusy: isDeleting,
+      isBusy: isDeleting || isRegistering,
       actions: [
+        if (!group.isAgentVisible)
+          ReusableFunctionCardAction(
+            icon: Icons.person_add_alt_1_rounded,
+            color: Colors.green.shade700,
+            backgroundColor: Colors.green.withValues(alpha: 0.10),
+            tooltip: _text(context, '注册给 Agent', 'Register for Agent'),
+            onTap: onRegisterForAgent,
+          ),
         ReusableFunctionCardAction(
           icon: Icons.info_outline_rounded,
           color: palette.textSecondary,
@@ -770,473 +825,172 @@ extension _PositiveOffsetFallback on int {
   int takeIfPositive(int fallback) => this > 0 ? this : fallback;
 }
 
-class _FunctionDetailSheet extends StatefulWidget {
-  const _FunctionDetailSheet({
-    required this.group,
-    required this.specFuture,
-    required this.onSaved,
-    required this.onRun,
-  });
-
-  final _FunctionGroup group;
-  final Future<Map<String, dynamic>?> specFuture;
-  final Future<void> Function() onSaved;
-  final Future<void> Function() onRun;
-
-  @override
-  State<_FunctionDetailSheet> createState() => _FunctionDetailSheetState();
-}
-
-class _FunctionDetailSheetState extends State<_FunctionDetailSheet> {
-  Map<String, dynamic>? _savedSpec;
-  bool _isSaving = false;
-
-  Future<void> _editStep(
-    _FunctionDetailSnapshot detail,
-    _StepSummary step,
-  ) async {
-    if (_isSaving || detail.spec.isEmpty) return;
-    final editedStep = await _showFunctionStepEditorDialog(context, step.raw);
-    if (editedStep == null || !mounted) return;
-    final updatedSpec = _replaceFunctionStep(detail.spec, step, editedStep);
-    if (updatedSpec == null) {
-      showToast(
-        context.l10n.functionLibraryStepEditMissing,
-        type: ToastType.error,
-      );
-      return;
-    }
-    await _saveSpec(updatedSpec, context.l10n.functionLibraryStepSaved);
-  }
-
-  Future<void> _deleteStep(
-    _FunctionDetailSnapshot detail,
-    _StepSummary step,
-  ) async {
-    if (_isSaving || detail.steps.length <= 1) {
-      showToast(context.l10n.functionLibraryStepKeepOne, type: ToastType.error);
-      return;
-    }
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(dialogContext.l10n.functionLibraryStepDeleteTitle),
-        content: Text(
-          dialogContext.l10n.functionLibraryStepDeleteConfirm(
-            step.displayTitle,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: Text(dialogContext.l10n.omniflowCancel),
-          ),
-          TextButton.icon(
-            icon: const Icon(Icons.delete_outline, size: 18),
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            label: Text(dialogContext.l10n.functionLibraryDelete),
-          ),
-        ],
-      ),
+Future<void> _showFunctionSpecDetails(
+  BuildContext context, {
+  required _FunctionGroup group,
+  required Future<void> Function() onClosed,
+}) async {
+  try {
+    final rawSpec = await AssistsMessageService.getOobReusableFunction(
+      group.primary.functionId,
     );
-    if (confirmed != true || !mounted) return;
-    final updatedSpec = _removeFunctionStep(detail.spec, step);
-    if (updatedSpec == null) {
+    if (!context.mounted) return;
+    final specJson = _functionSpecJsonFromDetail(rawSpec);
+    if (specJson.isEmpty) {
       showToast(
-        context.l10n.functionLibraryStepDeleteMissing,
+        _text(context, '复用指令详情为空', 'Reusable Function details are empty'),
         type: ToastType.error,
       );
       return;
     }
-    await _saveSpec(updatedSpec, context.l10n.functionLibraryStepDeleted);
-  }
-
-  Future<void> _addStep(_FunctionDetailSnapshot detail) async {
-    if (_isSaving || detail.spec.isEmpty) return;
-    final newStep = await _showFunctionStepEditorDialog(
+    final useEnglish = Localizations.localeOf(
       context,
-      _newFunctionStepTemplate(detail.steps.length),
-      isNew: true,
+    ).languageCode.toLowerCase().startsWith('en');
+    final agentPrompt = RunLogReusableFunctionConverter.buildAgentPrompt(
+      specJson,
+      useEnglish: useEnglish,
     );
-    if (newStep == null || !mounted) return;
-    final updatedSpec = _appendFunctionStep(detail.spec, newStep);
-    if (updatedSpec == null) {
-      showToast(
-        context.l10n.functionLibraryStepSaveFailed,
-        type: ToastType.error,
-      );
-      return;
-    }
-    await _saveSpec(updatedSpec, _text(context, '步骤已添加', 'Step added'));
+    final metadata = _FunctionSummary._asMap(specJson['metadata']);
+    final spec = RunLogReusableFunctionSpec(
+      json: specJson,
+      agentPrompt: agentPrompt,
+      aiEnhanced:
+          _asBool(specJson['ai_enhanced']) ||
+          _asBool(specJson['aiEnhanced']) ||
+          _asBool(metadata['ai_enhanced']) ||
+          _asBool(metadata['aiEnhanced']),
+    );
+    final runId = _functionSpecSheetRunId(group, specJson);
+    final importResult = _functionSpecSheetImportResult(group, specJson, runId);
+    await showReusableFunctionSpecSheet(
+      context,
+      spec: spec,
+      runId: runId,
+      initialImportResult: importResult,
+    );
+    if (context.mounted) await onClosed();
+  } catch (error) {
+    if (context.mounted) showToast(error.toString(), type: ToastType.error);
+  }
+}
+
+Map<String, dynamic> _functionSpecJsonFromDetail(
+  Map<String, dynamic>? rawSpec,
+) {
+  if (rawSpec == null || rawSpec.isEmpty) return const {};
+  final wrapped = rawSpec['function_spec'] ?? rawSpec['spec'];
+  if (wrapped is Map) return _deepStringKeyMap(wrapped);
+  return _deepStringKeyMap(rawSpec);
+}
+
+UtgRunLogImportResult _functionSpecSheetImportResult(
+  _FunctionGroup group,
+  Map<String, dynamic> specJson,
+  String runId,
+) {
+  final functionId = _firstNonBlankValue([
+    specJson['function_id'],
+    specJson['functionId'],
+    group.primary.functionId,
+  ]);
+  final sourceRunIds = _functionSourceRunIds(group, specJson);
+  final metadata = _FunctionSummary._asMap(specJson['metadata']);
+  final visibility = _firstNonBlankValue([
+    specJson['visibility'],
+    metadata['visibility'],
+    group.primary.visibility,
+  ]);
+  final agentVisible =
+      _asNullableBool(specJson['agent_visible']) ??
+      _asNullableBool(specJson['agentVisible']) ??
+      _asNullableBool(metadata['agent_visible']) ??
+      group.isAgentVisible;
+  return UtgRunLogImportResult.fromMap({
+    'success': true,
+    'run_id': runId,
+    'function_id': functionId,
+    'created_function_id': functionId,
+    'functions_created': 0,
+    'asset_kind': 'oob_reusable_function',
+    'asset_state': 'native_local',
+    'hit_function_ids': <String>[if (functionId.isNotEmpty) functionId],
+    'source_run_ids': sourceRunIds,
+    'agent_visible': agentVisible,
+    if (visibility.isNotEmpty) 'visibility': visibility,
+  });
+}
+
+String _functionSpecSheetRunId(
+  _FunctionGroup group,
+  Map<String, dynamic> specJson,
+) {
+  return _firstNonBlankValue(_functionSourceRunIds(group, specJson));
+}
+
+List<String> _functionSourceRunIds(
+  _FunctionGroup group,
+  Map<String, dynamic> specJson,
+) {
+  final ids = <String>[];
+  void add(dynamic value) {
+    final text = value?.toString().trim() ?? '';
+    if (text.isNotEmpty && !ids.contains(text)) ids.add(text);
   }
 
-  Future<void> _saveSpec(
-    Map<String, dynamic> updatedSpec,
-    String successMessage,
-  ) async {
-    setState(() => _isSaving = true);
-    try {
-      final result = await AssistsMessageService.registerOobReusableFunction(
-        functionSpec: updatedSpec,
-      );
-      if (!mounted) return;
-      if (!result.success) {
-        showToast(
-          result.errorMessage ?? context.l10n.functionLibraryStepSaveFailed,
-          type: ToastType.error,
-        );
-        return;
+  void addMany(dynamic value) {
+    if (value is Iterable) {
+      for (final item in value) {
+        add(item);
       }
-      setState(() => _savedSpec = updatedSpec);
-      await widget.onSaved();
-      if (mounted) {
-        showToast(successMessage, type: ToastType.success);
-      }
-    } catch (error) {
-      if (mounted) showToast(error.toString(), type: ToastType.error);
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.omniPalette;
-    return DraggableScrollableSheet(
-      initialChildSize: 0.86,
-      minChildSize: 0.58,
-      maxChildSize: 0.96,
-      expand: false,
-      builder: (context, controller) {
-        return Material(
-          color: Colors.transparent,
-          child: Container(
-            decoration: BoxDecoration(
-              color: palette.pageBackground,
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(16),
-              ),
-              border: Border(top: BorderSide(color: palette.borderSubtle)),
-            ),
-            child: FutureBuilder<Map<String, dynamic>?>(
-              future: widget.specFuture,
-              builder: (context, snapshot) {
-                final detail = _FunctionDetailSnapshot.from(
-                  group: widget.group,
-                  spec: _savedSpec ?? snapshot.data,
-                );
-                if (snapshot.connectionState != ConnectionState.done &&
-                    snapshot.data == null) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                return Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
-                      child: Column(
-                        children: [
-                          Container(
-                            width: 40,
-                            height: 4,
-                            decoration: BoxDecoration(
-                              color: palette.borderSubtle,
-                              borderRadius: BorderRadius.circular(99),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      _text(
-                                        context,
-                                        '复用指令详情',
-                                        'Reusable Function Details',
-                                      ),
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        color: palette.textSecondary,
-                                        letterSpacing: 0,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      detail.summary.displayName,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w700,
-                                        color: palette.textPrimary,
-                                        height: 1.25,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.close_rounded),
-                                color: palette.textSecondary,
-                                onPressed: () =>
-                                    Navigator.of(context).maybePop(),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    Divider(height: 1, color: palette.borderSubtle),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        controller: controller,
-                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            ReusableFunctionCard(
-                              title: detail.summary.displayName,
-                              description: detail.summary.displayDescription,
-                              steps: detail.steps
-                                  .map(
-                                    (step) => ReusableFunctionStepPreview(
-                                      index: step.index,
-                                      title: step.displayTitle,
-                                      tool: step.displayTool,
-                                      executor: step.executor,
-                                      kind: step.kind,
-                                    ),
-                                  )
-                                  .toList(growable: false),
-                              stepCount: detail.steps.isNotEmpty
-                                  ? detail.steps.length
-                                  : detail.summary.stepCount,
-                              parameterCount: detail.parameters.length,
-                              sourceRunCount: detail.sourceRunIds.length,
-                              runCount: detail.summary.runCount,
-                              successCount: detail.summary.successCount,
-                              failCount: detail.summary.failCount,
-                              lastRunSuccess: detail.summary.lastRunSuccess,
-                              isRunning: _isSaving,
-                              onRun: _isSaving ? null : () => widget.onRun(),
-                            ),
-                            const SizedBox(height: 14),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _DetailSectionTitle(
-                                    zh: '执行步骤',
-                                    en: 'Steps',
-                                  ),
-                                ),
-                                Tooltip(
-                                  message: _text(context, '添加步骤', 'Add step'),
-                                  child: IconButton(
-                                    icon: const Icon(
-                                      Icons.add_circle_outline_rounded,
-                                      size: 20,
-                                    ),
-                                    visualDensity: VisualDensity.compact,
-                                    color: palette.textSecondary,
-                                    onPressed:
-                                        (!_isSaving && detail.spec.isNotEmpty)
-                                        ? () => _addStep(detail)
-                                        : null,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            if (detail.steps.isEmpty)
-                              _DetailEmptyText(
-                                text: _text(context, '暂无步骤', 'No steps'),
-                              )
-                            else
-                              RunLogStyleFunctionStepList(
-                                title:
-                                    '${_text(context, '执行步骤', 'Step results')} · ${detail.steps.length}',
-                                steps: detail.steps
-                                    .map((step) => step.raw)
-                                    .toList(growable: false),
-                                initiallyExpanded: true,
-                                actionBuilder: (context, index, rawStep) {
-                                  if (index < 0 ||
-                                      index >= detail.steps.length) {
-                                    return null;
-                                  }
-                                  final step = detail.steps[index];
-                                  final canEdit = !_isSaving;
-                                  final canDelete =
-                                      canEdit && detail.steps.length > 1;
-                                  return Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Tooltip(
-                                        message: context
-                                            .l10n
-                                            .functionLibraryStepEditTitle,
-                                        child: IconButton(
-                                          icon: const Icon(
-                                            Icons.edit_outlined,
-                                            size: 18,
-                                          ),
-                                          visualDensity: VisualDensity.compact,
-                                          color: palette.textSecondary,
-                                          onPressed: canEdit
-                                              ? () => _editStep(detail, step)
-                                              : null,
-                                        ),
-                                      ),
-                                      Tooltip(
-                                        message: context
-                                            .l10n
-                                            .functionLibraryStepDeleteTitle,
-                                        child: IconButton(
-                                          icon: const Icon(
-                                            Icons.delete_outline,
-                                            size: 18,
-                                          ),
-                                          visualDensity: VisualDensity.compact,
-                                          color: palette.textSecondary,
-                                          onPressed: canDelete
-                                              ? () => _deleteStep(detail, step)
-                                              : null,
-                                        ),
-                                      ),
-                                    ],
-                                  );
-                                },
-                              ),
-                            const SizedBox(height: 16),
-                            _DetailSectionTitle(zh: '参数', en: 'Parameters'),
-                            const SizedBox(height: 10),
-                            if (detail.parameters.isEmpty)
-                              _DetailEmptyText(
-                                text: _text(context, '暂无参数', 'No parameters'),
-                              )
-                            else
-                              Column(
-                                children: detail.parameters
-                                    .map(
-                                      (param) => Padding(
-                                        padding: const EdgeInsets.only(
-                                          bottom: 8,
-                                        ),
-                                        child: _ParameterDetailTile(
-                                          parameter: param,
-                                        ),
-                                      ),
-                                    )
-                                    .toList(growable: false),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ),
-        );
-      },
-    );
+  for (final id in group.sourceRunIds) {
+    add(id);
   }
+  final source = _FunctionSummary._asMap(specJson['source']);
+  final metadata = _FunctionSummary._asMap(specJson['metadata']);
+  add(specJson['source_run_id']);
+  add(specJson['sourceRunId']);
+  add(specJson['run_id']);
+  add(specJson['runId']);
+  add(source['source_run_id']);
+  add(source['sourceRunId']);
+  add(source['run_id']);
+  add(source['runId']);
+  add(metadata['source_run_id']);
+  add(metadata['sourceRunId']);
+  addMany(specJson['source_run_ids']);
+  addMany(specJson['sourceRunIds']);
+  addMany(source['source_run_ids']);
+  addMany(source['sourceRunIds']);
+  addMany(source['run_ids']);
+  addMany(source['runIds']);
+  addMany(metadata['source_run_ids']);
+  addMany(metadata['sourceRunIds']);
+  return ids;
 }
 
-class _DetailSectionTitle extends StatelessWidget {
-  const _DetailSectionTitle({required this.zh, required this.en});
-
-  final String zh;
-  final String en;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.omniPalette;
-    return Text(
-      _text(context, zh, en),
-      style: TextStyle(
-        fontSize: 12,
-        fontWeight: FontWeight.w700,
-        color: palette.textTertiary,
-        letterSpacing: 0.2,
-      ),
-    );
+Map<String, dynamic> _deepStringKeyMap(dynamic value) {
+  try {
+    final decoded = jsonDecode(jsonEncode(value));
+    if (decoded is Map) {
+      return decoded.map((key, item) => MapEntry(key.toString(), item));
+    }
+  } catch (_) {
+    if (value is Map) {
+      return value.map((key, item) => MapEntry(key.toString(), item));
+    }
   }
+  return const {};
 }
 
-class _DetailEmptyText extends StatelessWidget {
-  const _DetailEmptyText({required this.text});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.omniPalette;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Text(
-        text,
-        style: TextStyle(fontSize: 13, color: palette.textTertiary),
-      ),
-    );
+String _firstNonBlankValue(Iterable<dynamic> values) {
+  for (final value in values) {
+    final text = value?.toString().trim() ?? '';
+    if (text.isNotEmpty) return text;
   }
-}
-
-class _ParameterDetailTile extends StatelessWidget {
-  const _ParameterDetailTile({required this.parameter});
-
-  final _ParameterSummary parameter;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.omniPalette;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-      decoration: BoxDecoration(
-        color: context.isDarkTheme ? palette.surfaceSecondary : Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: palette.borderSubtle),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            parameter.name,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: palette.textPrimary,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            [
-              if (parameter.type.isNotEmpty) parameter.type,
-              if (parameter.required) _text(context, '必填', 'required'),
-              if (parameter.defaultValue.isNotEmpty)
-                '${_text(context, '默认', 'default')}: ${parameter.defaultValue}',
-            ].join(' · '),
-            style: TextStyle(fontSize: 11, color: palette.textSecondary),
-          ),
-          if (parameter.description.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              parameter.description,
-              style: TextStyle(
-                fontSize: 11,
-                color: palette.textTertiary,
-                height: 1.35,
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
+  return '';
 }
 
 class _EmptyState extends StatelessWidget {
@@ -1341,6 +1095,8 @@ class _FunctionSummary {
     required this.lastRunSuccess,
     required this.sourceRunIds,
     required this.stepSummaries,
+    required this.agentVisible,
+    required this.visibility,
   });
 
   factory _FunctionSummary.fromMap(Map<String, dynamic> map) {
@@ -1389,6 +1145,13 @@ class _FunctionSummary {
                 )
                 .toList(growable: false)
           : const [],
+      agentVisible:
+          _asNullableBool(map['agent_visible']) ??
+          _asNullableBool(_asMap(map['metadata'])['agent_visible']) ??
+          false,
+      visibility:
+          (map['visibility'] ?? _asMap(map['metadata'])['visibility'] ?? '')
+              .toString(),
     );
   }
 
@@ -1407,6 +1170,8 @@ class _FunctionSummary {
   final bool? lastRunSuccess;
   final List<String> sourceRunIds;
   final List<_StepSummary> stepSummaries;
+  final bool agentVisible;
+  final String visibility;
 
   String get displayName {
     final trimmedName = name.trim();
@@ -1581,6 +1346,11 @@ class _FunctionGroup {
 
   _FunctionSummary get primary => items.first;
 
+  bool get isAgentVisible => items.any((item) => item.agentVisible);
+
+  _FunctionSummary get agentHiddenPrimary =>
+      items.firstWhere((item) => !item.agentVisible, orElse: () => primary);
+
   int get variantCount => items.length;
 
   int get runCount => items.fold<int>(0, (sum, item) => sum + item.runCount);
@@ -1671,1089 +1441,6 @@ class _ParameterSummary {
   final bool required;
   final String description;
   final String defaultValue;
-}
-
-List<_ParameterSummary> _parameterSummariesFromSpec(
-  dynamic rawParameters,
-  List<String> fallbackNames,
-) {
-  if (rawParameters is List) {
-    final parameters = rawParameters
-        .whereType<Map>()
-        .map(
-          (item) => _ParameterSummary.fromMap(
-            Map<String, dynamic>.from(
-              item.map((key, value) => MapEntry(key.toString(), value)),
-            ),
-          ),
-        )
-        .toList(growable: false);
-    if (parameters.isNotEmpty) return parameters;
-  }
-
-  final schema = _FunctionSummary._asMap(rawParameters);
-  final properties = _FunctionSummary._asMap(schema['properties']);
-  if (properties.isNotEmpty) {
-    final requiredNames = schema['required'] is List
-        ? (schema['required'] as List).map((item) => item.toString()).toSet()
-        : const <String>{};
-    return properties.entries
-        .map((entry) {
-          final property = _FunctionSummary._asMap(entry.value);
-          return _ParameterSummary.fromMap({
-            ...property,
-            'name': entry.key,
-            'required': requiredNames.contains(entry.key),
-          });
-        })
-        .toList(growable: false);
-  }
-
-  return fallbackNames
-      .map(
-        (name) => _ParameterSummary(
-          name: name,
-          type: '',
-          required: false,
-          description: '',
-          defaultValue: '',
-        ),
-      )
-      .toList(growable: false);
-}
-
-class _FunctionDetailSnapshot {
-  const _FunctionDetailSnapshot({
-    required this.summary,
-    required this.group,
-    required this.parameters,
-    required this.steps,
-    required this.sourceRunIds,
-    required this.spec,
-  });
-
-  final _FunctionSummary summary;
-  final _FunctionGroup group;
-  final List<_ParameterSummary> parameters;
-  final List<_StepSummary> steps;
-  final List<String> sourceRunIds;
-  final Map<String, dynamic> spec;
-
-  factory _FunctionDetailSnapshot.from({
-    required _FunctionGroup group,
-    Map<String, dynamic>? spec,
-  }) {
-    final raw = spec ?? const <String, dynamic>{};
-    final execution = _FunctionSummary._asMap(raw['execution']);
-    final parametersRaw = raw['parameters'];
-    final stepsRaw = execution['steps'];
-    final parameters = _parameterSummariesFromSpec(
-      parametersRaw,
-      group.primary.parameterNames,
-    );
-    late final List<_StepSummary> steps;
-    if (stepsRaw is List) {
-      steps = stepsRaw
-          .asMap()
-          .entries
-          .where((entry) => entry.value is Map)
-          .map(
-            (entry) => _StepSummary.fromMap(
-              Map<String, dynamic>.from(
-                (entry.value as Map).map((k, v) => MapEntry(k.toString(), v)),
-              ),
-              fallbackIndex: entry.key,
-            ),
-          )
-          .toList(growable: false);
-    } else {
-      steps = group.primary.stepSummaries;
-    }
-    return _FunctionDetailSnapshot(
-      summary: group.primary,
-      group: group,
-      parameters: parameters,
-      steps: steps,
-      sourceRunIds: group.sourceRunIds,
-      spec: raw,
-    );
-  }
-}
-
-const _customStepToolValue = '__custom_step_tool__';
-
-enum _FunctionStepArgType { string, integer, number, boolean }
-
-_FunctionStepArgType _functionStepArgTypeFromSchema(OobActionArgType type) {
-  switch (type) {
-    case OobActionArgType.integer:
-      return _FunctionStepArgType.integer;
-    case OobActionArgType.number:
-      return _FunctionStepArgType.number;
-    case OobActionArgType.boolean:
-      return _FunctionStepArgType.boolean;
-    case OobActionArgType.string:
-    case OobActionArgType.object:
-    case OobActionArgType.stringArray:
-      return _FunctionStepArgType.string;
-  }
-}
-
-String _functionStepArgHintFromSchema(OobActionArgSpec arg) {
-  if (arg.enumValues.isNotEmpty) return arg.enumValues.join('/');
-  if (arg.minimum != null && arg.maximum != null) {
-    return '${arg.minimum}-${arg.maximum}';
-  }
-  if (arg.minimum != null) return '>= ${arg.minimum}';
-  return '';
-}
-
-class _FunctionStepArgField {
-  const _FunctionStepArgField(
-    this.key, {
-    this.type = _FunctionStepArgType.string,
-    this.hint = '',
-  });
-
-  final String key;
-  final _FunctionStepArgType type;
-  final String hint;
-}
-
-class _FunctionStepOperationDefinition {
-  const _FunctionStepOperationDefinition({
-    required this.value,
-    required this.zhLabel,
-    required this.enLabel,
-    this.argsTemplate = const {},
-    this.fields = const [],
-  });
-
-  final String value;
-  final String zhLabel;
-  final String enLabel;
-  final Map<String, dynamic> argsTemplate;
-  final List<_FunctionStepArgField> fields;
-
-  String label(BuildContext context) => _text(context, zhLabel, enLabel);
-}
-
-final _functionStepOperations = OobCanonicalActionSchema.editorVisibleTools
-    .map(
-      (tool) => _FunctionStepOperationDefinition(
-        value: tool.name,
-        zhLabel: tool.uiLabel.zhCn,
-        enLabel: tool.uiLabel.enUs,
-        argsTemplate: Map<String, dynamic>.from(tool.argsTemplate),
-        fields: tool.args
-            .map(
-              (arg) => _FunctionStepArgField(
-                arg.name,
-                type: _functionStepArgTypeFromSchema(arg.type),
-                hint: _functionStepArgHintFromSchema(arg),
-              ),
-            )
-            .toList(growable: false),
-      ),
-    )
-    .toList(growable: false);
-
-Future<Map<String, dynamic>?> _showFunctionStepEditorDialog(
-  BuildContext context,
-  Map<String, dynamic> rawStep, {
-  bool isNew = false,
-}) {
-  return showDialog<Map<String, dynamic>>(
-    context: context,
-    builder: (dialogContext) =>
-        _FunctionStepEditorDialog(rawStep: rawStep, isNew: isNew),
-  );
-}
-
-class _FunctionStepEditorDialog extends StatefulWidget {
-  const _FunctionStepEditorDialog({required this.rawStep, required this.isNew});
-
-  final Map<String, dynamic> rawStep;
-  final bool isNew;
-
-  @override
-  State<_FunctionStepEditorDialog> createState() =>
-      _FunctionStepEditorDialogState();
-}
-
-class _FunctionStepEditorDialogState extends State<_FunctionStepEditorDialog> {
-  late final TextEditingController _titleController;
-  late final TextEditingController _customToolController;
-  late final TextEditingController _argsController;
-  final Map<String, TextEditingController> _argControllers = {};
-  late String _selectedTool;
-  String? _errorText;
-
-  @override
-  void initState() {
-    super.initState();
-    final rawTool = (widget.rawStep['tool'] ?? '').toString().trim();
-    final operation = _operationDefinitionForTool(rawTool);
-    _selectedTool = operation?.value ?? _customStepToolValue;
-    _titleController = TextEditingController(
-      text: (widget.rawStep['title'] ?? '').toString(),
-    );
-    _customToolController = TextEditingController(
-      text: operation == null ? rawTool : '',
-    );
-    _argsController = TextEditingController(
-      text: const JsonEncoder.withIndent('  ').convert(
-        widget.rawStep['args'] is Map
-            ? _stringKeyMap(widget.rawStep['args'])
-            : _selectedOperation?.argsTemplate ?? const {},
-      ),
-    );
-    _rebuildArgControllers(_decodedArgsOrEmpty());
-  }
-
-  @override
-  void dispose() {
-    _titleController.dispose();
-    _customToolController.dispose();
-    _argsController.dispose();
-    for (final controller in _argControllers.values) {
-      controller.dispose();
-    }
-    super.dispose();
-  }
-
-  _FunctionStepOperationDefinition? get _selectedOperation {
-    for (final operation in _functionStepOperations) {
-      if (operation.value == _selectedTool) return operation;
-    }
-    return null;
-  }
-
-  void _onOperationChanged(String? value) {
-    if (value == null || value == _selectedTool) return;
-    final previousArgs = _decodedArgsOrEmpty();
-    setState(() {
-      _selectedTool = value;
-      _errorText = null;
-      final definition = _selectedOperation;
-      if (definition != null) {
-        final nextArgs = <String, dynamic>{...definition.argsTemplate};
-        for (final field in definition.fields) {
-          if (previousArgs.containsKey(field.key)) {
-            nextArgs[field.key] = previousArgs[field.key];
-          }
-        }
-        _setArgsJson(nextArgs);
-        _rebuildArgControllers(nextArgs);
-      } else {
-        _rebuildArgControllers(previousArgs);
-      }
-    });
-  }
-
-  void _rebuildArgControllers(Map<String, dynamic> args) {
-    for (final controller in _argControllers.values) {
-      controller.dispose();
-    }
-    _argControllers.clear();
-    final fields =
-        _selectedOperation?.fields ?? const <_FunctionStepArgField>[];
-    for (final field in fields) {
-      _argControllers[field.key] = TextEditingController(
-        text: _argFieldText(args[field.key]),
-      );
-    }
-  }
-
-  void _syncArgsJsonFromFields() {
-    final definition = _selectedOperation;
-    if (definition == null) return;
-    final args = _decodedArgsOrEmpty();
-    for (final field in definition.fields) {
-      final raw = _argControllers[field.key]?.text.trim() ?? '';
-      if (raw.isEmpty) {
-        args.remove(field.key);
-      } else {
-        args[field.key] = _parseArgFieldValue(raw, field.type);
-      }
-    }
-    _setArgsJson(args);
-  }
-
-  void _setArgsJson(Map<String, dynamic> args) {
-    final pretty = const JsonEncoder.withIndent('  ').convert(args);
-    _argsController.value = TextEditingValue(
-      text: pretty,
-      selection: TextSelection.collapsed(offset: pretty.length),
-    );
-  }
-
-  Map<String, dynamic> _decodedArgsOrEmpty() {
-    try {
-      final decoded = jsonDecode(
-        _argsController.text.trim().isEmpty ? '{}' : _argsController.text,
-      );
-      if (decoded is Map) return _stringKeyMap(decoded);
-    } catch (_) {
-      return const {};
-    }
-    return const {};
-  }
-
-  void _save() {
-    if (_selectedOperation != null) {
-      _syncArgsJsonFromFields();
-    }
-    final enteredTool = _selectedTool == _customStepToolValue
-        ? _customToolController.text.trim()
-        : _selectedTool;
-    if (enteredTool.isEmpty) {
-      setState(() {
-        _errorText = context.l10n.functionLibraryStepToolRequired;
-      });
-      return;
-    }
-    final tool =
-        RunLogReplayPolicy.omniflowActionForToolName(enteredTool) ??
-        enteredTool;
-    final dynamic decodedArgs;
-    try {
-      decodedArgs = jsonDecode(
-        _argsController.text.trim().isEmpty ? '{}' : _argsController.text,
-      );
-    } catch (_) {
-      setState(() {
-        _errorText = context.l10n.functionLibraryStepArgsInvalid;
-      });
-      return;
-    }
-    if (decodedArgs is! Map) {
-      setState(() {
-        _errorText = context.l10n.functionLibraryStepArgsObjectRequired;
-      });
-      return;
-    }
-    Navigator.of(context).pop(
-      _buildFunctionStepFromEdit(
-        rawStep: widget.rawStep,
-        title: _titleController.text.trim(),
-        tool: tool,
-        args: _stringKeyMap(decodedArgs),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.omniPalette;
-    final selectedDefinition = _selectedOperation;
-    final fields =
-        selectedDefinition?.fields ?? const <_FunctionStepArgField>[];
-    return AlertDialog(
-      title: Text(
-        widget.isNew
-            ? _text(context, '添加步骤', 'Add step')
-            : context.l10n.functionLibraryStepEditTitle,
-      ),
-      content: SizedBox(
-        width: 460,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TextField(
-                controller: _titleController,
-                decoration: InputDecoration(
-                  labelText: context.l10n.functionLibraryStepTitleLabel,
-                  border: const OutlineInputBorder(),
-                  isDense: true,
-                ),
-              ),
-              const SizedBox(height: 10),
-              DropdownButtonFormField<String>(
-                value: _selectedTool,
-                isExpanded: true,
-                decoration: InputDecoration(
-                  labelText: context.l10n.functionLibraryStepToolLabel,
-                  border: const OutlineInputBorder(),
-                  isDense: true,
-                ),
-                items: [
-                  for (final operation in _functionStepOperations)
-                    DropdownMenuItem<String>(
-                      value: operation.value,
-                      child: Text(
-                        '${operation.value} · ${operation.label(context)}',
-                      ),
-                    ),
-                  DropdownMenuItem<String>(
-                    value: _customStepToolValue,
-                    child: Text(_text(context, '自定义工具', 'Custom tool')),
-                  ),
-                ],
-                onChanged: _onOperationChanged,
-              ),
-              if (_selectedTool == _customStepToolValue) ...[
-                const SizedBox(height: 10),
-                TextField(
-                  controller: _customToolController,
-                  decoration: InputDecoration(
-                    labelText: _text(context, '工具名', 'Tool name'),
-                    border: const OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                ),
-              ],
-              const SizedBox(height: 12),
-              Text(
-                _text(context, '参数', 'Parameters'),
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: palette.textTertiary,
-                  letterSpacing: 0,
-                ),
-              ),
-              const SizedBox(height: 8),
-              if (fields.isEmpty)
-                Text(
-                  _text(context, '此操作无需参数', 'This action has no parameters'),
-                  style: TextStyle(fontSize: 12, color: palette.textTertiary),
-                )
-              else
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    for (final field in fields)
-                      SizedBox(
-                        width: _fieldWidth(field),
-                        child: TextField(
-                          controller: _argControllers[field.key],
-                          keyboardType: _keyboardTypeForArgField(field.type),
-                          decoration: InputDecoration(
-                            labelText: field.key,
-                            helperText: field.hint.isEmpty ? null : field.hint,
-                            border: const OutlineInputBorder(),
-                            isDense: true,
-                          ),
-                          onChanged: (_) => _syncArgsJsonFromFields(),
-                        ),
-                      ),
-                  ],
-                ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _argsController,
-                keyboardType: TextInputType.multiline,
-                minLines: 5,
-                maxLines: 10,
-                style: const TextStyle(fontFamily: 'monospace'),
-                decoration: InputDecoration(
-                  labelText: context.l10n.functionLibraryStepArgsLabel,
-                  border: const OutlineInputBorder(),
-                  isDense: true,
-                ),
-              ),
-              if (_errorText != null) ...[
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    _errorText!,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppColors.alertRed,
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(context.l10n.omniflowCancel),
-        ),
-        FilledButton.icon(
-          icon: Icon(
-            widget.isNew ? Icons.add_rounded : Icons.save_outlined,
-            size: 18,
-          ),
-          label: Text(
-            widget.isNew
-                ? _text(context, '添加', 'Add')
-                : context.l10n.omniflowSaveConfig,
-          ),
-          onPressed: _save,
-        ),
-      ],
-    );
-  }
-}
-
-Map<String, dynamic> _newFunctionStepTemplate(int index) {
-  const action = 'click';
-  final stepId = 'step_${index + 1}';
-  return <String, dynamic>{
-    'id': stepId,
-    'step_id': stepId,
-    'index': index,
-    'title': action,
-    'summary': action,
-    'kind': 'function',
-    'executor': 'omniflow',
-    'model_free': true,
-    'scriptable': true,
-    'tool': action,
-    'args': const <String, dynamic>{},
-  };
-}
-
-_FunctionStepOperationDefinition? _operationDefinitionForTool(String tool) {
-  final action =
-      RunLogReplayPolicy.omniflowActionForToolName(tool) ??
-      RunLogReplayPolicy.normalizeToolName(tool);
-  for (final operation in _functionStepOperations) {
-    if (operation.value == action) return operation;
-  }
-  return null;
-}
-
-Map<String, dynamic> _stringKeyMap(dynamic value) {
-  if (value is! Map) return const {};
-  return Map<String, dynamic>.fromEntries(
-    value.entries.map(
-      (entry) =>
-          MapEntry(entry.key.toString(), _jsonCompatibleValue(entry.value)),
-    ),
-  );
-}
-
-dynamic _jsonCompatibleValue(dynamic value) {
-  if (value is Map) return _stringKeyMap(value);
-  if (value is List) {
-    return value.map(_jsonCompatibleValue).toList(growable: false);
-  }
-  return value;
-}
-
-String _argFieldText(dynamic value) {
-  if (value == null) return '';
-  if (value is String || value is num || value is bool) {
-    return value.toString();
-  }
-  return jsonEncode(value);
-}
-
-dynamic _parseArgFieldValue(String raw, _FunctionStepArgType type) {
-  switch (type) {
-    case _FunctionStepArgType.integer:
-      return int.tryParse(raw) ?? raw;
-    case _FunctionStepArgType.number:
-      return num.tryParse(raw) ?? raw;
-    case _FunctionStepArgType.boolean:
-      final normalized = raw.trim().toLowerCase();
-      if (normalized == 'true' || normalized == '1' || normalized == 'yes') {
-        return true;
-      }
-      if (normalized == 'false' || normalized == '0' || normalized == 'no') {
-        return false;
-      }
-      return raw;
-    case _FunctionStepArgType.string:
-      return raw;
-  }
-}
-
-TextInputType _keyboardTypeForArgField(_FunctionStepArgType type) {
-  switch (type) {
-    case _FunctionStepArgType.integer:
-      return TextInputType.number;
-    case _FunctionStepArgType.number:
-      return const TextInputType.numberWithOptions(decimal: true);
-    case _FunctionStepArgType.boolean:
-    case _FunctionStepArgType.string:
-      return TextInputType.text;
-  }
-}
-
-double _fieldWidth(_FunctionStepArgField field) {
-  if (field.type == _FunctionStepArgType.boolean) return 132;
-  if (field.type == _FunctionStepArgType.integer ||
-      field.type == _FunctionStepArgType.number) {
-    return 136;
-  }
-  switch (field.key) {
-    case 'text':
-    case 'package_name':
-    case 'target_description':
-      return 214;
-    default:
-      return 160;
-  }
-}
-
-Map<String, dynamic> _buildFunctionStepFromEdit({
-  required Map<String, dynamic> rawStep,
-  required String title,
-  required String tool,
-  required Map<String, dynamic> args,
-}) {
-  final updated = _stringKeyMap(rawStep);
-  final normalizedTool = RunLogReplayPolicy.normalizeToolName(tool);
-  final action = RunLogReplayPolicy.omniflowActionForToolName(tool);
-  final effectiveTool = action ?? normalizedTool;
-  final effectiveTitle = title.isNotEmpty ? title : effectiveTool;
-
-  updated['title'] = effectiveTitle;
-  updated['summary'] = effectiveTitle;
-  updated['tool'] = effectiveTool;
-  updated['args'] = _stringKeyMap(args);
-
-  if (action != null) {
-    updated['kind'] = 'function';
-    updated['executor'] = 'omniflow';
-    updated['model_free'] = true;
-    updated['scriptable'] = true;
-    updated['tool'] = action;
-    updated.remove('agent_call');
-    updated.remove('fallback_prompt');
-    updated.remove('fallbackPrompt');
-    updated.remove('source_tool');
-    if (RunLogReplayPolicy.isCoordinateAction(action)) {
-      updated['coordinate_hook'] = 'omniflow';
-    } else {
-      updated.remove('coordinate_hook');
-    }
-  } else {
-    updated.remove('omniflow_action');
-    updated.remove('local_action');
-    updated.remove('callable_tool');
-    updated.remove('coordinate_hook');
-    updated['tool'] = effectiveTool;
-    final existingExecutor = (rawStep['executor'] ?? '').toString().trim();
-    if (existingExecutor == 'agent') {
-      updated['executor'] = 'agent';
-      updated['kind'] = updated['kind'] ?? 'agent_replan';
-      updated['model_free'] = false;
-      updated['scriptable'] = false;
-    } else {
-      updated['executor'] = 'tool';
-      updated['kind'] = 'tool_call';
-      updated['model_free'] = false;
-      updated['scriptable'] = true;
-    }
-  }
-
-  return updated;
-}
-
-Map<String, dynamic>? _replaceFunctionStep(
-  Map<String, dynamic> spec,
-  _StepSummary step,
-  Map<String, dynamic> replacement,
-) {
-  final cloned = jsonDecode(jsonEncode(spec));
-  if (cloned is! Map) return null;
-  final updatedSpec = Map<String, dynamic>.from(
-    cloned.map((key, value) => MapEntry(key.toString(), value)),
-  );
-  final execution = Map<String, dynamic>.from(
-    _FunctionSummary._asMap(updatedSpec['execution']),
-  );
-  final rawSteps = execution['steps'];
-  if (rawSteps is! List) return null;
-  final steps = rawSteps
-      .whereType<Map>()
-      .map(
-        (item) => Map<String, dynamic>.from(
-          item.map((key, value) => MapEntry(key.toString(), value)),
-        ),
-      )
-      .toList();
-  var index = step.id.trim().isEmpty
-      ? -1
-      : steps.indexWhere((candidate) => candidate['id']?.toString() == step.id);
-  if (index < 0 && step.index >= 0 && step.index < steps.length) {
-    index = step.index;
-  }
-  if (index < 0 || index >= steps.length) return null;
-  steps[index] = replacement;
-  execution['steps'] = steps;
-  updatedSpec['execution'] = execution;
-  _syncFunctionExecutionCounts(updatedSpec, execution, steps);
-  _syncCanonicalActionAfterStepEdit(updatedSpec, index, replacement);
-  _updateBoundParameterDefaults(updatedSpec, index, replacement);
-  return updatedSpec;
-}
-
-Map<String, dynamic>? _appendFunctionStep(
-  Map<String, dynamic> spec,
-  Map<String, dynamic> step,
-) {
-  final cloned = jsonDecode(jsonEncode(spec));
-  if (cloned is! Map) return null;
-  final updatedSpec = Map<String, dynamic>.from(
-    cloned.map((key, value) => MapEntry(key.toString(), value)),
-  );
-  final execution = Map<String, dynamic>.from(
-    _FunctionSummary._asMap(updatedSpec['execution']),
-  );
-  final rawSteps = execution['steps'];
-  final steps = rawSteps is List
-      ? rawSteps
-            .whereType<Map>()
-            .map(
-              (item) => Map<String, dynamic>.from(
-                item.map((key, value) => MapEntry(key.toString(), value)),
-              ),
-            )
-            .toList()
-      : <Map<String, dynamic>>[];
-  final nextIndex = steps.length;
-  final normalizedStep = _functionStepAtIndex(step, nextIndex);
-  steps.add(normalizedStep);
-  execution['steps'] = steps;
-  updatedSpec['execution'] = execution;
-  _syncFunctionExecutionCounts(updatedSpec, execution, steps);
-
-  final rawActions = updatedSpec['actions'];
-  if (rawActions is List) {
-    final actions = List<dynamic>.from(rawActions);
-    final action = _canonicalActionFromStep(normalizedStep);
-    if (action != null) {
-      actions.add(action);
-      updatedSpec['actions'] = actions;
-    }
-  }
-  return updatedSpec;
-}
-
-Map<String, dynamic> _functionStepAtIndex(
-  Map<String, dynamic> rawStep,
-  int index,
-) {
-  final step = _stringKeyMap(rawStep);
-  final stepId = 'step_${index + 1}';
-  step['id'] = stepId;
-  step['step_id'] = stepId;
-  step['index'] = index;
-  final tool = (step['tool'] ?? '').toString();
-  if ((step['title'] ?? '').toString().trim().isEmpty) {
-    step['title'] = tool.trim().isEmpty ? stepId : tool;
-  }
-  if ((step['summary'] ?? '').toString().trim().isEmpty) {
-    step['summary'] = step['title'];
-  }
-  return step;
-}
-
-void _syncFunctionExecutionCounts(
-  Map<String, dynamic> spec,
-  Map<String, dynamic> execution,
-  List<Map<String, dynamic>> steps,
-) {
-  final omniflowStepCount = steps
-      .where((step) => (step['executor'] ?? '').toString() == 'omniflow')
-      .length;
-  final agentStepCount = steps
-      .where((step) => (step['executor'] ?? '').toString() == 'agent')
-      .length;
-  final scriptableStepCount = steps
-      .where((step) => step['scriptable'] == true)
-      .length;
-  final modelFreeStepCount = steps
-      .where((step) => step['model_free'] == true)
-      .length;
-
-  execution['step_count'] = steps.length;
-  execution['omniflow_step_count'] = omniflowStepCount;
-  execution['agent_step_count'] = agentStepCount;
-  execution['requires_agent_fallback'] = agentStepCount > 0;
-
-  final metadata = _FunctionSummary._asMap(spec['metadata']);
-  if (metadata.isNotEmpty) {
-    metadata['step_count'] = steps.length;
-    metadata['scriptable_step_count'] = scriptableStepCount;
-    metadata['model_free_step_count'] = modelFreeStepCount;
-    metadata['omniflow_step_count'] = omniflowStepCount;
-    metadata['agent_step_count'] = agentStepCount;
-    metadata['requires_agent_fallback'] = agentStepCount > 0;
-    spec['metadata'] = metadata;
-  }
-}
-
-void _syncCanonicalActionAfterStepEdit(
-  Map<String, dynamic> spec,
-  int index,
-  Map<String, dynamic> step,
-) {
-  final rawActions = spec['actions'];
-  if (rawActions is! List || index < 0 || index >= rawActions.length) return;
-  final rawAction = rawActions[index];
-  final existingAction = rawAction is Map ? _stringKeyMap(rawAction) : null;
-  final action = _canonicalActionFromStep(step, existingAction: existingAction);
-  if (action == null) return;
-  final actions = List<dynamic>.from(rawActions);
-  actions[index] = action;
-  spec['actions'] = actions;
-}
-
-Map<String, dynamic>? _canonicalActionFromStep(
-  Map<String, dynamic> step, {
-  Map<String, dynamic>? existingAction,
-}) {
-  final rawTool = (step['tool'] ?? '').toString();
-  final action =
-      RunLogReplayPolicy.omniflowActionForToolName(rawTool) ??
-      RunLogReplayPolicy.normalizeToolName(rawTool);
-  final args = _stringKeyMap(step['args']);
-  final description = (step['title'] ?? step['summary'] ?? '')
-      .toString()
-      .trim();
-  final output = <String, dynamic>{};
-  output['tool'] = action;
-  if (description.isNotEmpty) {
-    output['description'] = description;
-  }
-
-  switch (action) {
-    case 'click':
-    case 'long_press':
-      output['args'] = _canonicalPointArgs(action, args);
-      return output;
-    case 'input_text':
-      final nextArgs = _canonicalPointArgs(action, args);
-      final existingArgs = _stringKeyMap(existingAction?['args']);
-      final existingText = (existingArgs['text'] ?? '').toString();
-      if (existingText.contains(r'${')) {
-        nextArgs['text'] = existingArgs['text'];
-      } else {
-        final text = _firstPresentArg(args, const ['text']);
-        if (text != null) nextArgs['text'] = text;
-      }
-      output['args'] = nextArgs;
-      return output;
-    case 'scroll':
-      output['args'] = _canonicalScrollArgs(args);
-      return output;
-    case 'open_app':
-      final nextArgs = <String, dynamic>{};
-      final packageName = _firstNonBlankArg(args, const ['package_name']);
-      if (packageName.isNotEmpty) nextArgs['package_name'] = packageName;
-      output['args'] = nextArgs;
-      return output;
-    case 'press_home':
-      output['args'] = const <String, dynamic>{};
-      return output;
-    case 'press_back':
-      output['args'] = const <String, dynamic>{};
-      return output;
-    case 'finished':
-      output['args'] = _canonicalArgsBySchema(action, args);
-      return output;
-    default:
-      output['tool'] = rawTool.trim().isEmpty ? action : rawTool.trim();
-      output['args'] = args;
-      return output;
-  }
-}
-
-Map<String, dynamic> _canonicalPointArgs(
-  String action,
-  Map<String, dynamic> args,
-) {
-  return _canonicalArgsBySchema(action, args);
-}
-
-Map<String, dynamic> _canonicalScrollArgs(Map<String, dynamic> args) {
-  return _canonicalArgsBySchema('scroll', args);
-}
-
-Map<String, dynamic> _canonicalArgsBySchema(
-  String action,
-  Map<String, dynamic> args,
-) {
-  final output = <String, dynamic>{};
-  for (final key in OobCanonicalActionSchema.argNames(action)) {
-    final value = _firstPresentArg(args, [key]);
-    if (value != null) output[key] = value;
-  }
-  return output;
-}
-
-dynamic _firstPresentArg(Map<String, dynamic> args, List<String> keys) {
-  for (final key in keys) {
-    if (args.containsKey(key) && args[key] != null) return args[key];
-  }
-  return null;
-}
-
-String _firstNonBlankArg(Map<String, dynamic> args, List<String> keys) {
-  for (final key in keys) {
-    final value = args[key]?.toString().trim() ?? '';
-    if (value.isNotEmpty) return value;
-  }
-  return '';
-}
-
-Map<String, dynamic>? _removeFunctionStep(
-  Map<String, dynamic> spec,
-  _StepSummary step,
-) {
-  final cloned = jsonDecode(jsonEncode(spec));
-  if (cloned is! Map) return null;
-  final updatedSpec = Map<String, dynamic>.from(
-    cloned.map((key, value) => MapEntry(key.toString(), value)),
-  );
-  final execution = Map<String, dynamic>.from(
-    _FunctionSummary._asMap(updatedSpec['execution']),
-  );
-  final rawSteps = execution['steps'];
-  if (rawSteps is! List || rawSteps.length <= 1) return null;
-  final steps = rawSteps
-      .whereType<Map>()
-      .map(
-        (item) => Map<String, dynamic>.from(
-          item.map((key, value) => MapEntry(key.toString(), value)),
-        ),
-      )
-      .toList();
-  var index = step.id.trim().isEmpty
-      ? -1
-      : steps.indexWhere((candidate) => candidate['id']?.toString() == step.id);
-  if (index < 0 && step.index >= 0 && step.index < steps.length) {
-    index = step.index;
-  }
-  if (index < 0 || index >= steps.length) return null;
-  steps.removeAt(index);
-  for (var stepIndex = 0; stepIndex < steps.length; stepIndex++) {
-    steps[stepIndex]['id'] = 'step_${stepIndex + 1}';
-    steps[stepIndex]['index'] = stepIndex;
-  }
-  execution['steps'] = steps;
-  updatedSpec['execution'] = execution;
-  _syncFunctionExecutionCounts(updatedSpec, execution, steps);
-  final actions = updatedSpec['actions'];
-  if (actions is List && index < actions.length) {
-    final updatedActions = List<dynamic>.from(actions)..removeAt(index);
-    updatedSpec['actions'] = updatedActions;
-  }
-  _shiftBindingsAfterStepRemoval(updatedSpec, index);
-  return updatedSpec;
-}
-
-void _updateBoundParameterDefaults(
-  Map<String, dynamic> spec,
-  int stepIndex,
-  Map<String, dynamic> step,
-) {
-  final args = _FunctionSummary._asMap(step['args']);
-  if (args.isEmpty) return;
-  final parameters = spec['parameters'];
-  if (parameters is List) {
-    for (final raw in parameters) {
-      if (raw is! Map) continue;
-      final parameter = raw.map(
-        (key, value) => MapEntry(key.toString(), value),
-      );
-      final argKey = _boundArgKeyForStep(parameter['bindings'], stepIndex);
-      if (argKey != null && args.containsKey(argKey)) {
-        raw['default'] = args[argKey];
-      }
-    }
-    return;
-  }
-  final schema = _FunctionSummary._asMap(parameters);
-  final properties = _FunctionSummary._asMap(schema['properties']);
-  for (final raw in properties.values) {
-    if (raw is! Map) continue;
-    final property = raw.map((key, value) => MapEntry(key.toString(), value));
-    final argKey = _boundArgKeyForStep(property['x_oob_bindings'], stepIndex);
-    if (argKey != null && args.containsKey(argKey)) {
-      raw['default'] = args[argKey];
-    }
-  }
-}
-
-String? _boundArgKeyForStep(dynamic rawBindings, int stepIndex) {
-  if (rawBindings is! List) return null;
-  for (final rawBinding in rawBindings) {
-    final match = RegExp(
-      r'^\$\.execution\.steps\[(\d+)\]\.args\.([A-Za-z0-9_]+)$',
-    ).firstMatch(rawBinding?.toString() ?? '');
-    if (match != null && int.tryParse(match.group(1) ?? '') == stepIndex) {
-      return match.group(2);
-    }
-  }
-  return null;
-}
-
-void _shiftBindingsAfterStepRemoval(
-  Map<String, dynamic> spec,
-  int removedIndex,
-) {
-  final parameters = spec['parameters'];
-  if (parameters is List) {
-    parameters.removeWhere((raw) {
-      if (raw is! Map) return false;
-      final hadBindings = raw['bindings'] is List;
-      final bindings = _shiftBindings(raw['bindings'], removedIndex);
-      if (hadBindings) raw['bindings'] = bindings;
-      return hadBindings && bindings.isEmpty;
-    });
-    return;
-  }
-  final schema = _FunctionSummary._asMap(parameters);
-  final properties = _FunctionSummary._asMap(schema['properties']);
-  final removedNames = <String>[];
-  for (final entry in properties.entries) {
-    final raw = entry.value;
-    if (raw is! Map) continue;
-    final hadBindings = raw['x_oob_bindings'] is List;
-    final bindings = _shiftBindings(raw['x_oob_bindings'], removedIndex);
-    if (hadBindings) raw['x_oob_bindings'] = bindings;
-    if (hadBindings && bindings.isEmpty) removedNames.add(entry.key);
-  }
-  for (final name in removedNames) {
-    properties.remove(name);
-  }
-  final required = schema['required'];
-  if (required is List && removedNames.isNotEmpty) {
-    required.removeWhere((name) => removedNames.contains(name?.toString()));
-  }
-}
-
-List<String> _shiftBindings(dynamic rawBindings, int removedIndex) {
-  if (rawBindings is! List) return const [];
-  final output = <String>[];
-  final bindingPattern = RegExp(
-    r'^\$\.(execution\.steps|actions)\[(\d+)\](.*)$',
-  );
-  for (final value in rawBindings) {
-    final binding = value?.toString() ?? '';
-    final match = bindingPattern.firstMatch(binding);
-    if (match == null) {
-      output.add(binding);
-      continue;
-    }
-    final index = int.tryParse(match.group(2) ?? '');
-    if (index == null) {
-      output.add(binding);
-      continue;
-    }
-    if (index == removedIndex) continue;
-    if (index > removedIndex) {
-      output.add('\$.${match.group(1)}[${index - 1}]${match.group(3)}');
-    } else {
-      output.add(binding);
-    }
-  }
-  return output;
 }
 
 Future<void> _startHumanTrajectoryLearningFlow({
@@ -3112,6 +1799,32 @@ bool? _asNullableBool(dynamic value) {
     }
   }
   return null;
+}
+
+Map<String, dynamic> _functionJsonForAgentVisibility(
+  Map<String, dynamic> rawJson, {
+  required bool agentVisible,
+}) {
+  final decoded = jsonDecode(jsonEncode(rawJson));
+  final cloned = decoded is Map
+      ? Map<String, dynamic>.from(
+          decoded.map((key, value) => MapEntry(key.toString(), value)),
+        )
+      : <String, dynamic>{};
+  cloned['agent_visible'] = agentVisible;
+  cloned['visibility'] = agentVisible ? 'agent_reusable' : 'manual_function';
+  final rawMetadata = cloned['metadata'];
+  final metadata = rawMetadata is Map
+      ? Map<String, dynamic>.from(
+          rawMetadata.map((key, value) => MapEntry(key.toString(), value)),
+        )
+      : <String, dynamic>{};
+  cloned['metadata'] = <String, dynamic>{
+    ...metadata,
+    'agent_visible': agentVisible,
+    'visibility': agentVisible ? 'agent_reusable' : 'manual_function',
+  };
+  return cloned;
 }
 
 DateTime? _parseTimestamp(String raw) {

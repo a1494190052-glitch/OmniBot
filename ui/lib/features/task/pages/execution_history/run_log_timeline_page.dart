@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:ui/features/task/pages/execution_history/function_run_result_sheet.dart';
 import 'package:ui/features/task/pages/execution_history/widgets/reusable_function_card.dart';
+import 'package:ui/features/task/run_log/oob_canonical_action_schema.dart';
 import 'package:ui/features/task/run_log/run_log_reusable_function_converter.dart';
 import 'package:ui/features/task/run_log/run_log_replay_policy.dart';
 import 'package:ui/features/task/pages/scheduled_tasks/widgets/schedule_task_sheet.dart';
@@ -59,6 +60,28 @@ Future<void> showRunLogStepDetailSheet(
       cardId: cardId,
       title: title,
       baseUrl: baseUrl,
+    ),
+  );
+}
+
+Future<void> showReusableFunctionSpecSheet(
+  BuildContext context, {
+  required RunLogReusableFunctionSpec spec,
+  required String runId,
+  String? baseUrl,
+  UtgRunLogImportResult? initialImportResult,
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    useRootNavigator: true,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    barrierColor: Colors.black.withValues(alpha: 0.28),
+    builder: (_) => _ReusableFunctionSpecSheet(
+      spec: spec,
+      runId: runId,
+      baseUrl: baseUrl,
+      initialImportResult: initialImportResult,
     ),
   );
 }
@@ -906,18 +929,12 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
     RunLogReusableFunctionSpec spec, {
     UtgRunLogImportResult? initialImportResult,
   }) {
-    return showModalBottomSheet<void>(
-      context: context,
-      useRootNavigator: true,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withValues(alpha: 0.28),
-      builder: (sheetContext) => _ReusableFunctionSpecSheet(
-        spec: spec,
-        runId: widget.runId,
-        baseUrl: widget.baseUrl,
-        initialImportResult: initialImportResult,
-      ),
+    return showReusableFunctionSpecSheet(
+      context,
+      spec: spec,
+      runId: widget.runId,
+      baseUrl: widget.baseUrl,
+      initialImportResult: initialImportResult,
     );
   }
 }
@@ -3259,6 +3276,33 @@ class _ReusableFunctionSpecSheetState
                               descriptionController: _descriptionController,
                             ),
                             const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _ReusableFunctionSectionTitle(
+                                    text: _text(context, '执行步骤', 'Steps'),
+                                  ),
+                                ),
+                                Tooltip(
+                                  message: _text(context, '添加步骤', 'Add step'),
+                                  child: IconButton(
+                                    icon: const Icon(
+                                      Icons.add_circle_outline_rounded,
+                                      size: 20,
+                                    ),
+                                    visualDensity: VisualDensity.compact,
+                                    color: palette.textSecondary,
+                                    onPressed:
+                                        _isImporting ||
+                                            _isExecuting ||
+                                            isEnhancing
+                                        ? null
+                                        : _addStep,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
                             if (detail.steps.isEmpty)
                               _ReusableFunctionEmptyText(
                                 text: _text(context, '暂无步骤', 'No steps'),
@@ -3413,6 +3457,33 @@ class _ReusableFunctionSpecSheetState
           ),
         ),
       ),
+    );
+  }
+
+  Future<void> _addStep() async {
+    if (_isImporting || _isExecuting || _enhancementJob?.isRunning == true) {
+      return;
+    }
+    final detail = _ReusableFunctionDraftSnapshot.fromSpec(spec.json);
+    final newStep = await _showReusableFunctionStepEditorDialog(
+      context,
+      _newReusableFunctionStepTemplate(detail.steps.length),
+      isNew: true,
+    );
+    if (newStep == null || !mounted) return;
+    final updatedJson = _appendReusableFunctionStep(spec.json, newStep);
+    if (updatedJson == null) {
+      showToast(
+        context.l10n.functionLibraryStepSaveFailed,
+        type: ToastType.error,
+      );
+      return;
+    }
+    await _updateDraftJson(updatedJson, structuralEdit: true);
+    if (!mounted) return;
+    showToast(
+      _text(context, '步骤已添加，保存后生效', 'Step added. Save to apply.'),
+      type: ToastType.success,
     );
   }
 
@@ -4397,21 +4468,107 @@ class _ReusableFunctionParameterSummary {
   final String defaultValue;
 }
 
+const _customReusableStepToolValue = '__custom_reusable_step_tool__';
+
+enum _ReusableFunctionStepArgType { string, integer, number, boolean }
+
+_ReusableFunctionStepArgType _reusableStepArgTypeFromSchema(
+  OobActionArgType type,
+) {
+  switch (type) {
+    case OobActionArgType.integer:
+      return _ReusableFunctionStepArgType.integer;
+    case OobActionArgType.number:
+      return _ReusableFunctionStepArgType.number;
+    case OobActionArgType.boolean:
+      return _ReusableFunctionStepArgType.boolean;
+    case OobActionArgType.string:
+    case OobActionArgType.object:
+    case OobActionArgType.stringArray:
+      return _ReusableFunctionStepArgType.string;
+  }
+}
+
+String _reusableStepArgHintFromSchema(OobActionArgSpec arg) {
+  if (arg.enumValues.isNotEmpty) return arg.enumValues.join('/');
+  if (arg.minimum != null && arg.maximum != null) {
+    return '${arg.minimum}-${arg.maximum}';
+  }
+  if (arg.minimum != null) return '>= ${arg.minimum}';
+  return '';
+}
+
+class _ReusableFunctionStepArgField {
+  const _ReusableFunctionStepArgField(
+    this.key, {
+    this.type = _ReusableFunctionStepArgType.string,
+    this.hint = '',
+  });
+
+  final String key;
+  final _ReusableFunctionStepArgType type;
+  final String hint;
+}
+
+class _ReusableFunctionStepOperationDefinition {
+  const _ReusableFunctionStepOperationDefinition({
+    required this.value,
+    required this.zhLabel,
+    required this.enLabel,
+    this.argsTemplate = const {},
+    this.fields = const [],
+  });
+
+  final String value;
+  final String zhLabel;
+  final String enLabel;
+  final Map<String, dynamic> argsTemplate;
+  final List<_ReusableFunctionStepArgField> fields;
+
+  String label(BuildContext context) => _text(context, zhLabel, enLabel);
+}
+
+final _reusableFunctionStepOperations = OobCanonicalActionSchema
+    .editorVisibleTools
+    .map(
+      (tool) => _ReusableFunctionStepOperationDefinition(
+        value: tool.name,
+        zhLabel: tool.uiLabel.zhCn,
+        enLabel: tool.uiLabel.enUs,
+        argsTemplate: Map<String, dynamic>.from(tool.argsTemplate),
+        fields: tool.args
+            .map(
+              (arg) => _ReusableFunctionStepArgField(
+                arg.name,
+                type: _reusableStepArgTypeFromSchema(arg.type),
+                hint: _reusableStepArgHintFromSchema(arg),
+              ),
+            )
+            .toList(growable: false),
+      ),
+    )
+    .toList(growable: false);
+
 Future<Map<String, dynamic>?> _showReusableFunctionStepEditorDialog(
   BuildContext context,
-  Map<String, dynamic> rawStep,
-) {
+  Map<String, dynamic> rawStep, {
+  bool isNew = false,
+}) {
   return showDialog<Map<String, dynamic>>(
     context: context,
     builder: (dialogContext) =>
-        _ReusableFunctionStepEditorDialog(rawStep: rawStep),
+        _ReusableFunctionStepEditorDialog(rawStep: rawStep, isNew: isNew),
   );
 }
 
 class _ReusableFunctionStepEditorDialog extends StatefulWidget {
-  const _ReusableFunctionStepEditorDialog({required this.rawStep});
+  const _ReusableFunctionStepEditorDialog({
+    required this.rawStep,
+    required this.isNew,
+  });
 
   final Map<String, dynamic> rawStep;
+  final bool isNew;
 
   @override
   State<_ReusableFunctionStepEditorDialog> createState() =>
@@ -4421,37 +4578,130 @@ class _ReusableFunctionStepEditorDialog extends StatefulWidget {
 class _ReusableFunctionStepEditorDialogState
     extends State<_ReusableFunctionStepEditorDialog> {
   late final TextEditingController _titleController;
-  late final TextEditingController _toolController;
+  late final TextEditingController _customToolController;
   late final TextEditingController _argsController;
+  final Map<String, TextEditingController> _argControllers = {};
+  late String _selectedTool;
   String? _errorText;
 
   @override
   void initState() {
     super.initState();
+    final rawTool = (widget.rawStep['tool'] ?? '').toString().trim();
+    final operation = _reusableOperationDefinitionForTool(rawTool);
+    _selectedTool = operation?.value ?? _customReusableStepToolValue;
     _titleController = TextEditingController(
       text: (widget.rawStep['title'] ?? widget.rawStep['summary'] ?? '')
           .toString(),
     );
-    _toolController = TextEditingController(
-      text: (widget.rawStep['tool'] ?? '').toString(),
+    _customToolController = TextEditingController(
+      text: operation == null ? rawTool : '',
     );
     _argsController = TextEditingController(
       text: const JsonEncoder.withIndent('  ').convert(
-        widget.rawStep['args'] is Map ? widget.rawStep['args'] : const {},
+        widget.rawStep['args'] is Map
+            ? _deepCopyStringMap(_asStringKeyMap(widget.rawStep['args']))
+            : _selectedOperation?.argsTemplate ?? const {},
       ),
     );
+    _rebuildArgControllers(_decodedArgsOrEmpty());
   }
 
   @override
   void dispose() {
     _titleController.dispose();
-    _toolController.dispose();
+    _customToolController.dispose();
     _argsController.dispose();
+    for (final controller in _argControllers.values) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
+  _ReusableFunctionStepOperationDefinition? get _selectedOperation {
+    for (final operation in _reusableFunctionStepOperations) {
+      if (operation.value == _selectedTool) return operation;
+    }
+    return null;
+  }
+
+  void _onOperationChanged(String? value) {
+    if (value == null || value == _selectedTool) return;
+    final previousArgs = _decodedArgsOrEmpty();
+    setState(() {
+      _selectedTool = value;
+      _errorText = null;
+      final definition = _selectedOperation;
+      if (definition != null) {
+        final nextArgs = _argsForReusableToolSwitch(
+          definition.value,
+          previousArgs,
+          definition.argsTemplate,
+        );
+        _setArgsJson(nextArgs);
+        _rebuildArgControllers(nextArgs);
+      } else {
+        _rebuildArgControllers(previousArgs);
+      }
+    });
+  }
+
+  void _rebuildArgControllers(Map<String, dynamic> args) {
+    for (final controller in _argControllers.values) {
+      controller.dispose();
+    }
+    _argControllers.clear();
+    final fields =
+        _selectedOperation?.fields ?? const <_ReusableFunctionStepArgField>[];
+    for (final field in fields) {
+      _argControllers[field.key] = TextEditingController(
+        text: _reusableArgFieldText(args[field.key]),
+      );
+    }
+  }
+
+  void _syncArgsJsonFromFields() {
+    final definition = _selectedOperation;
+    if (definition == null) return;
+    final args = _decodedArgsOrEmpty();
+    for (final field in definition.fields) {
+      final raw = _argControllers[field.key]?.text.trim() ?? '';
+      if (raw.isEmpty) {
+        args.remove(field.key);
+      } else {
+        args[field.key] = _parseReusableArgFieldValue(raw, field.type);
+      }
+    }
+    _setArgsJson(args);
+  }
+
+  void _setArgsJson(Map<String, dynamic> args) {
+    final pretty = const JsonEncoder.withIndent('  ').convert(_jsonSafe(args));
+    _argsController.value = TextEditingValue(
+      text: pretty,
+      selection: TextSelection.collapsed(offset: pretty.length),
+    );
+  }
+
+  Map<String, dynamic> _decodedArgsOrEmpty() {
+    try {
+      final decoded = jsonDecode(
+        _argsController.text.trim().isEmpty ? '{}' : _argsController.text,
+      );
+      if (decoded is Map) return _asStringKeyMap(decoded);
+    } catch (_) {
+      return const {};
+    }
+    return const {};
+  }
+
   void _save() {
-    final enteredTool = _toolController.text.trim();
+    if (_selectedOperation != null) {
+      _syncArgsJsonFromFields();
+    }
+    final enteredTool = _selectedTool == _customReusableStepToolValue
+        ? _customToolController.text.trim()
+        : _selectedTool;
     if (enteredTool.isEmpty) {
       setState(() => _errorText = context.l10n.functionLibraryStepToolRequired);
       return;
@@ -4471,31 +4721,34 @@ class _ReusableFunctionStepEditorDialogState
       );
       return;
     }
-    final tool =
-        RunLogReplayPolicy.omniflowActionForToolName(enteredTool) ??
-        enteredTool;
-    final updated = Map<String, dynamic>.from(widget.rawStep);
-    updated['title'] = _titleController.text.trim();
-    updated['summary'] = _titleController.text.trim();
-    updated['tool'] = tool;
-    updated['args'] = Map<String, dynamic>.from(
-      decodedArgs.map((key, value) => MapEntry(key.toString(), value)),
+    Navigator.of(context).pop(
+      _buildReusableFunctionStepFromEdit(
+        rawStep: widget.rawStep,
+        title: _titleController.text.trim(),
+        tool: enteredTool,
+        args: _asStringKeyMap(decodedArgs),
+      ),
     );
-    updated.remove('omniflow_action');
-    updated.remove('local_action');
-    updated.remove('callable_tool');
-    Navigator.of(context).pop(updated);
   }
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    final selectedDefinition = _selectedOperation;
+    final fields =
+        selectedDefinition?.fields ?? const <_ReusableFunctionStepArgField>[];
     return AlertDialog(
-      title: Text(context.l10n.functionLibraryStepEditTitle),
+      title: Text(
+        widget.isNew
+            ? _text(context, '添加步骤', 'Add step')
+            : context.l10n.functionLibraryStepEditTitle,
+      ),
       content: SizedBox(
-        width: 420,
+        width: 460,
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               TextField(
                 controller: _titleController,
@@ -4506,15 +4759,81 @@ class _ReusableFunctionStepEditorDialogState
                 ),
               ),
               const SizedBox(height: 10),
-              TextField(
-                controller: _toolController,
+              DropdownButtonFormField<String>(
+                initialValue: _selectedTool,
+                isExpanded: true,
                 decoration: InputDecoration(
                   labelText: context.l10n.functionLibraryStepToolLabel,
                   border: const OutlineInputBorder(),
                   isDense: true,
                 ),
+                items: [
+                  for (final operation in _reusableFunctionStepOperations)
+                    DropdownMenuItem<String>(
+                      value: operation.value,
+                      child: Text(
+                        '${operation.value} · ${operation.label(context)}',
+                      ),
+                    ),
+                  DropdownMenuItem<String>(
+                    value: _customReusableStepToolValue,
+                    child: Text(_text(context, '自定义工具', 'Custom tool')),
+                  ),
+                ],
+                onChanged: _onOperationChanged,
               ),
-              const SizedBox(height: 10),
+              if (_selectedTool == _customReusableStepToolValue) ...[
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _customToolController,
+                  decoration: InputDecoration(
+                    labelText: _text(context, '工具名', 'Tool name'),
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              Text(
+                _text(context, '参数', 'Parameters'),
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: palette.textTertiary,
+                  letterSpacing: 0,
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (fields.isEmpty)
+                Text(
+                  _text(context, '此操作无需参数', 'This action has no parameters'),
+                  style: TextStyle(fontSize: 12, color: palette.textTertiary),
+                )
+              else
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    for (final field in fields)
+                      SizedBox(
+                        width: _reusableArgFieldWidth(field),
+                        child: TextField(
+                          controller: _argControllers[field.key],
+                          keyboardType: _keyboardTypeForReusableArgField(
+                            field.type,
+                          ),
+                          decoration: InputDecoration(
+                            labelText: field.key,
+                            helperText: field.hint.isEmpty ? null : field.hint,
+                            border: const OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                          onChanged: (_) => _syncArgsJsonFromFields(),
+                        ),
+                      ),
+                  ],
+                ),
+              const SizedBox(height: 12),
               TextField(
                 controller: _argsController,
                 keyboardType: TextInputType.multiline,
@@ -4547,13 +4866,295 @@ class _ReusableFunctionStepEditorDialogState
           child: Text(context.l10n.omniflowCancel),
         ),
         FilledButton.icon(
-          icon: const Icon(Icons.save_outlined, size: 18),
-          label: Text(context.l10n.omniflowSaveConfig),
+          icon: Icon(
+            widget.isNew ? Icons.add_rounded : Icons.save_outlined,
+            size: 18,
+          ),
+          label: Text(
+            widget.isNew
+                ? _text(context, '添加', 'Add')
+                : context.l10n.omniflowSaveConfig,
+          ),
           onPressed: _save,
         ),
       ],
     );
   }
+}
+
+_ReusableFunctionStepOperationDefinition? _reusableOperationDefinitionForTool(
+  String tool,
+) {
+  final action =
+      RunLogReplayPolicy.omniflowActionForToolName(tool) ??
+      RunLogReplayPolicy.normalizeToolName(tool);
+  for (final operation in _reusableFunctionStepOperations) {
+    if (operation.value == action) return operation;
+  }
+  return null;
+}
+
+Map<String, dynamic> _argsForReusableToolSwitch(
+  String nextTool,
+  Map<String, dynamic> previousArgs,
+  Map<String, dynamic> argsTemplate,
+) {
+  final args = <String, dynamic>{...argsTemplate};
+  final nextKeys = OobCanonicalActionSchema.argNames(nextTool);
+
+  for (final key in nextKeys) {
+    if (previousArgs.containsKey(key)) {
+      args[key] = previousArgs[key];
+    }
+  }
+
+  final target = _firstNonBlank([
+    previousArgs['target_description'],
+    previousArgs['description'],
+    previousArgs['target'],
+  ]);
+  if (target.isNotEmpty && nextKeys.contains('target_description')) {
+    args['target_description'] = target;
+  }
+
+  if (nextKeys.contains('x') && !args.containsKey('x')) {
+    final x = _defaultReusablePointX(previousArgs);
+    if (x != null) args['x'] = x;
+  }
+  if (nextKeys.contains('y') && !args.containsKey('y')) {
+    final y = _defaultReusablePointY(previousArgs);
+    if (y != null) args['y'] = y;
+  }
+
+  if (nextTool == 'scroll') {
+    final centerX = _defaultReusablePointX(previousArgs);
+    final centerY = _defaultReusablePointY(previousArgs);
+    args.putIfAbsent('x1', () => centerX ?? 0);
+    args.putIfAbsent('x2', () => centerX ?? args['x1'] ?? 0);
+    args.putIfAbsent('y1', () => centerY ?? 0);
+    args.putIfAbsent('y2', () {
+      final y = _asNum(centerY);
+      return y == null ? args['y1'] ?? 0 : math.max(0, y - 480);
+    });
+    args.putIfAbsent('direction', () => 'up');
+  }
+
+  for (final key in const ['raw_x', 'raw_y', 'rawX', 'rawY']) {
+    if (previousArgs.containsKey(key)) {
+      args[key] = previousArgs[key];
+    }
+  }
+  return args;
+}
+
+dynamic _defaultReusablePointX(Map<String, dynamic> args) {
+  final direct = _firstPresentReusableArg(args, const ['x', 'raw_x', 'rawX']);
+  if (direct != null) return direct;
+  final x1 = _asNum(args['x1']);
+  final x2 = _asNum(args['x2']);
+  if (x1 != null && x2 != null) return (x1 + x2) / 2;
+  return _firstPresentReusableArg(args, const ['x1', 'x2']);
+}
+
+dynamic _defaultReusablePointY(Map<String, dynamic> args) {
+  final direct = _firstPresentReusableArg(args, const ['y', 'raw_y', 'rawY']);
+  if (direct != null) return direct;
+  final y1 = _asNum(args['y1']);
+  final y2 = _asNum(args['y2']);
+  if (y1 != null && y2 != null) return (y1 + y2) / 2;
+  return _firstPresentReusableArg(args, const ['y1', 'y2']);
+}
+
+dynamic _firstPresentReusableArg(Map<String, dynamic> args, List<String> keys) {
+  for (final key in keys) {
+    if (args.containsKey(key) && args[key] != null) return args[key];
+  }
+  return null;
+}
+
+num? _asNum(dynamic value) {
+  if (value is num) return value;
+  if (value is String) return num.tryParse(value.trim());
+  return null;
+}
+
+String _reusableArgFieldText(dynamic value) {
+  if (value == null) return '';
+  if (value is String || value is num || value is bool) {
+    return value.toString();
+  }
+  return jsonEncode(_jsonSafe(value));
+}
+
+dynamic _parseReusableArgFieldValue(
+  String raw,
+  _ReusableFunctionStepArgType type,
+) {
+  switch (type) {
+    case _ReusableFunctionStepArgType.integer:
+      return int.tryParse(raw) ?? raw;
+    case _ReusableFunctionStepArgType.number:
+      return num.tryParse(raw) ?? raw;
+    case _ReusableFunctionStepArgType.boolean:
+      final normalized = raw.trim().toLowerCase();
+      if (normalized == 'true' || normalized == '1' || normalized == 'yes') {
+        return true;
+      }
+      if (normalized == 'false' || normalized == '0' || normalized == 'no') {
+        return false;
+      }
+      return raw;
+    case _ReusableFunctionStepArgType.string:
+      return raw;
+  }
+}
+
+TextInputType _keyboardTypeForReusableArgField(
+  _ReusableFunctionStepArgType type,
+) {
+  switch (type) {
+    case _ReusableFunctionStepArgType.integer:
+      return TextInputType.number;
+    case _ReusableFunctionStepArgType.number:
+      return const TextInputType.numberWithOptions(decimal: true);
+    case _ReusableFunctionStepArgType.boolean:
+    case _ReusableFunctionStepArgType.string:
+      return TextInputType.text;
+  }
+}
+
+double _reusableArgFieldWidth(_ReusableFunctionStepArgField field) {
+  if (field.type == _ReusableFunctionStepArgType.boolean) return 132;
+  if (field.type == _ReusableFunctionStepArgType.integer ||
+      field.type == _ReusableFunctionStepArgType.number) {
+    return 136;
+  }
+  switch (field.key) {
+    case 'text':
+    case 'package_name':
+    case 'target_description':
+      return 214;
+    default:
+      return 160;
+  }
+}
+
+Map<String, dynamic> _buildReusableFunctionStepFromEdit({
+  required Map<String, dynamic> rawStep,
+  required String title,
+  required String tool,
+  required Map<String, dynamic> args,
+}) {
+  final updated = _deepCopyStringMap(rawStep);
+  final normalizedTool = RunLogReplayPolicy.normalizeToolName(tool);
+  final action = RunLogReplayPolicy.omniflowActionForToolName(tool);
+  final effectiveTool = action ?? normalizedTool;
+  final effectiveTitle = title.isNotEmpty ? title : effectiveTool;
+
+  updated['title'] = effectiveTitle;
+  updated['summary'] = effectiveTitle;
+  updated['tool'] = effectiveTool;
+  updated['args'] = _deepCopyStringMap(args);
+
+  if (action != null) {
+    updated['kind'] = 'function';
+    updated['executor'] = 'omniflow';
+    updated['model_free'] = true;
+    updated['scriptable'] = true;
+    updated['tool'] = action;
+    updated.remove('agent_call');
+    updated.remove('fallback_prompt');
+    updated.remove('fallbackPrompt');
+    updated.remove('source_tool');
+    if (RunLogReplayPolicy.isCoordinateAction(action)) {
+      updated['coordinate_hook'] = 'omniflow';
+    } else {
+      updated.remove('coordinate_hook');
+    }
+  } else {
+    updated.remove('omniflow_action');
+    updated.remove('local_action');
+    updated.remove('callable_tool');
+    updated.remove('coordinate_hook');
+    updated['tool'] = effectiveTool;
+    final existingExecutor = (rawStep['executor'] ?? '').toString().trim();
+    if (existingExecutor == 'agent') {
+      updated['executor'] = 'agent';
+      updated['kind'] = updated['kind'] ?? 'agent_replan';
+      updated['model_free'] = false;
+      updated['scriptable'] = false;
+    } else {
+      updated['executor'] = 'tool';
+      updated['kind'] = 'tool_call';
+      updated['model_free'] = false;
+      updated['scriptable'] = true;
+    }
+  }
+
+  return updated;
+}
+
+Map<String, dynamic> _newReusableFunctionStepTemplate(int index) {
+  final stepId = 'step_${index + 1}';
+  return <String, dynamic>{
+    'id': stepId,
+    'step_id': stepId,
+    'index': index,
+    'title': 'click',
+    'summary': 'click',
+    'kind': 'function',
+    'executor': 'omniflow',
+    'model_free': true,
+    'scriptable': true,
+    'tool': 'click',
+    'args': <String, dynamic>{'target_description': '', 'x': 0, 'y': 0},
+  };
+}
+
+Map<String, dynamic>? _appendReusableFunctionStep(
+  Map<String, dynamic> spec,
+  Map<String, dynamic> newStep,
+) {
+  final updatedSpec = _deepCopyStringMap(spec);
+  final execution = _asStringKeyMap(updatedSpec['execution']);
+  final rawSteps = execution['steps'];
+  final steps = rawSteps is List
+      ? rawSteps.map(_asStringKeyMap).toList(growable: true)
+      : <Map<String, dynamic>>[];
+  final index = steps.length;
+  final step = _reusableFunctionStepAtIndex(newStep, index);
+  steps.add(step);
+  execution['steps'] = steps;
+  updatedSpec['execution'] = execution;
+  _syncReusableExecutionCounts(updatedSpec, execution, steps);
+
+  final action = _actionMapForReusableStep(step);
+  if (action != null) {
+    final rawActions = updatedSpec['actions'];
+    final actions = rawActions is List ? List<dynamic>.from(rawActions) : [];
+    actions.add(action);
+    updatedSpec['actions'] = actions;
+  }
+  return updatedSpec;
+}
+
+Map<String, dynamic> _reusableFunctionStepAtIndex(
+  Map<String, dynamic> rawStep,
+  int index,
+) {
+  final step = _deepCopyStringMap(rawStep);
+  final stepId = 'step_${index + 1}';
+  step['id'] = stepId;
+  step['step_id'] = stepId;
+  step['index'] = index;
+  final tool = (step['tool'] ?? '').toString();
+  if ((step['title'] ?? '').toString().trim().isEmpty) {
+    step['title'] = tool.trim().isEmpty ? stepId : tool;
+  }
+  if ((step['summary'] ?? '').toString().trim().isEmpty) {
+    step['summary'] = step['title'];
+  }
+  return step;
 }
 
 Map<String, dynamic>? _replaceReusableFunctionStep(
@@ -4575,15 +5176,10 @@ Map<String, dynamic>? _replaceReusableFunctionStep(
   if (index < 0 || index >= steps.length) return null;
   steps[index] = replacement;
   execution['steps'] = steps;
-  execution['step_count'] = steps.length;
   updatedSpec['execution'] = execution;
+  _syncReusableExecutionCounts(updatedSpec, execution, steps);
   _syncReusableCanonicalActionAfterStepEdit(updatedSpec, index, replacement);
   _updateReusableParameterDefaults(updatedSpec, index, replacement);
-  final metadata = _asStringKeyMap(updatedSpec['metadata']);
-  if (metadata.isNotEmpty) {
-    metadata['step_count'] = steps.length;
-    updatedSpec['metadata'] = metadata;
-  }
   return updatedSpec;
 }
 
@@ -4610,17 +5206,13 @@ Map<String, dynamic>? _removeReusableFunctionStep(
     steps[nextIndex]['step_id'] = 'step_${nextIndex + 1}';
   }
   execution['steps'] = steps;
-  execution['step_count'] = steps.length;
   updatedSpec['execution'] = execution;
+  _syncReusableExecutionCounts(updatedSpec, execution, steps);
   final actions = updatedSpec['actions'];
   if (actions is List && index < actions.length) {
     updatedSpec['actions'] = List<dynamic>.from(actions)..removeAt(index);
   }
-  final metadata = _asStringKeyMap(updatedSpec['metadata']);
-  if (metadata.isNotEmpty) {
-    metadata['step_count'] = steps.length;
-    updatedSpec['metadata'] = metadata;
-  }
+  _shiftReusableBindingsAfterStepRemoval(updatedSpec, index);
   return updatedSpec;
 }
 
@@ -4632,31 +5224,122 @@ void _syncReusableCanonicalActionAfterStepEdit(
   final rawActions = spec['actions'];
   if (rawActions is! List || index < 0 || index >= rawActions.length) return;
   final rawAction = rawActions[index];
-  if (rawAction is! Map) return;
-  final action = Map<String, dynamic>.from(
-    rawAction.map((key, value) => MapEntry(key.toString(), value)),
+  final existingAction = rawAction is Map ? _asStringKeyMap(rawAction) : null;
+  final action = _actionMapForReusableStep(
+    step,
+    existingAction: existingAction,
   );
-  final tool =
-      RunLogReplayPolicy.omniflowActionForToolName(
-        (step['tool'] ?? '').toString(),
-      ) ??
-      (step['tool'] ?? '').toString();
-  if (tool.isNotEmpty) {
-    action['type'] = tool;
+  if (action == null) return;
+  final actions = List<dynamic>.from(rawActions);
+  actions[index] = action;
+  spec['actions'] = actions;
+}
+
+void _syncReusableExecutionCounts(
+  Map<String, dynamic> spec,
+  Map<String, dynamic> execution,
+  List<Map<String, dynamic>> steps,
+) {
+  final omniflowStepCount = steps
+      .where((step) => (step['executor'] ?? '').toString() == 'omniflow')
+      .length;
+  final agentStepCount = steps
+      .where((step) => (step['executor'] ?? '').toString() == 'agent')
+      .length;
+  final scriptableStepCount = steps
+      .where((step) => step['scriptable'] == true)
+      .length;
+  final modelFreeStepCount = steps
+      .where((step) => step['model_free'] == true)
+      .length;
+
+  execution['step_count'] = steps.length;
+  execution['omniflow_step_count'] = omniflowStepCount;
+  execution['agent_step_count'] = agentStepCount;
+  execution['requires_agent_fallback'] = agentStepCount > 0;
+
+  final metadata = _asStringKeyMap(spec['metadata']);
+  if (metadata.isNotEmpty) {
+    metadata['step_count'] = steps.length;
+    metadata['scriptable_step_count'] = scriptableStepCount;
+    metadata['model_free_step_count'] = modelFreeStepCount;
+    metadata['omniflow_step_count'] = omniflowStepCount;
+    metadata['agent_step_count'] = agentStepCount;
+    metadata['requires_agent_fallback'] = agentStepCount > 0;
+    spec['metadata'] = metadata;
   }
+}
+
+Map<String, dynamic>? _actionMapForReusableStep(
+  Map<String, dynamic> step, {
+  Map<String, dynamic>? existingAction,
+}) {
+  final rawTool = (step['tool'] ?? '').toString();
+  final tool =
+      RunLogReplayPolicy.omniflowActionForToolName(rawTool) ??
+      RunLogReplayPolicy.normalizeToolName(rawTool);
+  final args = _asStringKeyMap(step['args']);
+  final action = <String, dynamic>{};
+  action['tool'] = tool;
   final title = (step['title'] ?? step['summary'] ?? '').toString().trim();
   if (title.isNotEmpty) {
     action['description'] = title;
   }
-  final args = _asStringKeyMap(step['args']);
-  if (tool == 'input_text') {
-    if (args.containsKey('text')) {
-      action['text'] = args['text'];
-    }
+
+  switch (tool) {
+    case 'click':
+    case 'long_press':
+      action['args'] = _canonicalReusableArgsBySchema(tool, args);
+      return action;
+    case 'input_text':
+      final nextArgs = _canonicalReusableArgsBySchema(tool, args);
+      final existingArgs = _asStringKeyMap(existingAction?['args']);
+      final existingText = (existingArgs['text'] ?? '').toString();
+      if (existingText.contains(r'${')) {
+        nextArgs['text'] = existingArgs['text'];
+      } else {
+        final text = _firstPresentReusableArg(args, const ['text']);
+        if (text != null) nextArgs['text'] = text;
+      }
+      action['args'] = nextArgs;
+      return action;
+    case 'scroll':
+      action['args'] = _canonicalReusableArgsBySchema(tool, args);
+      return action;
+    case 'open_app':
+      final packageName = (args['package_name'] ?? '').toString().trim();
+      action['args'] = <String, dynamic>{
+        if (packageName.isNotEmpty) 'package_name': packageName,
+      };
+      return action;
+    case 'press_home':
+    case 'press_back':
+      action['args'] = const <String, dynamic>{};
+      return action;
+    case 'finished':
+      action['args'] = _canonicalReusableArgsBySchema(tool, args);
+      return action;
+    default:
+      action['tool'] = rawTool.trim().isEmpty ? tool : rawTool.trim();
+      action['args'] = args;
+      return action;
   }
-  final actions = List<dynamic>.from(rawActions);
-  actions[index] = action;
-  spec['actions'] = actions;
+}
+
+Map<String, dynamic> _canonicalReusableArgsBySchema(
+  String action,
+  Map<String, dynamic> args,
+) {
+  final output = <String, dynamic>{};
+  for (final key in OobCanonicalActionSchema.argNames(action)) {
+    final value = _firstPresentReusableArg(args, [key]);
+    if (value != null) output[key] = value;
+  }
+  for (final key in const ['raw_x', 'raw_y', 'rawX', 'rawY']) {
+    final value = _firstPresentReusableArg(args, [key]);
+    if (value != null) output[key] = value;
+  }
+  return output;
 }
 
 void _updateReusableParameterDefaults(
@@ -4667,12 +5350,29 @@ void _updateReusableParameterDefaults(
   final args = _asStringKeyMap(step['args']);
   if (args.isEmpty) return;
   final parameters = spec['parameters'];
-  if (parameters is! List) return;
-  for (final raw in parameters) {
+  if (parameters is List) {
+    for (final raw in parameters) {
+      if (raw is! Map) continue;
+      final parameter = raw.map(
+        (key, value) => MapEntry(key.toString(), value),
+      );
+      final argKey = _boundReusableArgKeyForStep(
+        parameter['bindings'],
+        stepIndex,
+      );
+      if (argKey != null && args.containsKey(argKey)) {
+        raw['default'] = args[argKey];
+      }
+    }
+    return;
+  }
+  final schema = _asStringKeyMap(parameters);
+  final properties = _asStringKeyMap(schema['properties']);
+  for (final raw in properties.values) {
     if (raw is! Map) continue;
-    final parameter = raw.map((key, value) => MapEntry(key.toString(), value));
+    final property = raw.map((key, value) => MapEntry(key.toString(), value));
     final argKey = _boundReusableArgKeyForStep(
-      parameter['bindings'],
+      property['x_oob_bindings'],
       stepIndex,
     );
     if (argKey != null && args.containsKey(argKey)) {
@@ -4692,6 +5392,77 @@ String? _boundReusableArgKeyForStep(dynamic rawBindings, int stepIndex) {
     }
   }
   return null;
+}
+
+void _shiftReusableBindingsAfterStepRemoval(
+  Map<String, dynamic> spec,
+  int removedIndex,
+) {
+  final parameters = spec['parameters'];
+  if (parameters is List) {
+    parameters.removeWhere((raw) {
+      if (raw is! Map) return false;
+      final hadBindings = raw['bindings'] is List;
+      final bindings = _shiftReusableBindings(raw['bindings'], removedIndex);
+      if (hadBindings) raw['bindings'] = bindings;
+      return hadBindings && bindings.isEmpty;
+    });
+    return;
+  }
+
+  final schema = _asStringKeyMap(parameters);
+  final properties = _asStringKeyMap(schema['properties']);
+  final removedNames = <String>[];
+  for (final entry in properties.entries) {
+    final raw = entry.value;
+    if (raw is! Map) continue;
+    final hadBindings = raw['x_oob_bindings'] is List;
+    final bindings = _shiftReusableBindings(
+      raw['x_oob_bindings'],
+      removedIndex,
+    );
+    if (hadBindings) raw['x_oob_bindings'] = bindings;
+    if (hadBindings && bindings.isEmpty) removedNames.add(entry.key);
+  }
+  for (final name in removedNames) {
+    properties.remove(name);
+  }
+  final required = schema['required'];
+  if (required is List && removedNames.isNotEmpty) {
+    required.removeWhere((name) => removedNames.contains(name?.toString()));
+  }
+  if (schema.isNotEmpty) {
+    schema['properties'] = properties;
+    spec['parameters'] = schema;
+  }
+}
+
+List<String> _shiftReusableBindings(dynamic rawBindings, int removedIndex) {
+  if (rawBindings is! List) return const [];
+  final output = <String>[];
+  final bindingPattern = RegExp(
+    r'^\$\.(execution\.steps|actions)\[(\d+)\](.*)$',
+  );
+  for (final value in rawBindings) {
+    final binding = value?.toString() ?? '';
+    final match = bindingPattern.firstMatch(binding);
+    if (match == null) {
+      output.add(binding);
+      continue;
+    }
+    final index = int.tryParse(match.group(2) ?? '');
+    if (index == null) {
+      output.add(binding);
+      continue;
+    }
+    if (index == removedIndex) continue;
+    if (index > removedIndex) {
+      output.add('\$.${match.group(1)}[${index - 1}]${match.group(3)}');
+    } else {
+      output.add(binding);
+    }
+  }
+  return output;
 }
 
 List<_ReusableFunctionParameterSummary> _reusableFunctionParameters(

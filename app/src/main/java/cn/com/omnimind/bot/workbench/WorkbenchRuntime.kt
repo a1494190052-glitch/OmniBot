@@ -22,158 +22,6 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.runBlocking
 
-const val WORKBENCH_HOT_UPDATE_CALLER = "xiaowan_hot_update"
-const val WORKBENCH_ANDROID_APK_KIND = "apk"
-const val WORKBENCH_ANDROID_PROJECT_KIND = "android_project"
-const val WORKBENCH_OSS_REPOSITORY_KIND = "oss_repo"
-const val WORKBENCH_OSS_GITHUB_KIND = "github_repo"
-const val WORKBENCH_OSS_LOCAL_KIND = "local_source"
-const val WORKBENCH_COLLECTION_EXECUTOR_KIND = "native_project_collection"
-private const val WORKBENCH_PROJECT_CAPABILITY_ENABLED_KEY = "projectCapabilityEnabled"
-const val WORKBENCH_WORKSPACE_PYTHON_EXECUTOR_KIND = "workspace_python_script"
-const val WORKBENCH_AGENT_TASK_EXECUTOR_KIND = "agent_task"
-const val WORKBENCH_HTML_RENDERER = "html_webview"
-const val WORKBENCH_MARKDOWN_RENDERER = "markdown"
-
-data class WorkbenchProjectRecord(
-    val projectId: String,
-    val name: String,
-    val route: String,
-    val spacePath: String,
-    val apiIds: List<String>,
-    val createdAt: String,
-    val updatedAt: String
-) {
-    fun toPayload(): Map<String, Any?> = linkedMapOf(
-        "projectId" to projectId,
-        "name" to name,
-        "route" to route,
-        "spacePath" to spacePath,
-        "apiIds" to apiIds,
-        "createdAt" to createdAt,
-        "updatedAt" to updatedAt
-    )
-}
-
-data class WorkbenchApiRecord(
-    val apiId: String,
-    val projectId: String,
-    val toolId: String,
-    val displayName: String,
-    val description: String,
-    val inputSchema: Map<String, Any?>,
-    val outputSchema: Map<String, Any?>,
-    val executorKind: String,
-    val run: Map<String, Any?>? = null
-) {
-    fun toPayload(executionCount: Int = 0): Map<String, Any?> =
-        WorkbenchToolboxBuilder.apiContract(this, executionCount)
-}
-
-data class WorkbenchProjectItemRecord(
-    val id: String,
-    val title: String,
-    val status: String,
-    val fields: Map<String, Any?> = emptyMap(),
-    val createdAt: String,
-    val archivedAt: String? = null
-) {
-    fun toPayload(): Map<String, Any?> = linkedMapOf(
-        "id" to id,
-        "title" to title,
-        "status" to status,
-        "fields" to fields,
-        "createdAt" to createdAt,
-        "archivedAt" to archivedAt
-    )
-}
-
-private data class WorkbenchApiCallSnapshot(
-    val record: WorkbenchProjectRecord,
-    val api: WorkbenchApiRecord?
-)
-
-private data class WorkbenchApiCallPostState(
-    val project: Map<String, Any?>,
-    val updatedItems: List<Map<String, Any?>>?
-)
-
-data class WorkbenchAndroidAsset(
-    val assetId: String,
-    val projectId: String,
-    val sourceKind: String,
-    val displayName: String,
-    val originalPath: String,
-    val projectPath: String,
-    val shellPath: String,
-    val entryPath: String,
-    val packageName: String? = null,
-    val versionName: String? = null,
-    val versionCode: Long? = null,
-    val sizeBytes: Long = 0,
-    val fileCount: Int = 0,
-    val importedAt: String
-) {
-    fun toPayload(): Map<String, Any?> = linkedMapOf(
-        "assetId" to assetId,
-        "projectId" to projectId,
-        "sourceKind" to sourceKind,
-        "displayName" to displayName,
-        "originalPath" to originalPath,
-        "projectPath" to projectPath,
-        "shellPath" to shellPath,
-        "entryPath" to entryPath,
-        "packageName" to packageName,
-        "versionName" to versionName,
-        "versionCode" to versionCode,
-        "sizeBytes" to sizeBytes,
-        "fileCount" to fileCount,
-        "importedAt" to importedAt
-    )
-}
-
-data class WorkbenchOssSourceAsset(
-    val sourceId: String,
-    val projectId: String,
-    val sourceKind: String,
-    val displayName: String,
-    val sourceUrl: String? = null,
-    val ref: String? = null,
-    val originalPath: String? = null,
-    val projectPath: String,
-    val shellPath: String,
-    val entryPath: String,
-    val requiresFetch: Boolean = false,
-    val fetchHint: String? = null,
-    val detectedStack: List<String> = emptyList(),
-    val packageFiles: List<Map<String, Any?>> = emptyList(),
-    val entrypoints: List<Map<String, Any?>> = emptyList(),
-    val sizeBytes: Long = 0,
-    val fileCount: Int = 0,
-    val importedAt: String
-) {
-    fun toPayload(): Map<String, Any?> = linkedMapOf(
-        "sourceId" to sourceId,
-        "projectId" to projectId,
-        "sourceKind" to sourceKind,
-        "displayName" to displayName,
-        "sourceUrl" to sourceUrl,
-        "ref" to ref,
-        "originalPath" to originalPath,
-        "projectPath" to projectPath,
-        "shellPath" to shellPath,
-        "entryPath" to entryPath,
-        "requiresFetch" to requiresFetch,
-        "fetchHint" to fetchHint,
-        "detectedStack" to detectedStack,
-        "packageFiles" to packageFiles,
-        "entrypoints" to entrypoints,
-        "sizeBytes" to sizeBytes,
-        "fileCount" to fileCount,
-        "importedAt" to importedAt
-    )
-}
-
 /**
  * Stores OOB Workbench projects and their registered Project Tools under the shared workspace.
  *
@@ -219,6 +67,11 @@ class WorkbenchProjectStore(
     // ── Executor registry ────────────────────────────────────────────────────────────────────────
     internal val executorRegistry = WorkbenchExecutorRegistry()
     private val projectLocks = ConcurrentHashMap<String, Any>()
+    private val frontendFiles = WorkbenchFrontendFileStore(
+        gson = gson,
+        projectDir = { projectId -> projectDir(projectId) },
+        nowIso = { nowIso() }
+    )
 
     init {
         executorRegistry.register(WORKBENCH_COLLECTION_EXECUTOR_KIND, object : WorkbenchExecutor {
@@ -244,10 +97,10 @@ class WorkbenchProjectStore(
      */
     @Synchronized
     fun createProject(config: Map<String, Any?>): Map<String, Any?> {
-        val requestedHtmlFiles = normalizeFrontendHtmlFiles(
+        val requestedHtmlFiles = frontendFiles.normalizeHtmlFiles(
             config["htmlFiles"] ?: config["frontendHtmlFiles"]
         )
-        val requestedMarkdownFiles = normalizeFrontendMarkdownFiles(
+        val requestedMarkdownFiles = frontendFiles.normalizeMarkdownFiles(
             config["markdownFiles"] ?: config["frontendMarkdownFiles"]
         )
         val projectId = sanitizeProjectId(
@@ -322,32 +175,32 @@ class WorkbenchProjectStore(
         if (!projectItemsFile(projectId).exists()) {
             writeProjectItems(projectId, initialProjectItems(config))
         }
-        val requestedFlutterFiles = normalizeFrontendFlutterFiles(
+        val requestedFlutterFiles = frontendFiles.normalizeFlutterFiles(
             config["flutterFiles"] ?: config["frontendFlutterFiles"]
         )
         val creationPrompt = if (existing == null) sourcePrompt else null
         ensureProjectSourceFiles(record, apis, creationPrompt, config)
         val writtenHtmlFiles = if (
             requestedHtmlFiles.isNotEmpty() &&
-            (existing == null || readFrontendHtmlPayload(record.projectId).isEmpty())
+            (existing == null || frontendFiles.readHtmlPayload(record.projectId).isEmpty())
         ) {
-            writeFrontendHtmlFiles(record.projectId, requestedHtmlFiles)
+            frontendFiles.writeHtmlFiles(record.projectId, requestedHtmlFiles)
         } else {
             emptyList()
         }
         val writtenFlutterFiles = if (
             requestedFlutterFiles.isNotEmpty() &&
-            (existing == null || readFrontendFlutterPayload(record.projectId).isEmpty())
+            (existing == null || frontendFiles.readFlutterPayload(record.projectId).isEmpty())
         ) {
-            writeFrontendFlutterFiles(record.projectId, requestedFlutterFiles)
+            frontendFiles.writeFlutterFiles(record.projectId, requestedFlutterFiles)
         } else {
             emptyList()
         }
         val writtenMarkdownFiles = if (
             requestedMarkdownFiles.isNotEmpty() &&
-            (existing == null || readFrontendMarkdownPayload(record.projectId).isEmpty())
+            (existing == null || frontendFiles.readMarkdownPayload(record.projectId).isEmpty())
         ) {
-            writeFrontendMarkdownFiles(record.projectId, requestedMarkdownFiles)
+            frontendFiles.writeMarkdownFiles(record.projectId, requestedMarkdownFiles)
         } else {
             emptyList()
         }
@@ -490,9 +343,9 @@ class WorkbenchProjectStore(
         val updatePrompt = prompt?.trim()?.takeIf { it.isNotEmpty() }
         val newDisplays = normalizeDisplaySpecs(record, displays)
         val newApis = explicitApiRecords(record.projectId, mapOf("apis" to apis))
-        val requestedFlutterFiles = normalizeFrontendFlutterFiles(flutterFiles)
-        val requestedHtmlFiles = normalizeFrontendHtmlFiles(htmlFiles)
-        val requestedMarkdownFiles = normalizeFrontendMarkdownFiles(markdownFiles)
+        val requestedFlutterFiles = frontendFiles.normalizeFlutterFiles(flutterFiles)
+        val requestedHtmlFiles = frontendFiles.normalizeHtmlFiles(htmlFiles)
+        val requestedMarkdownFiles = frontendFiles.normalizeMarkdownFiles(markdownFiles)
         require(
             updatedName != null ||
                 updatedShortName != null ||
@@ -597,15 +450,15 @@ class WorkbenchProjectStore(
         if (newApis.isNotEmpty()) {
             pageSpec["actions"] = mergePageActions(pageSpec["actions"], newApis)
         }
-        val writtenFlutterFiles = writeFrontendFlutterFiles(
+        val writtenFlutterFiles = frontendFiles.writeFlutterFiles(
             projectId = updatedRecord.projectId,
             files = requestedFlutterFiles
         )
-        val writtenHtmlFiles = writeFrontendHtmlFiles(
+        val writtenHtmlFiles = frontendFiles.writeHtmlFiles(
             projectId = updatedRecord.projectId,
             files = requestedHtmlFiles
         )
-        val writtenMarkdownFiles = writeFrontendMarkdownFiles(
+        val writtenMarkdownFiles = frontendFiles.writeMarkdownFiles(
             projectId = updatedRecord.projectId,
             files = requestedMarkdownFiles
         )
@@ -797,7 +650,7 @@ class WorkbenchProjectStore(
             require(errors.isEmpty()) { "htmlPatches failed: ${errors.joinToString("; ")}" }
             return linkedMapOf("success" to true, "projectId" to projectId, "patchedPaths" to emptyList<String>())
         }
-        writeFrontendHtmlManifest(projectId)
+        frontendFiles.writeHtmlManifest(projectId)
         val appliedActions = listOf(linkedMapOf<String, Any?>(
             "kind" to "html_source_patched",
             "paths" to patchedPaths.map { "frontend/html/$it" }
@@ -1423,11 +1276,11 @@ class WorkbenchProjectStore(
         val record = findProject(projectId)
         val request = prompt.trim()
         require(request.isNotEmpty()) { "Hot update prompt is required." }
-        val frontendHtml = readFrontendHtmlPayload(record.projectId)
+        val frontendHtml = frontendFiles.readHtmlPayload(record.projectId)
         val htmlSources = frontendHtml["sources"] as? Map<*, *>
-        val frontendMarkdown = readFrontendMarkdownPayload(record.projectId)
+        val frontendMarkdown = frontendFiles.readMarkdownPayload(record.projectId)
         val markdownSources = frontendMarkdown["sources"] as? Map<*, *>
-        val frontendFlutter = readFrontendFlutterPayload(record.projectId)
+        val frontendFlutter = frontendFiles.readFlutterPayload(record.projectId)
         val flutterSources = frontendFlutter["sources"] as? Map<*, *>
         val visibleState = frontendContext["visibleState"] as? Map<*, *>
         val frontendContextText = listOfNotNull(
@@ -2068,17 +1921,17 @@ class WorkbenchProjectStore(
         val sourceAssets = if (includeRuntimeState) readOssSources(record.projectId) else emptyList()
         val displays = workbenchDisplays(record)
         val frontendHtml = if (includeFrontendPayloads) {
-            readFrontendHtmlPayload(record.projectId, includeSources)
+            frontendFiles.readHtmlPayload(record.projectId, includeSources)
         } else {
             emptyMap()
         }
         val frontendFlutter = if (includeFrontendPayloads) {
-            readFrontendFlutterPayload(record.projectId, includeSources)
+            frontendFiles.readFlutterPayload(record.projectId, includeSources)
         } else {
             emptyMap()
         }
         val frontendMarkdown = if (includeFrontendPayloads) {
-            readFrontendMarkdownPayload(record.projectId, includeSources)
+            frontendFiles.readMarkdownPayload(record.projectId, includeSources)
         } else {
             emptyMap()
         }
@@ -2157,9 +2010,9 @@ class WorkbenchProjectStore(
         val counts = apiExecutionCounts(record.projectId)
         val apis = projectApis(record.projectId)
         val displays = workbenchDisplays(record)
-        val frontendHtml = readFrontendHtmlPayload(record.projectId, includeSources)
-        val frontendFlutter = readFrontendFlutterPayload(record.projectId, includeSources)
-        val frontendMarkdown = readFrontendMarkdownPayload(record.projectId, includeSources)
+        val frontendHtml = frontendFiles.readHtmlPayload(record.projectId, includeSources)
+        val frontendFlutter = frontendFiles.readFlutterPayload(record.projectId, includeSources)
+        val frontendMarkdown = frontendFiles.readMarkdownPayload(record.projectId, includeSources)
         val displayRoute = defaultDisplayRoute(record, displays)
         return linkedMapOf(
             "projectId" to record.projectId,
@@ -2194,9 +2047,9 @@ class WorkbenchProjectStore(
         val prompt = sourcePrompt?.trim()?.takeIf { it.isNotEmpty() }
             ?: readProjectSourcePrompt(record.projectId)
         val displays = workbenchDisplays(record)
-        val frontendHtml = readFrontendHtmlPayload(record.projectId)
-        val frontendFlutter = readFrontendFlutterPayload(record.projectId)
-        val frontendMarkdown = readFrontendMarkdownPayload(record.projectId)
+        val frontendHtml = frontendFiles.readHtmlPayload(record.projectId)
+        val frontendFlutter = frontendFiles.readFlutterPayload(record.projectId)
+        val frontendMarkdown = frontendFiles.readMarkdownPayload(record.projectId)
         val displayRoute = defaultDisplayRoute(record, displays)
         val toolbox = WorkbenchToolboxBuilder.toolboxPayload(record, apis, counts)
         val payload = linkedMapOf<String, Any?>(
@@ -2648,627 +2501,6 @@ class WorkbenchProjectStore(
                 display
             }
         }
-    }
-
-    /**
-     * Normalizes Project-owned Markdown source updates into relative-path/content pairs.
-     *
-     * @param value Tool or MethodChannel payload. Supported shapes are a map of
-     * `path -> content`, a list of `{path, content}`, `{files: [...]}`, or `{content: ...}`.
-     * @return Sanitized relative file specs ready for bounded writes under `frontend/markdown/`.
-     */
-    private fun normalizeFrontendMarkdownFiles(value: Any?): List<Pair<String, String>> {
-        if (value == null) return emptyList()
-        if (value is Map<*, *>) {
-            val map = asStringKeyMap(value)
-            val directContent = map["content"] ?: map["source"] ?: map["text"] ?: map["markdown"]
-            val directPath = map["path"] ?: map["relativePath"] ?: map["filePath"] ?: "index.md"
-            if (directContent != null) {
-                return listOf(frontendMarkdownFileSpec(directPath, directContent))
-            }
-            val nested = map["files"] ?: map["items"]
-            if (nested is Iterable<*>) {
-                return normalizeFrontendMarkdownFiles(nested)
-            }
-            return map.mapNotNull { (path, content) ->
-                if (path == "files" || path == "items") {
-                    null
-                } else {
-                    frontendMarkdownFileSpec(path, content)
-                }
-            }.distinctBy { it.first }
-        }
-        val raw = value as? Iterable<*> ?: return emptyList()
-        return raw.mapNotNull { item ->
-            val map = item as? Map<*, *> ?: return@mapNotNull null
-            val file = asStringKeyMap(map)
-            val path = file["path"] ?: file["relativePath"] ?: file["filePath"] ?: "index.md"
-            val content = file["content"] ?: file["source"] ?: file["text"] ?: file["markdown"]
-                ?: return@mapNotNull null
-            frontendMarkdownFileSpec(path, content)
-        }.distinctBy { it.first }
-    }
-
-    private fun frontendMarkdownFileSpec(path: Any?, content: Any?): Pair<String, String> {
-        val normalized = cleanFrontendMarkdownPath(path?.toString().orEmpty())
-        return normalized to content?.toString().orEmpty()
-    }
-
-    private fun cleanFrontendMarkdownPath(rawPath: String): String {
-        val normalized = rawPath.replace('\\', '/')
-            .trim()
-            .removePrefix("/")
-            .removePrefix("frontend/markdown/")
-            .removePrefix("markdown/")
-            .ifBlank { "index.md" }
-        require(!normalized.contains(":")) { "Markdown source file path must be relative." }
-        val parts = normalized.split('/').filter { it.isNotBlank() }
-        require(parts.none { it == ".." }) { "Markdown source file path cannot escape frontend/markdown/." }
-        require(parts.lastOrNull() != "manifest.json") {
-            "frontend/markdown/manifest.json is generated by OOB."
-        }
-        val leaf = parts.lastOrNull().orEmpty().lowercase()
-        require(leaf.endsWith(".md") || leaf.endsWith(".markdown") || leaf.endsWith(".txt")) {
-            "Markdown Display source files must end with .md, .markdown, or .txt."
-        }
-        return parts.joinToString("/")
-    }
-
-    private fun writeFrontendMarkdownFiles(
-        projectId: String,
-        files: List<Pair<String, String>>
-    ): List<Map<String, Any?>> {
-        if (files.isEmpty()) return emptyList()
-        val markdownDir = File(projectDir(projectId), "frontend/markdown")
-        markdownDir.mkdirs()
-        val root = markdownDir.canonicalFile
-        val rootPrefix = root.path + File.separator
-        val writtenAt = nowIso()
-        val written = files.map { (relativePath, content) ->
-            val target = File(root, relativePath).canonicalFile
-            require(target.path == root.path || target.path.startsWith(rootPrefix)) {
-                "Markdown source file path cannot escape frontend/markdown/."
-            }
-            target.parentFile?.mkdirs()
-            target.writeText(content)
-            linkedMapOf<String, Any?>(
-                "path" to "frontend/markdown/$relativePath",
-                "bytes" to content.toByteArray(Charsets.UTF_8).size,
-                "updatedAt" to writtenAt
-            )
-        }
-        writeFrontendMarkdownManifest(projectId)
-        return written
-    }
-
-    private fun readFrontendMarkdownPayload(
-        projectId: String,
-        includeSources: Boolean = true
-    ): Map<String, Any?> {
-        val markdownDir = File(projectDir(projectId), "frontend/markdown")
-        if (!markdownDir.exists()) return emptyMap()
-        val root = markdownDir.canonicalFile
-        val sources = linkedMapOf<String, String>()
-        val files = mutableListOf<Map<String, Any?>>()
-        markdownDir.walkTopDown()
-            .filter { it.isFile && it.name != "manifest.json" && it.name != "README.md" }
-            .sortedBy { it.absolutePath }
-            .forEach { file ->
-                val relative = root.toPath()
-                    .relativize(file.canonicalFile.toPath())
-                    .toString()
-                    .replace(File.separatorChar, '/')
-                files += linkedMapOf<String, Any?>(
-                    "path" to "frontend/markdown/$relative",
-                    "relativePath" to relative,
-                    "bytes" to file.length(),
-                    "updatedAt" to Instant.ofEpochMilli(file.lastModified()).toString(),
-                    "kind" to "source"
-                )
-                if (includeSources) {
-                    sources[relative] = file.readText()
-                }
-            }
-        if (files.isEmpty()) return emptyMap()
-        val manifestFile = File(markdownDir, "manifest.json")
-        val manifest = if (manifestFile.exists()) {
-            runCatching {
-                gson.fromJson<Map<String, Any?>>(manifestFile.readText(), mapType)
-            }.getOrNull().orEmpty()
-        } else {
-            emptyMap()
-        }
-        val relativePaths = files.mapNotNull { it["relativePath"]?.toString() }
-        val entryFile = manifest["entryFile"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
-            ?: when {
-                relativePaths.contains("index.md") -> "index.md"
-                relativePaths.any { it.endsWith(".md") } -> relativePaths.first { it.endsWith(".md") }
-                else -> relativePaths.firstOrNull().orEmpty()
-            }
-        val payload = linkedMapOf<String, Any?>(
-            "runtime" to WORKBENCH_MARKDOWN_RENDERER,
-            "renderer" to WORKBENCH_MARKDOWN_RENDERER,
-            "entryFile" to entryFile,
-            "files" to files,
-            "manifest" to manifest
-        )
-        if (includeSources) {
-            payload["sources"] = sources
-        } else {
-            payload["sourceCount"] = files.size
-        }
-        return payload
-    }
-
-    private fun writeFrontendMarkdownManifest(projectId: String): List<Map<String, Any?>> {
-        val markdownDir = File(projectDir(projectId), "frontend/markdown")
-        markdownDir.mkdirs()
-        val root = markdownDir.canonicalFile
-        val files = markdownDir.walkTopDown()
-            .filter { it.isFile && it.name != "manifest.json" }
-            .map { file ->
-                val relative = root.toPath()
-                    .relativize(file.canonicalFile.toPath())
-                    .toString()
-                    .replace(File.separatorChar, '/')
-                linkedMapOf<String, Any?>(
-                    "path" to "frontend/markdown/$relative",
-                    "relativePath" to relative,
-                    "bytes" to file.length(),
-                    "updatedAt" to Instant.ofEpochMilli(file.lastModified()).toString(),
-                    "kind" to "source"
-                )
-            }
-            .sortedBy { it["path"]?.toString().orEmpty() }
-            .toList()
-        val entryFile = files.firstOrNull { it["relativePath"] == "index.md" }?.get("relativePath")
-            ?: files.firstOrNull {
-                it["relativePath"]?.toString()?.endsWith(".md") == true
-            }?.get("relativePath")
-            ?: files.firstOrNull()?.get("relativePath")
-        File(markdownDir, "manifest.json").writeText(
-            gson.toJson(
-                linkedMapOf(
-                    "generatedAt" to nowIso(),
-                    "runtimeBoundary" to "markdown_live_runtime",
-                    "entryFile" to entryFile,
-                    "files" to files
-                )
-            )
-        )
-        return files
-    }
-
-    /**
-     * Normalizes Project-owned HTML source updates into relative-path/content pairs.
-     *
-     * @param value Tool or MethodChannel payload. Supported shapes are a map of
-     * `path -> content`, a list of `{path, content}`, or `{files: [...]}`.
-     * @return Sanitized relative file specs ready for bounded writes under `frontend/html/`.
-     */
-    private fun normalizeFrontendHtmlFiles(value: Any?): List<Pair<String, String>> {
-        if (value == null) return emptyList()
-        if (value is Map<*, *>) {
-            val map = asStringKeyMap(value)
-            val directPath = map["path"] ?: map["relativePath"] ?: map["filePath"]
-            val directContent = map["content"] ?: map["source"] ?: map["text"]
-            if (directPath != null && directContent != null) {
-                return listOf(frontendHtmlFileSpec(directPath, directContent))
-            }
-            val nested = map["files"] ?: map["items"]
-            if (nested is Iterable<*>) {
-                return normalizeFrontendHtmlFiles(nested)
-            }
-            return map.mapNotNull { (path, content) ->
-                if (path == "files" || path == "items") null else frontendHtmlFileSpec(path, content)
-            }.distinctBy { it.first }
-        }
-        val raw = value as? Iterable<*> ?: return emptyList()
-        return raw.mapNotNull { item ->
-            val map = item as? Map<*, *> ?: return@mapNotNull null
-            val file = asStringKeyMap(map)
-            val path = file["path"] ?: file["relativePath"] ?: file["filePath"] ?: return@mapNotNull null
-            val content = file["content"] ?: file["source"] ?: file["text"] ?: return@mapNotNull null
-            frontendHtmlFileSpec(path, content)
-        }.distinctBy { it.first }
-    }
-
-    private fun frontendHtmlFileSpec(path: Any?, content: Any?): Pair<String, String> {
-        val normalized = cleanFrontendHtmlPath(path?.toString().orEmpty())
-        return normalized to content?.toString().orEmpty()
-    }
-
-    private fun cleanFrontendHtmlPath(rawPath: String): String {
-        var normalized = rawPath.replace('\\', '/').trim().removePrefix("/")
-        require(normalized.isNotEmpty()) { "HTML source file path is required." }
-        require(!normalized.contains(":")) { "HTML source file path must be relative." }
-        val parts = normalized.split('/').filter { it.isNotBlank() }
-        require(parts.none { it == ".." }) { "HTML source file path cannot escape frontend/html/." }
-        require(parts.lastOrNull() != "manifest.json") {
-            "frontend/html/manifest.json is generated by OOB."
-        }
-        // Strip leading frontend/html/ prefix that models sometimes include, then re-join
-        val prefixes = listOf("frontend/html/", "frontend\\html\\", "html/")
-        for (prefix in prefixes) {
-            if (normalized.startsWith(prefix)) {
-                normalized = normalized.removePrefix(prefix)
-                break
-            }
-        }
-        return normalized.split('/').filter { it.isNotBlank() }.joinToString("/")
-    }
-
-    private fun writeFrontendHtmlFiles(
-        projectId: String,
-        files: List<Pair<String, String>>
-    ): List<Map<String, Any?>> {
-        if (files.isEmpty()) return emptyList()
-        val htmlDir = File(projectDir(projectId), "frontend/html")
-        htmlDir.mkdirs()
-        val root = htmlDir.canonicalFile
-        val rootPrefix = root.path + File.separator
-        val writtenAt = nowIso()
-        val written = files.map { (relativePath, content) ->
-            val target = File(root, relativePath).canonicalFile
-            require(target.path == root.path || target.path.startsWith(rootPrefix)) {
-                "HTML source file path cannot escape frontend/html/."
-            }
-            target.parentFile?.mkdirs()
-            target.writeText(content)
-            linkedMapOf<String, Any?>(
-                "path" to "frontend/html/$relativePath",
-                "bytes" to content.toByteArray(Charsets.UTF_8).size,
-                "updatedAt" to writtenAt
-            )
-        }
-        writeFrontendHtmlManifest(projectId)
-        return written
-    }
-
-    private fun readFrontendHtmlPayload(
-        projectId: String,
-        includeSources: Boolean = true
-    ): Map<String, Any?> {
-        val htmlDir = File(projectDir(projectId), "frontend/html")
-        if (!htmlDir.exists()) return emptyMap()
-        val root = htmlDir.canonicalFile
-        val sources = linkedMapOf<String, String>()
-        val assets = mutableListOf<Map<String, Any?>>()
-        htmlDir.walkTopDown()
-            .filter { it.isFile && it.name != "manifest.json" && it.name != "README.md" }
-            .sortedBy { it.absolutePath }
-            .forEach { file ->
-                val relative = root.toPath()
-                    .relativize(file.canonicalFile.toPath())
-                    .toString()
-                    .replace(File.separatorChar, '/')
-                val payload = linkedMapOf<String, Any?>(
-                    "path" to "frontend/html/$relative",
-                    "relativePath" to relative,
-                    "bytes" to file.length(),
-                    "updatedAt" to Instant.ofEpochMilli(file.lastModified()).toString()
-                )
-                if (isTextFrontendHtmlFile(file)) {
-                    if (includeSources) {
-                        sources[relative] = file.readText()
-                    }
-                    assets += payload + ("kind" to "source")
-                } else {
-                    assets += payload + ("kind" to "asset")
-                }
-            }
-        if (assets.isEmpty()) return emptyMap()
-        val manifestFile = File(htmlDir, "manifest.json")
-        val manifest = if (manifestFile.exists()) {
-            runCatching {
-                gson.fromJson<Map<String, Any?>>(manifestFile.readText(), mapType)
-            }.getOrNull().orEmpty()
-        } else {
-            emptyMap()
-        }
-        val sourcePaths = assets
-            .filter { it["kind"] == "source" }
-            .mapNotNull { it["relativePath"]?.toString() }
-        val entryFile = manifest["entryFile"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
-            ?: when {
-                sourcePaths.contains("index.html") -> "index.html"
-                sourcePaths.any { it.endsWith(".html") } -> sourcePaths.first { it.endsWith(".html") }
-                else -> sourcePaths.firstOrNull().orEmpty()
-            }
-        val entry = entryFile.takeIf { it.isNotEmpty() }?.let { File(root, it).canonicalFile }
-        val entryPath = entry?.takeIf { file ->
-            val rootPrefix = root.path + File.separator
-            file.path == root.path || file.path.startsWith(rootPrefix)
-        }?.absolutePath.orEmpty()
-        val payload = linkedMapOf<String, Any?>(
-            "runtime" to WORKBENCH_HTML_RENDERER,
-            "renderer" to WORKBENCH_HTML_RENDERER,
-            "entryFile" to entryFile,
-            "entryPath" to entryPath,
-            "assets" to assets,
-            "manifest" to manifest
-        )
-        if (includeSources) {
-            payload["sources"] = sources
-        } else {
-            payload["sourceCount"] = sourcePaths.size
-        }
-        return payload
-    }
-
-    private fun writeFrontendHtmlManifest(projectId: String): List<Map<String, Any?>> {
-        val htmlDir = File(projectDir(projectId), "frontend/html")
-        htmlDir.mkdirs()
-        val root = htmlDir.canonicalFile
-        val files = htmlDir.walkTopDown()
-            .filter { it.isFile && it.name != "manifest.json" }
-            .map { file ->
-                val relative = root.toPath()
-                    .relativize(file.canonicalFile.toPath())
-                    .toString()
-                    .replace(File.separatorChar, '/')
-                linkedMapOf<String, Any?>(
-                    "path" to "frontend/html/$relative",
-                    "relativePath" to relative,
-                    "bytes" to file.length(),
-                    "updatedAt" to Instant.ofEpochMilli(file.lastModified()).toString(),
-                    "kind" to if (isTextFrontendHtmlFile(file)) "source" else "asset"
-                )
-            }
-            .sortedBy { it["path"]?.toString().orEmpty() }
-            .toList()
-        val entryFile = files.firstOrNull { it["relativePath"] == "index.html" }?.get("relativePath")
-            ?: files.firstOrNull {
-                it["relativePath"]?.toString()?.endsWith(".html") == true
-            }?.get("relativePath")
-            ?: files.firstOrNull()?.get("relativePath")
-        File(htmlDir, "manifest.json").writeText(
-            gson.toJson(
-                linkedMapOf(
-                    "generatedAt" to nowIso(),
-                    "runtimeBoundary" to "html_webview_live_runtime",
-                    "entryFile" to entryFile,
-                    "files" to files,
-                    "security" to linkedMapOf(
-                        "nativeBridge" to "Project Tool whitelist only",
-                        "externalNavigation" to "blocked in Workbench Display",
-                        "remoteSubresources" to "allowed for demo/CDN; prefer vendored assets for production"
-                    )
-                )
-            )
-        )
-        return files
-    }
-
-    private fun isTextFrontendHtmlFile(file: File): Boolean {
-        val name = file.name.lowercase()
-        return listOf(
-            ".html",
-            ".htm",
-            ".css",
-            ".js",
-            ".mjs",
-            ".json",
-            ".svg",
-            ".txt",
-            ".md",
-            ".csv"
-        ).any { name.endsWith(it) }
-    }
-
-    /**
-     * Normalizes Project-owned Flutter source updates into relative-path/content pairs.
-     *
-     * @param value Tool or MethodChannel payload. Supported shapes are a map of
-     * `path -> content`, a list of `{path, content}`, or `{files: [...]}`.
-     * @return Sanitized relative file specs ready for bounded writes under `frontend/flutter/`.
-     */
-    private fun normalizeFrontendFlutterFiles(value: Any?): List<Pair<String, String>> {
-        if (value == null) return emptyList()
-        if (value is Map<*, *>) {
-            val map = asStringKeyMap(value)
-            val directPath = map["path"] ?: map["relativePath"] ?: map["filePath"]
-            val directContent = map["content"] ?: map["source"] ?: map["text"]
-            if (directPath != null && directContent != null) {
-                return listOf(frontendFlutterFileSpec(directPath, directContent))
-            }
-            val nested = map["files"] ?: map["items"]
-            if (nested is Iterable<*>) {
-                return normalizeFrontendFlutterFiles(nested)
-            }
-            return map.mapNotNull { (path, content) ->
-                if (path == "files" || path == "items") null else frontendFlutterFileSpec(path, content)
-            }.distinctBy { it.first }
-        }
-        val raw = value as? Iterable<*> ?: return emptyList()
-        return raw.mapNotNull { item ->
-            val map = item as? Map<*, *> ?: return@mapNotNull null
-            val file = asStringKeyMap(map)
-            val path = file["path"] ?: file["relativePath"] ?: file["filePath"] ?: return@mapNotNull null
-            val content = file["content"] ?: file["source"] ?: file["text"] ?: return@mapNotNull null
-            frontendFlutterFileSpec(path, content)
-        }.distinctBy { it.first }
-    }
-
-    /**
-     * Converts one untrusted Flutter source payload into a bounded relative path and content.
-     *
-     * @param path Raw project-local path supplied by AI, UI, or MCP.
-     * @param content Source text that should be persisted as UTF-8.
-     * @return Pair of sanitized path and source content.
-     */
-    private fun frontendFlutterFileSpec(path: Any?, content: Any?): Pair<String, String> {
-        val normalized = cleanFrontendFlutterPath(path?.toString().orEmpty())
-        return normalized to content?.toString().orEmpty()
-    }
-
-    /**
-     * Enforces the `frontend/flutter/` source boundary before any file write occurs.
-     *
-     * @param rawPath Relative path requested by a Project update.
-     * @return Slash-normalized path with no absolute, parent, or manifest overwrite segments.
-     */
-    private fun cleanFrontendFlutterPath(rawPath: String): String {
-        val normalized = rawPath.replace('\\', '/')
-            .trim()
-            .removePrefix("/")
-            .removePrefix("frontend/flutter/")
-            .removePrefix("flutter/")
-        require(normalized.isNotEmpty()) { "Flutter source file path is required." }
-        require(!normalized.contains(":")) { "Flutter source file path must be relative." }
-        val parts = normalized.split('/').filter { it.isNotBlank() }
-        require(parts.none { it == ".." }) { "Flutter source file path cannot escape frontend/flutter/." }
-        require(parts.lastOrNull() != "manifest.json") {
-            "frontend/flutter/manifest.json is generated by OOB."
-        }
-        return parts.joinToString("/")
-    }
-
-    /**
-     * Writes Project-owned Flutter source files and refreshes `frontend/flutter/manifest.json`.
-     *
-     * @param projectId Project id whose `frontend/flutter/` directory owns the files.
-     * @param files Sanitized relative-path/content pairs from `normalizeFrontendFlutterFiles`.
-     * @return Project-relative paths and byte sizes that were written in this update.
-     */
-    private fun writeFrontendFlutterFiles(
-        projectId: String,
-        files: List<Pair<String, String>>
-    ): List<Map<String, Any?>> {
-        if (files.isEmpty()) return emptyList()
-        val flutterDir = File(projectDir(projectId), "frontend/flutter")
-        flutterDir.mkdirs()
-        val root = flutterDir.canonicalFile
-        val rootPrefix = root.path + File.separator
-        val writtenAt = nowIso()
-        val written = files.map { (relativePath, content) ->
-            val target = File(root, relativePath).canonicalFile
-            require(target.path == root.path || target.path.startsWith(rootPrefix)) {
-                "Flutter source file path cannot escape frontend/flutter/."
-            }
-            target.parentFile?.mkdirs()
-            target.writeText(content)
-            linkedMapOf<String, Any?>(
-                "path" to "frontend/flutter/$relativePath",
-                "bytes" to content.toByteArray(Charsets.UTF_8).size,
-                "updatedAt" to writtenAt
-            )
-        }
-        writeFrontendFlutterManifest(projectId)
-        return written
-    }
-
-    /**
-     * Loads Project-owned Flutter sources for the live `flutter_eval` Display.
-     *
-     * @param projectId Project id whose `frontend/flutter/` directory should be read.
-     * @return JSON-safe payload with entry metadata and relative-path source text. Empty means
-     * the Project has no live Flutter sources yet.
-     */
-    private fun readFrontendFlutterPayload(
-        projectId: String,
-        includeSources: Boolean = true
-    ): Map<String, Any?> {
-        val flutterDir = File(projectDir(projectId), "frontend/flutter")
-        if (!flutterDir.exists()) return emptyMap()
-        val root = flutterDir.canonicalFile
-        val sources = linkedMapOf<String, String>()
-        val files = mutableListOf<Map<String, Any?>>()
-        flutterDir.walkTopDown()
-            .filter { it.isFile && it.name != "manifest.json" && it.name != "README.md" }
-            .sortedBy { it.absolutePath }
-            .forEach { file ->
-                val relative = root.toPath()
-                    .relativize(file.canonicalFile.toPath())
-                    .toString()
-                    .replace(File.separatorChar, '/')
-                files += linkedMapOf<String, Any?>(
-                    "path" to "frontend/flutter/$relative",
-                    "relativePath" to relative,
-                    "bytes" to file.length(),
-                    "updatedAt" to Instant.ofEpochMilli(file.lastModified()).toString(),
-                    "kind" to "source"
-                )
-                if (includeSources) {
-                    sources[relative] = file.readText()
-                }
-            }
-        if (files.isEmpty()) return emptyMap()
-        val manifestFile = File(flutterDir, "manifest.json")
-        val manifest = if (manifestFile.exists()) {
-            runCatching {
-                gson.fromJson<Map<String, Any?>>(manifestFile.readText(), mapType)
-            }.getOrNull().orEmpty()
-        } else {
-            emptyMap()
-        }
-        val relativePaths = files.mapNotNull { it["relativePath"]?.toString() }
-        val entryFile = manifest["entryFile"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
-            ?: when {
-                relativePaths.contains("lib/main.dart") -> "lib/main.dart"
-                relativePaths.contains("main.dart") -> "main.dart"
-                relativePaths.contains("frontend/flutter/lib/main.dart") -> "frontend/flutter/lib/main.dart"
-                relativePaths.any { it.endsWith("/main.dart") } -> relativePaths.first { it.endsWith("/main.dart") }
-                else -> relativePaths.firstOrNull().orEmpty()
-            }
-        val entryClass = manifest["entryClass"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
-            ?: "OobProjectWidget"
-        val payload = linkedMapOf<String, Any?>(
-            "runtime" to "flutter_eval",
-            "entryFile" to entryFile,
-            "entryClass" to entryClass,
-            "files" to files,
-            "manifest" to manifest
-        )
-        if (includeSources) {
-            payload["sources"] = sources
-        } else {
-            payload["sourceCount"] = files.size
-        }
-        return payload
-    }
-
-    /**
-     * Rebuilds the Project Flutter source manifest from files currently on disk.
-     *
-     * @param projectId Project id whose `frontend/flutter/manifest.json` should be materialized.
-     * @return Current file summary, excluding the generated manifest itself.
-     */
-    private fun writeFrontendFlutterManifest(projectId: String): List<Map<String, Any?>> {
-        val flutterDir = File(projectDir(projectId), "frontend/flutter")
-        flutterDir.mkdirs()
-        val root = flutterDir.canonicalFile
-        val files = flutterDir.walkTopDown()
-            .filter { it.isFile && it.name != "manifest.json" }
-            .map { file ->
-                val relative = root.toPath()
-                    .relativize(file.canonicalFile.toPath())
-                    .toString()
-                    .replace(File.separatorChar, '/')
-                linkedMapOf<String, Any?>(
-                    "path" to "frontend/flutter/$relative",
-                    "bytes" to file.length(),
-                    "updatedAt" to Instant.ofEpochMilli(file.lastModified()).toString()
-                )
-            }
-            .sortedBy { it["path"]?.toString().orEmpty() }
-            .toList()
-        File(flutterDir, "manifest.json").writeText(
-            gson.toJson(
-                linkedMapOf(
-                    "generatedAt" to nowIso(),
-                    "runtimeBoundary" to "flutter_eval_live_runtime",
-                    "entryFile" to when {
-                        files.any { it["path"] == "frontend/flutter/lib/main.dart" } -> "lib/main.dart"
-                        files.any { it["path"] == "frontend/flutter/main.dart" } -> "main.dart"
-                        else -> "lib/main.dart"
-                    },
-                    "entryClass" to "OobProjectWidget",
-                    "files" to files
-                )
-            )
-        )
-        return files
     }
 
     /**

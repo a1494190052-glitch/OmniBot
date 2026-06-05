@@ -686,8 +686,16 @@ class VLMClient(
         val match = LINE_TOOL_CALL_REGEX.find(content) ?: return null
         val name = match.groups[1]?.value?.trim().orEmpty()
         if (name.isEmpty()) return null
+        val inlineArgumentText = match.groups[2]?.value?.trim().orEmpty()
         val argumentText = content.substring(match.range.last + 1)
-        val args = parseLineArguments(argumentText)
+        val args = normalizeFallbackLineArguments(
+            toolName = name,
+            args = mergeJsonObjects(
+                parseInlineArguments(inlineArgumentText),
+                parseLineArguments(argumentText)
+            ),
+            content = content
+        )
         return buildFallbackToolCall(name, args.toString(), dynamicFunctionToolNames)
     }
 
@@ -706,6 +714,68 @@ class VLMClient(
             }
         }
         return JsonObject(values)
+    }
+
+    private fun parseInlineArguments(raw: String): JsonObject {
+        val normalized = raw.trim()
+        if (normalized.isEmpty()) return JsonObject(emptyMap())
+        val values = linkedMapOf<String, JsonElement>()
+        INLINE_ARGUMENT_REGEX.findAll(normalized).forEach { match ->
+            val key = match.groups[1]?.value?.trim().orEmpty()
+            val rawValue = match.groups[2]?.value?.trim().orEmpty()
+            if (key.isNotEmpty()) {
+                values[key] = parseLineValue(rawValue)
+            }
+        }
+        return JsonObject(values)
+    }
+
+    private fun mergeJsonObjects(first: JsonObject, second: JsonObject): JsonObject {
+        if (first.isEmpty()) return second
+        if (second.isEmpty()) return first
+        return JsonObject(first.toMutableMap().apply { putAll(second) })
+    }
+
+    private fun normalizeFallbackLineArguments(
+        toolName: String,
+        args: JsonObject,
+        content: String
+    ): JsonObject {
+        val normalizedTool = normalizeToolName(toolName, emptySet()) ?: toolName
+        if (OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION in args) return args
+        val needsTargetDescription = normalizedTool in setOf(
+            OobCanonicalActionSchema.TOOL_CLICK,
+            OobCanonicalActionSchema.TOOL_LONG_PRESS,
+            OobCanonicalActionSchema.TOOL_INPUT_TEXT,
+            OobCanonicalActionSchema.TOOL_SCROLL,
+        )
+        if (!needsTargetDescription) return args
+
+        val targetDescription = inferFallbackTargetDescription(content)
+        if (targetDescription.isBlank()) return args
+        return JsonObject(
+            args.toMutableMap().apply {
+                put(OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION, JsonPrimitive(targetDescription))
+            }
+        )
+    }
+
+    private fun inferFallbackTargetDescription(content: String): String {
+        val normalized = content.trim()
+        if (normalized.isEmpty()) return ""
+        val parsed = extractTopLevelObject(normalized)
+            ?.let { runCatching { json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
+        val fromMetadata = listOf("summary", "thought", "observation")
+            .asSequence()
+            .mapNotNull { key -> parsed?.get(key)?.jsonPrimitive?.contentOrNull?.trim() }
+            .firstOrNull { it.isNotBlank() }
+        if (!fromMetadata.isNullOrBlank()) return fromMetadata.take(160)
+        return normalized
+            .lineSequence()
+            .firstOrNull { line -> !line.trim().startsWith("tool_call:", ignoreCase = true) }
+            ?.trim()
+            .orEmpty()
+            .take(160)
     }
 
     private fun parseLineValue(raw: String): JsonElement {
@@ -998,7 +1068,10 @@ class VLMClient(
         private val ARG_PAIR_REGEX = Regex(
             """(?is)<arg_key>\s*([^<]+?)\s*</arg_key>\s*<arg_value>\s*(.*?)\s*(?=</arg_value>|</tool_call>|```|$)(?:</arg_value>)?"""
         )
-        private val LINE_TOOL_CALL_REGEX = Regex("""(?im)^\s*tool_call\s*:\s*([A-Za-z0-9_.-]+)\s*$""")
+        private val LINE_TOOL_CALL_REGEX = Regex("""(?im)^\s*tool_call\s*:\s*([A-Za-z0-9_.-]+)(?:\s+(.+?))?\s*$""")
         private val LINE_ARGUMENT_REGEX = Regex("""^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.+?)\s*$""")
+        private val INLINE_ARGUMENT_REGEX = Regex(
+            """([A-Za-z_][A-Za-z0-9_]*)\s*[:=]\s*("[^"]*"|'[^']*'|[^\s,]+)"""
+        )
     }
 }

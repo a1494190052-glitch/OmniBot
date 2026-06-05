@@ -630,6 +630,37 @@ class VLMClientRequestTest {
     }
 
     @Test
+    fun `text fallback tool parser supports inline tool call arguments from qwen`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "qwen-vl-max",
+                turn = ChatCompletionTurn(
+                    finishReason = "stop",
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        content = JsonPrimitive(
+                            """
+                            {"observation":"The Settings app is open.","thought":"Clicking on Network & internet will lead to Wi-Fi settings.","summary":"Navigating to the Network & internet section."}
+                            tool_call: click x=208 y=451
+                            """.trimIndent()
+                        )
+                    )
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary"
+        )
+
+        assertTrue(result.error.orEmpty(), result.success)
+        val action = requireNotNull(result.step).action as ClickAction
+        assertEquals(208f, action.x, 0.01f)
+        assertEquals(451f, action.y, 0.01f)
+        assertTrue(action.targetDescription.contains("Network"))
+    }
+
+    @Test
     fun `openai tool action parser preserves indexed grounding fields`() {
         val client = VLMClient()
         val clickResult = client.parseVLMResponse(

@@ -8,6 +8,7 @@ import cn.com.omnimind.bot.agent.AgentToolRegistry
 import cn.com.omnimind.bot.agent.ToolExecutionResult
 import cn.com.omnimind.bot.runlog.OobActionCodec
 import cn.com.omnimind.bot.runlog.OmniflowActionBackend
+import cn.com.omnimind.bot.runlog.OmniflowActionRuntime
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
 import cn.com.omnimind.baselib.llm.AssistantToolCall
 import cn.com.omnimind.baselib.util.OmniLog
@@ -21,8 +22,9 @@ import kotlinx.serialization.json.JsonObject
  * Registered in AgentToolRegistry at startup.
  */
 class OmniflowActionHandler(
-    private val backend: OmniflowActionBackend,
+    private val backendProvider: () -> OmniflowActionBackend = { OmniflowActionRuntime.backend },
 ) : ToolHandler {
+    private val backend get() = backendProvider()
 
     override val toolNames: Set<String> = OobCanonicalActionSchema.replayableToolNames
 

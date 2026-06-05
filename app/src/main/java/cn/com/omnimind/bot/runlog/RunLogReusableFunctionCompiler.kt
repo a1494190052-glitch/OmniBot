@@ -1,7 +1,6 @@
 package cn.com.omnimind.bot.runlog
 
 import cn.com.omnimind.baselib.runlog.InternalRunLogRecord
-import cn.com.omnimind.bot.omniflow.OobFunctionSpecVocabulary
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.asBoolean
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.asMap
 
@@ -46,7 +45,7 @@ object RunLogReusableFunctionCompiler {
         val name = record.operationDescription.ifBlank { goal }.ifBlank { functionId }.take(80)
         val capabilities = executionCapabilities(steps)
         return linkedMapOf<String, Any?>(
-            "schema_version" to OobFunctionSpecVocabulary.SCHEMA_VERSION_V1,
+            "schema_version" to "oob.reusable_function.v1",
             "function_id" to functionId,
             "name" to name,
             "description" to goal.ifBlank { name },
@@ -81,21 +80,21 @@ object RunLogReusableFunctionCompiler {
                 ),
             ),
             "execution" to linkedMapOf(
-                "kind" to OobFunctionSpecVocabulary.EXECUTION_KIND_TOOL_SEQUENCE,
-                "runner" to OobFunctionSpecVocabulary.EXECUTION_RUNNER_TOOL_SEQUENCE,
+                "kind" to "tool_sequence",
+                "runner" to "oob_tool_sequence",
                 "entrypoint" to "execute",
                 "capabilities" to capabilities,
                 "steps" to steps,
                 "step_count" to steps.size,
                 "omniflow_step_count" to capabilities["omniflow_step_count"],
                 "agent_step_count" to capabilities["agent_step_count"],
-                OobFunctionSpecVocabulary.FIELD_HAS_AGENT_STEPS to
-                    capabilities[OobFunctionSpecVocabulary.FIELD_HAS_AGENT_STEPS],
+                "has_agent_steps" to
+                    capabilities["has_agent_steps"],
             ),
             "_oob_registry" to linkedMapOf(
                 "registered_at" to now,
                 "updated_at" to now,
-                "runner" to OobFunctionSpecVocabulary.REGISTRY_RUNNER_AGENT_REUSABLE_FUNCTION,
+                "runner" to "oob_agent_reusable_function",
                 "storage" to "workspace",
             ),
         )
@@ -105,7 +104,7 @@ object RunLogReusableFunctionCompiler {
         return linkedMapOf(
             "omniflow_step_count" to steps.count { it["executor"] == RunLogReplayPolicy.EXECUTOR_OMNIFLOW },
             "agent_step_count" to steps.count { it["executor"] == RunLogReplayPolicy.EXECUTOR_AGENT },
-            OobFunctionSpecVocabulary.FIELD_HAS_AGENT_STEPS to steps.any {
+            "has_agent_steps" to steps.any {
                 it["executor"] == RunLogReplayPolicy.EXECUTOR_AGENT
             },
         )

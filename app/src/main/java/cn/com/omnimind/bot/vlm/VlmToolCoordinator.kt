@@ -120,6 +120,14 @@ data class VlmParseOnlyResult(
     val toolName: String?,
     val action: Map<String, Any?>?,
     val error: String?,
+    val finishReason: String?,
+    val rawContentPreview: String,
+    val reasoningPreview: String,
+    val observationPreview: String,
+    val thoughtPreview: String,
+    val summaryPreview: String,
+    val toolNames: List<String>,
+    val dynamicFunctionToolNames: List<String>,
     val currentUserTextPreview: String,
     val pageDiagnostics: Map<String, String>,
     val phaseMs: Map<String, Long>,
@@ -137,6 +145,14 @@ data class VlmParseOnlyResult(
         "tool_name" to toolName,
         "action" to action,
         "error" to error,
+        "finish_reason" to finishReason,
+        "raw_content_preview" to rawContentPreview,
+        "reasoning_preview" to reasoningPreview,
+        "observation_preview" to observationPreview,
+        "thought_preview" to thoughtPreview,
+        "summary_preview" to summaryPreview,
+        "tool_names" to toolNames,
+        "dynamic_function_tool_names" to dynamicFunctionToolNames,
         "current_user_text_preview" to currentUserTextPreview,
         "page_diagnostics" to pageDiagnostics,
         "phase_ms" to phaseMs,
@@ -147,6 +163,11 @@ data class VlmParseOnlyResult(
                     append("VLM parse-only completed. executed=false")
                     toolName?.let { append("\ntool_name: $it") }
                     error?.let { append("\nerror: $it") }
+                    finishReason?.let { append("\nfinish_reason: $it") }
+                    rawContentPreview.takeIf { it.isNotBlank() }?.let {
+                        append("\nraw_content_preview: ")
+                        append(it)
+                    }
                 }
             )
         ),
@@ -472,6 +493,7 @@ object VlmToolCoordinator {
             )
         }
         val action = parsed.step?.action
+        val thinking = parsed.thinking
         return VlmParseOnlyResult(
             success = parsed.success,
             model = model,
@@ -483,6 +505,14 @@ object VlmToolCoordinator {
             toolName = action?.name,
             action = action?.toDebugMap(),
             error = parsed.error,
+            finishReason = thinking?.finishReason,
+            rawContentPreview = thinking?.rawContent.orEmpty().take(4000),
+            reasoningPreview = thinking?.reasoning.orEmpty().take(4000),
+            observationPreview = thinking?.observation.orEmpty().take(1000),
+            thoughtPreview = thinking?.thought.orEmpty().take(2000),
+            summaryPreview = thinking?.summary.orEmpty().take(1000),
+            toolNames = requestEnvelope.toolNames,
+            dynamicFunctionToolNames = requestEnvelope.dynamicFunctionToolNames.toList(),
             currentUserTextPreview = requestEnvelope.currentUserText.take(DRY_RUN_PROMPT_PREVIEW_CHARS),
             pageDiagnostics = workingContext.pageDiagnostics,
             phaseMs = phaseMs.toMap(),
