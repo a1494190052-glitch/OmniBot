@@ -47,7 +47,7 @@ class ManualRecordingPolicyTest {
     }
 
     @Test
-    fun `a11 text input requires real touch anchor`() {
+    fun `a11 text input records text changed even without touch anchor`() {
         val source = readSource(
             "assists/src/main/java/cn/com/omnimind/assists/task/vlmserver/ManualVlmTraceRecorder.kt"
         )
@@ -55,18 +55,25 @@ class ManualRecordingPolicyTest {
         assertTrue(source.contains("private data class TextInputAnchor("))
         assertTrue(source.contains("rememberTextInputAnchorFromRealTouch("))
         assertFalse(source.contains("rememberTextInputAnchorFromFocus("))
-        assertTrue(source.contains("\"a11_text_input_anchor_policy\" to \"real_touch_or_focused_start\""))
+        assertTrue(source.contains("\"a11_text_input_anchor_policy\" to \"text_event_or_touch_anchor\""))
         assertTrue(
             Regex(
                 "val anchor = textInputAnchor\\s*" +
                     "if \\(anchor == null\\) \\{\\s*" +
-                    "suppressA11OnlyActionEvent\\(event\\)\\s*" +
+                    "recordUnanchoredTextChanged\\(" +
+                    ".*" +
                     "return\\s*\\}",
                 RegexOption.DOT_MATCHES_ALL
             ).containsMatchIn(source)
         )
+        assertTrue(source.contains("private fun recordUnanchoredTextChanged("))
+        assertTrue(source.contains("private fun unanchoredTextReplayTarget("))
+        assertTrue(source.contains("private fun lastRecordedTouchTextTarget("))
+        assertTrue(source.contains("private fun textEventAnchorId("))
         assertFalse(source.contains("private fun textInputAnchorFromTextEvent("))
-        assertFalse(source.contains("private const val A11Y_TEXT_EVENT_BACKEND = \"a11y_text_event\""))
+        assertTrue(source.contains("private const val A11Y_TEXT_EVENT_BACKEND = \"a11y_text_event\""))
+        assertTrue(source.contains("\"records_text_input_from_text_changed_without_anchor\" to true"))
+        assertTrue(source.contains("\"unanchored_text_changed_recorded_count\" to unanchoredTextChangedRecordedCount"))
         assertTrue(source.contains("private fun preSeedFocusedTextInputAnchorFrom("))
         assertTrue(source.contains("textInputAnchor = preSeedFocusedTextInputAnchorFrom(lastXmlSnapshot, lastScreenshotSnapshot)"))
         assertTrue(source.contains("private fun focusedTextInputCandidateFromXml("))

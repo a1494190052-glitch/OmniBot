@@ -1,6 +1,8 @@
 package cn.com.omnimind.bot.agent.tool.handlers
 
 import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
+import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
+import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
 import cn.com.omnimind.bot.omniflow.ir.OmniflowFunction
 import cn.com.omnimind.bot.omniflow.ir.OmniflowFunctionStore
 import cn.com.omnimind.bot.omniflow.ir.OmniflowStep
@@ -28,29 +30,12 @@ class OobFunctionToolHandler(
         OobFunctionAgentFallbackController(),
     private val nestedCallCardPresenter: OobFunctionNestedCallCardPresenter =
         OobFunctionNestedCallCardPresenter(helper),
-    private val callRequestResolver: OobFunctionCallRequestResolver =
-        OobFunctionCallRequestResolver(),
-    private val stepClassifier: OobFunctionStepClassifier =
-        OobFunctionStepClassifier(callRequestResolver),
     private val runResultBuilder: OobFunctionRunResultBuilder =
         OobFunctionRunResultBuilder(),
     private val toolDelegationExecutor: OobFunctionToolDelegationExecutor =
         OobFunctionToolDelegationExecutor(runResultBuilder),
     private val accessibilityPreflightGuard: OobFunctionAccessibilityPreflightGuard =
-        OobFunctionAccessibilityPreflightGuard(stepClassifier, runResultBuilder),
-    private val nestedFunctionExecutor: OobFunctionNestedFunctionExecutor =
-        OobFunctionNestedFunctionExecutor(
-            callRequestResolver,
-            nestedCallCardPresenter,
-            runResultBuilder
-        ),
-    private val callToolStepExecutor: OobFunctionCallToolStepExecutor =
-        OobFunctionCallToolStepExecutor(
-            callRequestResolver,
-            toolDelegationExecutor,
-            agentFallbackController,
-            runResultBuilder
-        ),
+        OobFunctionAccessibilityPreflightGuard(runResultBuilder),
     private val goToNavigator: OobFunctionGoToNavigator =
         OobFunctionGoToNavigator(context, runResultBuilder),
 ) : ToolHandler {
@@ -81,9 +66,9 @@ class OobFunctionToolHandler(
     fun canRunFullyWithOmniflow(materializedSpec: Map<String, Any?>): Boolean {
         val steps = materializedSteps(materializedSpec)
         return steps.isNotEmpty() && steps.all { step ->
-            stepClassifier.isSkippedLegacyStep(step) ||
+            isSkippedStep(step) ||
                 OmniflowStepExecutor.isOmniflowStep(step) ||
-                stepClassifier.isOmniflowExecutionStep(step) { getSpec(it) != null }
+                isOmniflowExecutionStep(step)
         }
     }
 
@@ -105,7 +90,7 @@ class OobFunctionToolHandler(
             )
 
         val argsMap = helper.jsonObjectToMap(args)
-        val functionArgs = callRequestResolver.resolve(argsMap) { getSpec(it) != null }.targetArgs
+        val functionArgs = resolveCallRequest(argsMap).targetArgs
         val missing = cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
             .missingRequiredArguments(spec, functionArgs)
         if (missing.isNotEmpty()) {
@@ -156,7 +141,7 @@ class OobFunctionToolHandler(
     ): cn.com.omnimind.bot.agent.ToolExecutionResult {
         val toolName = toolCall.function.name
         val argsMap = helper.jsonObjectToMap(args)
-        val callTool = callRequestResolver.resolve(argsMap) { getSpec(it) != null }
+        val callTool = resolveCallRequest(argsMap)
         val targetTool = callTool.targetTool
         val targetArgs = callTool.targetArgs
         val functionId = callTool.functionId
@@ -419,11 +404,8 @@ class OobFunctionToolHandler(
             currentStepExecutor = executor
             currentStepStartedAtMs = stepStartedAtMs
             frontendSession?.update("第 $stepIndex/${steps.size} 步 $stepTitle")
-            val omniflowExecutionTool = stepClassifier.omniflowExecutionToolForStep(step, callableTool)
-            if (RunLogReplayPolicy.shouldSkipTool(callableTool) ||
-                RunLogReplayPolicy.shouldSkipTool(omniflowExecutionTool) ||
-                RunLogReplayPolicy.shouldSkipTool(OmniflowStepExecutor.actionNameForStep(step))
-            ) {
+            val omniflowExecutionTool = omniflowExecutionToolForStep(step, callableTool)
+            if (isSkippedStep(step, callableTool)) {
                 stepResults += linkedMapOf<String, Any?>(
                     "step_id" to stepId,
                     "index" to index,
@@ -664,9 +646,9 @@ class OobFunctionToolHandler(
         toolName: String,
         allowAgentFallback: Boolean,
     ): Map<String, Any?> {
-        val agentTool = stepClassifier.replayableAgentTool(step, callableTool)
+        val agentTool = replayableAgentTool(step, callableTool)
         val routerRef = router
-        if (!stepClassifier.requiresAgentPlanning(step) &&
+        if (!requiresAgentPlanning(step) &&
             agentTool.isNotEmpty() && routerRef != null && env != null
         ) {
             return delegateStep(step, stepId, stepTitle, agentTool, env, callback, toolHandle, parentToolCallId, toolName, routerRef)
@@ -732,37 +714,65 @@ class OobFunctionToolHandler(
         allowAgentFallback: Boolean,
         allowToolDelegationWithoutRouter: Boolean,
         callStack: List<String>,
-    ): Map<String, Any?> = callToolStepExecutor.execute(
-        step = step,
-        stepId = stepId,
-        stepTitle = stepTitle,
-        callableTool = callableTool,
-        callback = callback,
-        toolHandle = toolHandle,
-        env = env,
-        parentToolCallId = parentToolCallId,
-        toolName = toolName,
-        allowAgentFallback = allowAgentFallback,
-        allowToolDelegationWithoutRouter = allowToolDelegationWithoutRouter,
-        router = router,
-        canLoadFunction = { getSpec(it) != null },
-        executeNestedFunctionStep = { functionStep, nestedCallableTool ->
-            executeOmniflowFunctionStep(
-                step = functionStep,
-                stepId = stepId,
-                stepTitle = stepTitle,
-                callableTool = nestedCallableTool,
-                callback = callback,
-                toolHandle = toolHandle,
-                env = env,
-                parentToolCallId = parentToolCallId,
-                toolName = toolName,
+    ): Map<String, Any?> {
+        val args = resolveStepArgs(step)
+        val callTool = resolveCallRequest(args, step)
+        val targetTool = callTool.targetTool
+        val targetArgs = callTool.targetArgs
+        val functionId = callTool.functionId
+        if (functionId.isNotEmpty()) {
+            val functionStep = LinkedHashMap<String, Any?>().apply {
+                putAll(step)
+                put("args", LinkedHashMap<String, Any?>().apply {
+                    putAll(args); put("function_id", functionId); put("arguments", targetArgs)
+                })
+            }
+            return executeOmniflowFunctionStep(
+                step = functionStep, stepId = stepId, stepTitle = stepTitle,
+                callableTool = callableTool.ifEmpty { RunLogReplayPolicy.TOOL_CALL_TOOL },
+                callback = callback, toolHandle = toolHandle, env = env,
+                parentToolCallId = parentToolCallId, toolName = toolName,
                 allowAgentFallback = allowAgentFallback,
                 allowToolDelegationWithoutRouter = allowToolDelegationWithoutRouter,
                 callStack = callStack,
             )
         }
-    )
+        if (targetTool.isEmpty()) return runResultBuilder.failureStep(
+            stepId = stepId, tool = callableTool.ifEmpty { RunLogReplayPolicy.TOOL_CALL_TOOL },
+            executor = RunLogReplayPolicy.EXECUTOR_TOOL,
+            summary = "$stepTitle missing tool_name or function_id", errorCode = "OOB_CALL_TOOL_TARGET_MISSING",
+        )
+        if (RunLogReplayPolicy.isOmniflowToolCallTool(targetTool)) return runResultBuilder.failureStep(
+            stepId = stepId, tool = callableTool.ifEmpty { RunLogReplayPolicy.TOOL_CALL_TOOL },
+            executor = RunLogReplayPolicy.EXECUTOR_TOOL,
+            summary = "$stepTitle nested call_tool is not allowed", errorCode = "OOB_CALL_TOOL_RECURSION",
+        )
+        val routerRef = router
+        if (routerRef != null && env != null) {
+            val delegatedStep = LinkedHashMap<String, Any?>().apply {
+                putAll(step); put("tool", targetTool); put("args", targetArgs)
+            }
+            return LinkedHashMap<String, Any?>().apply {
+                putAll(delegateStep(delegatedStep, stepId, stepTitle, targetTool, env, callback, toolHandle, parentToolCallId, toolName, routerRef))
+                put("delegated_from", callableTool.ifEmpty { RunLogReplayPolicy.TOOL_CALL_TOOL })
+                put("delegated_tool_used", true)
+            }
+        }
+        if (allowAgentFallback && !allowToolDelegationWithoutRouter) {
+            return runResultBuilder.agentFallbackStep(
+                stepId = stepId, tool = targetTool,
+                prompt = agentFallbackController.prompt(
+                    LinkedHashMap<String, Any?>().apply { putAll(step); put("tool", targetTool); put("args", targetArgs) },
+                    stepTitle
+                ),
+                summary = "call_tool requires VLM continuation: $stepTitle",
+            )
+        }
+        return runResultBuilder.failureStep(
+            stepId = stepId, tool = targetTool, executor = RunLogReplayPolicy.EXECUTOR_TOOL,
+            summary = "Tool router unavailable for $targetTool", errorCode = "OOB_CALL_TOOL_ROUTER_UNAVAILABLE",
+        )
+    }
 
     private suspend fun executeOmniflowFunctionStep(
         step: Map<String, Any?>,
@@ -777,36 +787,76 @@ class OobFunctionToolHandler(
         allowAgentFallback: Boolean,
         allowToolDelegationWithoutRouter: Boolean,
         callStack: List<String>,
-    ): Map<String, Any?> = nestedFunctionExecutor.execute(
-        step = step,
-        stepId = stepId,
-        stepTitle = stepTitle,
-        callableTool = callableTool,
-        callback = callback,
-        toolHandle = toolHandle,
-        env = env,
-        parentToolCallId = parentToolCallId,
-        toolName = toolName,
-        allowAgentFallback = allowAgentFallback,
-        allowToolDelegationWithoutRouter = allowToolDelegationWithoutRouter,
-        callStack = callStack,
-        loadSpec = { getSpec(it) },
-        runNestedFunction = { request ->
-            runMaterializedFunction(
-                functionId = request.functionId,
-                spec = request.spec,
-                materializedSpec = request.materializedSpec,
-                callback = request.callback,
-                toolHandle = request.toolHandle,
-                env = request.env,
-                parentToolCallId = request.parentToolCallId,
-                toolName = request.toolName,
-                allowAgentFallback = request.allowAgentFallback,
-                allowToolDelegationWithoutRouter = request.allowToolDelegationWithoutRouter,
-                callStack = request.callStack,
-            )
+    ): Map<String, Any?> {
+        val args = resolveStepArgs(step)
+        val functionId = firstNonBlank(args["function_id"], step["function_id"])
+        val nestedArguments = mapArg(args["arguments"])
+        val cardToolName = RunLogReplayPolicy.TOOL_CALL_TOOL
+        val cardId = nestedCallCardPresenter.cardId(parentToolCallId, toolName, stepId)
+        val cardStartedAtMs = System.currentTimeMillis()
+
+        suspend fun emitStarted() {
+            callback?.onToolCardEvent("tool_started", nestedCallCardPresenter.payload(
+                cardId = cardId, toolName = cardToolName, stepTitle = stepTitle,
+                functionId = functionId, callableTool = callableTool,
+                nestedArguments = nestedArguments, status = "running", success = null,
+                summary = nestedCallCardPresenter.runningSummary(functionId),
+                progress = stepTitle, startedAtMs = cardStartedAtMs, finishedAtMs = null, result = null,
+            ))
         }
-    )
+        suspend fun completeWithCard(result: Map<String, Any?>): Map<String, Any?> {
+            val success = result["success"] != false
+            callback?.onToolCardEvent("tool_completed", nestedCallCardPresenter.payload(
+                cardId = cardId, toolName = cardToolName, stepTitle = stepTitle,
+                functionId = functionId, callableTool = callableTool,
+                nestedArguments = nestedArguments, status = if (success) "success" else "error",
+                success = success, summary = result["summary"]?.toString()?.takeIf { it.isNotBlank() }
+                    ?: nestedCallCardPresenter.finishedSummary(functionId, success),
+                progress = "", startedAtMs = cardStartedAtMs, finishedAtMs = System.currentTimeMillis(), result = result,
+            ))
+            return result
+        }
+        fun failStep(errorCode: String, summary: String, extras: Map<String, Any?> = emptyMap()) =
+            runResultBuilder.failureStep(stepId = stepId, tool = callableTool.ifEmpty { RunLogReplayPolicy.TOOL_CALL_TOOL },
+                executor = "omniflow_function", summary = summary, errorCode = errorCode, extras = extras)
+
+        emitStarted()
+        if (functionId.isEmpty()) return completeWithCard(failStep("OOB_FUNCTION_ID_MISSING", "$stepTitle missing function_id"))
+        val nestedSpec = getSpec(functionId)
+            ?: return completeWithCard(failStep("OOB_FUNCTION_NOT_FOUND", "OOB reusable function not found: $functionId",
+                mapOf("nested_function_id" to functionId)))
+        val missing = OobReusableFunctionStore.missingRequiredArguments(nestedSpec, nestedArguments)
+        if (missing.isNotEmpty()) return completeWithCard(failStep("OOB_FUNCTION_ARGUMENTS_MISSING",
+            "Missing required arguments: ${missing.joinToString(", ")}",
+            mapOf("nested_function_id" to functionId, "missing_required_arguments" to missing)))
+        val materialized = OobReusableFunctionStore.materialize(nestedSpec, nestedArguments)
+        val nestedRun = runMaterializedFunction(
+            functionId = functionId, spec = nestedSpec, materializedSpec = materialized,
+            callback = callback, toolHandle = toolHandle, env = env,
+            parentToolCallId = "${parentToolCallId ?: toolName}_$stepId",
+            toolName = functionId, allowAgentFallback = allowAgentFallback,
+            allowToolDelegationWithoutRouter = allowToolDelegationWithoutRouter, callStack = callStack,
+        )
+        val success = nestedRun["success"] == true
+        val nestedModelRequired = nestedRun["model_required"] == true || nestedRun["fallback_context"] != null
+        return completeWithCard(linkedMapOf<String, Any?>(
+            "step_id" to stepId, "tool" to callableTool.ifEmpty { RunLogReplayPolicy.TOOL_CALL_TOOL },
+            "executor" to "omniflow_function", "model_free" to true, "success" to success,
+            "model_required" to nestedModelRequired.takeIf { it },
+            "nested_function_id" to functionId, "nested_run_id" to nestedRun["run_id"],
+            "nested_runner" to nestedRun["runner"], "nested_step_count" to nestedRun["step_count"],
+            "nested_success_step_count" to nestedRun["success_step_count"],
+            "nested_model_required" to nestedModelRequired,
+            "nested_failed_step_index" to nestedRun["failed_step_index"],
+            "nested_resume_from_step" to nestedRun["resume_from_step"],
+            "nested_fallback_context" to nestedRun["fallback_context"],
+            "nested_agent_prompt" to nestedRun["agent_prompt"],
+            "step_results" to nestedRun["step_results"], "timing" to nestedRun["timing"],
+            "error_code" to nestedRun["error_code"],
+            "summary" to if (success) "复用指令执行完成：$functionId"
+                else nestedRun["error_message"]?.toString()?.takeIf { it.isNotBlank() } ?: "复用指令执行失败：$functionId",
+        ).filterValues { it != null })
+    }
 
     // -----------------------------------------------------------------------
     // IR execution path
@@ -996,6 +1046,88 @@ class OobFunctionToolHandler(
 
     private fun materializedSteps(materializedSpec: Map<String, Any?>): List<Map<String, Any?>> =
         OobFunctionSchemaBuilder.materializedSteps(materializedSpec)
+
+    // -----------------------------------------------------------------------
+    // Inlined from OobFunctionCallRequestResolver
+    // -----------------------------------------------------------------------
+
+    private data class CallRequest(val targetTool: String, val targetArgs: Map<String, Any?>, val functionId: String)
+
+    private fun resolveStepArgs(step: Map<String, Any?>): Map<String, Any?> {
+        val directArgs = mapArg(step["args"])
+        val agentCall = mapArg(step["agent_call"])
+        val agentArgs = mapArg(agentCall["args"])
+        val originalArgs = mapArg(directArgs["original_args"]).ifEmpty { mapArg(directArgs["originalArgs"]) }
+            .ifEmpty { mapArg(agentArgs["original_args"]) }.ifEmpty { mapArg(agentArgs["originalArgs"]) }
+        val executionArgKeys = setOf("function_id","tool_name","target_tool","node_id","target_node_id",
+            "edge_id","action_id","path","edges","utg","graph","arguments")
+        val topLevelArgs = buildMap { for (key in executionArgKeys) if (step.containsKey(key)) put(key, step[key]) }
+        return when {
+            directArgs.any { (k, v) -> k in executionArgKeys && v != null } -> directArgs
+            originalArgs.isNotEmpty() -> originalArgs
+            topLevelArgs.isNotEmpty() -> topLevelArgs
+            else -> directArgs
+        }
+    }
+
+    private fun resolveCallRequest(args: Map<String, Any?>, step: Map<String, Any?> = emptyMap()): CallRequest {
+        val targetTool = firstNonBlank(args["tool_name"], args["target_tool"], args["tool"], step["tool_name"], step["target_tool"])
+        val targetArgs = mapArg(args["arguments"])
+        val rawFunctionId = firstNonBlank(args["function_id"], step["function_id"])
+        val functionId = firstNonBlank(
+            rawFunctionId,
+            if (RunLogReplayPolicy.isOmniflowToolCallTool(targetTool)) firstNonBlank(targetArgs["function_id"]) else null,
+            targetTool.takeIf { it.isNotEmpty() && getSpec(it) != null },
+        )
+        return CallRequest(targetTool = targetTool, targetArgs = targetArgs, functionId = functionId)
+    }
+
+    // -----------------------------------------------------------------------
+    // Inlined from OobFunctionStepClassifier
+    // -----------------------------------------------------------------------
+
+    private fun omniflowExecutionToolForStep(step: Map<String, Any?>, callableTool: String): String {
+        val agentCall = mapArg(step["agent_call"])
+        val agentArgs = mapArg(agentCall["args"])
+        return listOf(callableTool, step["tool"], agentArgs["original_tool"], agentCall["original_tool"])
+            .asSequence().map { it?.toString()?.trim().orEmpty() }
+            .map { RunLogReplayPolicy.normalizeToolName(it) }
+            .firstOrNull { it.isNotEmpty() && RunLogReplayPolicy.isOmniflowExecutionTool(it) }
+            .orEmpty()
+    }
+
+    private fun isSkippedStep(step: Map<String, Any?>, callableTool: String = step["tool"]?.toString().orEmpty()): Boolean {
+        val names = listOf(callableTool, OmniflowStepExecutor.actionNameForStep(step))
+        return names.any { it.isNotBlank() && RunLogReplayPolicy.shouldSkipTool(it) }
+    }
+
+    private fun isOmniflowExecutionStep(step: Map<String, Any?>): Boolean {
+        val tool = omniflowExecutionToolForStep(step, step["tool"]?.toString()?.trim().orEmpty())
+        return when {
+            RunLogReplayPolicy.isOmniflowGraphTool(tool) -> true
+            RunLogReplayPolicy.isOmniflowToolCallTool(tool) -> {
+                val args = resolveStepArgs(step)
+                firstNonBlank(args["function_id"], step["function_id"],
+                    firstNonBlank(args["tool_name"], args["target_tool"]).takeIf { it.isNotEmpty() && getSpec(it) != null }
+                ).isNotEmpty()
+            }
+            else -> false
+        }
+    }
+
+    private fun replayableAgentTool(step: Map<String, Any?>, callableTool: String): String {
+        val agentCall = mapArg(step["agent_call"])
+        val agentArgs = mapArg(agentCall["args"])
+        return listOf(agentArgs["original_tool"], step["tool"], callableTool, agentCall["tool"])
+            .asSequence().map { it?.toString()?.trim().orEmpty() }
+            .firstOrNull { it.isNotEmpty() && it != RunLogReplayPolicy.TOOL_AGENT_RUN }
+            .orEmpty()
+    }
+
+    private fun requiresAgentPlanning(step: Map<String, Any?>): Boolean {
+        val reason = mapArg(step["agent_call"])["reason"]?.toString() ?: step["reason"]?.toString() ?: ""
+        return RunLogReplayPolicy.requiresAgentPlanningReason(reason)
+    }
 
     private companion object {
         const val TAG = "OobFunctionToolHandler"

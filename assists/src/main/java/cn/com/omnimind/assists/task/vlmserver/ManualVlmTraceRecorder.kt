@@ -1600,6 +1600,99 @@ class ManualVlmTraceRecorder(
         )
     }
 
+    private fun unanchoredTextReplayTarget(
+        packageName: String?,
+        xml: String?,
+        source: AccessibilitySourceSnapshot?,
+        inputText: String
+    ): ManualEventTarget {
+        val fallbackPackageName = firstNonBlank(
+            usableTargetPackageName(packageName),
+            packageNameFromXml(xml),
+            usableFallbackPackageName(AccessibilityController.getPackageName())
+        ).ifBlank { null }
+        val sourceTarget = source?.toTextTarget(fallbackPackageName)
+        if (sourceTarget != null) {
+            return sourceTarget.copy(
+                label = textEventLabel(source, sourceTarget.label, inputText),
+                packageName = sourceTarget.packageName ?: fallbackPackageName,
+                resolution = "event_source_unanchored_text"
+            )
+        }
+        return lastRecordedTouchTextTarget(fallbackPackageName, inputText)
+            ?: ManualEventTarget(
+                label = "输入框",
+                bounds = Rect(0, 0, 1, 1),
+                packageName = fallbackPackageName,
+                className = source?.className,
+                resourceId = source?.viewIdResourceName,
+                text = source?.text,
+                contentDescription = source?.contentDescription,
+                stableKey = "text_event_unlocated|${fallbackPackageName.orEmpty()}",
+                resolution = "text_event_unlocated"
+            )
+    }
+
+    private fun lastRecordedTouchTextTarget(
+        fallbackPackageName: String?,
+        inputText: String
+    ): ManualEventTarget? {
+        val action = recordedActions.lastOrNull { candidate ->
+            candidate.actionName == OobCanonicalActionSchema.TOOL_CLICK ||
+                candidate.actionName == OobCanonicalActionSchema.TOOL_LONG_PRESS
+        } ?: return null
+        val x = action.params["x"].asFloatOrNull()
+        val y = action.params["y"].asFloatOrNull()
+        val bounds = parseBounds(action.params["bounds"]?.toString())
+            ?: if (x != null && y != null) {
+                val left = x.toInt().coerceAtLeast(0)
+                val top = y.toInt().coerceAtLeast(0)
+                Rect(left, top, left + 1, top + 1)
+            } else {
+                return null
+            }
+        val label = textEventLabel(
+            source = null,
+            fallbackLabel = action.params["target_description"]?.toString().orEmpty(),
+            inputText = inputText
+        )
+        val className = action.params["node_class"]?.toString()
+        val resourceId = action.params["node_resource_id"]?.toString()
+        return ManualEventTarget(
+            label = label,
+            bounds = bounds,
+            packageName = usableTargetPackageName(action.packageName) ?: fallbackPackageName,
+            className = className,
+            resourceId = resourceId,
+            text = action.params["node_text"]?.toString(),
+            contentDescription = action.params["node_content_description"]?.toString(),
+            stableKey = firstNonBlank(resourceId, className, "recent_touch") + "|" + boundsString(bounds),
+            resolution = "recent_touch_unanchored_text"
+        )
+    }
+
+    private fun textEventLabel(
+        source: AccessibilitySourceSnapshot?,
+        fallbackLabel: String,
+        inputText: String
+    ): String {
+        val input = normalizeInputTextContent(inputText)
+        val label = firstNonBlank(
+            source?.contentDescription,
+            source?.hintText,
+            source?.viewIdResourceName?.substringAfterLast('/'),
+            fallbackLabel,
+            source?.className
+        ).take(MAX_LABEL_LENGTH)
+        val normalized = label.trim()
+        val generic = normalized == "android.view.View" ||
+            normalized == "android.widget.TextView" ||
+            normalized == "屏幕坐标"
+        return normalized
+            .takeIf { it.isNotBlank() && it != input && it != REDACTED_TEXT && !generic }
+            ?: "输入框"
+    }
+
     private data class TimedXmlCapture(
         val xml: String?,
         val durationMs: Long
@@ -2129,6 +2222,9 @@ class ManualVlmTraceRecorder(
     private fun focusedXmlTextAnchorId(target: ManualEventTarget, now: Long): String =
         "$FOCUSED_XML_TEXT_INPUT_BACKEND|$now|${target.stableKey}"
 
+    private fun textEventAnchorId(target: ManualEventTarget, now: Long): String =
+        "$A11Y_TEXT_EVENT_BACKEND|$now|${target.stableKey}"
+
     private fun coordinateHitsIgnoredTarget(xml: String?, x: Float, y: Float): Boolean {
         val packageName = packageNameFromXml(xml)
         val rootArea = parseRootBounds(xml)?.area() ?: Int.MAX_VALUE
@@ -2635,6 +2731,17 @@ class ManualVlmTraceRecorder(
         ).filterValues { it != null }
     }
 
+    private fun unanchoredTextInputEventContextFor(
+        event: AccessibilityEvent,
+        target: ManualEventTarget,
+        sourceSnapshot: AccessibilitySourceSnapshot?
+    ): Map<String, Any?> {
+        return eventContextFor(event, target, sourceSnapshot) + linkedMapOf(
+            "input_anchor_policy" to "text_event_without_anchor",
+            "recording_backend" to A11Y_TEXT_EVENT_BACKEND
+        )
+    }
+
     private fun focusedXmlTextInputEventContextFor(
         target: ManualEventTarget,
         sourceCandidate: XmlNodeCandidate,
@@ -2786,10 +2893,13 @@ class ManualVlmTraceRecorder(
                 "suppressed_non_raw_action_count" to suppressedNonRawActionCount,
                 "records_replayable_actions" to false,
                 "records_text_input_when_touch_anchored" to true,
+                "records_text_input_from_text_changed_without_anchor" to true,
                 "records_post_input_click_when_touch_bypassed" to true,
                 "post_input_click_grace_ms" to POST_INPUT_CLICK_GRACE_MS,
                 "post_input_a11_action_recorded_count" to postInputA11ActionRecordedCount,
                 "post_input_a11_action_suppressed_count" to postInputA11ActionSuppressedCount,
+                "unanchored_text_changed_recorded_count" to unanchoredTextChangedRecordedCount,
+                "unanchored_text_changed_suppressed_count" to unanchoredTextChangedSuppressedCount,
                 "recorded_action_count" to semanticActions
             ),
             "overlay_touch" to linkedMapOf(
@@ -2829,7 +2939,7 @@ class ManualVlmTraceRecorder(
                 "raw_touch_required" to false,
                 "a11_replay_actions_enabled" to false,
                 "a11_text_input_enabled" to true,
-                "a11_text_input_anchor_policy" to "real_touch_or_focused_start",
+                "a11_text_input_anchor_policy" to "text_event_or_touch_anchor",
                 "a11_post_input_click_enabled" to true,
                 "action_count" to recordedActions.size,
                 "overlay_action_count" to overlayActions,
@@ -3028,6 +3138,7 @@ class ManualVlmTraceRecorder(
         private const val OVERLAY_TOUCH_BACKEND = "overlay_touch"
         private const val OVERLAY_TOUCH_TEXT_INPUT_BACKEND = "overlay_touch_text_input"
         private const val A11Y_POST_INPUT_BACKEND = "a11y_post_input"
+        private const val A11Y_TEXT_EVENT_BACKEND = "a11y_text_event"
         private const val SCREEN_ABSOLUTE_COORDINATE_SPACE = "screen_absolute_px"
         private const val SYNTHETIC_REPLAY_EXECUTION_MODE = "synthetic_replay"
         private const val A11Y_ANCHORED_EXECUTION_MODE = "a11y_event_anchored"

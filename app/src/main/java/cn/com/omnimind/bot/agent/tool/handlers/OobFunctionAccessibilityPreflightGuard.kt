@@ -9,7 +9,6 @@ import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
  * runtime permissions are unavailable.
  */
 class OobFunctionAccessibilityPreflightGuard(
-    private val stepClassifier: OobFunctionStepClassifier,
     private val runResultBuilder: OobFunctionRunResultBuilder,
 ) {
     fun failureIfBlocked(
@@ -20,8 +19,7 @@ class OobFunctionAccessibilityPreflightGuard(
         steps: List<Map<String, Any?>>,
     ): Map<String, Any?>? {
         val indexedStep = steps.withIndex().firstOrNull { (_, step) ->
-            !stepClassifier.isSkippedLegacyStep(step) &&
-                OmniflowStepExecutor.requiresAccessibility(step)
+            !isSkippedStep(step) && OmniflowStepExecutor.requiresAccessibility(step)
         } ?: return null
         if (OmniflowActionRuntime.backend.isReady()) return null
 
@@ -56,5 +54,11 @@ class OobFunctionAccessibilityPreflightGuard(
                 )
             )
         )
+    }
+
+    private fun isSkippedStep(step: Map<String, Any?>): Boolean {
+        val tool = step["tool"]?.toString()?.trim().orEmpty()
+        return listOf(tool, OmniflowStepExecutor.actionNameForStep(step))
+            .any { it.isNotBlank() && RunLogReplayPolicy.shouldSkipTool(it) }
     }
 }

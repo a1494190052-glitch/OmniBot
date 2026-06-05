@@ -1,0 +1,601 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>三天核心功能进展说明</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f7f8;
+      --paper: #ffffff;
+      --ink: #12171c;
+      --muted: #5f6d78;
+      --line: #d9e1e6;
+      --dark: #11181f;
+      --dark-muted: #c9d7df;
+      --teal: #0f766e;
+      --teal-soft: #e2f2ef;
+      --blue: #2458b8;
+      --blue-soft: #e6edfb;
+      --amber: #a75d00;
+      --amber-soft: #fff0d2;
+      --rose: #b4234a;
+      --rose-soft: #ffe4eb;
+      --green: #18794e;
+      --green-soft: #e6f4ec;
+      --shadow: 0 22px 58px rgba(18, 23, 28, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+      letter-spacing: 0;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+        "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+      line-height: 1.62;
+    }
+
+    .wrap {
+      width: min(1120px, calc(100% - 40px));
+      margin: 0 auto;
+    }
+
+    header {
+      background: var(--dark);
+      color: #f8fbfc;
+      padding: 52px clamp(20px, 5vw, 72px) 88px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    header::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 10px;
+      background: var(--teal);
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.65fr);
+      gap: clamp(28px, 5vw, 72px);
+      align-items: end;
+      position: relative;
+      z-index: 1;
+    }
+
+    .eyebrow {
+      margin: 0 0 14px;
+      color: #8fd3c8;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 860px;
+      font-size: clamp(36px, 7vw, 78px);
+      line-height: 1.02;
+      font-weight: 900;
+    }
+
+    .lead {
+      max-width: 760px;
+      margin: 22px 0 0;
+      color: var(--dark-muted);
+      font-size: clamp(16px, 2vw, 21px);
+      font-weight: 650;
+    }
+
+    .hero-metrics {
+      display: grid;
+      gap: 1px;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: rgba(255, 255, 255, 0.14);
+    }
+
+    .metric {
+      min-height: 92px;
+      background: rgba(255, 255, 255, 0.055);
+      padding: 17px 18px;
+    }
+
+    .metric span {
+      display: block;
+      color: #91aaa7;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 7px;
+      color: #ffffff;
+      font-size: 20px;
+      line-height: 1.25;
+    }
+
+    main {
+      margin-top: -42px;
+      padding-bottom: 72px;
+      position: relative;
+      z-index: 2;
+    }
+
+    section {
+      margin-top: 22px;
+    }
+
+    .panel {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      padding: clamp(22px, 4vw, 34px);
+    }
+
+    h2 {
+      margin: 0 0 14px;
+      font-size: clamp(25px, 3vw, 38px);
+      line-height: 1.15;
+      font-weight: 900;
+    }
+
+    h3 {
+      margin: 0 0 8px;
+      font-size: 19px;
+      line-height: 1.3;
+    }
+
+    p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .statement {
+      border-left: 5px solid var(--teal);
+      background: #f8fbfa;
+      padding: 18px 20px;
+      font-size: 19px;
+      font-weight: 800;
+      color: #223036;
+    }
+
+    .system-map {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 1px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--line);
+      margin-top: 20px;
+    }
+
+    .step {
+      min-height: 132px;
+      background: #ffffff;
+      padding: 17px;
+    }
+
+    .step b {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--teal);
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .step strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 17px;
+    }
+
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .feature {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfd;
+      padding: 18px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      margin-bottom: 12px;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 850;
+    }
+
+    .tag.teal {
+      background: var(--teal-soft);
+      color: var(--teal);
+    }
+
+    .tag.blue {
+      background: var(--blue-soft);
+      color: var(--blue);
+    }
+
+    .tag.amber {
+      background: var(--amber-soft);
+      color: var(--amber);
+    }
+
+    .tag.rose {
+      background: var(--rose-soft);
+      color: var(--rose);
+    }
+
+    .tag.green {
+      background: var(--green-soft);
+      color: var(--green);
+    }
+
+    .days {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 1px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--line);
+      margin-top: 18px;
+    }
+
+    .day {
+      background: #ffffff;
+      padding: 20px;
+      min-height: 250px;
+    }
+
+    .date {
+      color: var(--teal);
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .day h3 {
+      margin-top: 8px;
+    }
+
+    ul {
+      margin: 14px 0 0;
+      padding-left: 19px;
+      color: var(--muted);
+    }
+
+    li + li {
+      margin-top: 8px;
+    }
+
+    .impact-list {
+      display: grid;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .impact {
+      display: grid;
+      grid-template-columns: 190px 1fr;
+      gap: 16px;
+      border-top: 1px solid var(--line);
+      padding-top: 14px;
+    }
+
+    .impact:first-child {
+      border-top: 0;
+      padding-top: 0;
+    }
+
+    .impact strong {
+      color: #1b2a31;
+    }
+
+    .impact .label {
+      color: var(--teal);
+      font-weight: 900;
+    }
+
+    .bug-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .bug {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ffffff;
+      padding: 16px;
+    }
+
+    .bug strong {
+      display: block;
+      margin-bottom: 7px;
+    }
+
+    .foot {
+      margin-top: 22px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 900px) {
+      .hero,
+      .summary,
+      .feature-grid,
+      .days,
+      .bug-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .system-map {
+        grid-template-columns: 1fr;
+      }
+
+      .impact {
+        grid-template-columns: 1fr;
+        gap: 6px;
+      }
+
+      header {
+        padding-bottom: 74px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap hero">
+      <div>
+        <p class="eyebrow">OmniBot 三天核心功能进展</p>
+        <h1>这三天集中把“会录、会存、会召回、会执行”做得更闭环。</h1>
+        <p class="lead">
+          口径只看功能和使用效果：这三天有几项从 0 到 1 的能力进入链路，包括 MCP 抓状态、VLM 调 Function、Function 结果进 RunLog、可取消 VLM 任务和 typed OmniFlow IR。
+        </p>
+      </div>
+      <div class="hero-metrics" aria-label="核心进展摘要">
+        <div class="metric">
+          <span>时间范围</span>
+          <strong>2026-06-03 至 2026-06-05</strong>
+        </div>
+        <div class="metric">
+          <span>核心链路</span>
+          <strong>学习录制 -> RunLog -> Function -> 召回执行</strong>
+        </div>
+        <div class="metric">
+          <span>主要对象</span>
+          <strong>OOB / OmniFlow / VLM / 手动录制</strong>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="panel">
+      <h2>一句话结论</h2>
+      <div class="summary">
+        <div class="statement">
+          这三天不只是优化体验，而是把几块原来缺失的能力补进了闭环：抓状态、调 Function、记结果、可取消、结构化表达。
+        </div>
+        <p>
+          本轮最核心的变化是：Function 从“已有流程资产”变成 Agent/VLM 可以在任务里直接使用的工具；执行结果不再只停留在内部返回，而是进入 RunLog；OmniFlow 也开始从松散 Map 管线切到 typed IR。
+        </p>
+      </div>
+      <div class="system-map">
+        <div class="step">
+          <b>01</b>
+          <strong>用户操作</strong>
+          <p>用户在真实 App 里点击、输入、滑动，系统记录操作轨迹。</p>
+        </div>
+        <div class="step">
+          <b>02</b>
+          <strong>RunLog 留证</strong>
+          <p>每一步动作、页面状态和函数执行结果进入运行历史。</p>
+        </div>
+        <div class="step">
+          <b>03</b>
+          <strong>沉淀 Function</strong>
+          <p>可复用流程被保存为 Function，而不是一次性命令。</p>
+        </div>
+        <div class="step">
+          <b>04</b>
+          <strong>Agent/VLM 召回</strong>
+          <p>执行新任务时，模型能看到本地已有 Function 候选。</p>
+        </div>
+        <div class="step">
+          <b>05</b>
+          <strong>回放与修复</strong>
+          <p>失败时保留上下文，后续可以定位、更新和继续优化。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>从 0 到 1 的核心功能</h2>
+      <div class="feature-grid">
+        <article class="feature">
+          <span class="tag teal">MCP 状态抓取</span>
+          <h3>新增 get_state：外部 Agent 可以抓当前屏幕状态</h3>
+          <p>
+            这不是单纯优化。之前外部工具链缺少统一的当前页面状态入口，这次新增 MCP get_state capture tool，让调试、回放和外部 Agent 能拿到当前屏幕上下文。
+          </p>
+        </article>
+        <article class="feature">
+          <span class="tag blue">VLM 调 Function</span>
+          <h3>VLM 任务里可以把本地 Function 当工具用</h3>
+          <p>
+            Function 召回进入 Agent/VLM 默认上下文，并统一动态 function tools。使用上从“VLM 只输出点击/输入/滑动”推进到“VLM 可以选择运行已保存 Function”。
+          </p>
+        </article>
+        <article class="feature">
+          <span class="tag amber">RunLog 结果</span>
+          <h3>Function 执行结果开始进入运行历史</h3>
+          <p>
+            VLM function 调用结果写入 RunLog。用户和开发者不只知道任务结束了，还能在时间线里看到 function 是否执行、返回了什么、失败在哪里。
+          </p>
+        </article>
+        <article class="feature">
+          <span class="tag rose">任务控制</span>
+          <h3>新增可取消的 OOB VLM 任务入口</h3>
+          <p>
+            新增 debug receiver 和脚本能力，长时间运行的 OOB VLM 任务可以从命令侧取消。以前这类任务更偏一次性启动，现在有了明确的停止控制。
+          </p>
+        </article>
+        <article class="feature">
+          <span class="tag green">OmniFlow</span>
+          <h3>新增 typed OmniFlow IR</h3>
+          <p>
+            引入 typed step representation 替代松散 Map pipeline。它是后续 Function 编辑、回放、参数绑定和自动修复的结构化基础。
+          </p>
+        </article>
+        <article class="feature">
+          <span class="tag teal">Function 一等入口</span>
+          <h3>功能库替代命令库口径</h3>
+          <p>
+            UI 和工具口径从 command 收敛到 Function，功能库、Function 卡片和执行结果页统一表达“可复用能力”，不是临时命令列表。
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>稳定性和使用体验改进</h2>
+      <div class="feature-grid">
+        <article class="feature">
+          <span class="tag teal">学习模式</span>
+          <h3>手动录制减少漏记和误记</h3>
+          <p>
+            录制动作改成增量保存，并过滤悬浮层包名，减少录制中断丢数据、误把 overlay 当目标 App 的问题。当前还在补文本输入无触摸锚点时的记录能力。
+          </p>
+        </article>
+        <article class="feature">
+          <span class="tag amber">执行回放</span>
+          <h3>Function 执行链路收敛</h3>
+          <p>
+            统一 call_tool / call_function，抽出 GoTo 导航逻辑，并减少 ScreenMask 这类执行遮挡，让回放路径更直接，问题定位更明确。
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>三天节奏</h2>
+      <div class="days">
+        <article class="day">
+          <div class="date">周三 2026-06-03</div>
+          <h3>打通 Function 召回和 VLM 调用</h3>
+          <ul>
+            <li>统一 OOB function 术语和 replay 流程。</li>
+            <li>把 Function 召回接进 Agent/VLM 默认上下文。</li>
+            <li>统一 VLM action schema 和动态 function tools。</li>
+            <li>让 function 结果进入 runlog，便于复盘。</li>
+          </ul>
+        </article>
+        <article class="day">
+          <div class="date">周四 2026-06-04</div>
+          <h3>提升录制和召回稳定性</h3>
+          <ul>
+            <li>手动录制动作增量保存，降低中断丢失风险。</li>
+            <li>录制卡片忽略 overlay 包名，减少目标识别污染。</li>
+            <li>优化 VLM function recall 缓存门禁，减少过期建议。</li>
+            <li>增强录制脚本和 debug receiver。</li>
+          </ul>
+        </article>
+        <article class="day">
+          <div class="date">周五 2026-06-05</div>
+          <h3>收敛回放管线和 UI 展示</h3>
+          <ul>
+            <li>整合 OOB function replay 改进。</li>
+            <li>统一 call_tool / call_function，抽出 GoToNavigator。</li>
+            <li>引入 typed OmniFlow IR，收敛更新管线。</li>
+            <li>整理 function library 和 runlog timeline。</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>从使用上看，用户会感受到什么</h2>
+      <div class="impact-list">
+        <div class="impact">
+          <div class="label">学习一次</div>
+          <p><strong>学习结果进入 Function 体系。</strong> 录制过程不再只依赖最后一次完整落盘，异常中断时丢失风险更低。</p>
+        </div>
+        <div class="impact">
+          <div class="label">执行任务</div>
+          <p><strong>Agent/VLM 可以直接调用已有 Function。</strong> 已学习流程会进入默认候选，任务执行从单步操作扩展到可复用流程调用。</p>
+        </div>
+        <div class="impact">
+          <div class="label">看执行历史</div>
+          <p><strong>Function 调用结果进入 RunLog。</strong> 时间线里能看到函数执行、失败步骤和页面状态，复盘不再只靠猜。</p>
+        </div>
+        <div class="impact">
+          <div class="label">修失败流程</div>
+          <p><strong>OmniFlow 有了结构化 IR 基础。</strong> 后续自动修复、参数绑定和流程增强可以基于明确 step 类型推进。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>本轮修掉或缓解的问题</h2>
+      <div class="bug-grid">
+        <div class="bug">
+          <strong>Function 执行分发错误</strong>
+          <p>修复 OOB function run dispatch，避免工具调用路径不一致导致执行失败。</p>
+        </div>
+        <div class="bug">
+          <strong>VLM tool call 解析不稳</strong>
+          <p>补了文本形式 tool call 的 fallback，降低模型输出格式波动带来的失败。</p>
+        </div>
+        <div class="bug">
+          <strong>录制动作丢失</strong>
+          <p>动作增量持久化后，录制中断、脚本停止时更不容易全部丢失。</p>
+        </div>
+        <div class="bug">
+          <strong>overlay 污染录制目标</strong>
+          <p>录制卡片忽略 overlay 包，避免学习结果指向悬浮层而不是目标 App。</p>
+        </div>
+        <div class="bug">
+          <strong>召回缓存不够谨慎</strong>
+          <p>优化 VLM function recall cache gate，减少拿到过期或不匹配 Function。</p>
+        </div>
+        <div class="bug">
+          <strong>执行遮挡和跳转耦合</strong>
+          <p>去掉部分 ScreenMask 干扰，并把 GoTo 导航拆出来，降低回放跑偏和遮挡影响。</p>
+        </div>
+      </div>
+      <p class="foot">
+        数据来源：本地 2026-06-03、2026-06-04、2026-06-05 提交记录；另包含当前工作区中手动录制文本输入策略的未提交进展。
+      </p>
+    </section>
+  </main>
+</body>
+</html>
