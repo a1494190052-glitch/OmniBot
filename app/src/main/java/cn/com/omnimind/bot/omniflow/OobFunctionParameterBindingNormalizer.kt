@@ -59,6 +59,7 @@ object OobFunctionParameterBindingNormalizer {
             val parameter = mutableMapArg(raw)
             val name = parameter["name"]?.toString()?.trim().orEmpty()
             if (name.isEmpty()) return@map parameter
+            if (!isPublicParameterName(name)) return@map null
 
             val existing = bindingList(parameter["bindings"])
             val inferred = if (existing.isEmpty()) inferBindingsForName(name, spec, steps) else emptyList()
@@ -71,7 +72,7 @@ object OobFunctionParameterBindingNormalizer {
                 changes += changeEntry(name, inferred, "legacy_parameter_name")
             }
             parameter
-        }
+        }.filterNotNull()
         spec["parameters"] = normalized
     }
 
@@ -88,6 +89,7 @@ object OobFunctionParameterBindingNormalizer {
             val name = rawName?.toString()?.trim().orEmpty()
             if (name.isEmpty()) return@forEach
             val property = mutableMapArg(rawProperty)
+            if (!isPublicParameterName(name)) return@forEach
             val existing = (
                 bindingList(property["x_oob_bindings"]) +
                     bindingList(property["x-oob-bindings"]) +
@@ -106,6 +108,11 @@ object OobFunctionParameterBindingNormalizer {
         }
         @Suppress("UNCHECKED_CAST")
         (schema as MutableMap<String, Any?>)["properties"] = normalizedProperties
+        val normalizedRequired = OobFunctionJson.listArg(schema["required"])
+            .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
+            .filter(::isPublicParameterName)
+            .filter { it in normalizedProperties.keys }
+        schema["required"] = normalizedRequired
     }
 
     private fun syncMetadataBindings(
@@ -120,6 +127,7 @@ object OobFunctionParameterBindingNormalizer {
             val entry = OobFunctionJson.mapArg(raw)
             val name = OobFunctionJson.firstNonBlank(entry["name"], entry["parameter"])
             if (name.isEmpty()) return@forEach
+            if (!isPublicParameterName(name)) return@forEach
             val bindings = (
                 bindingList(entry["bindings"]) +
                     listOfNotNull(entry["binding"]?.toString()?.trim()?.takeIf(String::isNotEmpty))
@@ -129,6 +137,7 @@ object OobFunctionParameterBindingNormalizer {
             }
         }
         parameterBindings.forEach { (name, bindings) ->
+            if (!isPublicParameterName(name)) return@forEach
             if (bindings.isNotEmpty()) byName.getOrPut(name) { linkedSetOf() }.addAll(bindings)
         }
         if (byName.isNotEmpty()) {
@@ -156,6 +165,7 @@ object OobFunctionParameterBindingNormalizer {
         spec: Map<String, Any?>,
         steps: List<Map<String, Any?>>,
     ): List<String> {
+        if (!isPublicParameterName(name)) return emptyList()
         val explicitInputTextIndex = stepIndexFromInputTextName(name, steps)
         if (explicitInputTextIndex != null) {
             return inputTextBindingsForStep(name, spec, steps, explicitInputTextIndex)
@@ -278,6 +288,9 @@ object OobFunctionParameterBindingNormalizer {
         return key in BLOCKED_BINDING_KEYS
     }
 
+    private fun isPublicParameterName(name: String): Boolean =
+        normalizeBindingName(name) !in INTERNAL_PARAMETER_NAMES
+
     private fun jsonPathSuffix(path: List<String>): String? {
         if (path.isEmpty()) return null
         val parts = mutableListOf<String>()
@@ -372,5 +385,25 @@ object OobFunctionParameterBindingNormalizer {
         "position",
         "coordinate",
         "coordinates",
+    )
+    private val INTERNAL_PARAMETER_NAMES = setOf(
+        "package_name",
+        "package",
+        "target_description",
+        "target",
+        "selector",
+        "node_id",
+        "node_resource_id",
+        "element_index",
+        "scrollable_index",
+        "x",
+        "y",
+        "x1",
+        "y1",
+        "x2",
+        "y2",
+        "bounds",
+        "clear",
+        "duration_ms",
     )
 }

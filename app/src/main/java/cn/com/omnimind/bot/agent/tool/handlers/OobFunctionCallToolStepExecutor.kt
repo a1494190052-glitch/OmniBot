@@ -114,7 +114,7 @@ class OobFunctionCallToolStepExecutor(
                     },
                     stepTitle
                 ),
-                summary = "call_tool requires agent runner: $stepTitle",
+                summary = "call_tool requires VLM continuation: $stepTitle",
             )
         }
         return failureStepResult(

@@ -141,98 +141,18 @@ class AccessibilityController() {
             nodeResourceId: String = "",
         ) {
             checkAccessibilityPermissions()
-            val errors = mutableListOf<String>()
-
-            // Try direct node focus before any click. The editable node is visible in
-            // the main window before the keyboard opens; once a click triggers the IME,
-            // the node migrates to the IME window and disappears from getNodeMap().
-            val preClickNode = withTimeout(INPUT_TARGET_LOOKUP_TIMEOUT_MS) {
+            val node = withTimeout(INPUT_TARGET_LOOKUP_TIMEOUT_MS) {
                 findEditableInputCandidate(
                     targetDescription = targetDescription,
                     nodeResourceId = nodeResourceId,
                     x = x,
                     y = y,
                 )
-            }
-            if (preClickNode != null) {
-                runCatching {
-                    inputTextIntoNode(preClickNode, text)
-                }.onSuccess {
-                    return
-                }.onFailure { error ->
-                    errors += "pre_click_direct_input_failed=${error.message.orEmpty()}"
-                }
-            }
-
-            if (x != null && y != null) {
-                val clicked = runCatching {
-                    clickCoordinate(x, y)
-                    delay(INPUT_FOCUS_SETTLE_MS)
-                }.onFailure { error ->
-                    errors += "coordinate_focus_failed=${error.message.orEmpty()}"
-                }.isSuccess
-
-                if (clicked) {
-                    runCatching {
-                        inputTextToFocusedNode(text)
-                    }.onSuccess {
-                        return
-                    }.onFailure { error ->
-                        errors += "focused_input_after_click_failed=${error.message.orEmpty()}"
-                    }
-
-                    val postClickNode = withTimeout(INPUT_TARGET_LOOKUP_TIMEOUT_MS) {
-                        findEditableInputCandidate(
-                            targetDescription = targetDescription,
-                            nodeResourceId = nodeResourceId,
-                            x = x,
-                            y = y
-                        )
-                    }
-                    if (postClickNode != null) {
-                        runCatching {
-                            inputTextIntoNode(postClickNode, text)
-                        }.onSuccess {
-                            return
-                        }.onFailure { error ->
-                            errors += "candidate_input_after_click_failed=${error.message.orEmpty()}"
-                        }
-                    } else {
-                        errors += "candidate_after_click_missing"
-                    }
-                }
-            }
-
-            val directNode = withTimeout(INPUT_TARGET_LOOKUP_TIMEOUT_MS) {
-                findEditableInputCandidate(
-                    targetDescription = targetDescription,
-                    nodeResourceId = nodeResourceId,
-                    x = x,
-                    y = y
-                )
-            }
-            if (directNode != null) {
-                runCatching {
-                    inputTextIntoNode(directNode, text)
-                }.onSuccess {
-                    return
-                }.onFailure { error ->
-                    errors += "direct_candidate_input_failed=${error.message.orEmpty()}"
-                }
-            }
-
-            if (targetDescription.isBlank() && nodeResourceId.isBlank() && x == null && y == null) {
-                inputTextToFocusedNode(text)
-                return
-            }
-            throw NoFocusedNodeException(
-                "No editable input target found for replay text action: " +
-                    targetDescription.ifBlank { nodeResourceId.ifBlank { "x=$x y=$y" } } +
-                    errors.takeIf { it.isNotEmpty() }?.joinToString(
-                        prefix = " (",
-                        postfix = ")"
-                    ).orEmpty()
+            } ?: throw NoFocusedNodeException(
+                "No editable input target found: " +
+                    targetDescription.ifBlank { nodeResourceId.ifBlank { "x=$x y=$y" } }
             )
+            inputTextIntoNode(node, text)
         }
 
         suspend fun pressHotKey(key: String) {
@@ -682,6 +602,7 @@ class AccessibilityController() {
                     ) ?: return@mapNotNull null
                     val bounds = clickableNode.boundsInScreenOrNull() ?: node.bounds
                     if (bounds.isEmpty || !bounds.contains(px, py)) return@mapNotNull null
+                    if (!isSafeCoordinateNodeClickTarget(clickableNode, bounds)) return@mapNotNull null
                     CoordinateClickCandidate(
                         node = clickableNode,
                         area = bounds.width().coerceAtLeast(1) * bounds.height().coerceAtLeast(1)
@@ -793,6 +714,18 @@ class AccessibilityController() {
             return null
         }
 
+        private fun isSafeCoordinateNodeClickTarget(
+            node: AccessibilityNodeInfo,
+            bounds: Rect
+        ): Boolean {
+            val className = node.className?.toString().orEmpty().lowercase()
+            if (UNSAFE_COORDINATE_NODE_CLICK_CLASSES.any { className.contains(it) }) {
+                return false
+            }
+            val area = bounds.width().coerceAtLeast(1) * bounds.height().coerceAtLeast(1)
+            return area <= MAX_SAFE_COORDINATE_NODE_CLICK_AREA_PX
+        }
+
         private fun hasSliderSignal(
             node: AccessibilityNodeInfo,
             targetTerms: Set<String>
@@ -843,19 +776,15 @@ class AccessibilityController() {
 
         //
         suspend fun goHome() {
-            if (actionController == null) {
-                OmniLog.w(TAG, "goHome: actionController is null, skip")
-                return
-            }
-            try {
-                actionController?.goHome()
-            } catch (e: Exception) {
-                OmniLog.e(TAG, "goHome failed: ${e.message}", e)
-            }
+            val controller = actionController
+                ?: throw IllegalStateException("Accessibility action controller is not ready")
+            controller.goHome()
         }
 
         suspend fun goBack() {
-            actionController?.goBack()
+            val controller = actionController
+                ?: throw IllegalStateException("Accessibility action controller is not ready")
+            controller.goBack()
         }
 
         fun getPackageName(): String? {
@@ -1236,8 +1165,17 @@ class AccessibilityController() {
         private const val MIN_SCROLLABLE_WIDTH_PX = 120
         private const val MIN_SCROLLABLE_HEIGHT_PX = 160
         private const val MAX_NODE_ACTION_ANCESTOR_DEPTH = 6
+        private const val MAX_SAFE_COORDINATE_NODE_CLICK_AREA_PX = 300_000
         private const val MIN_INPUT_TARGET_SCORE = 80f
         private const val INPUT_TARGET_LOOKUP_TIMEOUT_MS = 3000L
         private const val INPUT_FOCUS_SETTLE_MS = 500L
+        private val UNSAFE_COORDINATE_NODE_CLICK_CLASSES = setOf(
+            "webview",
+            "recyclerview",
+            "listview",
+            "gridview",
+            "scrollview",
+            "viewpager"
+        )
     }
 }

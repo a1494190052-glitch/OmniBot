@@ -387,6 +387,17 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
         ),
       ),
       Tooltip(
+        message: _text(context, '查看调试信息', 'View debug info'),
+        child: IconButton(
+          key: const ValueKey('run-log-action-debug'),
+          icon: const Icon(Icons.data_object_rounded),
+          color: palette.textPrimary,
+          onPressed: _payload.isEmpty && _cards.isEmpty
+              ? null
+              : _showRunLogDebugSheet,
+        ),
+      ),
+      Tooltip(
         message: _text(context, '复制全部文本', 'Copy all text'),
         child: IconButton(
           key: const ValueKey('run-log-action-copy'),
@@ -872,6 +883,21 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
         title: widget.title,
         payload: _payload,
         baseUrl: widget.baseUrl,
+      ),
+    );
+  }
+
+  Future<void> _showRunLogDebugSheet() {
+    return showModalBottomSheet<void>(
+      context: context,
+      useRootNavigator: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.28),
+      builder: (sheetContext) => _RunLogDebugSheet(
+        runId: widget.runId,
+        payload: _payload,
+        cards: _cards,
       ),
     );
   }
@@ -1549,6 +1575,203 @@ class _RunLogTimelineSheetHeader extends StatelessWidget {
           ),
           ...actions,
         ],
+      ),
+    );
+  }
+}
+
+class _RunLogDebugSheet extends StatelessWidget {
+  const _RunLogDebugSheet({
+    required this.runId,
+    required this.payload,
+    required this.cards,
+  });
+
+  final String runId;
+  final Map<String, dynamic> payload;
+  final List<Map<String, dynamic>> cards;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    final thinkingEntries = _collectRunLogThinkingEntries(payload, cards);
+    final rawJson = <String, dynamic>{
+      'run_id': runId,
+      'payload': payload,
+      'cards': cards,
+    };
+    final copyValue = _prettyJson(rawJson);
+    return DraggableScrollableSheet(
+      initialChildSize: 0.72,
+      minChildSize: 0.42,
+      maxChildSize: 0.94,
+      expand: false,
+      builder: (sheetContext, controller) {
+        return Material(
+          color: Colors.transparent,
+          child: Container(
+            decoration: BoxDecoration(
+              color: palette.pageBackground,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(18),
+              ),
+              border: Border(top: BorderSide(color: palette.borderSubtle)),
+            ),
+            child: Column(
+              children: [
+                const SizedBox(height: 10),
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: palette.borderSubtle,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 8, 10),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _text(context, 'RunLog 调试信息', 'RunLog debug info'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: palette.textPrimary,
+                          ),
+                        ),
+                      ),
+                      Tooltip(
+                        message: _text(context, '复制全部 JSON', 'Copy all JSON'),
+                        child: IconButton(
+                          icon: const Icon(Icons.content_copy_rounded),
+                          color: palette.textSecondary,
+                          onPressed: () {
+                            Clipboard.setData(ClipboardData(text: copyValue));
+                            showToast(
+                              _text(context, '已复制 JSON', 'JSON copied'),
+                              type: ToastType.success,
+                            );
+                          },
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close_rounded),
+                        color: palette.textSecondary,
+                        onPressed: () => Navigator.of(context).maybePop(),
+                      ),
+                    ],
+                  ),
+                ),
+                Divider(height: 1, color: palette.borderSubtle),
+                Expanded(
+                  child: SingleChildScrollView(
+                    controller: controller,
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _CollapsibleSection(
+                          title: _text(context, '思考过程', 'Reasoning'),
+                          copyValue: thinkingEntries
+                              .map((entry) => '${entry.path}\n${entry.text}')
+                              .join('\n\n'),
+                          initiallyExpanded: true,
+                          child: thinkingEntries.isEmpty
+                              ? _EmptyDebugText(
+                                  text: _text(
+                                    context,
+                                    '当前 RunLog 没有记录 thinking/reasoning 字段。',
+                                    'No thinking/reasoning fields were recorded in this RunLog.',
+                                  ),
+                                )
+                              : Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: thinkingEntries
+                                      .map(
+                                        (entry) => Padding(
+                                          padding: const EdgeInsets.only(
+                                            bottom: 10,
+                                          ),
+                                          child: _ThinkingDebugEntryView(
+                                            entry: entry,
+                                          ),
+                                        ),
+                                      )
+                                      .toList(growable: false),
+                                ),
+                        ),
+                        const SizedBox(height: 10),
+                        _CollapsibleSection(
+                          title: _text(context, '实际返回 JSON', 'Raw JSON'),
+                          copyValue: copyValue,
+                          initiallyExpanded: true,
+                          child: _JsonBlock(value: rawJson),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ThinkingDebugEntry {
+  const _ThinkingDebugEntry({required this.path, required this.text});
+
+  final String path;
+  final String text;
+}
+
+class _ThinkingDebugEntryView extends StatelessWidget {
+  const _ThinkingDebugEntryView({required this.entry});
+
+  final _ThinkingDebugEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          entry.path,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: palette.textSecondary,
+            fontFamily: 'monospace',
+          ),
+        ),
+        const SizedBox(height: 5),
+        _JsonText(text: entry.text),
+      ],
+    );
+  }
+}
+
+class _EmptyDebugText extends StatelessWidget {
+  const _EmptyDebugText({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    return Text(
+      text,
+      style: TextStyle(
+        fontSize: 12,
+        color: palette.textSecondary,
+        height: 1.35,
       ),
     );
   }
@@ -3612,7 +3835,11 @@ class _ReusableFunctionSpecSheetState
 
   Future<void> _publishFunctionForAgent() async {
     await _registerFunction(
-      successMessage: _text(context, '已注册为复用指令', 'Reusable Function registered'),
+      successMessage: _text(
+        context,
+        '已注册为复用指令',
+        'Reusable Function registered',
+      ),
       agentVisible: true,
       allowWhileEnhancing: true,
     );
@@ -4121,11 +4348,7 @@ class _ReusableFunctionStepSummary {
     normalized.putIfAbsent('step_id', () => raw['id'] ?? 'step_${index + 1}');
     normalized.putIfAbsent(
       'summary',
-      () => _firstNonBlank([
-        raw['summary'],
-        raw['title'],
-        raw['tool'],
-      ]),
+      () => _firstNonBlank([raw['summary'], raw['title'], raw['tool']]),
     );
     return _ReusableFunctionStepSummary(
       index: index,
@@ -6267,6 +6490,93 @@ String _promptTextFromValue(dynamic raw) {
 
 String _normalizePromptKey(String key) {
   return key.replaceAll(RegExp(r'[^A-Za-z0-9]+'), '').toLowerCase().trim();
+}
+
+List<_ThinkingDebugEntry> _collectRunLogThinkingEntries(
+  Map<String, dynamic> payload,
+  List<Map<String, dynamic>> cards,
+) {
+  final entries = <_ThinkingDebugEntry>[];
+  final visited = <Object>{};
+  _collectThinkingEntriesFromValue(
+    payload,
+    path: 'payload',
+    entries: entries,
+    visited: visited,
+  );
+  for (var index = 0; index < cards.length; index++) {
+    _collectThinkingEntriesFromValue(
+      cards[index],
+      path: 'cards[$index]',
+      entries: entries,
+      visited: visited,
+    );
+  }
+  return entries;
+}
+
+void _collectThinkingEntriesFromValue(
+  dynamic raw, {
+  required String path,
+  required List<_ThinkingDebugEntry> entries,
+  required Set<Object> visited,
+}) {
+  final value = _decodeJsonIfNeeded(raw);
+  if (value is Map) {
+    if (!visited.add(value)) return;
+    final map = value.map((key, item) => MapEntry(key.toString(), item));
+    for (final entry in map.entries) {
+      final key = entry.key.trim();
+      if (_isThinkingDebugKey(key)) {
+        final text = _debugTextFromValue(entry.value);
+        if (text.isNotEmpty) {
+          entries.add(_ThinkingDebugEntry(path: '$path.$key', text: text));
+        }
+      }
+      _collectThinkingEntriesFromValue(
+        entry.value,
+        path: '$path.$key',
+        entries: entries,
+        visited: visited,
+      );
+    }
+    return;
+  }
+  if (value is Iterable) {
+    var index = 0;
+    for (final item in value) {
+      _collectThinkingEntriesFromValue(
+        item,
+        path: '$path[$index]',
+        entries: entries,
+        visited: visited,
+      );
+      index++;
+    }
+  }
+}
+
+bool _isThinkingDebugKey(String key) {
+  final normalized = key
+      .replaceAll(RegExp(r'[^A-Za-z0-9]+'), '')
+      .toLowerCase()
+      .trim();
+  return normalized == 'thinking' ||
+      normalized == 'thinkingcontent' ||
+      normalized == 'deepthinking' ||
+      normalized == 'deepthinkingcontent' ||
+      normalized == 'reasoning' ||
+      normalized == 'reasoningcontent' ||
+      normalized == 'modelreasoning' ||
+      normalized == 'assistantreasoning';
+}
+
+String _debugTextFromValue(dynamic raw) {
+  final value = _decodeJsonIfNeeded(raw);
+  if (value == null) return '';
+  if (value is String) return value.trim();
+  if (value is num || value is bool) return value.toString();
+  return _prettyJson(value).trim();
 }
 
 void _appendTranscriptSection(List<String> lines, String title, dynamic value) {

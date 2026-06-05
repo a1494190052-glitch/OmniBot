@@ -43,8 +43,8 @@
         {"name": "element_index", "type": "integer", "description": {"zh_cn": "优先填写。OOB indexed page evidence 中目标元素的 #index；提供后系统会用 live XML 中该元素中心覆盖坐标。", "en_us": "Prefer this. The #index of the target element in OOB indexed page evidence; when provided, the runtime uses that live XML element center over raw coordinates."}, "minimum": 0},
         {"name": "node_id", "type": "string", "description": {"zh_cn": "可选。live XML 中已确认的无障碍节点 id。", "en_us": "Optional. Confirmed accessibility node id from live XML."}},
         {"name": "node_resource_id", "type": "string", "description": {"zh_cn": "可选。录制或 XML grounding 得到的 Android resource-id，用于重放定位诊断和迁移。", "en_us": "Optional. Android resource-id captured from recording or XML grounding, used for replay targeting diagnostics and transfer."}},
-        {"name": "x", "type": "number", "required": true, "description": {"zh_cn": "兜底点击位置的 X 坐标。", "en_us": "Fallback X coordinate of the tap target."}, "minimum": 0, "maximum": 1000},
-        {"name": "y", "type": "number", "required": true, "description": {"zh_cn": "兜底点击位置的 Y 坐标。", "en_us": "Fallback Y coordinate of the tap target."}, "minimum": 0, "maximum": 1000}
+        {"name": "x", "type": "number", "required": true, "description": {"zh_cn": "兜底点击位置的屏幕绝对像素 X 坐标。", "en_us": "Fallback absolute screen-pixel X coordinate of the tap target."}, "minimum": 0},
+        {"name": "y", "type": "number", "required": true, "description": {"zh_cn": "兜底点击位置的屏幕绝对像素 Y 坐标。", "en_us": "Fallback absolute screen-pixel Y coordinate of the tap target."}, "minimum": 0}
       ]
     },
     {
@@ -63,8 +63,8 @@
         {"name": "element_index", "type": "integer", "description": {"zh_cn": "优先填写。OOB indexed page evidence 中目标元素的 #index；提供后系统会用 live XML 中该元素中心覆盖坐标。", "en_us": "Prefer this. The #index of the target element in OOB indexed page evidence; when provided, the runtime uses that live XML element center over raw coordinates."}, "minimum": 0},
         {"name": "node_id", "type": "string", "description": {"zh_cn": "可选。live XML 中已确认的无障碍节点 id。", "en_us": "Optional. Confirmed accessibility node id from live XML."}},
         {"name": "node_resource_id", "type": "string", "description": {"zh_cn": "可选。录制或 XML grounding 得到的 Android resource-id，用于重放定位诊断和迁移。", "en_us": "Optional. Android resource-id captured from recording or XML grounding, used for replay targeting diagnostics and transfer."}},
-        {"name": "x", "type": "number", "required": true, "description": {"zh_cn": "长按位置的 X 坐标。", "en_us": "X coordinate of the long press."}, "minimum": 0, "maximum": 1000},
-        {"name": "y", "type": "number", "required": true, "description": {"zh_cn": "长按位置的 Y 坐标。", "en_us": "Y coordinate of the long press."}, "minimum": 0, "maximum": 1000},
+        {"name": "x", "type": "number", "required": true, "description": {"zh_cn": "长按位置的屏幕绝对像素 X 坐标。", "en_us": "Absolute screen-pixel X coordinate of the long press."}, "minimum": 0},
+        {"name": "y", "type": "number", "required": true, "description": {"zh_cn": "长按位置的屏幕绝对像素 Y 坐标。", "en_us": "Absolute screen-pixel Y coordinate of the long press."}, "minimum": 0},
         {"name": "duration_ms", "type": "integer", "description": {"zh_cn": "长按时长，单位毫秒。", "en_us": "Long-press duration in milliseconds."}, "minimum": 0}
       ]
     },
@@ -87,8 +87,8 @@
         {"name": "element_index", "type": "integer", "description": {"zh_cn": "优先填写。OOB indexed page evidence 中目标输入框的 #index；提供后系统会用 live XML 中该元素中心覆盖坐标。", "en_us": "Prefer this. The #index of the target input field in OOB indexed page evidence; when provided, the runtime uses that live XML element center over raw coordinates."}, "minimum": 0},
         {"name": "node_id", "type": "string", "description": {"zh_cn": "可选。live XML 中已确认的无障碍节点 id。", "en_us": "Optional. Confirmed accessibility node id from live XML."}},
         {"name": "node_resource_id", "type": "string", "description": {"zh_cn": "可选。录制或 XML grounding 得到的 Android resource-id，用于重放定位诊断和迁移。", "en_us": "Optional. Android resource-id captured from recording or XML grounding, used for replay targeting diagnostics and transfer."}},
-        {"name": "x", "type": "number", "required": true, "description": {"zh_cn": "兜底目标输入框中心的 X 坐标。", "en_us": "Fallback X coordinate of the input target center."}, "minimum": 0, "maximum": 1000},
-        {"name": "y", "type": "number", "required": true, "description": {"zh_cn": "兜底目标输入框中心的 Y 坐标。", "en_us": "Fallback Y coordinate of the input target center."}, "minimum": 0, "maximum": 1000}
+        {"name": "x", "type": "number", "required": true, "description": {"zh_cn": "兜底目标输入框中心的屏幕绝对像素 X 坐标。", "en_us": "Fallback absolute screen-pixel X coordinate of the input target center."}, "minimum": 0},
+        {"name": "y", "type": "number", "required": true, "description": {"zh_cn": "兜底目标输入框中心的屏幕绝对像素 Y 坐标。", "en_us": "Fallback absolute screen-pixel Y coordinate of the input target center."}, "minimum": 0}
       ]
     },
     {
@@ -105,10 +105,10 @@
         {"name": "target_description", "type": "string", "required": true, "description": {"zh_cn": "本次滚动想浏览或定位的目标描述。", "en_us": "Description of what this scroll action is trying to browse or locate."}},
         {"name": "scrollable_index", "type": "integer", "description": {"zh_cn": "可选。OOB indexed page evidence 中 Scrollable regions 的 Sindex；提供后系统会在该区域内生成安全滑动坐标。", "en_us": "Optional. The Sindex of the target Scrollable region in OOB indexed page evidence; when provided, the runtime generates safe swipe coordinates inside that region."}, "minimum": 0},
         {"name": "direction", "type": "string", "description": {"zh_cn": "配合 scrollable_index 使用的浏览方向。", "en_us": "Browsing direction used with scrollable_index."}, "enum_values": ["up", "down", "left", "right"]},
-        {"name": "x1", "type": "number", "required": true, "description": {"zh_cn": "起点 X 坐标。", "en_us": "Start X coordinate."}, "minimum": 0, "maximum": 1000},
-        {"name": "y1", "type": "number", "required": true, "description": {"zh_cn": "起点 Y 坐标。", "en_us": "Start Y coordinate."}, "minimum": 0, "maximum": 1000},
-        {"name": "x2", "type": "number", "required": true, "description": {"zh_cn": "终点 X 坐标。", "en_us": "End X coordinate."}, "minimum": 0, "maximum": 1000},
-        {"name": "y2", "type": "number", "required": true, "description": {"zh_cn": "终点 Y 坐标。", "en_us": "End Y coordinate."}, "minimum": 0, "maximum": 1000},
+        {"name": "x1", "type": "number", "required": true, "description": {"zh_cn": "起点屏幕绝对像素 X 坐标。", "en_us": "Start absolute screen-pixel X coordinate."}, "minimum": 0},
+        {"name": "y1", "type": "number", "required": true, "description": {"zh_cn": "起点屏幕绝对像素 Y 坐标。", "en_us": "Start absolute screen-pixel Y coordinate."}, "minimum": 0},
+        {"name": "x2", "type": "number", "required": true, "description": {"zh_cn": "终点屏幕绝对像素 X 坐标。", "en_us": "End absolute screen-pixel X coordinate."}, "minimum": 0},
+        {"name": "y2", "type": "number", "required": true, "description": {"zh_cn": "终点屏幕绝对像素 Y 坐标。", "en_us": "End absolute screen-pixel Y coordinate."}, "minimum": 0},
         {"name": "duration_ms", "type": "integer", "description": {"zh_cn": "滑动时长，单位毫秒。", "en_us": "Swipe duration in milliseconds."}, "minimum": 0}
       ]
     },

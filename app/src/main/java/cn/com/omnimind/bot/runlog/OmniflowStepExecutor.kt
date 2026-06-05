@@ -44,6 +44,7 @@ object OmniflowStepExecutor {
         val args: Map<String, Any?>,
     )
 
+
     class CheckerTriggerBudget {
         private val triggerCounts = linkedMapOf<String, Int>()
 
@@ -77,6 +78,87 @@ object OmniflowStepExecutor {
 
     suspend fun currentPageSnapshotForRecovery(reason: String? = null): Map<String, Any?> =
         recoverySnapshotMap(readBackendSnapshot(), reason)
+
+    suspend fun runPageGuardOnce(
+        execute: Boolean = true,
+        source: String = "page_guard",
+        checkerBudget: CheckerTriggerBudget = CheckerTriggerBudget(),
+        conditions: Set<String> = DEFAULT_PAGE_GUARD_CONDITIONS,
+    ): Map<String, Any?> {
+        val capturedAtMs = System.currentTimeMillis()
+        if (!OmniflowActionRuntime.backend.isReady()) {
+            return pageGuardBaseResult(
+                source = source,
+                execute = execute,
+                capturedAtMs = capturedAtMs,
+                snapshot = null,
+            ) + mapOf(
+                "matched" to false,
+                "reason" to "backend_not_ready",
+            )
+        }
+
+        val snapshot = readBackendSnapshot()
+        val base = pageGuardBaseResult(
+            source = source,
+            execute = execute,
+            capturedAtMs = capturedAtMs,
+            snapshot = snapshot,
+        )
+        val effectivePackage = snapshot.effectivePackage()
+        if (effectivePackage.startsWith("cn.com.omnimind")) {
+            return base + mapOf(
+                "matched" to false,
+                "reason" to "oob_self_package",
+            )
+        }
+
+        val page = parsePageModel(snapshot.xml)
+            ?: return base + mapOf(
+                "matched" to false,
+                "reason" to "page_model_unavailable",
+            )
+
+        for (condition in PAGE_GUARD_CONDITION_ORDER.filter { it in conditions }) {
+            val rule = pageGuardRule(condition)
+            if (!rule.enabled) continue
+            val candidate = pageGuardCandidate(condition, page) ?: continue
+            val result = linkedMapOf<String, Any?>(
+                "matched" to true,
+                "executed" to false,
+                "condition" to condition,
+                "action" to OmniflowCheckerRule.ACTION_DISMISS,
+                "controller" to rule.id,
+                "x" to candidate.centerX,
+                "y" to candidate.centerY,
+                "button_text" to nodeLabelText(candidate).takeIf { it.isNotBlank() },
+                "target_element" to summarizeNode(candidate),
+            ).filterValues { it != null }
+
+            if (!execute) {
+                return base + result + mapOf("reason" to "dry_run")
+            }
+            if (!checkerBudget.canTrigger(rule)) {
+                return base + result + mapOf("reason" to "trigger_budget_exhausted")
+            }
+
+            OmniflowActionRuntime.backend.click(candidate.centerX, candidate.centerY)
+            delay(PRE_ACTION_CONTROL_DELAY_MS)
+            val trigger = checkerBudget.recordTrigger(rule)
+            return base + result + mapOf(
+                "executed" to true,
+                "effect" to "run_actions",
+                "trigger_count" to trigger.count,
+                "trigger_limit" to trigger.limit,
+                "trigger_remaining" to trigger.remaining,
+            )
+        }
+
+        return base + mapOf(
+            "matched" to false,
+            "reason" to "no_guard_candidate",
+        )
+    }
 
     fun isOmniflowStep(step: Map<String, Any?>): Boolean {
         val executor = step["executor"]?.toString()?.trim()?.lowercase().orEmpty()
@@ -314,6 +396,9 @@ object OmniflowStepExecutor {
                 else -> throw IllegalArgumentException("Unsupported omniflow action: $action")
             }
         }
+        if (action != OobActionCodec.ACTION_FINISHED) {
+            delay(1000L)
+        }
         val postActionControls = timing.measure("checker_ms") {
             val hasPostActionRules = checkerRules.any {
                 it.phase == OmniflowCheckerRule.PHASE_POST_ACTION && it.enabled
@@ -331,9 +416,6 @@ object OmniflowStepExecutor {
             }
         }
         val controlEffects = preTransferControls + preActionControls + postActionControls
-        timing.measureOverhead("settle_ms") {
-            delay(POST_STEP_DELAY_MS)
-        }
         val checker = timing.measureOverhead("result_summary_ms") {
             replayCheckerSummary(
                 action = action,
@@ -587,6 +669,7 @@ object OmniflowStepExecutor {
         }
     }
 
+
     private fun remapStepArgsForState(
         step: Map<String, Any?>,
         state: ReplayState,
@@ -744,6 +827,51 @@ object OmniflowStepExecutor {
             beforeActionCheckerSummary(action, transfer, controlEffects)
         }
     }
+
+    val DEFAULT_PAGE_GUARD_CONDITIONS: Set<String> = setOf(
+        OmniflowCheckerRule.COND_AD_BLOCKING,
+        OmniflowCheckerRule.COND_APP_UPGRADE_PROMPT,
+        OmniflowCheckerRule.COND_OVERLAY_BLOCKING,
+    )
+
+    private val PAGE_GUARD_CONDITION_ORDER: List<String> = listOf(
+        OmniflowCheckerRule.COND_AD_BLOCKING,
+        OmniflowCheckerRule.COND_APP_UPGRADE_PROMPT,
+        OmniflowCheckerRule.COND_OVERLAY_BLOCKING,
+    )
+
+    private fun pageGuardBaseResult(
+        source: String,
+        execute: Boolean,
+        capturedAtMs: Long,
+        snapshot: BackendSnapshot?,
+    ): Map<String, Any?> = linkedMapOf<String, Any?>(
+        "schema_version" to "oob.page_guard.v1",
+        "source" to source,
+        "execute" to execute,
+        "captured_at_ms" to capturedAtMs,
+        "package_name" to snapshot?.rawPackage?.takeIf { it.isNotBlank() },
+        "effective_package" to snapshot?.effectivePackage()?.takeIf { it.isNotBlank() },
+        "activity_name" to snapshot?.activityName?.takeIf { it.isNotBlank() },
+        "xml_chars" to snapshot?.xml?.length,
+    ).filterValues { it != null }
+
+    private fun pageGuardRule(condition: String): OmniflowCheckerRule =
+        OmniflowCheckerRule(
+            id = "floating_page_guard_$condition",
+            condition = condition,
+            action = OmniflowCheckerRule.ACTION_DISMISS,
+            phase = OmniflowCheckerRule.phaseForCondition(condition),
+            params = mapOf("max_triggers" to DEFAULT_PAGE_GUARD_TRIGGER_LIMIT),
+        )
+
+    private fun pageGuardCandidate(condition: String, page: PageModel): UiNode? =
+        when (condition) {
+            OmniflowCheckerRule.COND_AD_BLOCKING -> adBlockingDismissCandidate(page)
+            OmniflowCheckerRule.COND_APP_UPGRADE_PROMPT -> appUpgradeDismissCandidate(page)
+            OmniflowCheckerRule.COND_OVERLAY_BLOCKING -> blockingOverlayDismissCandidate(page)
+            else -> null
+        }
 
     private suspend fun runCheckerPhase(
         phase: String,
@@ -2013,6 +2141,9 @@ object OmniflowStepExecutor {
         if (result.abstain) return null
 
         val bestNode = candidates[result.index]
+        if (sourceNode.interactive && !bestNode.interactive) {
+            return null
+        }
         return TargetMatch(
             node = bestNode,
             confidence = result.confidence,
@@ -2509,7 +2640,6 @@ object OmniflowStepExecutor {
             (nanos / 1_000_000L).coerceAtLeast(0L)
     }
 
-    private const val POST_STEP_DELAY_MS = 1000L
     private const val PRE_ACTION_CONTROL_DELAY_MS = 300L
     private const val DEFAULT_SCREEN_CENTER_X = 540f
     private const val DEFAULT_SCREEN_CENTER_Y = 960f
@@ -2768,12 +2898,14 @@ object OmniflowStepExecutor {
         "android",
         "com.android.intentresolver",
         "com.google.android.intentresolver",
+        "com.vivo.appfilter",
     )
 
     private val RESOLVER_PACKAGE_TERMS = setOf(
         "resolver",
         "chooser",
         "intentresolver",
+        "appfilter",
     )
 
     private val RESOLVER_TITLE_CONTAINS_LABELS = setOf(
@@ -2782,6 +2914,7 @@ object OmniflowStepExecutor {
         "选择要使用的应用",
         "使用以下方式打开",
         "默认打开",
+        "想要打开",
         "open with",
         "complete action using",
         "choose an app",
@@ -2806,6 +2939,7 @@ object OmniflowStepExecutor {
         "仅此一次",
         "仅限一次",
         "只此一次",
+        "仅打开一次",
         "just once",
         "only once",
         "once",
@@ -2866,6 +3000,7 @@ object OmniflowStepExecutor {
     )
 
     private const val DEFAULT_CHECKER_TRIGGER_LIMIT = 1
+    private const val DEFAULT_PAGE_GUARD_TRIGGER_LIMIT = 3
 
     private val ALLOW_EXACT_LABELS = setOf(
         "允许", "allow", "始终允许", "always allow",

@@ -37,7 +37,7 @@ class OmniAction(
 ) {
     companion object {
         private const val TAG = "OmniGestureController"
-        private const val CLICK_DURATION = 50L
+        private const val CLICK_DURATION = 160L
         private const val CLICK_TIMEOUT_MS = 900L
         private const val LONG_CLICK_DURATION = 1000L
         private const val SCROLL_DISTANCE = 300f
@@ -220,7 +220,7 @@ class OmniAction(
         x: Float,
         y: Float,
     ): CompletableFuture<Unit> {
-        OmniLog.v(TAG, "fun clickCoordinate")
+        OmniLog.v(TAG, "fun clickCoordinate x=$x y=$y screen=${screenWidth}x${screenHeight}")
 
         return clickCoordinateImpl(x, y, CLICK_DURATION, CLICK_TIMEOUT_MS)
     }
@@ -331,15 +331,17 @@ class OmniAction(
         val callback =
             object : AccessibilityService.GestureResultCallback() {
                 override fun onCompleted(gestureDescription: GestureDescription?) {
+                    OmniLog.v(TAG, "gesture completed: label=$timeoutLabel")
                     completeGestureFuture(completed, timeoutRunnable, future, null)
                 }
 
                 override fun onCancelled(gestureDescription: GestureDescription?) {
+                    OmniLog.w(TAG, "gesture cancelled: label=$timeoutLabel")
                     completeGestureFuture(
                         completed,
                         timeoutRunnable,
                         future,
-                        RuntimeException("Gesture was cancelled")
+                        RuntimeException("Gesture was cancelled: $timeoutLabel")
                     )
                 }
             }
@@ -354,11 +356,12 @@ class OmniAction(
                 )
 
             if (!dispatchResult) {
+                OmniLog.e(TAG, "dispatchGesture returned false: label=$timeoutLabel")
                 completeGestureFuture(
                     completed,
                     timeoutRunnable,
                     future,
-                    RuntimeException("Failed to dispatch gesture")
+                    RuntimeException("Failed to dispatch gesture: $timeoutLabel")
                 )
             }
         }
@@ -398,7 +401,7 @@ class OmniAction(
 
     private fun performGlobalActionImpl(action: Int) {
         if (!service.performGlobalAction(action)) {
-            OmniLog.w(TAG, "performGlobalAction failed (id=$action), service may be not ready")
+            throw RuntimeException("performGlobalAction failed (id=$action)")
         }
     }
 

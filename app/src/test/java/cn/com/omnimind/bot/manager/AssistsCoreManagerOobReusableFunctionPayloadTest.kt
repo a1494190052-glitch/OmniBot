@@ -47,7 +47,7 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
     }
 
     @Test
-    fun `agent fallback payload keeps local prefix and pending step counts in context`() {
+    fun `vlm continuation payload keeps local prefix and pending step counts in context`() {
         val timing = mapOf(
             "duration_ms" to 34L,
             "phase_ms" to mapOf("rank_functions_ms" to 5L)
@@ -61,13 +61,9 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
             ),
         )
 
-        val payload = buildOobReusableFunctionAgentFallbackPayload(
+        val payload = buildOobReusableFunctionVlmContinuationPayload(
             functionId = "open_settings_then_vlm",
-            taskId = "agent-task-1",
-            conversationId = 42L,
-            started = true,
-            startErrorCode = null,
-            startErrorMessage = null,
+            continuationId = "vlm-step-1",
             runPayload = mapOf(
                 "runner" to "oob_mixed_runner",
                 "model_required" to true,
@@ -75,32 +71,30 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
             ),
             stepResults = stepResults,
             completedStepCount = 1,
-            pendingAgentStepCount = 1,
+            pendingModelStepCount = 1,
             argumentCount = 0
         )
 
-        assertEquals(true, payload["success"])
+        assertEquals(false, payload["success"])
         assertEquals(
-            OOB_REUSABLE_EXECUTION_STATUS_STARTED_AGENT_FALLBACK,
+            OOB_REUSABLE_EXECUTION_STATUS_VLM_CONTINUATION_REQUIRED,
             payload["execution_status"]
         )
+        assertEquals("OOB_VLM_CONTINUATION_REQUIRED", payload["error_code"])
         val terminalState = payload["terminal_state"] as Map<*, *>
-        assertEquals("agent-task-1", terminalState["agent_task_id"])
-        assertEquals(42L, terminalState["conversationId"])
-        assertEquals(42L, terminalState["conversation_id"])
-        assertEquals(true, terminalState["agent_task_started"])
+        assertEquals("vlm-step-1", terminalState["continuation_id"])
+        assertEquals(true, terminalState["vlm_step_required"])
         assertEquals(1, terminalState["local_steps_completed"])
-        assertEquals(1, terminalState["agent_steps_pending"])
+        assertEquals(1, terminalState["model_steps_pending"])
         assertEquals(2, terminalState["step_count"])
         assertEquals(1, terminalState["success_step_count"])
         assertEquals(true, terminalState["model_required"])
         assertEquals(timing, terminalState["timing"])
         val context = payload["context"] as Map<*, *>
-        assertEquals("agent-task-1", context["agent_task_id"])
-        assertEquals(42L, context["conversationId"])
-        assertEquals(42L, context["conversation_id"])
+        assertEquals("vlm-step-1", context["continuation_id"])
+        assertEquals(true, context["vlm_step_required"])
         assertEquals(1, context["local_steps_completed"])
-        assertEquals(1, context["agent_steps_pending"])
+        assertEquals(1, context["model_steps_pending"])
         assertEquals(2, context["step_count"])
         assertEquals(1, context["success_step_count"])
         assertEquals(timing, context["timing"])
@@ -135,19 +129,19 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
     }
 
     @Test
-    fun `pending agent step detection uses agent executor or model required`() {
+    fun `pending model step detection uses agent executor or model required`() {
         assertTrue(
-            isOobReusableFunctionPendingAgentStep(
+            isOobReusableFunctionPendingModelStep(
                 mapOf("executor" to "agent", "success" to false)
             )
         )
         assertTrue(
-            isOobReusableFunctionPendingAgentStep(
+            isOobReusableFunctionPendingModelStep(
                 mapOf("model_required" to true)
             )
         )
         assertFalse(
-            isOobReusableFunctionPendingAgentStep(
+            isOobReusableFunctionPendingModelStep(
                 mapOf("executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW)
             )
         )

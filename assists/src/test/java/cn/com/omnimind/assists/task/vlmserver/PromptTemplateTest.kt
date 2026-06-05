@@ -91,37 +91,55 @@ class PromptTemplateTest {
     }
 
     @Test
-    fun `dynamic function prompt summary hides tool title presentation field`() {
+    fun `turn prompt renders recent results without duplicating page or function tools`() {
         val previousLocale = Locale.getDefault()
         Locale.setDefault(Locale.US)
         try {
             val prompt = PromptTemplate.buildTurnUserPrompt(
                 UIContext(
-                    overallTask = "Search cats",
+                    overallTask = "Search cats in Xiaohongshu",
+                    currentPackageName = "com.xingin.xhs",
+                    currentPageSummary = "Current page: Xiaohongshu home",
+                    trace = listOf(
+                        UIStep(
+                            observation = "home",
+                            thought = "tap search",
+                            action = ClickAction(
+                                targetDescription = "Search",
+                                x = 1170f,
+                                y = 249f,
+                            ),
+                            result = "Click search did not change the page",
+                            summary = "search click no effect",
+                        )
+                    ),
                     dynamicToolDefinitions = listOf(buildJsonObject {
                         put("type", "function")
                         put("function", buildJsonObject {
                             put("name", "xhs_search_keyword")
-                            put("description", "Search a keyword")
+                            put("description", "Search Xiaohongshu by keyword")
                             put("parameters", buildJsonObject {
                                 put("type", "object")
                                 put("properties", buildJsonObject {
-                                    put("tool_title", buildJsonObject { put("type", "string") })
                                     put("keyword", buildJsonObject { put("type", "string") })
                                 })
-                                put("required", buildJsonArray {
-                                    add("tool_title")
-                                    add("keyword")
-                                })
+                                put("required", buildJsonArray { add("keyword") })
                             })
                         })
                     })
                 )
             )
 
-            assertTrue(prompt.contains("tool=xhs_search_keyword"))
-            assertTrue(prompt.contains("keyword:string:required"))
-            assertFalse(prompt.contains("tool_title"))
+            assertTrue(prompt.contains("[Page Explanation]"))
+            assertTrue(prompt.contains("Current page: Xiaohongshu home"))
+            assertTrue(prompt.contains("[Recent Results]"))
+            assertTrue(prompt.contains("click Search"))
+            assertTrue(prompt.contains("Click search did not change the page"))
+            assertFalse(prompt.contains("[Current Page]"))
+            assertFalse(prompt.contains("Current package: com.xingin.xhs"))
+            assertFalse(prompt.contains("[Available Functions]"))
+            assertFalse(prompt.contains("tool=xhs_search_keyword"))
+            assertFalse(prompt.contains("keyword:string:required"))
         } finally {
             Locale.setDefault(previousLocale)
         }

@@ -42,21 +42,13 @@ class OobFunctionRepository(
         }
         val alreadyExists = contains(functionId)
         val agentVisible = isAgentVisible(spec)
-        val udegResult = if (agentVisible) {
-            runCatching {
-                OobUdegNodeStore(context).upsertFunction(functionId, spec)
-            }.getOrElse { error ->
-                linkedMapOf(
-                    "success" to false,
-                    "indexed" to false,
-                    "error_message" to error.message.orEmpty()
-                )
-            }
-        } else {
+        val udegResult = runCatching {
+            OobUdegNodeStore(context).upsertFunction(functionId, spec)
+        }.getOrElse { error ->
             linkedMapOf(
-                "success" to true,
+                "success" to false,
                 "indexed" to false,
-                "reason" to "manual_function_hidden_from_agent"
+                "error_message" to error.message.orEmpty()
             )
         }
 

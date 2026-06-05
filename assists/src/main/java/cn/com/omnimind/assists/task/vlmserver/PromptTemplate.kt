@@ -4,10 +4,6 @@ import cn.com.omnimind.assists.util.TimeUtil
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
 import cn.com.omnimind.baselib.i18n.PromptLocale
 import cn.com.omnimind.baselib.llm.ModelSceneRegistry
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonPrimitive
 import java.util.Locale
 
 /**
@@ -74,13 +70,6 @@ object PromptTemplate {
         } else {
             sceneId
         }
-        val summaryHistory = if (context.runningSummary.isNotEmpty()) {
-            context.runningSummary
-        } else if (context.trace.isNotEmpty()) {
-            context.trace.last().summary
-        } else {
-            t(locale, "暂无历史操作", "No prior execution history yet")
-        }
         val installedApps = renderFocusedInstalledApps(context, locale)
         val completedMilestones = if (context.completedMilestones.isNotEmpty()) {
             context.completedMilestones.joinToString(
@@ -133,20 +122,12 @@ object PromptTemplate {
             if (priorityEventSection.isNotBlank()) {
                 appendLine(priorityEventSection)
             }
-            if (context.currentPageSummary.isNotBlank() || context.firstStepGuidance.isNotBlank()) {
-                appendLine("${t(locale, "当前页面上下文", "Current page context")}:")
-                if (context.currentPageSummary.isNotBlank()) {
-                    appendLine(context.currentPageSummary)
-                }
-                if (context.firstStepGuidance.isNotBlank()) {
-                    appendLine(context.firstStepGuidance)
-                }
+            renderPageExplanationBlock(context, locale).takeIf { it.isNotBlank() }?.let {
+                appendLine(it)
             }
-            appendLine("${t(locale, "当前状态", "Current state")}: ${context.currentState.ifEmpty { t(locale, "未知", "Unknown") }}")
-            appendLine("${t(locale, "建议下一步", "Suggested next step")}: ${context.nextStepHint.ifEmpty { t(locale, "无", "None") }}")
+            appendLine(renderRecentResultsBlock(context, locale))
             appendLine("${t(locale, "已完成里程碑", "Completed milestones")}: $completedMilestones")
             appendLine("${t(locale, "关键记忆", "Key memory")}: $keyMemory")
-            appendLine("${t(locale, "历史总结", "History summary")}: $summaryHistory")
             appendLine("${t(locale, "相关已安装应用", "Relevant installed apps")}: $installedApps")
             appendLine()
             appendLine(renderUnifiedActionSchema(context, locale))
@@ -176,90 +157,90 @@ object PromptTemplate {
         }.trim()
     }
 
+    private fun renderPageExplanationBlock(context: UIContext, locale: PromptLocale): String {
+        val pageContext = listOf(context.currentPageSummary, context.firstStepGuidance)
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .joinToString("\n")
+            .take(MAX_PAGE_EXPLANATION_CHARS)
+            .trim()
+        if (pageContext.isBlank()) return ""
+        return buildString {
+            appendLine(t(locale, "【页面解释】", "[Page Explanation]"))
+            append(pageContext)
+        }.trim()
+    }
+
     private fun renderUnifiedActionSchema(context: UIContext, locale: PromptLocale): String {
         return buildString {
             appendLine(t(locale, "统一 action schema:", "Unified action schema:"))
             appendLine(VLMToolDefinitions.renderCompactActionSchemaGuide(locale))
-            renderDynamicToolUsage(context, locale).takeIf { it.isNotBlank() }?.let {
-                appendLine(it)
+        }.trim()
+    }
+
+    private fun renderRecentResultsBlock(context: UIContext, locale: PromptLocale): String {
+        val recent = context.trace.takeLast(MAX_RECENT_RESULT_STEPS)
+        return buildString {
+            appendLine()
+            appendLine(t(locale, "【最近结果】", "[Recent Results]"))
+            if (recent.isEmpty() && context.runningSummary.isBlank()) {
+                append(t(locale, "暂无；这是本任务的起始阶段。", "None yet; this is the beginning of the task."))
+                return@buildString
+            }
+            if (context.runningSummary.isNotBlank()) {
+                appendLine("${t(locale, "历史总结", "History summary")}: ${compactLine(context.runningSummary, 420)}")
+            }
+            recent.forEachIndexed { offset, step ->
+                val number = context.trace.size - recent.size + offset + 1
+                appendLine("- #$number ${actionSummary(step.action)} | success=${stepSucceeded(step)} | result=${stepResultForModel(step, locale)}")
             }
         }.trim()
     }
 
-    private fun renderDynamicToolUsage(context: UIContext, locale: PromptLocale): String {
-        val toolNames = context.dynamicToolDefinitions.mapNotNull { definition ->
-            (definition["function"] as? JsonObject)
-                ?.get("name")
-                ?.jsonPrimitive
-                ?.contentOrNull
-                ?.trim()
-                ?.takeIf(String::isNotEmpty)
-        }
-        if (toolNames.isEmpty()) return ""
-        return when (locale) {
-            PromptLocale.ZH_CN -> buildString {
-                appendLine("本轮额外可用 tools:")
-                appendLine("- 已召回并加入 tools[]: ${toolNames.joinToString(", ")}。")
-                appendLine("- 这些 tools 是已保存的手机操作流程：可以复用过去成功执行过的一段动作，例如打开某个页面、搜索关键词、填写表单、保存/发送内容。")
-                appendLine("- 它们和 click/input_text/scroll 一样用原生 tool_call 调用，但一次调用可能会连续执行多步手机操作。")
-                appendLine("- 一个已保存流程可能完成整个目标，也可能只完成其中一段；如果名称、描述、适用条件和参数 schema 高置信匹配用户目标，直接调用对应 tool。")
-                appendLine("- 每个已保存流程返回后，根据 tool 结果、历史上下文和下一轮 fresh page observe 决定 finished、继续调用下一个 tool，或改用 GUI tool。")
-                appendLine("- 如果没有高置信匹配，或者缺少必填参数，就继续使用其它 tools，不要空参数调用。")
-                appendLine("额外 tool schema:")
-                appendLine(renderDynamicToolSchemaSummary(context.dynamicToolDefinitions, locale))
-            }
-            PromptLocale.EN_US -> buildString {
-                appendLine("Additional tools available this turn:")
-                appendLine("- Recalled tools have been added to tools[]: ${toolNames.joinToString(", ")}.")
-                appendLine("- These tools are saved mobile workflows: they reuse a previously successful action sequence, such as opening a page, searching a keyword, filling a form, or saving/sending content.")
-                appendLine("- They use the same native tool_call interface as click/input_text/scroll, but one call may execute multiple phone actions.")
-                appendLine("- A saved workflow may complete the whole goal or only one part; if the name, description, applicability, and parameter schema strongly match the user goal, call that tool directly.")
-                appendLine("- After each saved workflow returns, use the tool result, history context, and the next fresh page observe to decide whether to call finished, another tool, or a GUI tool.")
-                appendLine("- If confidence is low or required arguments are missing, use other tools instead of calling with empty arguments.")
-                appendLine("Additional tool schema:")
-                appendLine(renderDynamicToolSchemaSummary(context.dynamicToolDefinitions, locale))
-            }
+    private fun actionSummary(action: UIAction): String {
+        return when (action) {
+            is ClickAction -> "click ${compactLine(action.targetDescription, 80)}"
+            is InputTextAction -> "input_text ${compactLine(action.targetDescription, 60)} text=${compactLine(action.text, 80)}"
+            is ScrollAction -> "scroll ${compactLine(action.targetDescription, 80)} ${action.direction.orEmpty()}"
+            is LongPressAction -> "long_press ${compactLine(action.targetDescription, 80)}"
+            is OpenAppAction -> "open_app ${action.packageName}"
+            is PressHomeAction -> "press_home"
+            is PressBackAction -> "press_back"
+            is FunctionRunAction -> "function ${action.functionId}"
+            is FinishedAction -> "finished"
+            is RequireUserChoiceAction -> "require_user_choice"
+            is RequireUserConfirmationAction -> "require_user_confirmation"
+            is RecordAction -> "record"
+            is InfoAction -> "info"
+            is FeedbackAction -> "feedback"
+            is AbortAction -> "abort"
+            is WaitAction -> "wait"
+            is GetStateAction -> "get_state"
         }.trim()
     }
 
-    private fun renderDynamicToolSchemaSummary(
-        definitions: List<JsonObject>,
-        locale: PromptLocale
-    ): String {
-        return definitions.mapNotNull { definition ->
-            val function = definition["function"] as? JsonObject ?: return@mapNotNull null
-            val name = function["name"]?.jsonPrimitive?.contentOrNull?.trim()
-                ?.takeIf(String::isNotEmpty)
-                ?: return@mapNotNull null
-            val description = function["description"]?.jsonPrimitive?.contentOrNull
-                ?.replace(Regex("\\s+"), " ")
-                ?.trim()
-                ?.take(100)
-                .orEmpty()
-            val parameters = function["parameters"] as? JsonObject ?: JsonObject(emptyMap())
-            val rawProperties = parameters["properties"] as? JsonObject ?: JsonObject(emptyMap())
-            val properties = JsonObject(rawProperties.filterKeys { it != TOOL_TITLE_FIELD })
-            val required = (parameters["required"] as? JsonArray)
-                ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotEmpty) }
-                ?.filter { it != TOOL_TITLE_FIELD }
-                ?.toSet()
-                .orEmpty()
-            val args = if (properties.isEmpty()) {
-                when (locale) {
-                    PromptLocale.ZH_CN -> "无参数，arguments 必须是 {}"
-                    PromptLocale.EN_US -> "no parameters; arguments must be {}"
-                }
-            } else {
-                properties.entries.joinToString(", ") { (argName, rawSpec) ->
-                    val spec = rawSpec as? JsonObject ?: JsonObject(emptyMap())
-                    val type = spec["type"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf(String::isNotEmpty)
-                        ?: "any"
-                    val requiredLabel = if (argName in required) "required" else "optional"
-                    "$argName:$type:$requiredLabel"
-                }
-            }
-            "- tool=$name; arguments={$args}; description=$description"
-        }.joinToString("\n").take(MAX_DYNAMIC_FUNCTION_SCHEMA_CHARS)
+    private fun stepSucceeded(step: UIStep): Boolean {
+        val result = step.result?.trim().orEmpty()
+        return result.isEmpty() ||
+            (!result.startsWith("执行失败") && !result.startsWith("failed", ignoreCase = true))
+    }
+
+    private fun stepResultForModel(step: UIStep, locale: PromptLocale): String {
+        val result = step.result?.trim().orEmpty()
+        if (result.isNotEmpty()) return compactLine(result, MAX_RECENT_RESULT_CHARS)
+        val summary = step.summary.trim()
+        if (summary.isNotEmpty()) return compactLine(summary, MAX_RECENT_RESULT_CHARS)
+        return t(locale, "已发送动作；等待最新页面观察。", "Action was dispatched; use the latest page observe.")
+    }
+
+    private fun compactLine(value: String, maxLen: Int = 240): String {
+        val normalized = value
+            .replace("\r\n", "\n")
+            .lineSequence()
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .joinToString(" ")
+        return if (normalized.length <= maxLen) normalized else normalized.take(maxLen) + "..."
     }
 
     private fun renderFocusedInstalledApps(context: UIContext, locale: PromptLocale): String {
@@ -460,8 +441,9 @@ object PromptTemplate {
 
     private const val MAX_FOCUSED_INSTALLED_APPS = 12
     private const val MAX_APP_QUERY_TERMS = 24
-    private const val MAX_DYNAMIC_FUNCTION_SCHEMA_CHARS = 900
-    private const val TOOL_TITLE_FIELD = "tool_title"
+    private const val MAX_PAGE_EXPLANATION_CHARS = 1_200
+    private const val MAX_RECENT_RESULT_STEPS = 4
+    private const val MAX_RECENT_RESULT_CHARS = 260
     private val APP_QUERY_STOP_WORDS = setOf(
         "the",
         "and",

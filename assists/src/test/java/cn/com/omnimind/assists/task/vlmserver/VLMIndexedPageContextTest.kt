@@ -75,6 +75,29 @@ class VLMIndexedPageContextTest {
     }
 
     @Test
+    fun `representative elements include stable ids text and resource ids`() {
+        val rendered = VLMIndexedPageContext.renderRepresentativeElements(
+            currentXml = """
+                <hierarchy>
+                  <node bounds="[0,0][720,1280]">
+                    <node id="search_bar" text="Search" content-desc="Search input" resource-id="com.example:id/search" class="android.widget.EditText" clickable="true" editable="true" bounds="[32,64][688,160]" />
+                  </node>
+                </hierarchy>
+            """.trimIndent(),
+            displayWidth = 720,
+            displayHeight = 1280,
+            maxElements = 1,
+        )
+
+        assertTrue(rendered.contains("#0 center=(360,112)"))
+        assertTrue(rendered.contains("node_id=\"search_bar\""))
+        assertTrue(rendered.contains("text=\"Search\""))
+        assertTrue(rendered.contains("desc=\"Search input\""))
+        assertTrue(rendered.contains("resource-id=\"com.example:id/search\""))
+        assertTrue(rendered.contains("flags=click|edit"))
+    }
+
+    @Test
     fun `renders form anchors for editable fields and selection rows`() {
         val rendered = VLMIndexedPageContext.render(
             currentXml = CONTACT_FORM_XML,

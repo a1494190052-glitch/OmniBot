@@ -11,8 +11,8 @@ import cn.com.omnimind.bot.runlog.OobFunctionSchemaBuilder
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 
 /**
- * Owns OOB Function run policy: guard decisions and agent fallback handoff
- * context. It does not execute steps or persist Function records.
+ * Owns OOB Function run policy: guard decisions and compact failure context.
+ * It does not execute steps or persist Function records.
  */
 class OobFunctionRunPolicy(
     private val functionRepository: OobFunctionRepository,
@@ -135,17 +135,7 @@ class OobFunctionRunPolicy(
             },
             "remaining_steps" to remainingSteps,
             "recovery" to recovery.takeIf { it.isNotEmpty() },
-            "return_instruction" to linkedMapOf(
-                "tool" to OobFunctionToolNames.FUNCTION_RUN,
-                "args" to linkedMapOf(
-                    "function_id" to functionId,
-                    "arguments" to arguments,
-                    "resume_from_step" to resumeFromStep,
-                    "fallback_session_id" to sessionId,
-                    "fallback_attempt" to nextAttempt,
-                )
-            ),
-            "agent_rule" to "先在当前页面完成 failed_step；完成后用 return_instruction 从下一步 resume_from_step 继续本地重放。"
+            "next_step_rule" to "不要让外层 Agent resume 隐藏重放；从当前页面 fresh observe，执行一个正常 VLM step。"
         ).filterValues { it != null }
 
         return linkedMapOf<String, Any?>(
@@ -351,22 +341,16 @@ class OobFunctionRunPolicy(
         val remainingText = remainingSteps.take(8).joinToString("\n") { step ->
             "- #${step["index"]}: ${firstNonBlank(step["title"], step["tool"])}"
         }.ifBlank { "- 无可用步骤摘要" }
-        val argumentsText = if (arguments.isNotEmpty()) {
-            "\n  \"arguments\": $arguments,"
-        } else {
-            ""
-        }
         val retryText = if (attemptLimitReached) {
             "\n注意：同一步已经达到 fallback 尝试上限，不要继续循环调用。"
         } else {
             ""
         }
         return """
-            oob_function_run 本地重放失败，需要你接管当前步骤。
+            Function 本地重放失败。下一步只做一个 bounded VLM step，不 resume 隐藏重放。
             function_id: $functionId
             fallback_session_id: $sessionId
             failed_step_index: $failedStepIndex
-            resume_from_step_after_agent: $resumeFromStep
             failed_step: $title
             tool: $tool
             reason: $summary
@@ -376,15 +360,10 @@ class OobFunctionRunPolicy(
             当前页面 XML（截断）:
             $currentXml
 
-            你需要先在当前页面完成 failed_step 对应的真实操作。完成后从下一步继续调用：
-            oob_function_run({
-              "function_id": "$functionId",$argumentsText
-              "resume_from_step": $resumeFromStep,
-              "fallback_session_id": "$sessionId",
-              "fallback_attempt": $nextAttempt
-            })
+            请基于当前页面做一次正常 VLM 决策：选择 GUI tool 或当前可见的 Function tool。
+            不要调用隐藏 replay/resume 工具。如果 Function 定义错误，稍后用 update_function 和 RunLog 证据修复。
 
-            后续本地步骤：
+            未完成的本地步骤摘要（仅供理解，不是执行指令）：
             $remainingText$retryText
         """.trimIndent()
     }

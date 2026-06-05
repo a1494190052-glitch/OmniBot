@@ -180,8 +180,8 @@ object ModelSceneRegistry {
           "properties": {
             "name": {"type": "string", "enum": ["click"]},
             "target_description": {"type": "string", "description": "Description of the UI element to click."},
-            "x": {"type": "number", "description": "X coordinate of the click (0-1000)."},
-            "y": {"type": "number", "description": "Y coordinate of the click (0-1000)."}
+            "x": {"type": "number", "description": "Absolute screen-pixel X coordinate of the click."},
+            "y": {"type": "number", "description": "Absolute screen-pixel Y coordinate of the click."}
           },
           "required": ["name", "target_description", "x", "y"]
         },
@@ -190,10 +190,10 @@ object ModelSceneRegistry {
           "properties": {
             "name": {"type": "string", "enum": ["scroll"]},
             "target_description": {"type": "string", "description": "Description of the UI element to scroll (if needed)."},
-            "x1": {"type": "number", "description": "Start X coordinate around which to scroll (0-1000)."},
-            "y1": {"type": "number", "description": "Start Y coordinate around which to scroll (0-1000)."},            
-            "x2": {"type": "number", "description": "End X coordinate around which to scroll (0-1000)."},
-            "y2": {"type": "number", "description": "End Y coordinate around which to scroll (0-1000)."}
+            "x1": {"type": "number", "description": "Start absolute screen-pixel X coordinate around which to scroll."},
+            "y1": {"type": "number", "description": "Start absolute screen-pixel Y coordinate around which to scroll."},
+            "x2": {"type": "number", "description": "End absolute screen-pixel X coordinate around which to scroll."},
+            "y2": {"type": "number", "description": "End absolute screen-pixel Y coordinate around which to scroll."}
           },
           "required": ["name", "target_description", "x1", "y1", "x2", "y2"]
         },
@@ -232,8 +232,8 @@ object ModelSceneRegistry {
           "properties": {
             "name": {"type": "string", "enum": ["long_press"]},
             "target_description": {"type": "string", "description": "Description of the UI element to long press."},
-            "x": {"type": "number", "description": "X coordinate of the long press (0-1000)."},
-            "y": {"type": "number", "description": "Y coordinate of the long press (0-1000)."}
+            "x": {"type": "number", "description": "Absolute screen-pixel X coordinate of the long press."},
+            "y": {"type": "number", "description": "Absolute screen-pixel Y coordinate of the long press."}
           },
           "required": ["name", "target_description", "x", "y"]
         },

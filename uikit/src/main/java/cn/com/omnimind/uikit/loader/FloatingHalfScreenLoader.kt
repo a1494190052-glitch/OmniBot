@@ -92,6 +92,14 @@ class FloatingHalfScreenLoader(
         fun restoreAfterManualRecording(): Boolean {
             return getInstance()?.restoreAfterManualRecording() ?: false
         }
+
+        fun hideForReplay(): Boolean {
+            return getInstance()?.hideForReplay() ?: false
+        }
+
+        fun restoreAfterReplay(): Boolean {
+            return getInstance()?.restoreAfterReplay() ?: false
+        }
     }
     private var flutterView: View? = null
 
@@ -107,8 +115,23 @@ class FloatingHalfScreenLoader(
     private var isHiddenForManualRecording: Boolean = false
     private var didHideScreenMaskForManualRecording: Boolean = false
     private var didHideCancelClickForManualRecording: Boolean = false
+    private var isHiddenForReplay: Boolean = false
+    private var didHideScreenMaskForReplay: Boolean = false
+    private var didHideCancelClickForReplay: Boolean = false
 
     fun isShowing(): Boolean = isAttachedToWindow
+
+    fun setTouchPassThrough(passThrough: Boolean) {
+        val params = windowParams ?: return
+        val view = container ?: return
+        if (!view.isAttachedToWindow) return
+        if (passThrough) {
+            params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        } else {
+            params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        }
+        runCatching { getWindowManager().updateViewLayout(view, params) }
+    }
 
     @SuppressLint("SuspiciousIndentation")
     fun getWindowManager(): WindowManager {
@@ -415,6 +438,67 @@ class FloatingHalfScreenLoader(
         }
     }
 
+    fun hideForReplay(): Boolean {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            Handler(Looper.getMainLooper()).post { hideForReplay() }
+            return false
+        }
+        didHideScreenMaskForReplay = ScreenMaskLoader.hideForExternalActivity()
+        didHideCancelClickForReplay = CancelClickLoader.hideForExternalActivity()
+        if (!isAttachedToWindow || container == null) {
+            return didHideScreenMaskForReplay || didHideCancelClickForReplay
+        }
+        return try {
+            flutterView?.animate()?.cancel()
+            flutterView?.alpha = 1f
+            getWindowManager().removeView(container)
+            isAttachedToWindow = false
+            isHiddenForReplay = true
+            OmniLog.d("FloatingHalfScreenLoader", "Half screen hidden for replay")
+            true
+        } catch (e: Exception) {
+            OmniLog.e("FloatingHalfScreenLoader", "hideForReplay failed: ${e.message}", e)
+            false
+        }
+    }
+
+    fun restoreAfterReplay(): Boolean {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            Handler(Looper.getMainLooper()).post { restoreAfterReplay() }
+            return false
+        }
+        var restoredScreenMask = false
+        if (didHideScreenMaskForReplay) {
+            restoredScreenMask = ScreenMaskLoader.restoreAfterExternalActivity()
+            didHideScreenMaskForReplay = false
+        }
+        var restoredCancelClick = false
+        if (didHideCancelClickForReplay) {
+            restoredCancelClick = CancelClickLoader.restoreAfterExternalActivity()
+            didHideCancelClickForReplay = false
+        }
+        val view = container ?: return restoredScreenMask || restoredCancelClick
+        val params = windowParams ?: return restoredScreenMask || restoredCancelClick
+        if (isAttachedToWindow || !isHiddenForReplay) {
+            return restoredScreenMask || restoredCancelClick
+        }
+        return try {
+            getWindowManager().addView(view, params)
+            flutterView?.visibility = View.VISIBLE
+            flutterView?.alpha = 1f
+            isAttachedToWindow = true
+            isHiddenForReplay = false
+            OmniLog.d("FloatingHalfScreenLoader", "Half screen restored after replay")
+            true
+        } catch (e: BadTokenException) {
+            OmniLog.e("FloatingHalfScreenLoader", "restoreAfterReplay BadTokenException: ${e.message}")
+            restoredScreenMask || restoredCancelClick
+        } catch (e: Exception) {
+            OmniLog.e("FloatingHalfScreenLoader", "restoreAfterReplay failed: ${e.message}", e)
+            restoredScreenMask || restoredCancelClick
+        }
+    }
+
     fun removeView() {
         if (!isAttachedToWindow) {
             if (isHiddenForExternalActivity) {
@@ -429,6 +513,9 @@ class FloatingHalfScreenLoader(
                 isHiddenForManualRecording = false
                 didHideScreenMaskForManualRecording = false
                 didHideCancelClickForManualRecording = false
+                isHiddenForReplay = false
+                didHideScreenMaskForReplay = false
+                didHideCancelClickForReplay = false
             }
             return
         }
@@ -454,5 +541,8 @@ class FloatingHalfScreenLoader(
         isHiddenForManualRecording = false
         didHideScreenMaskForManualRecording = false
         didHideCancelClickForManualRecording = false
+        isHiddenForReplay = false
+        didHideScreenMaskForReplay = false
+        didHideCancelClickForReplay = false
     }
 }

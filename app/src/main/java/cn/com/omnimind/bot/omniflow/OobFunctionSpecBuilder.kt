@@ -47,6 +47,8 @@ class OobFunctionSpecBuilder {
             request["currentPackage"],
             mapArg(request["source_page"])["package_name"],
             mapArg(request["source_page"])["packageName"],
+            mapArg(request["sourcePage"])["package_name"],
+            mapArg(request["sourcePage"])["packageName"],
             sourcePackageName,
         )
         val normalizedSteps = steps.mapIndexed { index, raw ->
@@ -110,6 +112,7 @@ class OobFunctionSpecBuilder {
 
     private fun explicitFunctionSpec(request: Map<String, Any?>): Map<String, Any?> =
         mapArg(request["function_spec"])
+            .ifEmpty { mapArg(request["functionSpec"]) }
             .ifEmpty {
                 if ((request.containsKey("function_id") || request.containsKey("name")) &&
                     (mapArg(request["execution"]).isNotEmpty() || listArg(request["actions"]).isNotEmpty())
@@ -133,6 +136,8 @@ class OobFunctionSpecBuilder {
     ): Map<String, Any?> {
         val rawTool = firstNonBlank(
             raw["tool"],
+            raw["action"],
+            raw["type"],
         ).ifBlank {
             if (firstNonBlank(mapArg(raw["args"])["function_id"]).isNotBlank()) {
                 OobFunctionToolNames.FUNCTION_RUN
@@ -210,6 +215,25 @@ class OobFunctionSpecBuilder {
             ?: OobActionCodec.normalizeName(rawTool)
         val args = linkedMapOf<String, Any?>()
         args.putAll(mapArg(raw["args"]))
+        args.putAlias("package_name", raw["package_name"], raw["packageName"])
+        args.putAlias("x", raw["x"])
+        args.putAlias("y", raw["y"])
+        args.putAlias("x1", raw["x1"])
+        args.putAlias("y1", raw["y1"])
+        args.putAlias("x2", raw["x2"])
+        args.putAlias("y2", raw["y2"])
+        args.putAlias("text", raw["text"])
+        args.putAlias("content", raw["content"])
+        args.putAlias("value", raw["value"])
+        args.putAlias("target_description", raw["target_description"], raw["targetDescription"])
+        args.putAlias("selector", raw["selector"])
+        args.putAlias("node_id", raw["node_id"], raw["nodeId"])
+        args.putAlias("element_index", raw["element_index"], raw["elementIndex"])
+        args.putAlias("scrollable_index", raw["scrollable_index"], raw["scrollableIndex"])
+        args.putAlias("direction", raw["direction"])
+        args.putAlias("duration_ms", raw["duration_ms"], raw["durationMs"])
+        args.putAlias("clear", raw["clear"])
+        args.putAlias("bounds", raw["bounds"])
         if (action == OobActionCodec.ACTION_INPUT_TEXT) {
             args.remove("content")
             args.remove("value")
@@ -247,6 +271,7 @@ class OobFunctionSpecBuilder {
             .ifEmpty { mapArg(request["sourceContext"]) }
         if (explicit.isNotEmpty()) return explicit
         val sourcePage = mapArg(request["source_page"])
+            .ifEmpty { mapArg(request["sourcePage"]) }
             .ifEmpty { mapArg(request["currentPage"]) }
             .ifEmpty { mapArg(request["current_page"]) }
         val pageXmlFromRequest = firstNonBlank(
@@ -367,4 +392,13 @@ class OobFunctionSpecBuilder {
             },
         )
 
+    private fun MutableMap<String, Any?>.putAlias(key: String, vararg values: Any?) {
+        if (containsKey(key)) return
+        values.forEach { value ->
+            if (value == null) return@forEach
+            if (value is String && value.isBlank()) return@forEach
+            put(key, value)
+            return
+        }
+    }
 }

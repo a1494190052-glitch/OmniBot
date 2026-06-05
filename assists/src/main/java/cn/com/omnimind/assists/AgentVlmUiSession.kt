@@ -66,6 +66,8 @@ object AgentVlmUiSession {
         synchronized(lock) {
             val state = runIdByTaskId[normalizedTaskId]?.let { sessionsByRunId[it] } ?: return
             state.activeTaskIds.remove(normalizedTaskId)
+            state.taskIds.remove(normalizedTaskId)
+            runIdByTaskId.remove(normalizedTaskId)
         }
     }
 

@@ -455,49 +455,39 @@ private fun extractTextPayload(raw: JsonElement?): String {
 }
 
 internal const val OOB_REUSABLE_EXECUTION_STATUS_COMPLETED_LOCAL = "completed_local"
-internal const val OOB_REUSABLE_EXECUTION_STATUS_STARTED_AGENT_FALLBACK =
-    "started_agent_fallback"
+internal const val OOB_REUSABLE_EXECUTION_STATUS_VLM_CONTINUATION_REQUIRED =
+    "vlm_continuation_required"
 internal const val OOB_REUSABLE_EXECUTION_STATUS_FAILED = "failed"
 private const val AGENT_STREAM_META_SCHEMA_VERSION = "oob.agent_event.v1"
 
-internal fun isOobReusableFunctionPendingAgentStep(step: Map<*, *>): Boolean {
+internal fun isOobReusableFunctionPendingModelStep(step: Map<*, *>): Boolean {
     return (step["success"] == false && step["executor"]?.toString() == RunLogReplayPolicy.EXECUTOR_AGENT) ||
         step["model_required"] == true
 }
 
-internal fun buildOobReusableFunctionAgentFallbackPayload(
+internal fun buildOobReusableFunctionVlmContinuationPayload(
     functionId: String,
-    taskId: String,
-    conversationId: Long? = null,
-    started: Boolean,
-    startErrorCode: String?,
-    startErrorMessage: String?,
+    continuationId: String,
     runPayload: Map<String, Any?>,
     stepResults: List<Map<*, *>>,
     completedStepCount: Int,
-    pendingAgentStepCount: Int,
+    pendingModelStepCount: Int,
     argumentCount: Int,
 ): Map<String, Any?> {
-    val executionStatus = if (started) {
-        OOB_REUSABLE_EXECUTION_STATUS_STARTED_AGENT_FALLBACK
-    } else {
-        OOB_REUSABLE_EXECUTION_STATUS_FAILED
-    }
+    val executionStatus = OOB_REUSABLE_EXECUTION_STATUS_VLM_CONTINUATION_REQUIRED
     val stepCount = stepResults.size
     val successStepCount = stepResults.count { it["success"] != false }
     val timing = runPayload["timing"]
     val runner = runPayload["runner"] ?: "oob_mixed_runner"
     val sharedExecutionMeta = linkedMapOf<String, Any?>(
-        "taskId" to taskId,
-        "agent_task_id" to taskId,
-        "conversationId" to conversationId,
-        "conversation_id" to conversationId,
-        "agent_task_started" to started,
+        "taskId" to continuationId,
+        "continuation_id" to continuationId,
+        "vlm_step_required" to true,
         "source" to "omniflow_replay",
         "run_source" to "omniflow_replay",
         "runner" to runner,
         "local_steps_completed" to completedStepCount,
-        "agent_steps_pending" to pendingAgentStepCount,
+        "model_steps_pending" to pendingModelStepCount,
         "step_count" to stepCount,
         "success_step_count" to successStepCount,
         "arguments_applied" to true,
@@ -506,19 +496,15 @@ internal fun buildOobReusableFunctionAgentFallbackPayload(
     ).filterValues { it != null }
 
     return linkedMapOf(
-        "success" to started,
+        "success" to false,
         "goal" to "oob_reusable_function_run:$functionId",
         "function_id" to functionId,
         "execution_status" to executionStatus,
-        "error_code" to startErrorCode,
-        "error_message" to startErrorMessage,
+        "error_code" to "OOB_VLM_CONTINUATION_REQUIRED",
+        "error_message" to "Function replay stopped before a model-required step; continue with one fresh vlm_step.",
         "timing" to timing,
         "terminal_state" to linkedMapOf<String, Any?>(
-            "status" to if (started) {
-                OOB_REUSABLE_EXECUTION_STATUS_STARTED_AGENT_FALLBACK
-            } else {
-                "error"
-            },
+            "status" to OOB_REUSABLE_EXECUTION_STATUS_VLM_CONTINUATION_REQUIRED,
             "execution_status" to executionStatus
         ).apply {
             putAll(sharedExecutionMeta)
@@ -3957,7 +3943,10 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             // Phase 1 for direct UI calls: execute the deterministic local prefix only.
             // Tool/data-flow/agent steps need the full Agent runtime, so the runner marks
             // the first such step as an agent executor handoff instead of failing a synthetic tool call.
-            val runPayload = providedLocalReplayResult ?: runCatching {
+            val floatingLoader = cn.com.omnimind.uikit.loader.FloatingHalfScreenLoader.getInstance()
+            floatingLoader?.hideForReplay()
+            val runPayload = try {
+                providedLocalReplayResult ?: runCatching {
                     withContext(Dispatchers.Default) {
                         runner.runMaterializedFunction(
                             functionId = functionId,
@@ -3979,34 +3968,30 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                         "step_results" to emptyList<Map<String, Any?>>()
                     )
                 }
+            } finally {
+                floatingLoader?.restoreAfterReplay()
+            }
 
             val stepResults = (runPayload["step_results"] as? List<*>)
                 ?.filterIsInstance<Map<*, *>>() ?: emptyList()
-            val pendingAgentSteps = stepResults.filter(::isOobReusableFunctionPendingAgentStep)
+            val pendingModelSteps = stepResults.filter(::isOobReusableFunctionPendingModelStep)
 
-            // Direct UI replay executes the deterministic local prefix, then
-            // hands remaining tool/agent steps to the full Agent runtime.
-            if (pendingAgentSteps.isNotEmpty()) {
-                val completedCount = stepResults.indexOfFirst(::isOobReusableFunctionPendingAgentStep)
-                val taskId = firstNonBlankString(args["taskId"], args["task_id"])
+            // Direct UI replay executes the deterministic local prefix. If the
+            // next step needs model reasoning, return a compact result and let
+            // the caller continue through vlm_task; do not start a hidden Agent.
+            if (pendingModelSteps.isNotEmpty()) {
+                val completedCount = stepResults.indexOfFirst(::isOobReusableFunctionPendingModelStep)
+                val continuationId = firstNonBlankString(args["taskId"], args["task_id"])
                     .takeIf { it.isNotEmpty() }
-                    ?: "oob-agent-${System.currentTimeMillis()}-${UUID.randomUUID()}"
-                val payload = executeOobReusableFunctionAgentFallback(
+                    ?: "oob-vlm-step-${System.currentTimeMillis()}-${UUID.randomUUID()}"
+                val payload = buildOobReusableFunctionVlmContinuationPayload(
                     functionId = functionId,
-                    functionSpec = materializedSpec,
-                    arguments = callArguments,
+                    continuationId = continuationId,
                     runPayload = runPayload,
                     stepResults = stepResults,
                     completedStepCount = completedCount,
-                    pendingAgentStepCount = pendingAgentSteps.size,
+                    pendingModelStepCount = pendingModelSteps.size,
                     argumentCount = callArguments.size,
-                    taskId = taskId,
-                    requestedConversationId = positiveLongMethodCallValue(
-                        args["conversationId"] ?: args["conversation_id"]
-                    ),
-                    conversationMode = normalizeConversationMode(
-                        firstNonBlankString(args["conversationMode"], args["conversation_mode"])
-                    ),
                 )
                 withContext(Dispatchers.Main) {
                     result.success(payload)
@@ -6193,184 +6178,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             is String -> value.trim().toLongOrNull()
             else -> null
         }?.takeIf { it > 0L }
-    }
-
-    private suspend fun executeOobReusableFunctionAgentFallback(
-        functionId: String,
-        functionSpec: Map<String, Any?>,
-        arguments: Map<String, Any?>,
-        runPayload: Map<String, Any?>,
-        stepResults: List<Map<*, *>>,
-        completedStepCount: Int,
-        pendingAgentStepCount: Int,
-        argumentCount: Int,
-        taskId: String,
-        requestedConversationId: Long?,
-        conversationMode: String,
-    ): Map<String, Any?> {
-        var conversationId = requestedConversationId
-        return try {
-            if (hasActiveAgentRuns()) {
-                throw IllegalStateException("设备当前已有运行中的 Agent 任务，请稍后重试")
-            }
-            val titleBase = firstNonBlankString(
-                functionSpec["name"],
-                functionSpec["description"],
-                functionId,
-            )
-            if (conversationId == null) {
-                val conversation = withContext(Dispatchers.Default) {
-                    conversationDomainService.createConversation(
-                        title = "复用指令：$titleBase",
-                        mode = conversationMode
-                    )
-                }
-                conversationId = positiveLongMethodCallValue(conversation["id"])
-                    ?: throw IllegalStateException("Conversation id is invalid")
-            }
-            val resolvedConversationId: Long = conversationId
-            val accepted = AgentRunService(context).startConversationRun(
-                conversationId = resolvedConversationId,
-                request = linkedMapOf(
-                    "taskId" to taskId,
-                    "conversationMode" to conversationMode,
-                    "title" to "复用指令：$titleBase",
-                    "userMessage" to buildOobReusableFunctionRunPrompt(
-                        functionId = functionId,
-                        functionSpec = functionSpec,
-                        arguments = arguments,
-                        completedStepCount = completedStepCount
-                    )
-                )
-            )
-            val acceptedTaskId = firstNonBlankString(accepted["taskId"], taskId)
-            OobReusableFunctionStore.recordRun(
-                context = context,
-                functionId = functionId,
-                success = true,
-                runId = acceptedTaskId,
-                runner = "oob_agent_fallback",
-                stepCount = stepResults.size,
-                errorMessage = null
-            )
-            buildOobReusableFunctionAgentFallbackPayload(
-                functionId = functionId,
-                taskId = acceptedTaskId,
-                conversationId = resolvedConversationId,
-                started = true,
-                startErrorCode = null,
-                startErrorMessage = null,
-                runPayload = runPayload + mapOf(
-                    "model_required" to true
-                ),
-                stepResults = stepResults,
-                completedStepCount = completedStepCount,
-                pendingAgentStepCount = pendingAgentStepCount,
-                argumentCount = argumentCount
-            )
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            val code = if (error.message?.contains("已有运行中的 Agent") == true) {
-                "AGENT_RUN_ALREADY_ACTIVE"
-            } else {
-                "AGENT_FALLBACK_START_FAILED"
-            }
-            OobReusableFunctionStore.recordRun(
-                context = context,
-                functionId = functionId,
-                success = false,
-                runId = taskId,
-                runner = "oob_agent_fallback",
-                stepCount = stepResults.size,
-                errorMessage = error.message
-            )
-            buildOobReusableFunctionAgentFallbackPayload(
-                functionId = functionId,
-                taskId = taskId,
-                conversationId = conversationId,
-                started = false,
-                startErrorCode = code,
-                startErrorMessage = error.message ?: "Agent fallback start failed",
-                runPayload = runPayload + mapOf(
-                    "model_required" to true
-                ),
-                stepResults = stepResults,
-                completedStepCount = completedStepCount,
-                pendingAgentStepCount = pendingAgentStepCount,
-                argumentCount = argumentCount
-            )
-        }
-    }
-
-    private fun buildOobReusableFunctionRunPrompt(
-        functionId: String,
-        functionSpec: Map<String, Any?>,
-        arguments: Map<String, Any?>,
-        completedStepCount: Int = 0,
-    ): String {
-        val goal = functionSpec["description"]?.toString()?.trim()
-            ?: functionSpec["name"]?.toString()?.trim()
-            ?: functionId
-        val constraints = functionSpec["constraints"] as? Map<*, *>
-        val packageName = constraints?.get("package_name")?.toString()?.trim().orEmpty()
-        val steps = ((functionSpec["execution"] as? Map<*, *>)?.get("steps") as? List<*>)
-            ?.filterIsInstance<Map<*, *>>() ?: emptyList()
-
-        val lines = mutableListOf<String>()
-        lines += "执行任务：$goal"
-        if (packageName.isNotEmpty()) lines += "目标应用：$packageName"
-        if (arguments.isNotEmpty()) {
-            lines += "调用参数：${OobReusableFunctionStore.prettyJson(arguments)}"
-        }
-        if (completedStepCount > 0) {
-            lines += "（前 $completedStepCount 步已由本地执行完毕，从第 ${completedStepCount + 1} 步继续）"
-        }
-        lines += ""
-        lines += "你必须调用可用工具实际执行，不要只回复文字。需要屏幕操作时可以调用 vlm_task，让小万从当前手机屏幕完成剩余步骤。"
-        lines += "如果调用 vlm_task，goal 应该概括剩余任务，不要逐字解释步骤。"
-        lines += ""
-        lines += "步骤（按顺序执行）："
-
-        steps.forEachIndexed { i, rawStep ->
-            val step = rawStep.entries.associate { (k, v) -> k.toString() to v }
-            val num = i + 1
-            val title = step["title"]?.toString()?.trim().orEmpty()
-            val executor = step["executor"]?.toString()?.trim()?.lowercase().orEmpty()
-            val done = i < completedStepCount
-
-            when {
-                done -> lines += "$num. [已完成] $title"
-                executor == RunLogReplayPolicy.EXECUTOR_OMNIFLOW -> {
-                    val action = step["tool"]?.toString() ?: "?"
-                    val args = step["args"]
-                    val argsLine = when {
-                        args is Map<*, *> && args.isNotEmpty() ->
-                            args.entries.take(4).joinToString(", ") { (k, v) -> "$k=$v" }
-                        else -> ""
-                    }
-                    val coordNote = if (step["coordinate_hook"] != null) "（有录制坐标，优先 remap）" else ""
-                    lines += "$num. [直接执行] $title"
-                    lines += "  → $action${if (argsLine.isNotEmpty()) " $argsLine" else ""}$coordNote"
-                }
-                executor == RunLogReplayPolicy.EXECUTOR_AGENT -> {
-                    val prompt = ((step["agent_call"] as? Map<*, *>)
-                        ?.get("args") as? Map<*, *>)
-                        ?.get("prompt")?.toString()?.trim() ?: title
-                    lines += "$num. [重新规划] $title"
-                    lines += "  → $prompt"
-                }
-                else -> {
-                    val tool = step["tool"]?.toString() ?: "?"
-                    lines += "$num. [工具调用] $title"
-                    lines += "  → $tool"
-                }
-            }
-        }
-
-        lines += ""
-        lines += "规则：[直接执行] / executor=omniflow/model_free 的步骤使用已记录参数本地重放，不重新规划；[工具调用] 使用 step.tool；[重新规划] / executor=agent 的步骤以 step.agent_call 或 fallback prompt 从当前屏幕继续。"
-        return lines.joinToString("\n")
     }
 
     private fun parseScheduledSubagentRunMeta(

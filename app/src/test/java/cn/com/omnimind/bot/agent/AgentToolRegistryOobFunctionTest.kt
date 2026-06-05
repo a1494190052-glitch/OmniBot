@@ -42,8 +42,8 @@ class AgentToolRegistryOobFunctionTest {
             assertTrue(toolNames.contains(OobFunctionToolNames.FUNCTION_GET))
             assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_REGISTER))
             assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_UPDATE))
-            assertTrue(toolNames.contains(OobFunctionToolNames.FUNCTION_GUARD_CHECK))
-            assertTrue(toolNames.contains(OobFunctionToolNames.FUNCTION_RUN))
+            assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_GUARD_CHECK))
+            assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_RUN))
             assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_DELETE))
             assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_CLEAR))
             assertFalse(toolNames.contains(OobFunctionToolNames.RUN_LOG_LIST))
@@ -74,7 +74,8 @@ class AgentToolRegistryOobFunctionTest {
             assertFalse(toolNames.contains("web_search"))
             assertFalse(toolNames.contains("terminal_execute"))
             assertFalse(toolNames.contains("workbench_project_create"))
-            assertTrue(toolNames.contains(OobFunctionToolNames.FUNCTION_GUARD_CHECK))
+            assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_GUARD_CHECK))
+            assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_RUN))
             assertTrue(toolNames.contains(OobFunctionToolNames.FUNCTION_CLEAR))
             assertTrue(toolNames.contains(OobFunctionToolNames.RUN_LOG_GET))
         } finally {
@@ -83,7 +84,7 @@ class AgentToolRegistryOobFunctionTest {
     }
 
     @Test
-    fun `function management profile keeps registered oob functions callable`() {
+    fun `function management profile does not expose registered oob functions as direct tools`() {
         val context = TempFilesContext()
         try {
             val functionId = "oob_profile_callable_function"
@@ -99,11 +100,7 @@ class AgentToolRegistryOobFunctionTest {
             )
             val toolNames = registry.toolsForModel.map { it.function.name }.toSet()
 
-            assertTrue(toolNames.contains(functionId))
-            assertEquals(
-                "oob_function",
-                registry.runtimeDescriptor(functionId).toolType,
-            )
+            assertFalse(toolNames.contains(functionId))
         } finally {
             context.root.deleteRecursively()
         }
@@ -130,7 +127,7 @@ class AgentToolRegistryOobFunctionTest {
     }
 
     @Test
-    fun `function management profile includes more than legacy fifty registered functions`() {
+    fun `function management profile hides registered dynamic functions while retaining store entries`() {
         val context = TempFilesContext()
         try {
             val repository = OobFunctionRepository(context)
@@ -152,7 +149,8 @@ class AgentToolRegistryOobFunctionTest {
             val toolNames = registry.toolsForModel.map { it.function.name }.toSet()
 
             functionIds.forEach { functionId ->
-                assertTrue("missing dynamic OOB function tool $functionId", toolNames.contains(functionId))
+                assertFalse("dynamic OOB function tool should be hidden $functionId", toolNames.contains(functionId))
+                assertNotNull(repository.get(functionId))
             }
         } finally {
             context.root.deleteRecursively()
@@ -187,7 +185,7 @@ class AgentToolRegistryOobFunctionTest {
     }
 
     @Test
-    fun `registered oob function is exposed as model tool by default`() {
+    fun `registered oob function is not exposed as model tool by default`() {
         val context = TempFilesContext()
         try {
             val functionId = "oob_registered_text_input"
@@ -200,14 +198,14 @@ class AgentToolRegistryOobFunctionTest {
                 discoveredServers = emptyList(),
             )
 
-            assertTrue(registry.toolsForModel.any { it.function.name == functionId })
+            assertFalse(registry.toolsForModel.any { it.function.name == functionId })
         } finally {
             context.root.deleteRecursively()
         }
     }
 
     @Test
-    fun `legacy bare enabled oob function preference does not disable default exposure`() {
+    fun `legacy bare enabled oob function preference still keeps direct exposure disabled`() {
         val context = TempFilesContext()
         try {
             context.getSharedPreferences("agent_tool_features", Context.MODE_PRIVATE)
@@ -224,7 +222,7 @@ class AgentToolRegistryOobFunctionTest {
                 discoveredServers = emptyList(),
             )
 
-            assertTrue(registry.toolsForModel.any { it.function.name == functionId })
+            assertFalse(registry.toolsForModel.any { it.function.name == functionId })
         } finally {
             context.root.deleteRecursively()
         }
@@ -247,8 +245,8 @@ class AgentToolRegistryOobFunctionTest {
 
             assertFalse(registry.toolsForModel.any { it.function.name == functionId })
             assertTrue(registry.toolsForModel.any { it.function.name == OobFunctionToolNames.FUNCTION_GET })
-            assertTrue(registry.toolsForModel.any { it.function.name == OobFunctionToolNames.FUNCTION_GUARD_CHECK })
-            assertTrue(registry.toolsForModel.any { it.function.name == OobFunctionToolNames.FUNCTION_RUN })
+            assertFalse(registry.toolsForModel.any { it.function.name == OobFunctionToolNames.FUNCTION_GUARD_CHECK })
+            assertFalse(registry.toolsForModel.any { it.function.name == OobFunctionToolNames.FUNCTION_RUN })
             assertFalse(registry.toolsForModel.any { it.function.name == "oob_function_recall" })
         } finally {
             context.root.deleteRecursively()
@@ -291,7 +289,7 @@ class AgentToolRegistryOobFunctionTest {
                 discoveredServers = emptyList(),
             )
             val toolNames = registry.toolsForModel.map { it.function.name }.toSet()
-            assertTrue(toolNames.contains(OobFunctionToolNames.FUNCTION_RUN))
+            assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_RUN))
             assertFalse(toolNames.contains("oob_function_recall"))
 
             val promptContext = OobFunctionSkillProfile.promptCandidateContext(
@@ -303,8 +301,9 @@ class AgentToolRegistryOobFunctionTest {
 
             assertTrue(promptContext.contains("自动召回 OmniFlow Function 候选"))
             assertTrue(promptContext.contains("Function recall 是运行时内部步骤，不是模型工具"))
+            assertTrue(promptContext.contains("agent-task 不直接调用 Function 执行工具"))
             assertTrue(promptContext.contains(xhsFunctionId))
-            assertTrue(promptContext.contains(OobFunctionToolNames.FUNCTION_RUN))
+            assertFalse(promptContext.contains(OobFunctionToolNames.FUNCTION_RUN))
             assertFalse(promptContext.contains("oob_function_recall"))
         } finally {
             context.root.deleteRecursively()
@@ -312,7 +311,7 @@ class AgentToolRegistryOobFunctionTest {
     }
 
     @Test
-    fun `registered oob function is exposed as agent tool after explicit feature enable and materializes changed argument`() {
+    fun `registered oob function direct tool stays hidden after explicit feature enable but materialization works`() {
         val context = TempFilesContext()
         try {
             val functionId = "oob_registered_text_input"
@@ -326,35 +325,7 @@ class AgentToolRegistryOobFunctionTest {
                 discoveredServers = emptyList(),
             )
             val tool = registry.toolsForModel.singleOrNull { it.function.name == functionId }
-            assertNotNull(tool)
-            assertEquals(
-                "oob_function",
-                registry.runtimeDescriptor(functionId).toolType,
-            )
-
-            val schema = tool!!.function.parameters
-            val properties = schema["properties"] as JsonObject
-            val replacement = properties["replacement_text"] as JsonObject
-            assertEquals("string", replacement["type"]?.jsonPrimitive?.content)
-            assertEquals("hello", replacement["default"]?.jsonPrimitive?.content)
-            val required = (schema["required"] as JsonArray)
-                .map { it.jsonPrimitive.content }
-            assertTrue(required.contains("tool_title"))
-            assertFalse(required.contains("replacement_text"))
-
-            registry.validateArguments(
-                functionId,
-                buildJsonObject {
-                    put("tool_title", JsonPrimitive("Replay"))
-                    put("replacement_text", JsonPrimitive("world"))
-                },
-            )
-            registry.validateArguments(
-                functionId,
-                buildJsonObject {
-                    put("replacement_text", JsonPrimitive("world"))
-                },
-            )
+            assertEquals(null, tool)
 
             val stored = requireNotNull(
                 OobFunctionRepository(context).get(functionId)
@@ -373,7 +344,7 @@ class AgentToolRegistryOobFunctionTest {
     }
 
     @Test
-    fun `register normalizes invalid oob function id before exposing as agent tool`() {
+    fun `register normalizes invalid oob function id but does not expose as agent tool`() {
         val context = TempFilesContext()
         try {
             val register = OobFunctionRepository(context)
@@ -393,7 +364,7 @@ class AgentToolRegistryOobFunctionTest {
                 context = context,
                 discoveredServers = emptyList(),
             )
-            assertNotNull(registry.toolsForModel.singleOrNull {
+            assertEquals(null, registry.toolsForModel.singleOrNull {
                 it.function.name == "bad_id_with_dot"
             })
             assertFalse(registry.toolsForModel.any {

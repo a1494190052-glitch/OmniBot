@@ -1,17 +1,17 @@
 # OOB RunLog
 
 OmniFlow is the pipeline from RunLog to reusable Function matching, execution,
-and agent fallback. Product-facing behavior is exposed through skills; this
-contract only defines the storage, conversion, and replay primitives those
-skills call. There is no separate OmniFlow runtime or controller outside the
-skill system.
+UDEG recall, checker handling, action transfer, and VLM continuation.
+Product-facing behavior is exposed through skills; this contract only defines
+the storage, conversion, and replay primitives those skills call. There is no
+separate OmniFlow runtime or controller outside the skill system.
 
 RunLog is a runtime contract, not just a UI feature. Keep these boundaries aligned:
 
 1. Native records tool cards into `InternalRunLogStore`.
 2. Flutter displays the timeline and converts cards into a reusable Function.
 3. Native stores and materializes reusable Functions through `OobReusableFunctionStore`.
-4. `OobFunctionToolHandler` replays deterministic local steps first, then hands live-context steps back to Agent.
+4. `OobFunctionToolHandler` replays deterministic local steps; live-context failures return a compact VLM continuation result.
 5. Workspace Function save must follow the same executor policy as Flutter conversion.
 
 Read `references/runlog-contract.md` before changing conversion or replay behavior.
@@ -83,7 +83,7 @@ record. Do not read only the snapshot when correctness matters.
 - Function recall policy: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionRecallService.kt`
 - VLM Function recall guidance: `app/src/main/java/cn/com/omnimind/bot/vlm/VlmRecallGuidanceBuilder.kt`
 - VLM UDEG page context guidance: `app/src/main/java/cn/com/omnimind/bot/vlm/OobVlmPageContextProvider.kt`
-- Function guard/fallback policy: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionRunPolicy.kt`
+- Function guard and continuation policy: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionRunPolicy.kt`
 - Canonical in-app Function/RunLog tool names: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionToolNames.kt`
 - Function call timing: `app/src/main/java/cn/com/omnimind/bot/runlog/OobFunctionCallTiming.kt`
 - Function-management skill profile: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionSkillProfile.kt`
@@ -104,7 +104,7 @@ record. Do not read only the snapshot when correctness matters.
 - Replay step runner: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolHandler.kt`
 - Replay frontend session controller: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionFrontendSessionController.kt`
 - Replay source alignment controller: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionSourceAlignmentController.kt`
-- Replay agent fallback controller: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionAgentFallbackController.kt`
+- Replay VLM continuation controller: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionAgentFallbackController.kt`
 - Replay call/tool argument resolver: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionCallRequestResolver.kt`
 - Replay step classifier: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionStepClassifier.kt`
 - Replay tool delegation executor: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolDelegationExecutor.kt`
@@ -167,8 +167,9 @@ Replay compatibility tool names such as `call_tool`, `oob_tool_call`,
 `call_function`, `go_to_node`, and `oob.agent.run` also live in
 `RunLogReplayPolicy` when they are used by Function compilation, schema
 materialization, recall, or replay routing. Agent-facing docs and tools should
-still present saved Function execution as `oob_function_run`; `call_function`
-is accepted for older RunLogs and adapters only. UDEG edge-kind names and
+present saved Function execution as native Function tools surfaced through
+`vlm_task`; `oob_function_run` and `call_function` are accepted for older
+RunLogs and adapters only. UDEG edge-kind names and
 diagnostic counter keys remain graph-storage vocabulary owned by
 `OobUdegNodeStore`.
 Canonical in-app Function and RunLog lifecycle tool names such as
@@ -210,7 +211,7 @@ Do not hard replay `browser_use` or `web_search`; their outputs are live context
 - VLM-only logs must not become empty functions. Emit one `executor=agent` step with reason `perception_only_step_without_recorded_actions`.
 - If a VLM wrapper card is followed by concrete recorded actions, skip the perception wrapper and keep the recorded `omniflow` steps.
 - Failed recorded action cards must not count as concrete replay evidence; keep the
-  VLM fallback if the only local action failed.
+  VLM continuation evidence if the only local action failed.
 - `android_privileged_action` cards that wrap a supported local UI action should
   flatten nested `arguments` into the emitted OmniFlow step args.
 - Treat legacy `type` as an import alias for `input_text`; do not emit it as a
@@ -372,8 +373,8 @@ Port into OOB:
 
 Keep in OmniFlow/provider for now:
 
-- Provider HTTP/MCP lifecycle, cache gate, recall, cloud push/pull, and retry
-  resume semantics.
+- Provider HTTP/MCP lifecycle, cloud push/pull, and provider-side retry
+  semantics.
 - SQLite `RunStore`, background enrich, semantic dedup, L1/L2 cache writeback,
   and multi-user registry.
 - Cloud/provider graph optimization beyond the local path/edge data embedded in

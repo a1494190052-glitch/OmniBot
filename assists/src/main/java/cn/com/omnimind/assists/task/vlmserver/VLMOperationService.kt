@@ -762,6 +762,7 @@ class VLMOperationService(
                     _context = _context.copy(
                         pageDiagnostics = _context.pageDiagnostics +
                             phaseDiagnostics() +
+                            buildContextBudgetDiagnostics(_context) +
                             buildRequestEnvelopeDiagnostics(requestEnvelope)
                     )
                     OmniLog.i(
@@ -1291,6 +1292,16 @@ class VLMOperationService(
             "vlm_request_current_user_text_chars" to envelope.currentUserTextChars.toString(),
         )
 
+    private fun buildContextBudgetDiagnostics(context: UIContext): Map<String, String> =
+        linkedMapOf(
+            "vlm_context_current_page_summary_chars" to context.currentPageSummary.length.toString(),
+            "vlm_context_step_skill_guidance_chars" to context.stepSkillGuidance.length.toString(),
+            "vlm_context_running_summary_chars" to context.runningSummary.length.toString(),
+            "vlm_context_key_memory_count" to context.keyMemory.size.toString(),
+            "vlm_context_installed_app_count" to context.installedApplications.size.toString(),
+            "vlm_context_dynamic_tool_definition_count" to context.dynamicToolDefinitions.size.toString(),
+        )
+
     private fun normalizeOverlayText(text: String, maxLen: Int): String {
         val normalized = text.replace("\r\n", "\n").trim()
         return if (normalized.length <= maxLen) normalized else "..." + normalized.takeLast(maxLen - 3)
@@ -1352,42 +1363,38 @@ class VLMOperationService(
         val encodedHeight = deviceOperator.getLastScreenshotHeight().coerceAtLeast(1)
         val displayWidth = deviceOperator.getDisplayWidth().coerceAtLeast(encodedWidth)
         val displayHeight = deviceOperator.getDisplayHeight().coerceAtLeast(encodedHeight)
-        val scaleX = if (encodedWidth > 0) displayWidth.toDouble() / encodedWidth else 1.0
-        val scaleY = if (encodedHeight > 0) displayHeight.toDouble() / encodedHeight else 1.0
 
-        fun coordType(value: Float, encodedSize: Int): String {
+        fun coordType(value: Float, displaySize: Int): String {
             return when {
                 value <= 1f -> "ratio_0-1"
-                value <= 1000f -> "norm_0-1000"
-                value <= encodedSize -> "pixel_in_encoded"
+                value <= displaySize -> "absolute_pixel"
                 else -> "pixel_overflow"
             }
         }
 
-        fun toScreenCoord(value: Float, encodedSize: Int, scale: Double, maxSize: Int): Int {
+        fun toScreenCoord(value: Float, maxSize: Int): Int {
             val mapped = when {
-                value <= 1f -> (value.toDouble() * encodedSize * scale).roundToInt()
-                value <= 1000f -> (value / 1000.0 * encodedSize * scale).roundToInt()
-                else -> (value * scale).roundToInt()
+                value <= 1f -> (value.toDouble() * maxSize).roundToInt()
+                else -> value.roundToInt()
             }
             return mapped.coerceIn(0, maxSize)
         }
 
         val updatedAction = when (val action = step.action) {
             is ClickAction -> {
-                val absoluteX = toScreenCoord(position[0], encodedWidth, scaleX, displayWidth)
-                val absoluteY = toScreenCoord(position[1], encodedHeight, scaleY, displayHeight)
+                val absoluteX = toScreenCoord(position[0], displayWidth)
+                val absoluteY = toScreenCoord(position[1], displayHeight)
                 OmniLog.d(
                     Tag,
                     "Coord mapping(click): raw=(${position[0]}, ${position[1]}) type=(${
                         coordType(
                             position[0],
-                            encodedWidth
+                            displayWidth
                         )
                     }, ${
                         coordType(
                             position[1],
-                            encodedHeight
+                            displayHeight
                         )
                     }), encoded=${encodedWidth}x${encodedHeight}, mapped=(${absoluteX}, ${absoluteY}), display=${displayWidth}x${displayHeight}"
                 )
@@ -1395,19 +1402,19 @@ class VLMOperationService(
             }
 
             is InputTextAction -> {
-                val absoluteX = toScreenCoord(position[0], encodedWidth, scaleX, displayWidth)
-                val absoluteY = toScreenCoord(position[1], encodedHeight, scaleY, displayHeight)
+                val absoluteX = toScreenCoord(position[0], displayWidth)
+                val absoluteY = toScreenCoord(position[1], displayHeight)
                 OmniLog.d(
                     Tag,
                     "Coord mapping(input_text): raw=(${position[0]}, ${position[1]}) type=(${
                         coordType(
                             position[0],
-                            encodedWidth
+                            displayWidth
                         )
                     }, ${
                         coordType(
                             position[1],
-                            encodedHeight
+                            displayHeight
                         )
                     }), encoded=${encodedWidth}x${encodedHeight}, mapped=(${absoluteX}, ${absoluteY}), display=${displayWidth}x${displayHeight}"
                 )
@@ -1419,10 +1426,10 @@ class VLMOperationService(
                 val rawY1 = position.getOrNull(1) ?: 0f
                 val rawX2 = position.getOrNull(2) ?: 0f
                 val rawY2 = position.getOrNull(3) ?: 0f
-                val absoluteX1 = toScreenCoord(rawX1, encodedWidth, scaleX, displayWidth)
-                val absoluteY1 = toScreenCoord(rawY1, encodedHeight, scaleY, displayHeight)
-                val absoluteX2 = toScreenCoord(rawX2, encodedWidth, scaleX, displayWidth)
-                val absoluteY2 = toScreenCoord(rawY2, encodedHeight, scaleY, displayHeight)
+                val absoluteX1 = toScreenCoord(rawX1, displayWidth)
+                val absoluteY1 = toScreenCoord(rawY1, displayHeight)
+                val absoluteX2 = toScreenCoord(rawX2, displayWidth)
+                val absoluteY2 = toScreenCoord(rawY2, displayHeight)
                 val safeScroll = sanitizeScrollGestureCoordinates(
                     x1 = absoluteX1,
                     y1 = absoluteY1,
@@ -1436,17 +1443,17 @@ class VLMOperationService(
                     "Coord mapping(scroll): raw=($rawX1, $rawY1, $rawX2, $rawY2) type=(${
                         coordType(
                             rawX1,
-                            encodedWidth
+                            displayWidth
                         )
-                    }, ${coordType(rawY1, encodedHeight)}, ${
+                    }, ${coordType(rawY1, displayHeight)}, ${
                         coordType(
                             rawX2,
-                            encodedWidth
+                            displayWidth
                         )
                     }, ${
                         coordType(
                             rawY2,
-                            encodedHeight
+                            displayHeight
                         )
                     }), encoded=${encodedWidth}x${encodedHeight}, mapped=($absoluteX1, $absoluteY1, $absoluteX2, $absoluteY2), safe=(${safeScroll.x1}, ${safeScroll.y1}, ${safeScroll.x2}, ${safeScroll.y2}, adjusted=${safeScroll.adjusted}), display=${displayWidth}x${displayHeight}"
                 )
@@ -1459,19 +1466,19 @@ class VLMOperationService(
             }
 
             is LongPressAction -> {
-                val absoluteX = toScreenCoord(position[0], encodedWidth, scaleX, displayWidth)
-                val absoluteY = toScreenCoord(position[1], encodedHeight, scaleY, displayHeight)
+                val absoluteX = toScreenCoord(position[0], displayWidth)
+                val absoluteY = toScreenCoord(position[1], displayHeight)
                 OmniLog.d(
                     Tag,
                     "Coord mapping(long_press): raw=(${position[0]}, ${position[1]}) type=(${
                         coordType(
                             position[0],
-                            encodedWidth
+                            displayWidth
                         )
                     }, ${
                         coordType(
                             position[1],
-                            encodedHeight
+                            displayHeight
                         )
                     }), encoded=${encodedWidth}x${encodedHeight}, mapped=(${absoluteX}, ${absoluteY}), display=${displayWidth}x${displayHeight}"
                 )

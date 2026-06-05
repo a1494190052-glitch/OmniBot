@@ -26,8 +26,8 @@ class McpToolDefinitionsTest {
         assertTrue(names.contains(OobFunctionToolNames.FUNCTION_GET))
         assertTrue(names.contains(OobFunctionToolNames.FUNCTION_REGISTER))
         assertTrue(names.contains(OobFunctionToolNames.FUNCTION_UPDATE))
-        assertTrue(names.contains(OobFunctionToolNames.FUNCTION_GUARD_CHECK))
-        assertTrue(names.contains(OobFunctionToolNames.FUNCTION_RUN))
+        assertFalse(names.contains(OobFunctionToolNames.FUNCTION_GUARD_CHECK))
+        assertFalse(names.contains(OobFunctionToolNames.FUNCTION_RUN))
         assertTrue(names.contains(OobFunctionToolNames.FUNCTION_DELETE))
         assertTrue(names.contains(OobFunctionToolNames.FUNCTION_CLEAR))
         assertTrue(names.contains(OobFunctionToolNames.RUN_LOG_LIST))
@@ -112,23 +112,9 @@ class McpToolDefinitionsTest {
     }
 
     @Test
-    fun oobFunctionRunToolExposesResumeControls() {
-        val tool = McpToolDefinitions.fixedTools.single {
-            it["name"] == OobFunctionToolNames.FUNCTION_RUN
-        }
-        val schema = tool["inputSchema"] as Map<*, *>
-        val properties = schema["properties"] as Map<*, *>
-        val description = tool["description"]?.toString().orEmpty()
-
-        assertTrue(description.contains("fallback_context"))
-        assertTrue(properties.containsKey("function_id"))
-        assertTrue(properties.containsKey("resume_from_step"))
-        assertTrue(properties.containsKey("fallback_session_id"))
-        assertTrue(properties.containsKey("fallback_attempt"))
-        assertTrue(properties.containsKey("dry_run"))
-        assertFalse(properties.containsKey("functionId"))
-        assertFalse(properties.containsKey("start_step_index"))
-        assertFalse(properties.containsKey("resumeFromStep"))
+    fun oobFunctionRunToolIsNotExposedAsFixedMcpTool() {
+        val names = McpToolDefinitions.fixedTools.map { it["name"].toString() }.toSet()
+        assertFalse(names.contains(OobFunctionToolNames.FUNCTION_RUN))
     }
 
     @Test
@@ -185,9 +171,7 @@ class McpToolDefinitionsTest {
         assertTrue(properties.containsKey("maxSteps"))
         assertTrue(properties.containsKey("startFromCurrent"))
         assertTrue(properties.containsKey("needSummary"))
-        assertTrue(properties.containsKey("allowOmniFlowFunctionAutoExecute"))
-        val autoExecute = properties["allowOmniFlowFunctionAutoExecute"] as Map<*, *>
-        assertEquals(false, autoExecute["default"])
+        assertFalse(properties.containsKey("allowOmniFlowFunctionAutoExecute"))
     }
 
     @Test

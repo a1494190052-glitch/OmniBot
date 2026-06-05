@@ -17,6 +17,10 @@ TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-180}"
 START_FROM_CURRENT=0
 PACKAGE_TO_OPEN="${PACKAGE_TO_OPEN:-com.android.settings}"
 REGISTER=0
+PARSE_ONLY=0
+STEP_SKILL_GUIDANCE=""
+PROFILE_ID=""
+MODEL_ID=""
 
 usage() {
   cat <<'EOF'
@@ -37,6 +41,12 @@ Useful options:
   --start-from-current     Do not prelaunch Settings; run from current page
   --package PACKAGE        App package to prelaunch when not using --start-from-current
   --register               Let the debug receiver convert/register the successful run
+  --parse-only             Call the real VLM API and parse the next tool only; do not execute the action
+  --warm-memory TEXT       Inject warm memory / skill guidance into this vlm_task request
+  --step-skill-guidance TEXT
+                           Same as --warm-memory
+  --profile-id ID          Optional provider profile id for scene.vlm.operation.primary
+  --model-id ID            Optional model id for scene.vlm.operation.primary
 EOF
 }
 
@@ -77,6 +87,22 @@ while [[ $# -gt 0 ]]; do
     --register)
       REGISTER=1
       shift
+      ;;
+    --parse-only|--dry-run)
+      PARSE_ONLY=1
+      shift
+      ;;
+    --warm-memory|--step-skill-guidance)
+      STEP_SKILL_GUIDANCE="$2"
+      shift 2
+      ;;
+    --profile-id)
+      PROFILE_ID="$2"
+      shift 2
+      ;;
+    --model-id|--model)
+      MODEL_ID="$2"
+      shift 2
       ;;
     -h|--help)
       usage
@@ -169,7 +195,17 @@ BROADCAST_ARGS=(
   --es goalBase64 "$GOAL_B64"
   --ei maxSteps "$MAX_STEPS"
   --ez register "$([[ "$REGISTER" -eq 1 ]] && echo true || echo false)"
+  --ez parseOnly "$([[ "$PARSE_ONLY" -eq 1 ]] && echo true || echo false)"
 )
+if [[ -n "${STEP_SKILL_GUIDANCE// }" ]]; then
+  BROADCAST_ARGS+=(--es stepSkillGuidanceBase64 "$(base64_text "$STEP_SKILL_GUIDANCE")")
+fi
+if [[ -n "${PROFILE_ID// }" ]]; then
+  BROADCAST_ARGS+=(--es profileId "$PROFILE_ID")
+fi
+if [[ -n "${MODEL_ID// }" ]]; then
+  BROADCAST_ARGS+=(--es modelId "$MODEL_ID")
+fi
 if [[ "$START_FROM_CURRENT" -eq 1 ]]; then
   BROADCAST_ARGS+=(--ez startFromCurrent true --ez skipGoHome true)
 else
@@ -201,6 +237,31 @@ from pathlib import Path
 
 result_path, output_path, target = sys.argv[1], sys.argv[2], sys.argv[3]
 data = json.load(open(result_path, encoding="utf-8"))
+if data.get("parse_only") is True:
+    parse_result = data.get("parse_result") or {}
+    summary = {
+        "success": data.get("success") is True,
+        "target": target,
+        "parse_only": True,
+        "executed": False,
+        "tool_name": parse_result.get("tool_name"),
+        "action": parse_result.get("action"),
+        "parsed": parse_result.get("parsed"),
+        "model": parse_result.get("model"),
+        "package_name": parse_result.get("package_name"),
+        "screenshot_included": parse_result.get("screenshot_included"),
+        "prompt_chars": parse_result.get("prompt_chars"),
+        "page_diagnostics": parse_result.get("page_diagnostics"),
+        "phase_ms": parse_result.get("phase_ms"),
+        "error": parse_result.get("error"),
+    }
+    Path(output_path).write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    summary["result_path"] = output_path
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    sys.exit(0 if data.get("success") is True else 1)
 run_log = data.get("run_log") or {}
 if isinstance(run_log, dict) and run_log:
     Path(output_path).write_text(

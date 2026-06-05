@@ -213,13 +213,13 @@ object AgentToolDefinitions {
         "分派子任务" to "Dispatch Subtasks",
         "调用工具" to "Call Tool",
         "统一调用一个 OOB 工具，或通过 function_id 运行一个已保存的本地 Function 片段。Function 是可组合的复用片段，不要求一次覆盖完整用户目标；调用后要根据结果继续选择下一个 Function、VLM、网页、终端、文件或记忆工具。" to
-            "Call one OOB tool, or run one saved local Function segment by function_id. A Function is a composable reusable segment, not necessarily the whole user goal; after the result, choose the next Function, VLM, web, terminal, file, or memory tool as needed.",
+            "Call one OOB tool, or run one saved local Function by function_id when that capability is explicitly exposed. A Function is a saved mobile workflow tool; after the result, choose the next Function, VLM, web, terminal, file, or memory tool as needed.",
         "目标工具名，例如 vlm_task、web_search、terminal_execute。传 function_id 时可留空。" to
             "Target tool name, for example vlm_task, web_search, or terminal_execute. Leave empty when function_id is provided.",
         "已保存 Function 的 id。传入后会走本地 Function runner，运行这一个复用片段，而不是单独的 call_function 工具。" to
-            "Saved Function id. When provided, this runs that reusable segment through the local Function runner instead of a separate call_function tool.",
+            "Saved Function id. When provided and exposed by the current runtime, this runs that saved Function through the local runner instead of a separate call_function tool.",
         "传给目标工具或 Function 片段的参数对象。" to
-            "Arguments object passed to the target tool or Function segment.",
+            "Arguments object passed to the target tool or Function.",
         "可选自然语言目标，用于记录或需要规划的工具。" to
             "Optional natural-language goal for tracing or tools that require planning.",
         "查询设备已安装应用列表。需要应用包名或确认应用是否已安装时优先调用。" to
@@ -592,7 +592,7 @@ object AgentToolDefinitions {
             put("toolType", "builtin")
             put(
                 "description",
-                "使用视觉语言模型执行手机当前屏幕操作任务，只用于点击、滑动、输入、打开 App 或跨 App 自动化。一次 vlm_task 调用代表一次完整设备执行流程；打开 App 是该完整流程的第一步，不要先单独调用 vlm_task 打开 App、再第二次调用 vlm_task 执行后续目标。内部点击/输入/滚动会作为 vlm_step 进度持续上报。不要用于用户上传图片/截图/照片的识别、OCR、解释、总结或对比；这类图片已在多模态对话里，应该直接回答。该工具会阻塞等待到任务完成、需要用户输入、屏幕锁定或超时，再把终态结果返回给模型。若需要最终整理文本，必须设置 needSummary=true。默认 false 时，在线 VLM 每轮 fresh observe 后会注入 UDEG page skill 和已召回的保存流程 tools；这些保存流程会作为本轮真实 native model tools 暴露，由 VLM 像选择 click/input_text 一样直接选择对应 tool id 并填写参数。只有需要让 VLM 在执行前自动运行无参数且强命中的保存流程时，才设置 allowOmniFlowFunctionAutoExecute=true；参数化保存流程仍必须由模型填写参数后显式调用。外层 Agent 的 Function 管理、guard 和 replay 策略由 OmniFlow skill 约束。"
+                "使用视觉语言模型执行手机当前屏幕操作任务，只用于点击、滑动、输入、打开 App 或跨 App 自动化。一次 vlm_task 调用代表一次完整设备执行流程；打开 App 是该完整流程的第一步，不要先单独调用 vlm_task 打开 App、再第二次调用 vlm_task 执行后续目标。内部点击/输入/滚动会作为 vlm_step 进度持续上报。不要用于用户上传图片/截图/照片的识别、OCR、解释、总结或对比；这类图片已在多模态对话里，应该直接回答。该工具会阻塞等待到任务完成、需要用户输入、屏幕锁定或超时，再把终态结果返回给模型。若需要最终整理文本，必须设置 needSummary=true。在线 VLM 每轮 fresh observe 后会注入当前页面信息和已召回的 saved Function tools；这些 Function 与 click/input_text/scroll 一样是本轮真实 native model tools，由 VLM 原生 tool_call 显式选择并填写参数。Function 执行成功或失败后，下一轮仍基于新的 fresh observe 和工具结果继续判断；外层 Agent 不接管隐藏 Function replay 或 guard 工具。"
             )
             putJsonObject("parameters") {
                 put("type", "object")
@@ -630,11 +630,6 @@ object AgentToolDefinitions {
                         put("type", "boolean")
                         put("default", false)
                         put("description", "可选，默认 false。false 时每轮 fresh observe 后注入 UDEG page skill 和 OmniFlow Function recall 候选；只有要严格裸跑 baseline 时才设为 true。")
-                    }
-                    putJsonObject("allowOmniFlowFunctionAutoExecute") {
-                        put("type", "boolean")
-                        put("default", false)
-                        put("description", "可选高级开关，默认 false。false 时召回 Function 只作为候选让在线 VLM 决策并显式调用；true 只允许无参数、强页面匹配、强文本匹配的 Function 在 VLM 前自动执行。")
                     }
                     putJsonObject("parseOnly") {
                         put("type", "boolean")

@@ -256,7 +256,7 @@ object VLMToolArgumentParser {
     }
 
     private fun locateFieldValue(raw: String, field: String): String? {
-        val pattern = Regex("""["']${Regex.escape(field)}["']\s*:\s*""")
+        val pattern = Regex("""(?:(["'])${Regex.escape(field)}\1|${Regex.escape(field)})\s*[:=]\s*""")
         val match = pattern.find(raw) ?: return null
         return raw.substring(match.range.last + 1)
     }

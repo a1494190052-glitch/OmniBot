@@ -1,17 +1,18 @@
-# Replay Fallback And Resume
+# Replay Failure Handling
 
-Use this reference when `oob_function_run` fails or returns agent fallback
-context.
+Use this reference when a saved Function run fails or returns incomplete local
+runner evidence.
 
 ## Normal Function Execution
 
 1. Resolve the Function id.
 2. Inspect with `oob_function_get` if the Function is not already known.
 3. Fill required runtime parameters from the user request.
-4. Run the Function with `oob_function_run`.
-5. Treat the Function as an action stack, not as one fixed trajectory replay.
-   The runtime expands it into primitive actions and executes each action through
-   the same `observe -> checker -> action_transfer -> execute` loop.
+4. Execute the Function only through the currently exposed runtime path: usually
+   a dynamic VLM Function tool, or an explicitly exposed internal runner in
+   debug/management flows.
+5. The runtime expands it into primitive actions and executes each action
+   through the same `observe -> checker -> action_transfer -> execute` loop.
 6. Inspect the real result. If the user goal is complete, report it. If this
    Function only advanced part of the goal, continue with the next Function, VLM
    path, or other tool.
@@ -19,32 +20,18 @@ context.
 Each primitive action gets a fresh live observation. Do not infer that a later
 step is safe from an earlier page snapshot.
 
-## Fallback To Agent
+## Failure Return To VLM
 
-If `oob_function_run` returns `fallback_context`, do not restart the whole
-Function immediately.
+If a Function returns `success=false`, do not restart the whole Function
+immediately and do not ask the outer Agent to resume hidden replay.
 
-1. Read the failed step, failed reason, current screen context,
-   `failed_step_index`, and `resume_from_step`.
-2. Complete only the failed action using the live phone state or the bounded VLM
-   path available to the caller.
-3. Call `oob_function_run` again with the provided resume data. After the agent
-   has completed the failed step, `resume_from_step` points to the next local
-   step. Use `failed_step_index` only when retrying the failed step itself.
-   If the failed step is a nested Function call, inspect its `nested_*`
-   fallback fields as evidence, but still resume the parent Function from the
-   returned parent `resume_from_step`.
-
-```json
-{
-  "function_id": "<id>",
-  "resume_from_step": 4,
-  "fallback_session_id": "<session>",
-  "fallback_attempt": 1
-}
-```
-
-4. Continue from the next step when the fallback succeeds.
+1. Read the failed step, failed reason, and current screen evidence from the
+   returned `result` or RunLog card.
+2. Start the next VLM turn from a fresh current-page observe.
+3. Let that VLM turn choose one normal GUI tool or another exposed Function
+   tool. This is one `vlm_step`, not a separate Agent fallback loop.
+4. If the Function definition is wrong, use `update_function` with RunLog
+   evidence after the run.
 
 ## Repair Before Retry
 
@@ -60,6 +47,6 @@ before running again. Examples:
 Stop and report the blocker when:
 
 - The same step fails repeatedly.
-- No `fallback_context` or resume step is available.
+- The current page evidence is insufficient to choose a safe next VLM step.
 - The action is risky and needs confirmation.
 - The Function needs structural repair and the user did not authorize it.

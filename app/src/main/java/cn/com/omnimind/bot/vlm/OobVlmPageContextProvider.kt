@@ -2,6 +2,7 @@ package cn.com.omnimind.bot.vlm
 
 import android.content.Context
 import cn.com.omnimind.assists.task.vlmserver.UIContext
+import cn.com.omnimind.assists.task.vlmserver.VLMIndexedPageContext
 import cn.com.omnimind.assists.task.vlmserver.VLMPageContextProvider
 import cn.com.omnimind.assists.task.vlmserver.VLMPageContextRequest
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
@@ -29,7 +30,12 @@ class OobVlmPageContextProvider(
             )
         ) ?: return request.context
         val pageMatchMs = System.currentTimeMillis() - pageMatchStartedAt
-        val guidance = renderGuidance(observed)
+        val guidance = renderGuidance(
+            observed = observed,
+            currentXml = currentXml,
+            displayWidth = snapshot?.displayWidth ?: 0,
+            displayHeight = snapshot?.displayHeight ?: 0,
+        )
         val diagnostics = buildDiagnostics(
             observed = observed,
             guidance = guidance,
@@ -50,7 +56,12 @@ class OobVlmPageContextProvider(
         )
     }
 
-    private fun renderGuidance(observed: OobUdegNodeStore.PageObservationResult): String {
+    private fun renderGuidance(
+        observed: OobUdegNodeStore.PageObservationResult,
+        currentXml: String,
+        displayWidth: Int,
+        displayHeight: Int,
+    ): String {
         if (observed.firstSeen) return ""
         val payload = observed.toMap()
         val nodeId = payload["node_id"]?.toString()?.trim().orEmpty()
@@ -71,7 +82,17 @@ class OobVlmPageContextProvider(
             if (title.isNotBlank()) append("\n当前页面: ").append(title)
             if (pageRole.isNotBlank()) append("\n页面类型: ").append(pageRole)
             if (identityTexts.isNotBlank()) append("\n页面识别文本: ").append(identityTexts)
-            append("\n约束: 只描述当前页面是什么；复用指令由 Function Recall 注入，弹窗/键盘/广告由 Checker 处理。")
+            val representativeElements = VLMIndexedPageContext.renderRepresentativeElements(
+                currentXml = currentXml,
+                displayWidth = displayWidth,
+                displayHeight = displayHeight,
+                maxElements = MAX_REPRESENTATIVE_ELEMENTS,
+            )
+            if (representativeElements.isNotBlank()) {
+                append("\n代表 UI 元素（坐标为屏幕绝对像素中心点，非完整可选集合）:")
+                append("\n").append(representativeElements)
+            }
+            append("\n约束: 只描述当前页面是什么；代表元素只是提示，不能限制模型只选择这些元素；动作仍必须基于 live screenshot/XML/indexed evidence/action transfer。复用指令由 Function Recall 注入，弹窗/键盘/广告由 Checker 处理。")
         }.take(MAX_GUIDANCE_CHARS)
     }
 
@@ -96,6 +117,7 @@ class OobVlmPageContextProvider(
 
     private companion object {
         private const val MAX_IDENTITY_TEXTS = 18
+        private const val MAX_REPRESENTATIVE_ELEMENTS = 12
         private const val MAX_GUIDANCE_CHARS = 1_200
         private const val MAX_CONTEXT_CHARS = 4_000
     }

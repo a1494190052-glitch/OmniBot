@@ -18,10 +18,10 @@ data class VlmRecallGuidance(
 /**
  * Builds online VLM guidance from OOB-native OmniFlow recall.
  *
- * VLM still observes the live screen and emits concrete actions for recall
- * candidates. Recall defaults to UDEG node skill context and optional Function
- * candidates; direct local execution is only used when the caller explicitly
- * enables auto-execution and the recall payload contains a strict hit.
+ * VLM still observes the live screen and emits concrete actions or Function
+ * tool calls for recall candidates. Normal online execution treats recall as
+ * context/tool exposure only; direct local execution is reserved for explicit
+ * internal diagnostics and is not part of the VLM task main path.
  */
 object VlmRecallGuidanceBuilder {
     fun build(
@@ -364,9 +364,9 @@ object VlmRecallGuidanceBuilder {
             }
         }
 
-    private const val DEFAULT_RECALL_COUNT = 5
-    private const val MAX_GUIDANCE_CANDIDATES = 3
-    private const val MAX_DESCRIPTION_CHARS = 72
+    private const val DEFAULT_RECALL_COUNT = 3
+    private const val MAX_GUIDANCE_CANDIDATES = 2
+    private const val MAX_DESCRIPTION_CHARS = 56
     private const val DIRECT_HIT_MIN_SCORE = 0.92
     private const val DIRECT_HIT_MIN_PAGE_SCORE = 0.90
     private const val DIRECT_HIT_MIN_TEXT_SCORE = 0.85

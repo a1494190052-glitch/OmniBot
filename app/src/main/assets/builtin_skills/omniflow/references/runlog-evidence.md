@@ -5,8 +5,8 @@ especially after replay failure or after a successful run shows a better path.
 
 ## Evidence Flow
 
-1. Resolve the Function id and RunLog id. Prefer a `run_id` returned by
-   `oob_function_run`, `oob_run_log_list`, or `oob_run_log_get`.
+1. Resolve the Function id and RunLog id. Prefer a `run_id` returned by a
+   Function tool/local runner result, `oob_run_log_list`, or `oob_run_log_get`.
 2. Call `update_function` with `function_id` and `run_id` only.
 3. Expect `needs_agent_analysis=true`, `analysis_context`, and `agent_prompt`.
 4. Compare `analysis_context.function.steps` with

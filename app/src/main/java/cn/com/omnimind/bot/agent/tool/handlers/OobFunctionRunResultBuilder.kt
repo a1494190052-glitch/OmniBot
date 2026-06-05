@@ -38,10 +38,12 @@ class OobFunctionRunResultBuilder {
     ): Map<String, Any?> = linkedMapOf<String, Any?>(
         "step_id" to stepId,
         "tool" to tool,
-        "executor" to RunLogReplayPolicy.EXECUTOR_AGENT,
+        "executor" to "vlm_step",
         "model_free" to true,
         "success" to false,
         "model_required" to true,
+        "vlm_step_required" to true,
+        "error_code" to "OOB_VLM_CONTINUATION_REQUIRED",
         "prompt" to prompt,
         "summary" to summary,
     ).apply {
@@ -114,7 +116,7 @@ class OobFunctionRunResultBuilder {
             "source" to "omniflow_replay",
             "run_source" to "omniflow_replay",
             "runner" to when {
-                modelRequired -> "oob_function_agent_fallback_required"
+                modelRequired -> "oob_function_vlm_continuation_required"
                 delegatedToolUsed -> "oob_function_mixed_runner"
                 else -> RunLogReplayPolicy.fixedReplayRunner
             },

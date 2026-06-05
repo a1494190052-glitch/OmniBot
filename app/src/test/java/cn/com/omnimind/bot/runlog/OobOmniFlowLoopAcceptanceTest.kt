@@ -651,7 +651,7 @@ class OobOmniFlowLoopAcceptanceTest {
     }
 
     @Test
-    fun `guard and replay skip get state observation steps without agent fallback`() = runBlocking {
+    fun `guard and replay skip get state observation steps without model continuation`() = runBlocking {
         val context = TempFilesContext()
         try {
             val toolkit = OobOmniFlowToolkitService(context, WorkspaceFunctionStore(context.root))
@@ -1430,19 +1430,23 @@ class OobOmniFlowLoopAcceptanceTest {
     }
 
     @Test
-    fun `run function returns agent fallback context and resumes remaining steps`() = runBlocking {
+    fun `run function returns vlm continuation when a step requires model execution`() = runBlocking {
         val context = TempFilesContext()
-        val backend = RecordingOmniflowBackend(initialPackage = "com.example.food")
+        val backend = RecordingOmniflowBackend(
+            initialPackage = "com.example.settings",
+            currentXml = SOURCE_XML,
+            currentActivity = "SettingsActivity",
+        )
         val backendHandle = OmniflowActionRuntime.useBackendForTesting(backend)
         try {
             val toolkit = OobOmniFlowToolkitService(context, WorkspaceFunctionStore(context.root))
-            val functionId = "fallback_then_resume_remaining"
+            val functionId = "vlm_continuation_required"
             val register = toolkit.registerFunction(
                 mapOf(
                     "functionSpec" to reusableFunctionSpec(
                         functionId = functionId,
-                        name = "Agent fallback then local click",
-                        description = "第一步需要 agent 接管，之后恢复本地重放。",
+                        name = "VLM continuation then local click",
+                        description = "第一步需要下一轮 VLM step 处理，之后不由外层 Agent 重新选择 Function。",
                         steps = listOf(
                             mapOf(
                                 "id" to "tap_takeout_with_agent",
@@ -1476,65 +1480,15 @@ class OobOmniFlowLoopAcceptanceTest {
             )
             assertEquals(true, register["success"])
 
-            val guard = toolkit.guardCheck(mapOf("function_id" to functionId))
-            assertEquals(true, guard["success"])
-            assertEquals("needs_agent", guard["decision"])
-            val guardSteps = guard["step_decisions"] as? List<*>
-            val agentGuardStep = guardSteps?.firstOrNull() as? Map<*, *>
-            assertEquals("needs_agent", agentGuardStep?.get("decision"))
-
-            val firstRun = toolkit.runFunction(mapOf("function_id" to functionId))
-            assertEquals(false, firstRun["success"])
-            assertEquals(0, (firstRun["failed_step_index"] as Number).toInt())
-            assertEquals(1, (firstRun["resume_from_step"] as Number).toInt())
-            assertEquals(1, (firstRun["fallback_attempt"] as Number).toInt())
-            assertNotNull(firstRun["fallback_session_id"])
-            val fallbackContext = firstRun["fallback_context"] as? Map<*, *>
-            assertEquals("oob.function_fallback_context.v1", fallbackContext?.get("schema_version"))
-            assertEquals(functionId, fallbackContext?.get("function_id"))
-            assertEquals(0, (fallbackContext?.get("failed_step_index") as Number).toInt())
-            assertEquals(1, (fallbackContext?.get("resume_from_step") as Number).toInt())
-            val failedStep = fallbackContext["failed_step"] as? Map<*, *>
-            assertEquals("tap_takeout_with_agent", failedStep?.get("step_id"))
-            val remainingSteps = fallbackContext["remaining_steps"] as? List<*>
-            val nextStep = remainingSteps?.firstOrNull() as? Map<*, *>
-            assertEquals(1, (nextStep?.get("index") as Number).toInt())
-            assertEquals("confirm_after_agent", nextStep["step_id"])
-            val returnInstruction = fallbackContext["return_instruction"] as? Map<*, *>
-            assertEquals(OobFunctionToolNames.FUNCTION_RUN, returnInstruction?.get("tool"))
-            val returnArgs = returnInstruction?.get("args") as? Map<*, *>
-            assertEquals(1, (returnArgs?.get("resume_from_step") as Number).toInt())
-
-            val secondRun = toolkit.runFunction(
-                mapOf(
-                    "function_id" to functionId,
-                    "resume_from_step" to 1,
-                    "fallback_session_id" to firstRun["fallback_session_id"],
-                    "fallback_attempt" to firstRun["fallback_attempt"],
-                )
-            )
-            assertEquals(true, secondRun["success"])
-            assertEquals(false, secondRun.containsKey("fallback_context"))
-            assertEquals(1, (secondRun["actions_executed"] as Number).toInt())
-            assertEquals(listOf(120f to 240f), backend.clicks)
-            val secondResults = secondRun["step_results"] as? List<*>
-            val resumedStep = secondResults?.single() as? Map<*, *>
-            assertEquals(1, (resumedStep?.get("index") as Number).toInt())
-            assertEquals("click", resumedStep?.get("tool"))
-
-            val exhaustedRun = toolkit.runFunction(
-                mapOf(
-                    "function_id" to functionId,
-                    "fallback_session_id" to firstRun["fallback_session_id"],
-                    "fallback_attempt" to 2,
-                )
-            )
-            assertEquals(false, exhaustedRun["success"])
-            assertEquals("repeated_failure_same_step", exhaustedRun["fallback_unavailable_reason"])
-            assertEquals(0, (exhaustedRun["failed_step_index"] as Number).toInt())
-            assertEquals(1, (exhaustedRun["resume_from_step"] as Number).toInt())
-            assertEquals(false, exhaustedRun.containsKey("fallback_context"))
-            assertEquals(3, (exhaustedRun["fallback_attempt"] as Number).toInt())
+            val run = toolkit.runFunction(mapOf("function_id" to functionId))
+            assertEquals(false, run["success"])
+            val result = run["result"] as? Map<*, *>
+            assertEquals(true, result?.get("model_required"))
+            assertEquals("OOB_VLM_CONTINUATION_REQUIRED", result?.get("error_code"))
+            val stepResults = run["step_results"] as? List<*>
+            val firstStep = stepResults?.firstOrNull() as? Map<*, *>
+            assertEquals(true, firstStep?.get("vlm_step_required"))
+            assertEquals("vlm_step", firstStep?.get("executor"))
         } finally {
             backendHandle.close()
             context.root.deleteRecursively()

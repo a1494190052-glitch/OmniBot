@@ -490,14 +490,15 @@ def build_segment_hypothesis(candidates: list[dict[str, Any]]) -> dict[str, Any]
         "argument_names": top.get("argument_names"),
         "expected_vlm_decision": (
             "If the candidate matches the user goal, the real VLM should emit "
-            "oob_function_run with function_id and arguments; the Function is a "
-            "composable segment, so VLM continues after the result if the user "
-            "goal remains unfinished."
+            "a native tool_call whose tool name is the recalled function_id and "
+            "whose arguments match the Function schema. The Function may complete "
+            "only part of the goal, so VLM continues after success/result and the "
+            "next fresh observe when needed."
         ),
         "execution_hypothesis": (
             "This script does not auto-run the candidate. It verifies the "
-            "hypothesis exposed to VLM: recalled Function as a segment-level "
-            "choice, with local replay result returned through function_result."
+            "hypothesis exposed to VLM: recalled Function as a native tool "
+            "choice, with local replay result returned as success/result."
         ),
     }
 

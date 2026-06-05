@@ -111,7 +111,8 @@ class OobFunctionUpdateService(
         val mode = if (inferredRepairIntent || inferredStructuralIntent) "repair" else requestedMode
         val allowExecutionChange = boolArg(request["allow_execution_change"]) ||
             mode in setOf("repair", "fix", "correction")
-        val allowStructuralChange = boolArg(request["allow_structural_change"])
+        val allowStructuralChange = boolArg(request["allow_structural_change"]) ||
+            boolArg(request["allowStructuralChange"])
 
         if (patch.isNotEmpty()) {
             changes += metadataPatchApplier.applyPatch(updated, patch)

@@ -2347,7 +2347,9 @@ class ManualVlmTraceRecorder(
             }
             val outputBitmap = prepareDebugScreenshotBitmap(
                 bitmap = bitmap,
-                annotation = annotation,
+                // Keep the screenshot itself clean for downstream detection/VLM evidence.
+                // The touch marker is persisted as metadata on ManualVlmScreenshotRef.
+                annotation = null,
                 appliedScale = capture.appliedScale
             )
             try {

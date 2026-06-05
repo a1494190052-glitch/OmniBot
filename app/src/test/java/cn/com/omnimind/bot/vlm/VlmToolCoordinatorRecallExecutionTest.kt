@@ -382,10 +382,32 @@ class VlmToolCoordinatorRecallExecutionTest {
     }
 
     @Test
-    fun `mock vlm task recall exposes dynamic function tool without real vlm call`() = runBlocking {
+    fun `mock vlm task recall uses warm memory and goal without real vlm call`() = runBlocking {
+        val goal = "小红书查看猫猫"
+        val warmMemory = """
+            Warm memory:
+            - 已保存 Function: xhs_search_keyword
+            - 能力: 小红书搜索关键词
+            - 参数: keyword
+            - 适用目标: 小红书查看/搜索某个关键词
+        """.trimIndent()
         VLMRecallContextProviderRegistry.register(
             object : VLMRecallContextProvider {
                 override suspend fun enrich(request: VLMPageContextRequest): UIContext {
+                    val activeGoal = request.context.activeGoal()
+                    val memory = request.context.stepSkillGuidance
+                    val hit = activeGoal.contains("小红书") &&
+                        activeGoal.contains("猫猫") &&
+                        memory.contains("xhs_search_keyword") &&
+                        memory.contains("小红书搜索关键词")
+                    if (!hit) {
+                        return request.context.copy(
+                            pageDiagnostics = request.context.pageDiagnostics + mapOf(
+                                "omniflow_recall_injected" to "false",
+                                "omniflow_recall_miss_reason" to "warm_memory_or_goal_not_matched"
+                            )
+                        )
+                    }
                     return request.context.copy(
                         stepSkillGuidance = request.context.stepSkillGuidance + "\n" +
                             "OmniFlow function recall candidates for this current VLM step:\n" +
@@ -393,7 +415,11 @@ class VlmToolCoordinatorRecallExecutionTest {
                             "   argument_policy: requires_arguments=true arguments={keyword:string required}",
                         dynamicToolDefinitions = listOf(dynamicFunctionToolDefinition("xhs_search_keyword")),
                         pageDiagnostics = request.context.pageDiagnostics + mapOf(
-                            "omniflow_recall_injected" to "true"
+                            "omniflow_recall_injected" to "true",
+                            "omniflow_recall_hit_function_id" to "xhs_search_keyword",
+                            "omniflow_recall_hit_reason" to "warm_memory_goal_match",
+                            "omniflow_recall_goal" to activeGoal,
+                            "omniflow_recall_warm_memory_chars" to memory.length.toString()
                         )
                     )
                 }
@@ -434,9 +460,10 @@ class VlmToolCoordinatorRecallExecutionTest {
 
             val result = VlmToolCoordinator.parseOnlyNextAction(
                 context = UIContext(
-                    overallTask = "小红书查看猫猫",
-                    currentStepGoal = "小红书查看猫猫",
+                    overallTask = goal,
+                    currentStepGoal = goal,
                     targetPackageName = "com.xingin.xhs",
+                    stepSkillGuidance = warmMemory,
                 ),
                 snapshot = VLMCurrentPageSnapshot(
                     packageName = "com.xingin.xhs",
@@ -452,6 +479,7 @@ class VlmToolCoordinatorRecallExecutionTest {
                     turnPromptBuilder = { ctx, _ ->
                         listOf(
                             "goal=${ctx.activeGoal()}",
+                            "warm_memory=${ctx.stepSkillGuidance.substringBefore("OmniFlow function recall candidates")}",
                             "current_page_summary=${ctx.currentPageSummary}",
                             "step_skill_guidance=${ctx.stepSkillGuidance}",
                             "first_step_guidance=${ctx.firstStepGuidance}",
@@ -465,9 +493,16 @@ class VlmToolCoordinatorRecallExecutionTest {
             assertTrue(requestToolNames.contains("xhs_search_keyword"))
             assertTrue(requestToolNames.contains("click"))
             assertTrue(result.screenshotIncluded)
+            assertTrue(promptText.contains("goal=$goal"))
+            assertTrue(promptText.contains("Warm memory:"))
+            assertTrue(promptText.contains("xhs_search_keyword"))
             assertTrue(promptText.contains("tool=xhs_search_keyword"))
             assertTrue(promptText.contains("arguments={keyword:string required}"))
             assertEquals("true", result.pageDiagnostics["omniflow_recall_injected"])
+            assertEquals("xhs_search_keyword", result.pageDiagnostics["omniflow_recall_hit_function_id"])
+            assertEquals("warm_memory_goal_match", result.pageDiagnostics["omniflow_recall_hit_reason"])
+            assertEquals(goal, result.pageDiagnostics["omniflow_recall_goal"])
+            assertEquals(warmMemory.length.toString(), result.pageDiagnostics["omniflow_recall_warm_memory_chars"])
             assertTrue(result.phaseMs.containsKey("function_recall_ms"))
             assertTrue(result.phaseMs.containsKey("vlm_stream_ms"))
             val action = requireNotNull(result.action)

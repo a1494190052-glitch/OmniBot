@@ -28,7 +28,7 @@ DEFAULT_ANDROID_WORLD_ROOT = Path.home() / "Projects" / "android_world"
 DEFAULT_PACKAGE = "cn.com.omnimind.bot.debug"
 DEFAULT_SKILL_ID = "vlm-android-gui"
 DEFAULT_PROFILE_ID = "profile-dashscope"
-DEFAULT_MODEL_ID = os.environ.get("OMNIMIND_MODEL") or os.environ.get("OPENAI_MODEL") or "qwen-vl-max-latest"
+DEFAULT_MODEL_ID = os.environ.get("OMNIMIND_MODEL") or os.environ.get("OPENAI_MODEL") or "qwen-vl-max"
 DEFAULT_BASE_URL = os.environ.get("OMNIMIND_API_BASE_URL") or "https://dashscope.aliyuncs.com/compatible-mode/v1"
 DEFAULT_API_KEY_ENV = os.environ.get("OMNIMIND_API_KEY_ENV") or "DASHSCOPE_API_KEY"
 VLM_ACTION = "cn.com.omnimind.bot.debug.RUN_VLM_RUNLOG"
@@ -38,7 +38,7 @@ FUNCTION_RESULT_FILE = "files/debug-oob-function-run-result.json"
 
 SIMPLE_VALIDATION_TASKS = [
     "OpenAppTaskEval",
-    "SettingsShowVersion",
+    "SystemWifiTurnOn",
     "ClockStopWatchRunning",
 ]
 
@@ -301,6 +301,11 @@ class OobAdbClient:
     ) -> dict[str, Any]:
         self.clear_result_files()
         goal_b64 = base64.b64encode(goal.encode("utf-8")).decode("ascii")
+        # Without a target package, DebugVlmRunLogReceiver's historical
+        # prelaunch default is Settings. AndroidWorld already owns the start
+        # state, so keep the current screen and let vlm_task decide whether an
+        # open_app action is needed.
+        effective_prelaunch = prelaunch and bool(package_name)
         command = [
             "shell",
             "am",
@@ -314,7 +319,7 @@ class OobAdbClient:
             goal_b64,
             "--ez",
             "prelaunch",
-            str(prelaunch).lower(),
+            str(effective_prelaunch).lower(),
             "--ez",
             "startFromCurrent",
             str(start_from_current).lower(),
@@ -420,6 +425,18 @@ def phase_timing(started_at_ms: int) -> dict[str, int]:
     }
 
 
+def json_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [json_safe(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, (dt.datetime, dt.date)):
+        return value.isoformat()
+    return str(value)
+
+
 def current_activity(env: Any) -> str:
     try:
         from android_world.env import adb_utils
@@ -499,13 +516,13 @@ def summarize_vlm_result(result: dict[str, Any]) -> dict[str, Any]:
         "runlog_found": result.get("runlog_found"),
         "runlog_success": result.get("runlog_success"),
         "runlog_card_count": result.get("runlog_card_count"),
+        "vlm_task_finished": result.get("vlm_task_finished"),
         "token_usage_total": result.get("token_usage_total") or token_usage.get("total_tokens"),
         "token_usage_call_count": token_usage.get("call_count"),
         "token_usage_by_step_count": len(result.get("token_usage_by_step") or []),
         "token_usage_by_call_count": len(result.get("token_usage_by_call") or []),
         "convert_success": convert.get("success"),
         "function_id": extract_function_id(result),
-        "direct_recall_completed": result.get("direct_recall_completed"),
         "started_at_ms": first_present(
             result.get("started_at_ms"),
             timing.get("started_at_ms"),
@@ -599,6 +616,7 @@ class OobVlmAndroidWorldAgent:
         start_from_current: bool,
         skip_go_home: bool,
         disable_omniflow_recall: bool,
+        restore_wall_clock: bool,
     ) -> None:
         from android_world.agents import base_agent
 
@@ -617,7 +635,12 @@ class OobVlmAndroidWorldAgent:
         self.start_from_current = start_from_current
         self.skip_go_home = skip_go_home
         self.disable_omniflow_recall = disable_omniflow_recall
+        self.restore_wall_clock = restore_wall_clock
         self.last_result: dict[str, Any] | None = None
+        self.current_task: Any | None = None
+
+    def set_current_task(self, task: Any) -> None:
+        self.current_task = task
 
     def reset(self, go_home: bool = False) -> None:
         self.env.reset(go_home=go_home)
@@ -626,9 +649,14 @@ class OobVlmAndroidWorldAgent:
         self._max_steps = max_steps
 
     def step(self, goal: str) -> Any:
+        if self.restore_wall_clock:
+            self.client.restore_wall_clock()
+        package_name = self.package_name
+        if package_name is None and self.current_task is not None:
+            package_name = task_package(self.current_task)
         result = self.client.run_vlm(
             goal=goal,
-            package_name=self.package_name,
+            package_name=package_name,
             max_steps=self.oob_max_steps,
             register=self.register,
             profile_id=self.profile_id,
@@ -692,6 +720,7 @@ def run_online_vlm_task(
             start_from_current=start_from_current,
             skip_go_home=skip_go_home,
             disable_omniflow_recall=disable_omniflow_recall,
+            restore_wall_clock=False,
         )
         episode = episode_runner.run_episode(
             goal=task.goal,
@@ -728,6 +757,110 @@ def run_online_vlm_task(
                 task.tear_down(env)
             except Exception as error:  # pylint: disable=broad-exception-caught
                 print(f"warning: failed to tear down {task.name}: {error}", file=sys.stderr)
+
+
+def run_online_vlm_suite(
+    *,
+    env: Any,
+    task_registry: dict[str, Any],
+    task_names: list[str],
+    seed: int,
+    client: OobAdbClient,
+    max_steps: int,
+    profile_id: str,
+    model_id: str,
+    skill_id: str,
+    prelaunch: bool,
+    start_from_current: bool,
+    skip_go_home: bool,
+    disable_omniflow_recall: bool,
+    restore_wall_clock: bool,
+    checkpoint_dir: Path,
+) -> dict[str, Any]:
+    """Run OOB VLM through AndroidWorld's suite runner and validators."""
+
+    from android_world import checkpointer as checkpointer_lib
+    from android_world import constants
+    from android_world import registry as aw_registry
+    from android_world import suite_utils
+
+    phase_started_at_ms = now_ms()
+    suite = suite_utils.create_suite(
+        task_registry,
+        n_task_combinations=1,
+        seed=seed,
+        tasks=task_names,
+        use_identical_params=True,
+        env=env,
+    )
+    suite.suite_family = aw_registry.TaskRegistry.ANDROID_WORLD_FAMILY
+    agent = OobVlmAndroidWorldAgent(
+        env,
+        client=client,
+        package_name=None,
+        max_steps=max_steps,
+        register=True,
+        profile_id=profile_id,
+        model_id=model_id,
+        skill_id=skill_id,
+        prelaunch=False,
+        start_from_current=start_from_current,
+        skip_go_home=skip_go_home,
+        disable_omniflow_recall=disable_omniflow_recall,
+        restore_wall_clock=restore_wall_clock,
+    )
+    agent.name = "oob_vlm_task"
+    online_records: list[dict[str, Any]] = []
+    original_run_task = getattr(suite_utils, "_run_task", None)
+    if not callable(original_run_task):
+        raise RuntimeError("AndroidWorld suite_utils._run_task is unavailable")
+
+    def wrapped_run_task(task: Any, run_episode: Any, task_env: Any, demo_mode: bool) -> dict[str, Any]:
+        agent.set_current_task(task)
+        agent.last_result = None
+        result = original_run_task(task, run_episode, task_env, demo_mode)
+        vlm_result = agent.last_result or {}
+        reward = result.get(constants.EpisodeConstants.IS_SUCCESSFUL)
+        try:
+            androidworld_reward = float(reward)
+        except (TypeError, ValueError):
+            androidworld_reward = 0.0
+        online_records.append(
+            {
+                "task_name": getattr(task, "name", ""),
+                "goal": getattr(task, "goal", ""),
+                "params": json_safe(getattr(task, "params", {}) or {}),
+                "package_name": task_package(task),
+                "androidworld_reward": androidworld_reward,
+                "androidworld_success": androidworld_reward == 1.0,
+                "androidworld_episode": json_safe(result),
+                "oob_vlm": summarize_vlm_result(vlm_result),
+                "oob_vlm_raw": json_safe(vlm_result),
+                "disable_omniflow_recall": disable_omniflow_recall,
+                "device_online_after_phase": client.is_device_online(),
+            }
+        )
+        return result
+
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        suite_utils._run_task = wrapped_run_task
+        metadata = suite_utils.run(
+            suite,
+            agent,
+            checkpointer=checkpointer_lib.IncrementalCheckpointer(str(checkpoint_dir)),
+            demo_mode=False,
+            return_full_episode_data=False,
+        )
+    finally:
+        suite_utils._run_task = original_run_task
+
+    return {
+        "metadata": json_safe(metadata),
+        "tasks": online_records,
+        "checkpoint_dir": str(checkpoint_dir),
+        "phase_timing": phase_timing(phase_started_at_ms),
+    }
 
 
 def run_function_validation(
@@ -782,6 +915,90 @@ def run_function_validation(
                 task.tear_down(env)
             except Exception as error:  # pylint: disable=broad-exception-caught
                 print(f"warning: failed to tear down {task.name}: {error}", file=sys.stderr)
+
+
+def run_followup_phases(
+    *,
+    env: Any,
+    task_type: Any,
+    online: dict[str, Any],
+    task_result: dict[str, Any],
+    args: argparse.Namespace,
+    client: OobAdbClient,
+) -> None:
+    task_name = task_result["task_name"]
+    function_id = online["oob_vlm"].get("function_id") or ""
+    if function_id and not args.no_replay:
+        try:
+            replay = run_function_validation(
+                env=env,
+                task_type=task_type,
+                params=online["params"],
+                seed=args.seed,
+                client=client,
+                function_id=function_id,
+                goal=online["goal"],
+                restore_wall_clock=not args.keep_androidworld_frozen_time,
+                settle_timeout_seconds=args.post_action_settle_timeout,
+                settle_interval_seconds=args.post_action_settle_interval,
+            )
+            task_result["replay"] = replay
+            print(json.dumps({
+                "phase": "replay",
+                "task": task_name,
+                "androidworld_success": replay["androidworld_success"],
+                "androidworld_reward": replay["androidworld_reward"],
+                "oob_function": replay["oob_function"],
+            }, ensure_ascii=False))
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            task_result["replay_error"] = summarize_exception(error)
+            task_result["replay_error"]["device_online_after_phase"] = client.is_device_online()
+            task_result["replay_error"]["phase"] = "replay"
+            print(json.dumps({
+                "phase": "replay",
+                "task": task_name,
+                "error": task_result["replay_error"],
+            }, ensure_ascii=False), file=sys.stderr)
+    elif not function_id:
+        task_result["replay_skipped_reason"] = "no_function_id_from_online_vlm"
+
+    if args.recall_repeat:
+        try:
+            recall = run_online_vlm_task(
+                env=env,
+                task_type=task_type,
+                params=online["params"],
+                seed=args.seed,
+                client=client,
+                max_steps=args.max_steps,
+                profile_id=args.profile_id,
+                model_id=args.model,
+                skill_id=args.skill_id,
+                prelaunch=not args.no_prelaunch,
+                start_from_current=args.start_from_current,
+                skip_go_home=args.skip_go_home,
+                disable_omniflow_recall=False,
+                restore_wall_clock=not args.keep_androidworld_frozen_time,
+                settle_timeout_seconds=args.post_action_settle_timeout,
+                settle_interval_seconds=args.post_action_settle_interval,
+            )
+            task_result["recall_repeat"] = recall
+            print(json.dumps({
+                "phase": "recall_repeat",
+                "task": task_name,
+                "androidworld_success": recall["androidworld_success"],
+                "androidworld_reward": recall["androidworld_reward"],
+                "oob_vlm": recall["oob_vlm"],
+            }, ensure_ascii=False))
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            task_result["recall_repeat_error"] = summarize_exception(error)
+            task_result["recall_repeat_error"]["device_online_after_phase"] = client.is_device_online()
+            task_result["recall_repeat_error"]["phase"] = "recall_repeat"
+            print(json.dumps({
+                "phase": "recall_repeat",
+                "task": task_name,
+                "error": task_result["recall_repeat_error"],
+            }, ensure_ascii=False), file=sys.stderr)
 
 
 def parse_params(raw: str | None) -> dict[str, Any] | None:
@@ -876,7 +1093,7 @@ def build_method_record(args: argparse.Namespace) -> dict[str, Any]:
             ],
         },
         "diagnosis_of_oob_gap": {
-            "main_gap": "A full OOB episode was previously wrapped as a single AndroidWorld agent step, while M3A externally observes, acts, settles, and summarizes every step.",
+            "main_gap": "OOB must be exposed as a normal AndroidWorld agent interface while keeping GUI policy inside vlm_task.",
             "kotlin_alignment": [
                 "OOB must provide raw and marked screenshots plus indexed Accessibility evidence every VLM turn.",
                 "Every executed action must persist before/after XML, package, screen_changed, appeared_texts, disappeared_texts, visible texts, token usage, and timings.",
@@ -884,24 +1101,26 @@ def build_method_record(args: argparse.Namespace) -> dict[str, Any]:
             ],
         },
         "oob_adapter_method": {
-            "entry": "scripts/androidworld_oob_eval.py delegates to DebugVlmRunLogReceiver through adb broadcast.",
+            "entry": "scripts/androidworld_oob_eval.py runs AndroidWorld suite_utils with an OOB vlm_task agent that delegates to DebugVlmRunLogReceiver through adb broadcast.",
             "execution_owner": "OOB APK Kotlin native VLM and OmniFlow runtime",
             "python_role": "Thin control-plane adapter only; it must not reimplement GUI policy or AndroidWorld task logic.",
             "default_mode": "method-only record; no AndroidWorld import, emulator setup, episode, or reward check.",
             "live_opt_in": "Use --run-live only for later external validation.",
-                "live_phases": [
+            "live_phases": [
                 "online_vlm",
                 "replay",
                 "recall_repeat"
             ],
+            "androidworld_live_runner": "suite_utils.create_suite -> suite_utils.run -> episode_runner.run_episode -> task.is_successful(env)",
             "control_fields": {
                 "goal": "AndroidWorld task goal text",
-                "packageName": "Known target package when available",
+                "packageName": "Optional hint. If unavailable, prelaunch is disabled and vlm_task decides whether open_app is needed.",
                 "maxSteps": args.max_steps,
                 "timeoutMs": args.timeout * 1000,
                 "skillId": args.skill_id,
                 "disableOmniFlowRecall": "true for online_vlm validation, false for recall_repeat",
             },
+            "androidworld_prelaunch_policy": "The suite runner disables OOB prelaunch so AndroidWorld owns the start state and vlm_task must perform open_app itself.",
             "method_only_output": "This JSON record is sufficient for design review; real reward runs are intentionally skipped.",
         },
         "oob_runtime_alignment": {
@@ -910,7 +1129,8 @@ def build_method_record(args: argparse.Namespace) -> dict[str, Any]:
                 "Use indexed page evidence and marked screenshots for element grounding.",
                 "Keep one native tool call per VLM turn.",
                 "Persist post-action XML/package evidence, appeared/disappeared text feedback, token usage, and timing into RunLog cards.",
-                "Use waitTimeoutMs only as control-plane wait budget; maxSteps remains the task execution bound.",
+                "AndroidWorld owns task initialization, start_on_home_screen reset, episode stepping, checkpointing, and success validation.",
+                "Use waitTimeoutMs only as control-plane wait budget; maxSteps remains the OOB task execution bound.",
                 "Validation can set disableOmniFlowRecall=true to force fresh online VLM RunLog capture instead of direct reusable Function execution.",
             ],
             "runlog_replay": [
@@ -919,8 +1139,9 @@ def build_method_record(args: argparse.Namespace) -> dict[str, Any]:
                 "Use recorded post-action page similarity as compatibility gate rather than proof of task success.",
             ],
             "recall": [
-                "Recall follows page match -> UDEG node -> node skill-like decision context -> attached reusable Functions.",
-                "Direct no-argument hits may run locally; failed hits fall back to bounded VLM.",
+                "Recall follows fresh observe -> current page match -> UDEG node context -> attached saved Functions.",
+                "Recalled Functions are exposed to the VLM as native tools. The VLM explicitly selects a Function tool or a GUI tool each turn.",
+                "Function failures return success/result to the next VLM step; Python does not take over GUI policy or replay policy.",
                 "Timing fields are internal stats and are not injected into the agent prompt.",
             ],
         },
@@ -933,7 +1154,7 @@ def build_method_record(args: argparse.Namespace) -> dict[str, Any]:
                 ],
                 "runtime_method_tests": [
                     "Python AndroidWorld method-only tests record the adapter contract without importing AndroidWorld or starting an emulator.",
-                    "Kotlin unit tests cover RunLog collection, native reusable Function registration/replay, UDEG recall timing, segment reuse, and token/timing persistence.",
+                    "Kotlin unit tests cover RunLog collection, native reusable Function registration/replay, UDEG recall timing, dynamic Function tools, and token/timing persistence.",
                     "Live AndroidWorld reward runs stay behind --run-live and are not required for method-only evidence.",
                 ],
                 "separation_rule": "UX tests must not import AndroidWorld or start an emulator; runtime method tests must not assert Flutter layout details.",
@@ -945,7 +1166,7 @@ def build_method_record(args: argparse.Namespace) -> dict[str, Any]:
             "artifact_checks": [
                 "RunLog contains token_usage_total, token_usage_by_step, token_usage_by_call.",
                 "RunLog cards include started_at_ms, finished_at_ms, duration_ms.",
-                "Recall timing includes parse_request_ms, read_current_package_ms, read_current_page_ms, page_match_ms, rank_functions_ms, segment_match_ms.",
+                "Recall timing includes parse_request_ms, read_current_package_ms, read_current_page_ms, page_match_ms, and rank_functions_ms.",
             ],
             "deferred_runtime_checks": [
                 "With --run-live, run online_vlm, replay, and recall_repeat on the same simple task params.",
@@ -989,6 +1210,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-prelaunch", action="store_true")
     parser.add_argument("--post-action-settle-timeout", type=float, default=6.0)
     parser.add_argument("--post-action-settle-interval", type=float, default=1.0)
+    parser.add_argument("--checkpoint-dir", default=None, help="AndroidWorld checkpoint directory for --run-live.")
     parser.add_argument(
         "--method-only",
         action="store_true",
@@ -1070,33 +1292,35 @@ def main(argv: list[str] | None = None) -> int:
     task_registry = registry.TaskRegistry().get_registry(registry.TaskRegistry.ANDROID_WORLD_FAMILY)
     results: list[dict[str, Any]] = []
     started_at = time.time()
+    androidworld_checkpoint_dir = (
+        Path(args.checkpoint_dir).expanduser().resolve()
+        if args.checkpoint_dir
+        else output_path.with_suffix("").parent / f"{output_path.stem}-androidworld-checkpoints"
+    )
     try:
-        for task_name in args.task:
-            if task_name not in task_registry:
-                raise ValueError(f"Task {task_name} not found in AndroidWorld registry")
-            task_type = task_registry[task_name]
-            print(f"== AndroidWorld task: {task_name} ==")
-            task_result: dict[str, Any] = {"task_name": task_name}
-            try:
-                online = run_online_vlm_task(
-                    env=env,
-                    task_type=task_type,
-                    params=params,
-                    seed=args.seed,
-                    client=client,
-                    max_steps=args.max_steps,
-                    profile_id=args.profile_id,
-                    model_id=args.model,
-                    skill_id=args.skill_id,
-                    prelaunch=not args.no_prelaunch,
-                    start_from_current=args.start_from_current,
-                    skip_go_home=args.skip_go_home,
-                    disable_omniflow_recall=True,
-                    restore_wall_clock=not args.keep_androidworld_frozen_time,
-                    settle_timeout_seconds=args.post_action_settle_timeout,
-                    settle_interval_seconds=args.post_action_settle_interval,
-                )
-                task_result["online_vlm"] = online
+        if params is None:
+            suite_run = run_online_vlm_suite(
+                env=env,
+                task_registry=task_registry,
+                task_names=args.task,
+                seed=args.seed,
+                client=client,
+                max_steps=args.max_steps,
+                profile_id=args.profile_id,
+                model_id=args.model,
+                skill_id=args.skill_id,
+                prelaunch=not args.no_prelaunch,
+                start_from_current=args.start_from_current,
+                skip_go_home=args.skip_go_home,
+                disable_omniflow_recall=True,
+                restore_wall_clock=not args.keep_androidworld_frozen_time,
+                checkpoint_dir=androidworld_checkpoint_dir,
+            )
+            for online in suite_run["tasks"]:
+                task_name = online["task_name"]
+                if task_name not in task_registry:
+                    raise ValueError(f"Task {task_name} not found in AndroidWorld registry")
+                task_result: dict[str, Any] = {"task_name": task_name, "online_vlm": online}
                 print(json.dumps({
                     "phase": "online_vlm",
                     "task": task_name,
@@ -1104,60 +1328,31 @@ def main(argv: list[str] | None = None) -> int:
                     "androidworld_reward": online["androidworld_reward"],
                     "oob_vlm": online["oob_vlm"],
                 }, ensure_ascii=False))
-            except Exception as error:  # pylint: disable=broad-exception-caught
-                task_result["online_vlm_error"] = summarize_exception(error)
-                task_result["online_vlm_error"]["device_online_after_phase"] = client.is_device_online()
-                task_result["online_vlm_error"]["phase"] = "online_vlm"
+                run_followup_phases(
+                    env=env,
+                    task_type=task_registry[task_name],
+                    online=online,
+                    task_result=task_result,
+                    args=args,
+                    client=client,
+                )
                 results.append(task_result)
-                print(json.dumps({
-                    "phase": "online_vlm",
-                    "task": task_name,
-                    "error": task_result["online_vlm_error"],
-                }, ensure_ascii=False), file=sys.stderr)
-                continue
-
-            online = task_result["online_vlm"]
-            function_id = online["oob_vlm"].get("function_id") or ""
-            if function_id and not args.no_replay:
+        else:
+            print(
+                "warning: --params-json bypasses AndroidWorld suite generation and uses single-task debug mode.",
+                file=sys.stderr,
+            )
+            for task_name in args.task:
+                if task_name not in task_registry:
+                    raise ValueError(f"Task {task_name} not found in AndroidWorld registry")
+                task_type = task_registry[task_name]
+                print(f"== AndroidWorld task: {task_name} ==")
+                task_result = {"task_name": task_name}
                 try:
-                    replay = run_function_validation(
+                    online = run_online_vlm_task(
                         env=env,
                         task_type=task_type,
-                        params=online["params"],
-                        seed=args.seed,
-                        client=client,
-                        function_id=function_id,
-                        goal=online["goal"],
-                        restore_wall_clock=not args.keep_androidworld_frozen_time,
-                        settle_timeout_seconds=args.post_action_settle_timeout,
-                        settle_interval_seconds=args.post_action_settle_interval,
-                    )
-                    task_result["replay"] = replay
-                    print(json.dumps({
-                        "phase": "replay",
-                        "task": task_name,
-                        "androidworld_success": replay["androidworld_success"],
-                        "androidworld_reward": replay["androidworld_reward"],
-                        "oob_function": replay["oob_function"],
-                    }, ensure_ascii=False))
-                except Exception as error:  # pylint: disable=broad-exception-caught
-                    task_result["replay_error"] = summarize_exception(error)
-                    task_result["replay_error"]["device_online_after_phase"] = client.is_device_online()
-                    task_result["replay_error"]["phase"] = "replay"
-                    print(json.dumps({
-                        "phase": "replay",
-                        "task": task_name,
-                        "error": task_result["replay_error"],
-                    }, ensure_ascii=False), file=sys.stderr)
-            elif not function_id:
-                task_result["replay_skipped_reason"] = "no_function_id_from_online_vlm"
-
-            if args.recall_repeat:
-                try:
-                    recall = run_online_vlm_task(
-                        env=env,
-                        task_type=task_type,
-                        params=online["params"],
+                        params=params,
                         seed=args.seed,
                         client=client,
                         max_steps=args.max_steps,
@@ -1167,30 +1362,39 @@ def main(argv: list[str] | None = None) -> int:
                         prelaunch=not args.no_prelaunch,
                         start_from_current=args.start_from_current,
                         skip_go_home=args.skip_go_home,
-                        disable_omniflow_recall=False,
+                        disable_omniflow_recall=True,
                         restore_wall_clock=not args.keep_androidworld_frozen_time,
                         settle_timeout_seconds=args.post_action_settle_timeout,
                         settle_interval_seconds=args.post_action_settle_interval,
                     )
-                    task_result["recall_repeat"] = recall
+                    task_result["online_vlm"] = online
                     print(json.dumps({
-                        "phase": "recall_repeat",
+                        "phase": "online_vlm",
                         "task": task_name,
-                        "androidworld_success": recall["androidworld_success"],
-                        "androidworld_reward": recall["androidworld_reward"],
-                        "oob_vlm": recall["oob_vlm"],
+                        "androidworld_success": online["androidworld_success"],
+                        "androidworld_reward": online["androidworld_reward"],
+                        "oob_vlm": online["oob_vlm"],
                     }, ensure_ascii=False))
                 except Exception as error:  # pylint: disable=broad-exception-caught
-                    task_result["recall_repeat_error"] = summarize_exception(error)
-                    task_result["recall_repeat_error"]["device_online_after_phase"] = client.is_device_online()
-                    task_result["recall_repeat_error"]["phase"] = "recall_repeat"
+                    task_result["online_vlm_error"] = summarize_exception(error)
+                    task_result["online_vlm_error"]["device_online_after_phase"] = client.is_device_online()
+                    task_result["online_vlm_error"]["phase"] = "online_vlm"
+                    results.append(task_result)
                     print(json.dumps({
-                        "phase": "recall_repeat",
+                        "phase": "online_vlm",
                         "task": task_name,
-                        "error": task_result["recall_repeat_error"],
+                        "error": task_result["online_vlm_error"],
                     }, ensure_ascii=False), file=sys.stderr)
-
-            results.append(task_result)
+                    continue
+                run_followup_phases(
+                    env=env,
+                    task_type=task_type,
+                    online=online,
+                    task_result=task_result,
+                    args=args,
+                    client=client,
+                )
+                results.append(task_result)
     finally:
         env.close()
 
@@ -1207,6 +1411,8 @@ def main(argv: list[str] | None = None) -> int:
         "restored_wall_clock_for_oob": not args.keep_androidworld_frozen_time,
         "post_action_settle_timeout": args.post_action_settle_timeout,
         "post_action_settle_interval": args.post_action_settle_interval,
+        "androidworld_checkpoint_dir": str(androidworld_checkpoint_dir),
+        "androidworld_suite_runner": params is None,
         "tasks": results,
         "online_success_count": sum(1 for item in results if item.get("online_vlm", {}).get("androidworld_success")),
         "replay_success_count": sum(1 for item in results if item.get("replay", {}).get("androidworld_success")),

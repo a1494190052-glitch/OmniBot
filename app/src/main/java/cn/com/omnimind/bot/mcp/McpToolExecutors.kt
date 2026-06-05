@@ -53,14 +53,6 @@ object McpToolExecutors {
             "disableRecall",
             "disable_recall",
         )
-        val explicitFunctionAutoExecute = hasAnyArg(
-            args,
-            "allowOmniFlowFunctionAutoExecute",
-            "allow_omniflow_function_auto_execute",
-            "autoExecuteFunction",
-            "auto_execute_function",
-        )
-
         val request = VlmTaskRequest(
             goal = goal,
             model = args?.get("model") as? String,
@@ -70,18 +62,7 @@ object McpToolExecutors {
             needSummary = shouldSummary,
             skipGoHome = startFromCurrent,
             disableOmniFlowRecall = disableOmniFlowRecall,
-            allowOmniFlowFunctionAutoExecute = boolArgOrDefault(
-                args,
-                default = shouldInferFunctionAutoExecute(
-                    goal = goal,
-                    disableOmniFlowRecall = disableOmniFlowRecall,
-                    explicitFunctionAutoExecute = explicitFunctionAutoExecute
-                ),
-                "allowOmniFlowFunctionAutoExecute",
-                "allow_omniflow_function_auto_execute",
-                "autoExecuteFunction",
-                "auto_execute_function",
-            )
+            allowOmniFlowFunctionAutoExecute = false
         )
 
         try {
@@ -324,33 +305,6 @@ object McpToolExecutors {
             if (parsed != null) return parsed
         }
         return null
-    }
-
-    private fun hasAnyArg(args: Map<String, Any?>?, vararg keys: String): Boolean =
-        args != null && keys.any { key -> args.containsKey(key) }
-
-    private fun shouldInferFunctionAutoExecute(
-        goal: String,
-        disableOmniFlowRecall: Boolean,
-        explicitFunctionAutoExecute: Boolean
-    ): Boolean {
-        if (disableOmniFlowRecall || explicitFunctionAutoExecute) return false
-        val text = goal.lowercase()
-        return listOf(
-            "复用",
-            "function",
-            "omniflow",
-            "oob",
-            "按之前",
-            "之前那个",
-            "上次",
-            "已有",
-            "保存的",
-            "录制的",
-            "replay",
-            "reuse",
-            "saved function"
-        ).any { text.contains(it) }
     }
 
     private fun boolArg(args: Map<String, Any?>?, vararg keys: String): Boolean {

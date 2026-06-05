@@ -15,11 +15,15 @@ object OobFunctionArgumentBindingValidator {
         if (arguments.isEmpty()) return Validation(success = true, diagnostics = runtimeDiagnostics(materializedSpec))
 
         val unbound = OobFunctionJson.listArg(runtime["unbound_arguments"])
+        val ignored = OobFunctionJson.listArg(runtime["ignored_arguments"])
         val suppliedAppliedCount = OobFunctionJson.intArg(
             runtime["supplied_binding_applied_count"],
             defaultValue = 0,
         )
         if (unbound.isEmpty() && suppliedAppliedCount > 0) {
+            return Validation(success = true, diagnostics = runtimeDiagnostics(materializedSpec))
+        }
+        if (unbound.isEmpty() && ignored.isNotEmpty()) {
             return Validation(success = true, diagnostics = runtimeDiagnostics(materializedSpec))
         }
         val unboundNames = unbound.mapNotNull {
@@ -53,6 +57,7 @@ object OobFunctionArgumentBindingValidator {
             "supplied_argument_names" to OobFunctionJson.sanitizeValue(runtime["supplied_argument_names"]),
             "argument_binding_status" to OobFunctionJson.sanitizeValue(runtime["argument_binding_status"]),
             "unbound_arguments" to OobFunctionJson.sanitizeValue(runtime["unbound_arguments"]),
+            "ignored_arguments" to OobFunctionJson.sanitizeValue(runtime["ignored_arguments"]),
             "binding_applied_count" to runtime["binding_applied_count"],
             "supplied_binding_applied_count" to runtime["supplied_binding_applied_count"],
         ).filterValues { it != null }

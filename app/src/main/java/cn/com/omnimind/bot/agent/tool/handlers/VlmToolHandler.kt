@@ -36,7 +36,6 @@ class VlmToolHandler(
         val waitTimeoutMs: Long?,
         val model: String?,
         val disableOmniFlowRecall: Boolean,
-        val allowOmniFlowFunctionAutoExecute: Boolean,
         val parseOnly: Boolean = false,
     )
 
@@ -86,26 +85,6 @@ class VlmToolHandler(
                 "disableRecall",
                 "disable_recall"
             ) ?: false
-            val explicitFunctionAutoExecute = hasAnyKey(
-                args,
-                "allowOmniFlowFunctionAutoExecute",
-                "allow_omniflow_function_auto_execute",
-                "autoExecuteFunction",
-                "auto_execute_function"
-            )
-            val allowOmniFlowFunctionAutoExecute = firstBoolean(
-                args,
-                "allowOmniFlowFunctionAutoExecute",
-                "allow_omniflow_function_auto_execute",
-                "autoExecuteFunction",
-                "auto_execute_function"
-            ) ?: shouldInferFunctionAutoExecute(
-                userMessage = userMessage,
-                goal = goal,
-                resolvedSkills = resolvedSkills,
-                disableOmniFlowRecall = disableOmniFlowRecall,
-                explicitFunctionAutoExecute = explicitFunctionAutoExecute
-            )
             val parseOnly = firstBoolean(args, "parseOnly", "parse_only", "dryRun", "dry_run") ?: false
             val rawArgs = VlmExecutionArgs(
                 goal = goal,
@@ -116,7 +95,6 @@ class VlmToolHandler(
                 waitTimeoutMs = waitTimeoutMs,
                 model = model?.takeIf { it.isNotBlank() },
                 disableOmniFlowRecall = disableOmniFlowRecall,
-                allowOmniFlowFunctionAutoExecute = allowOmniFlowFunctionAutoExecute,
                 parseOnly = parseOnly,
             )
             val appNameToPackage = runtimeContextRepository.getAppNameToPackageMap()
@@ -167,7 +145,7 @@ class VlmToolHandler(
                         skipGoHome = safeArgs.startFromCurrent,
                         stepSkillGuidance = resolvedSkills.joinToString("\n\n") { it.stepGuidance() },
                         disableOmniFlowRecall = safeArgs.disableOmniFlowRecall,
-                        allowOmniFlowFunctionAutoExecute = safeArgs.allowOmniFlowFunctionAutoExecute
+                        allowOmniFlowFunctionAutoExecute = false
                     ),
                     scope = scope,
                 )
@@ -193,7 +171,7 @@ class VlmToolHandler(
                     skipGoHome = safeArgs.startFromCurrent,
                     stepSkillGuidance = resolvedSkills.joinToString("\n\n") { it.stepGuidance() },
                     disableOmniFlowRecall = safeArgs.disableOmniFlowRecall,
-                    allowOmniFlowFunctionAutoExecute = safeArgs.allowOmniFlowFunctionAutoExecute
+                    allowOmniFlowFunctionAutoExecute = false
                 ),
                 scope = scope,
                 taskIdOverride = vlmTaskId,
@@ -363,41 +341,6 @@ class VlmToolHandler(
             if (raw != null) return raw
         }
         return null
-    }
-
-    private fun hasAnyKey(args: JsonObject, vararg keys: String): Boolean =
-        keys.any { key -> args.containsKey(key) }
-
-    private fun shouldInferFunctionAutoExecute(
-        userMessage: String,
-        goal: String,
-        resolvedSkills: List<ResolvedSkillContext>,
-        disableOmniFlowRecall: Boolean,
-        explicitFunctionAutoExecute: Boolean
-    ): Boolean {
-        if (disableOmniFlowRecall || explicitFunctionAutoExecute) return false
-        val text = "$userMessage\n$goal".lowercase()
-        val hasReuseIntent = listOf(
-            "复用",
-            "function",
-            "omniflow",
-            "oob",
-            "按之前",
-            "之前那个",
-            "上次",
-            "已有",
-            "保存的",
-            "录制的",
-            "replay",
-            "reuse",
-            "saved function"
-        ).any { text.contains(it) }
-        val hasFunctionSkill = resolvedSkills.any { skill ->
-            skill.skillId == "omniflow" ||
-                skill.skillId == "oob-function-management" ||
-                skill.skillId == "omniflow-function-enhancer"
-        }
-        return hasReuseIntent || hasFunctionSkill
     }
 
     private fun firstBoolean(args: JsonObject, vararg keys: String): Boolean? {

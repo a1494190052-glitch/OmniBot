@@ -106,7 +106,7 @@ class AgentToolDefinitionsMusicTest {
     }
 
     @Test
-    fun `vlm task metadata defaults function auto execution off`() {
+    fun `vlm task metadata hides function auto execution switch`() {
         val vlmTool = AgentToolDefinitions.staticTools()
             .first { definition ->
                 ((definition["function"] as? JsonObject)
@@ -117,15 +117,8 @@ class AgentToolDefinitionsMusicTest {
         val function = vlmTool["function"] as JsonObject
         val parameters = function["parameters"] as JsonObject
         val properties = parameters["properties"] as JsonObject
-        val autoExecute = properties["allowOmniFlowFunctionAutoExecute"] as JsonObject
 
-        assertEquals(false, autoExecute["default"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull())
-        assertTrue(
-            autoExecute["description"]
-                ?.jsonPrimitive
-                ?.contentOrNull
-                ?.contains("默认 false") == true
-        )
+        assertFalse(properties.containsKey("allowOmniFlowFunctionAutoExecute"))
     }
 
     @Test
@@ -175,32 +168,17 @@ class AgentToolDefinitionsMusicTest {
     }
 
     @Test
-    fun `oob function run requires function id not run id`() {
-        val runTool = OobFunctionSkillProfile.staticToolDefinitions(PromptLocale.ZH_CN)
-            .first { definition ->
-                ((definition["function"] as? JsonObject)
+    fun `oob function run and guard are hidden from static agent tools`() {
+        val names = OobFunctionSkillProfile.staticToolDefinitions(PromptLocale.ZH_CN)
+            .mapNotNull { definition ->
+                (definition["function"] as? JsonObject)
                     ?.get("name")
                     ?.jsonPrimitive
-                    ?.contentOrNull) == OobFunctionToolNames.FUNCTION_RUN
+                    ?.contentOrNull
             }
-        val function = runTool["function"] as JsonObject
-        val parameters = function["parameters"] as JsonObject
-        val properties = parameters["properties"] as JsonObject
-        val required = (parameters["required"] as JsonArray)
-            .mapNotNull { it.jsonPrimitive.contentOrNull }
 
-        assertTrue(properties.containsKey("function_id"))
-        assertTrue(properties.containsKey("resume_from_step"))
-        assertTrue(properties.containsKey("fallback_session_id"))
-        assertTrue(properties.containsKey("fallback_attempt"))
-        assertTrue(properties.containsKey("dry_run"))
-        assertFalse(properties.containsKey("functionId"))
-        assertFalse(properties.containsKey("start_step_index"))
-        assertFalse(properties.containsKey("startStepIndex"))
-        assertFalse(properties.containsKey("resumeFromStep"))
-        assertFalse(properties.containsKey("run_id"))
-        assertTrue(required.contains("function_id"))
-        assertFalse(required.contains("run_id"))
+        assertFalse(names.contains(OobFunctionToolNames.FUNCTION_GUARD_CHECK))
+        assertFalse(names.contains(OobFunctionToolNames.FUNCTION_RUN))
     }
 
     @Test

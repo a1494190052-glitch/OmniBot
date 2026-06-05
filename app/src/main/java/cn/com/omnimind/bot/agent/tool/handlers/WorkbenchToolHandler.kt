@@ -199,8 +199,7 @@ class WorkbenchToolHandler(
         val summary = if (success) {
             "复用指令 $functionId 执行完成，$stepCount 步"
         } else if (payload["fallback_context"] != null) {
-            val resumeFromStep = payload["resume_from_step"]?.toString()?.trim().orEmpty()
-            "复用指令 $functionId 需要 agent 接管；完成失败步骤后用 resume_from_step=$resumeFromStep 从下一步继续"
+            "复用指令 $functionId 执行未完成；请根据当前页面和失败结果继续处理"
         } else {
             payload["error_message"]?.toString()
                 ?: payload["reason"]?.toString()

@@ -1580,11 +1580,7 @@ $goal
     }
 
     fun cancelTask() {
-        OmniLog.d(Tag, "Cancelling VLM Operation Task - cancelling taskScope immediately")
-        isCancellationRequested = true
-        unblockWaitingReceivers()
-        cancelRunningJob("任务已取消")
-        finalizeCancellationAsync("任务已取消")
+        finishTask()
     }
 
     override suspend fun onTaskDestroy() {

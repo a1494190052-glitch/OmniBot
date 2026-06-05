@@ -140,7 +140,11 @@ class _FunctionRunResultSheetState extends State<_FunctionRunResultSheet> {
             ? _text(context, '已交给 Agent 继续执行', 'Continuing with Agent')
             : (_resultErrorText(next).isNotEmpty
                   ? _resultErrorText(next)
-                  : _text(context, 'Agent 继续执行失败', 'Agent continuation failed')),
+                  : _text(
+                      context,
+                      'Agent 继续执行失败',
+                      'Agent continuation failed',
+                    )),
         type: next.success ? ToastType.success : ToastType.error,
       );
     } catch (error) {
@@ -283,7 +287,10 @@ class _FunctionRunResultSheetState extends State<_FunctionRunResultSheet> {
                       16,
                       result.canContinueWithAgent ? 96 : 24,
                     ),
-                    child: FunctionRunResultInlinePanel(result: result),
+                    child: FunctionRunResultInlinePanel(
+                      result: result,
+                      showRawJson: true,
+                    ),
                   ),
                 ),
                 if (result.canContinueWithAgent)
@@ -312,7 +319,11 @@ class _FunctionRunResultSheetState extends State<_FunctionRunResultSheet> {
                         label: Text(
                           _continuing
                               ? _text(context, '正在继续执行', 'Continuing')
-                              : _text(context, '用 Agent 继续', 'Continue with Agent'),
+                              : _text(
+                                  context,
+                                  '用 Agent 继续',
+                                  'Continue with Agent',
+                                ),
                         ),
                       ),
                     ),

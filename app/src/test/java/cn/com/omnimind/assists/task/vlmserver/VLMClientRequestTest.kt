@@ -427,6 +427,40 @@ class VLMClientRequestTest {
     }
 
     @Test
+    fun `text fallback parser maps explicit completion JSON to finished action`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "qwen-vl-max",
+                turn = ChatCompletionTurn(
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        content = JsonPrimitive(
+                            """
+                            {
+                              "observation": "The Contacts app is open and no pop-ups are visible.",
+                              "thought": "The task has been completed successfully.",
+                              "summary": "The Contacts app is open; no further actions are needed."
+                            }
+                            """.trimIndent()
+                        )
+                    ),
+                    finishReason = "stop"
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary"
+        )
+
+        assertTrue(result.success)
+        val step = requireNotNull(result.step)
+        assertTrue(step.action is FinishedAction)
+        assertEquals("The Contacts app is open; no further actions are needed.", step.summary)
+        assertFalse(result.shouldRetryForToolCall)
+    }
+
+    @Test
     fun `text fallback tool parser supports input_text`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(
@@ -450,6 +484,44 @@ class VLMClientRequestTest {
         val action = requireNotNull(result.step).action as InputTextAction
         assertEquals("Phone", action.targetDescription)
         assertEquals("415-555-0130", action.text)
+    }
+
+    @Test
+    fun `text fallback tool parser supports line style tool call from qwen vl`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "qwen-vl-max",
+                turn = ChatCompletionTurn(
+                    finishReason = "stop",
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        content = JsonPrimitive(
+                            """
+                            {"observation":"The Contacts app is not visible.","thought":"Open the app drawer."}
+                            tool_call: scroll
+                            target_description: "scroll down to reveal more apps"
+                            x1: 500
+                            y1: 860
+                            x2: 500
+                            y2: 220
+                            """.trimIndent()
+                        )
+                    )
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary"
+        )
+
+        assertTrue(result.success)
+        val action = requireNotNull(result.step).action as ScrollAction
+        assertEquals("scroll down to reveal more apps", action.targetDescription)
+        assertEquals(500f, action.x1)
+        assertEquals(860f, action.y1)
+        assertEquals(500f, action.x2)
+        assertEquals(220f, action.y2)
     }
 
     @Test
@@ -528,6 +600,33 @@ class VLMClientRequestTest {
         val action = requireNotNull(result.step).action as FunctionRunAction
         assertEquals("xhs_search_keyword", action.functionId)
         assertEquals("美食", action.arguments["keyword"]!!.jsonPrimitive.contentOrNull)
+    }
+
+    @Test
+    fun `text fallback tool parser supports equals arguments in function invocation syntax`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "qwen-vl-max",
+                turn = ChatCompletionTurn(
+                    finishReason = "stop",
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        content = JsonPrimitive(
+                            """{"observation":"Home screen.","thought":"Open contacts directly."}
+                            open_app(package_name="com.google.android.contacts")""".trimIndent()
+                        )
+                    )
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary"
+        )
+
+        assertTrue(result.success)
+        val action = requireNotNull(result.step).action as OpenAppAction
+        assertEquals("com.google.android.contacts", action.packageName)
     }
 
     @Test

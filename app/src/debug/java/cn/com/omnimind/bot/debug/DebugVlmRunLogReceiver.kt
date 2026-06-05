@@ -35,8 +35,9 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
         val skipGoHome = intent?.getBooleanExtra("skipGoHome", startFromCurrent) ?: startFromCurrent
         val prelaunch = intent?.getBooleanExtra("prelaunch", true) ?: true
         val shouldPrelaunch = prelaunch && !startFromCurrent && !skipGoHome
-        val packageName = if (shouldPrelaunch) {
-            intent?.getStringExtra("packageName")?.takeIf { it.isNotBlank() } ?: "com.android.settings"
+        val targetPackageName = intent?.getStringExtra("packageName")?.takeIf { it.isNotBlank() }
+        val prelaunchPackageName = if (shouldPrelaunch) {
+            targetPackageName ?: "com.android.settings"
         } else {
             null
         }
@@ -52,6 +53,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             "disableRecall",
             "disable_recall"
         )
+        val parseOnly = intent.readBooleanExtra("parseOnly", "parse_only", "dryRun", "dry_run")
         val stepSkillGuidance = intent.decodeBase64Extra("stepSkillGuidanceBase64")
             ?: intent?.getStringExtra("stepSkillGuidance")?.trim().orEmpty()
                 .takeIf { it.isNotBlank() }
@@ -62,7 +64,8 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
                 run(
                     appContext,
                     goal,
-                    packageName,
+                    targetPackageName,
+                    prelaunchPackageName,
                     maxSteps,
                     waitTimeoutMs,
                     register,
@@ -73,6 +76,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
                     skipGoHome,
                     stepSkillGuidance,
                     disableOmniFlowRecall,
+                    parseOnly,
                 )
             }.getOrElse { error ->
                 linkedMapOf<String, Any?>(
@@ -91,7 +95,8 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
     private suspend fun run(
         context: Context,
         goal: String,
-        packageName: String?,
+        targetPackageName: String?,
+        prelaunchPackageName: String?,
         maxSteps: Int,
         waitTimeoutMs: Long?,
         register: Boolean,
@@ -102,6 +107,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
         skipGoHome: Boolean,
         stepSkillGuidance: String,
         disableOmniFlowRecall: Boolean,
+        parseOnly: Boolean,
     ): Map<String, Any?> {
         if (!AssistsUtil.Core.isInitialized()) {
             AssistsUtil.Core.initCore(context)
@@ -109,12 +115,46 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
         val configuredBinding = configureVlmBindingIfRequested(context, profileId, modelId)
         waitForAccessibility()
 
+        if (parseOnly) {
+            val result = VlmToolCoordinator.parseOnlyNextAction(
+                context = context,
+                request = VlmTaskRequest(
+                    goal = goal,
+                    model = modelId.ifEmpty { null },
+                    packageName = targetPackageName,
+                    maxSteps = maxSteps,
+                    waitTimeoutMs = waitTimeoutMs,
+                    needSummary = false,
+                    skipGoHome = startFromCurrent || skipGoHome,
+                    stepSkillGuidance = stepSkillGuidance,
+                    disableOmniFlowRecall = disableOmniFlowRecall,
+                ),
+                scope = scope,
+            )
+            return linkedMapOf(
+                "success" to result.success,
+                "parse_only" to true,
+                "executed" to false,
+                "goal" to goal,
+                "packageName" to targetPackageName,
+                "prelaunchPackageName" to prelaunchPackageName,
+                "prelaunch" to prelaunch,
+                "startFromCurrent" to startFromCurrent,
+                "skipGoHome" to skipGoHome,
+                "disable_omniflow_recall" to disableOmniFlowRecall,
+                "wait_timeout_ms" to waitTimeoutMs,
+                "step_skill_guidance_chars" to stepSkillGuidance.length,
+                "configured_binding" to configuredBinding,
+                "parse_result" to result.toPayload(),
+            )
+        }
+
         val outcome = VlmToolCoordinator.executeNewTask(
             context = context,
             request = VlmTaskRequest(
                 goal = goal,
                 model = modelId.ifEmpty { null },
-                packageName = if (startFromCurrent || skipGoHome) null else packageName,
+                packageName = targetPackageName,
                 maxSteps = maxSteps,
                 waitTimeoutMs = waitTimeoutMs,
                 needSummary = false,
@@ -142,19 +182,14 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
         }
 
         val outcomePayload = outcome.toPayload()
-        val directRecallCompleted = outcome.status == VlmToolOutcomeStatus.FINISHED &&
-            record == null &&
-            outcomePayload["executionRoute"]?.toString()?.let {
-                it.startsWith("omniflow_recall_hit:") || it.startsWith("omniflow_recall_segment_hit:")
-            } == true
+        val vlmTaskFinished = outcome.status == VlmToolOutcomeStatus.FINISHED
+        val runLogSuccessful = record?.success == true
 
         return linkedMapOf(
-            "success" to (
-                directRecallCompleted ||
-                    (outcome.status == VlmToolOutcomeStatus.FINISHED && convert?.get("success") == true)
-                ),
+            "success" to vlmTaskFinished,
             "goal" to goal,
-            "packageName" to packageName,
+            "packageName" to targetPackageName,
+            "prelaunchPackageName" to prelaunchPackageName,
             "prelaunch" to prelaunch,
             "startFromCurrent" to startFromCurrent,
             "skipGoHome" to skipGoHome,
@@ -163,10 +198,10 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             "step_skill_guidance_chars" to stepSkillGuidance.length,
             "configured_binding" to configuredBinding,
             "outcome" to outcomePayload,
-            "direct_recall_completed" to directRecallCompleted,
+            "vlm_task_finished" to vlmTaskFinished,
             "run_id" to runId,
             "runlog_found" to (record != null),
-            "runlog_success" to record?.success,
+            "runlog_success" to runLogSuccessful,
             "runlog_card_count" to (record?.cards?.size ?: 0),
             "run_log" to timeline,
             "token_usage" to (timeline?.get("token_usage") ?: emptyMap<String, Any?>()),
@@ -174,6 +209,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             "token_usage_by_step" to (timeline?.get("token_usage_by_step") ?: emptyList<Map<String, Any?>>()),
             "token_usage_by_call" to (timeline?.get("token_usage_by_call") ?: emptyList<Map<String, Any?>>()),
             "convert" to convert,
+            "convert_success" to (convert?.get("success") == true),
         )
     }
 

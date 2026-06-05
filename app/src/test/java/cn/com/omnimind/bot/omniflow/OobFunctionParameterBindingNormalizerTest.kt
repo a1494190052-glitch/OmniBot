@@ -1,6 +1,7 @@
 package cn.com.omnimind.bot.omniflow
 
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
+import cn.com.omnimind.bot.runlog.OobFunctionSchemaBuilder
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -190,6 +191,88 @@ class OobFunctionParameterBindingNormalizerTest {
         val args = steps[0]["args"] as Map<*, *>
         val nestedArguments = args["arguments"] as Map<*, *>
         assertEquals("猫猫", nestedArguments["search_query"])
+        assertTrue(OobFunctionArgumentBindingValidator.validate(materialized).success)
+    }
+
+    @Test
+    fun `internal replay arguments are hidden from function schema and ignored at runtime`() {
+        val normalized = OobFunctionParameterBindingNormalizer.normalize(
+            mapOf(
+                "function_id" to "open_game_and_click",
+                "parameters" to mapOf(
+                    "type" to "object",
+                    "properties" to mapOf(
+                        "package_name" to mapOf("type" to "string"),
+                        "target_description" to mapOf("type" to "string"),
+                    ),
+                    "required" to listOf("package_name", "target_description"),
+                ),
+                "execution" to mapOf(
+                    "steps" to listOf(
+                        step("open_app", mapOf("package_name" to "com.hupu.games")),
+                        step("click", mapOf("target_description" to "麦当劳", "x" to 100, "y" to 200)),
+                    ),
+                ),
+            )
+        )
+
+        val schema = OobFunctionSchemaBuilder.inputSchema(normalized)
+        val properties = schema["properties"] as Map<*, *>
+        assertFalse(properties.containsKey("package_name"))
+        assertFalse(properties.containsKey("target_description"))
+        assertEquals(emptyList<String>(), OobReusableFunctionStore.missingRequiredArguments(normalized, emptyMap()))
+
+        val materialized = OobReusableFunctionStore.materialize(
+            normalized,
+            mapOf(
+                "package_name" to "com.hupu.games",
+                "target_description" to "麦当劳",
+            ),
+        )
+        val runtime = materialized["runtime"] as Map<*, *>
+        assertEquals(emptyList<Any?>(), runtime["unbound_arguments"])
+        val ignored = runtime["ignored_arguments"] as List<*>
+        assertEquals(
+            listOf("package_name", "target_description"),
+            ignored.map { (it as Map<*, *>)["name"] },
+        )
+        assertTrue(OobFunctionArgumentBindingValidator.validate(materialized).success)
+    }
+
+    @Test
+    fun `semantic click parameter remains public when explicitly bound`() {
+        val normalized = OobFunctionParameterBindingNormalizer.normalize(
+            mapOf(
+                "function_id" to "click_brand",
+                "parameters" to mapOf(
+                    "type" to "object",
+                    "properties" to mapOf(
+                        "merchant_name" to mapOf(
+                            "type" to "string",
+                            "description" to "要点击的商家名称",
+                            "x_oob_bindings" to listOf("$.execution.steps[0].args.target_description"),
+                        ),
+                    ),
+                ),
+                "execution" to mapOf(
+                    "steps" to listOf(
+                        step("click", mapOf("target_description" to "肯德基", "x" to 100, "y" to 200)),
+                    ),
+                ),
+            )
+        )
+
+        val schema = OobFunctionSchemaBuilder.inputSchema(normalized)
+        val properties = schema["properties"] as Map<*, *>
+        assertTrue(properties.containsKey("merchant_name"))
+        val materialized = OobReusableFunctionStore.materialize(
+            normalized,
+            mapOf("merchant_name" to "麦当劳"),
+        )
+        val steps = ((materialized["execution"] as Map<*, *>)["steps"] as List<*>)
+            .map { it as Map<*, *> }
+        val args = steps[0]["args"] as Map<*, *>
+        assertEquals("麦当劳", args["target_description"])
         assertTrue(OobFunctionArgumentBindingValidator.validate(materialized).success)
     }
 

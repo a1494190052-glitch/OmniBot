@@ -59,6 +59,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -214,7 +215,7 @@ class WorkbenchToolHandlerOobFunctionToolsTest {
     }
 
     @Test
-    fun `agent converts manual recording runlog enhances parameter and replays function from chat tool`() = runBlocking {
+    fun `agent converts manual recording runlog enhances parameter and keeps function hidden from chat tools`() = runBlocking {
         val context = TempFilesContext()
         val backend = RecordingBackend()
         try {
@@ -351,14 +352,7 @@ class WorkbenchToolHandlerOobFunctionToolsTest {
                 val modelTool = registry.toolsForModel.singleOrNull {
                     it.function.name == functionId
                 }
-                assertNotNull(modelTool)
-                assertEquals("oob_function", registry.runtimeDescriptor(functionId).toolType)
-                val schema = modelTool!!.function.parameters
-                val properties = schema["properties"] as JsonObject
-                assertNotNull(properties["contact_name"])
-                val required = (schema["required"] as JsonArray)
-                    .map { it.jsonPrimitive.content }
-                assertTrue(required.contains("contact_name"))
+                assertNull(modelTool)
 
                 val run = handler.execute(
                     toolCall = toolCall(OobFunctionToolNames.FUNCTION_RUN),
@@ -383,70 +377,21 @@ class WorkbenchToolHandlerOobFunctionToolsTest {
                 assertEquals(listOf("Bob"), backend.inputTexts)
 
                 backend.inputTexts.clear()
-                val router = routerForTest(
-                    context = context,
-                    registry = registry,
-                    scope = this,
-                )
-                try {
-                    val routedRun = router.execute(
-                        toolCall = toolCall(functionId),
-                        args = buildJsonObject {
-                            put("contact_name", JsonPrimitive("Dora"))
-                        },
-                        runtimeDescriptor = registry.runtimeDescriptor(functionId),
-                        env = env,
-                        callback = NoOpAgentCallback,
-                        toolHandle = NoOpAgentRunControl.beginToolExecution(
-                            functionId,
-                            "router-dynamic-run",
-                        ),
-                    )
-                    assertContextSuccess(routedRun)
-                    assertEquals(listOf("Dora"), backend.inputTexts)
-                } finally {
-                    router.dispose()
-                }
-
-                backend.inputTexts.clear()
-                val directHandler = OobFunctionToolHandler(context, helper)
-                val directRun = directHandler.execute(
-                    toolCall = toolCall(functionId),
+                val missingArgumentRun = handler.execute(
+                    toolCall = toolCall(OobFunctionToolNames.FUNCTION_RUN),
                     args = buildJsonObject {
-                        put("contact_name", JsonPrimitive("Carol"))
+                        put("functionId", JsonPrimitive(functionId))
                     },
-                    runtimeDescriptor = AgentToolRegistry.RuntimeToolDescriptor(
-                        name = functionId,
-                        displayName = "填写联系人姓名",
-                        toolType = "oob_function",
-                    ),
+                    runtimeDescriptor = descriptor(OobFunctionToolNames.FUNCTION_RUN),
                     env = env,
                     callback = NoOpAgentCallback,
                     toolHandle = NoOpAgentRunControl.beginToolExecution(
-                        functionId,
-                        "direct-run",
-                    ),
-                )
-                assertContextSuccess(directRun)
-                assertEquals(listOf("Carol"), backend.inputTexts)
-
-                backend.inputTexts.clear()
-                val missingArgumentRun = directHandler.execute(
-                    toolCall = toolCall(functionId),
-                    args = buildJsonObject {},
-                    runtimeDescriptor = AgentToolRegistry.RuntimeToolDescriptor(
-                        name = functionId,
-                        displayName = "填写联系人姓名",
-                        toolType = "oob_function",
-                    ),
-                    env = env,
-                    callback = NoOpAgentCallback,
-                    toolHandle = NoOpAgentRunControl.beginToolExecution(
-                        functionId,
+                        OobFunctionToolNames.FUNCTION_RUN,
                         "missing-argument",
                     ),
                 )
-                assertTrue(missingArgumentRun is ToolExecutionResult.Error)
+                assertTrue(missingArgumentRun is ToolExecutionResult.ContextResult)
+                assertEquals(false, (missingArgumentRun as ToolExecutionResult.ContextResult).success)
                 assertEquals(emptyList<String>(), backend.inputTexts)
             }
         } finally {
@@ -455,7 +400,7 @@ class WorkbenchToolHandlerOobFunctionToolsTest {
     }
 
     @Test
-    fun `orchestrator exposes registered manual recording function and replays it from chat`() = runBlocking {
+    fun `orchestrator does not expose registered manual recording function as chat tool`() = runBlocking {
         val context = TempFilesContext()
         val backend = RecordingBackend()
         try {
@@ -562,7 +507,7 @@ class WorkbenchToolHandlerOobFunctionToolsTest {
                         profile = AgentToolExposurePolicy.PROFILE_FUNCTION_MANAGEMENT,
                     ),
                 )
-                assertNotNull(registry.toolsForModel.singleOrNull {
+                assertNull(registry.toolsForModel.singleOrNull {
                     it.function.name == functionId
                 })
                 val router = routerForTest(
@@ -572,16 +517,7 @@ class WorkbenchToolHandlerOobFunctionToolsTest {
                 )
                 val llm = FakeLlmClient(
                     turns = listOf(
-                        assistantTurn(
-                            toolCalls = listOf(
-                                toolCall(
-                                    name = functionId,
-                                    arguments = """{"contact_name":"Eve"}""",
-                                    id = "call-replay-contact",
-                                )
-                            )
-                        ),
-                        assistantTurn(content = "已使用复用指令填写 Eve。")
+                        assistantTurn(content = "没有可用的复用指令工具；请改用 vlm_task。")
                     )
                 )
                 val callback = RecordingAgentCallback()
@@ -611,18 +547,16 @@ class WorkbenchToolHandlerOobFunctionToolsTest {
                 )
 
                 assertTrue(result is AgentResult.Success)
-                assertEquals(2, llm.requests.size)
-                assertTrue(llm.requests.first().tools.any { it.function.name == functionId })
-                assertEquals(functionId, callback.startedTools.single())
-                assertEquals(functionId, callback.completedTools.single())
-                assertEquals(listOf("Eve"), backend.inputTexts)
+                assertEquals(1, llm.requests.size)
+                assertFalse(llm.requests.first().tools.any { it.function.name == functionId })
+                assertTrue(callback.startedTools.isEmpty())
+                assertTrue(callback.completedTools.isEmpty())
+                assertEquals(emptyList<String>(), backend.inputTexts)
                 val executed = (result as AgentResult.Success).executedTools
-                assertTrue(executed.any {
-                    it is ToolExecutionResult.ContextResult &&
-                        it.toolName == functionId &&
-                        it.success
+                assertFalse(executed.any {
+                    it is ToolExecutionResult.ContextResult && it.toolName == functionId
                 })
-                assertTrue(callback.finalChatMessages().last().contains("Eve"))
+                assertTrue(callback.finalChatMessages().last().contains("vlm_task"))
                 assertFalse(callback.errors.any())
             }
         } finally {
@@ -892,7 +826,7 @@ class WorkbenchToolHandlerOobFunctionToolsTest {
 
         override suspend fun pressHotKey(key: String) = Unit
 
-        override fun currentXml(): String? = "<hierarchy />"
+        override fun currentXml(): String? = CONTACT_XML
 
         override fun currentPackageName(): String? = "com.android.contacts"
 

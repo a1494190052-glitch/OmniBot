@@ -1,16 +1,13 @@
 package cn.com.omnimind.bot.agent.tool.handlers
 
 import cn.com.omnimind.bot.agent.AgentToolJson.mapToJsonElement
-import cn.com.omnimind.bot.agent.AgentToolNames
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
 import cn.com.omnimind.bot.runlog.OmniflowStepExecutor
-import cn.com.omnimind.bot.runlog.OobActionCodec
-import kotlinx.serialization.json.JsonObject
 
 /**
- * Builds agent-facing fallback context for replay failures. The replay handler
- * decides when fallback is allowed; this controller owns prompt/recovery
- * shaping and the optional VLM fallback tool call.
+ * Builds legacy recovery context for replay failures. The replay handler
+ * decides when model continuation is required; this controller owns
+ * prompt/recovery shaping for the next fresh VLM step.
  */
 class OobFunctionAgentFallbackController {
     fun prompt(
@@ -41,69 +38,6 @@ class OobFunctionAgentFallbackController {
                 "error_message" to error.message.orEmpty(),
             )
         }
-
-    suspend fun tryVlmFallback(
-        step: Map<String, Any?>,
-        stepId: String,
-        stepTitle: String,
-        failReason: String,
-        recovery: Map<String, Any?>,
-        router: cn.com.omnimind.bot.agent.AgentToolExecutor?,
-        env: cn.com.omnimind.bot.agent.AgentExecutionEnvironment?,
-        callback: cn.com.omnimind.bot.agent.AgentCallback?,
-        toolHandle: cn.com.omnimind.bot.agent.AgentToolExecutionHandle?,
-        parentToolCallId: String,
-    ): Map<String, Any?>? {
-        if (router == null || env == null || callback == null || toolHandle == null) return null
-        val args = OmniflowStepExecutor.normalizeArgsMap(step["args"])
-        val targetDesc = OmniflowStepExecutor.stringArg(
-            args,
-            "target_description",
-        ).orEmpty()
-        if (targetDesc.isEmpty()) return null
-        val action = OmniflowStepExecutor.actionNameForStep(step)
-        val goal = when (action) {
-            OobActionCodec.ACTION_CLICK -> "找到并点击「$targetDesc」"
-            OobActionCodec.ACTION_LONG_PRESS -> "找到并长按「$targetDesc」"
-            OobActionCodec.ACTION_SCROLL -> "在「$targetDesc」区域滑动"
-            else -> "执行 $action 操作：$targetDesc"
-        } + recoveryPromptSuffix(recovery)
-        val vlmArgs = mapToJsonElement(
-            mapOf("goal" to goal, "startFromCurrent" to true)
-        ) as? JsonObject ?: return null
-        val syntheticCall = cn.com.omnimind.baselib.llm.AssistantToolCall(
-            id = "${parentToolCallId}_${stepId}_fallback",
-            type = "function",
-            function = cn.com.omnimind.baselib.llm.AssistantToolCallFunction(
-                name = AgentToolNames.VLM_TASK,
-                arguments = vlmArgs.toString()
-            )
-        )
-        val subDescriptor = cn.com.omnimind.bot.agent.AgentToolRegistry.RuntimeToolDescriptor(
-            name = AgentToolNames.VLM_TASK,
-            displayName = stepTitle,
-            toolType = "omniflow_fallback"
-        )
-        return try {
-            val subResult = router.execute(
-                syntheticCall, vlmArgs, subDescriptor, env, callback, toolHandle
-            )
-            val succeeded = subResult !is cn.com.omnimind.bot.agent.ToolExecutionResult.Error
-            linkedMapOf<String, Any?>(
-                "step_id" to stepId,
-                "tool" to AgentToolNames.VLM_TASK,
-                "executor" to cn.com.omnimind.bot.runlog.RunLogReplayPolicy.EXECUTOR_AGENT,
-                "success" to succeeded,
-                "omniflow_fail_reason" to failReason,
-                "recovery" to recovery,
-                "summary" to "omniflow remap failed → vlm fallback: $goal"
-            )
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            null
-        }
-    }
 
     private fun recoveryPromptSuffix(recovery: Map<String, Any?>): String {
         if (recovery.isEmpty()) return ""

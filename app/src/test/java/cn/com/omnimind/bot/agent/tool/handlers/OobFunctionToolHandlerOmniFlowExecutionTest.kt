@@ -23,6 +23,7 @@ import cn.com.omnimind.bot.omniflow.OobFunctionParameterBindingNormalizer
 import cn.com.omnimind.bot.workbench.WorkspaceFunctionStore
 import cn.com.omnimind.baselib.llm.AssistantToolCall
 import cn.com.omnimind.bot.runlog.OobFunctionSchemaBuilder
+import cn.com.omnimind.bot.runlog.OobUdegNodeStore
 import cn.com.omnimind.bot.runlog.OmniflowActionBackend
 import cn.com.omnimind.bot.runlog.OmniflowActionRuntime
 import cn.com.omnimind.bot.runlog.RunLogReusableFunctionCompiler
@@ -304,7 +305,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
-    fun `nested oob_function_run propagates agent fallback requirement to parent run`() = runBlocking {
+    fun `nested oob_function_run propagates model continuation requirement to parent run`() = runBlocking {
         val context = TempFilesContext()
         try {
             val store = WorkspaceFunctionStore(context.root)
@@ -484,6 +485,59 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
+    fun `registered function runs precise go to function before target start when current page differs`() = runBlocking {
+        val context = TempFilesContext()
+        val pageA = pageXml("A", "com.example.route")
+        val pageB = pageXml("B", "com.example.route")
+        val pageC = pageXml("C", "com.example.route")
+        val store = WorkspaceFunctionStore(context.root)
+        val udegStore = OobUdegNodeStore(context)
+        val goToSpec = functionSpec(
+            functionId = "route_business_start",
+            steps = listOf(routeStepWithSource("route_open", pageA, pageB, "com.example.route")),
+            extras = mapOf(
+                "name" to "Route business start",
+                "description" to "Move from A to B.",
+            ),
+        )
+        val businessSpec = functionSpec(
+            functionId = "business_from_b",
+            steps = listOf(clickStepWithSource("business_click", pageB, pageC, "com.example.route")),
+        )
+        val backend = SwitchingBackend(
+            currentXml = pageA,
+            currentPackage = "com.example.route",
+            currentActivity = "RouteActivity",
+            transitions = listOf(pageB, pageC),
+        )
+        try {
+            assertTrue(store.register(goToSpec)["success"] == true)
+            assertTrue(store.register(businessSpec)["success"] == true)
+            assertEquals(true, udegStore.upsertFunction("route_business_start", goToSpec)["success"])
+            assertEquals(true, udegStore.upsertFunction("business_from_b", businessSpec)["success"])
+
+            OmniflowActionRuntime.useBackendForTesting(backend).use {
+                val run = handler(context, store).runMaterializedFunction(
+                    functionId = "business_from_b",
+                    spec = businessSpec,
+                    materializedSpec = OobReusableFunctionStore.materialize(businessSpec, emptyMap()),
+                    allowAgentFallback = false,
+                )
+
+                assertEquals(true, run["success"])
+                assertEquals(1, backend.launchCount)
+                assertEquals(1, backend.clickCount)
+                val preGoTo = run["pre_function_go_to"] as? Map<*, *>
+                assertEquals(true, preGoTo?.get("success"))
+                assertEquals(listOf("route_business_start"), preGoTo?.get("function_ids"))
+                assertEquals(listOf("business_click"), stepResults(run).map { it["step_id"] })
+            }
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `go_to_node executes UTG path locally`() = runBlocking {
         val context = TempFilesContext()
         try {
@@ -539,7 +593,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
-    fun `legacy nested call_function missing child fails locally without agent fallback`() = runBlocking {
+    fun `legacy nested call_function missing child fails locally without model continuation`() = runBlocking {
         val context = TempFilesContext()
         try {
             val spec = functionSpec(
@@ -1028,7 +1082,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
-    fun `call_tool without function id requires agent runner when router unavailable`() = runBlocking {
+    fun `call_tool without function id requires vlm continuation when router unavailable`() = runBlocking {
         val context = TempFilesContext()
         try {
             val spec = functionSpec(
@@ -1061,9 +1115,10 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
             assertEquals(false, run["success"])
             assertEquals(true, run["model_required"])
             val step = stepResults(run).single()
-            assertEquals("agent", step["executor"])
+            assertEquals("vlm_step", step["executor"])
             assertEquals("vlm_task", step["tool"])
             assertEquals(true, step["model_required"])
+            assertEquals(true, step["vlm_step_required"])
         } finally {
             context.root.deleteRecursively()
         }
@@ -1542,6 +1597,66 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
         )
     }
 
+    private fun clickStepWithSource(
+        stepId: String,
+        sourceXml: String,
+        destinationXml: String,
+        packageName: String,
+    ): Map<String, Any?> = mapOf(
+        "id" to stepId,
+        "title" to stepId,
+        "kind" to "omniflow_action",
+        "executor" to "omniflow",
+        "model_free" to true,
+        "scriptable" to true,
+        "omniflow_action" to "click",
+        "tool" to "click",
+        "callable_tool" to "click",
+        "args" to mapOf(
+            "x" to 540,
+            "y" to 320,
+            "target_description" to stepId,
+        ),
+        "source_context" to mapOf(
+            "src_ctx" to mapOf(
+                "page" to sourceXml,
+                "package_name" to packageName,
+            ),
+            "dst_ctx" to mapOf(
+                "page" to destinationXml,
+                "package_name" to packageName,
+            ),
+        ),
+    )
+
+    private fun routeStepWithSource(
+        stepId: String,
+        sourceXml: String,
+        destinationXml: String,
+        packageName: String,
+    ): Map<String, Any?> = mapOf(
+        "id" to stepId,
+        "title" to stepId,
+        "kind" to "omniflow_action",
+        "executor" to "omniflow",
+        "model_free" to true,
+        "scriptable" to true,
+        "omniflow_action" to "open_app",
+        "tool" to "open_app",
+        "callable_tool" to "open_app",
+        "args" to mapOf("package_name" to packageName),
+        "source_context" to mapOf(
+            "src_ctx" to mapOf(
+                "page" to sourceXml,
+                "package_name" to packageName,
+            ),
+            "dst_ctx" to mapOf(
+                "page" to destinationXml,
+                "package_name" to packageName,
+            ),
+        ),
+    )
+
     private fun pageXml(label: String, packageName: String): String = """
         <hierarchy rotation="0">
           <node index="0" text="$label" resource-id="$packageName:id/title" class="android.widget.TextView" package="$packageName" content-desc="$label" bounds="[0,0][1080,220]" clickable="false" focusable="false" />
@@ -1662,6 +1777,8 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     ) : OmniflowActionBackend {
         var clickCount = 0
             private set
+        var launchCount = 0
+            private set
         var currentXmlReadCount = 0
             private set
         val launchedPackages = mutableListOf<String>()
@@ -1701,6 +1818,60 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
             currentXmlReadCount += 1
             return currentXml
         }
+
+        override fun currentPackageName(): String? = currentPackage
+
+        override fun currentActivityName(): String? = currentActivity
+    }
+
+    private class SwitchingBackend(
+        currentXml: String,
+        private val currentPackage: String,
+        private val currentActivity: String,
+        transitions: List<String>,
+    ) : OmniflowActionBackend {
+        private var currentXml: String = currentXml
+        private val pendingTransitions = ArrayDeque(transitions)
+        var clickCount = 0
+            private set
+        var launchCount = 0
+            private set
+
+        override fun isReady(): Boolean = true
+
+        override suspend fun click(x: Float, y: Float) {
+            clickCount += 1
+            if (pendingTransitions.isNotEmpty()) {
+                currentXml = pendingTransitions.removeFirst()
+            }
+        }
+
+        override suspend fun longPress(x: Float, y: Float, durationMs: Long) = Unit
+
+        override suspend fun scroll(
+            x: Float,
+            y: Float,
+            direction: ScrollDirection,
+            distance: Float,
+            durationMs: Long,
+        ) = Unit
+
+        override suspend fun inputTextToFocusedNode(text: String) = Unit
+
+        override suspend fun launchApplication(packageName: String) {
+            launchCount += 1
+            if (pendingTransitions.isNotEmpty()) {
+                currentXml = pendingTransitions.removeFirst()
+            }
+        }
+
+        override suspend fun launchApplication(packageName: String, resetTask: Boolean) {
+            launchApplication(packageName)
+        }
+
+        override suspend fun pressHotKey(key: String) = Unit
+
+        override fun currentXml(): String? = currentXml
 
         override fun currentPackageName(): String? = currentPackage
 

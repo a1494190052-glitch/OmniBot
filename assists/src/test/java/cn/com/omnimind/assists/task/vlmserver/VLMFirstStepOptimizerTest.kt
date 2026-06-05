@@ -28,7 +28,7 @@ class VLMFirstStepOptimizerTest {
     }
 
     @Test
-    fun `first step uses current page evidence when current package differs`() {
+    fun `first step prefers open app when goal is opening known target package`() {
         val context = UIContext(
             overallTask = "打开聊天应用发送消息",
             targetPackageName = "com.example.chat"
@@ -44,8 +44,9 @@ class VLMFirstStepOptimizerTest {
         assertTrue(enriched.currentPageSummary.contains("app_info: package_name=com.android.launcher"))
         assertTrue(enriched.currentPageSummary.contains("app_info: target_package=com.example.chat"))
         assertTrue(enriched.currentPageSummary.contains("page/xml:"))
-        assertTrue(enriched.firstStepGuidance.contains("不要仅因前台包名和目标包名不一致就重复 open_app"))
-        assertTrue(enriched.firstStepGuidance.contains("当前截图/XML"))
+        assertTrue(enriched.firstStepGuidance.contains("优先调用 open_app"))
+        assertTrue(enriched.firstStepGuidance.contains("com.example.chat"))
+        assertTrue(enriched.firstStepGuidance.contains("不要在桌面/启动器里反复 scroll"))
     }
 
     @Test

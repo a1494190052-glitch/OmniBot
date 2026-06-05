@@ -4,7 +4,6 @@ import cn.com.omnimind.assists.OmniFlowUiSession
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
-import cn.com.omnimind.uikit.loader.ScreenMaskLoader
 import cn.com.omnimind.uikit.loader.cat.DraggableBallInstance
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -54,7 +53,6 @@ class OobFunctionFrontendSessionController(
         OmniFlowUiSession.beginTask(runId, taskId)
         runCatching {
             withContext(Dispatchers.Main) {
-                ScreenMaskLoader.loadLockScreenMask()
                 DraggableBallInstance.loadBall()
                 DraggableBallInstance.setDoing(
                     message = helper.localized("准备执行复用指令"),
@@ -118,7 +116,6 @@ class OobFunctionFrontendSessionController(
             )
             runCatching {
                 withContext(Dispatchers.Main) {
-                    ScreenMaskLoader.loadLockScreenMask()
                     DraggableBallInstance.setDoing(
                         message = message,
                         isShowTakeOver = false,
@@ -141,7 +138,6 @@ class OobFunctionFrontendSessionController(
             runCatching {
                 withContext(NonCancellable + Dispatchers.Main) {
                     if (embeddedInVlmTask) {
-                        ScreenMaskLoader.loadLockScreenMask()
                         DraggableBallInstance.setDoing(
                             message = helper.localized("复用指令执行完成"),
                             isShowTakeOver = false,
@@ -150,9 +146,6 @@ class OobFunctionFrontendSessionController(
                             isTouchable = true,
                             forceOnTop = true
                         )
-                    } else {
-                        ScreenMaskLoader.loadGoneViewScreenMask()
-                        DraggableBallInstance.finishDoingTask(message)
                     }
                 }
             }.onFailure {

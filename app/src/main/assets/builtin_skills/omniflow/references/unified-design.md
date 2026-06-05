@@ -6,10 +6,11 @@ why old replay concepts should not be reintroduced.
 ## Main Path
 
 ```text
-RunLog -> Function -> recall candidates -> agent/VLM chooses oob_function_run
-  -> guard -> deterministic replay step by step
-  -> fallback_context on failure
-  -> agent repairs or resumes with update_function / oob_function_run
+RunLog -> Function -> recall candidates -> VLM sees recalled Functions as native tools
+  -> VLM chooses one GUI tool or one Function tool
+  -> local runner executes checker/action-transfer/replay
+  -> returns success/result
+  -> next turn fresh observe decides the next tool
 ```
 
 `Function.steps` is the only replay sequence. The runner is a deterministic
@@ -18,8 +19,8 @@ order. It does not maintain a hidden pending queue and does not skip middle
 steps because a later page state appears satisfied.
 
 Use one vocabulary everywhere: Function, RunLog, recall, replay, checker,
-fallback, and update. Deprecated reusable-workflow wording and `call_function`
-names are compatibility only.
+action transfer, and update. Deprecated reusable-workflow wording and
+`call_function` names are compatibility only.
 
 Internal graph edges for callable Functions use `kind=function_call`; old
 `call_function` edge inputs are compatibility only.
@@ -30,10 +31,10 @@ used by recall, VLM guidance, RunLog evidence analysis, and `update_function`.
 
 ## Tool Names
 
-Use these names first:
+Use these names first for Function lifecycle and online execution:
 
-- `oob_function_run`
-- `oob_function_guard_check`
+- dynamic VLM Function tools, where the Function id is the tool name
+- `vlm_task`
 - `update_function`
 - `oob_run_log_convert`
 - `oob_function_list`
@@ -42,8 +43,8 @@ Use these names first:
 Legacy names such as `call_function`, `run_function`, and
 `omniflow.call_function` are import-only compatibility names. They are not the
 model-visible replay tool and must not be written into new Function specs.
-New Function steps that call another saved Function must write
-`{"tool":"oob_function_run","args":{"function_id":"...","arguments":{...}}}`.
+Direct `oob_function_run` and `oob_function_guard_check` are legacy/internal
+compatibility names. Do not expose them as normal agent-task decisions.
 
 ## Recall
 
@@ -51,21 +52,19 @@ Recall is local candidate retrieval. It should usually take milliseconds to tens
 of milliseconds. It writes candidate Functions into current-page context or
 guidance. It does not call the VLM model and does not execute a Function.
 
-Parameterized Function candidates are valid. Read `inputSchema`,
-`function_profile`, and `argument_policy`, then fill arguments from the user
-goal like a normal tool call before `oob_function_run`.
+Parameterized Function candidates are valid. The VLM fills arguments from the
+user goal according to the recalled Function tool schema.
 
-Recall finds candidates and writes guidance. The agent/VLM decides whether a
-candidate matches. `oob_function_run` executes only after that decision.
+Recall finds candidates and writes guidance/tool definitions. The VLM decides
+whether a candidate matches by selecting that Function id as a native tool.
 
 ## Fallback
 
-If replay fails, return or use `fallback_context`, `failed_step_index`,
-`resume_from_step`, and `remaining_steps`. `failed_step_index` is the step the
-agent must complete; after that step is completed, `resume_from_step` points to
-the next local step. Use `failed_step_index` only when retrying the failed step
-itself. The agent can continue with bounded live VLM or call `update_function`
-with RunLog evidence. Do not silently fall back inside offline replay.
+If replay fails, return `success=false` and a compact `result` with the failed
+step and current page evidence. The next online VLM turn does one fresh observe
+and chooses the next GUI or Function tool. Do not ask the outer Agent to resume
+hidden replay. If the saved Function is wrong, call `update_function` later with
+RunLog evidence.
 
 ## update_function
 

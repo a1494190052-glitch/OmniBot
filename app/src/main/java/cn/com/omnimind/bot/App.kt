@@ -20,6 +20,7 @@ import cn.com.omnimind.bot.manager.AssistsCoreManager
 import cn.com.omnimind.bot.mcp.McpServerManager
 import cn.com.omnimind.bot.quicklog.QuickLogWidgetUpdater
 import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
+import cn.com.omnimind.bot.runlog.PageGuardRuntime
 import cn.com.omnimind.bot.terminal.EmbeddedTerminalRuntime
 import cn.com.omnimind.bot.update.AppUpdateManager
 import cn.com.omnimind.bot.util.NestedBackgroundStateUtil
@@ -190,6 +191,11 @@ class App : BaseApplication() {
         }
         runCatching {
             VLMActionPipelineRegistry.register(OobVlmActionPipeline())
+        }
+        runCatching {
+            PageGuardRuntime.install(this)
+        }.onFailure {
+            OmniLog.w("AppStartup", "page guard install failed: ${it.message}")
         }
         runCatching {
             VLMFunctionRunRegistry.register(object : VLMFunctionRunHandler {

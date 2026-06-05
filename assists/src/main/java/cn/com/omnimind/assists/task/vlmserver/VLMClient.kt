@@ -12,6 +12,7 @@ import cn.com.omnimind.baselib.util.OmniLog
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
@@ -288,6 +289,23 @@ class VLMClient(
                     dynamicFunctionToolNames = dynamicFunctionToolNames
                 )
             }
+            if (isExplicitFinishedText(metadata)) {
+                return VLMResult(
+                    success = true,
+                    step = VLMStep(
+                        observation = metadata.observation,
+                        thought = metadata.thought.ifBlank { response.turn.reasoning.ifBlank { content } },
+                        action = FinishedAction(
+                            content = metadata.summary
+                                .ifBlank { metadata.thought }
+                                .ifBlank { content }
+                        ),
+                        summary = metadata.summary
+                    ),
+                    error = null,
+                    thinking = thinking
+                )
+            }
             return VLMResult(
                 success = false,
                 step = null,
@@ -330,7 +348,7 @@ class VLMClient(
             if (source != "tool_calls") {
                 OmniLog.w(
                     TAG,
-                    "Parsed VLM fallback $source as ${toolCall.function.name}: ${preview(content)}"
+                    "Parsed VLM text compatibility $source as ${toolCall.function.name}: ${preview(content)}"
                 )
             }
             VLMResult(
@@ -353,6 +371,35 @@ class VLMClient(
                 shouldRetryForToolCall = true
             )
         }
+    }
+
+    private fun isExplicitFinishedText(metadata: StepMetadataPayload): Boolean {
+        val combined = listOf(metadata.thought, metadata.summary)
+            .joinToString(separator = "\n")
+            .lowercase()
+        if (combined.isBlank()) return false
+        val hasCompletion = listOf(
+            "completed successfully",
+            "task is complete",
+            "task has been completed",
+            "task completed",
+            "no further actions are needed",
+            "no further action is needed",
+            "任务已完成",
+            "已经完成",
+            "无需继续",
+            "不需要继续",
+        ).any { it in combined }
+        val hasUncertainty = listOf(
+            "not completed",
+            "not complete",
+            "cannot determine",
+            "uncertain",
+            "不确定",
+            "未完成",
+            "没有完成",
+        ).any { it in combined }
+        return hasCompletion && !hasUncertainty
     }
 
     private fun buildMessages(
@@ -593,6 +640,7 @@ class VLMClient(
         val normalized = content.trim()
         if (normalized.isEmpty()) return null
         return parseJsonTextToolCall(normalized, dynamicFunctionToolNames)
+            ?: parseLineTextToolCall(normalized, dynamicFunctionToolNames)
             ?: parseFunctionInvocationTextToolCall(normalized, dynamicFunctionToolNames)
             ?: parseTaggedJsonTextToolCall(normalized, dynamicFunctionToolNames)
             ?: parseHtmlArgTextToolCall(normalized, dynamicFunctionToolNames)
@@ -632,6 +680,50 @@ class VLMClient(
             return buildFallbackToolCall(name, args, dynamicFunctionToolNames)
         }
         return null
+    }
+
+    private fun parseLineTextToolCall(content: String, dynamicFunctionToolNames: Set<String>): AssistantToolCall? {
+        val match = LINE_TOOL_CALL_REGEX.find(content) ?: return null
+        val name = match.groups[1]?.value?.trim().orEmpty()
+        if (name.isEmpty()) return null
+        val argumentText = content.substring(match.range.last + 1)
+        val args = parseLineArguments(argumentText)
+        return buildFallbackToolCall(name, args.toString(), dynamicFunctionToolNames)
+    }
+
+    private fun parseLineArguments(raw: String): JsonObject {
+        val values = linkedMapOf<String, JsonElement>()
+        raw.lineSequence().forEach { line ->
+            val match = LINE_ARGUMENT_REGEX.find(line.trim()) ?: return@forEach
+            val key = match.groups[1]?.value?.trim().orEmpty()
+            val rawValue = match.groups[2]?.value?.trim().orEmpty()
+            if (key.isEmpty()) return@forEach
+            val parsed = parseLineValue(rawValue)
+            if (key == OobCanonicalActionSchema.ARG_ARGUMENTS && parsed is JsonObject) {
+                values[key] = parsed
+            } else {
+                values[key] = parsed
+            }
+        }
+        return JsonObject(values)
+    }
+
+    private fun parseLineValue(raw: String): JsonElement {
+        val trimmed = raw.trim().trimEnd(',')
+        if (trimmed.isEmpty()) return JsonPrimitive("")
+        if ((trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+            (trimmed.startsWith("[") && trimmed.endsWith("]")) ||
+            (trimmed.startsWith("\"") && trimmed.endsWith("\""))
+        ) {
+            runCatching { return json.parseToJsonElement(trimmed) }
+        }
+        trimmed.toLongOrNull()?.let { return JsonPrimitive(it) }
+        trimmed.toDoubleOrNull()?.let { return JsonPrimitive(it) }
+        when (trimmed.lowercase()) {
+            "true" -> return JsonPrimitive(true)
+            "false" -> return JsonPrimitive(false)
+        }
+        return JsonPrimitive(trimmed.trim('"', '\''))
     }
 
     private fun parseFunctionInvocationTextToolCall(
@@ -906,5 +998,7 @@ class VLMClient(
         private val ARG_PAIR_REGEX = Regex(
             """(?is)<arg_key>\s*([^<]+?)\s*</arg_key>\s*<arg_value>\s*(.*?)\s*(?=</arg_value>|</tool_call>|```|$)(?:</arg_value>)?"""
         )
+        private val LINE_TOOL_CALL_REGEX = Regex("""(?im)^\s*tool_call\s*:\s*([A-Za-z0-9_.-]+)\s*$""")
+        private val LINE_ARGUMENT_REGEX = Regex("""^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.+?)\s*$""")
     }
 }

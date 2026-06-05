@@ -324,7 +324,8 @@ When adding or migrating a generic agent tool name:
 - read current page/package context for Function recall
 - ask `OobUdegNodeStore` for page/node matches
 - rank attached Function capabilities against the agent goal
-- decide whether a no-argument Function is a strict direct hit
+- expose recalled Functions as candidates/tools; normal online execution does
+  not auto-run recall hits
 - compact recall payloads for normal agent use while preserving debug mode
 - share mechanical Function payload coercion with VLM recall/page-context
   guidance through `OobFunctionJson`
@@ -332,24 +333,24 @@ When adding or migrating a generic agent tool name:
 `OobFunctionRunPolicy` owns run-time policy:
 
 - guard Function steps before execution
-- classify block, confirmation, agent-needed, and allow decisions
-- own the guard decision/risk vocabulary used in guard and fallback payloads
-- build agent fallback context when deterministic replay fails
-- generate the resume instruction for `oob_function_run`
+- classify block, confirmation, model-needed, and allow decisions
+- own the guard decision/risk vocabulary used in guard and continuation payloads
+- build compact VLM continuation results when deterministic replay cannot
+  execute the current step
 - keep `Function.steps` as the only pending sequence. OmniFlow replay should
   re-localize and attempt each active step in order; it must not skip action
   steps because a terminal postcondition appears satisfied or because the page
   seems to have advanced. If the current step cannot be executed, return
-  fallback context with `failed_step_index` plus `resume_from_step`.
-  `resume_from_step` is the next local step after the agent has handled the
-  failed step.
+  `success=false` with a compact `{success, result}` payload and
+  `vlm_step_required=true`; the next fresh VLM step handles only the current
+  page state.
 
 `OobFunctionRunner` owns runtime execution startup:
 
 - load the Function spec from `OobFunctionRepository`
 - validate and materialize runtime arguments
 - create the local `OobFunctionToolHandler`
-- pass resume/fallback controls into the replay handler
+- pass execution controls into the replay handler
 - merge execution timing into the returned payload
 
 `OobFunctionCallTiming` owns toolkit call timing payloads:
@@ -401,15 +402,15 @@ primitive local action execution:
 - keep main-thread UI calls outside the deterministic step executor
 - skip nested Function calls so only the top-level replay owns the overlay
 
-`OobFunctionAgentFallbackController` owns agent-facing fallback context:
+`OobFunctionAgentFallbackController` owns legacy VLM continuation context:
 
-- build fallback prompts from the failed step, materialized args, and recovery
+- build continuation prompts from the failed step, materialized args, and recovery
   snapshot
 - refetch the current page after deterministic replay failures
-- run the optional `vlm_task` fallback for remappable UI-action failures
-- derive fallback operation wording from canonical actions in `OobActionCodec`
-  so `click`, `long_press`, and `swipe` keep distinct user-facing semantics
-- keep agent recovery text and VLM tool-call shaping outside the replay loop
+- shape the compact `vlm_step_required` prompt/result that the next `vlm_task`
+  turn may consume
+- keep recovery text outside the replay loop; it must not start a hidden Agent or
+  VLM task by itself
 
 `OobFunctionCallRequestResolver` owns replay/tool-call argument compatibility:
 
@@ -423,7 +424,7 @@ primitive local action execution:
 - identify legacy/noise steps that replay should skip
 - resolve the canonical OmniFlow execution tool for a step
 - decide whether a step is locally executable as graph/function/call_tool
-- extract replayable agent tools from recorded agent fallback steps
+- extract replayable legacy agent-tool steps when present in older recordings
 - keep these routing predicates out of the main replay loop
 - skip only explicit observation/no-op legacy steps. Do not introduce
   `already_satisfied` or `optional_not_present` runtime skips for action steps.
@@ -442,7 +443,7 @@ primitive local action execution:
 - resolve `call_tool` target Function/tool names and forwarded arguments
 - convert Function targets into nested reusable Function replay handoffs
 - delegate ordinary tool targets through `OobFunctionToolDelegationExecutor`
-- return agent fallback payloads when a live tool router is required
+- return VLM continuation payloads when a live tool router is required
 - keep `call_tool` target policy outside the main replay loop
 
 `OobFunctionNestedFunctionExecutor` owns nested reusable Function execution:
@@ -506,13 +507,13 @@ Agent/MCP tool surface
           -> OobUdegNodeStore        # page/node recall index
       -> VLM recall/page context guidance # render Function candidates for live VLM prompts
           -> OobFunctionJson # shared value coercion for Function payloads
-      -> OobFunctionRunPolicy        # guard and fallback handoff
+      -> OobFunctionRunPolicy        # guard and VLM continuation handoff
           -> OobFunctionJson # shared value coercion for Function payloads
       -> OobFunctionCallTiming       # call-level timing merge
       -> OobFunctionRunner           # load/materialize/execute Functions
-          -> OobFunctionToolHandler  # deterministic replay and agent handoff
+          -> OobFunctionToolHandler  # deterministic replay and VLM continuation
               -> OobFunctionFrontendSessionController # replay overlay/session
-              -> OobFunctionAgentFallbackController # recovery prompt/VLM fallback
+              -> OobFunctionAgentFallbackController # legacy recovery prompt/VLM continuation
               -> OobFunctionCallRequestResolver # replay/call_tool args
               -> OobFunctionStepClassifier # replay step-shape routing
               -> OobFunctionToolDelegationExecutor # live tool delegation bridge
@@ -575,7 +576,7 @@ Keep these pieces separate:
   target-repair patches
 - `OobFunctionRecallService`: page/node recall, ranking, direct-hit policy, and
   compact recall payload shaping
-- `OobFunctionRunPolicy`: pre-run guard and failed-run agent fallback handoff
+- `OobFunctionRunPolicy`: pre-run guard and failed-run VLM continuation handoff
 - `OobFunctionCallTiming`: Function call timing payload construction
 - `RunLogReusableFunctionCompiler`: offline RunLog-to-Function assembly and
   conversion orchestration
@@ -595,7 +596,7 @@ Keep these pieces separate:
 - `OobFunctionFrontendSessionController`: top-level replay overlay lifecycle
   and stop signal handling
 - `OobFunctionAgentFallbackController`: failed-step recovery snapshots,
-  fallback prompts, and optional VLM fallback calls
+  continuation prompts, and optional VLM continuation calls
 - `OobFunctionCallRequestResolver`: replay step args, `call_tool` target
   resolution, nested Function argument extraction, and metadata stripping
 - `OobFunctionStepClassifier`: legacy skip detection, OmniFlow execution-tool
@@ -667,7 +668,7 @@ the same commit as the code change:
 - Tool surface or activation wording: update the built-in skill docs under
   `app/src/main/assets/builtin_skills/omniflow/` and this backend map when the
   native owner changes.
-- Function storage, update, recall, run, checker, fallback, or replay ownership:
+- Function storage, update, recall, run, checker, continuation, or replay ownership:
   update this file.
 - RunLog conversion, card filtering, action aliases, executor categories,
   canonical replay tools, or noise cleanup: update
@@ -749,7 +750,7 @@ Use these owner rules when removing duplicated helper code:
   `OobFunctionToolHandler`. Do not move skip/fallback/delegation decisions into
   mechanical helper objects.
 - Function run result payload shape belongs in `OobFunctionRunResultBuilder`.
-  Runtime components may decide that a step failed, requires agent execution,
+  Runtime components may decide that a step failed, requires VLM continuation,
   or was delegated, but they should call this owner for stable fields such as
   `step_id`, `executor`, `model_required`, `error_code`, and timing payloads
   instead of hand-building equivalent maps in each executor. Old per-step

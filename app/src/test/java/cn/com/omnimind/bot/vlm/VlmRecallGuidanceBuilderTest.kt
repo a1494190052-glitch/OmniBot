@@ -237,33 +237,22 @@ class VlmRecallGuidanceBuilderTest {
     }
 
     @Test
-    fun `function catalog candidates without page matched node are still rendered for online VLM step guidance`() {
+    fun `missing page match does not render catalog function candidates for online VLM step guidance`() {
         val guidance = VlmRecallGuidanceBuilder.renderGuidance(
             mapOf(
                 "success" to true,
-                "decision" to "recall",
+                "decision" to "miss",
                 "decision_policy" to mapOf(
-                    "mode" to "function_catalog_context_only",
+                    "mode" to "current_page_required",
                     "requires_vlm_or_tool_decision" to true,
-                    "catalog_recall_enabled" to true,
                 ),
-                "candidates" to listOf(
-                    mapOf(
-                        "function_id" to "open_settings_from_history",
-                        "score" to 0.71,
-                        "description" to "Historical Settings path",
-                        "recall_scope" to "function_catalog",
-                        "step_summaries" to listOf(
-                            mapOf("tool" to "click", "title" to "click: Network"),
-                        ),
-                    )
-                ),
+                "candidates" to emptyList<Map<String, Any?>>(),
             )
         )
 
-        assertTrue(guidance.contains("decision_policy: mode=function_catalog_context_only"))
-        assertTrue(guidance.contains("1. tool=open_settings_from_history"))
-        assertTrue(guidance.contains("tool_execution_policy=optional_candidates_only"))
+        assertEquals("", guidance)
+        assertFalse(guidance.contains("tool=open_settings_from_history"))
+        assertFalse(guidance.contains("function_catalog"))
         assertFalse(guidance.contains("step:"))
     }
 

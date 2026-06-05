@@ -21,7 +21,7 @@ import kotlin.math.roundToInt
  *
  * The VLM receives one current screenshot plus this compact Accessibility-tree
  * view by default. The indexed evidence gives stable labels, flags, and
- * 0-1000 normalized centers so the model can choose element_index /
+ * absolute screen-pixel centers so the model can choose element_index /
  * scrollable_index without requiring a second marked screenshot.
  */
 object VLMIndexedPageContext {
@@ -83,11 +83,11 @@ object VLMIndexedPageContext {
         }
 
         return buildString {
-            appendLine("OOB indexed page evidence (compact live page summary; coordinates are 0-1000 normalized):")
+            appendLine("OOB indexed page evidence (compact live page summary; coordinates are absolute screen pixels):")
             candidates.forEachIndexed { index, node ->
                 append("#").append(index)
-                    .append(" center=(").append(norm(node.bounds.centerX, screen.left, screen.width))
-                    .append(",").append(norm(node.bounds.centerY, screen.top, screen.height)).append(")")
+                    .append(" center=(").append(absCoord(node.bounds.centerX, screen.left, screen.right))
+                    .append(",").append(absCoord(node.bounds.centerY, screen.top, screen.bottom)).append(")")
                     .append(" flags=").append(node.flags())
                     .append(" role=").append(node.role)
                     .append(" label=\"").append(node.displayLabel.take(MAX_LABEL_CHARS)).append("\"")
@@ -95,9 +95,9 @@ object VLMIndexedPageContext {
             }
             if (focusedEditable != null) {
                 append("Focused editable: center=(")
-                    .append(norm(focusedEditable.bounds.centerX, screen.left, screen.width))
+                    .append(absCoord(focusedEditable.bounds.centerX, screen.left, screen.right))
                     .append(",")
-                    .append(norm(focusedEditable.bounds.centerY, screen.top, screen.height))
+                    .append(absCoord(focusedEditable.bounds.centerY, screen.top, screen.bottom))
                     .append(") label=\"")
                     .append(focusedEditable.displayLabel.take(MAX_LABEL_CHARS))
                     .appendLine("\"")
@@ -106,8 +106,8 @@ object VLMIndexedPageContext {
                 appendLine("Form anchors:")
                 formFields.forEachIndexed { index, node ->
                     append("F").append(index)
-                        .append(" center=(").append(norm(node.bounds.centerX, screen.left, screen.width))
-                        .append(",").append(norm(node.bounds.centerY, screen.top, screen.height)).append(")")
+                        .append(" center=(").append(absCoord(node.bounds.centerX, screen.left, screen.right))
+                        .append(",").append(absCoord(node.bounds.centerY, screen.top, screen.bottom)).append(")")
                         .append(" role=").append(node.formRole())
                         .append(" label=\"").append(node.formLabel.take(MAX_LABEL_CHARS)).append("\"")
                     node.formValueHint.takeIf { it.isNotBlank() }?.let { valueHint ->
@@ -119,9 +119,9 @@ object VLMIndexedPageContext {
             if (scrollables.isNotEmpty()) {
                 appendLine("Scrollable regions:")
                 scrollables.forEachIndexed { index, node ->
-                    val x = norm(node.bounds.centerX, screen.left, screen.width)
-                    val y1 = norm(node.bounds.bottom - node.bounds.height * 0.14f, screen.top, screen.height)
-                    val y2 = norm(node.bounds.top + node.bounds.height * 0.22f, screen.top, screen.height)
+                    val x = absCoord(node.bounds.centerX, screen.left, screen.right)
+                    val y1 = absCoord(node.bounds.bottom - node.bounds.height * 0.14f, screen.top, screen.bottom)
+                    val y2 = absCoord(node.bounds.top + node.bounds.height * 0.22f, screen.top, screen.bottom)
                     append("S").append(index)
                         .append(" vertical_down=(").append(x).append(",").append(y1)
                         .append(")->(").append(x).append(",").append(y2).append(")")
@@ -130,6 +130,36 @@ object VLMIndexedPageContext {
                 }
             }
         }.trim().take(MAX_SECTION_CHARS)
+    }
+
+    fun renderRepresentativeElements(
+        currentXml: String?,
+        displayWidth: Int,
+        displayHeight: Int,
+        maxElements: Int = 5,
+    ): String {
+        val snapshot = buildIndexedSnapshot(currentXml, displayWidth, displayHeight) ?: return ""
+        val screen = snapshot.screen
+        val nodes = snapshot.candidates.take(maxElements.coerceAtLeast(0))
+        if (nodes.isEmpty()) return ""
+        return nodes.mapIndexed { index, node ->
+            buildString {
+                append("#").append(index)
+                    .append(" center=(")
+                    .append(absCoord(node.bounds.centerX, screen.left, screen.right))
+                    .append(",")
+                    .append(absCoord(node.bounds.centerY, screen.top, screen.bottom))
+                    .append(")")
+                    .append(" flags=").append(node.flags())
+                    .append(" role=").append(node.role)
+                appendCompactField("node_id", node.nodeId, MAX_ID_CHARS)
+                appendCompactField("text", node.text, MAX_LABEL_CHARS)
+                appendCompactField("desc", node.contentDesc, MAX_LABEL_CHARS)
+                appendCompactField("hint", node.hintText, MAX_LABEL_CHARS)
+                appendCompactField("resource-id", node.resourceId, MAX_RESOURCE_ID_CHARS)
+                appendCompactField("label", node.displayLabel, MAX_LABEL_CHARS)
+            }
+        }.joinToString("\n")
     }
 
     fun renderMarkedScreenshot(
@@ -468,6 +498,20 @@ object VLMIndexedPageContext {
     private fun firstNonBlank(vararg values: String): String =
         values.firstOrNull { it.isNotBlank() }.orEmpty()
 
+    private fun StringBuilder.appendCompactField(name: String, value: String, maxChars: Int) {
+        val compact = value
+            .replace("\r\n", "\n")
+            .lineSequence()
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .joinToString(" ")
+            .replace("\"", "\\\"")
+            .take(maxChars)
+        if (compact.isNotBlank()) {
+            append(" ").append(name).append("=\"").append(compact).append("\"")
+        }
+    }
+
     private fun descriptionMatchScore(
         normalizedQuery: String,
         node: PageNode,
@@ -526,6 +570,9 @@ object VLMIndexedPageContext {
         (((value - origin) / size.coerceAtLeast(1f)) * 1000f)
             .roundToInt()
             .coerceIn(0, 1000)
+
+    private fun absCoord(value: Float, minValue: Float, maxValue: Float): Int =
+        value.roundToInt().coerceIn(minValue.roundToInt(), maxValue.roundToInt())
 
     private fun isOverlayLabel(value: String): Boolean {
         val normalized = value.lowercase().replace(" ", "")
@@ -727,14 +774,16 @@ object VLMIndexedPageContext {
     private const val MIN_FORM_FIELD_AREA = 200f
     private const val MAX_ELEMENT_AREA_RATIO = 0.72f
     private const val MAX_FORM_FIELD_AREA_RATIO = 0.60f
-    private const val MAX_ELEMENTS = 18
-    private const val MAX_SCROLLABLES = 3
-    private const val MAX_FORM_FIELDS = 6
-    private const val MAX_LABEL_CHARS = 72
+    private const val MAX_ELEMENTS = 12
+    private const val MAX_SCROLLABLES = 2
+    private const val MAX_FORM_FIELDS = 4
+    private const val MAX_LABEL_CHARS = 56
+    private const val MAX_RESOURCE_ID_CHARS = 96
+    private const val MAX_ID_CHARS = 32
     private const val MAX_DESCENDANT_PARTS = 8
     private const val MAX_DESCENDANT_CHARS = 120
-    private const val MAX_SECTION_CHARS = 2_600
-    private const val MAX_CONTEXT_CHARS = 3_600
+    private const val MAX_SECTION_CHARS = 1_900
+    private const val MAX_CONTEXT_CHARS = 2_400
     private const val MARKED_SCREENSHOT_JPEG_QUALITY = 92
     private const val MIN_UNIQUE_MATCH_SCORE = 82
     private const val MIN_UNIQUE_MATCH_MARGIN = 8

@@ -262,6 +262,186 @@ class OobPageVectorSetTest {
         }
     }
 
+    @Test
+    fun `udeg stores source page action pair without destination context`() {
+        val context = OobOmniFlowLoopAcceptanceTest.TempFilesContext()
+        try {
+            val store = OobUdegNodeStore(context)
+            val result = store.upsertFunction(
+                functionId = "source_only_click",
+                functionSpec = functionSpecWithSourcePage("source_only_click", SOURCE_XML),
+            )
+
+            assertEquals(true, result["success"])
+            assertEquals(1, (result["raw_action_edge_count"] as Number).toInt())
+            assertEquals(0, (result["skipped_edge_count"] as? Number)?.toInt() ?: 0)
+
+            val payload = store.exportBundle()["payload"] as Map<*, *>
+            val rawActionEdges = (payload["raw_action_edges"] as List<*>).mapNotNull { it as? Map<*, *> }
+            val edge = rawActionEdges.first { it["function_id"] == "source_only_click" }
+            assertEquals("click", edge["action_type"])
+            assertTrue(edge["from_node_id"].toString().isNotBlank())
+            assertEquals(null, edge["to_node_id"])
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `udeg finds route safe function from current node to target function start node`() {
+        val context = OobOmniFlowLoopAcceptanceTest.TempFilesContext()
+        try {
+            val store = OobUdegNodeStore(context)
+            store.upsertFunction(
+                functionId = "search_contact",
+                functionSpec = functionSpecWithTransition(
+                    functionId = "search_contact",
+                    name = "Search contact",
+                    description = "Search a contact from the Contacts page.",
+                    srcXml = OTHER_XML,
+                    dstXml = SOURCE_XML_VARIANT,
+                ),
+            )
+            val targetNodeId = store.bestNodeIdForPage(OTHER_XML, "com.example.settings")
+            assertTrue(targetNodeId.isNotBlank())
+
+            store.upsertFunction(
+                functionId = "type_contacts_from_settings",
+                functionSpec = functionSpecWithTransition(
+                    functionId = "type_contacts_from_settings",
+                    name = "Type contacts from settings",
+                    description = "Semantic input function with the same endpoints.",
+                    srcXml = SOURCE_XML,
+                    dstXml = OTHER_XML,
+                    tool = "input_text",
+                ),
+            )
+            store.upsertFunction(
+                functionId = "route_contacts_from_settings",
+                functionSpec = functionSpecWithTransition(
+                    functionId = "route_contacts_from_settings",
+                    name = "Route contacts from settings",
+                    description = "Move from Settings to Contacts.",
+                    srcXml = SOURCE_XML,
+                    dstXml = OTHER_XML,
+                ),
+            )
+
+            val goTo = store.findGoToFunction(
+                currentXml = SOURCE_XML_VARIANT,
+                currentPackage = "com.example.settings",
+                targetNodeId = targetNodeId,
+            )
+
+            assertEquals("route_contacts_from_settings", goTo["function_id"])
+            assertEquals(targetNodeId, goTo["to_node_id"])
+            assertEquals(true, goTo["callable"])
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `udeg does not treat input function edge as go to function`() {
+        val context = OobOmniFlowLoopAcceptanceTest.TempFilesContext()
+        try {
+            val store = OobUdegNodeStore(context)
+            val targetNodeId = store.bestNodeIdForPage(OTHER_XML, "com.example.settings")
+                .ifBlank {
+                    store.upsertFunction(
+                        functionId = "target_contacts",
+                        functionSpec = functionSpecWithTransition(
+                            functionId = "target_contacts",
+                            name = "Target contacts",
+                            description = "Target setup.",
+                            srcXml = OTHER_XML,
+                            dstXml = SOURCE_XML_VARIANT,
+                        ),
+                    )
+                    store.bestNodeIdForPage(OTHER_XML, "com.example.settings")
+                }
+            assertTrue(targetNodeId.isNotBlank())
+
+            store.upsertFunction(
+                functionId = "type_contact_from_settings",
+                functionSpec = functionSpecWithTransition(
+                    functionId = "type_contact_from_settings",
+                    name = "Type contact from settings",
+                    description = "A semantic input function, not a route bridge.",
+                    srcXml = SOURCE_XML,
+                    dstXml = OTHER_XML,
+                    tool = "input_text",
+                ),
+            )
+
+            val goTo = store.findGoToFunction(
+                currentXml = SOURCE_XML,
+                currentPackage = "com.example.settings",
+                targetNodeId = targetNodeId,
+            )
+
+            assertTrue(goTo.isEmpty())
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `udeg composes route safe functions to target node`() {
+        val context = OobOmniFlowLoopAcceptanceTest.TempFilesContext()
+        try {
+            val store = OobUdegNodeStore(context)
+            val pageB = pageXml("B", "com.example.settings")
+            val pageC = pageXml("C", "com.example.settings")
+            store.upsertFunction(
+                functionId = "target_c",
+                functionSpec = functionSpecWithTransition(
+                    functionId = "target_c",
+                    name = "Target C",
+                    description = "Target setup.",
+                    srcXml = pageC,
+                    dstXml = SOURCE_XML_VARIANT,
+                    tool = "open_app",
+                ),
+            )
+            val targetNodeId = store.bestNodeIdForPage(pageC, "com.example.settings")
+            assertTrue(targetNodeId.isNotBlank())
+
+            store.upsertFunction(
+                functionId = "route_a_b",
+                functionSpec = functionSpecWithTransition(
+                    functionId = "route_a_b",
+                    name = "Route A B",
+                    description = "Route from A to B.",
+                    srcXml = SOURCE_XML,
+                    dstXml = pageB,
+                    tool = "open_app",
+                ),
+            )
+            store.upsertFunction(
+                functionId = "route_b_c",
+                functionSpec = functionSpecWithTransition(
+                    functionId = "route_b_c",
+                    name = "Route B C",
+                    description = "Route from B to C.",
+                    srcXml = pageB,
+                    dstXml = pageC,
+                    tool = "press_back",
+                ),
+            )
+
+            val path = store.findGoToFunctions(
+                currentXml = SOURCE_XML,
+                currentPackage = "com.example.settings",
+                targetNodeId = targetNodeId,
+            )
+
+            assertEquals(listOf("route_a_b", "route_b_c"), path.map { it["function_id"] })
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
     private fun functionSpecWithSourcePage(functionId: String, xml: String): Map<String, Any?> = mapOf(
         "schema_version" to "oob.reusable_function.v1",
         "function_id" to functionId,
@@ -286,6 +466,69 @@ class OobPageVectorSetTest {
             )
         )
     )
+
+    private fun functionSpecWithTransition(
+        functionId: String,
+        name: String,
+        description: String,
+        srcXml: String,
+        dstXml: String,
+        tool: String = "click",
+    ): Map<String, Any?> = mapOf(
+        "schema_version" to "oob.reusable_function.v1",
+        "function_id" to functionId,
+        "name" to name,
+        "description" to description,
+        "parameters" to emptyList<Map<String, Any?>>(),
+        "source" to mapOf("run_id" to "run_$functionId"),
+        "execution" to mapOf(
+            "kind" to "tool_sequence",
+            "steps" to listOf(
+                mapOf(
+                    "id" to "step_1",
+                    "index" to 0,
+                    "title" to name,
+                    "tool" to tool,
+                    "omniflow_action" to tool,
+                    "args" to argsForTestAction(tool, name),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf(
+                            "page" to srcXml,
+                            "package_name" to "com.example.settings",
+                        ),
+                        "dst_ctx" to mapOf(
+                            "page" to dstXml,
+                            "package_name" to "com.example.settings",
+                        ),
+                    ),
+                )
+            )
+        )
+    )
+
+    private fun argsForTestAction(tool: String, name: String): Map<String, Any?> =
+        when (tool) {
+            "open_app" -> mapOf("package_name" to "com.example.settings")
+            "input_text" -> mapOf(
+                "target_description" to name,
+                "text" to "hello",
+            )
+            "press_back", "press_home" -> emptyMap()
+            else -> mapOf(
+                "target_description" to name,
+                "x" to 540,
+                "y" to 300,
+            )
+        }
+
+    private fun pageXml(label: String, packageName: String): String = """
+        <hierarchy>
+          <node class="android.widget.FrameLayout" package="$packageName" bounds="[0,0][1080,1920]">
+            <node class="android.widget.TextView" package="$packageName" text="$label" bounds="[32,64][400,160]" />
+            <node class="android.widget.TextView" package="$packageName" text="Action $label" clickable="true" enabled="true" bounds="[32,240][1048,360]" />
+          </node>
+        </hierarchy>
+    """.trimIndent()
 
     private fun multiStepFunctionSpecWithBoundaries(): Map<String, Any?> = mapOf(
         "schema_version" to "oob.reusable_function.v1",

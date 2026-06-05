@@ -115,32 +115,6 @@ private object AccessibilityOmniflowActionBackend : OmniflowActionBackend {
         durationMs: Long,
         targetDescription: String,
     ) {
-        val x2 = when (direction) {
-            ScrollDirection.RIGHT -> x + distance
-            ScrollDirection.LEFT -> x - distance
-            else -> x
-        }
-        val y2 = when (direction) {
-            ScrollDirection.DOWN -> y + distance
-            ScrollDirection.UP -> y - distance
-            else -> y
-        }
-        val usedSemanticSlider = AccessibilityController.setSliderProgressFromGesture(
-            x1 = x,
-            y1 = y,
-            x2 = x2,
-            y2 = y2,
-            targetDescription = targetDescription,
-        )
-        if (usedSemanticSlider) return
-        val usedSemanticScroll = AccessibilityController.scrollScrollableNodeFromGesture(
-            x1 = x,
-            y1 = y,
-            x2 = x2,
-            y2 = y2,
-            targetDescription = targetDescription,
-        )
-        if (usedSemanticScroll) return
         scroll(x, y, direction, distance, durationMs)
     }
 

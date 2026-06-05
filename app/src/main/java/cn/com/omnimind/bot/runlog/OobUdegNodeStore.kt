@@ -244,6 +244,100 @@ class OobUdegNodeStore(
         )
     }
 
+    fun bestNodeIdForPage(
+        pageXml: String,
+        packageName: String = "",
+        minScore: Float = STRONG_PAGE_MATCH_SCORE,
+    ): String {
+        val pageVector = OobPageVectorSet.encode(pageXml, packageName) ?: return ""
+        return findBestNodeMatch(
+            pageVector = pageVector,
+            currentPackage = packageName,
+            minScore = minScore,
+        )?.node?.get("node_id")?.toString()?.trim().orEmpty()
+            .ifBlank { pageVector.nodeId }
+    }
+
+    fun findGoToFunction(
+        currentXml: String,
+        currentPackage: String = "",
+        targetNodeId: String,
+    ): Map<String, Any?> {
+        return findGoToFunctions(
+            currentXml = currentXml,
+            currentPackage = currentPackage,
+            targetNodeId = targetNodeId,
+            maxDepth = 1,
+        ).firstOrNull().orEmpty()
+    }
+
+    fun findGoToFunctions(
+        currentXml: String,
+        currentPackage: String = "",
+        targetNodeId: String,
+        maxDepth: Int = MAX_DYNAMIC_GOTO_DEPTH,
+    ): List<Map<String, Any?>> {
+        val normalizedTarget = targetNodeId.trim()
+        if (currentXml.isBlank() || normalizedTarget.isBlank()) return emptyList()
+        val currentNode = recall(
+            currentXml = currentXml,
+            currentPackage = currentPackage,
+            topK = 1,
+            minScore = STRONG_PAGE_MATCH_SCORE,
+        ).firstOrNull()?.node ?: return emptyList()
+        val currentNodeId = firstNonBlank(currentNode["node_id"])
+        if (currentNodeId.isBlank()) return emptyList()
+        if (currentNodeId == normalizedTarget) return emptyList()
+
+        val queue = ArrayDeque<Pair<String, List<Map<String, Any?>>>>()
+        val visited = mutableSetOf(currentNodeId)
+        queue.add(currentNodeId to emptyList())
+        val boundedDepth = maxDepth.coerceIn(1, MAX_DYNAMIC_GOTO_DEPTH)
+
+        while (queue.isNotEmpty()) {
+            val (nodeId, path) = queue.removeFirst()
+            if (path.size >= boundedDepth) continue
+            val node = getNode(nodeId)
+            val nextEdges = udegEdgesForNode(node)
+                .filter(::isRouteSafeFunctionCallEdge)
+                .sortedWith(
+                    compareBy<Map<String, Any?>> { OobActionCodec.intArg(it["step_count"], defaultValue = Int.MAX_VALUE) }
+                        .thenBy { firstNonBlank(it["function_id"]) }
+                )
+            nextEdges.forEach { edge ->
+                val toNodeId = firstNonBlank(edge["to_node_id"])
+                if (toNodeId.isBlank()) return@forEach
+                val nextPath = path + edge
+                if (toNodeId == normalizedTarget) {
+                    return nextPath
+                }
+                if (visited.add(toNodeId)) {
+                    queue.add(toNodeId to nextPath)
+                }
+            }
+        }
+        return emptyList()
+    }
+
+    fun hasNode(nodeId: String): Boolean =
+        getNode(nodeId.trim()).isNotEmpty()
+
+    fun pageMatchesNode(
+        currentXml: String,
+        currentPackage: String = "",
+        targetNodeId: String,
+        minScore: Float = STRONG_PAGE_MATCH_SCORE,
+    ): Boolean {
+        val normalizedTarget = targetNodeId.trim()
+        if (currentXml.isBlank() || normalizedTarget.isBlank()) return false
+        return recall(
+            currentXml = currentXml,
+            currentPackage = currentPackage,
+            topK = 1,
+            minScore = minScore,
+        ).firstOrNull()?.node?.get("node_id")?.toString()?.trim() == normalizedTarget
+    }
+
     private fun findBestNodeMatch(
         pageVector: OobPageVectorSet.PageVector,
         currentPackage: String,
@@ -1309,11 +1403,11 @@ class OobUdegNodeStore(
             val dstCtx = mapArg(sourceContext["dst_ctx"])
             val srcPage = pageXmlFromContext(srcCtx)
             val dstPage = pageXmlFromContext(dstCtx)
-            if (srcPage.isBlank() || dstPage.isBlank()) {
+            if (srcPage.isBlank()) {
                 skippedCount += 1
                 diagnostics += linkedMapOf(
                     "step_index" to index,
-                    "reason" to if (srcPage.isBlank()) "missing_src_ctx_page" else "missing_dst_ctx_page",
+                    "reason" to "missing_src_ctx_page",
                     "action_type" to OobActionCodec.actionNameForStep(step),
                 )
                 return@forEachIndexed
@@ -1323,15 +1417,19 @@ class OobUdegNodeStore(
                 pageXml = srcPage,
                 packageName = firstNonBlank(srcCtx["package_name"], srcCtx["packageName"]),
             )
-            val toNodeId = upsertBoundaryNode(
-                pageXml = dstPage,
-                packageName = firstNonBlank(dstCtx["package_name"], dstCtx["packageName"]),
-            )
-            if (fromNodeId.isBlank() || toNodeId.isBlank()) {
+            val toNodeId = if (dstPage.isNotBlank()) {
+                upsertBoundaryNode(
+                    pageXml = dstPage,
+                    packageName = firstNonBlank(dstCtx["package_name"], dstCtx["packageName"]),
+                )
+            } else {
+                ""
+            }
+            if (fromNodeId.isBlank()) {
                 skippedCount += 1
                 diagnostics += linkedMapOf(
                     "step_index" to index,
-                    "reason" to "invalid_boundary_page",
+                    "reason" to "invalid_source_page",
                     "action_type" to OobActionCodec.actionNameForStep(step),
                 )
                 return@forEachIndexed
@@ -1370,26 +1468,26 @@ class OobUdegNodeStore(
                 "function_id" to functionId,
                 "step_index" to index,
                 "from_node_id" to fromNodeId,
-                "to_node_id" to toNodeId,
+                "to_node_id" to toNodeId.takeIf { it.isNotBlank() },
                 "action_type" to actionType,
                 "action_args_summary" to actionSummary,
                 "source_context_ref" to linkedMapOf(
                     "src_page_hash" to sha256(srcPage).take(RAW_PAGE_HASH_CHARS),
-                    "dst_page_hash" to sha256(dstPage).take(RAW_PAGE_HASH_CHARS),
+                    "dst_page_hash" to sha256(dstPage).take(RAW_PAGE_HASH_CHARS).takeIf { dstPage.isNotBlank() },
                     "source_context_hash" to sha256(gson.toJson(redactedSourceContext(sourceContext))).take(RAW_PAGE_HASH_CHARS),
                     "has_src_ctx" to true,
-                    "has_dst_ctx" to true,
-                ),
+                    "has_dst_ctx" to dstPage.isNotBlank(),
+                ).filterValues { it != null },
                 "target_evidence" to targetEvidence(actionSummary).takeIf { it.isNotEmpty() },
                 "effect_evidence" to linkedMapOf(
                     "from_node_id" to fromNodeId,
-                    "to_node_id" to toNodeId,
+                    "to_node_id" to toNodeId.takeIf { it.isNotBlank() },
                     "from_package" to firstNonBlank(srcCtx["package_name"], srcCtx["packageName"]).takeIf { it.isNotBlank() },
                     "to_package" to firstNonBlank(dstCtx["package_name"], dstCtx["packageName"]).takeIf { it.isNotBlank() },
-                    "page_changed" to (fromNodeId != toNodeId),
+                    "page_changed" to (fromNodeId != toNodeId).takeIf { toNodeId.isNotBlank() },
                 ).filterValues { it != null },
                 "role" to role,
-                "route_safe" to OobActionCodec.isRouteAction(actionType, args),
+                "route_safe" to isRouteBridgeAction(actionType, args),
                 "callable" to false,
                 "created_at_ms" to now,
                 "updated_at_ms" to now,
@@ -1398,7 +1496,7 @@ class OobUdegNodeStore(
             appendUdegEdgeToNode(fromNodeId, edge)
             atomicEdgeIds += edgeId
             affectedNodeIds += fromNodeId
-            affectedNodeIds += toNodeId
+            toNodeId.takeIf { it.isNotBlank() }?.let { affectedNodeIds += it }
         }
 
         affectedNodeIds.forEach(::refreshNodeRawGraphSummary)
@@ -1518,7 +1616,7 @@ class OobUdegNodeStore(
             "input_schema" to OobFunctionSchemaBuilder.inputSchema(functionSpec),
             "callable" to true,
             "role" to "callable_function",
-            "route_safe" to false,
+            "route_safe" to isRouteBridgeFunction(functionSpec),
             "created_at_ms" to now,
             "updated_at_ms" to now,
             "source" to "registered_function",
@@ -1695,6 +1793,44 @@ class OobUdegNodeStore(
             put("kind", kind)
             put("callable", callable)
         }.filterValues { it != null }
+    }
+
+    private fun isRouteSafeFunctionCallEdge(edge: Map<String, Any?>): Boolean {
+        if (firstNonBlank(edge["kind"]) != EDGE_KIND_FUNCTION_CALL) return false
+        if (!OobActionCodec.boolArgOrDefault(edge["callable"], defaultValue = true)) return false
+        return OobActionCodec.boolArgOrDefault(edge["route_safe"], defaultValue = false)
+    }
+
+    private fun isRouteBridgeFunction(functionSpec: Map<String, Any?>): Boolean {
+        if (hasRequiredInput(functionSpec)) return false
+        val steps = materializedSteps(functionSpec)
+            .filter { OobActionCodec.actionNameForStep(it) in OobActionCodec.executableActions }
+            .filterNot { OobActionCodec.actionNameForStep(it) == OobActionCodec.ACTION_FINISHED }
+        if (steps.isEmpty()) return false
+        return steps.all { step ->
+            isRouteBridgeAction(
+                actionType = OobActionCodec.actionNameForStep(step),
+                args = OobActionCodec.argsForStep(step),
+            )
+        }
+    }
+
+    private fun isRouteBridgeAction(actionType: String, args: Map<String, Any?>): Boolean {
+        val canonical = OobActionCodec.canonicalActionForName(actionType)
+            ?: OobActionCodec.normalizeName(actionType)
+        return canonical in ROUTE_BRIDGE_ACTIONS
+    }
+
+    private fun hasRequiredInput(functionSpec: Map<String, Any?>): Boolean {
+        val schema = OobFunctionSchemaBuilder.inputSchema(functionSpec)
+        val required = (schema["required"] as? List<*>).orEmpty()
+            .mapNotNull { it?.toString()?.trim() }
+            .filter { it.isNotEmpty() }
+        if (required.isNotEmpty()) return true
+        val properties = mapArg(schema["properties"])
+        return properties.values.any { value ->
+            OobActionCodec.boolArgOrDefault(mapArg(value)["required"], defaultValue = false)
+        }
     }
 
     private fun exportUdegEdgePayload(edge: Map<String, Any?>): Map<String, Any?> =
@@ -1910,6 +2046,15 @@ class OobUdegNodeStore(
         private const val UDEG_EDGE_INGEST_SCHEMA_VERSION = "oob.udeg.edge_ingest.v1"
         private const val EDGE_KIND_FUNCTION_CALL = "function_call"
         private const val RAW_GRAPH_SUMMARY_SCHEMA_VERSION = "oob.udeg.raw_graph_summary.v1"
+        private const val MAX_DYNAMIC_GOTO_DEPTH = 4
+        private val ROUTE_BRIDGE_ACTIONS = setOf(
+            OobActionCodec.ACTION_CLICK,
+            OobActionCodec.ACTION_LONG_PRESS,
+            OobActionCodec.ACTION_SCROLL,
+            OobActionCodec.ACTION_OPEN_APP,
+            OobActionCodec.ACTION_PRESS_BACK,
+            OobActionCodec.ACTION_PRESS_HOME,
+        )
         private const val UDEG_NODE_CONTEXTS_DIR = "udeg-node-contexts"
         private const val ARTIFACT_INDEX_FILE = "index.json"
         const val UDEG_DECISION_PATH =

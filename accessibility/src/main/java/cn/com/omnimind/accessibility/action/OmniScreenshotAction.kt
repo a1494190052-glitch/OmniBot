@@ -44,6 +44,7 @@ class OmniScreenshotAction(
         private val screenshotMutex = Mutex()
         private const val FAST_SCREENSHOT_INTERVAL_MS = 200L
         private const val SAFE_SCREENSHOT_INTERVAL_MS = 420L
+        private const val OVERLAY_HIDE_SETTLE_MS = 96L
         @Volatile
         private var lastScreenshotCompletedAtMs: Long = 0L
         @Volatile
@@ -162,6 +163,7 @@ class OmniScreenshotAction(
                         withContext(Dispatchers.Main) {
                             it.invoke()
                         }
+                        delay(OVERLAY_HIDE_SETTLE_MS)
                     }
 
                     // 添加超时机制，避免永远阻塞（2秒超时）

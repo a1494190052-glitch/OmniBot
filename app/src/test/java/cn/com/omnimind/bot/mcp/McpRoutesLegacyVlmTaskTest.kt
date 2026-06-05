@@ -1,11 +1,12 @@
 package cn.com.omnimind.bot.mcp
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class McpRoutesLegacyVlmTaskTest {
     @Test
-    fun `legacy vlm endpoint preserves execution options`() {
+    fun `legacy vlm endpoint preserves public execution options only`() {
         val args = McpRoutes.legacyVlmRequestToToolArgs(
             VlmTaskRequest(
                 goal = "Open Android Settings, open Display settings, then finish.",
@@ -28,6 +29,6 @@ class McpRoutesLegacyVlmTaskTest {
         assertEquals(false, args["needSummary"])
         assertEquals(true, args["skipGoHome"])
         assertEquals(true, args["disableOmniFlowRecall"])
-        assertEquals(true, args["allowOmniFlowFunctionAutoExecute"])
+        assertFalse(args.containsKey("allowOmniFlowFunctionAutoExecute"))
     }
 }

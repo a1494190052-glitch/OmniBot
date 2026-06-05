@@ -192,7 +192,9 @@ class OmniflowStepExecutorTest {
 
             assertEquals(true, result["success"])
             assertEquals("action_transfer", result["replay_mode"])
-            assertEquals(1, backend.currentXmlReadCount)
+            assertTrue(backend.currentXmlReadCount >= 2)
+            val settle = result["step_settle"] as? Map<*, *> ?: error("missing settle")
+            assertEquals("screen_changed", settle["reason"])
         }
     }
 
@@ -216,7 +218,7 @@ class OmniflowStepExecutorTest {
 
             assertEquals(true, result["success"])
             assertEquals("action_transfer", result["replay_mode"])
-            assertEquals(2, backend.currentXmlReadCount)
+            assertTrue(backend.currentXmlReadCount >= 2)
             assertEquals(2, backend.clickPoints.size)
         }
     }
@@ -828,6 +830,28 @@ class OmniflowStepExecutorTest {
     }
 
     @Test
+    fun `page guard skips splash ad without recorded step`() = runBlocking {
+        val backend = FakeBackend(beforeXml = SKIP_AD_XML, afterXml = SOURCE_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.runPageGuardOnce(
+                execute = true,
+                source = "test",
+                checkerBudget = OmniflowStepExecutor.CheckerTriggerBudget(),
+            )
+
+            assertEquals("oob.page_guard.v1", result["schema_version"])
+            assertEquals(true, result["matched"])
+            assertEquals(true, result["executed"])
+            assertEquals("ad_blocking", result["condition"])
+            assertEquals("dismiss", result["action"])
+            assertTrue(result["button_text"].toString().contains("跳过 3"))
+            assertEquals(1, backend.clickPoints.size)
+            assertEquals(950f, backend.clickPoints.single().first, 0.01f)
+            assertEquals(96f, backend.clickPoints.single().second, 0.01f)
+        }
+    }
+
+    @Test
     fun `shared checker budget suppresses repeated global checker triggers`() = runBlocking {
         val backend = FakeBackend(beforeXml = SKIP_AD_XML, afterXml = SKIP_AD_XML)
         val checkerBudget = OmniflowStepExecutor.CheckerTriggerBudget()
@@ -891,6 +915,42 @@ class OmniflowStepExecutorTest {
             assertEquals(2, backend.clickPoints.size)
             assertEquals(810f, backend.clickPoints.first().first, 0.01f)
             assertEquals(1690f, backend.clickPoints.first().second, 0.01f)
+            assertEquals(120f, backend.clickPoints.last().first, 0.01f)
+            assertEquals(240f, backend.clickPoints.last().second, 0.01f)
+        }
+    }
+
+    @Test
+    fun `global checker confirms vivo resolver always open before recorded click`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = VIVO_RESOLVER_DIALOG_XML,
+            afterXml = SOURCE_XML,
+            currentPackage = "com.vivo.appfilter",
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "coordinate_hook" to "omniflow",
+                    "args" to mapOf("x" to 120, "y" to 240),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to SOURCE_XML),
+                    ),
+                ),
+                stepId = "step_vivo_resolver_always",
+                stepTitle = "click behind vivo resolver",
+            )
+
+            assertEquals(true, result["success"])
+            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
+            val effect = controlEffects.single() as Map<*, *>
+            assertEquals("confirm_resolver_always", effect["controller"])
+            assertEquals("resolver_dialog", effect["condition"])
+            assertEquals("confirm_resolver_always", effect["action"])
+            assertEquals(2, backend.clickPoints.size)
+            assertEquals(630f, backend.clickPoints.first().first, 0.01f)
+            assertEquals(2124.5f, backend.clickPoints.first().second, 0.01f)
             assertEquals(120f, backend.clickPoints.last().first, 0.01f)
             assertEquals(240f, backend.clickPoints.last().second, 0.01f)
         }
@@ -1181,6 +1241,8 @@ class OmniflowStepExecutorTest {
             "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[0,0][1080,1920]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.FrameLayout\" resource-id=\"app:id/splash_container\"><node bounds=\"[870,64][1030,128]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"跳过 3\" class=\"android.widget.TextView\" resource-id=\"app:id/skip_btn\"/></node></hierarchy>"
         private const val RESOLVER_DIALOG_XML =
             "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[40,520][1040,1780]\" enabled=\"true\" visible-to-user=\"true\" class=\"com.android.internal.app.ResolverActivity\" package=\"android\" resource-id=\"android:id/resolver_list\"><node bounds=\"[80,570][1000,660]\" enabled=\"true\" visible-to-user=\"true\" text=\"打开方式\" class=\"android.widget.TextView\" resource-id=\"android:id/title\"/><node bounds=\"[80,720][1000,1320]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"浏览器\" class=\"android.widget.TextView\" resource-id=\"android:id/text1\"/><node bounds=\"[110,1620][500,1760]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"仅此一次\" class=\"android.widget.Button\" resource-id=\"android:id/button_once\"/><node bounds=\"[620,1620][1000,1760]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"始终打开\" class=\"android.widget.Button\" resource-id=\"android:id/button_always\"/></node></hierarchy>"
+        private const val VIVO_RESOLVER_DIALOG_XML =
+            "<hierarchy bounds=\"[0,0][1260,2800]\"><node bounds=\"[0,0][1260,2800]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.FrameLayout\" package=\"com.vivo.appfilter\"><node bounds=\"[0,0][1260,2800]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.FrameLayout\" package=\"com.vivo.appfilter\"><node bounds=\"[120,1420][1140,2646]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.LinearLayout\" package=\"com.vivo.appfilter\" resource-id=\"com.vivo.appfilter:id/dialog_parent\"><node bounds=\"[196,1512][1064,1606]\" enabled=\"true\" visible-to-user=\"true\" text=\"“小万”想要打开“小红书”\" class=\"android.widget.TextView\" package=\"com.vivo.appfilter\" resource-id=\"com.vivo.appfilter:id/alertTitle\"/><node bounds=\"[315,2044][945,2205]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" content-desc=\"始终打开\" class=\"android.widget.Button\" package=\"com.vivo.appfilter\" resource-id=\"android:id/button1\"/><node bounds=\"[315,2233][945,2394]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" content-desc=\"仅打开一次\" class=\"android.widget.Button\" package=\"com.vivo.appfilter\" resource-id=\"android:id/button3\"/><node bounds=\"[315,2422][945,2583]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"取消\" class=\"android.widget.Button\" package=\"com.vivo.appfilter\" resource-id=\"android:id/button2\"/></node></node></node></hierarchy>"
         private const val RESOLVER_DIALOG_DISABLED_ALWAYS_XML =
             "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[40,520][1040,1780]\" enabled=\"true\" visible-to-user=\"true\" class=\"com.android.internal.app.ResolverActivity\" package=\"android\" resource-id=\"android:id/resolver_list\"><node bounds=\"[80,570][1000,660]\" enabled=\"true\" visible-to-user=\"true\" text=\"打开方式\" class=\"android.widget.TextView\" resource-id=\"android:id/title\"/><node bounds=\"[80,720][1000,1320]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"浏览器\" class=\"android.widget.TextView\" resource-id=\"android:id/text1\"/><node bounds=\"[110,1620][500,1760]\" clickable=\"true\" enabled=\"false\" visible-to-user=\"true\" text=\"仅此一次\" class=\"android.widget.Button\" resource-id=\"android:id/button_once\"/><node bounds=\"[620,1620][1000,1760]\" clickable=\"true\" enabled=\"false\" visible-to-user=\"true\" text=\"始终打开\" class=\"android.widget.Button\" resource-id=\"android:id/button_always\"/></node></hierarchy>"
         private const val PERMISSION_ALWAYS_ALLOW_DIALOG_XML =

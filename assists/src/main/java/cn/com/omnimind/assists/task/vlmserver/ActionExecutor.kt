@@ -65,8 +65,8 @@ class ActionExecutor(
     }
 
     /**
-     * 将相对坐标(0-1000)转换为绝对像素坐标
-     * 基于截图图片的实际尺寸进行转换
+     * Legacy helper for old relative-coordinate providers. Current OOB tools use
+     * absolute screen-pixel coordinates.
      */
     private fun convertRelativeToAbsolute(relativeValue: Int, imageSize: Int): Float {
         val clamped = relativeValue.coerceIn(0, 1000)

@@ -239,6 +239,7 @@ object OobReusableFunctionStore {
             .filter { it.isNotEmpty() }
             .distinct()
         val suppliedArgumentStatus = linkedMapOf<String, LinkedHashMap<String, Any?>>()
+        val ignoredArguments = mutableListOf<LinkedHashMap<String, Any?>>()
         val missingRequired = mutableListOf<String>()
         val legacyParameters = spec["parameters"] as? List<*> ?: emptyList<Any?>()
         if (legacyParameters.isNotEmpty()) {
@@ -246,6 +247,14 @@ object OobReusableFunctionStore {
                 val parameter = rawParameter as? Map<*, *> ?: return@forEach
                 val name = parameter["name"]?.toString()?.trim().orEmpty()
                 if (name.isEmpty()) return@forEach
+                if (isInternalFunctionArgumentName(name)) {
+                    if (arguments.containsKey(name)) {
+                        val ignored = ignoredArgumentStatus(name, "internal_replay_argument")
+                        suppliedArgumentStatus[name] = ignored
+                        ignoredArguments += ignored
+                    }
+                    return@forEach
+                }
                 val type = parameter["type"]?.toString()?.trim().orEmpty()
                 val hasCallArgument = arguments.containsKey(name)
                 val hasDefault = parameter.containsKey("default")
@@ -299,6 +308,14 @@ object OobReusableFunctionStore {
             properties.forEach { (name, rawProperty) ->
                 val parameter = mapArg(rawProperty)
                 if (name.isBlank()) return@forEach
+                if (isInternalFunctionArgumentName(name)) {
+                    if (arguments.containsKey(name)) {
+                        val ignored = ignoredArgumentStatus(name, "internal_replay_argument")
+                        suppliedArgumentStatus[name] = ignored
+                        ignoredArguments += ignored
+                    }
+                    return@forEach
+                }
                 val type = firstJsonSchemaType(parameter["type"])
                 val hasCallArgument = arguments.containsKey(name)
                 val hasDefault = parameter.containsKey("default")
@@ -346,18 +363,22 @@ object OobReusableFunctionStore {
         suppliedArgumentNames.forEach { name ->
             suppliedArgumentStatus.putIfAbsent(
                 name,
-                linkedMapOf(
-                    "name" to name,
-                    "declared" to false,
-                    "binding_count" to 0,
-                    "applied_count" to 0,
-                    "applied" to false,
-                    "reason" to "argument_not_declared",
-                )
+                if (isInternalFunctionArgumentName(name)) {
+                    ignoredArgumentStatus(name, "internal_replay_argument").also { ignoredArguments += it }
+                } else {
+                    linkedMapOf(
+                        "name" to name,
+                        "declared" to false,
+                        "binding_count" to 0,
+                        "applied_count" to 0,
+                        "applied" to false,
+                        "reason" to "argument_not_declared",
+                    )
+                }
             )
         }
         val unboundArguments = suppliedArgumentStatus.values
-            .filter { it["applied"] != true }
+            .filter { it["applied"] != true && it["ignored"] != true }
             .map { linkedMapOf<String, Any?>().apply { putAll(it) } }
         val bindingAppliedCount = bindingResults.count { it["applied"] == true }
         val suppliedBindingAppliedCount = suppliedArgumentStatus.values.sumOf { status ->
@@ -388,6 +409,7 @@ object OobReusableFunctionStore {
             put("supplied_argument_names", suppliedArgumentNames)
             put("argument_binding_status", suppliedArgumentStatus.values.toList())
             put("unbound_arguments", unboundArguments)
+            put("ignored_arguments", ignoredArguments.distinctBy { it["name"] })
             put("binding_applied_count", bindingAppliedCount)
             put("supplied_binding_applied_count", suppliedBindingAppliedCount)
             put("missing_required_arguments", missingRequired)
@@ -409,7 +431,7 @@ object OobReusableFunctionStore {
             return legacyParameters.mapNotNull { rawParameter ->
                 val parameter = rawParameter as? Map<*, *> ?: return@mapNotNull null
                 val name = parameter["name"]?.toString()?.trim().orEmpty()
-                if (name.isEmpty() || !isRequired(parameter["required"])) {
+                if (name.isEmpty() || isInternalFunctionArgumentName(name) || !isRequired(parameter["required"])) {
                     return@mapNotNull null
                 }
                 val hasArgument = arguments.containsKey(name) && arguments[name] != null
@@ -420,6 +442,7 @@ object OobReusableFunctionStore {
         val schema = mapArg(functionSpec["parameters"])
         val required = listArg(schema["required"])
             .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
+            .filterNot(::isInternalFunctionArgumentName)
         if (required.isEmpty()) return emptyList()
         val properties = mapArg(schema["properties"])
         return required.mapNotNull { name ->
@@ -582,6 +605,30 @@ object OobReusableFunctionStore {
         }
     }
 
+    private fun ignoredArgumentStatus(
+        name: String,
+        reason: String,
+    ): LinkedHashMap<String, Any?> =
+        linkedMapOf(
+            "name" to name,
+            "declared" to false,
+            "binding_count" to 0,
+            "applied_count" to 0,
+            "applied" to false,
+            "ignored" to true,
+            "reason" to reason,
+        )
+
+    private fun isInternalFunctionArgumentName(name: String): Boolean =
+        normalizeArgumentName(name) in INTERNAL_FUNCTION_ARGUMENT_NAMES
+
+    private fun normalizeArgumentName(value: String): String =
+        value.trim()
+            .replace(Regex("""([a-z0-9])([A-Z])"""), "$1_$2")
+            .replace(Regex("""[^A-Za-z0-9]+"""), "_")
+            .trim('_')
+            .lowercase()
+
     private fun parameterBindings(
         name: String,
         property: Map<String, Any?>,
@@ -616,6 +663,27 @@ object OobReusableFunctionStore {
     private fun isCanonicalBindingPath(path: String): Boolean =
         path.matches(Regex("""^\$\.execution\.steps\[\d+]\.args\.[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+|\[\d+])*$""")) ||
             path.matches(Regex("""^\$\.actions\[\d+]\.args\.[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+|\[\d+])*$"""))
+
+    private val INTERNAL_FUNCTION_ARGUMENT_NAMES = setOf(
+        "package_name",
+        "package",
+        "target_description",
+        "target",
+        "selector",
+        "node_id",
+        "node_resource_id",
+        "element_index",
+        "scrollable_index",
+        "x",
+        "y",
+        "x1",
+        "y1",
+        "x2",
+        "y2",
+        "bounds",
+        "clear",
+        "duration_ms",
+    )
 
     private fun renderParameterTemplates(
         value: Any?,

@@ -23,11 +23,16 @@ import kotlinx.serialization.json.putJsonObject
 object OobFunctionSkillProfile {
     const val PROFILE = "function_management"
     const val SKILL_ID = "oob-function-management"
+    private const val ENABLE_AGENT_DIRECT_FUNCTION_TOOLS = false
     private const val MAX_DYNAMIC_FUNCTION_TOOLS = 500
     private const val MAX_PROMPT_FUNCTION_CANDIDATES = 50
     private val MODEL_TOOL_NAME_REGEX = Regex("^[A-Za-z0-9_-]{1,64}$")
+    private val directFunctionToolNames: Set<String> = setOf(
+        OobFunctionToolNames.FUNCTION_GUARD_CHECK,
+        OobFunctionToolNames.FUNCTION_RUN,
+    )
 
-    val toolNames: Set<String> = OobFunctionToolNames.profileTools
+    val toolNames: Set<String> = OobFunctionToolNames.profileTools - directFunctionToolNames
 
     fun isProfile(profile: String?): Boolean =
         normalizeProfile(profile) == PROFILE
@@ -50,6 +55,7 @@ object OobFunctionSkillProfile {
         locale: PromptLocale,
         forceInclude: Boolean = false,
     ): List<JsonObject> {
+        if (!ENABLE_AGENT_DIRECT_FUNCTION_TOOLS) return emptyList()
         if (!forceInclude && !AgentToolFeatureStore.isOobFunctionAsToolEnabled(context)) {
             return emptyList()
         }
@@ -90,19 +96,15 @@ object OobFunctionSkillProfile {
                     appendLine("本轮已根据用户目标自动召回 OmniFlow Function 候选（候选摘要，不是完整 spec）：")
                     appendLine("- Function 是可组合的复用片段，不要求一次覆盖完整用户目标；运行后根据结果继续选择下一个 Function、VLM 或其他工具。")
                     appendLine("- Function recall 是运行时内部步骤，不是模型工具；不要尝试调用 function_recall。")
-                    appendLine("- 如果用户目标与某个 Function 高置信匹配，优先 `${OobFunctionToolNames.FUNCTION_GUARD_CHECK}` -> `${OobFunctionToolNames.FUNCTION_RUN}`，不要先裸跑 `vlm_task`。")
-                    appendLine("- 带参数的 Function 也可以命中；像普通 tool 一样根据用户目标填写 `arguments`，再调用 `${OobFunctionToolNames.FUNCTION_RUN}`。")
-                    appendLine("- `vlm_task` 只有在显式允许高置信自动执行时才会复用 Function，且内部也走 `${OobFunctionToolNames.FUNCTION_RUN}`；缺少必填参数时不要空跑，交给 agent 填参。")
-                    appendLine("- 如果只是相似但不确定，先 guard 或 `${OobFunctionToolNames.FUNCTION_GET}` 查看；证据不足再用 `vlm_task`。")
+                    appendLine("- 目前 agent-task 不直接调用 Function 执行工具；候选只作为理解和管理上下文。")
+                    appendLine("- 如需查看候选详情，用 `${OobFunctionToolNames.FUNCTION_GET}`；如需执行，走 VLM task 或内部 Function runner。")
                 }
                 PromptLocale.EN_US -> {
                     appendLine("OmniFlow Function candidates recalled automatically for this user goal (summaries, not full specs):")
-                    appendLine("- A Function is a composable reusable segment, not necessarily the whole user goal; after running it, continue with the next Function, VLM, or other tool as needed.")
+                    appendLine("- A Function is a saved mobile workflow tool, not necessarily the whole user goal; after running it, continue with the next Function, VLM, or other tool as needed.")
                     appendLine("- Function recall is an internal runtime step, not a model tool; do not try to call function_recall.")
-                    appendLine("- If the user goal clearly matches a Function, prefer `${OobFunctionToolNames.FUNCTION_GUARD_CHECK}` -> `${OobFunctionToolNames.FUNCTION_RUN}` before raw `vlm_task`.")
-                    appendLine("- Parameterized Functions can still be selected; fill `arguments` from the user goal like a normal tool, then call `${OobFunctionToolNames.FUNCTION_RUN}`.")
-                    appendLine("- `vlm_task` reuses a Function only when high-confidence auto-execution is explicitly allowed, and it uses the same `${OobFunctionToolNames.FUNCTION_RUN}` path internally; do not run with missing required arguments.")
-                    appendLine("- If the match is only tentative, inspect with guard or `${OobFunctionToolNames.FUNCTION_GET}`; use `vlm_task` when evidence is insufficient.")
+                    appendLine("- Agent tasks currently do not call Function execution tools directly; candidates are context for understanding and management.")
+                    appendLine("- Use `${OobFunctionToolNames.FUNCTION_GET}` to inspect a candidate. Execution should go through VLM task or the internal Function runner.")
                 }
             }
             candidates.forEachIndexed { index, spec ->
@@ -349,7 +351,7 @@ object OobFunctionSkillProfile {
             put("toolType", "workbench")
             put(
                 "description",
-                "执行一个已保存的 OOB/OmniFlow Function 片段。Function 是可组合的局部流程，可能完成用户目标，也可能只推进其中一段；每次结果返回后都要检查 success、fallback_context 和 step_results，未完成目标时继续选择下一个 Function 或工具。用户目标与候选 Function 高置信匹配时，优先先调用 ${OobFunctionToolNames.FUNCTION_GUARD_CHECK} 再调用本工具，不要先裸跑 vlm_task。失败时返回 fallback_context，agent 先接管 failed_step_index 对应步骤；完成后再用返回的 resume_from_step 从下一步恢复继续。"
+                "兼容/内部入口：执行一个已保存的 OOB/OmniFlow Function。普通在线手机执行应使用 vlm_task，让 recalled Function 作为 VLM native tool 被显式选择。失败时检查 success/result 和当前页面证据，不走隐藏接管流程。"
             )
             putJsonObject("parameters") {
                 put("type", "object")
@@ -358,15 +360,15 @@ object OobFunctionSkillProfile {
                     putJsonObject("arguments") { put("type", "object") }
                     putJsonObject("resume_from_step") {
                         put("type", "integer")
-                        put("description", "0-based step index. Omit or set 0 for a fresh run; after agent fallback, use the returned resume_from_step only after completing failed_step_index. It continues from the next remaining step, not the failed step itself.")
+                        put("description", "Legacy/internal 0-based step index. Omit or set 0 for a fresh run.")
                     }
                     putJsonObject("fallback_session_id") {
                         put("type", "string")
-                        put("description", "Optional id returned by fallback_context to link replay -> agent fallback -> replay resume.")
+                        put("description", "Legacy/internal correlation id.")
                     }
                     putJsonObject("fallback_attempt") {
                         put("type", "integer")
-                        put("description", "Optional retry counter returned by fallback_context; used to avoid infinite fallback loops.")
+                        put("description", "Legacy/internal attempt counter.")
                     }
                     putJsonObject("dry_run") { put("type", "boolean") }
                     putJsonObject("execution_mode") { put("type", "string") }
@@ -485,8 +487,6 @@ object OobFunctionSkillProfile {
         oobFunctionGetTool,
         oobFunctionRegisterTool,
         updateFunctionTool,
-        oobFunctionGuardCheckTool,
-        oobFunctionRunTool,
         oobFunctionDeleteTool,
         oobFunctionClearTool,
         oobRunLogListTool,
@@ -496,7 +496,6 @@ object OobFunctionSkillProfile {
 
     private val functionRuntimeToolDefinitions: List<JsonObject> = listOf(
         oobFunctionGetTool,
-        oobFunctionGuardCheckTool,
-        oobFunctionRunTool,
     )
+
 }

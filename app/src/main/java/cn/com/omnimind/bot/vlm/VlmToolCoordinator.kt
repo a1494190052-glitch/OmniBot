@@ -43,7 +43,6 @@ import cn.com.omnimind.bot.mcp.McpTaskManager
 import cn.com.omnimind.bot.mcp.TaskState
 import cn.com.omnimind.bot.mcp.TaskStatus
 import cn.com.omnimind.bot.mcp.VlmTaskRequest
-import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
 import cn.com.omnimind.bot.util.AssistsUtil
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -288,24 +287,6 @@ object VlmToolCoordinator {
                     "omniflowRecall" to recallGuidance.payload,
                 )
             )
-        }
-        tryExecuteRecallHitIfAllowed(
-            request = boundedRequest,
-            taskState = taskState,
-            recallGuidance = recallGuidance,
-            progressReporter = progressReporter,
-            runFunction = { functionId ->
-                OobOmniFlowToolkitService(context).runFunction(
-                    mapOf(
-                        "function_id" to functionId,
-                        "goal" to boundedRequest.goal,
-                        "arguments" to emptyMap<String, Any?>(),
-                    )
-                )
-            },
-        )?.let { outcome ->
-            McpTaskManager.scheduleTaskCleanup(taskId, scope)
-            return@withContext outcome
         }
         val executionRequest = taskState.vlmRequest ?: recallBaseRequest
 
@@ -588,24 +569,6 @@ object VlmToolCoordinator {
                 if (recallGuidance.guidance.isNotBlank()) {
                     taskState.executionRoute = "vlm_with_omniflow_recall:${recallGuidance.decision}"
                     taskState.markStateChanged()
-                }
-                tryExecuteRecallHitIfAllowed(
-                    request = boundedRequest,
-                    taskState = taskState,
-                    recallGuidance = recallGuidance,
-                    progressReporter = progressReporter,
-                    runFunction = { functionId ->
-                        OobOmniFlowToolkitService(context).runFunction(
-                            mapOf(
-                                "function_id" to functionId,
-                                "goal" to boundedRequest.goal,
-                                "arguments" to emptyMap<String, Any?>(),
-                            )
-                        )
-                    },
-                )?.let { outcome ->
-                    McpTaskManager.scheduleTaskCleanup(taskId, scope)
-                    return@withContext outcome
                 }
                 val executionRequest = taskState.vlmRequest ?: recallBaseRequest
                 val startResult = startVlmTaskInternal(
@@ -999,7 +962,7 @@ object VlmToolCoordinator {
             targetPackageName = request.packageName,
             currentPackageName = currentPackage,
             currentXml = observation.xml,
-            allowDirectExecutionDecision = request.allowOmniFlowFunctionAutoExecute,
+            allowDirectExecutionDecision = false,
         )
         return guidance to observedRequest
     }

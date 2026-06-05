@@ -13,11 +13,11 @@ import cn.com.omnimind.bot.runlog.OobActionCodec.mapArg
 object OobFunctionSchemaBuilder {
     fun inputSchema(spec: Map<String, Any?>): Map<String, Any?> {
         val explicit = mapArg(spec["inputSchema"]).ifEmpty { mapArg(spec["input_schema"]) }
-        if (explicit.isNotEmpty()) return explicit
+        if (explicit.isNotEmpty()) return publicInputSchema(explicit)
 
         val canonical = mapArg(spec["parameters"])
         if (canonical.isNotEmpty() && firstNonBlank(canonical["type"]).equals("object", ignoreCase = true)) {
-            return canonical
+            return publicInputSchema(canonical)
         }
 
         val properties = linkedMapOf<String, Any?>()
@@ -26,8 +26,12 @@ object OobFunctionSchemaBuilder {
             val parameter = mapArg(raw)
             val name = parameter["name"]?.toString()?.trim().orEmpty()
             if (name.isEmpty()) return@forEach
+            if (!isPublicParameterName(name)) return@forEach
 
             val type = parameter["type"]?.toString()?.trim()?.ifEmpty { "string" } ?: "string"
+            val bindings = listArg(parameter["bindings"])
+                .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
+            if (bindings.isEmpty()) return@forEach
             val property = linkedMapOf<String, Any?>(
                 "type" to jsonSchemaType(type)
             )
@@ -41,6 +45,7 @@ object OobFunctionSchemaBuilder {
             if (enumValues.isNotEmpty()) {
                 property["enum"] = enumValues
             }
+            property["x_oob_bindings"] = bindings
 
             properties[name] = property
             if (boolArg(parameter["required"])) {
@@ -51,7 +56,8 @@ object OobFunctionSchemaBuilder {
         return linkedMapOf(
             "type" to "object",
             "properties" to properties,
-            "required" to required
+            "required" to required.filter { it in properties.keys },
+            "additionalProperties" to false,
         )
     }
 
@@ -61,14 +67,60 @@ object OobFunctionSchemaBuilder {
     fun parameterNames(spec: Map<String, Any?>): List<String> {
         val canonical = mapArg(spec["parameters"])
         if (canonical.isNotEmpty()) {
-            return mapArg(canonical["properties"]).keys
+            return mapArg(inputSchema(spec)["properties"]).keys
                 .map { it.trim() }
                 .filter { it.isNotEmpty() }
         }
         return listArg(spec["parameters"]).mapNotNull { raw ->
-            mapArg(raw)["name"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+            val parameter = mapArg(raw)
+            val name = parameter["name"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+            name?.takeIf { isPublicParameterName(it) && listArg(parameter["bindings"]).isNotEmpty() }
         }
     }
+
+    private fun publicInputSchema(schema: Map<String, Any?>): Map<String, Any?> {
+        val properties = mapArg(schema["properties"])
+        val publicProperties = linkedMapOf<String, Any?>()
+        properties.forEach { (name, rawProperty) ->
+            if (!isPublicParameterName(name)) return@forEach
+            val property = mapArg(rawProperty)
+            val bindings = parameterBindings(property)
+            if (bindings.isEmpty()) return@forEach
+            publicProperties[name] = linkedMapOf<String, Any?>().apply {
+                putAll(property)
+                put("x_oob_bindings", bindings)
+                remove("bindings")
+                remove("x-oob-bindings")
+            }
+        }
+        val required = listArg(schema["required"])
+            .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
+            .filter { it in publicProperties.keys }
+        return linkedMapOf<String, Any?>().apply {
+            put("type", "object")
+            put("properties", publicProperties)
+            put("required", required)
+            put("additionalProperties", false)
+        }
+    }
+
+    private fun parameterBindings(property: Map<String, Any?>): List<String> =
+        (
+            listArg(property["x_oob_bindings"]) +
+                listArg(property["x-oob-bindings"]) +
+                listArg(property["bindings"])
+        ).mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
+            .distinct()
+
+    private fun isPublicParameterName(name: String): Boolean =
+        normalizeParameterName(name) !in INTERNAL_PARAMETER_NAMES
+
+    private fun normalizeParameterName(value: String): String =
+        value.trim()
+            .replace(Regex("""([a-z0-9])([A-Z])"""), "$1_$2")
+            .replace(Regex("""[^A-Za-z0-9]+"""), "_")
+            .trim('_')
+            .lowercase()
 
     fun materializedSteps(spec: Map<String, Any?>): List<Map<String, Any?>> {
         val execution = mapArg(spec["execution"])
@@ -365,4 +417,25 @@ object OobFunctionSchemaBuilder {
             value != null && value.toString().trim().isNotEmpty()
         }?.let { put(key, it) }
     }
+
+    private val INTERNAL_PARAMETER_NAMES = setOf(
+        "package_name",
+        "package",
+        "target_description",
+        "target",
+        "selector",
+        "node_id",
+        "node_resource_id",
+        "element_index",
+        "scrollable_index",
+        "x",
+        "y",
+        "x1",
+        "y1",
+        "x2",
+        "y2",
+        "bounds",
+        "clear",
+        "duration_ms",
+    )
 }
