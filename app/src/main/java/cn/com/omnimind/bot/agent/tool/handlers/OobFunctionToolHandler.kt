@@ -46,6 +46,8 @@ class OobFunctionToolHandler(
             agentFallbackController,
             runResultBuilder
         ),
+    private val goToNavigator: OobFunctionGoToNavigator =
+        OobFunctionGoToNavigator(context, runResultBuilder),
 ) : ToolHandler {
     override val toolNames: Set<String> = setOf(
         RunLogReplayPolicy.TOOL_CALL_TOOL,
@@ -59,7 +61,6 @@ class OobFunctionToolHandler(
 
     override fun canHandle(toolName: String): Boolean =
         RunLogReplayPolicy.isOmniflowToolCallTool(toolName) ||
-            RunLogReplayPolicy.isOmniflowFunctionTool(toolName) ||
             runCatching {
                 cn.com.omnimind.baselib.runlog.OobReusableFunctionStore.get(context, toolName) != null
             }.getOrDefault(false) ||
@@ -90,10 +91,7 @@ class OobFunctionToolHandler(
         toolHandle: cn.com.omnimind.bot.agent.AgentToolExecutionHandle
     ): cn.com.omnimind.bot.agent.ToolExecutionResult {
         val toolName = toolCall.function.name
-        if (
-            RunLogReplayPolicy.isOmniflowToolCallTool(toolName) ||
-            RunLogReplayPolicy.isOmniflowFunctionTool(toolName)
-        ) {
+        if (RunLogReplayPolicy.isOmniflowToolCallTool(toolName)) {
             return executeModelCallTool(toolCall, args, env, callback, toolHandle)
         }
         val spec = getSpec(toolName)
@@ -327,7 +325,7 @@ class OobFunctionToolHandler(
             return runResultBuilder.withRunnerTiming(it, timing.finish())
         }
         val sourceStartCheckStartedAt = System.nanoTime()
-        val startPreparation = prepareFunctionStartWithGoTo(
+        val startPreparation = goToNavigator.navigate(
             functionId = functionId,
             spec = spec,
             auditRunId = auditRunId,
@@ -336,6 +334,17 @@ class OobFunctionToolHandler(
             allowAgentFallback = allowAgentFallback,
             allowToolDelegationWithoutRouter = allowToolDelegationWithoutRouter,
             callStack = activeCallStack,
+            getSpec = ::getSpec,
+            runFunction = { id, sp, mat ->
+                runMaterializedFunction(
+                    functionId = id,
+                    spec = sp,
+                    materializedSpec = mat,
+                    allowAgentFallback = allowAgentFallback,
+                    allowToolDelegationWithoutRouter = allowToolDelegationWithoutRouter,
+                    callStack = activeCallStack,
+                )
+            },
         )
         timing.recordElapsed("source_start_check_ms", sourceStartCheckStartedAt)
         startPreparation.failure?.let {
@@ -355,6 +364,7 @@ class OobFunctionToolHandler(
         )
         var frontendFinished = false
         var frontendFinishMessage = helper.localized("任务已完成")
+        var frontendCloseAfterMs = FRONTEND_TERMINAL_POPUP_VISIBLE_MS
         val stepResults = mutableListOf<Map<String, Any?>>()
         var delegatedToolUsed = false
         var modelRequired = false
@@ -364,6 +374,21 @@ class OobFunctionToolHandler(
         var currentStepTool = ""
         var currentStepExecutor = ""
         var currentStepStartedAtMs = 0L
+        fun buildResult() = runResultBuilder.completedRun(
+            functionId = functionId,
+            spec = spec,
+            auditRunId = auditRunId,
+            steps = steps,
+            activeSteps = activeSteps,
+            stepResults = stepResults,
+            normalizedResumeFromStep = normalizedResumeFromStep,
+            fallbackSessionId = fallbackSessionId,
+            fallbackAttempt = fallbackAttempt,
+            modelRequired = modelRequired,
+            delegatedToolUsed = delegatedToolUsed,
+            allowAgentFallback = allowAgentFallback,
+            failureReason = failureReason,
+        ).also { it.putAll(OobFunctionArgumentBindingValidator.runtimeDiagnostics(materializedSpec)) }
         try {
         // Checker rules from the Function spec (metadata.checker_rules).
         // These are layered on top of the global built-in rules inside the executor.
@@ -440,23 +465,6 @@ class OobFunctionToolHandler(
                     }
                 }
 
-                RunLogReplayPolicy.isOmniflowFunctionTool(omniflowExecutionTool) -> {
-                    executeOmniflowFunctionStep(
-                        step = step,
-                        stepId = stepId,
-                        stepTitle = stepTitle,
-                        callableTool = omniflowExecutionTool,
-                        callback = callback,
-                        toolHandle = toolHandle,
-                        env = env,
-                        parentToolCallId = parentToolCallId,
-                        toolName = toolName,
-                        allowAgentFallback = allowAgentFallback,
-                        allowToolDelegationWithoutRouter = allowToolDelegationWithoutRouter,
-                        callStack = activeCallStack,
-                    )
-                }
-
                 RunLogReplayPolicy.isOmniflowGraphTool(omniflowExecutionTool) -> {
                     graphStepRunner.execute(
                         step = step,
@@ -515,21 +523,8 @@ class OobFunctionToolHandler(
 
                 executor == RunLogReplayPolicy.EXECUTOR_TOOL && callableTool.isNotEmpty() && router != null &&
                     env != null -> {
-                    val routerRef = router
-                        ?: error("router became unavailable during tool delegation")
                     delegatedToolUsed = true
-                    toolDelegationExecutor.execute(
-                        step = step,
-                        stepId = stepId,
-                        stepTitle = stepTitle,
-                        callableTool = callableTool,
-                        env = env,
-                        callback = callback ?: cn.com.omnimind.bot.agent.NoOpAgentCallback,
-                        toolHandle = toolHandle ?: cn.com.omnimind.bot.agent.NoOpAgentRunControl
-                            .beginToolExecution(callableTool, "${parentToolCallId ?: toolName}_$stepId"),
-                        syntheticCallId = "${parentToolCallId ?: toolName}_$stepId",
-                        router = routerRef,
-                    )
+                    delegateStep(step, stepId, stepTitle, callableTool, env, callback, toolHandle, parentToolCallId, toolName, router!!)
                 }
 
                 executor == RunLogReplayPolicy.EXECUTOR_TOOL && callableTool.isNotEmpty() &&
@@ -544,47 +539,12 @@ class OobFunctionToolHandler(
                     )
                 }
 
-                else -> {
-                    val agentTool = stepClassifier.replayableAgentTool(step, callableTool)
-                    if (!stepClassifier.requiresAgentPlanning(step) &&
-                        agentTool.isNotEmpty() && router != null && env != null
-                    ) {
-                        val routerRef = router
-                            ?: error("router became unavailable during agent tool delegation")
-                        delegatedToolUsed = true
-                        toolDelegationExecutor.execute(
-                            step = step,
-                            stepId = stepId,
-                            stepTitle = stepTitle,
-                            callableTool = agentTool,
-                            env = env,
-                            callback = callback ?: cn.com.omnimind.bot.agent.NoOpAgentCallback,
-                            toolHandle = toolHandle ?: cn.com.omnimind.bot.agent.NoOpAgentRunControl
-                                .beginToolExecution(agentTool, "${parentToolCallId ?: toolName}_$stepId"),
-                            syntheticCallId = "${parentToolCallId ?: toolName}_$stepId",
-                            router = routerRef,
-                        ).also { result ->
-                            (result as? LinkedHashMap<String, Any?>)
-                                ?.put("executor", "agent_tool")
-                        }
-                    } else if (allowAgentFallback) {
-                        val agentPrompt = agentFallbackController.prompt(step, stepTitle)
-                        modelRequired = true
-                        runResultBuilder.agentFallbackStep(
-                            stepId = stepId,
-                            tool = agentTool.ifEmpty { "?" },
-                            prompt = agentPrompt,
-                            summary = "VLM continuation required: $stepTitle",
-                        )
-                    } else {
-                        runResultBuilder.failureStep(
-                            stepId = stepId,
-                            tool = agentTool.ifEmpty { callableTool.ifEmpty { "?" } },
-                            executor = executor.ifEmpty { RunLogReplayPolicy.EXECUTOR_AGENT },
-                            summary = "VLM continuation required: $stepTitle",
-                            errorCode = "OOB_VLM_CONTINUATION_REQUIRED",
-                        )
-                    }
+                else -> handleUnclassifiedStep(
+                    step, stepId, stepTitle, executor, callableTool,
+                    env, callback, toolHandle, parentToolCallId, toolName, allowAgentFallback,
+                ).also { result ->
+                    if (result["delegated"] == true) delegatedToolUsed = true
+                    if (result["model_required"] == true) modelRequired = true
                 }
             }
             frontendSession?.throwIfStopRequested()
@@ -621,35 +581,26 @@ class OobFunctionToolHandler(
         timing.recordElapsed("step_loop_ms", stepLoopStartedAt)
 
         val resultBuildStartedAt = System.nanoTime()
-        val resultPayload = runResultBuilder.completedRun(
-            functionId = functionId,
-            spec = spec,
-            auditRunId = auditRunId,
-            steps = steps,
-            activeSteps = activeSteps,
-            stepResults = stepResults,
-            normalizedResumeFromStep = normalizedResumeFromStep,
-            fallbackSessionId = fallbackSessionId,
-            fallbackAttempt = fallbackAttempt,
-            modelRequired = modelRequired,
-            delegatedToolUsed = delegatedToolUsed,
-            allowAgentFallback = allowAgentFallback,
-            failureReason = failureReason,
-        )
+        val resultPayload = buildResult()
         startPreparation.goToResult?.let { result ->
             resultPayload["pre_function_go_to"] = result
         }
-        resultPayload.putAll(OobFunctionArgumentBindingValidator.runtimeDiagnostics(materializedSpec))
         timing.recordElapsed("result_build_ms", resultBuildStartedAt)
         val runFinishedAtMs = System.currentTimeMillis()
         resultPayload["timing"] = timing.finish(runFinishedAtMs)
         val allSuccess = resultPayload["success"] == true
         frontendFinishMessage = helper.localized(if (allSuccess) "任务已完成" else "任务执行失败")
-        frontendSession?.finish(frontendFinishMessage)
+        frontendCloseAfterMs = if (allSuccess) {
+            FRONTEND_SUCCESS_POPUP_VISIBLE_MS
+        } else {
+            FRONTEND_TERMINAL_POPUP_VISIBLE_MS
+        }
+        frontendSession?.finish(frontendFinishMessage, closeAfterMs = frontendCloseAfterMs)
         frontendFinished = true
         return resultPayload
         } catch (e: ManualToolStopCancellationException) {
             frontendFinishMessage = helper.localized("任务已停止")
+            frontendCloseAfterMs = FRONTEND_TERMINAL_POPUP_VISIBLE_MS
             if (currentStepIndex >= 0 && stepResults.none { it["index"] == currentStepIndex }) {
                 val stoppedAtMs = System.currentTimeMillis()
                 stepResults += LinkedHashMap<String, Any?>().apply {
@@ -673,39 +624,94 @@ class OobFunctionToolHandler(
                 }
             }
             failureReason = frontendFinishMessage
-            val resultPayload = runResultBuilder.completedRun(
-                functionId = functionId,
-                spec = spec,
-                auditRunId = auditRunId,
-                steps = steps,
-                activeSteps = activeSteps,
-                stepResults = stepResults,
-                normalizedResumeFromStep = normalizedResumeFromStep,
-                fallbackSessionId = fallbackSessionId,
-                fallbackAttempt = fallbackAttempt,
-                modelRequired = modelRequired,
-                delegatedToolUsed = delegatedToolUsed,
-                allowAgentFallback = allowAgentFallback,
-                failureReason = failureReason,
-            )
+            val resultPayload = buildResult()
             resultPayload["error_code"] = "OOB_FUNCTION_STOPPED"
             resultPayload["error_message"] = frontendFinishMessage
-            resultPayload.putAll(OobFunctionArgumentBindingValidator.runtimeDiagnostics(materializedSpec))
             resultPayload["timing"] = timing.finish()
-            frontendSession?.finish(frontendFinishMessage)
+            frontendSession?.finish(frontendFinishMessage, closeAfterMs = frontendCloseAfterMs)
             frontendFinished = true
             return resultPayload
         } catch (e: kotlinx.coroutines.CancellationException) {
             frontendFinishMessage = helper.localized("任务已停止")
+            frontendCloseAfterMs = FRONTEND_TERMINAL_POPUP_VISIBLE_MS
             throw e
         } catch (e: Exception) {
             frontendFinishMessage = helper.localized("任务执行失败")
+            frontendCloseAfterMs = FRONTEND_TERMINAL_POPUP_VISIBLE_MS
             throw e
         } finally {
             if (!frontendFinished) {
-                frontendSession?.finish(frontendFinishMessage)
+                frontendSession?.finish(frontendFinishMessage, closeAfterMs = frontendCloseAfterMs)
             }
         }
+    }
+
+    private suspend fun handleUnclassifiedStep(
+        step: Map<String, Any?>,
+        stepId: String,
+        stepTitle: String,
+        executor: String,
+        callableTool: String,
+        env: cn.com.omnimind.bot.agent.AgentExecutionEnvironment?,
+        callback: cn.com.omnimind.bot.agent.AgentCallback?,
+        toolHandle: cn.com.omnimind.bot.agent.AgentToolExecutionHandle?,
+        parentToolCallId: String?,
+        toolName: String,
+        allowAgentFallback: Boolean,
+    ): Map<String, Any?> {
+        val agentTool = stepClassifier.replayableAgentTool(step, callableTool)
+        val routerRef = router
+        if (!stepClassifier.requiresAgentPlanning(step) &&
+            agentTool.isNotEmpty() && routerRef != null && env != null
+        ) {
+            return delegateStep(step, stepId, stepTitle, agentTool, env, callback, toolHandle, parentToolCallId, toolName, routerRef)
+                .also { result ->
+                    (result as? LinkedHashMap<String, Any?>)?.put("executor", "agent_tool")
+                    (result as? LinkedHashMap<String, Any?>)?.put("delegated", true)
+                }
+        }
+        if (allowAgentFallback) {
+            return runResultBuilder.agentFallbackStep(
+                stepId = stepId,
+                tool = agentTool.ifEmpty { "?" },
+                prompt = agentFallbackController.prompt(step, stepTitle),
+                summary = "VLM continuation required: $stepTitle",
+            )
+        }
+        return runResultBuilder.failureStep(
+            stepId = stepId,
+            tool = agentTool.ifEmpty { callableTool.ifEmpty { "?" } },
+            executor = executor.ifEmpty { RunLogReplayPolicy.EXECUTOR_AGENT },
+            summary = "VLM continuation required: $stepTitle",
+            errorCode = "OOB_VLM_CONTINUATION_REQUIRED",
+        )
+    }
+
+    private suspend fun delegateStep(
+        step: Map<String, Any?>,
+        stepId: String,
+        stepTitle: String,
+        callableTool: String,
+        env: cn.com.omnimind.bot.agent.AgentExecutionEnvironment,
+        callback: cn.com.omnimind.bot.agent.AgentCallback?,
+        toolHandle: cn.com.omnimind.bot.agent.AgentToolExecutionHandle?,
+        parentToolCallId: String?,
+        toolName: String,
+        router: cn.com.omnimind.bot.agent.AgentToolExecutor,
+    ): Map<String, Any?> {
+        val callId = "${parentToolCallId ?: toolName}_$stepId"
+        return toolDelegationExecutor.execute(
+            step = step,
+            stepId = stepId,
+            stepTitle = stepTitle,
+            callableTool = callableTool,
+            env = env,
+            callback = callback ?: cn.com.omnimind.bot.agent.NoOpAgentCallback,
+            toolHandle = toolHandle ?: cn.com.omnimind.bot.agent.NoOpAgentRunControl
+                .beginToolExecution(callableTool, callId),
+            syntheticCallId = callId,
+            router = router,
+        )
     }
 
     private suspend fun executeOmniflowToolCallStep(
@@ -797,258 +803,14 @@ class OobFunctionToolHandler(
         }
     )
 
-    private suspend fun prepareFunctionStartWithGoTo(
-        functionId: String,
-        spec: Map<String, Any?>,
-        auditRunId: String,
-        startedAtMs: Long,
-        activeSteps: List<Map<String, Any?>>,
-        allowAgentFallback: Boolean,
-        allowToolDelegationWithoutRouter: Boolean,
-        callStack: List<String>,
-    ): FunctionStartPreparation {
-        if (activeSteps.isEmpty() || isGoToFunction(functionId, spec)) {
-            return FunctionStartPreparation()
-        }
-        val firstSource = firstExecutableSource(activeSteps) ?: return FunctionStartPreparation()
-        val udegStore = OobUdegNodeStore(context)
-        val targetNodeId = udegStore.bestNodeIdForPage(
-            pageXml = firstSource.pageXml,
-            packageName = firstSource.packageName,
-        )
-        if (targetNodeId.isBlank() || !udegStore.hasNode(targetNodeId)) {
-            return FunctionStartPreparation()
-        }
-        val current = OmniflowStepExecutor.currentPageSnapshotForRecovery("function_start_check")
-        val currentXml = OobActionCodec.firstNonBlank(current["observation_xml"])
-        val currentPackage = OobActionCodec.firstNonBlank(
-            current["effective_package"],
-            current["package_name"],
-        )
-        if (currentXml.isBlank()) {
-            return FunctionStartPreparation()
-        }
-        if (udegStore.pageMatchesNode(currentXml, currentPackage, targetNodeId)) {
-            return FunctionStartPreparation()
-        }
-        val goToEdges = udegStore.findGoToFunctions(
-            currentXml = currentXml,
-            currentPackage = currentPackage,
-            targetNodeId = targetNodeId,
-        )
-        if (goToEdges.isEmpty()) {
-            return FunctionStartPreparation(
-                goToResult = mapOf(
-                    "success" to false,
-                    "result" to "No route-safe Function path found; continuing with recorded Function steps.",
-                    "target_node_id" to targetNodeId,
-                    "current_node_id" to udegStore.bestNodeIdForPage(currentXml, currentPackage),
-                    "current_package" to currentPackage,
-                )
-            )
-        }
-        val goToRuns = mutableListOf<Map<String, Any?>>()
-        goToEdges.forEachIndexed { index, goToEdge ->
-            val goToFunctionId = OobActionCodec.firstNonBlank(goToEdge["function_id"])
-            if (goToFunctionId.isBlank()) {
-                return FunctionStartPreparation(
-                    failure = sourceNotReachedRun(
-                        functionId = functionId,
-                        spec = spec,
-                        auditRunId = auditRunId,
-                        startedAtMs = startedAtMs,
-                        targetNodeId = targetNodeId,
-                        message = "Route-safe UDEG edge is missing function_id.",
-                        extras = mapOf("go_to_edge" to goToEdge),
-                    )
-                )
-            }
-            if (goToFunctionId in callStack) {
-                return FunctionStartPreparation(
-                    failure = sourceNotReachedRun(
-                        functionId = functionId,
-                        spec = spec,
-                        auditRunId = auditRunId,
-                        startedAtMs = startedAtMs,
-                        targetNodeId = targetNodeId,
-                        message = "Function route recursion detected: $goToFunctionId",
-                        extras = mapOf("go_to_function_id" to goToFunctionId),
-                    )
-                )
-            }
-            val goToSpec = getSpec(goToFunctionId)
-                ?: return FunctionStartPreparation(
-                    failure = sourceNotReachedRun(
-                        functionId = functionId,
-                        spec = spec,
-                        auditRunId = auditRunId,
-                        startedAtMs = startedAtMs,
-                        targetNodeId = targetNodeId,
-                        message = "Route Function is referenced by UDEG but missing from Function store: $goToFunctionId",
-                        extras = mapOf("go_to_function_id" to goToFunctionId),
-                    )
-                )
-            val missingGoToArgs = OobReusableFunctionStore.missingRequiredArguments(goToSpec, emptyMap())
-            if (missingGoToArgs.isNotEmpty()) {
-                return FunctionStartPreparation(
-                    failure = sourceNotReachedRun(
-                        functionId = functionId,
-                        spec = spec,
-                        auditRunId = auditRunId,
-                        startedAtMs = startedAtMs,
-                        targetNodeId = targetNodeId,
-                        message = "Route Function requires arguments and cannot be used automatically: $goToFunctionId",
-                        extras = mapOf(
-                            "go_to_function_id" to goToFunctionId,
-                            "missing_required_arguments" to missingGoToArgs,
-                        ),
-                    )
-                )
-            }
-            val goToRun = runMaterializedFunction(
-                functionId = goToFunctionId,
-                spec = goToSpec,
-                materializedSpec = OobReusableFunctionStore.materialize(goToSpec, emptyMap()),
-                allowAgentFallback = allowAgentFallback,
-                allowToolDelegationWithoutRouter = allowToolDelegationWithoutRouter,
-                callStack = callStack,
-            )
-            goToRuns += mapOf(
-                "path_index" to index,
-                "function_id" to goToFunctionId,
-                "from_node_id" to goToEdge["from_node_id"],
-                "to_node_id" to goToEdge["to_node_id"],
-                "run" to compactToolResult(goToRun),
-            )
-            if (goToRun["success"] != true) {
-                return FunctionStartPreparation(
-                    failure = sourceNotReachedRun(
-                        functionId = functionId,
-                        spec = spec,
-                        auditRunId = auditRunId,
-                        startedAtMs = startedAtMs,
-                        targetNodeId = targetNodeId,
-                        message = "Route Function failed before starting target Function: $goToFunctionId",
-                        errorCode = "OOB_FUNCTION_GO_TO_FAILED",
-                        extras = mapOf(
-                            "go_to_function_id" to goToFunctionId,
-                            "go_to_path" to goToRuns,
-                        ),
-                    )
-                )
-            }
-        }
-        val afterGoTo = OmniflowStepExecutor.currentPageSnapshotForRecovery("after_go_to_function")
-        val afterXml = OobActionCodec.firstNonBlank(afterGoTo["observation_xml"])
-        val afterPackage = OobActionCodec.firstNonBlank(afterGoTo["effective_package"], afterGoTo["package_name"])
-        if (!udegStore.pageMatchesNode(afterXml, afterPackage, targetNodeId)) {
-            return FunctionStartPreparation(
-                failure = sourceNotReachedRun(
-                    functionId = functionId,
-                    spec = spec,
-                    auditRunId = auditRunId,
-                    startedAtMs = startedAtMs,
-                    targetNodeId = targetNodeId,
-                    message = "Route Function path completed but target Function start page was not reached.",
-                    extras = mapOf(
-                        "go_to_path" to goToRuns,
-                        "after_go_to_page" to afterGoTo,
-                    ),
-                )
-            )
-        }
-        return FunctionStartPreparation(
-            goToResult = mapOf(
-                "success" to true,
-                "result" to "Reached Function start page with route-safe Function path",
-                "function_ids" to goToEdges.mapNotNull { OobActionCodec.firstNonBlank(it["function_id"]).takeIf { id -> id.isNotBlank() } },
-                "target_node_id" to targetNodeId,
-                "path" to goToRuns,
-            )
-        )
-    }
-
-    private fun sourceNotReachedRun(
-        functionId: String,
-        spec: Map<String, Any?>,
-        auditRunId: String,
-        startedAtMs: Long,
-        targetNodeId: String,
-        message: String,
-        errorCode: String = "OOB_FUNCTION_SOURCE_NOT_REACHED",
-        extras: Map<String, Any?> = emptyMap(),
-    ): Map<String, Any?> =
-        runResultBuilder.failedRun(
-            functionId = functionId,
-            spec = spec,
-            auditRunId = auditRunId,
-            startedAtMs = startedAtMs,
-            errorCode = errorCode,
-            errorMessage = message,
-            extras = mapOf(
-                "target_start_node_id" to targetNodeId,
-            ) + extras,
-        )
-
-    private fun firstExecutableSource(activeSteps: List<Map<String, Any?>>): FunctionSourcePage? {
-        activeSteps.forEach { step ->
-            val action = OmniflowStepExecutor.actionNameForStep(step)
-            if (action !in OobActionCodec.executableActions ||
-                action == OobActionCodec.ACTION_OPEN_APP ||
-                action == OobActionCodec.ACTION_FINISHED
-            ) {
-                return@forEach
-            }
-            val sourceContext = OobActionCodec.sourceContextForStep(step)
-            val srcCtx = OobActionCodec.mapArg(sourceContext["src_ctx"])
-            val pageXml = OobActionCodec.pageXmlFromContext(srcCtx)
-            if (pageXml.isBlank()) return null
-            val packageName = OobActionCodec.firstNonBlank(srcCtx["package_name"], srcCtx["packageName"])
-            return FunctionSourcePage(pageXml = pageXml, packageName = packageName)
-        }
-        return null
-    }
-
-    private fun isGoToFunction(functionId: String, spec: Map<String, Any?>): Boolean {
-        val id = functionId.trim().lowercase()
-        val name = OobActionCodec.firstNonBlank(spec["name"]).lowercase()
-        return id == "go_to" ||
-            id.startsWith("go_to_") ||
-            id.contains("_go_to_") ||
-            name == "go to" ||
-            name.startsWith("go to ") ||
-            name == "go_to" ||
-            name.startsWith("go_to_")
-    }
-
-    private fun compactToolResult(result: Map<String, Any?>): Map<String, Any?> =
-        mapOf(
-            "success" to (result["success"] == true),
-            "result" to OobActionCodec.firstNonBlank(
-                result["result"],
-                result["summary"],
-                result["error_message"],
-                result["description"],
-            ),
-        )
-
-    private fun materializedSteps(materializedSpec: Map<String, Any?>): List<Map<String, Any?>> {
-        return OobFunctionSchemaBuilder.materializedSteps(materializedSpec)
-    }
-
-    private data class FunctionSourcePage(
-        val pageXml: String,
-        val packageName: String,
-    )
-
-    private data class FunctionStartPreparation(
-        val failure: Map<String, Any?>? = null,
-        val goToResult: Map<String, Any?>? = null,
-    )
+    private fun materializedSteps(materializedSpec: Map<String, Any?>): List<Map<String, Any?>> =
+        OobFunctionSchemaBuilder.materializedSteps(materializedSpec)
 
     private companion object {
         const val TAG = "OobFunctionToolHandler"
         const val MAX_OMNIFLOW_CALL_DEPTH = 8
+        const val FRONTEND_SUCCESS_POPUP_VISIBLE_MS = 900L
+        const val FRONTEND_TERMINAL_POPUP_VISIBLE_MS = 2500L
         val RUN_SEQUENCE = AtomicLong(0)
     }
 

@@ -191,7 +191,7 @@ class OobFunctionRunPolicy(
             }
             RunLogReplayPolicy.isOmniflowExecutionTool(action) -> {
                 decision = DECISION_ALLOW
-                risk = if (RunLogReplayPolicy.isOmniflowFunctionTool(action)) RISK_MEDIUM else RISK_LOW
+                risk = if (RunLogReplayPolicy.isOmniflowToolCallTool(action)) RISK_MEDIUM else RISK_LOW
                 reason = "$action is handled by OOB native OmniFlow execution"
                 requiresRoot = false
             }

@@ -299,7 +299,7 @@ object OobFunctionSchemaBuilder {
                     putFirstPresent("utg", params["utg"])
                 },
             )
-            RunLogReplayPolicy.isOmniflowFunctionTool(normalizedType) -> functionStep(
+            RunLogReplayPolicy.isOmniflowToolCallTool(normalizedType) -> functionStep(
                 stepId = stepId,
                 index = index,
                 title = title,
@@ -382,7 +382,7 @@ object OobFunctionSchemaBuilder {
         "executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
         "model_free" to true,
         "scriptable" to true,
-        "tool" to OobFunctionToolNames.FUNCTION_RUN,
+        "tool" to RunLogReplayPolicy.TOOL_CALL_TOOL,
         "args" to args.filterValues { it != null },
     )
 

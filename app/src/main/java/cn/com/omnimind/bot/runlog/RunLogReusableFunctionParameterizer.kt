@@ -172,13 +172,12 @@ object RunLogReusableFunctionParameterizer {
                     "description" to description,
                 )
             }
-            RunLogReplayPolicy.isOmniflowFunctionTool(action) ||
-                RunLogReplayPolicy.isOmniflowToolCallTool(action) -> {
+            RunLogReplayPolicy.isOmniflowToolCallTool(action) -> {
                 val functionId = firstNonBlank(
                     args["function_id"],
                 )
                 nullableMap(
-                    "tool" to RunLogReplayPolicy.TOOL_FUNCTION_RUN,
+                    "tool" to RunLogReplayPolicy.TOOL_CALL_TOOL,
                     "args" to nullableMap(
                         OobCanonicalActionSchema.ARG_FUNCTION_ID to functionId,
                         "arguments" to mapArg(args["arguments"]),

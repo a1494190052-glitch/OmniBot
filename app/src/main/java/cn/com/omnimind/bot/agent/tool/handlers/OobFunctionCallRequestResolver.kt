@@ -44,7 +44,7 @@ class OobFunctionCallRequestResolver {
         val targetArgs = callToolArguments(args)
         val functionId = firstNonBlank(
             functionId(args, step),
-            if (RunLogReplayPolicy.isOmniflowFunctionTool(targetTool)) {
+            if (RunLogReplayPolicy.isOmniflowToolCallTool(targetTool)) {
                 functionId(targetArgs, emptyMap())
             } else {
                 null

@@ -1612,8 +1612,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             "context_apps_query" -> AgentToolMeta("builtin", t("查询已安装应用", "Query Installed Apps"))
             "context_time_now" -> AgentToolMeta("builtin", t("查询当前时间", "Query Current Time"))
             AgentToolNames.VLM_TASK -> AgentToolMeta("vlm", t("视觉执行", "Visual Task"))
-            OobFunctionToolNames.FUNCTION_RUN,
-            "call_function" -> AgentToolMeta(
+            OobFunctionToolNames.FUNCTION_RUN -> AgentToolMeta(
                 "oob_function",
                 t("复用指令", "Reusable Function")
             )
@@ -3816,12 +3815,20 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             val limit = call.argument<Number>("limit")?.toInt() ?: 100
             val offset = call.argument<Number>("offset")?.toInt() ?: 0
             val autoRegister = call.argument<Boolean>("autoRegister") ?: false
+            val includeHidden =
+                call.argument<Boolean>("includeHidden")
+                    ?: call.argument<Boolean>("include_hidden")
+                    ?: false
             val payload = withContext(Dispatchers.IO) {
                 if (autoRegister) {
                     runCatching { OobRunLogReplayService(context).autoRegisterRecentRunLogs(limit = 50) }
                         .onFailure { OmniLog.w(TAG, "list OOB functions auto-register failed: ${it.message}") }
                 }
-                OobFunctionRepository(context).list(limit = limit, offset = offset)
+                OobFunctionRepository(context).list(
+                    limit = limit,
+                    offset = offset,
+                    includeHidden = includeHidden
+                )
             }
             withContext(Dispatchers.Main) {
                 result.success(payload)
@@ -3943,33 +3950,27 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             // Phase 1 for direct UI calls: execute the deterministic local prefix only.
             // Tool/data-flow/agent steps need the full Agent runtime, so the runner marks
             // the first such step as an agent executor handoff instead of failing a synthetic tool call.
-            val floatingLoader = cn.com.omnimind.uikit.loader.FloatingHalfScreenLoader.getInstance()
-            floatingLoader?.hideForReplay()
-            val runPayload = try {
-                providedLocalReplayResult ?: runCatching {
-                    withContext(Dispatchers.Default) {
-                        runner.runMaterializedFunction(
-                            functionId = functionId,
-                            spec = spec,
-                            materializedSpec = materializedSpec,
-                            allowAgentFallback = false,
-                            allowToolDelegationWithoutRouter = false
-                        )
-                    }
-                }.getOrElse { error ->
-                    linkedMapOf(
-                        "success" to false,
-                        "function_id" to functionId,
-                        "runner" to "oob_mixed_runner",
-                        "step_count" to 0,
-                        "success_step_count" to 0,
-                        "model_used" to false,
-                        "error_message" to error.message.orEmpty(),
-                        "step_results" to emptyList<Map<String, Any?>>()
+            val runPayload = providedLocalReplayResult ?: runCatching {
+                withContext(Dispatchers.Default) {
+                    runner.runMaterializedFunction(
+                        functionId = functionId,
+                        spec = spec,
+                        materializedSpec = materializedSpec,
+                        allowAgentFallback = false,
+                        allowToolDelegationWithoutRouter = false
                     )
                 }
-            } finally {
-                floatingLoader?.restoreAfterReplay()
+            }.getOrElse { error ->
+                linkedMapOf(
+                    "success" to false,
+                    "function_id" to functionId,
+                    "runner" to "oob_mixed_runner",
+                    "step_count" to 0,
+                    "success_step_count" to 0,
+                    "model_used" to false,
+                    "error_message" to error.message.orEmpty(),
+                    "step_results" to emptyList<Map<String, Any?>>()
+                )
             }
 
             val stepResults = (runPayload["step_results"] as? List<*>)

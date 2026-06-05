@@ -196,20 +196,11 @@ internal object RunLogReplayStepCompiler {
         utg: Map<String, Any?> = emptyMap(),
     ): Map<String, Any?> {
         val isGraphTool = RunLogReplayPolicy.isOmniflowGraphTool(toolName)
-        val isFunctionTool = RunLogReplayPolicy.isOmniflowFunctionTool(toolName)
         val isCallTool = RunLogReplayPolicy.isOmniflowToolCallTool(toolName)
-        val canonicalToolName = when {
-            isFunctionTool -> OobFunctionToolNames.FUNCTION_RUN
-            isCallTool -> RunLogReplayPolicy.TOOL_CALL_TOOL
-            else -> toolName
-        }
-        val canonicalArgs = if (isFunctionTool || isCallTool) {
-            canonicalCallToolArgs(toolName, args)
-        } else {
-            args
-        }
+        val canonicalToolName = if (isCallTool) RunLogReplayPolicy.TOOL_CALL_TOOL else toolName
+        val canonicalArgs = if (isCallTool) canonicalCallToolArgs(toolName, args) else args
         val hasFunctionId = firstNonBlank(canonicalArgs["function_id"]).isNotEmpty()
-        val executor = if (isGraphTool || isFunctionTool || hasFunctionId) {
+        val executor = if (isGraphTool || hasFunctionId) {
             RunLogReplayPolicy.EXECUTOR_OMNIFLOW
         } else {
             RunLogReplayPolicy.EXECUTOR_TOOL
@@ -218,7 +209,7 @@ internal object RunLogReplayStepCompiler {
             "title" to title,
             "kind" to when {
                 isGraphTool -> "omniflow_graph"
-                isFunctionTool || hasFunctionId -> "omniflow_function"
+                hasFunctionId -> "omniflow_function"
                 else -> "tool_call"
             },
             "executor" to executor,
@@ -248,7 +239,7 @@ internal object RunLogReplayStepCompiler {
                 args["target_tool"],
                 args["tool"],
             )
-            if (targetTool.isNotEmpty() && !RunLogReplayPolicy.isOmniflowFunctionTool(normalizedTool)) {
+            if (targetTool.isNotEmpty() && !RunLogReplayPolicy.isOmniflowToolCallTool(normalizedTool)) {
                 put("tool_name", targetTool)
             }
         }

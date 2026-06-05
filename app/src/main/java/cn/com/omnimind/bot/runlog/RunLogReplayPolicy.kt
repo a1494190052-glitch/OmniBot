@@ -81,12 +81,6 @@ object RunLogReplayPolicy {
         TOOL_NODE_CLICK,
     )
 
-    val omniflowFunctionTools: Set<String> = setOf(
-        TOOL_FUNCTION_RUN,
-        "call_function",
-        "omniflow.call_function",
-    )
-
     val omniflowToolCallTools: Set<String> = setOf(
         "omniflow.call_tool",
         TOOL_CALL_TOOL,
@@ -133,15 +127,11 @@ object RunLogReplayPolicy {
     fun isOmniflowClickNodeGraphTool(toolName: String): Boolean =
         normalizeToolName(toolName) in omniflowClickNodeGraphTools
 
-    fun isOmniflowFunctionTool(toolName: String): Boolean =
-        normalizeToolName(toolName) in omniflowFunctionTools
-
     fun isOmniflowToolCallTool(toolName: String): Boolean =
         normalizeToolName(toolName) in omniflowToolCallTools
 
     fun isOmniflowExecutionTool(toolName: String): Boolean =
         isOmniflowGraphTool(toolName) ||
-            isOmniflowFunctionTool(toolName) ||
             isOmniflowToolCallTool(toolName)
 
     fun isAgentTool(toolName: String): Boolean =

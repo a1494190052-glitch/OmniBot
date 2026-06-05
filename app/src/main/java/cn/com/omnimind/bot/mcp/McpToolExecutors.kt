@@ -658,7 +658,7 @@ object McpToolExecutors {
         )
         val functionId = firstNonBlank(
             requestArgs["function_id"],
-            if (RunLogReplayPolicy.isOmniflowFunctionTool(toolName)) toolArgs["function_id"] else null,
+            if (RunLogReplayPolicy.isOmniflowToolCallTool(toolName)) toolArgs["function_id"] else null,
         )
         if (functionId.isNotEmpty()) {
             return OobOmniFlowToolkitService(context).runFunction(

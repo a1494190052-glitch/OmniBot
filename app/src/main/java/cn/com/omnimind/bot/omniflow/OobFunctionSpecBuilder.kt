@@ -140,7 +140,7 @@ class OobFunctionSpecBuilder {
             raw["type"],
         ).ifBlank {
             if (firstNonBlank(mapArg(raw["args"])["function_id"]).isNotBlank()) {
-                OobFunctionToolNames.FUNCTION_RUN
+                RunLogReplayPolicy.TOOL_CALL_TOOL
             } else {
                 OobActionCodec.ACTION_FINISHED
             }
@@ -179,19 +179,13 @@ class OobFunctionSpecBuilder {
                 step["args"] = stepArgs
                 if (sourceContext.isNotEmpty()) step["source_context"] = sourceContext
             }
-            RunLogReplayPolicy.isOmniflowFunctionTool(normalizedTool) ||
-                RunLogReplayPolicy.isOmniflowToolCallTool(normalizedTool) ||
+            RunLogReplayPolicy.isOmniflowToolCallTool(normalizedTool) ||
                 firstNonBlank(stepArgs["function_id"]).isNotBlank() -> {
-                val canonicalTool = if (RunLogReplayPolicy.isOmniflowToolCallTool(normalizedTool)) {
-                    RunLogReplayPolicy.TOOL_CALL_TOOL
-                } else {
-                    OobFunctionToolNames.FUNCTION_RUN
-                }
                 step["kind"] = "omniflow_function"
                 step["executor"] = RunLogReplayPolicy.EXECUTOR_OMNIFLOW
                 step["model_free"] = true
                 step["scriptable"] = true
-                step["tool"] = canonicalTool
+                step["tool"] = RunLogReplayPolicy.TOOL_CALL_TOOL
                 step["args"] = canonicalSimpleCallToolArgs(stepArgs)
                 if (sourceContext.isNotEmpty()) step["source_context"] = sourceContext
             }

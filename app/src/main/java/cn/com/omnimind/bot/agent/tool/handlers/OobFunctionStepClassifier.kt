@@ -44,7 +44,6 @@ class OobFunctionStepClassifier(
         val tool = omniflowExecutionToolForStep(step, executionToolName(step))
         return when {
             RunLogReplayPolicy.isOmniflowGraphTool(tool) -> true
-            RunLogReplayPolicy.isOmniflowFunctionTool(tool) -> true
             RunLogReplayPolicy.isOmniflowToolCallTool(tool) -> {
                 val args = callRequestResolver.stepArgs(step)
                 firstNonBlank(

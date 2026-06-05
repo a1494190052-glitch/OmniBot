@@ -602,7 +602,7 @@ class OobFunctionRecallService(
         val steps = materializedSteps(spec)
         val functionId = OobFunctionSchemaBuilder.functionId(spec)
         val call = linkedMapOf<String, Any?>(
-            "tool" to OobFunctionToolNames.FUNCTION_RUN,
+            "tool" to RunLogReplayPolicy.TOOL_CALL_TOOL,
             "function_id" to functionId,
             "arguments" to emptyMap<String, Any?>(),
         )

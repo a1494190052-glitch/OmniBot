@@ -2,7 +2,6 @@ package cn.com.omnimind.bot.agent.tool.handlers
 
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
-import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 
 data class OobNestedFunctionRunRequest(
@@ -50,7 +49,7 @@ class OobFunctionNestedFunctionExecutor(
             step["function_id"],
         )
         val nestedArguments = callRequestResolver.nestedFunctionArguments(args)
-        val cardToolName = OobFunctionToolNames.FUNCTION_RUN
+        val cardToolName = RunLogReplayPolicy.TOOL_CALL_TOOL
         val cardId = nestedCallCardPresenter.cardId(parentToolCallId, toolName, stepId)
         val cardStartedAtMs = System.currentTimeMillis()
 
@@ -104,7 +103,7 @@ class OobFunctionNestedFunctionExecutor(
         if (functionId.isEmpty()) {
             return completeWithCard(failureStepResult(
                 stepId = stepId,
-                tool = callableTool.ifEmpty { OobFunctionToolNames.FUNCTION_RUN },
+                tool = callableTool.ifEmpty { RunLogReplayPolicy.TOOL_CALL_TOOL },
                 executor = "omniflow_function",
                 summary = "$stepTitle missing function_id",
                 errorCode = "OOB_FUNCTION_ID_MISSING",
@@ -113,7 +112,7 @@ class OobFunctionNestedFunctionExecutor(
         val nestedSpec = loadSpec(functionId)
             ?: return completeWithCard(failureStepResult(
                 stepId = stepId,
-                tool = callableTool.ifEmpty { OobFunctionToolNames.FUNCTION_RUN },
+                tool = callableTool.ifEmpty { RunLogReplayPolicy.TOOL_CALL_TOOL },
                 executor = "omniflow_function",
                 summary = "OOB reusable function not found: $functionId",
                 errorCode = "OOB_FUNCTION_NOT_FOUND",
@@ -126,7 +125,7 @@ class OobFunctionNestedFunctionExecutor(
         if (missing.isNotEmpty()) {
             return completeWithCard(failureStepResult(
                 stepId = stepId,
-                tool = callableTool.ifEmpty { OobFunctionToolNames.FUNCTION_RUN },
+                tool = callableTool.ifEmpty { RunLogReplayPolicy.TOOL_CALL_TOOL },
                 executor = "omniflow_function",
                 summary = "Missing required arguments: ${missing.joinToString(", ")}",
                 errorCode = "OOB_FUNCTION_ARGUMENTS_MISSING",
@@ -157,7 +156,7 @@ class OobFunctionNestedFunctionExecutor(
             nestedRun["fallback_context"] != null
         return completeWithCard(linkedMapOf<String, Any?>(
             "step_id" to stepId,
-            "tool" to callableTool.ifEmpty { OobFunctionToolNames.FUNCTION_RUN },
+            "tool" to callableTool.ifEmpty { RunLogReplayPolicy.TOOL_CALL_TOOL },
             "executor" to "omniflow_function",
             "model_free" to true,
             "success" to success,
