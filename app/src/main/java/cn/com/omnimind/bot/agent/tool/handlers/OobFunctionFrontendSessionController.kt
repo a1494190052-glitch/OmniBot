@@ -11,6 +11,7 @@ import android.widget.TextView
 import cn.com.omnimind.assists.OmniFlowUiSession
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
+import cn.com.omnimind.bot.manager.AssistsCoreManager
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
 import cn.com.omnimind.uikit.loader.cat.DraggableBallInstance
 import kotlinx.coroutines.Dispatchers
@@ -72,6 +73,16 @@ class OobFunctionFrontendSessionController(
             onCompleteRequested = { stopRequested.set(true) }
         )
         OmniFlowUiSession.beginTask(runId, taskId)
+        dispatchRunProgress(
+            status = "started",
+            runId = runId,
+            taskId = taskId,
+            functionId = functionId,
+            label = label,
+            stepCount = stepCount,
+            embeddedInVlmTask = embeddedInVlmTask,
+            message = helper.localized("准备执行复用指令"),
+        )
         runCatching {
             withContext(Dispatchers.Main) {
                 DraggableBallInstance.loadBall()
@@ -94,6 +105,8 @@ class OobFunctionFrontendSessionController(
             stopRequested = stopRequested,
             label = label,
             helper = helper,
+            functionId = functionId,
+            stepCount = stepCount,
             embeddedInVlmTask = embeddedInVlmTask,
             stopOverlay = stopOverlay,
         )
@@ -123,6 +136,8 @@ class OobFunctionFrontendSessionController(
         private val stopRequested: AtomicBoolean,
         private val label: String,
         private val helper: SharedHelper,
+        private val functionId: String,
+        private val stepCount: Int,
         private val embeddedInVlmTask: Boolean,
         private val stopOverlay: OobFunctionStopOverlay,
     ) {
@@ -135,8 +150,23 @@ class OobFunctionFrontendSessionController(
         suspend fun update(progress: String) {
             throwIfStopRequested()
             val progressText = progress.trim().ifBlank { label }.take(48)
+            val currentStepNumber = STEP_PROGRESS_REGEX.find(progressText)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?.toIntOrNull()
             val message = helper.localized(
                 "复用指令：${label.take(32)}"
+            )
+            dispatchRunProgress(
+                status = "progress",
+                runId = runId,
+                taskId = taskId,
+                functionId = functionId,
+                label = label,
+                stepCount = stepCount,
+                embeddedInVlmTask = embeddedInVlmTask,
+                message = helper.localized(progressText),
+                currentStepNumber = currentStepNumber,
             )
             runCatching {
                 withContext(Dispatchers.Main) {
@@ -158,6 +188,16 @@ class OobFunctionFrontendSessionController(
         suspend fun finish(message: String, closeAfterMs: Long = 0L) {
             OmniFlowUiSession.endTask(taskId)
             val end = OmniFlowUiSession.endRun(runId)
+            dispatchRunProgress(
+                status = if (stopRequested.get()) "stopped" else "finished",
+                runId = runId,
+                taskId = taskId,
+                functionId = functionId,
+                label = label,
+                stepCount = stepCount,
+                embeddedInVlmTask = embeddedInVlmTask,
+                message = helper.localized(message.ifBlank { "任务已完成" }),
+            )
             runCatching {
                 withContext(NonCancellable + Dispatchers.Main) {
                     stopOverlay.hide()
@@ -196,6 +236,45 @@ class OobFunctionFrontendSessionController(
 
     private companion object {
         const val TAG = "OobFunctionFrontendSession"
+        val STEP_PROGRESS_REGEX = Regex("""第\s*(\d+)\s*/\s*\d+\s*步""")
+
+        fun dispatchRunProgress(
+            status: String,
+            runId: String,
+            taskId: String,
+            functionId: String,
+            label: String,
+            stepCount: Int,
+            embeddedInVlmTask: Boolean,
+            message: String,
+            currentStepNumber: Int? = null,
+        ) {
+            val currentStepIndex = currentStepNumber
+                ?.takeIf { it > 0 }
+                ?.minus(1)
+            AssistsCoreManager.dispatchOobFunctionRunProgress(
+                linkedMapOf<String, Any?>(
+                    "status" to status,
+                    "run_id" to runId,
+                    "runId" to runId,
+                    "task_id" to taskId,
+                    "taskId" to taskId,
+                    "function_id" to functionId,
+                    "functionId" to functionId,
+                    "label" to label,
+                    "message" to message,
+                    "step_count" to stepCount.takeIf { it > 0 },
+                    "stepCount" to stepCount.takeIf { it > 0 },
+                    "current_step_index" to currentStepIndex,
+                    "currentStepIndex" to currentStepIndex,
+                    "current_step_number" to currentStepNumber,
+                    "currentStepNumber" to currentStepNumber,
+                    "parent" to if (embeddedInVlmTask) "vlm_task" else "oob_direct_replay",
+                    "embedded_in_vlm_task" to embeddedInVlmTask,
+                    "timestamp_ms" to System.currentTimeMillis(),
+                ).filterValues { it != null }
+            )
+        }
     }
 }
 

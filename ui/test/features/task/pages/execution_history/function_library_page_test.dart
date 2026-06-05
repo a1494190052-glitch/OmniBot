@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ui/features/task/pages/execution_history/function_library_page.dart';
 import 'package:ui/l10n/generated/app_localizations.dart';
+import 'package:ui/services/assists_core_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -12,6 +13,10 @@ void main() {
   const assistCoreChannel = MethodChannel(
     'cn.com.omnimind.bot/AssistCoreEvent',
   );
+
+  setUp(() {
+    AssistsMessageService.initialize();
+  });
 
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -285,6 +290,82 @@ void main() {
 
     expect(find.textContaining('VLM 执行记录 · 第 1 步'), findsOneWidget);
     expect(find.text('VLM 动作'), findsOneWidget);
+  });
+
+  testWidgets('Reusable Function library shows native run progress events', (
+    tester,
+  ) async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(assistCoreChannel, (call) async {
+          if (call.method == 'listOobReusableFunctions') {
+            return <String, dynamic>{
+              'success': true,
+              'count': 1,
+              'functions': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'function_id': 'search_settings',
+                  'name': '搜索设置',
+                  'description': '打开设置并搜索',
+                  'step_count': 4,
+                  'parameter_names': <String>[],
+                  'source_run_ids': <String>['run-search'],
+                  'step_summaries': <Map<String, dynamic>>[
+                    <String, dynamic>{
+                      'index': 0,
+                      'title': '打开设置',
+                      'kind': 'omniflow_action',
+                      'executor': 'omniflow',
+                      'tool': 'open_app',
+                    },
+                  ],
+                },
+              ],
+            };
+          }
+          return null;
+        });
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        locale: Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: FunctionLibraryPage(),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('搜索设置'), findsOneWidget);
+
+    AssistsMessageService.debugDispatchOobFunctionRunProgressForTest(
+      <String, dynamic>{
+        'status': 'progress',
+        'function_id': 'search_settings',
+        'message': '第 2/4 步 点击蓝牙',
+        'step_count': 4,
+        'current_step_number': 2,
+      },
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('正在执行：搜索设置'), findsOneWidget);
+    expect(find.text('第 2/4 步 · 点击蓝牙'), findsOneWidget);
+
+    AssistsMessageService.debugDispatchOobFunctionRunProgressForTest(
+      <String, dynamic>{
+        'status': 'finished',
+        'function_id': 'search_settings',
+        'message': '任务已完成',
+        'step_count': 4,
+      },
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('正在执行：搜索设置'), findsNothing);
+    expect(find.text('第 2/4 步 · 点击蓝牙'), findsNothing);
   });
 
   testWidgets('Reusable Function detail opens shared step editor', (

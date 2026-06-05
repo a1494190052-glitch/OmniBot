@@ -676,31 +676,58 @@ class VLMClient(
             val parsed = runCatching {
                 json.parseToJsonElement(candidate) as? JsonObject
             }.getOrNull() ?: return@forEach
-            val name = parsed["name"]?.jsonPrimitive?.contentOrNull?.trim()
-                ?: parsed["function"]?.jsonPrimitive?.contentOrNull?.trim()
-                ?: parsed["tool"]?.jsonPrimitive?.contentOrNull?.trim()
-                ?: parsed["tool_name"]?.jsonPrimitive?.contentOrNull?.trim()
-                ?: return@forEach
-            val hasInlineFunctionId = parsed[OobCanonicalActionSchema.ARG_FUNCTION_ID] != null
-            val args = if (hasInlineFunctionId) {
-                buildInlineActionArguments(parsed).toString()
-            } else parsed["arguments"]?.let { arguments ->
-                when (arguments) {
-                    is JsonObject -> arguments.toString()
-                    is JsonPrimitive -> arguments.contentOrNull.orEmpty()
-                    else -> arguments.toString()
-                }
-            } ?: parsed["args"]?.let { arguments ->
-                when (arguments) {
-                    is JsonObject -> arguments.toString()
-                    is JsonPrimitive -> arguments.contentOrNull.orEmpty()
-                    else -> arguments.toString()
-                }
-            } ?: buildInlineActionArguments(parsed).toString()
-            return buildFallbackToolCall(name, args, dynamicFunctionToolNames)
+            textToolCallObjects(parsed).forEach { toolObject ->
+                val name = textToolName(toolObject) ?: return@forEach
+                val args = textToolArguments(toolObject)
+                return buildFallbackToolCall(name, args, dynamicFunctionToolNames)
+            }
         }
         return null
     }
+
+    private fun textToolCallObjects(parsed: JsonObject): List<JsonObject> = buildList {
+        (parsed["tool_call"] as? JsonObject)?.let { add(it) }
+        (parsed["tool_calls"] as? JsonArray)?.forEach { element ->
+            (element as? JsonObject)?.let { add(it) }
+        }
+        add(parsed)
+    }
+
+    private fun textToolName(parsed: JsonObject): String? {
+        val functionObject = parsed["function"] as? JsonObject
+        return stringValue(parsed["name"])
+            ?: stringValue(functionObject?.get("name"))
+            ?: stringValue(parsed["function"])
+            ?: stringValue(parsed["tool"])
+            ?: stringValue(parsed["tool_name"])
+            ?: stringValue(parsed["action"])
+    }
+
+    private fun textToolArguments(parsed: JsonObject): String {
+        val functionObject = parsed["function"] as? JsonObject
+        val hasInlineFunctionId = parsed[OobCanonicalActionSchema.ARG_FUNCTION_ID] != null
+        if (hasInlineFunctionId) {
+            return buildInlineActionArguments(parsed).toString()
+        }
+        val arguments = parsed["arguments"]
+            ?: parsed["args"]
+            ?: parsed["tool_args"]
+            ?: parsed["action_args"]
+            ?: parsed["params"]
+            ?: functionObject?.get("arguments")
+        return when (arguments) {
+            is JsonObject -> arguments.toString()
+            is JsonPrimitive -> arguments.contentOrNull.orEmpty()
+            null -> buildInlineActionArguments(parsed).toString()
+            else -> arguments.toString()
+        }
+    }
+
+    private fun stringValue(element: JsonElement?): String? =
+        (element as? JsonPrimitive)
+            ?.contentOrNull
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
 
     private fun parseLineTextToolCall(content: String, dynamicFunctionToolNames: Set<String>): AssistantToolCall? {
         val match = LINE_TOOL_CALL_REGEX.find(content) ?: return null
@@ -877,6 +904,10 @@ class VLMClient(
             "function",
             "tool",
             "tool_name",
+            "action",
+            "tool_args",
+            "action_args",
+            "params",
             "observation",
             "thought",
             "summary",

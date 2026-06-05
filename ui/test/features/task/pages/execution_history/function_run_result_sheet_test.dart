@@ -214,6 +214,9 @@ void main() {
           'execution_status': 'failed',
           'step_count': 1,
           'success_step_count': 0,
+          'failed_step_index': 0,
+          'current_step_index': 0,
+          'current_step_number': 1,
         },
         'context': <String, dynamic>{
           'step_results': <Map<String, dynamic>>[
@@ -244,6 +247,7 @@ void main() {
       expect(result.errorCode, 'OOB_ACCESSIBILITY_REQUIRED');
       expect(result.errorMessage, '请先开启无障碍权限，复用指令才能执行点击、滑动和输入。');
       expect(_richTextContaining('状态  执行失败'), findsOneWidget);
+      expect(_richTextContaining('执行到  第 1/1 步'), findsOneWidget);
       expect(_richTextContaining('步骤  0/1'), findsOneWidget);
       expect(find.text('请先开启无障碍权限，复用指令才能执行点击、滑动和输入。'), findsWidgets);
       expect(find.text('OOB_ACCESSIBILITY_REQUIRED'), findsNothing);

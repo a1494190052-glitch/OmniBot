@@ -94,6 +94,8 @@ class VLMToolDefinitionsTest {
         assertTrue(promptGuide.contains("input_text(target_description, text, element_index?, x, y)"))
         assertTrue(promptGuide.contains("call_tool(function_id?, tool_name?, arguments)"))
         assertTrue(promptGuide.contains("recalled reusable workflow"))
+        assertTrue(promptGuide.contains("preferred_call_tool"))
+        assertTrue(promptGuide.contains("instead of manually replaying the same path"))
         assertFalse(promptGuide.contains("get_state("))
         assertTrue(promptGuide.contains("Coordinates are fallback only"))
         assertTrue(promptGuide.contains("Use wait only when the page is clearly loading"))

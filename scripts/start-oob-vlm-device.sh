@@ -276,6 +276,9 @@ enabled_accessibility_value_with_oob() {
   if [[ "$found" -eq 0 ]]; then
     filtered+=("$COMPONENT")
   fi
+  if [[ "${#filtered[@]}" -eq 0 ]]; then
+    return
+  fi
   local IFS=':'
   printf '%s' "${filtered[*]}"
 }
@@ -291,6 +294,9 @@ enabled_accessibility_value_without_oob() {
     [[ -z "$service" || "$service" == "null" || "$service" == "$COMPONENT" ]] && continue
     filtered+=("$service")
   done
+  if [[ "${#filtered[@]}" -eq 0 ]]; then
+    return
+  fi
   local IFS=':'
   printf '%s' "${filtered[*]}"
 }

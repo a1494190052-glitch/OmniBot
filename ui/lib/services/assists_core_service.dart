@@ -954,6 +954,108 @@ class UtgManualRunResult {
   }
 }
 
+class OobFunctionRunProgressEvent {
+  final String status;
+  final String runId;
+  final String taskId;
+  final String functionId;
+  final String label;
+  final String message;
+  final int stepCount;
+  final int? currentStepIndex;
+  final int? currentStepNumber;
+  final bool embeddedInVlmTask;
+  final int timestampMs;
+  final Map<String, dynamic> rawJson;
+
+  const OobFunctionRunProgressEvent({
+    required this.status,
+    required this.runId,
+    required this.taskId,
+    required this.functionId,
+    required this.label,
+    required this.message,
+    required this.stepCount,
+    required this.currentStepIndex,
+    required this.currentStepNumber,
+    required this.embeddedInVlmTask,
+    required this.timestampMs,
+    required this.rawJson,
+  });
+
+  factory OobFunctionRunProgressEvent.fromMap(Map<dynamic, dynamic>? map) {
+    final raw = (map ?? const <dynamic, dynamic>{}).map(
+      (key, value) => MapEntry(key.toString(), value),
+    );
+    return OobFunctionRunProgressEvent(
+      status: (raw['status'] ?? '').toString().trim(),
+      runId: _firstNonBlank([raw['run_id'], raw['runId']]),
+      taskId: _firstNonBlank([raw['task_id'], raw['taskId']]),
+      functionId: _firstNonBlank([raw['function_id'], raw['functionId']]),
+      label: (raw['label'] ?? '').toString().trim(),
+      message: (raw['message'] ?? '').toString().trim(),
+      stepCount: _intValue(raw['step_count'] ?? raw['stepCount']),
+      currentStepIndex: _nullableIntValue(
+        raw['current_step_index'] ?? raw['currentStepIndex'],
+      ),
+      currentStepNumber: _nullableIntValue(
+        raw['current_step_number'] ?? raw['currentStepNumber'],
+      ),
+      embeddedInVlmTask: _truthy(
+        raw['embedded_in_vlm_task'] ?? raw['embeddedInVlmTask'],
+      ),
+      timestampMs: _intValue(raw['timestamp_ms'] ?? raw['timestampMs']),
+      rawJson: raw,
+    );
+  }
+
+  bool get isRunning =>
+      status == 'started' || status == 'progress' || status == 'running';
+
+  bool get isTerminal =>
+      status == 'finished' || status == 'stopped' || status == 'failed';
+
+  int? get displayStepNumber {
+    final explicit = currentStepNumber;
+    if (explicit != null && explicit > 0) return explicit;
+    final index = currentStepIndex;
+    if (index != null && index >= 0) return index + 1;
+    return null;
+  }
+
+  static String _firstNonBlank(Iterable<dynamic> values) {
+    for (final value in values) {
+      final text = (value ?? '').toString().trim();
+      if (text.isNotEmpty) return text;
+    }
+    return '';
+  }
+
+  static bool _truthy(dynamic value) {
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    if (value is String) {
+      final normalized = value.trim().toLowerCase();
+      return normalized == 'true' || normalized == '1' || normalized == 'yes';
+    }
+    return false;
+  }
+
+  static int _intValue(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value.trim()) ?? 0;
+    return 0;
+  }
+
+  static int? _nullableIntValue(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value.trim());
+    return null;
+  }
+}
+
 class UtgFunctionMutationResult {
   final bool success;
   final String functionId;
@@ -1724,6 +1826,9 @@ class AssistsMessageService {
   static final StreamController<Map<String, dynamic>>
   _agentRunStateChangedController =
       StreamController<Map<String, dynamic>>.broadcast();
+  static final StreamController<OobFunctionRunProgressEvent>
+  _oobFunctionRunProgressController =
+      StreamController<OobFunctionRunProgressEvent>.broadcast();
 
   // 改为回调列表，支持多个监听器
   static final List<ChatTaskMessageCallBack> _onChatTaskMessageCallBacks = [];
@@ -1746,6 +1851,17 @@ class AssistsMessageService {
       _workbenchProjectUpdatedController.stream;
   static Stream<Map<String, dynamic>> get agentRunStateChangedStream =>
       _agentRunStateChangedController.stream;
+  static Stream<OobFunctionRunProgressEvent> get oobFunctionRunProgressStream =>
+      _oobFunctionRunProgressController.stream;
+
+  @visibleForTesting
+  static void debugDispatchOobFunctionRunProgressForTest(
+    Map<String, dynamic> payload,
+  ) {
+    _oobFunctionRunProgressController.add(
+      OobFunctionRunProgressEvent.fromMap(payload),
+    );
+  }
 
   static void initialize() {
     assistCore.setMethodCallHandler(_handleMethod);
@@ -1816,6 +1932,11 @@ class AssistsMessageService {
             Map<String, dynamic>.from(
               (call.arguments as Map?) ?? const <String, dynamic>{},
             ),
+          );
+          break;
+        case 'onOobFunctionRunProgress':
+          _oobFunctionRunProgressController.add(
+            OobFunctionRunProgressEvent.fromMap(call.arguments as Map?),
           );
           break;
         case 'onChatMessage':

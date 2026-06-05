@@ -375,13 +375,13 @@ class VLMClientRequestTest {
                     message = ChatCompletionMessage(
                         role = "assistant",
                         toolCalls = listOf(
-	                            AssistantToolCall(
-	                                id = "call_1",
-	                                function = AssistantToolCallFunction(
-	                                    name = "call_tool",
-	                                    arguments = """{"function_id":"xiaohongshu_search","arguments":{"keyword":"美食"}}"""
-	                                )
-	                            )
+                            AssistantToolCall(
+                                id = "call_1",
+                                function = AssistantToolCallFunction(
+                                    name = "call_tool",
+                                    arguments = """{"function_id":"xiaohongshu_search","arguments":{"keyword":"美食"}}"""
+                                )
+                            )
                         )
                     )
                 )
@@ -523,6 +523,36 @@ class VLMClientRequestTest {
     }
 
     @Test
+    fun `text fallback tool parser supports androidworld tool call wrapper`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "qwen-vl-plus",
+                turn = ChatCompletionTurn(
+                    finishReason = "stop",
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        content = JsonPrimitive(
+                            """
+                            ```json
+                            {"tool_call":{"name":"open_app","arguments":{"package_name":"com.android.settings"}}}
+                            ```
+                            """.trimIndent()
+                        )
+                    )
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary"
+        )
+
+        assertTrue(result.error.orEmpty(), result.success)
+        val action = requireNotNull(result.step).action as OpenAppAction
+        assertEquals("com.android.settings", action.packageName)
+    }
+
+    @Test
     fun `text fallback tool parser supports line style tool call from qwen vl`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(
@@ -563,7 +593,7 @@ class VLMClientRequestTest {
     }
 
     @Test
-    fun `text fallback tool parser rejects legacy action field`() {
+    fun `text fallback tool parser normalizes androidworld action field`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(
             SceneChatCompletionTurn(
@@ -583,8 +613,11 @@ class VLMClientRequestTest {
             modelOrScene = "scene.vlm.operation.primary"
         )
 
-        assertFalse(result.success)
-        assertTrue(result.error.orEmpty().contains("tool_calls"))
+        assertTrue(result.error.orEmpty(), result.success)
+        val action = requireNotNull(result.step).action as ClickAction
+        assertEquals("Settings", action.targetDescription)
+        assertEquals(480f, action.x, 0.01f)
+        assertEquals(702f, action.y, 0.01f)
     }
 
     @Test

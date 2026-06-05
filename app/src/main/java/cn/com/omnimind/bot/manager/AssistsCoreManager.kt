@@ -654,6 +654,35 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             }
         }
 
+        fun dispatchOobFunctionRunProgress(payload: Map<String, Any?>) {
+            val eventPayload = LinkedHashMap<String, Any?>().apply {
+                putAll(payload)
+            }
+            mainHandler.post {
+                val manager = sharedInstance
+                if (manager != null) {
+                    manager.invokeFlutterEventSafely("onOobFunctionRunProgress", eventPayload)
+                    return@post
+                }
+                val channel = mainEngineChannel
+                if (channel == null) {
+                    OmniLog.w(
+                        "[AssistsCoreManager]",
+                        "skip onOobFunctionRunProgress: flutter channel unavailable"
+                    )
+                    return@post
+                }
+                runCatching {
+                    channel.invokeMethod("onOobFunctionRunProgress", eventPayload)
+                }.onFailure {
+                    OmniLog.w(
+                        "[AssistsCoreManager]",
+                        "dispatch onOobFunctionRunProgress failed: ${it.message}"
+                    )
+                }
+            }
+        }
+
         fun dispatchAgentAiConfigChanged(source: String, path: String) {
             val payload = mapOf(
                 "source" to source,

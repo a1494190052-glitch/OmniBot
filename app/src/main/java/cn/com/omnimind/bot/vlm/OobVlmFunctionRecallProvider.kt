@@ -74,11 +74,11 @@ class OobVlmFunctionRecallProvider(
             )
             append(RECALL_END_MARKER)
         }.trim()
-        val merged = listOf(cleanedSkillGuidance, recallBlock)
-            .map(String::trim)
-            .filter(String::isNotEmpty)
-            .joinToString("\n\n")
-            .take(MAX_STEP_SKILL_GUIDANCE_CHARS)
+        val merged = mergeOobVlmRecallStepGuidance(
+            baseGuidance = cleanedSkillGuidance,
+            recallBlock = recallBlock,
+            maxChars = MAX_STEP_SKILL_GUIDANCE_CHARS,
+        )
         diagnostics["omniflow_recall_injected"] = "true"
         return baseContext.copy(
             stepSkillGuidance = merged,
@@ -126,4 +126,26 @@ class OobVlmFunctionRecallProvider(
             options = setOf(RegexOption.DOT_MATCHES_ALL),
         )
     }
+}
+
+internal fun mergeOobVlmRecallStepGuidance(
+    baseGuidance: String,
+    recallBlock: String,
+    maxChars: Int = 1_400,
+): String {
+    val budget = maxChars.coerceAtLeast(0)
+    if (budget == 0) return ""
+    val recall = recallBlock.trim()
+    val base = baseGuidance.trim()
+    if (recall.isBlank()) return base.take(budget)
+    if (base.isBlank()) return recall.take(budget)
+    val separator = "\n\n"
+    val recallPrefix = recall.take(budget)
+    val remaining = budget - recallPrefix.length - separator.length
+    if (remaining <= 0) return recallPrefix
+    return listOf(recallPrefix, base.take(remaining))
+        .map(String::trim)
+        .filter(String::isNotEmpty)
+        .joinToString(separator)
+        .take(budget)
 }

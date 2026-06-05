@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -32,12 +33,23 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
   final Set<String> _deletingIds = {};
   final Set<String> _runningIds = {};
   final Set<String> _registeringIds = {};
+  final Map<String, OobFunctionRunProgressEvent> _runProgressBySignature = {};
+  StreamSubscription<OobFunctionRunProgressEvent>? _runProgressSubscription;
   bool _isLearning = false;
 
   @override
   void initState() {
     super.initState();
+    _runProgressSubscription = AssistsMessageService
+        .oobFunctionRunProgressStream
+        .listen(_handleRunProgressEvent);
     _load();
+  }
+
+  @override
+  void dispose() {
+    _runProgressSubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -200,7 +212,10 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
 
   Future<void> _run(_FunctionGroup group) async {
     if (_runningIds.contains(group.signature)) return;
-    setState(() => _runningIds.add(group.signature));
+    setState(() {
+      _runningIds.add(group.signature);
+      _runProgressBySignature.remove(group.signature);
+    });
     try {
       final spec = await AssistsMessageService.getOobReusableFunction(
         group.primary.functionId,
@@ -236,7 +251,12 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
       if (!mounted) return;
       showToast(e.toString(), type: ToastType.error);
     } finally {
-      if (mounted) setState(() => _runningIds.remove(group.signature));
+      if (mounted) {
+        setState(() {
+          _runningIds.remove(group.signature);
+          _runProgressBySignature.remove(group.signature);
+        });
+      }
     }
   }
 
@@ -281,6 +301,42 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
       if (_runningIds.contains(group.signature)) return group.displayName;
     }
     return '';
+  }
+
+  OobFunctionRunProgressEvent? get _runningFunctionProgress {
+    if (_runningIds.isEmpty) return null;
+    for (final group in _functions) {
+      if (_runningIds.contains(group.signature)) {
+        return _runProgressBySignature[group.signature];
+      }
+    }
+    return null;
+  }
+
+  void _handleRunProgressEvent(OobFunctionRunProgressEvent event) {
+    if (!mounted || event.functionId.isEmpty) return;
+    final signature = _signatureForFunctionId(event.functionId);
+    if (signature == null) return;
+    setState(() {
+      if (event.isTerminal) {
+        _runProgressBySignature.remove(signature);
+        _runningIds.remove(signature);
+      } else {
+        _runningIds.add(signature);
+        _runProgressBySignature[signature] = event;
+      }
+    });
+  }
+
+  String? _signatureForFunctionId(String functionId) {
+    final id = functionId.trim();
+    if (id.isEmpty) return null;
+    for (final group in _functions) {
+      if (group.items.any((item) => item.functionId == id)) {
+        return group.signature;
+      }
+    }
+    return null;
   }
 
   @override
@@ -375,7 +431,13 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
     if (runningLabel.isEmpty) return list;
     return Column(
       children: [
-        _RunningFunctionBanner(label: runningLabel),
+        _RunningFunctionBanner(
+          label: runningLabel,
+          progressText: _runProgressTextForEvent(
+            context,
+            _runningFunctionProgress,
+          ),
+        ),
         Expanded(child: list),
       ],
     );
@@ -404,6 +466,8 @@ class _FunctionLibraryEmbedState extends State<FunctionLibraryEmbed>
   final Set<String> _deletingIds = {};
   final Set<String> _runningIds = {};
   final Set<String> _registeringIds = {};
+  final Map<String, OobFunctionRunProgressEvent> _runProgressBySignature = {};
+  StreamSubscription<OobFunctionRunProgressEvent>? _runProgressSubscription;
   bool _isLearning = false;
 
   @override
@@ -412,7 +476,16 @@ class _FunctionLibraryEmbedState extends State<FunctionLibraryEmbed>
   @override
   void initState() {
     super.initState();
+    _runProgressSubscription = AssistsMessageService
+        .oobFunctionRunProgressStream
+        .listen(_handleRunProgressEvent);
     _load();
+  }
+
+  @override
+  void dispose() {
+    _runProgressSubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -564,7 +637,10 @@ class _FunctionLibraryEmbedState extends State<FunctionLibraryEmbed>
 
   Future<void> _run(_FunctionGroup group) async {
     if (_runningIds.contains(group.signature)) return;
-    setState(() => _runningIds.add(group.signature));
+    setState(() {
+      _runningIds.add(group.signature);
+      _runProgressBySignature.remove(group.signature);
+    });
     try {
       final spec = await AssistsMessageService.getOobReusableFunction(
         group.primary.functionId,
@@ -600,7 +676,12 @@ class _FunctionLibraryEmbedState extends State<FunctionLibraryEmbed>
       if (!mounted) return;
       showToast(e.toString(), type: ToastType.error);
     } finally {
-      if (mounted) setState(() => _runningIds.remove(group.signature));
+      if (mounted) {
+        setState(() {
+          _runningIds.remove(group.signature);
+          _runProgressBySignature.remove(group.signature);
+        });
+      }
     }
   }
 
@@ -656,6 +737,42 @@ class _FunctionLibraryEmbedState extends State<FunctionLibraryEmbed>
       if (_runningIds.contains(group.signature)) return group.displayName;
     }
     return '';
+  }
+
+  OobFunctionRunProgressEvent? get _runningFunctionProgress {
+    if (_runningIds.isEmpty) return null;
+    for (final group in _functions) {
+      if (_runningIds.contains(group.signature)) {
+        return _runProgressBySignature[group.signature];
+      }
+    }
+    return null;
+  }
+
+  void _handleRunProgressEvent(OobFunctionRunProgressEvent event) {
+    if (!mounted || event.functionId.isEmpty) return;
+    final signature = _signatureForFunctionId(event.functionId);
+    if (signature == null) return;
+    setState(() {
+      if (event.isTerminal) {
+        _runProgressBySignature.remove(signature);
+        _runningIds.remove(signature);
+      } else {
+        _runningIds.add(signature);
+        _runProgressBySignature[signature] = event;
+      }
+    });
+  }
+
+  String? _signatureForFunctionId(String functionId) {
+    final id = functionId.trim();
+    if (id.isEmpty) return null;
+    for (final group in _functions) {
+      if (group.items.any((item) => item.functionId == id)) {
+        return group.signature;
+      }
+    }
+    return null;
   }
 
   @override
@@ -715,7 +832,13 @@ class _FunctionLibraryEmbedState extends State<FunctionLibraryEmbed>
     if (runningLabel.isEmpty) return list;
     return Column(
       children: [
-        _RunningFunctionBanner(label: runningLabel),
+        _RunningFunctionBanner(
+          label: runningLabel,
+          progressText: _runProgressTextForEvent(
+            context,
+            _runningFunctionProgress,
+          ),
+        ),
         Expanded(child: list),
       ],
     );
@@ -723,9 +846,13 @@ class _FunctionLibraryEmbedState extends State<FunctionLibraryEmbed>
 }
 
 class _RunningFunctionBanner extends StatelessWidget {
-  const _RunningFunctionBanner({required this.label});
+  const _RunningFunctionBanner({
+    required this.label,
+    required this.progressText,
+  });
 
   final String label;
+  final String progressText;
 
   @override
   Widget build(BuildContext context) {
@@ -756,22 +883,71 @@ class _RunningFunctionBanner extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: palette.textPrimary,
-                letterSpacing: 0,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: palette.textPrimary,
+                    letterSpacing: 0,
+                  ),
+                ),
+                if (progressText.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    progressText,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: palette.textSecondary,
+                      letterSpacing: 0,
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
         ],
       ),
     );
   }
+}
+
+String _runProgressTextForEvent(
+  BuildContext context,
+  OobFunctionRunProgressEvent? event,
+) {
+  if (event == null) return '';
+  final currentStepNumber = event.displayStepNumber;
+  final stepCount = event.stepCount;
+  if (currentStepNumber != null && currentStepNumber > 0) {
+    final value = stepCount > 0
+        ? '$currentStepNumber/$stepCount'
+        : '$currentStepNumber';
+    final message = event.message.trim();
+    final messageWithoutPrefix = message
+        .replaceFirst(RegExp(r'^第\s*\d+\s*/\s*\d+\s*步\s*'), '')
+        .trim();
+    if (messageWithoutPrefix.isNotEmpty) {
+      return _text(
+        context,
+        '第 $value 步 · $messageWithoutPrefix',
+        'Step $value · $messageWithoutPrefix',
+      );
+    }
+    if (message.isNotEmpty && !message.contains(value)) {
+      return _text(context, '第 $value 步 · $message', 'Step $value · $message');
+    }
+    return _text(context, '第 $value 步', 'Step $value');
+  }
+  return event.message.trim();
 }
 
 class _FunctionCard extends StatelessWidget {

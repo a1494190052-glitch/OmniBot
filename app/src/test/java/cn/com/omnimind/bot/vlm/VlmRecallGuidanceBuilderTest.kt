@@ -66,6 +66,7 @@ class VlmRecallGuidanceBuilderTest {
 
         assertTrue(guidance.contains("tool_execution_policy=optional_candidates_only"))
         assertTrue(guidance.contains("do_not_auto_execute=true"))
+        assertTrue(guidance.contains("preferred_call_tool: {\"name\":\"call_tool\",\"arguments\":{\"function_id\":\"open_network_settings\",\"arguments\":{}}}"))
         assertTrue(guidance.contains("tool=open_network_settings"))
         assertFalse(guidance.contains("tool_execution_policy=direct_execution_requested_by_caller"))
     }
@@ -193,6 +194,7 @@ class VlmRecallGuidanceBuilderTest {
 
         assertTrue(guidance.contains("tool_execution_policy=optional_candidates_only"))
         assertTrue(guidance.contains("do_not_auto_execute=true"))
+        assertTrue(guidance.contains("preferred_call_tool: {\"name\":\"call_tool\",\"arguments\":{\"function_id\":\"open_network_settings\",\"arguments\":{}}}"))
         assertTrue(guidance.contains("1. tool=open_network_settings"))
         assertFalse(guidance.contains("step:"))
         assertFalse(guidance.contains("segment"))
@@ -386,6 +388,7 @@ class VlmRecallGuidanceBuilderTest {
 
         assertNull(VlmRecallGuidanceBuilder.fromAgentPayload(payload, allowDirectExecutionDecision = true).directHitFunctionId)
         assertTrue(guidance.contains("tool=send_message"))
+        assertTrue(guidance.contains("preferred_call_tool: call_tool(function_id=\"send_message\", arguments=<fill required fields from the user request>)"))
         assertTrue(guidance.contains("argument_policy: requires_arguments=true"))
         assertTrue(guidance.contains("arguments={contact:string required, message:string required}"))
         assertTrue(guidance.contains("function_profile: purpose=Send a chat message"))
@@ -537,6 +540,29 @@ class VlmRecallGuidanceBuilderTest {
         } finally {
             context.root.deleteRecursively()
         }
+    }
+
+    @Test
+    fun `recall step guidance keeps recall block before existing guidance budget`() {
+        val base = "existing guidance ".repeat(120)
+        val recall = """
+            [[OOB_OMNIFLOW_STEP_RECALL_START]]
+            preferred_call_tool: {"name":"call_tool","arguments":{"function_id":"open_bluetooth","arguments":{}}}
+            1. tool=open_bluetooth score=0.99 description=open bluetooth settings
+            [[OOB_OMNIFLOW_STEP_RECALL_END]]
+        """.trimIndent()
+
+        val merged = mergeOobVlmRecallStepGuidance(
+            baseGuidance = base,
+            recallBlock = recall,
+            maxChars = 220,
+        )
+
+        assertTrue(merged.startsWith("[[OOB_OMNIFLOW_STEP_RECALL_START]]"))
+        assertTrue(merged.contains("preferred_call_tool"))
+        assertTrue(merged.contains("\"name\":\"call_tool\""))
+        assertTrue(merged.length <= 220)
+        assertFalse(merged.startsWith("existing guidance"))
     }
 
     private companion object {

@@ -1376,7 +1376,7 @@ class OobOmniFlowLoopAcceptanceTest {
                         functionId = parentFunctionId,
                         name = "Call Open Settings",
                         description = "Parent Function that reuses the open Settings Function.",
-                        steps = listOf(callFunctionStep(childFunctionId))
+                        steps = listOf(callToolStep(childFunctionId))
                     )
                 )
             )
@@ -1740,7 +1740,7 @@ class OobOmniFlowLoopAcceptanceTest {
         ),
     )
 
-    private fun callFunctionStep(functionId: String): Map<String, Any?> = mapOf(
+    private fun callToolStep(functionId: String): Map<String, Any?> = mapOf(
         "id" to "call_open_settings_function",
         "index" to 0,
         "title" to "Call open Settings Function",

@@ -122,6 +122,9 @@ object VlmRecallGuidanceBuilder {
                 val requiresDecision = firstNonBlank(decisionPolicy["requires_vlm_or_tool_decision"])
                 appendLine("decision_policy: mode=$mode requires_vlm_or_tool_decision=$requiresDecision")
             }
+            renderPreferredCallTool(candidates.firstOrNull()).takeIf { it.isNotBlank() }?.let {
+                appendLine(it)
+            }
             nodeCandidates.forEachIndexed { index, node ->
                 val nodeId = node["node_id"]?.toString()?.trim().orEmpty()
                 val score = node["page_similarity"]?.toString()?.trim().orEmpty()
@@ -230,6 +233,32 @@ object VlmRecallGuidanceBuilder {
             "arguments=$properties".takeIf { properties.isNotBlank() },
         ).filterNotNull().joinToString(" ")
     }
+
+    private fun renderPreferredCallTool(candidate: Map<String, Any?>?): String {
+        if (candidate == null) return ""
+        val functionId = candidate["function_id"]?.toString()?.trim().orEmpty()
+        if (functionId.isBlank()) return ""
+        val score = firstNonBlank(candidate["score"])
+        val textScore = firstNonBlank(candidate["text_score"], candidate["textScore"])
+        val requiresArguments = requiresArguments(candidate)
+        val call = if (requiresArguments) {
+            "call_tool(function_id=\"$functionId\", arguments=<fill required fields from the user request>)"
+        } else {
+            """{"name":"call_tool","arguments":{"function_id":"${jsonEscape(functionId)}","arguments":{}}}"""
+        }
+        return buildString {
+            append("preferred_call_tool: ")
+            append(call)
+            if (score.isNotBlank() || textScore.isNotBlank()) {
+                append(" score=").append(score.ifBlank { "unknown" })
+                append(" text_score=").append(textScore.ifBlank { "unknown" })
+            }
+            append("; if this top Function matches the user goal, use call_tool before manually replaying the same GUI path.")
+        }
+    }
+
+    private fun jsonEscape(value: String): String =
+        value.replace("\\", "\\\\").replace("\"", "\\\"")
 
     private fun renderDecisionContext(decisionContext: Map<String, Any?>): String {
         if (decisionContext.isEmpty()) return ""
