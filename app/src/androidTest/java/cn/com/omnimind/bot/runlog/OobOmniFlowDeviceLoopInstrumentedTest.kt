@@ -142,7 +142,7 @@ class OobOmniFlowDeviceLoopInstrumentedTest {
             val hit = recall["hit"] as? Map<*, *>
             assertEquals(functionId, hit?.get("function_id"))
 
-            val call = toolkit.callFunction(
+            val call = toolkit.runFunction(
                 mapOf(
                     "function_id" to functionId,
                     "goal" to goal,
@@ -170,7 +170,7 @@ class OobOmniFlowDeviceLoopInstrumentedTest {
             assertEquals(1, (execution?.get("omniflow_step_count") as Number).toInt())
             assertEquals(false, execution["requires_agent_fallback"])
         } finally {
-            OobRunLogReplayService(context, workspaceStore).deleteFunction(functionId)
+            toolkit.deleteFunction(mapOf("function_id" to functionId))
             workspaceRoot.deleteRecursively()
         }
     }
@@ -183,7 +183,6 @@ class OobOmniFlowDeviceLoopInstrumentedTest {
         val workspaceRoot = File(context.filesDir, "instrumented_agent_function_workspace")
         workspaceRoot.deleteRecursively()
         val workspaceStore = WorkspaceFunctionStore(workspaceRoot)
-        val service = OobRunLogReplayService(context, workspaceStore)
         val toolkit = OobOmniFlowToolkitService(context, workspaceStore)
         val functionId = "oob_device_agent_callable_recorded_input_function"
         val runId = "device-agent-callable-runlog-${System.currentTimeMillis()}"
@@ -255,30 +254,40 @@ class OobOmniFlowDeviceLoopInstrumentedTest {
                 context = context,
                 discoveredServers = emptyList(),
             )
-            val tool = registry.toolsForModel.singleOrNull { it.function.name == functionId }
+            val tool = registry.toolsForModel.singleOrNull {
+                it.function.name == RunLogReplayPolicy.TOOL_CALL_TOOL
+            }
             assertNotNull(tool)
-            assertEquals("oob_function", registry.runtimeDescriptor(functionId).toolType)
+            assertEquals(
+                "builtin",
+                registry.runtimeDescriptor(RunLogReplayPolicy.TOOL_CALL_TOOL).toolType
+            )
 
             val schema = tool!!.function.parameters
             val properties = schema["properties"] as JsonObject
-            val replacement = properties["input_text"] as JsonObject
-            assertEquals("string", replacement["type"]?.jsonPrimitive?.content)
-            assertEquals("hello", replacement["default"]?.jsonPrimitive?.content)
+            assertTrue(properties.containsKey("function_id"))
+            assertTrue(properties.containsKey("arguments"))
             val required = (schema["required"] as JsonArray)
                 .map { it.jsonPrimitive.content }
             assertTrue(required.contains("tool_title"))
-            assertFalse(required.contains("input_text"))
+            assertFalse(required.contains("function_id"))
 
             val changedArgs = buildJsonObject {
                 put("tool_title", JsonPrimitive("Replay recorded input"))
-                put("input_text", JsonPrimitive("deviceworld"))
+                put("function_id", JsonPrimitive(functionId))
+                put("arguments", buildJsonObject {
+                    put("input_text", JsonPrimitive("deviceworld"))
+                })
             }
             registry.validateArguments(
-                functionId,
+                RunLogReplayPolicy.TOOL_CALL_TOOL,
                 changedArgs,
             )
 
-            val stored = requireNotNull(service.getFunctionSpec(functionId))
+            @Suppress("UNCHECKED_CAST")
+            val stored = requireNotNull(
+                toolkit.getFunction(mapOf("function_id" to functionId))["function"] as? Map<String, Any?>
+            )
             val materialized = OobReusableFunctionStore.materialize(
                 stored,
                 mapOf("input_text" to "deviceworld"),
@@ -305,18 +314,18 @@ class OobOmniFlowDeviceLoopInstrumentedTest {
             val toolCall = AssistantToolCall(
                 id = "device_direct_toolcall",
                 function = AssistantToolCallFunction(
-                    name = functionId,
-                    arguments = gson.toJson(mapOf("input_text" to "deviceworld")),
+                    name = RunLogReplayPolicy.TOOL_CALL_TOOL,
+                    arguments = changedArgs.toString(),
                 ),
             )
             val result = handler.execute(
                 toolCall = toolCall,
                 args = changedArgs,
-                runtimeDescriptor = registry.runtimeDescriptor(functionId),
+                runtimeDescriptor = registry.runtimeDescriptor(RunLogReplayPolicy.TOOL_CALL_TOOL),
                 env = directExecutionEnv(context),
                 callback = NoOpCallback,
                 toolHandle = NoOpAgentRunControl.beginToolExecution(
-                    toolName = functionId,
+                    toolName = RunLogReplayPolicy.TOOL_CALL_TOOL,
                     toolCallId = toolCall.id,
                 ),
             )
@@ -327,7 +336,7 @@ class OobOmniFlowDeviceLoopInstrumentedTest {
             assertTrue(replayedXml, replayedXml.contains("deviceworld"))
         } finally {
             backendHandle.close()
-            service.deleteFunction(functionId)
+            toolkit.deleteFunction(mapOf("function_id" to functionId))
             workspaceRoot.deleteRecursively()
         }
     }
@@ -356,7 +365,7 @@ class OobOmniFlowDeviceLoopInstrumentedTest {
                 .toSet()
             assertTrue(toolNames.contains("omniflow.ingest_run_log"))
             assertTrue(toolNames.contains("omniflow.recall"))
-            assertTrue(toolNames.contains("omniflow.call_tool"))
+            assertTrue(toolNames.contains(RunLogReplayPolicy.TOOL_CALL_TOOL))
 
             val ingest = toolResult(
                 rpcCall(
@@ -406,7 +415,7 @@ class OobOmniFlowDeviceLoopInstrumentedTest {
                     id = 4,
                     method = "tools/call",
                     params = mapOf(
-                        "name" to "omniflow.call_tool",
+                        "name" to RunLogReplayPolicy.TOOL_CALL_TOOL,
                         "arguments" to mapOf(
                             "function_id" to functionId,
                             "goal" to goal,
@@ -422,7 +431,7 @@ class OobOmniFlowDeviceLoopInstrumentedTest {
             assertEquals(false, oobResult?.get("model_required"))
         } finally {
             if (functionId.isNotBlank()) {
-                OobRunLogReplayService(context).deleteFunction(functionId)
+                OobOmniFlowToolkitService(context).deleteFunction(mapOf("function_id" to functionId))
             }
             McpServerManager.stopServer()
         }
@@ -504,7 +513,7 @@ class OobOmniFlowDeviceLoopInstrumentedTest {
             assertEquals(false, execution["requires_agent_fallback"])
         } finally {
             backendHandle.close()
-            OobRunLogReplayService(context, workspaceStore).deleteFunction(functionId)
+            toolkit.deleteFunction(mapOf("function_id" to functionId))
             workspaceRoot.deleteRecursively()
         }
     }
@@ -552,7 +561,7 @@ class OobOmniFlowDeviceLoopInstrumentedTest {
             assertEquals(false, replay?.get("fallback"))
             assertTrue(((replay?.get("actions_executed") as? Number)?.toInt() ?: 0) >= 1)
         } finally {
-            OobRunLogReplayService(context, workspaceStore).deleteFunction(functionId)
+            toolkit.deleteFunction(mapOf("function_id" to functionId))
             workspaceRoot.deleteRecursively()
         }
     }

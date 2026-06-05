@@ -413,14 +413,9 @@ String _localizedToolAction(BuildContext context, String tool) {
     case 'type':
       return _text(context, '输入文本', 'Enter text');
     case 'swipe':
-    case 'scroll':
       return _text(context, '滑动', 'Swipe');
-    case 'press_back':
-    case 'back':
-      return _text(context, '返回', 'Go back');
-    case 'press_home':
-    case 'home':
-      return _text(context, '回到桌面', 'Go home');
+    case 'press_key':
+      return _text(context, '系统按键', 'Press key');
     case 'wait':
       return _text(context, '等待', 'Wait');
   }

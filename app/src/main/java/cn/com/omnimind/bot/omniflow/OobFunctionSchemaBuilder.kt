@@ -149,8 +149,8 @@ object OobFunctionSchemaBuilder {
                     putFP("bounds", params["bounds"]); putFP("selector", params["selector"]); putFP("clear", params["clear"])
                     if (sourceContext.isNotEmpty()) put("source_context", sourceContext)
                 }, sourceContext)
-            normalizedType == OobActionCodec.ACTION_SCROLL ->
-                localActionStep(stepId, index, title, OobActionCodec.ACTION_SCROLL, linkedMapOf<String, Any?>().apply {
+            normalizedType == OobActionCodec.ACTION_SWIPE ->
+                localActionStep(stepId, index, title, OobActionCodec.ACTION_SWIPE, linkedMapOf<String, Any?>().apply {
                     putFP("target_description", params["target_description"]); putFP("x1", params["x1"]); putFP("y1", params["y1"])
                     putFP("x2", params["x2"]); putFP("y2", params["y2"]); putFP("direction", params["direction"])
                     putFP("duration_ms", params["duration_ms"]); putFP("scrollable_index", params["scrollable_index"])
@@ -159,8 +159,9 @@ object OobFunctionSchemaBuilder {
             normalizedType == OobActionCodec.ACTION_OPEN_APP ->
                 localActionStep(stepId, index, title, OobActionCodec.ACTION_OPEN_APP,
                     linkedMapOf<String, Any?>().apply { putFP("package_name", params["package_name"]) }, emptyMap())
-            normalizedType == OobActionCodec.ACTION_PRESS_BACK || normalizedType == OobActionCodec.ACTION_PRESS_HOME ->
-                localActionStep(stepId, index, title, normalizedType, emptyMap(), emptyMap())
+            normalizedType == OobActionCodec.ACTION_PRESS_KEY ->
+                localActionStep(stepId, index, title, OobActionCodec.ACTION_PRESS_KEY,
+                    linkedMapOf<String, Any?>().apply { putFP("key", params["key"]) }, emptyMap())
             normalizedType == OobActionCodec.ACTION_FINISHED ->
                 localActionStep(stepId, index, title, OobActionCodec.ACTION_FINISHED, linkedMapOf<String, Any?>().apply {
                     putFP("content", params["content"]); putFP("enable_summary", params["enable_summary"])

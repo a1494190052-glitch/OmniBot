@@ -77,12 +77,12 @@ class OobCanonicalActionSchema {
   static const toolClick = "click";
   static const toolLongPress = "long_press";
   static const toolInputText = "input_text";
-  static const toolScroll = "scroll";
+  static const toolSwipe = "swipe";
   static const toolOpenApp = "open_app";
-  static const toolPressHome = "press_home";
-  static const toolPressBack = "press_back";
+  static const toolPressKey = "press_key";
+  static const toolWait = "wait";
   static const toolGetState = "get_state";
-  static const toolOobFunctionRun = "oob_function_run";
+  static const toolCallTool = "call_tool";
   static const toolFinished = "finished";
   static const toolInfo = "info";
   static const toolFeedback = "feedback";
@@ -98,15 +98,19 @@ class OobCanonicalActionSchema {
   static const argY = "y";
   static const argDurationMs = "duration_ms";
   static const argText = "text";
-  static const argScrollableIndex = "scrollable_index";
   static const argDirection = "direction";
+  static const argScrollableIndex = "scrollable_index";
+  static const argDistance = "distance";
   static const argX1 = "x1";
   static const argY1 = "y1";
   static const argX2 = "x2";
   static const argY2 = "y2";
   static const argPackageName = "package_name";
+  static const argKey = "key";
+  static const argTimeS = "time_s";
   static const argReason = "reason";
   static const argFunctionId = "function_id";
+  static const argToolName = "tool_name";
   static const argArguments = "arguments";
   static const argContent = "content";
   static const argValue = "value";
@@ -119,7 +123,7 @@ class OobCanonicalActionSchema {
       uiLabel: OobLocalizedText(zhCn: "点击", enUs: "Click"),
       description: OobLocalizedText(zhCn: "点击一个可见目标；有 indexed evidence 时优先给 element_index。", enUs: "Tap a visible target; when indexed evidence is available, prefer element_index."),
       promptGuide: OobLocalizedText(zhCn: "- click(target_description, element_index?, x, y): 点击可见目标；优先填写 indexed evidence 的 element_index，x/y 只是兜底。", enUs: "- click(target_description, element_index?, x, y): Tap a visible target; prefer indexed evidence element_index, x/y are fallback only."),
-      argsTemplate: <String, Object?>{},
+      argsTemplate: const <String, Object?>{},
       args: <OobActionArgSpec>[
         OobActionArgSpec(name: "target_description", type: OobActionArgType.string, required: true, description: OobLocalizedText(zhCn: "要点击的目标描述。", enUs: "Description of the target to tap.")),
         OobActionArgSpec(name: "element_index", type: OobActionArgType.integer, description: OobLocalizedText(zhCn: "优先填写。OOB indexed page evidence 中目标元素的 #index；提供后系统会用 live XML 中该元素中心覆盖坐标。", enUs: "Prefer this. The #index of the target element in OOB indexed page evidence; when provided, the runtime uses that live XML element center over raw coordinates."), minimum: 0),
@@ -141,7 +145,7 @@ class OobCanonicalActionSchema {
       uiLabel: OobLocalizedText(zhCn: "长按", enUs: "Long press"),
       description: OobLocalizedText(zhCn: "长按一个目标。", enUs: "Long-press a target."),
       promptGuide: OobLocalizedText(zhCn: "- long_press(target_description, element_index?, x, y): 长按目标；优先填写 element_index，x/y 只是兜底。", enUs: "- long_press(target_description, element_index?, x, y): Long-press a target; prefer element_index, x/y are fallback only."),
-      argsTemplate: <String, Object?>{},
+      argsTemplate: const <String, Object?>{},
       args: <OobActionArgSpec>[
         OobActionArgSpec(name: "target_description", type: OobActionArgType.string, required: true, description: OobLocalizedText(zhCn: "要长按的目标描述。", enUs: "Description of the target to long-press.")),
         OobActionArgSpec(name: "element_index", type: OobActionArgType.integer, description: OobLocalizedText(zhCn: "优先填写。OOB indexed page evidence 中目标元素的 #index；提供后系统会用 live XML 中该元素中心覆盖坐标。", enUs: "Prefer this. The #index of the target element in OOB indexed page evidence; when provided, the runtime uses that live XML element center over raw coordinates."), minimum: 0),
@@ -164,7 +168,7 @@ class OobCanonicalActionSchema {
       uiLabel: OobLocalizedText(zhCn: "输入文本", enUs: "Input text"),
       description: OobLocalizedText(zhCn: "向一个可见输入目标输入文本；有 indexed evidence 时优先给 element_index。", enUs: "Type text into a visible input target; when indexed evidence is available, prefer element_index."),
       promptGuide: OobLocalizedText(zhCn: "- input_text(target_description, text, element_index?, x, y): 向输入框输入；优先填写 element_index，系统会先走 XML 节点输入，x/y 只是兜底。", enUs: "- input_text(target_description, text, element_index?, x, y): Type into an input field; prefer element_index so the runtime can use XML node input first, x/y are fallback only."),
-      argsTemplate: <String, Object?>{},
+      argsTemplate: const <String, Object?>{},
       args: <OobActionArgSpec>[
         OobActionArgSpec(name: "target_description", type: OobActionArgType.string, required: true, description: OobLocalizedText(zhCn: "要输入文本的目标输入框描述。", enUs: "Description of the input target.")),
         OobActionArgSpec(name: "text", type: OobActionArgType.string, required: true, description: OobLocalizedText(zhCn: "要输入的文本内容。", enUs: "Text content to type.")),
@@ -183,15 +187,18 @@ class OobCanonicalActionSchema {
       routeAction: false,
     ),
     OobActionToolSpec(
-      name: "scroll",
-      uiLabel: OobLocalizedText(zhCn: "滚动", enUs: "Scroll"),
-      description: OobLocalizedText(zhCn: "从起点滑动到终点。", enUs: "Swipe from the start point to the end point."),
-      promptGuide: OobLocalizedText(zhCn: "- scroll(target_description, x1, y1, x2, y2, duration_ms?): 在屏幕上滑动。", enUs: "- scroll(target_description, x1, y1, x2, y2, duration_ms?): Swipe on the screen."),
-      argsTemplate: <String, Object?>{},
+      name: "swipe",
+      uiLabel: OobLocalizedText(zhCn: "滑动", enUs: "Swipe"),
+      description: OobLocalizedText(zhCn: "在屏幕或可滚动区域内按方向滑动。", enUs: "Swipe in a direction on the screen or inside a scrollable region."),
+      promptGuide: OobLocalizedText(zhCn: "- swipe(target_description, direction, scrollable_index?, x1, y1, x2, y2, duration_ms?): 在屏幕或指定可滚动区域内滑动；优先填写 scrollable_index 和 direction，x1/y1/x2/y2 是兜底。", enUs: "- swipe(target_description, direction, scrollable_index?, x1, y1, x2, y2, duration_ms?): Swipe on the screen or a target scrollable region; prefer scrollable_index and direction, x1/y1/x2/y2 are fallback."),
+      argsTemplate: const <String, Object?>{},
       args: <OobActionArgSpec>[
-        OobActionArgSpec(name: "target_description", type: OobActionArgType.string, required: true, description: OobLocalizedText(zhCn: "本次滚动想浏览或定位的目标描述。", enUs: "Description of what this scroll action is trying to browse or locate.")),
+        OobActionArgSpec(name: "target_description", type: OobActionArgType.string, required: true, description: OobLocalizedText(zhCn: "本次滑动想浏览或定位的目标描述。", enUs: "Description of what this swipe action is trying to browse or locate.")),
+        OobActionArgSpec(name: "direction", type: OobActionArgType.string, required: true, description: OobLocalizedText(zhCn: "滑动方向。", enUs: "Swipe direction."), enumValues: <String>["up", "down", "left", "right"]),
         OobActionArgSpec(name: "scrollable_index", type: OobActionArgType.integer, description: OobLocalizedText(zhCn: "可选。OOB indexed page evidence 中 Scrollable regions 的 Sindex；提供后系统会在该区域内生成安全滑动坐标。", enUs: "Optional. The Sindex of the target Scrollable region in OOB indexed page evidence; when provided, the runtime generates safe swipe coordinates inside that region."), minimum: 0),
-        OobActionArgSpec(name: "direction", type: OobActionArgType.string, description: OobLocalizedText(zhCn: "配合 scrollable_index 使用的浏览方向。", enUs: "Browsing direction used with scrollable_index."), enumValues: <String>["up", "down", "left", "right"]),
+        OobActionArgSpec(name: "x", type: OobActionArgType.number, description: OobLocalizedText(zhCn: "可选。AndroidWorld/OmniFlow 风格滑动锚点 X 坐标；不提供时使用安全兜底区域。", enUs: "Optional AndroidWorld/OmniFlow-style swipe anchor X coordinate; when omitted, the runtime uses a safe fallback region."), minimum: 0),
+        OobActionArgSpec(name: "y", type: OobActionArgType.number, description: OobLocalizedText(zhCn: "可选。AndroidWorld/OmniFlow 风格滑动锚点 Y 坐标；不提供时使用安全兜底区域。", enUs: "Optional AndroidWorld/OmniFlow-style swipe anchor Y coordinate; when omitted, the runtime uses a safe fallback region."), minimum: 0),
+        OobActionArgSpec(name: "distance", type: OobActionArgType.number, description: OobLocalizedText(zhCn: "可选。AndroidWorld/OmniFlow 风格滑动距离，单位像素。", enUs: "Optional AndroidWorld/OmniFlow-style swipe distance in pixels."), minimum: 0),
         OobActionArgSpec(name: "x1", type: OobActionArgType.number, required: true, description: OobLocalizedText(zhCn: "起点屏幕绝对像素 X 坐标。", enUs: "Start absolute screen-pixel X coordinate."), minimum: 0),
         OobActionArgSpec(name: "y1", type: OobActionArgType.number, required: true, description: OobLocalizedText(zhCn: "起点屏幕绝对像素 Y 坐标。", enUs: "Start absolute screen-pixel Y coordinate."), minimum: 0),
         OobActionArgSpec(name: "x2", type: OobActionArgType.number, required: true, description: OobLocalizedText(zhCn: "终点屏幕绝对像素 X 坐标。", enUs: "End absolute screen-pixel X coordinate."), minimum: 0),
@@ -211,7 +218,7 @@ class OobCanonicalActionSchema {
       uiLabel: OobLocalizedText(zhCn: "打开应用", enUs: "Open app"),
       description: OobLocalizedText(zhCn: "打开指定应用。", enUs: "Open a specific app."),
       promptGuide: OobLocalizedText(zhCn: "- open_app(package_name): 打开指定应用。", enUs: "- open_app(package_name): Open a specific app."),
-      argsTemplate: <String, Object?>{},
+      argsTemplate: const <String, Object?>{},
       args: <OobActionArgSpec>[
         OobActionArgSpec(name: "package_name", type: OobActionArgType.string, required: true, description: OobLocalizedText(zhCn: "目标应用的 Android package name。", enUs: "Android package name of the target app.")),
       ],
@@ -224,12 +231,14 @@ class OobCanonicalActionSchema {
       routeAction: true,
     ),
     OobActionToolSpec(
-      name: "press_home",
-      uiLabel: OobLocalizedText(zhCn: "回到主页", enUs: "Home"),
-      description: OobLocalizedText(zhCn: "回到桌面。", enUs: "Go to the home screen."),
-      promptGuide: OobLocalizedText(zhCn: "- press_home(): 回到桌面。", enUs: "- press_home(): Go to the home screen."),
-      argsTemplate: <String, Object?>{},
-      args: <OobActionArgSpec>[],
+      name: "press_key",
+      uiLabel: OobLocalizedText(zhCn: "按系统键", enUs: "Press key"),
+      description: OobLocalizedText(zhCn: "按一个系统导航键。", enUs: "Press one system navigation key."),
+      promptGuide: OobLocalizedText(zhCn: "- press_key(key): 按系统导航键；key 只能是 back、home 或 enter。", enUs: "- press_key(key): Press a system navigation key; key must be back, home, or enter."),
+      argsTemplate: const <String, Object?>{},
+      args: <OobActionArgSpec>[
+        OobActionArgSpec(name: "key", type: OobActionArgType.string, required: true, description: OobLocalizedText(zhCn: "系统键名称。", enUs: "System key name."), enumValues: <String>["back", "home", "enter"]),
+      ],
       modelVisible: true,
       replayable: true,
       editorVisible: true,
@@ -239,26 +248,29 @@ class OobCanonicalActionSchema {
       routeAction: true,
     ),
     OobActionToolSpec(
-      name: "press_back",
-      uiLabel: OobLocalizedText(zhCn: "返回", enUs: "Back"),
-      description: OobLocalizedText(zhCn: "返回上一级。", enUs: "Go back one level."),
-      promptGuide: OobLocalizedText(zhCn: "- press_back(): 返回上一级。", enUs: "- press_back(): Go back one level."),
-      argsTemplate: <String, Object?>{},
-      args: <OobActionArgSpec>[],
+      name: "wait",
+      uiLabel: OobLocalizedText(zhCn: "等待", enUs: "Wait"),
+      description: OobLocalizedText(zhCn: "等待页面加载、动画或外部状态变化。", enUs: "Wait for page loading, animation, or external state changes."),
+      promptGuide: OobLocalizedText(zhCn: "- wait(time_s?): 只在页面明确处于加载、动画或等待外部状态变化时使用。", enUs: "- wait(time_s?): Use only when the page is clearly loading, animating, or waiting for an external state change."),
+      argsTemplate: const <String, Object?>{},
+      args: <OobActionArgSpec>[
+        OobActionArgSpec(name: "time_s", type: OobActionArgType.number, description: OobLocalizedText(zhCn: "等待秒数。", enUs: "Seconds to wait."), minimum: 0),
+        OobActionArgSpec(name: "duration_ms", type: OobActionArgType.integer, description: OobLocalizedText(zhCn: "等待毫秒数；与 time_s 二选一。", enUs: "Milliseconds to wait; alternative to time_s."), minimum: 0),
+      ],
       modelVisible: true,
       replayable: true,
       editorVisible: true,
       recordable: false,
       coordinateAction: false,
       pointTargetAction: false,
-      routeAction: true,
+      routeAction: false,
     ),
     OobActionToolSpec(
       name: "get_state",
       uiLabel: OobLocalizedText(zhCn: "刷新状态", enUs: "Get state"),
       description: OobLocalizedText(zhCn: "不执行 UI 操作，只重新获取当前页面状态、包名和 Accessibility tree。", enUs: "Do not perform a UI action; refresh the current page state, package name, and Accessibility tree."),
       promptGuide: OobLocalizedText(zhCn: "- 内部状态刷新：运行时每轮自动读取当前页面状态；该动作不暴露给模型或前端，不点击、不滑动、不输入。", enUs: "- Internal state refresh: the runtime reads the current page state automatically each turn; this action is not exposed to the model or frontend and does not tap, swipe, or type."),
-      argsTemplate: <String, Object?>{},
+      argsTemplate: const <String, Object?>{},
       args: <OobActionArgSpec>[
         OobActionArgSpec(name: "reason", type: OobActionArgType.string, description: OobLocalizedText(zhCn: "为什么需要重新获取状态，例如上一步操作失败、页面无变化或当前页面不确定。", enUs: "Why state refresh is needed, such as previous action failed, page did not change, or current page is uncertain.")),
       ],
@@ -271,14 +283,15 @@ class OobCanonicalActionSchema {
       routeAction: false,
     ),
     OobActionToolSpec(
-      name: "oob_function_run",
-      uiLabel: OobLocalizedText(zhCn: "运行复用指令", enUs: "Run function"),
-      description: OobLocalizedText(zhCn: "执行本轮 OmniFlow recall 明确给出的 OOB 复用指令。调用后根据结果继续选择下一步。只能使用 recall context 里出现过的 function_id，并根据用户任务填写 arguments。", enUs: "Run one OOB reusable Function explicitly listed in the current-turn OmniFlow recall context. After the result, continue deciding the next step. Only use a function_id shown in recall context and fill arguments from the user task."),
-      promptGuide: OobLocalizedText(zhCn: "- oob_function_run(function_id, arguments): 当本轮 OmniFlow recall 给出了高度匹配的复用指令时调用；不要发明 function_id，参数必须从用户任务中填写到 arguments；无参 Function 也必须输出 arguments: {}；调用后看结果，未完成目标时继续下一步。", enUs: "- oob_function_run(function_id, arguments): Use only when the current-turn OmniFlow recall context lists a matching reusable Function; do not invent function_id, fill arguments from the user task; no-argument Functions must still output arguments: {}; inspect the result and continue when the goal is not done."),
-      argsTemplate: <String, Object?>{},
+      name: "call_tool",
+      uiLabel: OobLocalizedText(zhCn: "调用工具", enUs: "Call tool"),
+      description: OobLocalizedText(zhCn: "调用本轮上下文明确允许的工具或已召回 Function。调用后根据结果继续选择下一步。只能使用当前上下文里出现过的 function_id 或 tool_name，并根据用户任务填写 arguments。", enUs: "Call a tool or recalled Function explicitly allowed by the current-turn context. After the result, continue deciding the next step. Only use a function_id or tool_name shown in the current context and fill arguments from the user task."),
+      promptGuide: OobLocalizedText(zhCn: "- call_tool(function_id?, tool_name?, arguments): 调用已召回 Function 或允许的工具；function_id/tool_name 二选一，不要发明 id/name；arguments 必须是 object，无参也输出 {}。", enUs: "- call_tool(function_id?, tool_name?, arguments): Call a recalled Function or allowed tool; provide exactly one of function_id/tool_name, do not invent ids/names, and always pass arguments as an object, using {} for no arguments."),
+      argsTemplate: const <String, Object?>{},
       args: <OobActionArgSpec>[
-        OobActionArgSpec(name: "function_id", type: OobActionArgType.string, required: true, description: OobLocalizedText(zhCn: "本轮 OmniFlow recall context 中给出的 Function id。", enUs: "Function id shown in the current-turn OmniFlow recall context.")),
-        OobActionArgSpec(name: "arguments", type: OobActionArgType.object, required: true, description: OobLocalizedText(zhCn: "Function 业务参数；无参 Function 使用空对象。", enUs: "Business arguments for the Function; use an empty object for no-argument Functions."), additionalProperties: true),
+        OobActionArgSpec(name: "function_id", type: OobActionArgType.string, description: OobLocalizedText(zhCn: "本轮上下文中给出的 Function id；与 tool_name 二选一。", enUs: "Function id shown in the current-turn context; alternative to tool_name.")),
+        OobActionArgSpec(name: "tool_name", type: OobActionArgType.string, description: OobLocalizedText(zhCn: "本轮上下文中允许调用的工具名；与 function_id 二选一。", enUs: "Allowed tool name shown in the current-turn context; alternative to function_id.")),
+        OobActionArgSpec(name: "arguments", type: OobActionArgType.object, required: true, description: OobLocalizedText(zhCn: "工具或 Function 的业务参数；无参使用空对象。", enUs: "Business arguments for the tool or Function; use an empty object for no arguments."), additionalProperties: true),
       ],
       modelVisible: true,
       replayable: false,
@@ -293,7 +306,7 @@ class OobCanonicalActionSchema {
       uiLabel: OobLocalizedText(zhCn: "完成", enUs: "Finished"),
       description: OobLocalizedText(zhCn: "仅当当前页面或上一轮工具结果直接证明用户目标已经完成时结束。", enUs: "End only when the current page or previous tool result directly proves the user's goal is complete."),
       promptGuide: OobLocalizedText(zhCn: "- finished(content?): 仅在当前页面或上一轮工具结果直接证明目标完成时调用；不确定就继续执行下一步。", enUs: "- finished(content?): Call only when the current page or previous tool result directly proves completion; if uncertain, continue with the next action."),
-      argsTemplate: <String, Object?>{"content": "Done"},
+      argsTemplate: const <String, Object?>{"content": "Done"},
       args: <OobActionArgSpec>[
         OobActionArgSpec(name: "content", type: OobActionArgType.string, description: OobLocalizedText(zhCn: "给用户的最终完成说明，可为空。", enUs: "Final completion note for the user. May be empty.")),
       ],
@@ -310,7 +323,7 @@ class OobCanonicalActionSchema {
       uiLabel: OobLocalizedText(zhCn: "询问用户", enUs: "Info"),
       description: OobLocalizedText(zhCn: "向用户询问或请求手动协助。", enUs: "Ask the user a question or request manual help."),
       promptGuide: OobLocalizedText(zhCn: "- info(value): 询问用户或请求用户协助。", enUs: "- info(value): Ask the user for information or manual assistance."),
-      argsTemplate: <String, Object?>{},
+      argsTemplate: const <String, Object?>{},
       args: <OobActionArgSpec>[
         OobActionArgSpec(name: "value", type: OobActionArgType.string, required: true, description: OobLocalizedText(zhCn: "你要问用户的问题或需要用户执行的说明。", enUs: "Question to ask the user or instructions for the user to perform.")),
       ],
@@ -327,7 +340,7 @@ class OobCanonicalActionSchema {
       uiLabel: OobLocalizedText(zhCn: "反馈", enUs: "Feedback"),
       description: OobLocalizedText(zhCn: "反馈当前上下文与目标不匹配。", enUs: "Report that the current context does not match the goal."),
       promptGuide: OobLocalizedText(zhCn: "- feedback(value): 请求上层重新规划。", enUs: "- feedback(value): Ask the upper layer to re-plan."),
-      argsTemplate: <String, Object?>{},
+      argsTemplate: const <String, Object?>{},
       args: <OobActionArgSpec>[
         OobActionArgSpec(name: "value", type: OobActionArgType.string, required: true, description: OobLocalizedText(zhCn: "反馈原因。", enUs: "Reason for the feedback.")),
       ],
@@ -344,7 +357,7 @@ class OobCanonicalActionSchema {
       uiLabel: OobLocalizedText(zhCn: "终止", enUs: "Abort"),
       description: OobLocalizedText(zhCn: "任务无法继续时终止。", enUs: "Abort when the task cannot continue."),
       promptGuide: OobLocalizedText(zhCn: "- abort(value?): 在任务无法继续时终止。", enUs: "- abort(value?): Abort when the task cannot continue."),
-      argsTemplate: <String, Object?>{},
+      argsTemplate: const <String, Object?>{},
       args: <OobActionArgSpec>[
         OobActionArgSpec(name: "value", type: OobActionArgType.string, description: OobLocalizedText(zhCn: "终止任务的原因。", enUs: "Reason for aborting the task.")),
       ],
@@ -361,7 +374,7 @@ class OobCanonicalActionSchema {
       uiLabel: OobLocalizedText(zhCn: "用户选择", enUs: "User choice"),
       description: OobLocalizedText(zhCn: "让用户在若干选项中选择一个。", enUs: "Ask the user to choose one option from a list."),
       promptGuide: OobLocalizedText(zhCn: "- require_user_choice(options, prompt): 让用户做互斥选择。", enUs: "- require_user_choice(options, prompt): Ask the user to make a mutually exclusive choice."),
-      argsTemplate: <String, Object?>{},
+      argsTemplate: const <String, Object?>{},
       args: <OobActionArgSpec>[
         OobActionArgSpec(name: "options", type: OobActionArgType.stringArray, required: true, description: OobLocalizedText(zhCn: "可供用户选择的选项列表。", enUs: "List of options the user can choose from.")),
         OobActionArgSpec(name: "prompt", type: OobActionArgType.string, required: true, description: OobLocalizedText(zhCn: "要求用户做选择的提示文案。", enUs: "Prompt shown to the user when asking for a choice.")),
@@ -379,7 +392,7 @@ class OobCanonicalActionSchema {
       uiLabel: OobLocalizedText(zhCn: "用户确认", enUs: "User confirmation"),
       description: OobLocalizedText(zhCn: "让用户确认当前状态后继续。", enUs: "Ask the user to confirm the current state before continuing."),
       promptGuide: OobLocalizedText(zhCn: "- require_user_confirmation(prompt): 让用户确认后继续。", enUs: "- require_user_confirmation(prompt): Ask the user to confirm before continuing."),
-      argsTemplate: <String, Object?>{},
+      argsTemplate: const <String, Object?>{},
       args: <OobActionArgSpec>[
         OobActionArgSpec(name: "prompt", type: OobActionArgType.string, required: true, description: OobLocalizedText(zhCn: "要求用户确认的提示文案。", enUs: "Prompt asking the user for confirmation.")),
       ],
@@ -393,13 +406,12 @@ class OobCanonicalActionSchema {
     ),
   ];
 
-  static const replayableToolNames = <String>{"click", "long_press", "input_text", "scroll", "open_app", "press_home", "press_back", "finished"};
-  static const recordableToolNames = <String>{"click", "long_press", "input_text", "scroll"};
-  static const coordinateToolNames = <String>{"click", "long_press", "input_text", "scroll"};
+  static const replayableToolNames = <String>{"click", "long_press", "input_text", "swipe", "open_app", "press_key", "wait", "finished"};
+  static const recordableToolNames = <String>{"click", "long_press", "input_text", "swipe"};
+  static const coordinateToolNames = <String>{"click", "long_press", "input_text", "swipe"};
   static const pointTargetToolNames = <String>{"click", "long_press"};
-  static const routeToolNames = <String>{"open_app", "press_home", "press_back"};
-  static const sourceContextArgNames = <String>{"target_description", "element_index", "node_id", "x", "y", "x1", "y1", "x2", "y2", "scrollable_index", "direction", "duration_ms", "text", "package_name", "selector", "node_resource_id", "bounds", "node_class", "clear"};
-  static const actionAliases = <String, String>{};
+  static const routeToolNames = <String>{"open_app", "press_key"};
+  static const sourceContextArgNames = <String>{"target_description", "element_index", "node_id", "x", "y", "x1", "y1", "x2", "y2", "scrollable_index", "direction", "distance", "duration_ms", "time_s", "key", "text", "package_name", "selector", "node_resource_id", "bounds", "node_class", "clear"};
 
   static List<OobActionToolSpec> get editorVisibleTools =>
       tools.where((tool) => tool.editorVisible).toList(growable: false);

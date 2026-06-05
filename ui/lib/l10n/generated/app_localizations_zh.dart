@@ -2465,7 +2465,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get executionActionFinished => '完成';
 
   @override
-  String get executionActionCallFunction => '执行复用指令';
+  String get executionActionCallTool => '调用工具';
 
   @override
   String get executionActionDefault => '动作';
@@ -2744,7 +2744,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get actionTypeFinished => '结束';
 
   @override
-  String get actionTypeCallFunction => '执行复用指令';
+  String get actionTypeCallTool => '调用工具';
 
   @override
   String get actionTypeDefault => '动作';

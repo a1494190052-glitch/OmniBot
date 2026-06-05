@@ -129,7 +129,7 @@ class TraceRecordingDeviceOperator(
     override suspend fun clickNodeById(nodeId: String, targetDescription: String): OperationResult {
         val result = delegate.clickNodeById(nodeId, targetDescription)
         traceSession.recordDeviceEvent(
-            eventType = "node_click",
+            eventType = "click_node",
             request = mapOf(
                 "action" to mapOf(
                     "tool" to "click",
@@ -235,20 +235,26 @@ class TraceRecordingDeviceOperator(
     override suspend fun pressHotKey(key: String): OperationResult {
         val result = delegate.pressHotKey(key)
         val normalizedKey = key.trim().uppercase()
-        val canonicalTool = when (normalizedKey) {
-            "BACK" -> "press_back"
-            "HOME" -> "press_home"
+        val canonicalKey = when (normalizedKey) {
+            "BACK" -> "back"
+            "HOME" -> "home"
+            "ENTER" -> "enter"
             else -> null
         }
         traceSession.recordDeviceEvent(
             eventType = "press_hotkey",
-            request = if (canonicalTool != null) {
-                mapOf("action" to mapOf("tool" to canonicalTool, "args" to emptyMap<String, Any?>()))
+            request = if (canonicalKey != null) {
+                mapOf(
+                    "action" to mapOf(
+                        "tool" to "press_key",
+                        "args" to mapOf("key" to canonicalKey),
+                    )
+                )
             } else {
                 mapOf("unsupported_key" to normalizedKey)
             },
             response = operationResultMap(result),
-            advanceStepIndex = canonicalTool != null,
+            advanceStepIndex = canonicalKey != null,
         )
         return result
     }
@@ -328,7 +334,7 @@ class TraceRecordingDeviceOperator(
             eventType = "slide",
             request = mapOf(
                 "action" to mapOf(
-                    "tool" to "scroll",
+                    "tool" to "swipe",
                     "args" to params,
                 )
             ),
@@ -344,8 +350,8 @@ class TraceRecordingDeviceOperator(
             eventType = "go_home",
             request = mapOf(
                 "action" to mapOf(
-                    "tool" to "press_home",
-                    "args" to emptyMap<String, Any?>(),
+                    "tool" to "press_key",
+                    "args" to mapOf("key" to "home"),
                 )
             ),
             response = operationResultMap(result),
@@ -360,8 +366,8 @@ class TraceRecordingDeviceOperator(
             eventType = "go_back",
             request = mapOf(
                 "action" to mapOf(
-                    "tool" to "press_back",
-                    "args" to emptyMap<String, Any?>(),
+                    "tool" to "press_key",
+                    "args" to mapOf("key" to "back"),
                 )
             ),
             response = operationResultMap(result),

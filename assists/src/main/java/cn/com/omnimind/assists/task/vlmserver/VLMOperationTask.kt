@@ -844,11 +844,15 @@ open class VLMOperationTask(
         return when (action) {
             is ClickAction -> "点击 ${action.targetDescription}"
             is InputTextAction -> "输入文本 ${action.targetDescription}"
-            is ScrollAction -> "滚动 ${action.targetDescription}"
+            is SwipeAction -> "滚动 ${action.targetDescription}"
             is LongPressAction -> "长按 ${action.targetDescription}"
             is OpenAppAction -> "打开应用"
-            is PressHomeAction -> "返回桌面"
-            is PressBackAction -> "返回"
+            is PressKeyAction -> when (action.key.lowercase()) {
+                "home" -> "返回桌面"
+                "back" -> "返回"
+                "enter" -> "确认"
+                else -> "按键 ${action.key}"
+            }
             is GetStateAction -> "刷新页面状态"
             is FunctionRunAction -> "执行工具 ${action.functionId}"
             is WaitAction -> "旧版停留"
@@ -875,7 +879,7 @@ open class VLMOperationTask(
                 "x" to action.x,
                 "y" to action.y
             )
-            is ScrollAction -> linkedMapOf(
+            is SwipeAction -> linkedMapOf(
                 "target_description" to action.targetDescription,
                 "x1" to action.x1,
                 "y1" to action.y1,
@@ -889,8 +893,7 @@ open class VLMOperationTask(
                 "y" to action.y
             )
             is OpenAppAction -> linkedMapOf("package_name" to action.packageName)
-            is PressHomeAction -> emptyMap()
-            is PressBackAction -> emptyMap()
+            is PressKeyAction -> linkedMapOf("key" to action.key)
             is GetStateAction -> linkedMapOf("reason" to action.reason)
             is FunctionRunAction -> linkedMapOf(
                 "function_id" to action.functionId,

@@ -747,7 +747,7 @@ internal object ManualRawTouchParser {
             val actionName = when {
                 distance <= TAP_SLOP_PX && durationMs <= MAX_TAP_DURATION_MS -> "click"
                 distance <= TAP_SLOP_PX && durationMs <= MAX_LONG_PRESS_DURATION_MS -> "long_press"
-                distance >= MIN_SWIPE_DISTANCE_PX -> "scroll"
+                distance >= MIN_SWIPE_DISTANCE_PX -> "swipe"
                 else -> return null
             }
             return ManualRawTouchGesture(

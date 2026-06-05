@@ -959,7 +959,7 @@ class VLMOperationService(
                         position = listOf(processedStep.action.x, processedStep.action.y)
                     )
 
-                    is ScrollAction -> processedStep = updateActionWithCoordinates(
+                    is SwipeAction -> processedStep = updateActionWithCoordinates(
                         processedStep,
                         position = listOf(
                             processedStep.action.x1,
@@ -1327,7 +1327,7 @@ class VLMOperationService(
 
     private fun needsPreciseLocation(action: UIAction): Boolean {
         return when (action) {
-            is ClickAction, is InputTextAction, is ScrollAction, is LongPressAction -> true
+            is ClickAction, is InputTextAction, is SwipeAction, is LongPressAction -> true
             else -> false
         }
     }
@@ -1336,11 +1336,10 @@ class VLMOperationService(
         return when (action) {
             is ClickAction,
             is InputTextAction,
-            is ScrollAction,
+            is SwipeAction,
             is LongPressAction,
             is OpenAppAction,
-            is PressHomeAction,
-            is PressBackAction -> true
+            is PressKeyAction -> true
             else -> false
         }
     }
@@ -1349,11 +1348,10 @@ class VLMOperationService(
         return when (this) {
             is ClickAction,
             is InputTextAction,
-            is ScrollAction,
+            is SwipeAction,
             is LongPressAction,
             is OpenAppAction,
-            is PressHomeAction,
-            is PressBackAction,
+            is PressKeyAction,
             is GetStateAction,
             is FunctionRunAction -> true
             else -> false
@@ -1425,7 +1423,7 @@ class VLMOperationService(
                 action.copy(x = absoluteX.toFloat(), y = absoluteY.toFloat())
             }
 
-            is ScrollAction -> {
+            is SwipeAction -> {
                 val rawX1 = position.getOrNull(0) ?: 0f
                 val rawY1 = position.getOrNull(1) ?: 0f
                 val rawX2 = position.getOrNull(2) ?: 0f
@@ -1444,7 +1442,7 @@ class VLMOperationService(
                 )
                 OmniLog.d(
                     Tag,
-                    "Coord mapping(scroll): raw=($rawX1, $rawY1, $rawX2, $rawY2) type=(${
+                    "Coord mapping(swipe): raw=($rawX1, $rawY1, $rawX2, $rawY2) type=(${
                         coordType(
                             rawX1,
                             displayWidth
@@ -1583,7 +1581,7 @@ class VLMOperationService(
                 )
             }
 
-            is ScrollAction -> {
+            is SwipeAction -> {
                 val index = action.scrollableIndex ?: return step
                 val target = VLMIndexedPageContext.scrollTarget(
                     currentXml = currentXml,
@@ -1592,7 +1590,7 @@ class VLMOperationService(
                     index = index,
                     direction = action.direction
                 ) ?: run {
-                    OmniLog.w(Tag, "Indexed scroll grounding failed: missing scrollable_index=$index")
+                    OmniLog.w(Tag, "Indexed swipe grounding failed: missing scrollable_index=$index")
                     return step
                 }
                 val safeScroll = sanitizeScrollGestureCoordinates(
@@ -1605,7 +1603,7 @@ class VLMOperationService(
                 )
                 OmniLog.i(
                     Tag,
-                    "Indexed scroll grounding applied: index=$index direction=${action.direction.orEmpty()} label=${target.label} -> (${safeScroll.x1},${safeScroll.y1},${safeScroll.x2},${safeScroll.y2})"
+                    "Indexed swipe grounding applied: index=$index direction=${action.direction.orEmpty()} label=${target.label} -> (${safeScroll.x1},${safeScroll.y1},${safeScroll.x2},${safeScroll.y2})"
                 )
                 step.copy(
                     action = action.copy(
@@ -1834,9 +1832,8 @@ class VLMOperationService(
         when (action) {
             is ClickAction,
             is LongPressAction,
-            is ScrollAction,
-            is PressBackAction,
-            is PressHomeAction,
+            is SwipeAction,
+            is PressKeyAction,
             is OpenAppAction,
             is InputTextAction,
             is FunctionRunAction -> true

@@ -30,6 +30,7 @@ import cn.com.omnimind.bot.agent.SubagentDispatcher
 import cn.com.omnimind.bot.agent.ToolExecutionResult
 import cn.com.omnimind.bot.agent.WorkspaceMemoryService
 import cn.com.omnimind.bot.runlog.RunLogPagePackageInference
+import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import cn.com.omnimind.bot.util.AssistsUtil
 import com.google.gson.GsonBuilder
 import com.google.gson.reflect.TypeToken
@@ -148,7 +149,7 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
         )
         val env = DefaultAgentExecutionEnvironment(
             agentRunId = "debug-agent-function-management",
-            userMessage = "Validate OOB Function registration, listing, guard, and run through Agent tools.",
+            userMessage = "Validate OOB Function registration, listing, guard, and call_tool execution through Agent tools.",
             currentPackageName = currentBefore,
             runtimeContextRepository = AgentRuntimeContextRepository(context),
             workspaceDescriptor = workspace,
@@ -237,11 +238,10 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
                 registry = registry,
                 router = router,
                 env = env,
-                toolName = "oob_function_run",
+                toolName = RunLogReplayPolicy.TOOL_CALL_TOOL,
                 args = buildJsonObject {
-                    put("functionId", JsonPrimitive(functionId))
-                    put("confirmed", JsonPrimitive(true))
-                    put("executionMode", JsonPrimitive("foreground"))
+                    put("function_id", JsonPrimitive(functionId))
+                    put("goal", JsonPrimitive("Validate debug Function execution through call_tool."))
                 },
                 callback = NoOpAgentCallback,
             )
@@ -252,7 +252,7 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
         val registerRecord = records.lastOrNull { it["tool_name"] == "oob_function_register" }
         val listRecord = records.lastOrNull { it["tool_name"] == "oob_function_list" }
         val guardRecord = records.lastOrNull { it["tool_name"] == "oob_function_guard_check" }
-        val runRecord = records.lastOrNull { it["tool_name"] == "oob_function_run" }
+        val runRecord = records.lastOrNull { it["tool_name"] == RunLogReplayPolicy.TOOL_CALL_TOOL }
         val listContainsFunction = recordPayload(listRecord)["functions"].let { raw ->
             (raw as? List<*>)?.any { item ->
                 (item as? Map<*, *>)?.get("function_id")?.toString() == functionId

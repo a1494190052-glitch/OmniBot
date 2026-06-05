@@ -1,7 +1,6 @@
 package cn.com.omnimind.bot.omniflow
 
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
-import cn.com.omnimind.bot.runlog.OobFunctionSchemaBuilder
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -123,7 +122,7 @@ class OobFunctionParameterBindingNormalizerTest {
                 "execution" to mapOf(
                     "steps" to listOf(
                         step(
-                            "oob_function_run",
+                            "call_tool",
                             mapOf(
                                 "function_id" to "child_search",
                                 "arguments" to mapOf("query" to "彩票"),
@@ -177,7 +176,7 @@ class OobFunctionParameterBindingNormalizerTest {
             ),
             "execution" to mapOf(
                 "steps" to listOf(
-                    step("oob_function_run", mapOf("function_id" to "child_search")),
+                    step("call_tool", mapOf("function_id" to "child_search")),
                 ),
             ),
         )

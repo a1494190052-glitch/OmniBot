@@ -48,9 +48,9 @@ data class InputTextAction(
 ) : UIAction()
 
 @Serializable
-@SerialName("scroll")
-data class ScrollAction(
-    override val name: String = "scroll",
+@SerialName("swipe")
+data class SwipeAction(
+    override val name: String = "swipe",
     @SerialName("target_description")
     val targetDescription: String,
     var x1: Float,  // 起始点x
@@ -87,21 +87,18 @@ data class OpenAppAction(
 ) : UIAction()
 
 @Serializable
-@SerialName("press_home")
-data class PressHomeAction(
-    override val name: String = "press_home"
-) : UIAction()
-
-@Serializable
-@SerialName("press_back")
-data class PressBackAction(
-    override val name: String = "press_back"
+@SerialName("press_key")
+data class PressKeyAction(
+    override val name: String = "press_key",
+    val key: String
 ) : UIAction()
 
 @Serializable
 @SerialName("wait")
 data class WaitAction(
     override val name: String = "wait",
+    @SerialName("time_s")
+    val timeS: Double? = null,
     @SerialName("duration_ms")
     val durationMs: Long? = null
 ) : UIAction()
@@ -114,11 +111,13 @@ data class GetStateAction(
 ) : UIAction()
 
 @Serializable
-@SerialName("oob_function_run")
+@SerialName("call_tool")
 data class FunctionRunAction(
-    override val name: String = "oob_function_run",
+    override val name: String = "call_tool",
     @SerialName("function_id")
     val functionId: String,
+    @SerialName("tool_name")
+    val toolName: String? = null,
     val arguments: JsonObject = buildJsonObject {}
 ) : UIAction()
 

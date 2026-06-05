@@ -39,15 +39,12 @@ void main() {
       case 'click':
       case 'long_press':
         return {'x': 120, 'y': 240};
-      case 'scroll':
       case 'swipe':
         return {'x1': 500, 'y1': 1600, 'x2': 500, 'y2': 800};
-      case 'type':
       case 'input_text':
-        return {'content': 'hello'};
+        return {'text': 'hello'};
       case 'open_app':
         return {'package_name': 'com.example.app'};
-      case 'hot_key':
       case 'press_key':
         return {'key': 'ENTER'};
       case 'finished':
@@ -67,10 +64,6 @@ void main() {
     expect(
       _stringSet(policy['omniflow_actions']),
       RunLogReplayPolicy.omniflowActions,
-    );
-    expect(
-      _stringMap(policy['omniflow_action_aliases']),
-      RunLogReplayPolicy.omniflowActionAliases,
     );
     expect(
       _stringSet(policy['coordinate_actions']),
@@ -161,14 +154,14 @@ void main() {
       cards: [
         card('click', const {'target_description': 'Open', 'x': 120, 'y': 240}),
         card('wait', const {'duration_ms': 1000}),
-        card('type', const {'content': 'hello'}),
+        card('input_text', const {'text': 'hello'}),
       ],
       useEnglish: true,
     );
 
     final steps = stepsFrom(spec);
     expect(steps.map((step) => step['tool']), ['click', 'input_text']);
-    expect(steps.last['source_tool'], 'type');
+    expect(steps.last['source_tool'], 'input_text');
     expect(steps.map((step) => step['id']), ['step_1', 'step_2']);
     expect(
       steps.any(
@@ -185,14 +178,14 @@ void main() {
     expect(events.single['reason'], 'non_replayable_noise_tool');
   });
 
-  test('deduplicates repeated legacy type input events', () {
+  test('deduplicates repeated input_text events', () {
     final spec = RunLogReusableFunctionConverter.buildLocalFunctionJson(
       runId: 'run-duplicate-type',
       title: 'Type once',
       payload: const {'goal': 'Type once'},
       cards: [
-        card('type', const {
-          'content': 'hello',
+        card('input_text', const {
+          'text': 'hello',
           'target_description': 'Search',
           'node_resource_id': 'search_box',
         }),
@@ -225,15 +218,15 @@ void main() {
     expect(cleanup['annotated_step_count'], 1);
   });
 
-  test('normalizes Omniflow action aliases before export', () {
+  test('keeps canonical Omniflow actions before export', () {
     final spec = RunLogReusableFunctionConverter.buildLocalFunctionJson(
-      runId: 'run-aliases',
-      title: 'Replay aliases',
-      payload: const {'goal': 'Replay aliases'},
+      runId: 'run-canonical-actions',
+      title: 'Replay canonical actions',
+      payload: const {'goal': 'Replay canonical actions'},
       cards: [
-        card('tap', const {'x': 120, 'y': 240}),
-        card('type_text', const {'text': 'hello'}),
-        card('done', const {'content': 'done'}),
+        card('click', const {'x': 120, 'y': 240}),
+        card('input_text', const {'text': 'hello'}),
+        card('finished', const {'content': 'done'}),
       ],
       useEnglish: true,
     );
@@ -250,9 +243,9 @@ void main() {
       'finished',
     ]);
     expect(steps.map((step) => step['source_tool']), [
-      'tap',
-      'type_text',
-      'done',
+      'click',
+      'input_text',
+      'finished',
     ]);
     expect(
       (steps.first['source_context'] as Map)['action'],
@@ -420,7 +413,7 @@ void main() {
       payload: const {'goal': 'OmniFlow tool replay'},
       cards: [
         card('go_to_node', const {'node_id': 'node_1'}),
-        card('call_function', const {'function_id': 'func_provider'}),
+        card('call_tool', const {'function_id': 'func_provider'}),
       ],
       useEnglish: true,
     );
@@ -441,7 +434,7 @@ void main() {
     expect(steps[1]['scriptable'], isTrue);
     expect(steps[1]['tool'], 'call_tool');
     expect(steps[1]['callable_tool'], 'call_tool');
-    expect(steps[1]['source_tool'], 'call_function');
+    expect(steps[1]['source_tool'], 'call_tool');
     expect((steps[1]['tool_binding'] as Map)['kind'], 'omniflow_function');
     expect(steps[1].containsKey('agent_call'), isFalse);
   });
@@ -454,7 +447,7 @@ void main() {
         title: 'Call a live tool',
         payload: const {'goal': 'Call a live tool'},
         cards: [
-          card('oob_tool_call', const {
+          card('call_tool', const {
             'toolName': 'vlm_task',
             'arguments': {'goal': 'Tap Settings'},
           }),
@@ -467,7 +460,7 @@ void main() {
       expect(step['kind'], 'tool_call');
       expect(step['tool'], 'call_tool');
       expect(step['callable_tool'], 'call_tool');
-      expect(step['source_tool'], 'oob_tool_call');
+      expect(step['source_tool'], 'call_tool');
       expect(step.containsKey('model_free'), isFalse);
       expect((step['args'] as Map)['tool_name'], 'vlm_task');
     },
@@ -889,7 +882,7 @@ Actual output:
             'x': 120,
             'y': 240,
           }),
-          card('type', const {'content': '妈妈'}),
+          card('input_text', const {'text': '妈妈'}),
         ],
         useEnglish: true,
       );
@@ -914,7 +907,7 @@ Actual output:
       expect(prompt, contains('keyboard_obscuring'));
       expect(prompt, contains('user-visible operation sequence'));
       expect(prompt, contains('success signal when known'));
-      expect(prompt, contains(r'$.execution.steps[1].args.content'));
+      expect(prompt, contains(r'$.execution.steps[1].args.text'));
       expect(prompt, contains('Work one section at a time'));
       expect(prompt, contains('enhanced, unchanged, partial, or failed'));
       expect(prompt, isNot(contains(sourceXml)));
@@ -931,8 +924,8 @@ Actual output:
         title: 'Create contact',
         payload: const {'goal': 'Create a contact'},
         cards: [
-          card('type', const {
-            'content': '妈妈',
+          card('input_text', const {
+            'text': '妈妈',
             'target_description': 'Name field',
           }),
           card('input_text', const {
@@ -1083,7 +1076,7 @@ Actual output:
         title: '小红书搜索关键词',
         payload: const {'goal': '小红书搜索关键词'},
         cards: [
-          card('call_function', const {
+          card('call_tool', const {
             'function_id': 'child_search',
             'arguments': {'query': '彩票'},
           }),

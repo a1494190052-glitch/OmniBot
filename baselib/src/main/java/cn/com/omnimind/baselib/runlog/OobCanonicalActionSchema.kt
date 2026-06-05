@@ -14,12 +14,12 @@ object OobCanonicalActionSchema {
     const val TOOL_CLICK = "click"
     const val TOOL_LONG_PRESS = "long_press"
     const val TOOL_INPUT_TEXT = "input_text"
-    const val TOOL_SCROLL = "scroll"
+    const val TOOL_SWIPE = "swipe"
     const val TOOL_OPEN_APP = "open_app"
-    const val TOOL_PRESS_HOME = "press_home"
-    const val TOOL_PRESS_BACK = "press_back"
+    const val TOOL_PRESS_KEY = "press_key"
+    const val TOOL_WAIT = "wait"
     const val TOOL_GET_STATE = "get_state"
-    const val TOOL_OOB_FUNCTION_RUN = "oob_function_run"
+    const val TOOL_CALL_TOOL = "call_tool"
     const val TOOL_FINISHED = "finished"
     const val TOOL_INFO = "info"
     const val TOOL_FEEDBACK = "feedback"
@@ -35,15 +35,19 @@ object OobCanonicalActionSchema {
     const val ARG_Y = "y"
     const val ARG_DURATION_MS = "duration_ms"
     const val ARG_TEXT = "text"
-    const val ARG_SCROLLABLE_INDEX = "scrollable_index"
     const val ARG_DIRECTION = "direction"
+    const val ARG_SCROLLABLE_INDEX = "scrollable_index"
+    const val ARG_DISTANCE = "distance"
     const val ARG_X1 = "x1"
     const val ARG_Y1 = "y1"
     const val ARG_X2 = "x2"
     const val ARG_Y2 = "y2"
     const val ARG_PACKAGE_NAME = "package_name"
+    const val ARG_KEY = "key"
+    const val ARG_TIME_S = "time_s"
     const val ARG_REASON = "reason"
     const val ARG_FUNCTION_ID = "function_id"
+    const val ARG_TOOL_NAME = "tool_name"
     const val ARG_ARGUMENTS = "arguments"
     const val ARG_CONTENT = "content"
     const val ARG_VALUE = "value"
@@ -261,17 +265,24 @@ ArgSpec(
             routeAction = false,
         ),
         ToolSpec(
-            name = "scroll",
-            uiLabel = LocalizedText(zhCn = "滚动", enUs = "Scroll"),
-            description = LocalizedText(zhCn = "从起点滑动到终点。", enUs = "Swipe from the start point to the end point."),
-            promptGuide = LocalizedText(zhCn = "- scroll(target_description, x1, y1, x2, y2, duration_ms?): 在屏幕上滑动。", enUs = "- scroll(target_description, x1, y1, x2, y2, duration_ms?): Swipe on the screen."),
+            name = "swipe",
+            uiLabel = LocalizedText(zhCn = "滑动", enUs = "Swipe"),
+            description = LocalizedText(zhCn = "在屏幕或可滚动区域内按方向滑动。", enUs = "Swipe in a direction on the screen or inside a scrollable region."),
+            promptGuide = LocalizedText(zhCn = "- swipe(target_description, direction, scrollable_index?, x1, y1, x2, y2, duration_ms?): 在屏幕或指定可滚动区域内滑动；优先填写 scrollable_index 和 direction，x1/y1/x2/y2 是兜底。", enUs = "- swipe(target_description, direction, scrollable_index?, x1, y1, x2, y2, duration_ms?): Swipe on the screen or a target scrollable region; prefer scrollable_index and direction, x1/y1/x2/y2 are fallback."),
             argsTemplate = emptyMap(),
             args = listOf(
 ArgSpec(
                     name = "target_description",
                     type = Type.STRING,
                     required = true,
-                    description = LocalizedText(zhCn = "本次滚动想浏览或定位的目标描述。", enUs = "Description of what this scroll action is trying to browse or locate."),
+                    description = LocalizedText(zhCn = "本次滑动想浏览或定位的目标描述。", enUs = "Description of what this swipe action is trying to browse or locate."),
+                ),
+ArgSpec(
+                    name = "direction",
+                    type = Type.STRING,
+                    required = true,
+                    description = LocalizedText(zhCn = "滑动方向。", enUs = "Swipe direction."),
+                    enumValues = listOf("up", "down", "left", "right"),
                 ),
 ArgSpec(
                     name = "scrollable_index",
@@ -280,10 +291,22 @@ ArgSpec(
                     minimum = 0,
                 ),
 ArgSpec(
-                    name = "direction",
-                    type = Type.STRING,
-                    description = LocalizedText(zhCn = "配合 scrollable_index 使用的浏览方向。", enUs = "Browsing direction used with scrollable_index."),
-                    enumValues = listOf("up", "down", "left", "right"),
+                    name = "x",
+                    type = Type.NUMBER,
+                    description = LocalizedText(zhCn = "可选。AndroidWorld/OmniFlow 风格滑动锚点 X 坐标；不提供时使用安全兜底区域。", enUs = "Optional AndroidWorld/OmniFlow-style swipe anchor X coordinate; when omitted, the runtime uses a safe fallback region."),
+                    minimum = 0,
+                ),
+ArgSpec(
+                    name = "y",
+                    type = Type.NUMBER,
+                    description = LocalizedText(zhCn = "可选。AndroidWorld/OmniFlow 风格滑动锚点 Y 坐标；不提供时使用安全兜底区域。", enUs = "Optional AndroidWorld/OmniFlow-style swipe anchor Y coordinate; when omitted, the runtime uses a safe fallback region."),
+                    minimum = 0,
+                ),
+ArgSpec(
+                    name = "distance",
+                    type = Type.NUMBER,
+                    description = LocalizedText(zhCn = "可选。AndroidWorld/OmniFlow 风格滑动距离，单位像素。", enUs = "Optional AndroidWorld/OmniFlow-style swipe distance in pixels."),
+                    minimum = 0,
                 ),
 ArgSpec(
                     name = "x1",
@@ -351,12 +374,20 @@ ArgSpec(
             routeAction = true,
         ),
         ToolSpec(
-            name = "press_home",
-            uiLabel = LocalizedText(zhCn = "回到主页", enUs = "Home"),
-            description = LocalizedText(zhCn = "回到桌面。", enUs = "Go to the home screen."),
-            promptGuide = LocalizedText(zhCn = "- press_home(): 回到桌面。", enUs = "- press_home(): Go to the home screen."),
+            name = "press_key",
+            uiLabel = LocalizedText(zhCn = "按系统键", enUs = "Press key"),
+            description = LocalizedText(zhCn = "按一个系统导航键。", enUs = "Press one system navigation key."),
+            promptGuide = LocalizedText(zhCn = "- press_key(key): 按系统导航键；key 只能是 back、home 或 enter。", enUs = "- press_key(key): Press a system navigation key; key must be back, home, or enter."),
             argsTemplate = emptyMap(),
-            args = emptyList(),
+            args = listOf(
+ArgSpec(
+                    name = "key",
+                    type = Type.STRING,
+                    required = true,
+                    description = LocalizedText(zhCn = "系统键名称。", enUs = "System key name."),
+                    enumValues = listOf("back", "home", "enter"),
+                ),
+            ),
             modelVisible = true,
             replayable = true,
             editorVisible = true,
@@ -366,19 +397,32 @@ ArgSpec(
             routeAction = true,
         ),
         ToolSpec(
-            name = "press_back",
-            uiLabel = LocalizedText(zhCn = "返回", enUs = "Back"),
-            description = LocalizedText(zhCn = "返回上一级。", enUs = "Go back one level."),
-            promptGuide = LocalizedText(zhCn = "- press_back(): 返回上一级。", enUs = "- press_back(): Go back one level."),
+            name = "wait",
+            uiLabel = LocalizedText(zhCn = "等待", enUs = "Wait"),
+            description = LocalizedText(zhCn = "等待页面加载、动画或外部状态变化。", enUs = "Wait for page loading, animation, or external state changes."),
+            promptGuide = LocalizedText(zhCn = "- wait(time_s?): 只在页面明确处于加载、动画或等待外部状态变化时使用。", enUs = "- wait(time_s?): Use only when the page is clearly loading, animating, or waiting for an external state change."),
             argsTemplate = emptyMap(),
-            args = emptyList(),
+            args = listOf(
+ArgSpec(
+                    name = "time_s",
+                    type = Type.NUMBER,
+                    description = LocalizedText(zhCn = "等待秒数。", enUs = "Seconds to wait."),
+                    minimum = 0,
+                ),
+ArgSpec(
+                    name = "duration_ms",
+                    type = Type.INTEGER,
+                    description = LocalizedText(zhCn = "等待毫秒数；与 time_s 二选一。", enUs = "Milliseconds to wait; alternative to time_s."),
+                    minimum = 0,
+                ),
+            ),
             modelVisible = true,
             replayable = true,
             editorVisible = true,
             recordable = false,
             coordinateAction = false,
             pointTargetAction = false,
-            routeAction = true,
+            routeAction = false,
         ),
         ToolSpec(
             name = "get_state",
@@ -402,23 +446,27 @@ ArgSpec(
             routeAction = false,
         ),
         ToolSpec(
-            name = "oob_function_run",
-            uiLabel = LocalizedText(zhCn = "运行复用指令", enUs = "Run function"),
-            description = LocalizedText(zhCn = "执行本轮 OmniFlow recall 明确给出的 OOB 复用指令。调用后根据结果继续选择下一步。只能使用 recall context 里出现过的 function_id，并根据用户任务填写 arguments。", enUs = "Run one OOB reusable Function explicitly listed in the current-turn OmniFlow recall context. After the result, continue deciding the next step. Only use a function_id shown in recall context and fill arguments from the user task."),
-            promptGuide = LocalizedText(zhCn = "- oob_function_run(function_id, arguments): 当本轮 OmniFlow recall 给出了高度匹配的复用指令时调用；不要发明 function_id，参数必须从用户任务中填写到 arguments；无参 Function 也必须输出 arguments: {}；调用后看结果，未完成目标时继续下一步。", enUs = "- oob_function_run(function_id, arguments): Use only when the current-turn OmniFlow recall context lists a matching reusable Function; do not invent function_id, fill arguments from the user task; no-argument Functions must still output arguments: {}; inspect the result and continue when the goal is not done."),
+            name = "call_tool",
+            uiLabel = LocalizedText(zhCn = "调用工具", enUs = "Call tool"),
+            description = LocalizedText(zhCn = "调用本轮上下文明确允许的工具或已召回 Function。调用后根据结果继续选择下一步。只能使用当前上下文里出现过的 function_id 或 tool_name，并根据用户任务填写 arguments。", enUs = "Call a tool or recalled Function explicitly allowed by the current-turn context. After the result, continue deciding the next step. Only use a function_id or tool_name shown in the current context and fill arguments from the user task."),
+            promptGuide = LocalizedText(zhCn = "- call_tool(function_id?, tool_name?, arguments): 调用已召回 Function 或允许的工具；function_id/tool_name 二选一，不要发明 id/name；arguments 必须是 object，无参也输出 {}。", enUs = "- call_tool(function_id?, tool_name?, arguments): Call a recalled Function or allowed tool; provide exactly one of function_id/tool_name, do not invent ids/names, and always pass arguments as an object, using {} for no arguments."),
             argsTemplate = emptyMap(),
             args = listOf(
 ArgSpec(
                     name = "function_id",
                     type = Type.STRING,
-                    required = true,
-                    description = LocalizedText(zhCn = "本轮 OmniFlow recall context 中给出的 Function id。", enUs = "Function id shown in the current-turn OmniFlow recall context."),
+                    description = LocalizedText(zhCn = "本轮上下文中给出的 Function id；与 tool_name 二选一。", enUs = "Function id shown in the current-turn context; alternative to tool_name."),
+                ),
+ArgSpec(
+                    name = "tool_name",
+                    type = Type.STRING,
+                    description = LocalizedText(zhCn = "本轮上下文中允许调用的工具名；与 function_id 二选一。", enUs = "Allowed tool name shown in the current-turn context; alternative to function_id."),
                 ),
 ArgSpec(
                     name = "arguments",
                     type = Type.OBJECT,
                     required = true,
-                    description = LocalizedText(zhCn = "Function 业务参数；无参 Function 使用空对象。", enUs = "Business arguments for the Function; use an empty object for no-argument Functions."),
+                    description = LocalizedText(zhCn = "工具或 Function 的业务参数；无参使用空对象。", enUs = "Business arguments for the tool or Function; use an empty object for no arguments."),
                     additionalProperties = true,
                 ),
             ),
@@ -575,7 +623,7 @@ ArgSpec(
     val coordinateToolNames: Set<String> = tools.filter { it.coordinateAction }.mapTo(linkedSetOf()) { it.name }
     val pointTargetToolNames: Set<String> = tools.filter { it.pointTargetAction }.mapTo(linkedSetOf()) { it.name }
     val routeToolNames: Set<String> = tools.filter { it.routeAction }.mapTo(linkedSetOf()) { it.name }
-    val sourceContextArgNames: Set<String> = linkedSetOf("target_description", "element_index", "node_id", "x", "y", "x1", "y1", "x2", "y2", "scrollable_index", "direction", "duration_ms", "text", "package_name", "selector", "node_resource_id", "bounds", "node_class", "clear")
+    val sourceContextArgNames: Set<String> = linkedSetOf("target_description", "element_index", "node_id", "x", "y", "x1", "y1", "x2", "y2", "scrollable_index", "direction", "distance", "duration_ms", "time_s", "key", "text", "package_name", "selector", "node_resource_id", "bounds", "node_class", "clear")
 
     private val toolsByName: Map<String, ToolSpec> = tools.associateBy { it.name }
 

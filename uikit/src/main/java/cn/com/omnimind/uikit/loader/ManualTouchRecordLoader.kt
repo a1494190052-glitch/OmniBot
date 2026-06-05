@@ -236,7 +236,7 @@ object ManualTouchRecordLoader {
                 // Use net displacement (start→end), not peak displacement during move.
                 // Peak-based detection misclassifies taps where the finger briefly drifts.
                 val actionName = when {
-                    distancePx >= touchSlop -> OobCanonicalActionSchema.TOOL_SCROLL
+                    distancePx >= touchSlop -> OobCanonicalActionSchema.TOOL_SWIPE
                     durationMs >= longPressTimeout -> OobCanonicalActionSchema.TOOL_LONG_PRESS
                     else -> OobCanonicalActionSchema.TOOL_CLICK
                 }
@@ -249,7 +249,7 @@ object ManualTouchRecordLoader {
                     endY = endY,
                     durationMs = durationMs,
                     distancePx = distancePx,
-                    direction = directionName(startX, startY, endX, endY).takeIf { actionName == OobCanonicalActionSchema.TOOL_SCROLL },
+                    direction = directionName(startX, startY, endX, endY).takeIf { actionName == OobCanonicalActionSchema.TOOL_SWIPE },
                     startedAtMs = downAtMs,
                     finishedAtMs = finishedAtMs,
                     displayWidth = currentDisplaySize().x,
@@ -486,7 +486,7 @@ object ManualTouchRecordLoader {
         val keyboardTop = keyboardTopForGestureLocked(displayHeight) ?: return false
         if (keyboardTop >= displayHeight) return false
         val gestureY = when (gesture.actionName) {
-            OobCanonicalActionSchema.TOOL_SCROLL -> (gesture.startY + gesture.endY) / 2f
+            OobCanonicalActionSchema.TOOL_SWIPE -> (gesture.startY + gesture.endY) / 2f
             else -> gesture.startY
         }
         return gestureY >= keyboardTop

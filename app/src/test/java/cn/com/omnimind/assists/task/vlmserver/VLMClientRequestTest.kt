@@ -364,7 +364,7 @@ class VLMClientRequestTest {
     }
 
     @Test
-    fun `openai tool action parser rejects legacy oob function run without dynamic tool`() {
+    fun `openai tool action parser supports call tool function invocation`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(
             SceneChatCompletionTurn(
@@ -375,13 +375,13 @@ class VLMClientRequestTest {
                     message = ChatCompletionMessage(
                         role = "assistant",
                         toolCalls = listOf(
-                            AssistantToolCall(
-                                id = "call_1",
-                                function = AssistantToolCallFunction(
-                                    name = "oob_function_run",
-                                    arguments = """{"function_id":"xiaohongshu_search","arguments":{"keyword":"美食"}}"""
-                                )
-                            )
+	                            AssistantToolCall(
+	                                id = "call_1",
+	                                function = AssistantToolCallFunction(
+	                                    name = "call_tool",
+	                                    arguments = """{"function_id":"xiaohongshu_search","arguments":{"keyword":"美食"}}"""
+	                                )
+	                            )
                         )
                     )
                 )
@@ -389,12 +389,15 @@ class VLMClientRequestTest {
             modelOrScene = "scene.vlm.operation.primary"
         )
 
-        assertFalse(result.success)
-        assertTrue(result.error.orEmpty().contains("tool_calls"))
+        assertTrue(result.success)
+        val action = requireNotNull(result.step).action as FunctionRunAction
+        assertEquals("call_tool", action.name)
+        assertEquals("xiaohongshu_search", action.functionId)
+        assertEquals("美食", action.arguments["keyword"]!!.jsonPrimitive.contentOrNull)
     }
 
     @Test
-    fun `openai tool action parser supports dynamic function tool call`() {
+    fun `openai tool action parser keeps recalled function id inside call tool`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(
             SceneChatCompletionTurn(
@@ -408,16 +411,15 @@ class VLMClientRequestTest {
                             AssistantToolCall(
                                 id = "call_1",
                                 function = AssistantToolCallFunction(
-                                    name = "xhs_search_keyword",
-                                    arguments = """{"keyword":"猫猫"}"""
+	                                    name = "call_tool",
+	                                    arguments = """{"function_id":"xhs_search_keyword","arguments":{"keyword":"猫猫"}}"""
                                 )
                             )
                         )
                     )
                 )
             ),
-            modelOrScene = "scene.vlm.operation.primary",
-            dynamicFunctionToolNames = setOf("xhs_search_keyword")
+            modelOrScene = "scene.vlm.operation.primary"
         )
 
         assertTrue(result.success)
@@ -501,8 +503,9 @@ class VLMClientRequestTest {
                         content = JsonPrimitive(
                             """
                             {"observation":"The Contacts app is not visible.","thought":"Open the app drawer."}
-                            tool_call: scroll
-                            target_description: "scroll down to reveal more apps"
+                            tool_call: swipe
+                            target_description: "swipe down to reveal more apps"
+                            direction: "down"
                             x1: 500
                             y1: 860
                             x2: 500
@@ -516,8 +519,9 @@ class VLMClientRequestTest {
         )
 
         assertTrue(result.success)
-        val action = requireNotNull(result.step).action as ScrollAction
-        assertEquals("scroll down to reveal more apps", action.targetDescription)
+        val action = requireNotNull(result.step).action as SwipeAction
+        assertEquals("swipe down to reveal more apps", action.targetDescription)
+        assertEquals("down", action.direction)
         assertEquals(500f, action.x1)
         assertEquals(860f, action.y1)
         assertEquals(500f, action.x2)
@@ -550,7 +554,7 @@ class VLMClientRequestTest {
     }
 
     @Test
-    fun `text fallback tool parser rejects inline legacy oob function run json`() {
+    fun `text fallback tool parser supports inline call tool json`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(
             SceneChatCompletionTurn(
@@ -562,7 +566,7 @@ class VLMClientRequestTest {
                     message = ChatCompletionMessage(
                         role = "assistant",
                         content = JsonPrimitive(
-                            """{"tool":"oob_function_run","function_id":"xhs_search_keyword","arguments":{"keyword":"猫猫"}}"""
+                            """{"tool":"call_tool","function_id":"xhs_search_keyword","arguments":{"keyword":"猫猫"}}"""
                         )
                     )
                 )
@@ -570,12 +574,14 @@ class VLMClientRequestTest {
             modelOrScene = "scene.vlm.operation.primary"
         )
 
-        assertFalse(result.success)
-        assertTrue(result.error.orEmpty().contains("tool_calls"))
+        assertTrue(result.success)
+        val action = requireNotNull(result.step).action as FunctionRunAction
+        assertEquals("xhs_search_keyword", action.functionId)
+        assertEquals("猫猫", action.arguments["keyword"]!!.jsonPrimitive.contentOrNull)
     }
 
     @Test
-    fun `text fallback tool parser supports dynamic saved workflow invocation syntax`() {
+    fun `text fallback tool parser supports call tool invocation syntax`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(
             SceneChatCompletionTurn(
@@ -587,13 +593,12 @@ class VLMClientRequestTest {
                     message = ChatCompletionMessage(
                         role = "assistant",
                         content = JsonPrimitive(
-                            """xhs_search_keyword({"keyword":"美食"})"""
+                            """call_tool({"function_id":"xhs_search_keyword","arguments":{"keyword":"美食"}})"""
                         )
                     )
                 )
             ),
-            modelOrScene = "scene.vlm.operation.primary",
-            dynamicFunctionToolNames = setOf("xhs_search_keyword")
+            modelOrScene = "scene.vlm.operation.primary"
         )
 
         assertTrue(result.success)
@@ -726,7 +731,7 @@ class VLMClientRequestTest {
                             AssistantToolCall(
                                 id = "call_2",
                                 function = AssistantToolCallFunction(
-                                    name = "scroll",
+                                    name = "swipe",
                                     arguments = """{"target_description":"Settings list","scrollable_index":0,"direction":"down","x1":500,"y1":880,"x2":500,"y2":250}"""
                                 )
                             )
@@ -738,7 +743,7 @@ class VLMClientRequestTest {
         )
 
         assertTrue(scrollResult.success)
-        val scroll = requireNotNull(scrollResult.step).action as ScrollAction
+        val scroll = requireNotNull(scrollResult.step).action as SwipeAction
         assertEquals(0, scroll.scrollableIndex)
         assertEquals("down", scroll.direction)
     }

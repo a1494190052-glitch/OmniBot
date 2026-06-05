@@ -4,9 +4,8 @@ import cn.com.omnimind.assists.task.vlmserver.ClickAction
 import cn.com.omnimind.assists.task.vlmserver.InputTextAction
 import cn.com.omnimind.assists.task.vlmserver.LongPressAction
 import cn.com.omnimind.assists.task.vlmserver.OpenAppAction
-import cn.com.omnimind.assists.task.vlmserver.PressBackAction
-import cn.com.omnimind.assists.task.vlmserver.PressHomeAction
-import cn.com.omnimind.assists.task.vlmserver.ScrollAction
+import cn.com.omnimind.assists.task.vlmserver.PressKeyAction
+import cn.com.omnimind.assists.task.vlmserver.SwipeAction
 import cn.com.omnimind.assists.task.vlmserver.UIAction
 import cn.com.omnimind.assists.task.vlmserver.VLMActionPipeline
 import cn.com.omnimind.assists.task.vlmserver.VLMActionPipelineRequest
@@ -96,7 +95,7 @@ class OobVlmActionPipeline : VLMActionPipeline {
             OobCanonicalActionSchema.ARG_Y to action.y,
         )
 
-        is ScrollAction -> linkedMapOf(
+        is SwipeAction -> linkedMapOf(
             OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION to action.targetDescription,
             OobCanonicalActionSchema.ARG_SCROLLABLE_INDEX to action.scrollableIndex,
             OobCanonicalActionSchema.ARG_DIRECTION to action.direction,
@@ -119,8 +118,9 @@ class OobVlmActionPipeline : VLMActionPipeline {
             OobCanonicalActionSchema.ARG_PACKAGE_NAME to action.packageName,
         )
 
-        is PressHomeAction,
-        is PressBackAction -> emptyMap()
+        is PressKeyAction -> linkedMapOf(
+            OobCanonicalActionSchema.ARG_KEY to action.key,
+        )
 
         else -> null
     }?.filterValues { value -> value != null && value.toString().isNotBlank() }
@@ -141,7 +141,7 @@ class OobVlmActionPipeline : VLMActionPipeline {
             y = floatArg(args, OobCanonicalActionSchema.ARG_Y) ?: action.y,
         )
 
-        is ScrollAction -> action.copy(
+        is SwipeAction -> action.copy(
             targetDescription = stringArg(args, OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION)
                 ?: action.targetDescription,
             x1 = floatArg(args, OobCanonicalActionSchema.ARG_X1) ?: action.x1,

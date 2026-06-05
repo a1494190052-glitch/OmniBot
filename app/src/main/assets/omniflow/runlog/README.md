@@ -105,7 +105,6 @@ record. Do not read only the snapshot when correctness matters.
 - Replay frontend session controller: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionFrontendSessionController.kt`
 - Replay source alignment controller: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionSourceAlignmentController.kt`
 - Replay VLM continuation controller: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionAgentFallbackController.kt`
-- Replay call/tool argument resolver: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionCallRequestResolver.kt`
 - Replay step classifier: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionStepClassifier.kt`
 - Replay tool delegation executor: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolDelegationExecutor.kt`
 - `call_tool` step executor: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionCallToolStepExecutor.kt`
@@ -163,19 +162,18 @@ instead of retyping the marker.
 tool names directly. Do not treat those JSON literals as competing Kotlin
 owners; keep Kotlin code and tests pointing at `OobFunctionToolNames`,
 `AgentToolNames`, or `RunLogReplayPolicy` as appropriate.
-Replay compatibility tool names such as `call_tool`, `oob_tool_call`,
-`call_function`, `go_to_node`, and `oob.agent.run` also live in
-`RunLogReplayPolicy` when they are used by Function compilation, schema
-materialization, recall, or replay routing. Agent-facing docs and tools should
-present saved Function execution as native Function tools surfaced through
-`vlm_task`; `oob_function_run` and `call_function` are accepted for older
-RunLogs and adapters only. UDEG edge-kind names and
-diagnostic counter keys remain graph-storage vocabulary owned by
-`OobUdegNodeStore`.
-Canonical in-app Function and RunLog lifecycle tool names such as
-`oob_function_run`, `update_function`, and `oob_run_log_convert` live in
-`OobFunctionToolNames`; `RunLogReplayPolicy` may classify those tools but should
-not duplicate their string definitions.
+Replay tool names such as `call_tool`, `go_to_node`, and `oob.agent.run` also
+live in `RunLogReplayPolicy` when they are used by Function compilation,
+schema materialization, recall, or replay routing.
+Agent-facing docs and tools should present saved Function execution through
+`call_tool(function_id, arguments)` inside `vlm_task` or the generic agent
+tool path. UDEG edge-kind names and diagnostic counter keys remain
+graph-storage vocabulary owned by `OobUdegNodeStore`.
+Canonical in-app Function and RunLog management tool names such as
+`oob_function_list`, `oob_function_get`, `oob_function_register`,
+`update_function`, and `oob_run_log_convert` live in `OobFunctionToolNames`;
+`RunLogReplayPolicy` may classify those tools but should not duplicate their
+string definitions.
 Canonical generic agent tool names such as `vlm_task`, `browser_use`,
 `web_search`, and `android_privileged_action` live in `AgentToolNames`.
 Tool definitions, handlers, MCP adapters, agent run-log card construction, and
@@ -184,20 +182,12 @@ When a new generic agent tool affects replay, `RunLogReplayPolicy` may classify
 the `AgentToolNames` constant, but it should not redefine the string. If the
 tool is only a live agent capability and does not appear in reusable replay
 steps, leave RunLog policy unchanged.
-Agent-facing docs should name the OOB Function tools first. Legacy
-`omniflow.recall`, `omniflow.call_tool`, `omniflow.ingest_run_log`, and
-`omniflow.explore_replay` remain compatibility tool names for external MCP
-clients and old agentkit flows. Older clients may also send
-`omniflow.call_function`; route it to the same Function runner, but do not
-present it as a primary path when `oob_function_*`, `oob_run_log_*`, and
-`update_function` are available.
+Agent-facing docs should name the OOB Function tools first. Function execution
+always goes through `call_tool(function_id, arguments)`.
 
 - `executor=omniflow`: deterministic local replay only. Allowed actions are
   the OOB local set: `click`, `long_press`, `input_text`, `swipe`, `open_app`,
-  `press_key`, and `finished`. Legacy aliases such as `scroll`, `press_home`,
-  `press_back`, and `hot_key` are normalized by `OobActionCodec` before replay.
-  Legacy `wait` cards are
-  skipped because page settling is handled internally by the replay backend. OOB-native
+  `press_key`, `wait`, and `finished`. OOB-native
   OmniFlow graph/function calls such as `go_to_node`, `click_node`, and
   `call_tool` with `function_id` also use this executor and are dispatched by
   `OobFunctionToolHandler`.

@@ -108,7 +108,7 @@ void main() {
       expect(_selectableTextContaining('page_match_ms'), findsNothing);
       expect(_selectableTextContaining('rank_functions_ms'), findsNothing);
       expect(_selectableTextContaining('segment_match_ms'), findsNothing);
-      expect(find.textContaining('执行到第 1/1 步'), findsOneWidget);
+      expect(_richTextContaining('执行到  第 1/1 步'), findsOneWidget);
       expect(find.text('执行步骤 · 1'), findsOneWidget);
       expect(find.text('open_app'), findsNothing);
       expect(find.text('120ms'), findsNothing);

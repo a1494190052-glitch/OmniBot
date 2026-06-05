@@ -16,53 +16,38 @@ import org.junit.Test
 
 class VLMToolDefinitionsTest {
     @Test
-    fun `model visible VLM tools do not expose legacy wait action`() {
+    fun `model visible VLM tools expose canonical action schema`() {
         val toolNames = VLMToolDefinitions.tools(PromptLocale.EN_US)
             .map { it.function.name }
             .toSet()
 
-        assertFalse(toolNames.contains("wait"))
+        assertTrue(toolNames.contains("wait"))
         assertTrue(toolNames.contains("click"))
         assertTrue(toolNames.contains("input_text"))
         assertFalse(toolNames.contains("type"))
-        assertTrue(toolNames.contains("scroll"))
-        assertFalse(toolNames.contains("oob_function_run"))
+        assertTrue(toolNames.contains("swipe"))
         assertFalse(toolNames.contains("get_state"))
+        assertTrue(toolNames.contains("call_tool"))
         assertTrue(toolNames.contains("finished"))
-        assertFalse(toolNames.contains("call_function"))
-        assertFalse(toolNames.contains("run_function"))
         assertTrue(toolNames.containsAll(
             OobCanonicalActionSchema.modelVisibleTools
                 .map { it.name }
-                .filterNot { it in setOf("get_state", "oob_function_run") }
+                .filterNot { it == "get_state" }
         ))
     }
 
     @Test
-    fun `dynamic saved workflow tools are exposed directly by id`() {
-        val tool = VLMToolDefinitions.dynamicToolsFromDefinitions(listOf(buildJsonObject {
-            put("type", "function")
-            put("function", buildJsonObject {
-                put("name", "xhs_search_keyword")
-                put("description", "Saved workflow that searches a keyword")
-                put("parameters", buildJsonObject {
-                    put("type", "object")
-                    put("properties", buildJsonObject {
-                        put("keyword", buildJsonObject { put("type", "string") })
-                    })
-                    put("required", buildJsonArray { add("keyword") })
-                })
-            })
-        })).single()
+    fun `call tool exposes function target and arguments`() {
+        val tool = VLMToolDefinitions.tools(PromptLocale.EN_US)
+            .single { it.function.name == "call_tool" }
         val parameters = tool.function.parameters
         val properties = parameters["properties"]!!.jsonObject
         val required = parameters["required"]!!.jsonArray.map { it.jsonPrimitive.content }
 
-        assertTrue(tool.function.name == "xhs_search_keyword")
-        assertTrue(properties.containsKey("keyword"))
-        assertFalse(properties.containsKey("function_id"))
-        assertFalse(properties.containsKey("arguments"))
-        assertTrue(required.contains("keyword"))
+        assertTrue(properties.containsKey("function_id"))
+        assertTrue(properties.containsKey("tool_name"))
+        assertTrue(properties.containsKey("arguments"))
+        assertTrue(required.contains("arguments"))
     }
 
     @Test
@@ -81,7 +66,7 @@ class VLMToolDefinitionsTest {
     fun `argument validation rejects non schema aliases`() {
         assertThrows(IllegalArgumentException::class.java) {
             VLMToolDefinitions.validateArguments(
-                "oob_function_run",
+                "call_tool",
                 buildJsonObject {
                     put("functionId", "legacy")
                     put("arguments", buildJsonObject {})
@@ -102,19 +87,16 @@ class VLMToolDefinitionsTest {
     }
 
     @Test
-    fun `prompt guide does not teach the model to call wait`() {
+    fun `prompt guide teaches canonical tool calls`() {
         val promptGuide = VLMToolDefinitions.renderPromptGuide(PromptLocale.EN_US)
 
-        assertFalse(promptGuide.contains("wait("))
-        assertFalse(promptGuide.contains("waiting actions"))
+        assertTrue(promptGuide.contains("wait(time_s?)"))
         assertTrue(promptGuide.contains("input_text(target_description, text, element_index?, x, y)"))
-        assertFalse(promptGuide.contains("oob_function_run(function_id, arguments)"))
-        assertTrue(promptGuide.contains("saved workflow tools"))
+        assertTrue(promptGuide.contains("call_tool(function_id?, tool_name?, arguments)"))
+        assertTrue(promptGuide.contains("recalled reusable workflow"))
         assertFalse(promptGuide.contains("get_state("))
-        assertFalse(promptGuide.contains("call_function("))
-        assertFalse(promptGuide.contains("run_function("))
         assertTrue(promptGuide.contains("Coordinates are fallback only"))
-        assertTrue(promptGuide.contains("page settling and stability detection are handled internally"))
+        assertTrue(promptGuide.contains("Use wait only when the page is clearly loading"))
     }
 
     @Test
@@ -122,10 +104,10 @@ class VLMToolDefinitionsTest {
         val promptGuide = VLMToolDefinitions.renderCompactActionSchemaGuide(PromptLocale.EN_US)
 
         assertTrue(promptGuide.contains("native tool_call only"))
-        assertTrue(promptGuide.contains("Do not use legacy action/swipe/coordinate/coordinate2"))
+        assertTrue(promptGuide.contains("Do not use legacy action/coordinate/coordinate2"))
         assertFalse(promptGuide.contains("fallback JSON"))
         assertFalse(promptGuide.contains("\"tool\":\"tool_name\""))
         assertFalse(promptGuide.contains("get_state"))
-        assertFalse(promptGuide.contains("wait"))
+        assertTrue(promptGuide.contains("wait"))
     }
 }

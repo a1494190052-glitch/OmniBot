@@ -10,15 +10,13 @@ class OobActionCodecTest {
     fun `accepts only canonical action names`() {
         assertEquals(OobActionCodec.ACTION_CLICK, OobActionCodec.canonicalActionForName("click"))
         assertEquals(OobActionCodec.ACTION_INPUT_TEXT, OobActionCodec.canonicalActionForName("input_text"))
-        assertEquals(OobActionCodec.ACTION_SCROLL, OobActionCodec.canonicalActionForName("scroll"))
-        assertEquals(OobActionCodec.ACTION_PRESS_BACK, OobActionCodec.canonicalActionForName("press_back"))
+        assertEquals(OobActionCodec.ACTION_SWIPE, OobActionCodec.canonicalActionForName("swipe"))
+        assertEquals(OobActionCodec.ACTION_PRESS_KEY, OobActionCodec.canonicalActionForName("press_key"))
         assertEquals(OobActionCodec.ACTION_OPEN_APP, OobActionCodec.canonicalActionForName("open_app"))
         assertEquals(OobActionCodec.ACTION_FINISHED, OobActionCodec.canonicalActionForName("finished"))
 
         assertEquals(null, OobActionCodec.canonicalActionForName("tap"))
         assertEquals(null, OobActionCodec.canonicalActionForName("set_text"))
-        assertEquals(null, OobActionCodec.canonicalActionForName("scroll_down"))
-        assertEquals(null, OobActionCodec.canonicalActionForName("press_key"))
         assertEquals(null, OobActionCodec.canonicalActionForName("launch_app"))
         assertEquals(null, OobActionCodec.canonicalActionForName("done"))
     }
@@ -39,22 +37,18 @@ class OobActionCodecTest {
         assertFalse(OobActionCodec.isUserFacingAction(OobActionCodec.ACTION_OPEN_APP))
 
         assertTrue(OobActionCodec.isRouteAction(OobActionCodec.ACTION_OPEN_APP))
-        assertTrue(OobActionCodec.isRouteAction(OobActionCodec.ACTION_PRESS_BACK))
+        assertTrue(OobActionCodec.isRouteAction(OobActionCodec.ACTION_PRESS_KEY))
         assertFalse(OobActionCodec.isRouteAction("click"))
-        assertFalse(OobActionCodec.isRouteAction("press_key"))
+        assertTrue(OobActionCodec.isRouteAction("press_key"))
     }
 
     @Test
-    fun `back and home do not synthesize legacy key args`() {
-        assertFalse(
+    fun `press key keeps explicit key arg`() {
+        assertEquals(
+            mapOf("key" to "back"),
             OobActionCodec.argsForStep(
-                mapOf("tool" to "press_back", "args" to emptyMap<String, Any?>())
-            ).containsKey("key"),
-        )
-        assertFalse(
-            OobActionCodec.argsForStep(
-                mapOf("tool" to "press_home", "args" to emptyMap<String, Any?>())
-            ).containsKey("key"),
+                mapOf("tool" to "press_key", "args" to mapOf("key" to "back"))
+            ),
         )
     }
 

@@ -176,7 +176,7 @@ class OobOmniFlowLoopAcceptanceTest {
                 runId = runId,
                 goal = "打开外卖入口",
                 source = "test",
-                toolName = OobFunctionToolNames.FUNCTION_RUN,
+                toolName = RunLogReplayPolicy.TOOL_CALL_TOOL,
             )
             InternalRunLogStore.appendCard(
                 context = context,
@@ -239,7 +239,7 @@ class OobOmniFlowLoopAcceptanceTest {
                 runId = runId,
                 goal = "打开外卖入口",
                 source = "test",
-                toolName = OobFunctionToolNames.FUNCTION_RUN,
+                toolName = RunLogReplayPolicy.TOOL_CALL_TOOL,
             )
             InternalRunLogStore.appendCard(
                 context = context,
@@ -1608,7 +1608,7 @@ class OobOmniFlowLoopAcceptanceTest {
         "source" to mapOf(
             "source" to "unit_test",
             "goal" to description,
-            "tool_name" to "omniflow.call_tool"
+            "tool_name" to "call_tool"
         ),
         "execution" to mapOf(
             "kind" to "tool_sequence",
@@ -1641,7 +1641,7 @@ class OobOmniFlowLoopAcceptanceTest {
         "source" to mapOf(
             "source" to "unit_test",
             "goal" to description,
-            "tool_name" to "omniflow.call_tool",
+            "tool_name" to "call_tool",
             "package_name" to packageName,
         )
     )
@@ -1780,7 +1780,7 @@ class OobOmniFlowLoopAcceptanceTest {
             distance: Float,
             durationMs: Long
         ) {
-            error("scroll should not be used by this test")
+            error("swipe should not be used by this test")
         }
 
         override suspend fun inputTextToFocusedNode(text: String) {

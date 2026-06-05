@@ -2,6 +2,7 @@ package cn.com.omnimind.bot.runlog
 
 import cn.com.omnimind.baselib.runlog.InternalRunLogRecord
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
+import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
 import com.google.gson.Gson
 import java.io.File
 import org.junit.Assert.assertEquals
@@ -18,7 +19,6 @@ class RunLogReusableFunctionCompilerTest {
 
         assertEquals(RunLogReplayPolicy.schemaVersion, policy["schema_version"])
         assertEquals(RunLogReplayPolicy.omniflowActions, stringSet(policy["omniflow_actions"]))
-        assertEquals(RunLogReplayPolicy.omniflowActionAliases, stringMap(policy["omniflow_action_aliases"]))
         assertEquals(RunLogReplayPolicy.coordinateActions, stringSet(policy["coordinate_actions"]))
         assertEquals(RunLogReplayPolicy.perceptionTools, stringSet(policy["perception_tools"]))
         assertEquals(RunLogReplayPolicy.dataFlowTools, stringSet(policy["data_flow_tools"]))
@@ -246,8 +246,8 @@ class RunLogReusableFunctionCompilerTest {
         val spec = compile(
             listOf(
                 card(
-                    "press_back",
-                    emptyMap(),
+                    "press_key",
+                    mapOf("key" to "back"),
                     beforeXml = "",
                     beforePackage = "com.example.search",
                     compileKind = "manual_recording",
@@ -258,7 +258,8 @@ class RunLogReusableFunctionCompilerTest {
         )
 
         val pressKey = stepsFrom(spec).single()
-        assertEquals("press_back", pressKey["tool"])
+        assertEquals("press_key", pressKey["tool"])
+        assertEquals(mapOf("key" to "back"), pressKey["args"])
         assertFalse(pressKey.containsKey("source_context"))
         assertFalse(pressKey.containsKey("coordinate_hook"))
     }
@@ -711,7 +712,7 @@ class RunLogReusableFunctionCompilerTest {
         val spec = compile(
             listOf(
                 card("go_to_node", mapOf("node_id" to "node_1")),
-                card("oob_function_run", mapOf("function_id" to "func_local")),
+                card("call_tool", mapOf("function_id" to "func_local")),
             ),
             runId = "run-omniflow-execution",
         )
@@ -727,7 +728,7 @@ class RunLogReusableFunctionCompilerTest {
         assertFalse(graph.containsKey("agent_call"))
 
         val function = steps[1]
-        assertEquals("oob_function_run", function["tool"])
+        assertEquals("call_tool", function["tool"])
         assertEquals("omniflow", function["executor"])
         assertEquals("omniflow_function", function["kind"])
         assertEquals(true, function["model_free"])
@@ -746,10 +747,7 @@ class RunLogReusableFunctionCompilerTest {
         for (toolName in listOf(
             "go_to_node",
             "click_node",
-            "omniflow.call_tool",
-            "oob_tool_call",
             "call_tool",
-            "oob_function_run",
         )) {
             assertTrue(RunLogReplayPolicy.isOmniflowExecutionTool(toolName))
             assertFalse(RunLogReplayPolicy.isAgentTool(toolName))
@@ -774,7 +772,7 @@ class RunLogReusableFunctionCompilerTest {
         val spec = compile(
             listOf(
                 card(
-                    "oob_tool_call",
+                    "call_tool",
                     mapOf(
                         "tool_name" to "vlm_task",
                         "arguments" to mapOf("goal" to "tap settings"),
@@ -910,15 +908,15 @@ class RunLogReusableFunctionCompilerTest {
         val spec = compile(
             listOf(
                 card("input_text", mapOf("text" to "hello")),
-                card("scroll", mapOf("target_description" to "list", "x1" to 10, "y1" to 20, "x2" to 10, "y2" to 300)),
-                card("press_back", emptyMap()),
+                card("swipe", mapOf("target_description" to "list", "direction" to "down", "x1" to 10, "y1" to 20, "x2" to 10, "y2" to 300)),
+                card("press_key", mapOf("key" to "back")),
                 card("finished", mapOf("content" to "done")),
             ),
             runId = "run-omniflow-canonical",
         )
 
         val steps = stepsFrom(spec)
-        assertEquals(listOf("input_text", "scroll", "press_back", "finished"), steps.map { it["tool"] })
+        assertEquals(listOf("input_text", "swipe", "press_key", "finished"), steps.map { it["tool"] })
         assertTrue(steps.all { it["executor"] == "omniflow" })
         assertTrue(steps.all { it["model_free"] == true })
     }

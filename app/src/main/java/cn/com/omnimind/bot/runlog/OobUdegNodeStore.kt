@@ -1108,7 +1108,7 @@ class OobUdegNodeStore(
         val suggestedPolicy = buildList {
             add("Ground the next action on the live screenshot/XML before acting.")
             if (signals.hasScrollable) {
-                add("If the target text is not visible, prefer one deliberate scroll over repeated small scrolls.")
+                add("If the target text is not visible, prefer one deliberate swipe over repeated small swipes.")
             }
             if (signals.hasEditable) {
                 add("Use editable fields only when the user goal requires input; do not overwrite existing text without evidence.")
@@ -1780,7 +1780,7 @@ class OobUdegNodeStore(
         val rawKind = firstNonBlank(edge["kind"], edge["edge_kind"])
         val kind = when (rawKind) {
             "function", "raw_action_edge" -> "function"
-            EDGE_KIND_FUNCTION_CALL, "call_function", "run_function", "function_transition" -> EDGE_KIND_FUNCTION_CALL
+            EDGE_KIND_FUNCTION_CALL, "call_tool" -> EDGE_KIND_FUNCTION_CALL
             else -> rawKind.ifBlank { "function" }
         }
         val callable = if (edge.containsKey("callable")) {
@@ -2051,10 +2051,9 @@ class OobUdegNodeStore(
         private val ROUTE_BRIDGE_ACTIONS = setOf(
             OobActionCodec.ACTION_CLICK,
             OobActionCodec.ACTION_LONG_PRESS,
-            OobActionCodec.ACTION_SCROLL,
+            OobActionCodec.ACTION_SWIPE,
             OobActionCodec.ACTION_OPEN_APP,
-            OobActionCodec.ACTION_PRESS_BACK,
-            OobActionCodec.ACTION_PRESS_HOME,
+            OobActionCodec.ACTION_PRESS_KEY,
         )
         private const val UDEG_NODE_CONTEXTS_DIR = "udeg-node-contexts"
         private const val ARTIFACT_INDEX_FILE = "index.json"

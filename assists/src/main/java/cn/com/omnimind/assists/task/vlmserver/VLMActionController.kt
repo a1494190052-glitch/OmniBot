@@ -92,7 +92,7 @@ private object SemanticSearchController : VLMActionController {
     }
 
     private fun correctScrollToSearchAffordance(request: VLMActionControllerRequest): VLMActionControllerDecision? {
-        val action = request.step.action as? ScrollAction ?: return null
+        val action = request.step.action as? SwipeAction ?: return null
         val activeGoalText = listOf(request.context.activeGoal(), request.context.overallTask)
             .joinToString(" ")
         if (wantsScroll(activeGoalText)) return null
@@ -242,7 +242,7 @@ private object SemanticSearchController : VLMActionController {
 
         val repeatedScrollCount = request.context.trace
             .asReversed()
-            .takeWhile { it.action is ScrollAction }
+            .takeWhile { it.action is SwipeAction }
             .count { traceStep ->
                 val traceText = listOf(
                     actionSemanticText(traceStep.action),
@@ -304,7 +304,7 @@ private object SemanticSearchController : VLMActionController {
     private fun actionSemanticText(action: UIAction): String =
         when (action) {
             is ClickAction -> action.targetDescription
-            is ScrollAction -> action.targetDescription
+            is SwipeAction -> action.targetDescription
             is LongPressAction -> action.targetDescription
             is InputTextAction -> listOf(action.targetDescription, action.text).joinToString(" ")
             is RecordAction -> action.content
@@ -610,7 +610,7 @@ private object SemanticSearchController : VLMActionController {
         "选项"
     )
     private val SCROLL_INTENT_TERMS = setOf(
-        "scroll",
+        "swipe",
         "swipe",
         "滑动",
         "滚动"

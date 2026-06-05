@@ -54,6 +54,9 @@ class OobFunctionFrontendSessionController(
             ?: "${runId}_omniflow_ui"
         val stopRequested = AtomicBoolean(false)
         val label = frontendLabel(functionId, spec)
+        if (helper.context.getSystemService(Context.WINDOW_SERVICE) !is WindowManager) {
+            return null
+        }
         val stopOverlay = OobFunctionStopOverlay(
             context = helper.context,
             label = helper.localized("停止"),

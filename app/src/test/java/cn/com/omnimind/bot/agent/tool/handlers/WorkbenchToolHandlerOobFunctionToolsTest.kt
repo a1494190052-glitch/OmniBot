@@ -36,8 +36,10 @@ import cn.com.omnimind.bot.agent.ToolExecutionResult
 import cn.com.omnimind.bot.agent.WorkspaceMemoryService
 import cn.com.omnimind.bot.runlog.OmniflowActionBackend
 import cn.com.omnimind.bot.runlog.OmniflowActionRuntime
+import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import cn.com.omnimind.bot.omniflow.OobFunctionRepository
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
+import cn.com.omnimind.bot.workbench.WorkspaceFunctionStore
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
 import java.io.File
 import java.nio.file.Files
@@ -354,19 +356,24 @@ class WorkbenchToolHandlerOobFunctionToolsTest {
                 }
                 assertNull(modelTool)
 
-                val run = handler.execute(
-                    toolCall = toolCall(OobFunctionToolNames.FUNCTION_RUN),
+                val callToolHandler = OobFunctionToolHandler(context, helper).apply {
+                    workspaceFunctionStore = WorkspaceFunctionStore(
+                        AgentWorkspaceManager.rootDirectory(context),
+                    )
+                }
+                val run = callToolHandler.execute(
+                    toolCall = toolCall(RunLogReplayPolicy.TOOL_CALL_TOOL),
                     args = buildJsonObject {
-                        put("functionId", JsonPrimitive(functionId))
+                        put("function_id", JsonPrimitive(functionId))
                         put("arguments", buildJsonObject {
                             put("contact_name", JsonPrimitive("Bob"))
                         })
                     },
-                    runtimeDescriptor = descriptor(OobFunctionToolNames.FUNCTION_RUN),
+                    runtimeDescriptor = descriptor(RunLogReplayPolicy.TOOL_CALL_TOOL),
                     env = env,
                     callback = NoOpAgentCallback,
                     toolHandle = NoOpAgentRunControl.beginToolExecution(
-                        OobFunctionToolNames.FUNCTION_RUN,
+                        RunLogReplayPolicy.TOOL_CALL_TOOL,
                         "run",
                     ),
                 )
@@ -377,21 +384,20 @@ class WorkbenchToolHandlerOobFunctionToolsTest {
                 assertEquals(listOf("Bob"), backend.inputTexts)
 
                 backend.inputTexts.clear()
-                val missingArgumentRun = handler.execute(
-                    toolCall = toolCall(OobFunctionToolNames.FUNCTION_RUN),
+                val missingArgumentRun = callToolHandler.execute(
+                    toolCall = toolCall(RunLogReplayPolicy.TOOL_CALL_TOOL),
                     args = buildJsonObject {
-                        put("functionId", JsonPrimitive(functionId))
+                        put("function_id", JsonPrimitive(functionId))
                     },
-                    runtimeDescriptor = descriptor(OobFunctionToolNames.FUNCTION_RUN),
+                    runtimeDescriptor = descriptor(RunLogReplayPolicy.TOOL_CALL_TOOL),
                     env = env,
                     callback = NoOpAgentCallback,
                     toolHandle = NoOpAgentRunControl.beginToolExecution(
-                        OobFunctionToolNames.FUNCTION_RUN,
+                        RunLogReplayPolicy.TOOL_CALL_TOOL,
                         "missing-argument",
                     ),
                 )
-                assertTrue(missingArgumentRun is ToolExecutionResult.ContextResult)
-                assertEquals(false, (missingArgumentRun as ToolExecutionResult.ContextResult).success)
+                assertTrue(missingArgumentRun is ToolExecutionResult.Error)
                 assertEquals(emptyList<String>(), backend.inputTexts)
             }
         } finally {

@@ -4718,11 +4718,11 @@ abstract class AppLocalizations {
   /// **'完成'**
   String get executionActionFinished;
 
-  /// No description provided for @executionActionCallFunction.
+  /// No description provided for @executionActionCallTool.
   ///
   /// In zh, this message translates to:
-  /// **'执行复用指令'**
-  String get executionActionCallFunction;
+  /// **'调用工具'**
+  String get executionActionCallTool;
 
   /// No description provided for @executionActionDefault.
   ///
@@ -5228,11 +5228,11 @@ abstract class AppLocalizations {
   /// **'结束'**
   String get actionTypeFinished;
 
-  /// No description provided for @actionTypeCallFunction.
+  /// No description provided for @actionTypeCallTool.
   ///
   /// In zh, this message translates to:
-  /// **'执行复用指令'**
-  String get actionTypeCallFunction;
+  /// **'调用工具'**
+  String get actionTypeCallTool;
 
   /// No description provided for @actionTypeDefault.
   ///

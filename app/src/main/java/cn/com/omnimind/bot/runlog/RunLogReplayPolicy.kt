@@ -22,11 +22,8 @@ object RunLogReplayPolicy {
     const val REPLAY_ENGINE_OMNIFLOW_UTG: String = "omniflow_utg"
     const val TOOL_AGENT_RUN: String = "oob.agent.run"
     const val TOOL_CALL_TOOL: String = "call_tool"
-    const val TOOL_OOB_TOOL_CALL: String = "oob_tool_call"
-    const val TOOL_FUNCTION_RUN: String = OobFunctionToolNames.FUNCTION_RUN
     const val TOOL_GO_TO_NODE: String = "go_to_node"
     const val TOOL_CLICK_NODE: String = "click_node"
-    const val TOOL_NODE_CLICK: String = "node_click"
     const val TOOL_WAIT: String = "wait"
     const val TOOL_EXTERNAL_TOOL: String = "external_tool"
     const val TOOL_OOB_AGENT_RUN_LEGACY: String = "oob_agent_run"
@@ -35,8 +32,6 @@ object RunLogReplayPolicy {
     const val TOOL_WORKBENCH_API_LIST: String = "workbench_api_list"
 
     val omniflowActions: Set<String> = OobActionCodec.executableActions
-
-    val omniflowActionAliases: Map<String, String> = OobActionCodec.actionAliases
 
     val coordinateActions: Set<String> = OobActionCodec.coordinateActions
 
@@ -70,22 +65,16 @@ object RunLogReplayPolicy {
     val omniflowGraphTools: Set<String> = setOf(
         TOOL_GO_TO_NODE,
         TOOL_CLICK_NODE,
-        TOOL_NODE_CLICK,
-        "navigate_to_node",
-        "gotonode",
-        "goto_node",
     )
 
     val omniflowClickNodeGraphTools: Set<String> = setOf(
         TOOL_CLICK_NODE,
-        TOOL_NODE_CLICK,
     )
 
+    val omniflowFunctionTools: Set<String> = emptySet()
+
     val omniflowToolCallTools: Set<String> = setOf(
-        "omniflow.call_tool",
         TOOL_CALL_TOOL,
-        TOOL_OOB_TOOL_CALL,
-        "calltool",
     )
 
     /**

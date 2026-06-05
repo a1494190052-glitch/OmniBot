@@ -25,7 +25,6 @@ object VLMToolDefinitions {
     private const val TOOL_TITLE_FIELD = "tool_title"
     private val HIDDEN_BASE_TOOL_NAMES = setOf(
         OobCanonicalActionSchema.TOOL_GET_STATE,
-        OobCanonicalActionSchema.TOOL_OOB_FUNCTION_RUN,
     )
 
     data class ToolSpec(
@@ -129,8 +128,8 @@ object VLMToolDefinitions {
             append(
                 t(
                     locale,
-                    "注意：每个 tool call 的 JSON 参数必须是严格合法的 object；如果本轮 tools[] 里出现额外已保存流程 tool，直接按该 tool 的参数 schema 填写业务参数。把 OOB indexed page evidence 作为主要 grounding：click/input_text/long_press 优先填写 element_index，scroll 优先填写 scrollable_index。坐标必须是屏幕绝对像素，不是 0-1000 归一化坐标；分别写入 x / y / x1 / y1 / x2 / y2 字段，不要写成 \"x\": 827, 76 这类非法格式，坐标只作为兜底。不要返回停留、延时或空操作类动作；页面停留和稳定检测由系统内部处理。",
-                    "Important: every tool call JSON argument value must be a strict object. If this turn's tools[] contains additional saved workflow tools, fill their business parameters directly according to that tool's schema. Use OOB indexed page evidence as the primary grounding: for click/input_text/long_press prefer element_index, and for scroll prefer scrollable_index. Coordinates must be absolute screen pixels, not 0-1000 normalized coordinates; write them into x / y / x1 / y1 / x2 / y2 as separate scalar fields; do not emit invalid forms such as \"x\": 827, 76. Coordinates are fallback only. Do not return idle, delay, or no-op actions; page settling and stability detection are handled internally."
+                    "注意：每个 tool call 的 JSON 参数必须是严格合法的 object；如需调用本轮 recall 给出的复用流程，使用 call_tool(function_id, arguments)，不要把 Function id 当成单独工具名。把 OOB indexed page evidence 作为主要 grounding：click/input_text/long_press 优先填写 element_index，swipe 优先填写 scrollable_index 和 direction。坐标必须是屏幕绝对像素，不是 0-1000 归一化坐标；分别写入 x / y / x1 / y1 / x2 / y2 字段，不要写成 \"x\": 827, 76 这类非法格式，坐标只作为兜底。wait 只在页面明确加载、动画或等待外部状态时使用。",
+                    "Important: every tool call JSON argument value must be a strict object. To call a recalled reusable workflow for this turn, use call_tool(function_id, arguments); do not treat the Function id as a separate tool name. Use OOB indexed page evidence as the primary grounding: for click/input_text/long_press prefer element_index, and for swipe prefer scrollable_index plus direction. Coordinates must be absolute screen pixels, not 0-1000 normalized coordinates; write them into x / y / x1 / y1 / x2 / y2 as separate scalar fields; do not emit invalid forms such as \"x\": 827, 76. Coordinates are fallback only. Use wait only when the page is clearly loading, animating, or waiting for an external state change."
                 )
             )
         }
@@ -146,8 +145,8 @@ object VLMToolDefinitions {
             append(
                 t(
                     locale,
-                    "统一格式：只能使用原生 tool_call。click/input_text/long_press 优先 element_index；scroll 优先 scrollable_index；坐标是屏幕绝对像素，不是 0-1000，只用 x/y 或 x1/y1/x2/y2 单个数值；不要使用旧 action/swipe/coordinate/coordinate2。",
-                    "Unified format: native tool_call only. Prefer element_index for click/input_text/long_press and scrollable_index for scroll. Coordinates are absolute screen pixels, not 0-1000; only use scalar x/y or x1/y1/x2/y2. Do not use legacy action/swipe/coordinate/coordinate2."
+                    "统一格式：只能使用原生 tool_call。OOB indexed page evidence 是首选可执行菜单：click/input_text/long_press 目标在 #index 中时必须填 element_index；swipe 目标在 Sindex 中时必须填 scrollable_index 和 direction。坐标只在 evidence 缺失时兜底，且必须是屏幕绝对像素，不是 0-1000；不要使用旧 action/coordinate/coordinate2。",
+                    "Unified format: native tool_call only. OOB indexed page evidence is the preferred executable menu: when a click/input_text/long_press target appears as #index, include element_index; when a swipe target appears as Sindex, include scrollable_index plus direction. Coordinates are fallback only when evidence is missing, and must be absolute screen pixels, not 0-1000. Do not use legacy action/coordinate/coordinate2."
                 )
             )
         }.take(MAX_COMPACT_ACTION_SCHEMA_CHARS)
@@ -182,7 +181,7 @@ object VLMToolDefinitions {
             OobCanonicalActionSchema.TOOL_CLICK,
             OobCanonicalActionSchema.TOOL_LONG_PRESS,
             OobCanonicalActionSchema.TOOL_INPUT_TEXT -> normalizePointArguments(normalized)
-            OobCanonicalActionSchema.TOOL_SCROLL -> normalizeScrollArguments(normalized)
+            OobCanonicalActionSchema.TOOL_SWIPE -> normalizeScrollArguments(normalized)
         }
         return JsonObject(normalized)
     }

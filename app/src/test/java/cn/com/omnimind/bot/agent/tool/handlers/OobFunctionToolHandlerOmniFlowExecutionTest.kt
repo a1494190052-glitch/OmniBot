@@ -22,7 +22,7 @@ import cn.com.omnimind.bot.agent.NoOpAgentRunControl
 import cn.com.omnimind.bot.omniflow.OobFunctionParameterBindingNormalizer
 import cn.com.omnimind.bot.workbench.WorkspaceFunctionStore
 import cn.com.omnimind.baselib.llm.AssistantToolCall
-import cn.com.omnimind.bot.runlog.OobFunctionSchemaBuilder
+import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
 import cn.com.omnimind.bot.runlog.OobUdegNodeStore
 import cn.com.omnimind.bot.runlog.OmniflowActionBackend
 import cn.com.omnimind.bot.runlog.OmniflowActionRuntime
@@ -87,12 +87,16 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
 
                 assertEquals(false, run["success"])
                 assertEquals("OOB_ACCESSIBILITY_REQUIRED", run["error_code"])
-                assertEquals("accessibility", run["required_permission"])
-                assertEquals(0, backend.clickCount)
-                assertTrue(run["error_message"].toString().contains("无障碍"))
-                val step = stepResults(run).single()
-                assertEquals("click", step["tool"])
-                assertEquals("OOB_ACCESSIBILITY_REQUIRED", step["error_code"])
+	                assertEquals("accessibility", run["required_permission"])
+	                assertEquals(0, backend.clickCount)
+	                assertTrue(run["error_message"].toString().contains("无障碍"))
+	                assertEquals(1, run["step_count"])
+	                assertEquals(0, run["failed_step_index"])
+	                assertEquals(0, run["current_step_index"])
+	                assertEquals(1, run["current_step_number"])
+	                val step = stepResults(run).single()
+	                assertEquals("click", step["tool"])
+	                assertEquals("OOB_ACCESSIBILITY_REQUIRED", step["error_code"])
             }
         } finally {
             context.root.deleteRecursively()
@@ -244,7 +248,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
-    fun `nested oob_function_run emits explicit tool card events`() = runBlocking {
+    fun `nested call_tool emits explicit tool card events`() = runBlocking {
         val context = TempFilesContext()
         try {
             val store = WorkspaceFunctionStore(context.root)
@@ -262,8 +266,8 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
                         "executor" to "omniflow",
                         "model_free" to true,
                         "scriptable" to true,
-                        "tool" to "oob_function_run",
-                        "callable_tool" to "oob_function_run",
+                        "tool" to "call_tool",
+                        "callable_tool" to "call_tool",
                         "args" to mapOf("function_id" to "child_finished"),
                     )
                 ),
@@ -286,15 +290,15 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
             assertEquals("tool_completed", callback.toolCardEvents[1].first)
 
             val start = callback.toolCardEvents[0].second
-            assertEquals("parent-call_parent_step_oob_function_run", start["cardId"])
-            assertEquals("oob_function_run", start["toolName"])
+            assertEquals("parent-call_parent_step_call_tool", start["cardId"])
+            assertEquals("call_tool", start["toolName"])
             assertEquals("oob_function", start["toolType"])
             assertEquals("running", start["status"])
             assertTrue(start["argsJson"].toString().contains("child_finished"))
 
             val complete = callback.toolCardEvents[1].second
-            assertEquals("parent-call_parent_step_oob_function_run", complete["cardId"])
-            assertEquals("oob_function_run", complete["toolName"])
+            assertEquals("parent-call_parent_step_call_tool", complete["cardId"])
+            assertEquals("call_tool", complete["toolName"])
             assertEquals("success", complete["status"])
             assertEquals(true, complete["success"])
             assertTrue(complete["resultPreviewJson"].toString().contains("child_finished"))
@@ -305,7 +309,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
-    fun `nested oob_function_run propagates model continuation requirement to parent run`() = runBlocking {
+    fun `nested call_tool propagates model continuation requirement to parent run`() = runBlocking {
         val context = TempFilesContext()
         try {
             val store = WorkspaceFunctionStore(context.root)
@@ -335,8 +339,8 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
                         "executor" to "omniflow",
                         "model_free" to true,
                         "scriptable" to true,
-                        "tool" to "oob_function_run",
-                        "callable_tool" to "oob_function_run",
+                        "tool" to "call_tool",
+                        "callable_tool" to "call_tool",
                         "args" to mapOf("function_id" to "child_needs_agent"),
                     )
                 ),
@@ -367,7 +371,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
-    fun `oob_function_run executes source-context steps in fixed order`() = runBlocking {
+    fun `call_tool executes source-context steps in fixed order`() = runBlocking {
         val context = TempFilesContext()
         val pageA = pageXml("A", "com.example.a")
         val pageB = pageXml("B", "com.example.b")
@@ -413,7 +417,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
-    fun `oob_function_run ignores key action metadata during fixed replay`() = runBlocking {
+    fun `call_tool ignores key action metadata during fixed replay`() = runBlocking {
         val context = TempFilesContext()
         val pageA = pageXml("A", "com.example.a")
         val pageB = pageXml("B", "com.example.b")
@@ -453,7 +457,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
-    fun `oob_function_run keeps fixed order when no key action metadata exists`() = runBlocking {
+    fun `call_tool keeps fixed order when no key action metadata exists`() = runBlocking {
         val context = TempFilesContext()
         val pageA = pageXml("A", "com.example.a")
         val pageB = pageXml("B", "com.example.b")
@@ -593,7 +597,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
-    fun `legacy nested call_function missing child fails locally without model continuation`() = runBlocking {
+    fun `nested call_tool missing child fails locally without model continuation`() = runBlocking {
         val context = TempFilesContext()
         try {
             val spec = functionSpec(
@@ -606,8 +610,8 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
                         "executor" to "omniflow",
                         "model_free" to true,
                         "scriptable" to true,
-                        "tool" to "omniflow.call_function",
-                        "callable_tool" to "omniflow.call_function",
+                        "tool" to "call_tool",
+                        "callable_tool" to "call_tool",
                         "args" to mapOf("function_id" to "does_not_exist"),
                     )
                 ),
@@ -740,7 +744,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
-    fun `legacy provider-owned agent call_function spec is executed locally`() = runBlocking {
+    fun `provider-owned agent call_tool spec is executed locally`() = runBlocking {
         val context = TempFilesContext()
         try {
             val store = WorkspaceFunctionStore(context.root)
@@ -761,13 +765,13 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
                         "kind" to "agent_call",
                         "executor" to "agent",
                         "scriptable" to false,
-                        "tool" to "call_function",
+                        "tool" to "call_tool",
                         "callable_tool" to "oob.agent.run",
                         "args" to mapOf("function_id" to "legacy_child"),
                         "agent_call" to mapOf(
                             "tool" to "oob.agent.run",
                             "args" to mapOf(
-                                "original_tool" to "call_function",
+                                "original_tool" to "call_tool",
                                 "original_args" to mapOf("function_id" to "legacy_child"),
                             ),
                             "reason" to "provider_owned_replay_requires_omniflow",
@@ -796,7 +800,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
-    fun `legacy recursive call_function alias is rejected by local runner`() = runBlocking {
+    fun `recursive call_tool is rejected by local runner`() = runBlocking {
         val context = TempFilesContext()
         try {
             val store = WorkspaceFunctionStore(context.root)
@@ -810,8 +814,8 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
                         "executor" to "omniflow",
                         "model_free" to true,
                         "scriptable" to true,
-                        "tool" to "call_function",
-                        "callable_tool" to "call_function",
+                        "tool" to "call_tool",
+                        "callable_tool" to "call_tool",
                         "args" to mapOf("function_id" to "self_recursive"),
                     )
                 ),
@@ -979,7 +983,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
                 )
             )
             val parameterName = OobFunctionSchemaBuilder.parameterNames(spec).single()
-            assertEquals("order_item_text", parameterName)
+            assertEquals("order_item", parameterName)
             assertEquals("run-vlm-meituan-coffee", (spec["source"] as Map<*, *>)["run_id"])
 
             val materialized = OobReusableFunctionStore.materialize(
@@ -1367,24 +1371,24 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
             OmniflowActionRuntime.useBackendForTesting(backend).use {
                 val result = handler.execute(
                     toolCall = AssistantToolCall(
-                        id = "call_oob_function_run",
+                        id = "call_call_tool",
                         type = "function",
                         function = cn.com.omnimind.baselib.llm.AssistantToolCallFunction(
-                            name = "oob_function_run",
+                            name = "call_tool",
                             arguments = args.toString(),
                         ),
                     ),
                     args = args,
                     runtimeDescriptor = AgentToolRegistry.RuntimeToolDescriptor(
-                        name = "oob_function_run",
+                        name = "call_tool",
                         displayName = "执行复用指令",
                         toolType = "workbench",
                     ),
                     env = FakeEnv(context),
                     callback = RecordingToolCardCallback(),
                     toolHandle = NoOpAgentRunControl.beginToolExecution(
-                        "oob_function_run",
-                        "call_oob_function_run"
+                        "call_tool",
+                        "call_call_tool"
                     ),
                 )
 
@@ -1449,8 +1453,8 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
                         "executor" to "omniflow",
                         "model_free" to true,
                         "scriptable" to true,
-                        "tool" to "oob_function_run",
-                        "callable_tool" to "oob_function_run",
+                        "tool" to "call_tool",
+                        "callable_tool" to "call_tool",
                         "args" to mapOf(
                             "function_id" to "leaf_input_search",
                             "arguments" to mapOf("search_query" to "彩票"),
@@ -1481,8 +1485,8 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
                         "executor" to "omniflow",
                         "model_free" to true,
                         "scriptable" to true,
-                        "tool" to "oob_function_run",
-                        "callable_tool" to "oob_function_run",
+                        "tool" to "call_tool",
+                        "callable_tool" to "call_tool",
                         "args" to mapOf(
                             "function_id" to "middle_call_leaf",
                             "arguments" to mapOf("search_query" to "彩票"),
@@ -1714,7 +1718,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
 
     private class StoppingToolHandle : cn.com.omnimind.bot.agent.AgentToolExecutionHandle {
         override val generation: Long = 1L
-        override val toolName: String = "oob_function_run"
+        override val toolName: String = "call_tool"
         override val toolCallId: String = "stop-test"
 
         override fun bindCardId(cardId: String) = Unit

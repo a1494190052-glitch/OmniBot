@@ -145,14 +145,12 @@ class ExecutionStep {
         return 'Input Text';
       case 'swipe':
         return 'Swipe';
-      case 'scroll':
-        return 'Scroll';
       case 'press_key':
         return 'Press Key';
       case 'finished':
         return 'Finished';
-      case 'call_function':
-        return 'Reusable Function';
+      case 'call_tool':
+        return 'Call Tool';
       default:
         return actionType.trim().isEmpty ? 'Action' : actionType.trim();
     }

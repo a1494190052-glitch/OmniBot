@@ -175,7 +175,7 @@ internal object ManualRecordingDiagnostics {
  *
  * Accessibility is evidence only: it provides XML/window observations and text
  * content for an input that was anchored by a real overlay/raw touch. A11-only
- * click, long-click, focus, and scroll events are intentionally not replayable
+ * click, long-click, focus, and swipe events are intentionally not replayable
  * actions except for a narrow post-input App button fallback, because generic
  * A11-only actions can be incomplete and can race with overlay replay.
  */
@@ -437,12 +437,12 @@ class ManualVlmTraceRecorder(
         }
         val mayOpenIme = gesture.actionName == OobCanonicalActionSchema.TOOL_CLICK &&
             overlayClickMayOpenIme(beforeXml, gesture.startX, gesture.startY)
-        val touchX = if (gesture.actionName == OobCanonicalActionSchema.TOOL_SCROLL) {
+        val touchX = if (gesture.actionName == OobCanonicalActionSchema.TOOL_SWIPE) {
             (gesture.startX + gesture.endX) / 2f
         } else {
             gesture.startX
         }
-        val touchY = if (gesture.actionName == OobCanonicalActionSchema.TOOL_SCROLL) {
+        val touchY = if (gesture.actionName == OobCanonicalActionSchema.TOOL_SWIPE) {
             (gesture.startY + gesture.endY) / 2f
         } else {
             gesture.startY
@@ -522,7 +522,7 @@ class ManualVlmTraceRecorder(
                         dispatchOutcome = dispatchOutcome,
                         beforeXmlCaptureMs = beforeXmlCapture.durationMs
                     )
-                    OobCanonicalActionSchema.TOOL_SCROLL -> appendOverlaySwipeGesture(
+                    OobCanonicalActionSchema.TOOL_SWIPE -> appendOverlaySwipeGesture(
                         gesture = gesture,
                         beforeXml = beforeXml,
                         beforeScreenshot = beforeScreenshot,
@@ -930,8 +930,8 @@ class ManualVlmTraceRecorder(
                 )
                 ?: if (enableDebugScreenshots) null else lastScreenshotSnapshot
         }
-        val touchX = if (gesture.actionName == OobCanonicalActionSchema.TOOL_SCROLL) gesture.startX else (gesture.startX + gesture.endX) / 2f
-        val touchY = if (gesture.actionName == OobCanonicalActionSchema.TOOL_SCROLL) gesture.startY else (gesture.startY + gesture.endY) / 2f
+        val touchX = if (gesture.actionName == OobCanonicalActionSchema.TOOL_SWIPE) gesture.startX else (gesture.startX + gesture.endX) / 2f
+        val touchY = if (gesture.actionName == OobCanonicalActionSchema.TOOL_SWIPE) gesture.startY else (gesture.startY + gesture.endY) / 2f
         if (coordinateHitsIgnoredTarget(beforeXml, touchX, touchY)) {
             synchronized(recordingLock) {
                 rawGestureIgnoredControlCount += 1
@@ -958,7 +958,7 @@ class ManualVlmTraceRecorder(
             clearPostInputClickWindowLocked()
             when (gesture.actionName) {
                 OobCanonicalActionSchema.TOOL_CLICK, OobCanonicalActionSchema.TOOL_LONG_PRESS -> appendRawClickGesture(gesture, beforeXml, beforeScreenshot)
-                OobCanonicalActionSchema.TOOL_SCROLL -> appendRawSwipeGesture(gesture, beforeXml, beforeScreenshot)
+                OobCanonicalActionSchema.TOOL_SWIPE -> appendRawSwipeGesture(gesture, beforeXml, beforeScreenshot)
             }
             rawGestureRecordedCount += 1
             lastXmlSnapshot = beforeXml ?: lastXmlSnapshot
@@ -1061,7 +1061,7 @@ class ManualVlmTraceRecorder(
         ).filterValues { it != null }
         appendRecordedAction(
             ManualVlmRecordedAction(
-                actionName = OobCanonicalActionSchema.TOOL_SCROLL,
+                actionName = OobCanonicalActionSchema.TOOL_SWIPE,
                 title = title,
                 params = params,
                 packageName = target.packageName,
@@ -1085,7 +1085,7 @@ class ManualVlmTraceRecorder(
                 gesture.startY,
                 gesture.durationMs.coerceAtLeast(OVERLAY_LONG_PRESS_MIN_DURATION_MS)
             )
-            OobCanonicalActionSchema.TOOL_SCROLL -> {
+            OobCanonicalActionSchema.TOOL_SWIPE -> {
                 val direction = overlaySwipeDirection(gesture)
                 AccessibilityController.scrollCoordinate(
                     x = gesture.startX,
@@ -1246,7 +1246,7 @@ class ManualVlmTraceRecorder(
         val resolvedPackageName = resolvedActionPackageName(target, beforeXml)
         appendRecordedAction(
             ManualVlmRecordedAction(
-                actionName = OobCanonicalActionSchema.TOOL_SCROLL,
+                actionName = OobCanonicalActionSchema.TOOL_SWIPE,
                 title = title,
                 params = params,
                 packageName = resolvedPackageName,
@@ -1837,11 +1837,11 @@ class ManualVlmTraceRecorder(
         return when {
             normalized == "back" ||
                 normalized.contains("back") ||
-                normalized.contains("返回") -> OobCanonicalActionSchema.TOOL_PRESS_BACK
+                normalized.contains("返回") -> OobCanonicalActionSchema.TOOL_PRESS_KEY
             normalized == "home" ||
                 normalized.contains("home") ||
                 normalized.contains("主页") ||
-                normalized.contains("主屏幕") -> OobCanonicalActionSchema.TOOL_PRESS_HOME
+                normalized.contains("主屏幕") -> OobCanonicalActionSchema.TOOL_PRESS_KEY
             else -> null
         }
     }
@@ -2675,7 +2675,7 @@ class ManualVlmTraceRecorder(
         "execution_mode" to SYNTHETIC_REPLAY_EXECUTION_MODE,
         "gesture_duration_ms" to gesture.durationMs,
         "gesture_distance_px" to gesture.distancePx,
-        "direction" to overlaySwipeDirectionName(gesture).takeIf { gesture.actionName == OobCanonicalActionSchema.TOOL_SCROLL },
+        "direction" to overlaySwipeDirectionName(gesture).takeIf { gesture.actionName == OobCanonicalActionSchema.TOOL_SWIPE },
         "start_x" to gesture.startX,
         "start_y" to gesture.startY,
         "end_x" to gesture.endX,
@@ -3256,7 +3256,7 @@ class ManualVlmTraceRecorder(
                 ScreenshotAnnotation(actionName = actionName, x = x, y = y)
 
             fun forGesture(gesture: ManualOverlayTouchGesture): ScreenshotAnnotation {
-                return if (gesture.actionName == OobCanonicalActionSchema.TOOL_SCROLL) {
+                return if (gesture.actionName == OobCanonicalActionSchema.TOOL_SWIPE) {
                     ScreenshotAnnotation(
                         actionName = gesture.actionName,
                         x = gesture.startX,
@@ -3270,7 +3270,7 @@ class ManualVlmTraceRecorder(
             }
 
             fun forRawGesture(gesture: ManualRawTouchGesture): ScreenshotAnnotation {
-                return if (gesture.actionName == OobCanonicalActionSchema.TOOL_SCROLL) {
+                return if (gesture.actionName == OobCanonicalActionSchema.TOOL_SWIPE) {
                     ScreenshotAnnotation(
                         actionName = gesture.actionName,
                         x = gesture.startX,

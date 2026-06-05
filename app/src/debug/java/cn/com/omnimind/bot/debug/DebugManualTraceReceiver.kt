@@ -130,7 +130,7 @@ class DebugManualTraceReceiver : BroadcastReceiver() {
             }
         }
         val actionNames = traceResult.actions.map { it.actionName }
-        val swipeCount = actionNames.count { it == "scroll" || it == "swipe" }
+        val swipeCount = actionNames.count { it == "swipe" }
         return linkedMapOf<String, Any?>(
             "success" to traceResult.actions.isNotEmpty(),
             "phase" to "validated",

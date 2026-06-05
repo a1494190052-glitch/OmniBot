@@ -2,6 +2,7 @@ package cn.com.omnimind.bot.agent
 
 import cn.com.omnimind.baselib.i18n.PromptLocale
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
+import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertFalse
@@ -162,13 +163,13 @@ class AgentSystemPromptTest {
             activeWorkbenchProjectContext = null,
             workbenchDisplayLayoutContext = null,
             oobFunctionCandidateContext =
-                "当前可复用的 OmniFlow Functions：\n- 高置信匹配时用 `${OobFunctionToolNames.FUNCTION_RUN}`\n- `order_food` 点外卖",
+                "当前可复用的 OmniFlow Functions：\n- 高置信匹配时用 `${RunLogReplayPolicy.TOOL_CALL_TOOL}`\n- `order_food` 点外卖",
             locale = PromptLocale.ZH_CN
         )
 
         assertTrue(prompt.contains("当前可复用的 OmniFlow Functions"))
         assertTrue(prompt.contains("order_food"))
-        assertTrue(prompt.contains(OobFunctionToolNames.FUNCTION_RUN))
+        assertTrue(prompt.contains(RunLogReplayPolicy.TOOL_CALL_TOOL))
     }
 
     @Test

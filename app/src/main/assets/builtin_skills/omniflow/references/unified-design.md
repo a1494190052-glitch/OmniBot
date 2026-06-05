@@ -6,8 +6,8 @@ why old replay concepts should not be reintroduced.
 ## Main Path
 
 ```text
-RunLog -> Function -> recall candidates -> VLM sees recalled Functions as native tools
-  -> VLM chooses one GUI tool or one Function tool
+RunLog -> Function -> recall candidates -> VLM sees recalled Functions as call_tool candidates
+  -> VLM chooses one GUI tool or call_tool(function_id, arguments)
   -> local runner executes checker/action-transfer/replay
   -> returns success/result
   -> next turn fresh observe decides the next tool
@@ -19,11 +19,10 @@ order. It does not maintain a hidden pending queue and does not skip middle
 steps because a later page state appears satisfied.
 
 Use one vocabulary everywhere: Function, RunLog, recall, replay, checker,
-action transfer, and update. Deprecated reusable-workflow wording and
-`call_function` names are compatibility only.
+action transfer, update, and `call_tool`.
 
-Internal graph edges for callable Functions use `kind=function_call`; old
-`call_function` edge inputs are compatibility only.
+Internal graph edges for callable Functions use `kind=function_call` and execute
+through `call_tool`.
 
 Every executable Function step should have an agent-useful title/summary,
 canonical action, arguments, and target hints when available. Step annotation is
@@ -33,18 +32,16 @@ used by recall, VLM guidance, RunLog evidence analysis, and `update_function`.
 
 Use these names first for Function lifecycle and online execution:
 
-- dynamic VLM Function tools, where the Function id is the tool name
+- `call_tool` with `function_id`
 - `vlm_task`
 - `update_function`
 - `oob_run_log_convert`
 - `oob_function_list`
 - `oob_function_get`
 
-Legacy names such as `call_function`, `run_function`, and
-`omniflow.call_function` are import-only compatibility names. They are not the
-model-visible replay tool and must not be written into new Function specs.
-Direct `oob_function_run` and `oob_function_guard_check` are legacy/internal
-compatibility names. Do not expose them as normal agent-task decisions.
+Do not expose `oob_function_guard_check` as a normal agent-task decision. It is
+runner guard logic. Function execution is `call_tool`; new Function specs and
+agent prompts should not write another execution name.
 
 ## Recall
 

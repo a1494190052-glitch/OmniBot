@@ -7,6 +7,7 @@ import cn.com.omnimind.bot.agent.AgentToolDefinitions
 import cn.com.omnimind.bot.agent.AgentToolJson.mapToJsonElement
 import cn.com.omnimind.bot.agent.config.AgentToolFeatureStore
 import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
+import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
@@ -29,10 +30,10 @@ object OobFunctionSkillProfile {
     private val MODEL_TOOL_NAME_REGEX = Regex("^[A-Za-z0-9_-]{1,64}$")
     private val directFunctionToolNames: Set<String> = setOf(
         OobFunctionToolNames.FUNCTION_GUARD_CHECK,
-        OobFunctionToolNames.FUNCTION_RUN,
     )
 
-    val toolNames: Set<String> = OobFunctionToolNames.profileTools - directFunctionToolNames
+    val toolNames: Set<String> =
+        (OobFunctionToolNames.profileTools + RunLogReplayPolicy.TOOL_CALL_TOOL) - directFunctionToolNames
 
     fun isProfile(profile: String?): Boolean =
         normalizeProfile(profile) == PROFILE
@@ -64,7 +65,7 @@ object OobFunctionSkillProfile {
                 .listSpecs(MAX_DYNAMIC_FUNCTION_TOOLS)
                 .mapNotNull { spec -> dynamicFunctionToolDefinition(spec, locale) }
         }.onFailure {
-            OmniLog.w("OobFunctionSkillProfile", "load dynamic Function tools failed: ${it.message}")
+            OmniLog.w("OobFunctionSkillProfile", "load Function call candidates failed: ${it.message}")
         }.getOrDefault(emptyList())
     }
 
@@ -96,15 +97,13 @@ object OobFunctionSkillProfile {
                     appendLine("本轮已根据用户目标自动召回 OmniFlow Function 候选（候选摘要，不是完整 spec）：")
                     appendLine("- Function 是可组合的复用片段，不要求一次覆盖完整用户目标；运行后根据结果继续选择下一个 Function、VLM 或其他工具。")
                     appendLine("- Function recall 是运行时内部步骤，不是模型工具；不要尝试调用 function_recall。")
-                    appendLine("- 目前 agent-task 不直接调用 Function 执行工具；候选只作为理解和管理上下文。")
-                    appendLine("- 如需查看候选详情，用 `${OobFunctionToolNames.FUNCTION_GET}`；如需执行，走 VLM task 或内部 Function runner。")
+                    appendLine("- 如需查看候选详情，用 `${OobFunctionToolNames.FUNCTION_GET}`；如需执行，用 `${RunLogReplayPolicy.TOOL_CALL_TOOL}` 并传 function_id。")
                 }
                 PromptLocale.EN_US -> {
                     appendLine("OmniFlow Function candidates recalled automatically for this user goal (summaries, not full specs):")
                     appendLine("- A Function is a saved mobile workflow tool, not necessarily the whole user goal; after running it, continue with the next Function, VLM, or other tool as needed.")
                     appendLine("- Function recall is an internal runtime step, not a model tool; do not try to call function_recall.")
-                    appendLine("- Agent tasks currently do not call Function execution tools directly; candidates are context for understanding and management.")
-                    appendLine("- Use `${OobFunctionToolNames.FUNCTION_GET}` to inspect a candidate. Execution should go through VLM task or the internal Function runner.")
+                    appendLine("- Use `${OobFunctionToolNames.FUNCTION_GET}` to inspect a candidate. To execute it, call `${RunLogReplayPolicy.TOOL_CALL_TOOL}` with function_id.")
                 }
             }
             candidates.forEachIndexed { index, spec ->
@@ -343,42 +342,6 @@ object OobFunctionSkillProfile {
         }
     }
 
-    private val oobFunctionRunTool: JsonObject = buildJsonObject {
-        put("type", "function")
-        putJsonObject("function") {
-            put("name", OobFunctionToolNames.FUNCTION_RUN)
-            put("displayName", "执行复用指令")
-            put("toolType", "workbench")
-            put(
-                "description",
-                "兼容/内部入口：执行一个已保存的 OOB/OmniFlow Function。普通在线手机执行应使用 vlm_task，让 recalled Function 作为 VLM native tool 被显式选择。失败时检查 success/result 和当前页面证据，不走隐藏接管流程。"
-            )
-            putJsonObject("parameters") {
-                put("type", "object")
-                putJsonObject("properties") {
-                    putJsonObject("function_id") { put("type", "string") }
-                    putJsonObject("arguments") { put("type", "object") }
-                    putJsonObject("resume_from_step") {
-                        put("type", "integer")
-                        put("description", "Legacy/internal 0-based step index. Omit or set 0 for a fresh run.")
-                    }
-                    putJsonObject("fallback_session_id") {
-                        put("type", "string")
-                        put("description", "Legacy/internal correlation id.")
-                    }
-                    putJsonObject("fallback_attempt") {
-                        put("type", "integer")
-                        put("description", "Legacy/internal attempt counter.")
-                    }
-                    putJsonObject("dry_run") { put("type", "boolean") }
-                    putJsonObject("execution_mode") { put("type", "string") }
-                    putJsonObject("confirmed") { put("type", "boolean") }
-                }
-                putJsonArray("required") { add("function_id") }
-            }
-        }
-    }
-
     private val oobFunctionGuardCheckTool: JsonObject = buildJsonObject {
         put("type", "function")
         putJsonObject("function") {
@@ -483,6 +446,7 @@ object OobFunctionSkillProfile {
     }
 
     private val functionManagementToolDefinitions: List<JsonObject> = listOf(
+        AgentToolDefinitions.callToolTool,
         oobFunctionListTool,
         oobFunctionGetTool,
         oobFunctionRegisterTool,

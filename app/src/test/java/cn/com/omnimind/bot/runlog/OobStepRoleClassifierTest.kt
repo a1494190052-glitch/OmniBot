@@ -67,7 +67,7 @@ class OobStepRoleClassifierTest {
     fun `does not assign explanatory main path roles by default`() {
         val classification = OobStepRoleClassifier.classify(
             functionSpec = emptyMap(),
-            step = mapOf("tool" to "press_back", "args" to emptyMap<String, Any?>()),
+            step = mapOf("tool" to "press_key", "args" to mapOf("key" to "back")),
             stepIndex = 0,
         )
 

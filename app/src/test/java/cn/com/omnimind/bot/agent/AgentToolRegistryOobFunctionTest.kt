@@ -10,6 +10,7 @@ import cn.com.omnimind.bot.agent.config.AgentToolFeatureStore
 import cn.com.omnimind.bot.omniflow.OobFunctionRepository
 import cn.com.omnimind.bot.omniflow.OobFunctionSkillProfile
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
+import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import cn.com.omnimind.bot.workbench.WorkbenchProjectStore
 import java.io.File
 import java.nio.file.Files
@@ -43,7 +44,6 @@ class AgentToolRegistryOobFunctionTest {
             assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_REGISTER))
             assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_UPDATE))
             assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_GUARD_CHECK))
-            assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_RUN))
             assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_DELETE))
             assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_CLEAR))
             assertFalse(toolNames.contains(OobFunctionToolNames.RUN_LOG_LIST))
@@ -75,7 +75,6 @@ class AgentToolRegistryOobFunctionTest {
             assertFalse(toolNames.contains("terminal_execute"))
             assertFalse(toolNames.contains("workbench_project_create"))
             assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_GUARD_CHECK))
-            assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_RUN))
             assertTrue(toolNames.contains(OobFunctionToolNames.FUNCTION_CLEAR))
             assertTrue(toolNames.contains(OobFunctionToolNames.RUN_LOG_GET))
         } finally {
@@ -246,7 +245,6 @@ class AgentToolRegistryOobFunctionTest {
             assertFalse(registry.toolsForModel.any { it.function.name == functionId })
             assertTrue(registry.toolsForModel.any { it.function.name == OobFunctionToolNames.FUNCTION_GET })
             assertFalse(registry.toolsForModel.any { it.function.name == OobFunctionToolNames.FUNCTION_GUARD_CHECK })
-            assertFalse(registry.toolsForModel.any { it.function.name == OobFunctionToolNames.FUNCTION_RUN })
             assertFalse(registry.toolsForModel.any { it.function.name == "oob_function_recall" })
         } finally {
             context.root.deleteRecursively()
@@ -289,7 +287,6 @@ class AgentToolRegistryOobFunctionTest {
                 discoveredServers = emptyList(),
             )
             val toolNames = registry.toolsForModel.map { it.function.name }.toSet()
-            assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_RUN))
             assertFalse(toolNames.contains("oob_function_recall"))
 
             val promptContext = OobFunctionSkillProfile.promptCandidateContext(
@@ -301,9 +298,8 @@ class AgentToolRegistryOobFunctionTest {
 
             assertTrue(promptContext.contains("自动召回 OmniFlow Function 候选"))
             assertTrue(promptContext.contains("Function recall 是运行时内部步骤，不是模型工具"))
-            assertTrue(promptContext.contains("agent-task 不直接调用 Function 执行工具"))
+            assertTrue(promptContext.contains("如需执行，用 `${RunLogReplayPolicy.TOOL_CALL_TOOL}` 并传 function_id"))
             assertTrue(promptContext.contains(xhsFunctionId))
-            assertFalse(promptContext.contains(OobFunctionToolNames.FUNCTION_RUN))
             assertFalse(promptContext.contains("oob_function_recall"))
         } finally {
             context.root.deleteRecursively()

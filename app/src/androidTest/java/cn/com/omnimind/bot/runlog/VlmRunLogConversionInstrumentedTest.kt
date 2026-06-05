@@ -73,7 +73,7 @@ class VlmRunLogConversionInstrumentedTest {
             assertEquals(functionId, convert["function_id"])
         } finally {
             if (functionId.isNotBlank()) {
-                OobRunLogReplayService(context).deleteFunction(functionId)
+                OobOmniFlowToolkitService(context).deleteFunction(mapOf("function_id" to functionId))
             }
             testScope.cancel()
         }

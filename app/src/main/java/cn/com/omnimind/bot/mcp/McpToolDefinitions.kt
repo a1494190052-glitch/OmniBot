@@ -33,9 +33,9 @@ Use cases:
 - Perform multi-step operations across different apps
 
 OMNIFLOW FUNCTION REUSE:
-- Online VLM observes the current page each turn, recalls matching saved Functions, and exposes them as native model tools inside the VLM task.
-- A saved Function tool may execute multiple phone actions and may finish only part of the goal. After its result, VLM observes the fresh page again and chooses the next tool.
-- Parameterized Functions are valid matches. The VLM fills required arguments from the user goal before selecting the recalled Function tool.
+- Online VLM observes the current page each turn, recalls matching saved Functions, and exposes them as call_tool candidates inside the VLM task.
+- A saved Function call may execute multiple phone actions and may finish only part of the goal. After its result, VLM observes the fresh page again and chooses the next tool.
+- Parameterized Functions are valid matches. The VLM fills required arguments from the user goal before calling call_tool with function_id.
 - The outer Agent should not call hidden Function replay or guard tools. Guard checks, checker handling, action transfer, and replay safety stay inside the local runner.
 - If a Function fails, the failure is returned as the tool result. The next VLM step handles the current page; the Agent should not resume hidden Function replay itself.
 
@@ -354,35 +354,23 @@ BEHAVIOR:
         )
     )
 
-    val oobToolCallTool = mapOf(
-        "name" to RunLogReplayPolicy.TOOL_OOB_TOOL_CALL,
-        "description" to """Call one OOB capability through the normal in-app Agent runtime. For phone UI automation, use vlm_task; recalled saved Functions are exposed inside vlm_task as native VLM tools, not as hidden outer-Agent replay calls.""".trimIndent(),
+    val callToolTool = mapOf(
+        "name" to RunLogReplayPolicy.TOOL_CALL_TOOL,
+        "description" to """Call one OOB capability through the normal in-app Agent runtime, or run one saved Function by function_id. For phone UI automation, use vlm_task; recalled saved Functions are selected inside vlm_task through call_tool candidates.""".trimIndent(),
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
                 "tool_name" to mapOf("type" to "string", "description" to "OOB or MCP tool name, for example vlm_task or file_transfer."),
+                "function_id" to mapOf("type" to "string", "description" to "Saved Function id to run. Do not also set tool_name."),
                 "arguments" to mapOf("type" to "object", "description" to "Arguments to pass to the requested tool."),
                 "goal" to mapOf("type" to "string", "description" to "Optional natural-language goal when the tool requires planning or composition.")
             )
         )
     )
 
-    val omniflowCallToolTool = mapOf(
-        "name" to "omniflow.call_tool",
-        "description" to """Call one OmniFlow/OOB tool by tool_name plus arguments. For online phone UI execution, call vlm_task; it handles Function recall and dynamic Function tool selection internally.""".trimIndent(),
-        "inputSchema" to mapOf(
-            "type" to "object",
-            "properties" to mapOf(
-                "tool_name" to mapOf("type" to "string", "description" to "Target OOB/MCP tool name, for example vlm_task, web_search, or terminal_execute."),
-                "arguments" to mapOf("type" to "object", "description" to "Parameter values for the target tool."),
-                "goal" to mapOf("type" to "string", "description" to "Optional original task goal for tracing.")
-            )
-        )
-    )
-
     val omniflowRecallTool = mapOf(
         "name" to "omniflow.recall",
-        "description" to """Recall by the UDEG path: page match -> UDEG node -> node skill-like decision context -> VLM/tool decision. The result is candidate context for inspection and diagnostics. Online execution should use vlm_task, where recalled Functions become native VLM tools.""".trimIndent(),
+        "description" to """Recall by the UDEG path: page match -> UDEG node -> node skill-like decision context -> VLM/tool decision. The result is candidate context for inspection and diagnostics. Online execution should use vlm_task, where recalled Functions are selected through call_tool candidates.""".trimIndent(),
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
@@ -511,34 +499,6 @@ BEHAVIOR:
             "properties" to mapOf(
                 "function_id" to mapOf("type" to "string", "description" to "Function id to check."),
                 "arguments" to mapOf("type" to "object", "description" to "Materialization arguments for the Function.")
-            ),
-            "required" to listOf("function_id")
-        )
-    )
-
-    val oobFunctionRunTool = mapOf(
-        "name" to OobFunctionToolNames.FUNCTION_RUN,
-        "description" to "Legacy/internal compatibility tool for running one saved OOB/OmniFlow Function. Normal online phone execution should use vlm_task, where recalled Functions are native VLM tools. On failure, inspect success/result and current page evidence instead of using hidden replay continuation.",
-        "inputSchema" to mapOf(
-            "type" to "object",
-            "properties" to mapOf(
-                "function_id" to mapOf("type" to "string", "description" to "Function id to run."),
-                "arguments" to mapOf("type" to "object", "description" to "Materialization arguments for this Function."),
-                "resume_from_step" to mapOf(
-                    "type" to "integer",
-                    "description" to "Legacy/internal 0-based step index to start from. Omit or set 0 for a fresh run."
-                ),
-                "fallback_session_id" to mapOf(
-                    "type" to "string",
-                    "description" to "Legacy/internal correlation id."
-                ),
-                "fallback_attempt" to mapOf(
-                    "type" to "integer",
-                    "description" to "Legacy/internal attempt counter."
-                ),
-                "dry_run" to mapOf("type" to "boolean", "description" to "Only return guard decision without executing."),
-                "execution_mode" to mapOf("type" to "string", "description" to "foreground or background. Default: foreground."),
-                "confirmed" to mapOf("type" to "boolean", "description" to "Set true only after user confirmation for guarded operations.")
             ),
             "required" to listOf("function_id")
         )
@@ -674,9 +634,8 @@ This is the MCP control entry for Project creation. It writes the normal Workben
             getStateTool,
             fileTransferTool,
             agentRunTool,
-            oobToolCallTool,
+            callToolTool,
             omniflowRecallTool,
-            omniflowCallToolTool,
             omniflowIngestRunLogTool,
             omniflowExploreReplayTool,
             oobFunctionListTool,

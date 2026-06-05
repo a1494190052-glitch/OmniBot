@@ -83,7 +83,7 @@ class OobFunctionRunner(
             }
         }.getOrElse { error ->
             errorPayload(
-                code = "OOB_FUNCTION_RUN_FAILED",
+                code = "OOB_CALL_TOOL_FAILED",
                 message = error.message.orEmpty(),
                 functionId = functionId
             )

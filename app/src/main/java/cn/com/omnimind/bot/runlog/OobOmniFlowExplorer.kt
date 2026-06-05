@@ -391,7 +391,7 @@ class OobOmniFlowExplorer(
                 candidate.bounds.centerX,
                 candidate.bounds.centerY
             )
-            ACTION_SCROLL -> backend.scroll(
+            ACTION_SWIPE -> backend.scroll(
                 x = candidate.bounds.centerX,
                 y = candidate.bounds.centerY,
                 direction = scrollDirection(candidate.scrollDirection),
@@ -473,7 +473,7 @@ class OobOmniFlowExplorer(
 
     companion object {
         const val ACTION_CLICK = OobActionCodec.ACTION_CLICK
-        const val ACTION_SCROLL = OobActionCodec.ACTION_SCROLL
+        const val ACTION_SWIPE = OobActionCodec.ACTION_SWIPE
         private const val MIN_ACTION_AREA = 36 * 36
         private const val MAX_RESET_BACK_STEPS = 8
         private const val DEFAULT_SCROLL_DISTANCE_PX = 360f
@@ -558,11 +558,11 @@ class OobOmniFlowExplorer(
                     val labelBonus = if (candidate.label.isNotBlank()) 0.35 else 0.0
                     val actionBonus = when (candidate.action) {
                         ACTION_CLICK -> 0.30
-                        ACTION_SCROLL -> 0.18
+                        ACTION_SWIPE -> 0.18
                         else -> 0.0
                     }
                     val sizePenalty =
-                        if (candidate.action != ACTION_SCROLL && isOverbroad(candidate, snapshot.rootBounds)) {
+                        if (candidate.action != ACTION_SWIPE && isOverbroad(candidate, snapshot.rootBounds)) {
                             -0.80
                         } else {
                             0.0
@@ -726,11 +726,11 @@ class OobOmniFlowExplorer(
                 if (scrollable) {
                     add(
                         base.copy(
-                            action = ACTION_SCROLL,
+                            action = ACTION_SWIPE,
                             scrollDirection = "up",
                             scrollDistancePx = scrollDistance(bounds, rootBounds),
                             scrollDurationMs = DEFAULT_SCROLL_DURATION_MS,
-                            actionId = "utg_action_${shortHash("$stateSeed|$ACTION_SCROLL|$signature").take(16)}",
+                            actionId = "utg_action_${shortHash("$stateSeed|$ACTION_SWIPE|$signature").take(16)}",
                         )
                     )
                 }
@@ -746,10 +746,10 @@ class OobOmniFlowExplorer(
             val classTail = candidate.className.substringAfterLast('.')
                 .lowercase(Locale.US)
             if (classTail in riskyClassTails) return "risky_class:$classTail"
-            if (candidate.action != ACTION_SCROLL && isOverbroad(candidate, rootBounds)) {
+            if (candidate.action != ACTION_SWIPE && isOverbroad(candidate, rootBounds)) {
                 return "overbroad_bounds"
             }
-            if (!allowRiskyActions && candidate.action != ACTION_SCROLL) {
+            if (!allowRiskyActions && candidate.action != ACTION_SWIPE) {
                 val label = listOf(
                     candidate.text,
                     candidate.contentDesc,
@@ -768,7 +768,7 @@ class OobOmniFlowExplorer(
                 "x" to candidate.bounds.centerX,
                 "y" to candidate.bounds.centerY,
             )
-            if (candidate.action != ACTION_SCROLL) return base
+            if (candidate.action != ACTION_SWIPE) return base
 
             val end = scrollEndPoint(
                 x = candidate.bounds.centerX,

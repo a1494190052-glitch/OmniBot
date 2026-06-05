@@ -114,26 +114,26 @@ object VLMFirstStepOptimizer {
         val normalizedTarget = targetPackage.trim()
         return when {
             wantsScroll(goalText) ->
-                "首步策略: 用户明确要求滑动/滚动，优先对当前可滚动区域执行 scroll；不要改点首个列表项。"
+                "首步策略: 用户明确要求滑动/滚动，优先对当前可滚动区域执行 swipe；不要改点首个列表项。"
 
             normalizedTarget.isNotBlank() &&
                 !currentPackage.equals(normalizedTarget, ignoreCase = true) &&
                 wantsOpenApp(goalText) ->
-                "首步策略: 用户目标是打开应用，且目标包名已知为 $normalizedTarget；优先调用 open_app(package_name=\"$normalizedTarget\")，不要在桌面/启动器里反复 scroll 查找图标。"
+                "首步策略: 用户目标是打开应用，且目标包名已知为 $normalizedTarget；优先调用 open_app(package_name=\"$normalizedTarget\")，不要在桌面/启动器里反复 swipe 查找图标。"
 
             goalMatches.isNotEmpty() ->
                 "首步策略: 用户任务与首屏候选「${goalMatches.joinToString(" / ")}」匹配，优先点击匹配候选；不要默认点击列表第一项，也不要点击与任务关键词无关的控件。"
 
             normalizedTarget.isNotBlank() ->
                 if (hasScrollable) {
-                    "首步策略: 已捕捉到当前页面；不要仅因前台包名和目标包名不一致就重复 open_app。先按当前截图/XML匹配用户任务。若目标文本不在首屏，优先使用较大幅度 scroll（从可滚动区域下部滑到中上部）或搜索，不要短滑，也不要点击无关的首个列表项。"
+                    "首步策略: 已捕捉到当前页面；不要仅因前台包名和目标包名不一致就重复 open_app。先按当前截图/XML匹配用户任务。若目标文本不在首屏，优先使用较大幅度 swipe（从可滚动区域下部滑到中上部）或搜索，不要短滑，也不要点击无关的首个列表项。"
                 } else {
                     "首步策略: 已捕捉到当前页面；不要仅因前台包名和目标包名不一致就重复 open_app。先按当前截图/XML匹配用户任务。若目标文本不在首屏，优先搜索，不要点击无关的首个列表项。"
                 }
 
             hasPageSignal ->
                 if (hasScrollable) {
-                    "首步策略: 先按用户任务匹配首屏可见文本和可交互元素。若目标文本不在首屏，优先使用较大幅度 scroll（从可滚动区域下部滑到中上部）或搜索；不要短滑，也不要默认点击无关的首个列表项。"
+                    "首步策略: 先按用户任务匹配首屏可见文本和可交互元素。若目标文本不在首屏，优先使用较大幅度 swipe（从可滚动区域下部滑到中上部）或搜索；不要短滑，也不要默认点击无关的首个列表项。"
                 } else {
                     "首步策略: 先按用户任务匹配首屏可见文本和可交互元素。若目标文本不在首屏，优先搜索；不要默认点击无关的首个列表项。"
                 }
@@ -385,7 +385,7 @@ object VLMFirstStepOptimizer {
         "滚动",
         "向下",
         "向上",
-        "scroll",
+        "swipe",
         "swipe"
     )
     private val OPEN_APP_KEYWORDS = setOf(

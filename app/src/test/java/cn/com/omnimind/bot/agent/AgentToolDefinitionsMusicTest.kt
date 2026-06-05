@@ -81,7 +81,6 @@ class AgentToolDefinitionsMusicTest {
         assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_REGISTER))
         assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_UPDATE))
         assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_GUARD_CHECK))
-        assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_RUN))
         assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_DELETE))
         assertFalse(toolNames.contains(OobFunctionToolNames.FUNCTION_CLEAR))
         assertFalse(toolNames.contains(OobFunctionToolNames.RUN_LOG_LIST))
@@ -178,7 +177,6 @@ class AgentToolDefinitionsMusicTest {
             }
 
         assertFalse(names.contains(OobFunctionToolNames.FUNCTION_GUARD_CHECK))
-        assertFalse(names.contains(OobFunctionToolNames.FUNCTION_RUN))
     }
 
     @Test

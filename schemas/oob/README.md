@@ -18,7 +18,7 @@ Generated files:
 Current canonical constraints:
 
 - `input_text` uses only `args.text`.
-- `scroll` uses `duration_ms`, not `duration`.
+- `swipe` uses `duration_ms`, not `duration`, and carries `direction`.
 - `open_app` uses only `package_name`.
-- Back/Home are `press_back` and `press_home`; there is no generic `press_key`.
-- Function calls use `oob_function_run(function_id, arguments)`.
+- Back/Home/Enter use `press_key(key)` with `key=back|home|enter`.
+- Saved Functions are invoked through `call_tool(function_id, arguments)`; Function ids are not exposed as separate action names.

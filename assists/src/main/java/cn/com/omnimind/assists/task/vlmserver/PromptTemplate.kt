@@ -139,8 +139,15 @@ object PromptTemplate {
             appendLine(
                 t(
                     locale,
-                    "遵守统一 action schema：每轮恰好一个原生 tool_call。不要输出文本动作、Markdown、旧格式 action/swipe/coordinate/coordinate2，或任何不在 tools[] 里的工具名。",
-                    "Follow the unified action schema: exactly one native tool_call per turn. Do not output text actions, Markdown, legacy action/swipe/coordinate/coordinate2 formats, or tool names that are not in tools[]."
+                    "遵守统一 action schema：每轮恰好一个原生 tool_call。优先把 OOB indexed page evidence 当成可执行菜单：目标出现在 #index 中时，click/input_text/long_press 必须填写 element_index；swipe 目标出现在 Sindex 中时必须填写 scrollable_index。不要凭截图估坐标，除非 evidence 没有目标。",
+                    "Follow the unified action schema: exactly one native tool_call per turn. Treat OOB indexed page evidence as the executable menu first: when the target appears as #index, click/input_text/long_press must include element_index; when a swipe target appears as Sindex, include scrollable_index. Do not estimate coordinates from the screenshot unless the target is missing from evidence."
+                )
+            )
+            appendLine(
+                t(
+                    locale,
+                    "不要输出文本动作、Markdown、旧格式 action/swipe/coordinate/coordinate2，或任何不在 tools[] 里的工具名。",
+                    "Do not output text actions, Markdown, legacy action/swipe/coordinate/coordinate2 formats, or tool names that are not in tools[]."
                 )
             )
             appendLine(
@@ -215,11 +222,10 @@ object PromptTemplate {
         return when (action) {
             is ClickAction -> "click ${compactLine(action.targetDescription, 80)}"
             is InputTextAction -> "input_text ${compactLine(action.targetDescription, 60)} text=${compactLine(action.text, 80)}"
-            is ScrollAction -> "scroll ${compactLine(action.targetDescription, 80)} ${action.direction.orEmpty()}"
+            is SwipeAction -> "swipe ${compactLine(action.targetDescription, 80)} ${action.direction.orEmpty()}"
             is LongPressAction -> "long_press ${compactLine(action.targetDescription, 80)}"
             is OpenAppAction -> "open_app ${action.packageName}"
-            is PressHomeAction -> "press_home"
-            is PressBackAction -> "press_back"
+            is PressKeyAction -> "press_key ${action.key}"
             is FunctionRunAction -> "function ${action.functionId}"
             is FinishedAction -> "finished"
             is RequireUserChoiceAction -> "require_user_choice"
@@ -411,7 +417,7 @@ object PromptTemplate {
                 t(
                     locale,
                     "若你判断下一步是点击、输入、滑动、返回或结束，请直接使用对应工具；不要使用停留、延时或空操作类动作，稳定停留由系统内部处理。",
-                    "If the next step should be tap, type, scroll, go back, or finish, call the matching tool directly. Do not use idle, delay, or no-op actions; stable settling is handled internally."
+                    "If the next step should be tap, type, swipe, press_key, or finish, call the matching tool directly. Do not use idle, delay, or no-op actions; stable settling is handled internally."
                 )
             )
             appendLine(
@@ -455,7 +461,7 @@ object PromptTemplate {
 
     private const val MAX_FOCUSED_INSTALLED_APPS = 12
     private const val MAX_APP_QUERY_TERMS = 24
-    private const val MAX_PAGE_EXPLANATION_CHARS = 1_200
+    private const val MAX_PAGE_EXPLANATION_CHARS = 2_200
     private const val MAX_RECENT_RESULT_STEPS = 4
     private const val MAX_RECENT_RESULT_CHARS = 260
     private val APP_QUERY_STOP_WORDS = setOf(

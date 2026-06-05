@@ -1,5 +1,6 @@
 package cn.com.omnimind.bot.agent.tool.handlers
 
+import cn.com.omnimind.bot.omniflow.OobFunctionJson.listArg
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 
@@ -69,7 +70,7 @@ class OobFunctionRunResultBuilder {
             "source" to "omniflow_replay",
             "run_source" to "omniflow_replay",
             "runner" to RunLogReplayPolicy.fixedReplayRunner,
-            "step_count" to 0,
+            "step_count" to stepCountFromSpec(spec),
             "success_step_count" to 0,
             "model_used" to false,
             "model_required" to false,
@@ -77,7 +78,7 @@ class OobFunctionRunResultBuilder {
             "error_code" to errorCode,
             "error_message" to errorMessage,
             "timing" to linkedMapOf(
-                "source" to "oob_function_runner",
+                "source" to "call_tool_runner",
                 "started_at_ms" to startedAtMs,
                 "finished_at_ms" to finishedAtMs,
                 "duration_ms" to (finishedAtMs - startedAtMs).coerceAtLeast(0),
@@ -86,6 +87,7 @@ class OobFunctionRunResultBuilder {
             "step_results" to emptyList<Map<String, Any?>>()
         ).apply {
             putAll(extras)
+            ensureFailureProgressFields(this, spec)
         }
     }
 
@@ -202,7 +204,7 @@ class OobFunctionRunResultBuilder {
             }
             val durationMs = (finishedAtMs - startedAtMs).coerceAtLeast(0)
             return linkedMapOf(
-                "source" to "oob_function_runner",
+                "source" to "call_tool_runner",
                 "started_at_ms" to startedAtMs,
                 "finished_at_ms" to finishedAtMs,
                 "duration_ms" to durationMs,
@@ -213,6 +215,77 @@ class OobFunctionRunResultBuilder {
 
         private fun elapsedMs(startedAtNanos: Long): Long =
             ((System.nanoTime() - startedAtNanos) / 1_000_000L).coerceAtLeast(0L)
+    }
+
+    private fun ensureFailureProgressFields(payload: LinkedHashMap<String, Any?>, spec: Map<String, Any?>) {
+        val stepResults = listArg(payload["step_results"])
+            .mapNotNull { raw -> mapArg(raw).takeIf { it.isNotEmpty() } }
+        val failedStepIndex = firstPresentIndex(
+            payload["failed_step_index"],
+            payload["blocked_step_index"],
+            firstFailedStepIndex(stepResults),
+        )
+        if (payload["failed_step_index"] == null && failedStepIndex != null) {
+            payload["failed_step_index"] = failedStepIndex
+        }
+        val currentStepIndex = firstPresentIndex(
+            payload["current_step_index"],
+            failedStepIndex,
+            payload["blocked_step_index"],
+            lastStepIndex(stepResults),
+        )
+        if (payload["current_step_index"] == null && currentStepIndex != null) {
+            payload["current_step_index"] = currentStepIndex
+        }
+        val currentStepNumber = positiveInt(payload["current_step_number"])
+        if (currentStepNumber == null && currentStepIndex != null && currentStepIndex >= 0) {
+            payload["current_step_number"] = currentStepIndex + 1
+        }
+        val existingStepCount = positiveInt(payload["step_count"])
+        if (existingStepCount == null) {
+            val derivedStepCount = listOf(
+                stepResults.size.takeIf { it > 0 },
+                stepCountFromSpec(spec).takeIf { it > 0 },
+            ).firstOrNull { it != null }
+            if (derivedStepCount != null) payload["step_count"] = derivedStepCount
+        }
+    }
+
+    private fun firstFailedStepIndex(stepResults: List<Map<String, Any?>>): Int? =
+        stepResults.firstOrNull { it["success"] == false }?.let(::stepIndex)
+
+    private fun lastStepIndex(stepResults: List<Map<String, Any?>>): Int? =
+        stepResults.lastOrNull()?.let(::stepIndex)
+
+    private fun stepIndex(step: Map<String, Any?>): Int? =
+        firstPresentIndex(step["index"], step["step_index"], step["current_step_index"])
+
+    private fun firstPresentIndex(vararg values: Any?): Int? {
+        values.forEach { value ->
+            val parsed = nonNegativeInt(value)
+            if (parsed != null) return parsed
+        }
+        return null
+    }
+
+    private fun positiveInt(value: Any?): Int? =
+        intValue(value)?.takeIf { it > 0 }
+
+    private fun nonNegativeInt(value: Any?): Int? =
+        intValue(value)?.takeIf { it >= 0 }
+
+    private fun intValue(value: Any?): Int? =
+        when (value) {
+            is Number -> value.toInt()
+            is String -> value.trim().toIntOrNull()
+            else -> null
+        }
+
+    private fun stepCountFromSpec(spec: Map<String, Any?>): Int {
+        val execution = mapArg(spec["execution"])
+        val explicit = positiveInt(execution["step_count"]) ?: positiveInt(spec["step_count"])
+        if (explicit != null) return explicit
+        return listArg(execution["steps"]).size.takeIf { it > 0 } ?: 0
     }
 
 }

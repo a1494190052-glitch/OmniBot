@@ -2600,7 +2600,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get executionActionFinished => 'Finished';
 
   @override
-  String get executionActionCallFunction => 'Run reusable Function';
+  String get executionActionCallTool => 'Call Tool';
 
   @override
   String get executionActionDefault => 'Action';
@@ -2883,7 +2883,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get actionTypeFinished => 'Finished';
 
   @override
-  String get actionTypeCallFunction => 'Run reusable Function';
+  String get actionTypeCallTool => 'Call Tool';
 
   @override
   String get actionTypeDefault => 'Action';

@@ -16,7 +16,7 @@ import kotlinx.serialization.json.JsonObject
 
 /**
  * ToolHandler implementation for all omniflow primitive actions
- * (click, scroll, input_text, open_app, press_back, press_home, finished).
+ * (click, swipe, input_text, open_app, press_key, finished).
  *
  * Replaces the 300-line dispatch when-block in OmniflowStepExecutor.
  * Registered in AgentToolRegistry at startup.
@@ -89,7 +89,7 @@ class OmniflowActionHandler(
                     nodeResourceId = str("node_resource_id"),
                 )
             }
-            OobActionCodec.ACTION_SCROLL -> {
+            OobActionCodec.ACTION_SWIPE -> {
                 val direction = ScrollDirection.entries.firstOrNull {
                     it.name.equals(str("direction"), ignoreCase = true)
                 } ?: ScrollDirection.DOWN
@@ -105,11 +105,8 @@ class OmniflowActionHandler(
             OobActionCodec.ACTION_OPEN_APP -> {
                 backend.launchApplication(packageName = str("package_name"))
             }
-            OobActionCodec.ACTION_PRESS_BACK -> {
-                backend.pressHotKey("BACK")
-            }
-            OobActionCodec.ACTION_PRESS_HOME -> {
-                backend.pressHotKey("HOME")
+            OobActionCodec.ACTION_PRESS_KEY -> {
+                backend.pressHotKey(pressKey(str("key")))
             }
             OobActionCodec.ACTION_FINISHED -> {
                 // No-op: execution loop handles termination
@@ -123,5 +120,13 @@ class OmniflowActionHandler(
 
     private companion object {
         const val TAG = "OmniflowActionHandler"
+
+        fun pressKey(raw: String): String =
+            when (raw.trim().lowercase()) {
+                "back" -> "BACK"
+                "home" -> "HOME"
+                "enter" -> "ENTER"
+                else -> throw IllegalArgumentException("press_key requires key=back/home/enter")
+            }
     }
 }

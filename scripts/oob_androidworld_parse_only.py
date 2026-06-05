@@ -62,6 +62,9 @@ def run_parse_only(args: argparse.Namespace, task_name: str, goal: str, output_d
     ]
     if args.start_oob:
         command.append("--start-oob")
+        command += ["--start-wait-seconds", str(args.start_wait_seconds)]
+        command += ["--start-settle-seconds", str(args.start_settle_seconds)]
+        command += ["--start-timeout", str(args.start_timeout)]
     if args.start_skip_build:
         command.append("--start-skip-build")
     if args.start_skip_install:
@@ -113,6 +116,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--start-skip-build", action="store_true")
     parser.add_argument("--start-skip-install", action="store_true")
     parser.add_argument("--start-no-clock-check", action="store_true")
+    parser.add_argument("--start-wait-seconds", type=int, default=45)
+    parser.add_argument("--start-settle-seconds", type=int, default=3)
+    parser.add_argument("--start-timeout", type=int, default=300)
     parser.add_argument("--output", default="")
     return parser.parse_args(argv)
 

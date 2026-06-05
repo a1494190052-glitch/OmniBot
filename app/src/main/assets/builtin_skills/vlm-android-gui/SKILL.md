@@ -92,12 +92,12 @@ connected by artifacts, but do not merge their responsibilities.
    of milliseconds, with slow debug/device cases measured in the returned
    timing payload. It does not call the VLM model.
 4. Treat node-attached Functions as callable capability candidates. Online VLM
-   receives high-confidence matches as native tools in the current turn's
-   `tools[]`; the Function id is the tool name. Choose one exactly like
-   `click`, `input_text`, or `scroll` when it clearly matches the user goal, and
+   receives high-confidence matches as `call_tool` candidates in the current
+   turn. Choose `call_tool(function_id, arguments)` exactly like choosing
+   `click`, `input_text`, or `swipe` when it clearly matches the user goal, and
    fill its arguments from the user request. Do not call hidden guard or replay
    tools from the VLM loop.
-5. A Function tool may execute multiple phone actions. Its local runner owns
+5. A Function call may execute multiple phone actions. Its local runner owns
    checker handling, action transfer, replay safety, and RunLog cards. The model
    only sees the returned `success` and `result`, then the next turn starts from
    a fresh page observe.
@@ -428,7 +428,7 @@ from `enabled_accessibility_services`, waits briefly, then appends it back. This
 refreshes OOB when it appears in `Crashed services` while keeping Mobilerun and
 the AndroidWorld accessibility forwarder enabled. If a live VLM RunLog shows
 blank `before.package_name`, blank `after.package_name`, and repeated
-`open_app`/`press_back`, inspect `dumpsys accessibility` before changing the
+`open_app`/`press_key(key=back)`, inspect `dumpsys accessibility` before changing the
 prompt: the model is likely acting without XML/page observations.
 
 For real validation, record both the tool result and the actual device state:
@@ -473,7 +473,7 @@ safeguards for page-skill context:
   control before typing; never type a label value into the currently focused
   phone/email/name field.
 - If a replay-like suggestion appears unsafe or ambiguous, choose a bounded live
-  VLM action such as `press_back`, `scroll`, or a specific visible `click`
+  VLM action such as `press_key(key=back)`, `swipe`, or a specific visible `click`
   rather than following historical coordinates.
 
 ## Function Management
@@ -494,9 +494,8 @@ external clients can call the same names through MCP:
 - `oob_function_delete` to delete one Function and remove UDEG node references.
 - `oob_function_clear` with `confirm=true` to clear all Functions and detach
   all UDEG node Function references.
-- Function replay is handled by VLM dynamic Function tools or internal runners.
-  Legacy external adapters may still route `oob_function_run` to the same
-  runner, but normal agent-task prompts should not invent that hidden call.
+- Function replay is handled through `call_tool(function_id, arguments)` or
+  internal runners; normal agent-task prompts should not invent hidden calls.
 
 When validating direct Function replay, inspect `step_results`, not only the
 top-level `success`. Replay no longer runs post-action page/package validation:
@@ -687,23 +686,24 @@ Token control:
   field; a keypad made of clickable digit buttons is not an editable text field.
 - If the last action did not change visible text, selected state, or system
   value, do not repeat it more than once. Re-ground on the current screenshot/XML
-  and choose a different action such as scroll, back, or a specific visible
-  control.
+  and choose a different action such as `swipe`, `press_key(key=back)`, or a
+  specific visible control.
 - Ignore OOB overlay controls such as 接管, 继续执行, 小万, and OmniBot when
   choosing the first phone action.
 
-## Dynamic Function Tool Dispatch
+## Function call_tool Dispatch
 
-Prefer a recalled Function tool when it is explicitly present in the current
-turn's `tools[]` and matches the user goal. The Function id is the tool name;
-do not wrap it in a separate hidden replay tool.
+Prefer a recalled Function when it is explicitly present in the current turn's
+candidate context and matches the user goal. Execute it with
+`call_tool(function_id, arguments)`; do not invent a separate replay tool name
+and do not call the Function id as a standalone tool.
 
 Rules:
 
 - Start online Android GUI execution with `vlm_task`.
-- When the VLM request exposes a recalled Function id in `tools[]`, the model may
-  call that Function id directly with its schema arguments.
-- Only call Function tools that are present in this turn's `tools[]`.
+- When the VLM request exposes recalled Function candidates, the model may call
+  `call_tool` with the selected `function_id` and schema arguments.
+- Only call Functions that are present in this turn's recalled candidates.
 - Fill required parameters from the user goal. Never call a parameterized
   Function with empty arguments when required values are missing.
 - Treat nested Function calls as normal local runner behavior; the model-facing
@@ -776,10 +776,9 @@ reusable Function action step. OOB handles page settling through its internal st
 algorithm. A valid action sequence should contain concrete actions such as:
 
 - `click`
-- `scroll`
+- `swipe`
 - `input_text`
-- `press_back`
-- `press_home`
+- `press_key`
 - `open_app`
 - `finished`
 

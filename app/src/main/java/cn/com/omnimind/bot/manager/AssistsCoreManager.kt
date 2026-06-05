@@ -1636,12 +1636,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             "context_apps_query" -> AgentToolMeta("builtin", t("查询已安装应用", "Query Installed Apps"))
             "context_time_now" -> AgentToolMeta("builtin", t("查询当前时间", "Query Current Time"))
             AgentToolNames.VLM_TASK -> AgentToolMeta("vlm", t("视觉执行", "Visual Task"))
-            OobFunctionToolNames.FUNCTION_RUN -> AgentToolMeta(
-                "oob_function",
-                t("复用指令", "Reusable Function")
-            )
-            RunLogReplayPolicy.TOOL_CALL_TOOL,
-            RunLogReplayPolicy.TOOL_OOB_TOOL_CALL -> AgentToolMeta("builtin", t("工具调用", "Tool Call"))
+            RunLogReplayPolicy.TOOL_CALL_TOOL -> AgentToolMeta("builtin", t("工具调用", "Tool Call"))
             AgentToolNames.WEB_SEARCH -> AgentToolMeta("research", t("网页搜索", "Web Search"))
             AgentToolNames.BROWSER_USE -> AgentToolMeta("browser", t("浏览器操作", "Browser Action"))
             AgentToolNames.ANDROID_PRIVILEGED_ACTION -> AgentToolMeta("privileged", t("安卓高级动作", "Android Privileged Action"))
@@ -2146,16 +2141,12 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             }
         }
         val normalizedToolName = toolName.trim().lowercase()
-        val isReplay = normalizedToolName == OobFunctionToolNames.FUNCTION_RUN ||
-            (normalizedToolName in setOf(
-                RunLogReplayPolicy.TOOL_CALL_TOOL,
-                RunLogReplayPolicy.TOOL_OOB_TOOL_CALL,
-            ) && hasFunctionIdArgument) ||
+        val isReplay = (normalizedToolName == RunLogReplayPolicy.TOOL_CALL_TOOL && hasFunctionIdArgument) ||
             evidence.any { value ->
                 value.contains("oob_omniflow_replay") ||
                     value.contains("oob_fixed_replay") ||
                     value.contains("omniflow_replay") ||
-                    value.contains("oob_function_runner") ||
+                    value.contains("call_tool_runner") ||
                     value == OOB_REUSABLE_EXECUTION_STATUS_COMPLETED_LOCAL
             }
         return if (isReplay) "omniflow_replay" else ""

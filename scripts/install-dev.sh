@@ -14,6 +14,7 @@ FLUTTER_TARGET="${OOB_FLUTTER_TARGET:-lib/main_standard.dart}"
 PACKAGE_NAME="${OOB_PACKAGE_NAME:-cn.com.omnimind.bot.debug}"
 SKIP_BUILD=0
 SKIP_FLUTTER_WEB="${OOB_SKIP_FLUTTER_WEB:-0}"
+INCLUDE_FLUTTER_WEB="${OOB_INCLUDE_FLUTTER_WEB:-0}"
 DEVICE_SERIAL=""
 
 usage() {
@@ -23,7 +24,8 @@ Usage:
 
 Options:
   --skip-build          Skip Gradle build; install the last built APK directly.
-  --skip-flutter-web    Skip the Flutter Web bundle during Gradle build.
+  --include-flutter-web Include the Flutter Web bundle in this debug APK. Slower.
+  --skip-flutter-web    Force-skip the Flutter Web bundle during Gradle build.
   --fast                Alias for --skip-flutter-web.
   --device <serial>     Target a specific device (passed to adb -s).
   --apk <path>          Install this APK instead of the default debug APK.
@@ -71,6 +73,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --skip-build) SKIP_BUILD=1 ;;
     --skip-flutter-web|--fast) SKIP_FLUTTER_WEB=1 ;;
+    --include-flutter-web) INCLUDE_FLUTTER_WEB=1; SKIP_FLUTTER_WEB=0 ;;
     --device)
       [[ $# -lt 2 ]] && { echo "--device requires a serial" >&2; exit 1; }
       DEVICE_SERIAL="$2"; shift ;;
@@ -131,6 +134,11 @@ if [[ "$SKIP_BUILD" -eq 0 ]]; then
   if [[ "$SKIP_FLUTTER_WEB" == "1" || "$SKIP_FLUTTER_WEB" == "true" ]]; then
     echo "  -> skipping Flutter Web bundle"
     GRADLE_ARGS+=(-POOB_SKIP_FLUTTER_WEB=true)
+  elif [[ "$INCLUDE_FLUTTER_WEB" == "1" || "$INCLUDE_FLUTTER_WEB" == "true" ]]; then
+    echo "  -> including Flutter Web bundle"
+    GRADLE_ARGS+=(-POOB_FLUTTER_WEB_MODE=include)
+  else
+    echo "  -> Flutter Web bundle omitted for debug build"
   fi
   ./gradlew "${GRADLE_ARGS[@]}"
   echo "Build complete."

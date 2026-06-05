@@ -4956,7 +4956,7 @@ Map<String, dynamic> _argsForReusableToolSwitch(
     if (y != null) args['y'] = y;
   }
 
-  if (nextTool == 'scroll') {
+  if (nextTool == 'swipe') {
     final centerX = _defaultReusablePointX(previousArgs);
     final centerY = _defaultReusablePointY(previousArgs);
     args.putIfAbsent('x1', () => centerX ?? 0);
@@ -5333,7 +5333,7 @@ Map<String, dynamic>? _actionMapForReusableStep(
       }
       action['args'] = nextArgs;
       return action;
-    case 'scroll':
+    case 'swipe':
       action['args'] = _canonicalReusableArgsBySchema(tool, args);
       return action;
     case 'open_app':
@@ -5342,9 +5342,9 @@ Map<String, dynamic>? _actionMapForReusableStep(
         if (packageName.isNotEmpty) 'package_name': packageName,
       };
       return action;
-    case 'press_home':
-    case 'press_back':
-      action['args'] = const <String, dynamic>{};
+    case 'press_key':
+    case 'call_tool':
+      action['args'] = _canonicalReusableArgsBySchema(tool, args);
       return action;
     case 'finished':
       action['args'] = _canonicalReusableArgsBySchema(tool, args);
@@ -7582,7 +7582,7 @@ _RunLogStepSource _runLogStepSource(_RunLogStepSnapshot snapshot) {
   if (_containsAny(evidence, const [
     'omniflow_replay',
     'oob_omniflow_replay',
-    'oob_function_runner',
+    'call_tool_runner',
     'completed_local',
   ])) {
     return _RunLogStepSource.omniflowReplay;
@@ -7806,20 +7806,18 @@ String _vlmActionLabel(BuildContext context, String raw) {
       return _text(context, '点击', 'Tap');
     case 'type':
       return _text(context, '输入', 'Type');
-    case 'scroll':
-      return _text(context, '滚动', 'Scroll');
+    case 'swipe':
+      return _text(context, '滑动', 'Swipe');
     case 'long_press':
     case 'longPress':
       return _text(context, '长按', 'Long press');
     case 'open_app':
     case 'openApp':
       return _text(context, '打开应用', 'Open app');
-    case 'press_home':
-    case 'pressHome':
-      return _text(context, '返回桌面', 'Home');
-    case 'press_back':
-    case 'pressBack':
-      return _text(context, '返回', 'Back');
+    case 'press_key':
+      return _text(context, '按键', 'Press key');
+    case 'call_tool':
+      return _text(context, '调用工具', 'Call tool');
     case 'wait':
       return _text(context, '等待', 'Wait');
     case 'record':

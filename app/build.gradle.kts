@@ -57,7 +57,13 @@ val omnibotImageApiKey = prop("OMNIBOT_IMAGE_API_KEY")
 val flutterWebBuildDir = rootProject.file("ui/build/web")
 val flutterWebAssetsRootDir = layout.buildDirectory.dir("generated/omnibot_assets").get().asFile
 val flutterWebAssetsDir = File(flutterWebAssetsRootDir, "flutter_web")
-val skipFlutterWebBundle = propFlag("OOB_SKIP_FLUTTER_WEB")
+val flutterWebBundleMode = prop("OOB_FLUTTER_WEB_MODE", "auto").lowercase()
+require(flutterWebBundleMode in setOf("auto", "include", "skip")) {
+    "OOB_FLUTTER_WEB_MODE must be one of: auto, include, skip"
+}
+val skipFlutterWebBundle = propFlag("OOB_SKIP_FLUTTER_WEB") || flutterWebBundleMode == "skip"
+val includeFlutterWebInDebugAssets = !skipFlutterWebBundle && flutterWebBundleMode == "include"
+val includeFlutterWebInReleaseAssets = !skipFlutterWebBundle && flutterWebBundleMode in setOf("auto", "include")
 
 val buildFlutterWebBundle by tasks.registering(Exec::class) {
     group = "flutter web"
@@ -243,7 +249,17 @@ android {
 
     sourceSets {
         getByName("main") {
-            assets.srcDirs("src/main/assets", "../skills", flutterWebAssetsRootDir)
+            assets.srcDirs("src/main/assets", "../skills")
+        }
+        if (includeFlutterWebInDebugAssets) {
+            getByName("debug") {
+                assets.srcDirs(flutterWebAssetsRootDir)
+            }
+        }
+        if (includeFlutterWebInReleaseAssets) {
+            getByName("release") {
+                assets.srcDirs(flutterWebAssetsRootDir)
+            }
         }
         getByName("omniinfer") {
             assets.srcDirs("src/omniinfer/assets")
@@ -266,7 +282,9 @@ kotlin {
 
 if (!skipFlutterWebBundle) {
     tasks.matching { task ->
-        task.name.startsWith("merge") && task.name.endsWith("Assets")
+        task.name.startsWith("merge") &&
+            task.name.endsWith("Assets") &&
+            (flutterWebBundleMode == "include" || task.name.contains("Release"))
     }.configureEach {
         dependsOn(syncFlutterWebBundle)
     }

@@ -124,7 +124,7 @@ helper with mixed semantics.
 `OobOmniFlowToolkitService` owns the agent/MCP tool facade:
 
 - parse public tool arguments
-- expose recall, run, guard, register, update, delete, and clear
+- expose recall, `call_tool` execution, guard, register, update, delete, and clear
 - use `OobFunctionCallTiming` for Function call timing payloads
 - route all Function storage operations through `OobFunctionRepository`
 - route Function recall and direct-hit decisions through
@@ -137,9 +137,8 @@ helper with mixed semantics.
 `McpToolDefinitions` and `McpToolExecutors` own the external MCP adapter:
 
 - expose the public MCP schema for OOB tools, including Function tools
-- normalize MCP argument aliases before dispatching into the agent/tool runtime
-- directly hand `oob_function_run`-style Function calls to
-  `OobOmniFlowToolkitService`
+- validate MCP arguments before dispatching into the agent/tool runtime
+- route Function execution through `call_tool(function_id, arguments)`
 - never implement Function storage, recall, update, guard, or replay policy
 
 `OobFunctionSkillProfile` owns the native Function-management skill profile:
@@ -152,10 +151,9 @@ helper with mixed semantics.
 `OobFunctionToolNames` owns canonical in-app agent tool names for Function and
 RunLog lifecycle:
 
-- define `oob_function_*`, `update_function`, and `oob_run_log_*` names used by
-  the native skill profile, Workbench tool handler, and MCP OOB Function schema
-- keep legacy/external `omniflow.*`, `call_tool`, and `oob_tool_call`
-  compatibility names in the MCP adapter instead of mixing them into this set
+- define `oob_function_*`, `update_function`, `oob_run_log_*`, and `call_tool`
+  names used by the native skill profile, Workbench tool handler, and MCP OOB
+  Function schema
 - keep replay-step executor/tool taxonomy in `RunLogReplayPolicy`
 - never own tool descriptions, schemas, execution, recall, update, or replay
   behavior
@@ -166,8 +164,8 @@ RunLog lifecycle:
   `android_privileged_action`
 - share those names across agent tool definitions, handlers, MCP adapters,
   agent run-log card construction, and RunLog classifiers
-- never own OOB Function lifecycle names or replay-only taxonomy such as
-  `call_function`
+- never own OOB Function lifecycle names or replay execution taxonomy such as
+  `call_tool`
 
 When adding or migrating a generic agent tool name:
 
@@ -374,9 +372,9 @@ primitive local action execution:
 - execute the primitive path with the same checker rules as normal replay
 - report path-level success, failure, and per-edge step results
 - delegate stable failure step payload shape to `OobFunctionRunResultBuilder`
-- use `RunLogReplayPolicy` for graph replay tool aliases such as `click_node`
-  and `node_click`; graph runners and schema builders should not rebuild these
-  alias sets locally
+- use `RunLogReplayPolicy` for graph replay tools such as `go_to_node` and
+  `click_node`; graph runners and schema builders should not rebuild these sets
+  locally
 
 `OobFunctionEntryPackageGuard` owns pre-replay app restoration:
 
@@ -384,9 +382,8 @@ primitive local action execution:
 - skip restoration when replay already starts with `open_app`
 - launch the expected package when the foreground app drifted before replay
 - keep package recovery outside the main step loop
-- callers that infer an entry package from Function steps should canonicalize
-  action aliases through `OobActionCodec`; legacy names such as `launch_app`
-  must still be treated as `open_app`
+- callers that infer an entry package from Function steps should use canonical
+  action names from `OobActionCodec`; new specs must write `open_app` directly
 
 `OobFunctionAccessibilityPreflightGuard` owns replay permission preflight:
 
@@ -412,9 +409,9 @@ primitive local action execution:
 - keep recovery text outside the replay loop; it must not start a hidden Agent or
   VLM task by itself
 
-`OobFunctionCallRequestResolver` owns replay/tool-call argument compatibility:
+`OobFunctionToolHandler` owns replay/tool-call argument resolution:
 
-- extract executable args from current Function steps and older RunLog cards
+- extract executable args from current Function steps and recorded RunLog cards
 - resolve `call_tool` targets, nested Function ids, and delegated tool args
 - strip Function/call-tool metadata from forwarded argument payloads
 - keep recorded argument-shape compatibility outside the runtime replay loop
@@ -487,8 +484,8 @@ operation.
 ```text
 Agent/MCP tool surface
   -> McpToolDefinitions / McpToolExecutors # external MCP schema/argument adapter
-  -> OobFunctionSkillProfile # Function-management profile and dynamic Function tools
-      -> OobFunctionSchemaBuilder # Function spec -> model tool schema
+  -> OobFunctionSkillProfile # Function-management profile and call_tool candidates
+      -> OobFunctionSchemaBuilder # Function spec -> call_tool argument schema
   -> OobOmniFlowToolkitService
       -> OobFunctionRepository       # storage/index/source bindings
       -> OobFunctionSpecBuilder      # simple register/insert-step normalization
@@ -513,8 +510,8 @@ Agent/MCP tool surface
       -> OobFunctionRunner           # load/materialize/execute Functions
           -> OobFunctionToolHandler  # deterministic replay and VLM continuation
               -> OobFunctionFrontendSessionController # replay overlay/session
-              -> OobFunctionAgentFallbackController # legacy recovery prompt/VLM continuation
-              -> OobFunctionCallRequestResolver # replay/call_tool args
+              -> OobFunctionAgentFallbackController # recovery prompt/VLM continuation
+              -> OobFunctionToolHandler # replay/call_tool args
               -> OobFunctionStepClassifier # replay step-shape routing
               -> OobFunctionToolDelegationExecutor # live tool delegation bridge
               -> OobFunctionCallToolStepExecutor # call_tool step resolution
@@ -587,7 +584,7 @@ Keep these pieces separate:
 - `RunLogCardAccessors`: shared RunLog card field, tool-call, observation, and
   JSON-safe extraction helpers
 - `RunLogReusableFunctionParameterizer`: deterministic runtime parameter
-  inference, canonical JSON schema, legacy action compatibility, and binding
+  inference, canonical JSON schema, canonical action binding, and binding
   metadata for compiled Function specs
 - `RunLogReplayStepNoiseNormalizer`: repeated input and redundant compiled-step
   cleanup after card-to-step conversion
@@ -597,9 +594,9 @@ Keep these pieces separate:
   and stop signal handling
 - `OobFunctionAgentFallbackController`: failed-step recovery snapshots,
   continuation prompts, and optional VLM continuation calls
-- `OobFunctionCallRequestResolver`: replay step args, `call_tool` target
-  resolution, nested Function argument extraction, and metadata stripping
-- `OobFunctionStepClassifier`: legacy skip detection, OmniFlow execution-tool
+- `OobFunctionToolHandler`: replay step args, `call_tool` target resolution,
+  nested Function argument extraction, and metadata stripping
+- `OobFunctionStepClassifier`: skip-step detection, OmniFlow execution-tool
   resolution, local graph/function/call_tool classification, and replayable
   agent-tool extraction
 - `OobFunctionToolDelegationExecutor`: mechanical bridge from replay steps to
@@ -681,13 +678,10 @@ the same commit as the code change:
 
 Use canonical OOB Function tools in agent-facing docs:
 `oob_function_list`, `oob_function_get`, `oob_function_register`,
-`update_function`, `oob_function_guard_check`, `oob_function_run`,
+`update_function`, `oob_function_guard_check`, `call_tool`,
 `oob_function_delete`, `oob_function_clear`, `oob_run_log_list`,
-`oob_run_log_get`, and `oob_run_log_convert`. Treat `omniflow.*` names as
-legacy/external MCP compatibility unless the code path being documented is
-specifically that adapter. In Kotlin, route those canonical names through
-`OobFunctionToolNames` unless the code is deliberately documenting user-facing
-text or legacy replay taxonomy.
+`oob_run_log_get`, and `oob_run_log_convert`. In Kotlin, route lifecycle names
+through `OobFunctionToolNames`; route `call_tool` through `RunLogReplayPolicy`.
 
 ## Helper Maintenance Audit
 
@@ -716,15 +710,14 @@ Use these owner rules when removing duplicated helper code:
   them. Diagnostic labels such as `agent_tool`, `omniflow_graph`, or
   `omniflow_function` are not executor categories and should stay local to the
   component that emits them.
-- Canonical replay tool names such as `call_tool`, `oob_tool_call`,
-  `call_function`, `go_to_node`, `click_node`, `node_click`, and
-  `oob.agent.run` also belong in
+- Canonical replay tool names such as `call_tool`, `go_to_node`, `click_node`,
+  and `oob.agent.run` also belong in
   `RunLogReplayPolicy` constants when they are used as replay tool taxonomy.
   Compatibility replay types such as `wait` and `external_tool` also belong
   there when Function compilation or schema projection needs to preserve them.
-  Replay-only data-flow compatibility names such as `oob_agent_run`,
-  `omniflow.recall`, `omniflow.ingest_run_log`, and `workbench_api_list` should
-  be named there when RunLog conversion or guard policy classifies them.
+  Replay-only data-flow names such as `oob_agent_run`, `omniflow.recall`,
+  `omniflow.ingest_run_log`, and `workbench_api_list` should be named there when
+  RunLog conversion or guard policy classifies them.
   UDEG edge-kind field names and diagnostic counter keys are graph-storage
   vocabulary and should remain with `OobUdegNodeStore`.
 - Generic agent tool names such as `vlm_task`, `browser_use`, `web_search`,

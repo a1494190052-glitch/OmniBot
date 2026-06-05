@@ -445,12 +445,12 @@ class VlmToolCoordinatorRecallExecutionTest {
                                 content = JsonPrimitive("""{"observation":"命中复用指令","thought":"调用搜索 Function","summary":""}"""),
                                 toolCalls = listOf(
                                     AssistantToolCall(
-                                        id = "call_1",
-                                        function = AssistantToolCallFunction(
-                                            name = "xhs_search_keyword",
-                                            arguments = """{"keyword":"猫猫"}"""
-                                        )
-                                    )
+	                                        id = "call_1",
+	                                        function = AssistantToolCallFunction(
+	                                            name = "call_tool",
+	                                            arguments = """{"function_id":"xhs_search_keyword","arguments":{"keyword":"猫猫"}}"""
+	                                        )
+	                                    )
                                 )
                             )
                         )
@@ -489,15 +489,18 @@ class VlmToolCoordinatorRecallExecutionTest {
             )
 
             assertTrue(result.success)
-            assertEquals("oob_function_run", result.toolName)
-            assertTrue(requestToolNames.contains("xhs_search_keyword"))
+            assertEquals("call_tool", result.toolName)
+            assertTrue(requestToolNames.contains("call_tool"))
+            assertFalse(requestToolNames.contains("xhs_search_keyword"))
             assertTrue(requestToolNames.contains("click"))
             assertTrue(result.screenshotIncluded)
             assertTrue(promptText.contains("goal=$goal"))
             assertTrue(promptText.contains("Warm memory:"))
             assertTrue(promptText.contains("xhs_search_keyword"))
-            assertTrue(promptText.contains("tool=xhs_search_keyword"))
+            assertTrue(promptText.contains("call_tool"))
             assertTrue(promptText.contains("arguments={keyword:string required}"))
+            assertEquals("1", result.pageDiagnostics["omniflow_call_tool_function_count"])
+            assertEquals("xhs_search_keyword", result.pageDiagnostics["omniflow_call_tool_function_ids"])
             assertEquals("true", result.pageDiagnostics["omniflow_recall_injected"])
             assertEquals("xhs_search_keyword", result.pageDiagnostics["omniflow_recall_hit_function_id"])
             assertEquals("warm_memory_goal_match", result.pageDiagnostics["omniflow_recall_hit_reason"])

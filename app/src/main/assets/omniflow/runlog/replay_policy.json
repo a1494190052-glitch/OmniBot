@@ -4,18 +4,17 @@
     "click",
     "long_press",
     "input_text",
-    "scroll",
+    "swipe",
     "open_app",
-    "press_home",
-    "press_back",
+    "press_key",
+    "wait",
     "finished"
   ],
-  "omniflow_action_aliases": {},
   "coordinate_actions": [
     "click",
     "long_press",
     "input_text",
-    "scroll"
+    "swipe"
   ],
   "perception_tools": [
     "vlm_task",
@@ -44,20 +43,11 @@
   ],
   "omniflow_graph_tools": [
     "go_to_node",
-    "click_node",
-    "node_click",
-    "navigate_to_node",
-    "gotonode",
-    "goto_node"
+    "click_node"
   ],
-  "omniflow_function_tools": [
-    "oob_function_run"
-  ],
+  "omniflow_function_tools": [],
   "omniflow_tool_call_tools": [
-    "omniflow.call_tool",
-    "call_tool",
-    "oob_tool_call",
-    "calltool"
+    "call_tool"
   ],
   "provider_only_tools": [],
   "skip_tools": [

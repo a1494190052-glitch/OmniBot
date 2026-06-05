@@ -432,7 +432,7 @@ class OmniFlowStatus {
 class UtgFunctionSummary {
   final String functionId;
   final String description;
-  final int actionCount; // Recursive total (expanding call_function)
+  final int actionCount; // Recursive total (expanding call_tool)
   final int stepCount; // Direct steps only
   final List<String> parameterNames;
   final Map<String, String> parameterExamples;

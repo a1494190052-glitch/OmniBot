@@ -87,7 +87,6 @@ class WorkbenchToolHandler(
             OobFunctionToolNames.FUNCTION_REGISTER -> executeOobFunctionRegisterTool(args, env)
             OobFunctionToolNames.FUNCTION_UPDATE -> executeUpdateFunctionTool(args, env)
             OobFunctionToolNames.FUNCTION_GUARD_CHECK -> executeOobFunctionGuardCheckTool(args, env)
-            OobFunctionToolNames.FUNCTION_RUN -> executeOobFunctionRunTool(args, env)
             OobFunctionToolNames.FUNCTION_DELETE -> executeOobFunctionDeleteTool(args, env)
             OobFunctionToolNames.FUNCTION_CLEAR -> executeOobFunctionClearTool(args, env)
             OobFunctionToolNames.RUN_LOG_LIST -> executeOobRunLogList(env)
@@ -182,30 +181,6 @@ class WorkbenchToolHandler(
             payload["error_message"]?.toString() ?: "复用指令检查失败"
         }
         return contextResult(OobFunctionToolNames.FUNCTION_GUARD_CHECK, summary, payload, success, env)
-    }
-
-    private suspend fun executeOobFunctionRunTool(
-        args: JsonObject,
-        env: AgentExecutionEnvironment
-    ): ToolExecutionResult {
-        val argsMap = helper.jsonObjectToMap(args)
-        val payload = omniflowToolkit.runFunction(argsMap)
-        val success = payload["success"] == true
-        val functionId = firstNonBlank(payload["function_id"], argsMap["function_id"])
-        val stepCount = ((payload["step_results"] as? List<*>)?.size ?: 0)
-            .takeIf { it > 0 }
-            ?: ((payload["result"] as? Map<*, *>)?.get("step_count") as? Number)?.toInt()
-            ?: 0
-        val summary = if (success) {
-            "复用指令 $functionId 执行完成，$stepCount 步"
-        } else if (payload["fallback_context"] != null) {
-            "复用指令 $functionId 执行未完成；请根据当前页面和失败结果继续处理"
-        } else {
-            payload["error_message"]?.toString()
-                ?: payload["reason"]?.toString()
-                ?: "复用指令执行未完成"
-        }
-        return contextResult(OobFunctionToolNames.FUNCTION_RUN, summary, payload, success, env)
     }
 
     private fun executeOobFunctionDeleteTool(

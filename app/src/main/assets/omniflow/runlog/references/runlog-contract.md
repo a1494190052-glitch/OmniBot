@@ -46,24 +46,17 @@ Omniflow:
 
 - `click`
 - `long_press`
-- `scroll`
 - `input_text`
 - `swipe`
 - `open_app`
-- `press_home`
-- `press_back`
 - `press_key`
-- `hot_key`
+- `wait`
 - `finished`
 
-Compatibility aliases from provider/exported OmniFlow assets are normalized
-before execution: `tap/click_at/click_element -> click`,
-`type/type_text/set_text/inputtext -> input_text`, `scroll_* -> swipe`,
-`presskey/key_event -> press_key`, `openapp/launch_app -> open_app`, and
-`finish/done/complete -> finished`. `source_context.page` and OOB's
-`source_context.src_ctx.page` are both valid coordinate remap inputs.
-Legacy `wait` cards are skipped during conversion because page settling is an
-internal backend concern, not a reusable Function step.
+`source_context.page` and OOB's `source_context.src_ctx.page` are both valid
+coordinate remap inputs. Provider/exported assets must emit the same action
+names as OOB; older action names are not execution aliases in the current
+schema.
 
 Perception-only agent:
 
@@ -95,19 +88,12 @@ OOB-native OmniFlow execution:
 
 - `go_to_node`
 - `click_node`
-- `node_click`
-- `omniflow.call_tool`
 - `call_tool`
-- `oob_tool_call`
-- `omniflow.call_function`
-- `call_function`
-- `oob_function_run`
 
 Graph tools and `call_tool` entries with `function_id` convert to
 `executor=omniflow`, not `executor=agent`. Graph tools execute embedded
 `path`/UTG edge data through the local primitive action executor. `call_tool`
-without `function_id` delegates to the live tool router when available. Legacy
-`call_function` names are accepted only for compatibility.
+without `function_id` delegates to the live tool router when available.
 
 ## Known Failure Modes
 
@@ -121,9 +107,8 @@ without `function_id` delegates to the live tool router when available. Legacy
   VLM continuation evidence.
 - `android_privileged_action.arguments` stays nested and produces a model-free
   click/swipe/type step without executable top-level args.
-- Regression where a provider/exported reusable Function uses canonical
-  `input_text/swipe/press_key` while OOB only handles legacy
-  `type/scroll/press_home/press_back`.
+- Regression where a provider/exported reusable Function emits older action
+  names instead of canonical `input_text/swipe/press_key`.
 - OmniFlow `go_to_node/click_node/call_tool(function_id)` accidentally becomes
   `executor=agent` or `executor=tool` instead of local `executor=omniflow`.
 

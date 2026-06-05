@@ -108,7 +108,7 @@ class OobOmniFlowExplorerTest {
 
         val scroll = snapshot.candidates.single()
 
-        assertEquals(OobOmniFlowExplorer.ACTION_SCROLL, scroll.action)
+        assertEquals(OobOmniFlowExplorer.ACTION_SWIPE, scroll.action)
         assertTrue(scroll.scrollable)
         assertEquals("up", scroll.scrollDirection)
         assertTrue(scroll.scrollDistancePx > 0f)
@@ -132,7 +132,7 @@ class OobOmniFlowExplorerTest {
             edge = edge,
         )
         val record = InternalRunLogRecord(
-            runId = "utg-scroll-run",
+            runId = "utg-swipe-run",
             goal = "read more posts",
             source = "oob_native_omniflow_explorer",
             toolName = "omniflow.explore_replay",
@@ -149,7 +149,7 @@ class OobOmniFlowExplorerTest {
         val args = step["args"] as Map<*, *>
 
         assertEquals("omniflow", step["executor"])
-        assertEquals(OobActionCodec.ACTION_SCROLL, step["omniflow_action"])
+        assertEquals(OobActionCodec.ACTION_SWIPE, step["omniflow_action"])
         assertFalse(step.containsKey("coordinate_hook"))
         assertFalse(step.containsKey("replay_engine"))
         assertEquals("up", args["direction"])

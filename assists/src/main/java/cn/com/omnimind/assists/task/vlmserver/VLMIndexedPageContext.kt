@@ -86,11 +86,13 @@ object VLMIndexedPageContext {
             appendLine("OOB indexed page evidence (compact live page summary; coordinates are absolute screen pixels):")
             candidates.forEachIndexed { index, node ->
                 append("#").append(index)
+                    .append(" action=").append(node.actionHint())
                     .append(" center=(").append(absCoord(node.bounds.centerX, screen.left, screen.right))
                     .append(",").append(absCoord(node.bounds.centerY, screen.top, screen.bottom)).append(")")
                     .append(" flags=").append(node.flags())
-                    .append(" role=").append(node.role)
+                    .append(" role=").append(node.semanticRole())
                     .append(" label=\"").append(node.displayLabel.take(MAX_LABEL_CHARS)).append("\"")
+                    .append(" why=").append(node.actionReason())
                     .appendLine()
             }
             if (focusedEditable != null) {
@@ -109,6 +111,7 @@ object VLMIndexedPageContext {
                         .append(" center=(").append(absCoord(node.bounds.centerX, screen.left, screen.right))
                         .append(",").append(absCoord(node.bounds.centerY, screen.top, screen.bottom)).append(")")
                         .append(" role=").append(node.formRole())
+                        .append(" action=").append(node.actionHint())
                         .append(" label=\"").append(node.formLabel.take(MAX_LABEL_CHARS)).append("\"")
                     node.formValueHint.takeIf { it.isNotBlank() }?.let { valueHint ->
                         append(" value_hint=\"").append(valueHint.take(MAX_LABEL_CHARS)).append("\"")
@@ -123,6 +126,7 @@ object VLMIndexedPageContext {
                     val y1 = absCoord(node.bounds.bottom - node.bounds.height * 0.14f, screen.top, screen.bottom)
                     val y2 = absCoord(node.bounds.top + node.bounds.height * 0.22f, screen.top, screen.bottom)
                     append("S").append(index)
+                        .append(" action=swipe")
                         .append(" vertical_down=(").append(x).append(",").append(y1)
                         .append(")->(").append(x).append(",").append(y2).append(")")
                         .append(" label=\"").append(node.displayLabel.take(MAX_LABEL_CHARS)).append("\"")
@@ -150,8 +154,9 @@ object VLMIndexedPageContext {
                     .append(",")
                     .append(absCoord(node.bounds.centerY, screen.top, screen.bottom))
                     .append(")")
+                    .append(" action=").append(node.actionHint())
                     .append(" flags=").append(node.flags())
-                    .append(" role=").append(node.role)
+                    .append(" role=").append(node.semanticRole())
                 appendCompactField("node_id", node.nodeId, MAX_ID_CHARS)
                 appendCompactField("text", node.text, MAX_LABEL_CHARS)
                 appendCompactField("desc", node.contentDesc, MAX_LABEL_CHARS)
@@ -349,9 +354,7 @@ object VLMIndexedPageContext {
             .filter { it.bounds.area <= screenArea * MAX_ELEMENT_AREA_RATIO }
             .distinctBy { it.dedupKey() }
             .sortedWith(
-                compareByDescending<PageNode> { if (it.actionable) 1 else 0 }
-                    .thenByDescending { if (it.editable) 1 else 0 }
-                    .thenByDescending { if (it.checkable) 1 else 0 }
+                compareByDescending<PageNode> { it.vlmCandidateScore(screen) }
                     .thenBy { it.bounds.top }
                     .thenBy { it.bounds.left }
                     .thenBy { it.bounds.area }
@@ -697,12 +700,81 @@ object VLMIndexedPageContext {
                 if (clickable) add("click")
                 if (longClickable) add("long")
                 if (editable) add(if (focused) "edit_focused" else "edit")
-                if (scrollable) add("scroll")
+                if (scrollable) add("swipe")
                 if (checkable) add(if (checked) "checked" else "checkable")
                 if (selected) add("selected")
                 if (!enabled) add("disabled")
             }
             return if (flags.isEmpty()) "text" else flags.joinToString("|")
+        }
+
+        fun actionHint(): String =
+            when {
+                editable -> "input_text"
+                checkable -> "click"
+                clickable || focusable -> "click"
+                longClickable -> "long_press"
+                scrollable -> "swipe"
+                else -> "read"
+            }
+
+        fun semanticRole(): String {
+            val lower = role.lowercase()
+            val semantic = listOf(text, contentDesc, hintText, resourceTail())
+                .joinToString(" ")
+                .lowercase()
+            return when {
+                editable -> "editable"
+                checkable && (lower.contains("switch") || semantic.contains("switch")) -> "switch"
+                checkable -> "toggle"
+                lower.contains("button") || semantic.contains("button") -> "button"
+                lower.contains("imagebutton") -> "button"
+                lower.contains("checkbox") -> "checkbox"
+                lower.contains("radiobutton") -> "radio"
+                lower.contains("edittext") -> "editable"
+                lower.contains("textview") && clickable -> "text_button"
+                clickable || focusable -> "clickable"
+                scrollable -> "scrollable"
+                else -> role
+            }
+        }
+
+        fun actionReason(): String =
+            when {
+                editable -> if (focused) "focused_editable" else "editable"
+                checkable && checked -> "checked_toggle"
+                checkable -> "checkable_toggle"
+                clickable && displayLabel.isNotBlank() -> "clickable_label"
+                clickable -> "clickable_node"
+                focusable && displayLabel.isNotBlank() -> "focusable_label"
+                longClickable -> "long_clickable"
+                scrollable -> "scrollable_region"
+                else -> "visible_text"
+            }
+
+        fun vlmCandidateScore(screen: Rect): Int {
+            val screenArea = screen.area.coerceAtLeast(1f)
+            val labelPresent = displayLabel.isNotBlank() && displayLabel != role
+            val roleText = semanticRole()
+            var score = 0
+            if (editable) score += 90
+            if (checkable) score += 80
+            if (clickable) score += 70
+            if (focusable) score += 32
+            if (longClickable) score += 24
+            if (scrollable) score += 12
+            if (labelPresent) score += 36
+            if (contentDesc.isNotBlank()) score += 18
+            if (text.isNotBlank()) score += 16
+            if (hintText.isNotBlank()) score += 12
+            if (resourceId.isNotBlank()) score += 8
+            if (roleText == "button" || roleText == "text_button") score += 18
+            if (roleText == "switch" || roleText == "toggle" || roleText == "checkbox" || roleText == "radio") score += 16
+            val areaRatio = bounds.area / screenArea
+            if (areaRatio > 0.28f) score -= 36
+            if (areaRatio > 0.50f) score -= 60
+            if (bounds.top < screen.height * 0.04f) score -= 6
+            return score
         }
 
         fun dedupKey(): String =
@@ -782,8 +854,8 @@ object VLMIndexedPageContext {
     private const val MAX_ID_CHARS = 32
     private const val MAX_DESCENDANT_PARTS = 8
     private const val MAX_DESCENDANT_CHARS = 120
-    private const val MAX_SECTION_CHARS = 1_900
-    private const val MAX_CONTEXT_CHARS = 2_400
+    private const val MAX_SECTION_CHARS = 2_600
+    private const val MAX_CONTEXT_CHARS = 3_200
     private const val MARKED_SCREENSHOT_JPEG_QUALITY = 92
     private const val MIN_UNIQUE_MATCH_SCORE = 82
     private const val MIN_UNIQUE_MATCH_MARGIN = 8

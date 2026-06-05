@@ -200,7 +200,7 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
             ?: startY
         val durationMs = longExtra(intent, "durationMs")
             ?: longExtra(intent, "duration")
-            ?: if (actionName == OobCanonicalActionSchema.TOOL_SCROLL) 500L else 80L
+            ?: if (actionName == OobCanonicalActionSchema.TOOL_SWIPE) 500L else 80L
         val distancePx = floatExtra(intent, "distancePx")
             ?: distance(startX, startY, endX, endY)
         val finishedAtMs = System.currentTimeMillis()
@@ -457,7 +457,7 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
     private fun normalizeGestureActionName(actionName: String): String {
         return when (val normalized = actionName.trim().lowercase()) {
             "tap" -> OobCanonicalActionSchema.TOOL_CLICK
-            "swipe" -> OobCanonicalActionSchema.TOOL_SCROLL
+            "swipe" -> OobCanonicalActionSchema.TOOL_SWIPE
             "long_click", "long-click", "longpress" -> OobCanonicalActionSchema.TOOL_LONG_PRESS
             else -> normalized
         }
@@ -477,7 +477,7 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
         return action in setOf(
             OobCanonicalActionSchema.TOOL_CLICK,
             OobCanonicalActionSchema.TOOL_LONG_PRESS,
-            OobCanonicalActionSchema.TOOL_SCROLL,
+            OobCanonicalActionSchema.TOOL_SWIPE,
             OobCanonicalActionSchema.TOOL_INPUT_TEXT
         )
     }

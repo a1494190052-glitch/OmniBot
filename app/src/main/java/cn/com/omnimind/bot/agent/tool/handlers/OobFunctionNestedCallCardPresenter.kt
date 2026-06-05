@@ -14,7 +14,7 @@ class OobFunctionNestedCallCardPresenter(
     fun cardId(parentToolCallId: String?, toolName: String, stepId: String): String {
         val base = safeCardIdPart(firstNonBlank(parentToolCallId, toolName, "function"))
         val step = safeCardIdPart(stepId.ifBlank { "step" })
-        return "${base}_${step}_oob_function_run"
+        return "${base}_${step}_call_tool"
     }
 
     fun runningSummary(functionId: String): String {

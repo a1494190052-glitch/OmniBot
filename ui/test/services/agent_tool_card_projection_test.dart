@@ -207,7 +207,7 @@ void main() {
     expect(projection.streamMeta?['entryId'], 'vlm-step-1');
   });
 
-  test('projects call_function events as reusable Function tool cards', () {
+  test('projects call_tool events as reusable Function tool cards', () {
     final messages = <ChatMessageModel>[];
     final argsJson = jsonEncode(<String, dynamic>{
       'function_id': 'open_settings',
@@ -221,9 +221,9 @@ void main() {
         taskId: 'task-function',
         seq: 1,
         raw: <String, dynamic>{
-          'cardId': 'parent-step-1-call-function',
-          'toolCallId': 'parent-step-1-call-function',
-          'toolName': 'call_function',
+          'cardId': 'parent-step-1-call-tool',
+          'toolCallId': 'parent-step-1-call-tool',
+          'toolName': 'call_tool',
           'displayName': '复用指令',
           'toolType': 'oob_function',
           'toolTitle': '复用指令：open_settings',
@@ -239,9 +239,9 @@ void main() {
         taskId: 'task-function',
         seq: 2,
         raw: const <String, dynamic>{
-          'cardId': 'parent-step-1-call-function',
-          'toolCallId': 'parent-step-1-call-function',
-          'toolName': 'call_function',
+          'cardId': 'parent-step-1-call-tool',
+          'toolCallId': 'parent-step-1-call-tool',
+          'toolName': 'call_tool',
           'displayName': '复用指令',
           'toolType': 'oob_function',
           'toolTitle': '复用指令：open_settings',
@@ -255,7 +255,7 @@ void main() {
 
     expect(messages, hasLength(1));
     final card = messages.single.cardData!;
-    expect(card['toolName'], 'call_function');
+    expect(card['toolName'], 'call_tool');
     expect(card['toolType'], 'oob_function');
     expect(card['toolTitle'], '复用指令：open_settings');
     expect(card['argsJson'], argsJson);

@@ -149,7 +149,7 @@ tools = client.list_tools()
 names = {str(tool.get("name", "")).strip() for tool in tools if isinstance(tool, dict)}
 required_tools = {
     "omniflow.recall",
-    "omniflow.call_function",
+    "call_tool",
     "omniflow.ingest_run_log",
     "omniflow.explore_replay",
     "oob_function_get",

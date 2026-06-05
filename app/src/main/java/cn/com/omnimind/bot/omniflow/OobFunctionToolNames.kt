@@ -12,7 +12,6 @@ object OobFunctionToolNames {
     const val FUNCTION_REGISTER = "oob_function_register"
     const val FUNCTION_UPDATE = "update_function"
     const val FUNCTION_GUARD_CHECK = "oob_function_guard_check"
-    const val FUNCTION_RUN = "oob_function_run"
     const val FUNCTION_DELETE = "oob_function_delete"
     const val FUNCTION_CLEAR = "oob_function_clear"
 
@@ -26,7 +25,6 @@ object OobFunctionToolNames {
         FUNCTION_REGISTER,
         FUNCTION_UPDATE,
         FUNCTION_GUARD_CHECK,
-        FUNCTION_RUN,
         FUNCTION_DELETE,
         FUNCTION_CLEAR,
     )

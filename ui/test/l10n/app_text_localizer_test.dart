@@ -46,7 +46,7 @@ void main() {
       'functionLibraryDetailFunctionSchema',
       'executionReuseHit',
       'executionReuseHitWithFunction',
-      'executionActionCallFunction',
+      'executionActionCallTool',
       'memorySaveAsSkillTitle',
       'memorySaveAsSkillContent',
       'memorySaveSuccess',
@@ -55,7 +55,7 @@ void main() {
       'omniflowAssetReuseHit',
       'omniflowAssetLinkedFunction',
       'omniflowAssetFunctionDetail',
-      'actionTypeCallFunction',
+      'actionTypeCallTool',
     ];
 
     final en =

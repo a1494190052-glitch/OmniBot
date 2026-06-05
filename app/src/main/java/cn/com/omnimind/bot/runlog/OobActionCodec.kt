@@ -12,10 +12,10 @@ object OobActionCodec {
     const val ACTION_CLICK = OobCanonicalActionSchema.TOOL_CLICK
     const val ACTION_LONG_PRESS = OobCanonicalActionSchema.TOOL_LONG_PRESS
     const val ACTION_INPUT_TEXT = OobCanonicalActionSchema.TOOL_INPUT_TEXT
-    const val ACTION_SCROLL = OobCanonicalActionSchema.TOOL_SCROLL
+    const val ACTION_SWIPE = OobCanonicalActionSchema.TOOL_SWIPE
     const val ACTION_OPEN_APP = OobCanonicalActionSchema.TOOL_OPEN_APP
-    const val ACTION_PRESS_BACK = OobCanonicalActionSchema.TOOL_PRESS_BACK
-    const val ACTION_PRESS_HOME = OobCanonicalActionSchema.TOOL_PRESS_HOME
+    const val ACTION_PRESS_KEY = OobCanonicalActionSchema.TOOL_PRESS_KEY
+    const val ACTION_WAIT = OobCanonicalActionSchema.TOOL_WAIT
     const val ACTION_FINISHED = OobCanonicalActionSchema.TOOL_FINISHED
 
     val executableActions: Set<String> = OobCanonicalActionSchema.replayableToolNames
@@ -25,8 +25,6 @@ object OobActionCodec {
     val pointTargetActions: Set<String> = OobCanonicalActionSchema.pointTargetToolNames
 
     val userFacingActions: Set<String> = OobCanonicalActionSchema.recordableToolNames
-
-    val actionAliases: Map<String, String> = emptyMap()
 
     fun normalizeName(raw: String): String =
         OobCanonicalActionSchema.normalizeToolName(raw)

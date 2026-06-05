@@ -426,7 +426,8 @@ class OobPageVectorSetTest {
                     description = "Route from B to C.",
                     srcXml = pageB,
                     dstXml = pageC,
-                    tool = "press_back",
+                    tool = "press_key",
+                    args = mapOf("key" to "back"),
                 ),
             )
 
@@ -474,6 +475,7 @@ class OobPageVectorSetTest {
         srcXml: String,
         dstXml: String,
         tool: String = "click",
+        args: Map<String, Any?>? = null,
     ): Map<String, Any?> = mapOf(
         "schema_version" to "oob.reusable_function.v1",
         "function_id" to functionId,
@@ -490,7 +492,7 @@ class OobPageVectorSetTest {
                     "title" to name,
                     "tool" to tool,
                     "omniflow_action" to tool,
-                    "args" to argsForTestAction(tool, name),
+                    "args" to (args ?: argsForTestAction(tool, name)),
                     "source_context" to mapOf(
                         "src_ctx" to mapOf(
                             "page" to srcXml,
@@ -513,7 +515,7 @@ class OobPageVectorSetTest {
                 "target_description" to name,
                 "text" to "hello",
             )
-            "press_back", "press_home" -> emptyMap()
+            "press_key" -> mapOf("key" to "back")
             else -> mapOf(
                 "target_description" to name,
                 "x" to 540,

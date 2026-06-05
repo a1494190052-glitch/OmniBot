@@ -287,14 +287,12 @@ class ExecutionStepTile extends StatelessWidget {
         return l10n.executionActionInputText;
       case 'swipe':
         return l10n.executionActionSwipe;
-      case 'scroll':
-        return l10n.executionActionScroll;
       case 'press_key':
         return l10n.executionActionPressKey;
       case 'finished':
         return l10n.executionActionFinished;
-      case 'call_function':
-        return l10n.executionActionCallFunction;
+      case 'call_tool':
+        return l10n.executionActionCallTool;
       default:
         return actionType.trim().isEmpty
             ? l10n.executionActionDefault

@@ -16,10 +16,8 @@ class McpToolDefinitionsTest {
 
         assertTrue(names.contains(AgentToolNames.VLM_TASK))
         assertTrue(names.contains("agent_run"))
-        assertTrue(names.contains(RunLogReplayPolicy.TOOL_OOB_TOOL_CALL))
+        assertTrue(names.contains(RunLogReplayPolicy.TOOL_CALL_TOOL))
         assertTrue(names.contains("omniflow.recall"))
-        assertTrue(names.contains("omniflow.call_tool"))
-        assertTrue(!names.contains("omniflow.call_function"))
         assertTrue(names.contains("omniflow.ingest_run_log"))
         assertTrue(names.contains("omniflow.explore_replay"))
         assertTrue(names.contains(OobFunctionToolNames.FUNCTION_LIST))
@@ -27,7 +25,6 @@ class McpToolDefinitionsTest {
         assertTrue(names.contains(OobFunctionToolNames.FUNCTION_REGISTER))
         assertTrue(names.contains(OobFunctionToolNames.FUNCTION_UPDATE))
         assertFalse(names.contains(OobFunctionToolNames.FUNCTION_GUARD_CHECK))
-        assertFalse(names.contains(OobFunctionToolNames.FUNCTION_RUN))
         assertTrue(names.contains(OobFunctionToolNames.FUNCTION_DELETE))
         assertTrue(names.contains(OobFunctionToolNames.FUNCTION_CLEAR))
         assertTrue(names.contains(OobFunctionToolNames.RUN_LOG_LIST))
@@ -64,13 +61,11 @@ class McpToolDefinitionsTest {
         OobFunctionToolNames.FUNCTION_REGISTER to "OobFunctionToolNames.FUNCTION_REGISTER",
         OobFunctionToolNames.FUNCTION_UPDATE to "OobFunctionToolNames.FUNCTION_UPDATE",
         OobFunctionToolNames.FUNCTION_GUARD_CHECK to "OobFunctionToolNames.FUNCTION_GUARD_CHECK",
-        OobFunctionToolNames.FUNCTION_RUN to "OobFunctionToolNames.FUNCTION_RUN",
         OobFunctionToolNames.FUNCTION_DELETE to "OobFunctionToolNames.FUNCTION_DELETE",
         OobFunctionToolNames.FUNCTION_CLEAR to "OobFunctionToolNames.FUNCTION_CLEAR",
         OobFunctionToolNames.RUN_LOG_LIST to "OobFunctionToolNames.RUN_LOG_LIST",
         OobFunctionToolNames.RUN_LOG_GET to "OobFunctionToolNames.RUN_LOG_GET",
         OobFunctionToolNames.RUN_LOG_CONVERT to "OobFunctionToolNames.RUN_LOG_CONVERT",
-        RunLogReplayPolicy.TOOL_OOB_TOOL_CALL to "RunLogReplayPolicy.TOOL_OOB_TOOL_CALL",
         RunLogReplayPolicy.TOOL_CALL_TOOL to "RunLogReplayPolicy.TOOL_CALL_TOOL",
     )
 
@@ -112,9 +107,11 @@ class McpToolDefinitionsTest {
     }
 
     @Test
-    fun oobFunctionRunToolIsNotExposedAsFixedMcpTool() {
+    fun callToolIsTheFunctionExecutionMcpPath() {
         val names = McpToolDefinitions.fixedTools.map { it["name"].toString() }.toSet()
-        assertFalse(names.contains(OobFunctionToolNames.FUNCTION_RUN))
+        assertTrue(names.contains(RunLogReplayPolicy.TOOL_CALL_TOOL))
+        assertFalse(names.contains("omniflow" + ".call_tool"))
+        assertFalse(names.contains("oob_" + "tool_call"))
     }
 
     @Test

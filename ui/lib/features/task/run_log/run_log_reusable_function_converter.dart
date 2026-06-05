@@ -423,7 +423,7 @@ class RunLogReusableFunctionConverter {
           RunLogReplayPolicy.isPerceptionTool(snapshot.toolName) &&
           hasRecordedReplayStep;
       // Skip vlm_task outer calls entirely when concrete recorded actions are
-      // present. The VLM-driven actions (click/scroll/input_text with legacy route kind
+      // present. The VLM-driven actions (click/swipe/input_text with VLM route kind
       // metadata) are recorded as separate omniflow cards with source_context
       // for coordinate remapping.
       if (shouldSkipPerceptionStep) {
@@ -1131,7 +1131,7 @@ Requirements:
 - Every parameter must include name/type/description/bindings/default. bindings must be a JSONPath string array pointing to leaf fields under execution.steps[*].args, including nested call_tool arguments such as execution.steps[*].args.arguments.query.
 - Parameter names must be semantic, for example contact_name, search_query, message_text, target_date, or target_url. Do not use mechanical names such as input_text_3 as final parameter names.
 - Preserve or improve step executor/model_free/scriptable/tool/args/agent_call/validation/fallback fields.
-- Keep model_free OOB actions model-free; do not turn click/scroll/input_text/open_app/press_back/press_home into agent steps.
+- Keep model_free OOB actions model-free; do not turn click/swipe/input_text/open_app/press_key/call_tool into agent steps.
 - Drop legacy wait cards. Page settling is handled internally by OmniFlow/VLM stability logic and must not become a replay step.
 - Keep data-flow and perception tools as executor=agent with tool=oob.agent.run; do not turn browser_use/web_search/memory/oob_run_log tools into direct tool replay.
 - Output must be consumable by both the agent and the script runner.
@@ -1154,7 +1154,7 @@ $compact
 - 每个 parameter 必须包含 name/type/description/bindings/default，其中 bindings 是 JSONPath 字符串数组，指向 execution.steps[*].args 下的叶子字段，也可以指向嵌套 call_tool 的 arguments，例如 execution.steps[*].args.arguments.query。
 - parameter name 必须有语义，例如 contact_name、search_query、message_text、target_date 或 target_url。不要把 input_text_3 这类机械名作为最终参数名。
 - 保留或优化每步的 executor/model_free/scriptable/tool/args/agent_call/validation/fallback 字段。
-- 保持 model_free OOB 动作无模型执行，不要把 click/scroll/input_text/open_app/press_back/press_home 改成 agent 步骤。
+- 保持 model_free OOB 动作无模型执行，不要把 click/swipe/input_text/open_app/press_key/call_tool 改成 agent 步骤。
 - 丢弃旧版 wait 卡片。页面停留由 OmniFlow/VLM 内部稳定逻辑处理，不能生成回放步骤。
 - 保持 data-flow 和感知工具为 executor=agent 且 tool=oob.agent.run；不要把 browser_use/web_search/memory/oob_run_log 工具改成直接 tool replay。
 - 输出必须能被 agent 和 script 执行器共同消费。
@@ -1295,7 +1295,7 @@ Rules:
 - Keep titles concise and action-oriented.
 - Include every input step index from execution.steps.
 - Every executable step/action must have title, description, action_purpose, importance, cleanup_action, and cleanup_reason.
-- Step description/action_purpose must say what the action does and why it exists in this trajectory; avoid generic labels like "tap button".
+- Step description/action_purpose must say what the action does and why it exists in this trajectory; avoid generic labels like "click button".
 - cleanup_action must be one of keep, merge_candidate, drop_candidate, noise, or optional_checker.
 - Use optional_checker for conditional obstruction actions such as closing ads, popups, banners, coupons, permission nudges, or upgrade prompts that may not appear on every replay. Add optional_condition when known. Do not remove or force the step.
 - For every optional_checker, add a supported metadata.checker_rules entry and link it from agent_reuse.checker_assets. Supported combinations only: overlay_blocking+dismiss+pre_transfer, permission_dialog+allow+pre_transfer, keyboard_obscuring+hide_keyboard+pre_action, package_mismatch+open_app+pre_transfer, app_upgrade_prompt+dismiss+post_action. Do not invent scripts, selectors, model calls, or unsupported checker types.

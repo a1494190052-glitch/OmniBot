@@ -37,8 +37,8 @@ class OobSkillReplayTest {
         val executor = step["executor"]?.toString()?.trim()?.lowercase().orEmpty()
         val modelFree = step["model_free"] == true
         val action = firstNonBlank(step["omniflow_action"], step["tool"], step["callable_tool"])
-        val omniflowActions = setOf("click", "long_press", "scroll", "type",
-            "open_app", "press_home", "press_back", "hot_key")
+        val omniflowActions = setOf("click", "long_press", "swipe", "type",
+            "open_app", "press_key", "hot_key")
         return executor == "omniflow" || (modelFree && action in omniflowActions)
     }
 
@@ -174,8 +174,8 @@ class OobSkillReplayTest {
             "id": "step_1", "index": 0,
             "title": "返回桌面",
             "executor": "omniflow",
-            "omniflow_action": "press_home",
-            "args": {}
+            "omniflow_action": "press_key",
+            "args": {"key": "home"}
           }
         ],
         "omniflow_step_count": 1,
@@ -237,7 +237,7 @@ class OobSkillReplayTest {
     }
 
     @Test
-    fun `single press_home skill can run fully`() {
+    fun `single press_key home skill can run fully`() {
         val spec = specFromJson(noCoordHookSpec)
         assertTrue(canRunFullyWithOmniflow(spec))
     }

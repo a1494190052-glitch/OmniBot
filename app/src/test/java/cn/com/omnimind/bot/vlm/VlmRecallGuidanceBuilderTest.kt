@@ -471,7 +471,7 @@ class VlmRecallGuidanceBuilderTest {
             assertFalse(enriched.currentPageSummary.contains(OobUdegNodeStore.UDEG_DECISION_PATH))
             assertFalse(enriched.currentPageSummary.contains("UDEG attached Functions"))
             assertFalse(enriched.currentPageSummary.contains("function_id=open_network_settings"))
-            assertFalse(enriched.currentPageSummary.contains("VLM调用格式: oob_function_run"))
+            assertFalse(enriched.currentPageSummary.contains("VLM调用格式: call_tool"))
             assertFalse(enriched.currentPageSummary.contains("UDEG可见文本"))
             assertFalse(enriched.currentPageSummary.contains("UDEG可交互元素"))
             assertTrue(enriched.currentPageSummary.contains("只描述当前页面是什么"))

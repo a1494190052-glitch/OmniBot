@@ -236,7 +236,7 @@ class AgentToolCardPolicy {
     if (toolTypeLower == 'workbench' ||
         toolTypeLower == 'oob_function' ||
         toolTypeLower == 'reusable_function' ||
-        toolNameLower == 'oob_function_run' ||
+        toolNameLower == 'call_tool' ||
         toolNameLower.startsWith('workbench_')) {
       return AgentToolActivityKind.workbench;
     }

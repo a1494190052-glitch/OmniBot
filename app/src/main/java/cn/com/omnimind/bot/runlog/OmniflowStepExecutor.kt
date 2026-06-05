@@ -339,7 +339,7 @@ object OmniflowStepExecutor {
                     OobActionCodec.ACTION_LONG_PRESS
                 }
 
-                OobActionCodec.ACTION_SCROLL -> {
+                OobActionCodec.ACTION_SWIPE -> {
                     val swipe = swipeSpec(args, replayState("act_swipe"))
                     backend.scrollWithContext(
                         x = swipe.x,
@@ -381,13 +381,8 @@ object OmniflowStepExecutor {
                     OobActionCodec.ACTION_OPEN_APP
                 }
 
-                OobActionCodec.ACTION_PRESS_BACK -> {
-                    backend.pressHotKey("BACK")
-                    action
-                }
-
-                OobActionCodec.ACTION_PRESS_HOME -> {
-                    backend.pressHotKey("HOME")
+                OobActionCodec.ACTION_PRESS_KEY -> {
+                    backend.pressHotKey(pressKeyArg(args))
                     action
                 }
 
@@ -664,7 +659,7 @@ object OmniflowStepExecutor {
             OobActionCodec.ACTION_CLICK,
             OobActionCodec.ACTION_LONG_PRESS,
             OobActionCodec.ACTION_INPUT_TEXT -> remapPointActionArgs(tool, args, sourceXml, currentXml)
-            OobActionCodec.ACTION_SCROLL -> remapScrollActionArgs(tool, args, sourceXml, currentXml)
+            OobActionCodec.ACTION_SWIPE -> remapSwipeActionArgs(tool, args, sourceXml, currentXml)
             else -> StepArgsResult(args)
         }
     }
@@ -708,6 +703,15 @@ object OmniflowStepExecutor {
         return defaultMs
     }
 
+    private fun pressKeyArg(args: Map<String, Any?>): String {
+        return when (stringArg(args, "key")?.trim()?.lowercase()) {
+            "back" -> "BACK"
+            "home" -> "HOME"
+            "enter" -> "ENTER"
+            else -> throw IllegalArgumentException("press_key requires key=back/home/enter")
+        }
+    }
+
     private data class SwipeSpec(
         val x: Float,
         val y: Float,
@@ -735,7 +739,7 @@ object OmniflowStepExecutor {
         }
 
         val direction = directionArg(args)
-            ?: throw IllegalArgumentException("scroll requires direction or x1/y1/x2/y2")
+            ?: throw IllegalArgumentException("swipe requires direction or x1/y1/x2/y2")
         val rootCenter = currentRootCenter(state)
         val x: Float = numberArg(args, "x")?.toFloat()
             ?: rootCenter?.first
@@ -1288,7 +1292,7 @@ object OmniflowStepExecutor {
         replayAction: ReplayAction,
     ): Map<String, Any?>? {
         val action = replayAction.action
-        if (action !in OobActionCodec.pointTargetActions + OobActionCodec.ACTION_SCROLL) return null
+        if (action !in OobActionCodec.pointTargetActions + OobActionCodec.ACTION_SWIPE) return null
         val page = state.page ?: return null
         val keyboardTop = keyboardTop(page) ?: return null
         if (!actionTargetIntersectsKeyboard(action, replayAction.args, keyboardTop)) return null
@@ -1711,7 +1715,7 @@ object OmniflowStepExecutor {
         keyboardTop: Float,
     ): Boolean {
         val threshold = keyboardTop - KEYBOARD_OBSCURE_MARGIN_PX
-        if (action == OobActionCodec.ACTION_SCROLL) {
+        if (action == OobActionCodec.ACTION_SWIPE) {
             val y1 = numberArg(args, "y1")?.toFloat()
             val y2 = numberArg(args, "y2")?.toFloat()
             return listOfNotNull(y1, y2).any { it >= threshold }
@@ -1906,7 +1910,7 @@ object OmniflowStepExecutor {
         )
     }
 
-    private fun remapScrollActionArgs(
+    private fun remapSwipeActionArgs(
         tool: String,
         args: Map<String, Any?>,
         sourceXml: String,

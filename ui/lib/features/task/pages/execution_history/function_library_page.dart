@@ -275,6 +275,14 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
     await _showFunctionSpecDetails(context, group: group, onClosed: _load);
   }
 
+  String get _runningFunctionLabel {
+    if (_runningIds.isEmpty) return '';
+    for (final group in _functions) {
+      if (_runningIds.contains(group.signature)) return group.displayName;
+    }
+    return '';
+  }
+
   @override
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
@@ -338,7 +346,7 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
         onAction: _startLearning,
       );
     }
-    return RefreshIndicator(
+    final list = RefreshIndicator(
       onRefresh: _load,
       child: ListView.separated(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
@@ -362,6 +370,14 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
           );
         },
       ),
+    );
+    final runningLabel = _runningFunctionLabel;
+    if (runningLabel.isEmpty) return list;
+    return Column(
+      children: [
+        _RunningFunctionBanner(label: runningLabel),
+        Expanded(child: list),
+      ],
     );
   }
 }
@@ -634,6 +650,14 @@ class _FunctionLibraryEmbedState extends State<FunctionLibraryEmbed>
     );
   }
 
+  String get _runningFunctionLabel {
+    if (_runningIds.isEmpty) return '';
+    for (final group in _functions) {
+      if (_runningIds.contains(group.signature)) return group.displayName;
+    }
+    return '';
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -662,7 +686,7 @@ class _FunctionLibraryEmbedState extends State<FunctionLibraryEmbed>
         onAction: _startLearning,
       );
     }
-    return RefreshIndicator(
+    final list = RefreshIndicator(
       onRefresh: _load,
       child: ListView.separated(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
@@ -685,6 +709,66 @@ class _FunctionLibraryEmbedState extends State<FunctionLibraryEmbed>
             onOpenDetails: () => _openDetails(group),
           );
         },
+      ),
+    );
+    final runningLabel = _runningFunctionLabel;
+    if (runningLabel.isEmpty) return list;
+    return Column(
+      children: [
+        _RunningFunctionBanner(label: runningLabel),
+        Expanded(child: list),
+      ],
+    );
+  }
+}
+
+class _RunningFunctionBanner extends StatelessWidget {
+  const _RunningFunctionBanner({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    final title = label.trim().isEmpty
+        ? _text(context, '正在执行复用指令', 'Running Reusable Function')
+        : _text(context, '正在执行：$label', 'Running: $label');
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+      decoration: BoxDecoration(
+        color: palette.accentPrimary.withValues(alpha: 0.10),
+        border: Border(
+          bottom: BorderSide(
+            color: palette.accentPrimary.withValues(alpha: 0.18),
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: palette.accentPrimary,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: palette.textPrimary,
+                letterSpacing: 0,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

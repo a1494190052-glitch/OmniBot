@@ -228,10 +228,11 @@ class OobVlmTaskClient:
             return None
         return json.loads(raw)
 
-    def wait_for_result(self, timeout_seconds: int, poll_seconds: float, request_id: str) -> dict[str, Any]:
+    def wait_for_result(self, timeout_seconds: int, poll_seconds: float, request_id: str, goal: str) -> dict[str, Any]:
         deadline = time.monotonic() + timeout_seconds
         last_error: Exception | None = None
         last_mismatched_request_id = ""
+        expected_goal = goal.strip()
         while time.monotonic() < deadline:
             raw = self.read_app_file(RESULT_FILE)
             if raw:
@@ -239,6 +240,12 @@ class OobVlmTaskClient:
                     parsed = json.loads(raw)
                     result_request_id = str(parsed.get("request_id") or "")
                     if result_request_id == request_id:
+                        return parsed
+                    # Older installed debug APKs do not echo request_id. Keep
+                    # parse-only usable without rebuilding by accepting an exact
+                    # goal match, while still rejecting stale results for other
+                    # goals.
+                    if not result_request_id and str(parsed.get("goal") or "").strip() == expected_goal:
                         return parsed
                     last_mismatched_request_id = result_request_id
                 except json.JSONDecodeError as exc:
@@ -285,6 +292,13 @@ def summarize_result(data: dict[str, Any], output_path: Path, device: str) -> di
             "prompt_chars": parse_result.get("prompt_chars"),
             "finish_reason": parse_result.get("finish_reason"),
             "raw_content_preview": parse_result.get("raw_content_preview"),
+            "reasoning_preview": parse_result.get("reasoning_preview"),
+            "observation_preview": parse_result.get("observation_preview"),
+            "thought_preview": parse_result.get("thought_preview"),
+            "summary_preview": parse_result.get("summary_preview"),
+            "tool_names": parse_result.get("tool_names"),
+            "dynamic_function_tool_names": parse_result.get("dynamic_function_tool_names"),
+            "current_user_text_preview": parse_result.get("current_user_text_preview"),
             "page_diagnostics": parse_result.get("page_diagnostics"),
             "phase_ms": parse_result.get("phase_ms"),
             "error": parse_result.get("error"),
@@ -380,7 +394,7 @@ def main(argv: list[str]) -> int:
     print("Press Ctrl-C to stop.", file=sys.stderr)
     try:
         client.broadcast_start(args)
-        result = client.wait_for_result(args.timeout, args.poll_seconds, args.request_id)
+        result = client.wait_for_result(args.timeout, args.poll_seconds, args.request_id, args.goal)
     except KeyboardInterrupt:
         print(f"\nStopping VLM task on {args.device}...", file=sys.stderr)
         cancel_result = client.broadcast_cancel()

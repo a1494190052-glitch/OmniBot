@@ -675,8 +675,8 @@ String _localizedActionText(BuildContext context, String value) {
       return AppTextLocalizer.choose(en: 'Tap', zh: '点击', locale: locale);
     case 'type':
       return AppTextLocalizer.choose(en: 'Type', zh: '输入', locale: locale);
-    case 'scroll':
-      return AppTextLocalizer.choose(en: 'Scroll', zh: '滚动', locale: locale);
+    case 'swipe':
+      return AppTextLocalizer.choose(en: 'Swipe', zh: '滑动', locale: locale);
     case 'long_press':
     case 'longPress':
       return AppTextLocalizer.choose(
@@ -691,12 +691,10 @@ String _localizedActionText(BuildContext context, String value) {
         zh: '打开应用',
         locale: locale,
       );
-    case 'press_home':
-    case 'pressHome':
-      return AppTextLocalizer.choose(en: 'Home', zh: '返回桌面', locale: locale);
-    case 'press_back':
-    case 'pressBack':
-      return AppTextLocalizer.choose(en: 'Back', zh: '返回', locale: locale);
+    case 'press_key':
+      return AppTextLocalizer.choose(en: 'Press key', zh: '按键', locale: locale);
+    case 'call_tool':
+      return AppTextLocalizer.choose(en: 'Call tool', zh: '调用工具', locale: locale);
     case 'wait':
       return AppTextLocalizer.choose(en: 'Wait', zh: '等待', locale: locale);
     case 'record':

@@ -14,7 +14,10 @@
     "y2",
     "scrollable_index",
     "direction",
+    "distance",
     "duration_ms",
+    "time_s",
+    "key",
     "text",
     "package_name",
     "selector",
@@ -92,19 +95,22 @@
       ]
     },
     {
-      "name": "scroll",
-      "ui_label": {"zh_cn": "滚动", "en_us": "Scroll"},
-      "description": {"zh_cn": "从起点滑动到终点。", "en_us": "Swipe from the start point to the end point."},
+      "name": "swipe",
+      "ui_label": {"zh_cn": "滑动", "en_us": "Swipe"},
+      "description": {"zh_cn": "在屏幕或可滚动区域内按方向滑动。", "en_us": "Swipe in a direction on the screen or inside a scrollable region."},
       "prompt_guide": {
-        "zh_cn": "- scroll(target_description, x1, y1, x2, y2, duration_ms?): 在屏幕上滑动。",
-        "en_us": "- scroll(target_description, x1, y1, x2, y2, duration_ms?): Swipe on the screen."
+        "zh_cn": "- swipe(target_description, direction, scrollable_index?, x1, y1, x2, y2, duration_ms?): 在屏幕或指定可滚动区域内滑动；优先填写 scrollable_index 和 direction，x1/y1/x2/y2 是兜底。",
+        "en_us": "- swipe(target_description, direction, scrollable_index?, x1, y1, x2, y2, duration_ms?): Swipe on the screen or a target scrollable region; prefer scrollable_index and direction, x1/y1/x2/y2 are fallback."
       },
       "recordable": true,
       "coordinate_action": true,
       "args": [
-        {"name": "target_description", "type": "string", "required": true, "description": {"zh_cn": "本次滚动想浏览或定位的目标描述。", "en_us": "Description of what this scroll action is trying to browse or locate."}},
+        {"name": "target_description", "type": "string", "required": true, "description": {"zh_cn": "本次滑动想浏览或定位的目标描述。", "en_us": "Description of what this swipe action is trying to browse or locate."}},
+        {"name": "direction", "type": "string", "required": true, "description": {"zh_cn": "滑动方向。", "en_us": "Swipe direction."}, "enum_values": ["up", "down", "left", "right"]},
         {"name": "scrollable_index", "type": "integer", "description": {"zh_cn": "可选。OOB indexed page evidence 中 Scrollable regions 的 Sindex；提供后系统会在该区域内生成安全滑动坐标。", "en_us": "Optional. The Sindex of the target Scrollable region in OOB indexed page evidence; when provided, the runtime generates safe swipe coordinates inside that region."}, "minimum": 0},
-        {"name": "direction", "type": "string", "description": {"zh_cn": "配合 scrollable_index 使用的浏览方向。", "en_us": "Browsing direction used with scrollable_index."}, "enum_values": ["up", "down", "left", "right"]},
+        {"name": "x", "type": "number", "description": {"zh_cn": "可选。AndroidWorld/OmniFlow 风格滑动锚点 X 坐标；不提供时使用安全兜底区域。", "en_us": "Optional AndroidWorld/OmniFlow-style swipe anchor X coordinate; when omitted, the runtime uses a safe fallback region."}, "minimum": 0},
+        {"name": "y", "type": "number", "description": {"zh_cn": "可选。AndroidWorld/OmniFlow 风格滑动锚点 Y 坐标；不提供时使用安全兜底区域。", "en_us": "Optional AndroidWorld/OmniFlow-style swipe anchor Y coordinate; when omitted, the runtime uses a safe fallback region."}, "minimum": 0},
+        {"name": "distance", "type": "number", "description": {"zh_cn": "可选。AndroidWorld/OmniFlow 风格滑动距离，单位像素。", "en_us": "Optional AndroidWorld/OmniFlow-style swipe distance in pixels."}, "minimum": 0},
         {"name": "x1", "type": "number", "required": true, "description": {"zh_cn": "起点屏幕绝对像素 X 坐标。", "en_us": "Start absolute screen-pixel X coordinate."}, "minimum": 0},
         {"name": "y1", "type": "number", "required": true, "description": {"zh_cn": "起点屏幕绝对像素 Y 坐标。", "en_us": "Start absolute screen-pixel Y coordinate."}, "minimum": 0},
         {"name": "x2", "type": "number", "required": true, "description": {"zh_cn": "终点屏幕绝对像素 X 坐标。", "en_us": "End absolute screen-pixel X coordinate."}, "minimum": 0},
@@ -123,20 +129,24 @@
       ]
     },
     {
-      "name": "press_home",
-      "ui_label": {"zh_cn": "回到主页", "en_us": "Home"},
-      "description": {"zh_cn": "回到桌面。", "en_us": "Go to the home screen."},
-      "prompt_guide": {"zh_cn": "- press_home(): 回到桌面。", "en_us": "- press_home(): Go to the home screen."},
+      "name": "press_key",
+      "ui_label": {"zh_cn": "按系统键", "en_us": "Press key"},
+      "description": {"zh_cn": "按一个系统导航键。", "en_us": "Press one system navigation key."},
+      "prompt_guide": {"zh_cn": "- press_key(key): 按系统导航键；key 只能是 back、home 或 enter。", "en_us": "- press_key(key): Press a system navigation key; key must be back, home, or enter."},
       "route_action": true,
-      "args": []
+      "args": [
+        {"name": "key", "type": "string", "required": true, "description": {"zh_cn": "系统键名称。", "en_us": "System key name."}, "enum_values": ["back", "home", "enter"]}
+      ]
     },
     {
-      "name": "press_back",
-      "ui_label": {"zh_cn": "返回", "en_us": "Back"},
-      "description": {"zh_cn": "返回上一级。", "en_us": "Go back one level."},
-      "prompt_guide": {"zh_cn": "- press_back(): 返回上一级。", "en_us": "- press_back(): Go back one level."},
-      "route_action": true,
-      "args": []
+      "name": "wait",
+      "ui_label": {"zh_cn": "等待", "en_us": "Wait"},
+      "description": {"zh_cn": "等待页面加载、动画或外部状态变化。", "en_us": "Wait for page loading, animation, or external state changes."},
+      "prompt_guide": {"zh_cn": "- wait(time_s?): 只在页面明确处于加载、动画或等待外部状态变化时使用。", "en_us": "- wait(time_s?): Use only when the page is clearly loading, animating, or waiting for an external state change."},
+      "args": [
+        {"name": "time_s", "type": "number", "description": {"zh_cn": "等待秒数。", "en_us": "Seconds to wait."}, "minimum": 0},
+        {"name": "duration_ms", "type": "integer", "description": {"zh_cn": "等待毫秒数；与 time_s 二选一。", "en_us": "Milliseconds to wait; alternative to time_s."}, "minimum": 0}
+      ]
     },
     {
       "name": "get_state",
@@ -151,16 +161,17 @@
       ]
     },
     {
-      "name": "oob_function_run",
-      "ui_label": {"zh_cn": "运行复用指令", "en_us": "Run function"},
-      "description": {"zh_cn": "执行本轮 OmniFlow recall 明确给出的 OOB 复用指令。调用后根据结果继续选择下一步。只能使用 recall context 里出现过的 function_id，并根据用户任务填写 arguments。", "en_us": "Run one OOB reusable Function explicitly listed in the current-turn OmniFlow recall context. After the result, continue deciding the next step. Only use a function_id shown in recall context and fill arguments from the user task."},
-      "prompt_guide": {"zh_cn": "- oob_function_run(function_id, arguments): 当本轮 OmniFlow recall 给出了高度匹配的复用指令时调用；不要发明 function_id，参数必须从用户任务中填写到 arguments；无参 Function 也必须输出 arguments: {}；调用后看结果，未完成目标时继续下一步。", "en_us": "- oob_function_run(function_id, arguments): Use only when the current-turn OmniFlow recall context lists a matching reusable Function; do not invent function_id, fill arguments from the user task; no-argument Functions must still output arguments: {}; inspect the result and continue when the goal is not done."},
+      "name": "call_tool",
+      "ui_label": {"zh_cn": "调用工具", "en_us": "Call tool"},
+      "description": {"zh_cn": "调用本轮上下文明确允许的工具或已召回 Function。调用后根据结果继续选择下一步。只能使用当前上下文里出现过的 function_id 或 tool_name，并根据用户任务填写 arguments。", "en_us": "Call a tool or recalled Function explicitly allowed by the current-turn context. After the result, continue deciding the next step. Only use a function_id or tool_name shown in the current context and fill arguments from the user task."},
+      "prompt_guide": {"zh_cn": "- call_tool(function_id?, tool_name?, arguments): 调用已召回 Function 或允许的工具；function_id/tool_name 二选一，不要发明 id/name；arguments 必须是 object，无参也输出 {}。", "en_us": "- call_tool(function_id?, tool_name?, arguments): Call a recalled Function or allowed tool; provide exactly one of function_id/tool_name, do not invent ids/names, and always pass arguments as an object, using {} for no arguments."},
       "replayable": false,
       "recordable": false,
       "editor_visible": false,
       "args": [
-        {"name": "function_id", "type": "string", "required": true, "description": {"zh_cn": "本轮 OmniFlow recall context 中给出的 Function id。", "en_us": "Function id shown in the current-turn OmniFlow recall context."}},
-        {"name": "arguments", "type": "object", "required": true, "additional_properties": true, "description": {"zh_cn": "Function 业务参数；无参 Function 使用空对象。", "en_us": "Business arguments for the Function; use an empty object for no-argument Functions."}}
+        {"name": "function_id", "type": "string", "description": {"zh_cn": "本轮上下文中给出的 Function id；与 tool_name 二选一。", "en_us": "Function id shown in the current-turn context; alternative to tool_name."}},
+        {"name": "tool_name", "type": "string", "description": {"zh_cn": "本轮上下文中允许调用的工具名；与 function_id 二选一。", "en_us": "Allowed tool name shown in the current-turn context; alternative to function_id."}},
+        {"name": "arguments", "type": "object", "required": true, "additional_properties": true, "description": {"zh_cn": "工具或 Function 的业务参数；无参使用空对象。", "en_us": "Business arguments for the tool or Function; use an empty object for no arguments."}}
       ]
     },
     {

@@ -176,12 +176,14 @@ internal object RunLogReplayStepCompiler {
                 }
             }
             OobActionCodec.ACTION_INPUT_TEXT -> if (target.isNotBlank()) "$action: $target" else action
-            OobActionCodec.ACTION_SCROLL -> {
+            OobActionCodec.ACTION_SWIPE -> {
                 val direction = firstNonBlank(args["direction"])
                 if (direction.isNotBlank()) "$action: $direction" else action
             }
-            OobActionCodec.ACTION_PRESS_BACK,
-            OobActionCodec.ACTION_PRESS_HOME -> action
+            OobActionCodec.ACTION_PRESS_KEY -> {
+                val key = firstNonBlank(args["key"])
+                if (key.isNotBlank()) "$action: $key" else action
+            }
             OobActionCodec.ACTION_FINISHED -> OobActionCodec.ACTION_FINISHED
             else -> if (target.isNotBlank()) "$action: $target" else action.ifBlank { "step" }
         }

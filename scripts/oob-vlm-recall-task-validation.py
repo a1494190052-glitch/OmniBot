@@ -428,7 +428,7 @@ def find_function_call_evidence(value: Any, path: str = "$") -> list[dict[str, A
             as_dict(value.get("function_result")).get("function_id"),
         )
         has_function_result = "function_result" in value or "action_result_data" in value
-        if tool == "oob_function_run" or function_id or has_function_result:
+        if tool == "call_tool" or function_id or has_function_result:
             evidence.append(
                 {
                     "path": path,

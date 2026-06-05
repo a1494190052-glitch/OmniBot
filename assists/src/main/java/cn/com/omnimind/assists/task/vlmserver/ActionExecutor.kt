@@ -128,7 +128,7 @@ class ActionExecutor(
                 }
             }
 
-            is ScrollAction -> {
+            is SwipeAction -> {
                 deviceOperator.slideCoordinateWithContext(
                     action.x1,
                     action.y1,
@@ -143,12 +143,17 @@ class ActionExecutor(
                 deviceOperator.launchApplication(action.packageName)
             }
 
-            is PressHomeAction -> {
-                deviceOperator.goHome()
-            }
-
-            is PressBackAction -> {
-                deviceOperator.goBack()
+            is PressKeyAction -> {
+                when (action.key.trim().lowercase()) {
+                    "home" -> deviceOperator.goHome()
+                    "back" -> deviceOperator.goBack()
+                    "enter" -> deviceOperator.pressHotKey("ENTER")
+                    else -> OperationResult(
+                        success = false,
+                        message = "不支持的按键: ${action.key}",
+                        data = null
+                    )
+                }
             }
 
             is GetStateAction -> {
@@ -240,10 +245,9 @@ class ActionExecutor(
             is ClickAction,
             is InputTextAction,
             is LongPressAction,
-            is ScrollAction,
+            is SwipeAction,
             is OpenAppAction,
-            is PressHomeAction,
-            is PressBackAction -> true
+            is PressKeyAction -> true
             is GetStateAction -> false
             is FunctionRunAction -> true
             else -> false

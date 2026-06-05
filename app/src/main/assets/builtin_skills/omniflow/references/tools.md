@@ -20,30 +20,26 @@ next Function, VLM path, or other tool if work remains.
    repair, RunLog evidence analysis, checker metadata, and structural patches.
 4. Do not explicitly call `oob_function_guard_check` from a normal agent-task.
    Guard checks are local runner logic, not a model-facing action.
-5. Do not explicitly call hidden Function replay tools. Prefer VLM task dynamic
-   Function tools or the local Function runner path when execution is explicitly
-   exposed.
+5. Use `call_tool` with `function_id` when Function execution is explicitly
+   exposed. Do not invent another Function replay tool name.
 
 When recall returns a Function with `inputSchema`, treat it as candidate context
-unless a concrete Function tool is exposed in the current runtime. A
-parameterized Function should not be ignored just because it needs arguments,
-but a normal agent-task should not invent a hidden replay call.
+and execute it through `call_tool(function_id, arguments)` when it matches the
+current goal. A parameterized Function should not be ignored just because it
+needs arguments.
 
-## Legacy Direct MCP Names
+## MCP Diagnostic Tools
 
-`omniflow.recall`, `omniflow.call_tool`, `omniflow.ingest_run_log`,
-`omniflow.explore_replay`, and direct `oob_function_run` may exist in external
-MCP clients or older agentkit flows. Inside OOB online execution, do not emit
-those names for new VLM replay. Recalled Functions should appear as native VLM
-tools with their own Function id as the tool name.
+`omniflow.recall`, `omniflow.ingest_run_log`, and `omniflow.explore_replay` are
+diagnostic MCP tools for recall and RunLog ingestion. They do not define a
+second Function execution language. Function execution remains `call_tool` with
+`function_id`.
 
 `start_step_index`, `startStepIndex`, and `resumeFromStep` are legacy
 compatibility spellings. They are not part of the normal VLM online path.
 
-Inside the OOB app, prefer the `oob_*` tools above. Use legacy `omniflow.*`
-tools only when those are the tools actually exposed and the `oob_*` tools are
-not available. Do not design a second Function replay flow around any
-`call_function` name.
+Inside the OOB app, prefer the `oob_*` lifecycle tools above and `call_tool` for
+execution. Do not design a second Function replay flow around another name.
 
 ## Tool Missing Rule
 

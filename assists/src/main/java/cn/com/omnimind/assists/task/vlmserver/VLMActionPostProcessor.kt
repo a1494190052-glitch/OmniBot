@@ -117,7 +117,7 @@ object VLMActionPostProcessor {
             displayHeight = displayHeight
         )?.let { return it }
 
-        if (step.action is ScrollAction) {
+        if (step.action is SwipeAction) {
             correctVisibleGoalBeforeScroll(step, context, page)?.let { return it }
         }
 
@@ -354,7 +354,7 @@ object VLMActionPostProcessor {
 
         return corrected(
             step = step,
-            action = PressBackAction(),
+            action = PressKeyAction(key = "back"),
             reason = "missing_settings_target_go_back"
         )
     }
@@ -375,7 +375,7 @@ object VLMActionPostProcessor {
 
         return corrected(
             step = step,
-            action = PressBackAction(),
+            action = PressKeyAction(key = "back"),
             reason = "pending_settings_target_go_back"
         )
     }
@@ -400,7 +400,7 @@ object VLMActionPostProcessor {
         if (page.hasNavigateUp()) {
             return corrected(
                 step = step,
-                action = PressBackAction(),
+                action = PressKeyAction(key = "back"),
                 reason = "wrong_settings_domain_go_back",
                 extraSummary = "Pending settings target: ${settingsDomainFocusText(desiredDomain)}"
             )
@@ -537,7 +537,7 @@ object VLMActionPostProcessor {
 
         return corrected(
             step = step,
-            action = ScrollAction(
+            action = SwipeAction(
                 targetDescription = "Scroll current list to find ${goalText.take(80)}",
                 x1 = x,
                 y1 = y1,
@@ -554,7 +554,7 @@ object VLMActionPostProcessor {
         context: UIContext,
         page: PageModel
     ): Result? {
-        val action = step.action as? ScrollAction ?: return null
+        val action = step.action as? SwipeAction ?: return null
         val goalText = firstNonBlank(context.activeGoal(), context.overallTask)
         if (wantsScroll(goalText)) return null
         if (!isVerticalGesture(action)) return null
@@ -606,7 +606,7 @@ object VLMActionPostProcessor {
                 step.summary,
                 when (val action = step.action) {
                     is ClickAction -> action.targetDescription
-                    is ScrollAction -> action.targetDescription
+                    is SwipeAction -> action.targetDescription
                     is LongPressAction -> action.targetDescription
                     else -> ""
                 }
@@ -615,7 +615,7 @@ object VLMActionPostProcessor {
         if (!page.hasSliderSemanticSignal(context, step.action)) return null
 
         return when (val action = step.action) {
-            is ScrollAction -> {
+            is SwipeAction -> {
                 if (!isHorizontalGesture(action)) return null
                 val desired = endpointScroll(
                     original = action,
@@ -635,7 +635,7 @@ object VLMActionPostProcessor {
 
             is ClickAction -> {
                 val desired = endpointScroll(
-                    original = ScrollAction(
+                    original = SwipeAction(
                         targetDescription = action.targetDescription,
                         x1 = action.x,
                         y1 = action.y,
@@ -658,8 +658,8 @@ object VLMActionPostProcessor {
     }
 
     private fun sameScrollDirectionAndEndpoint(
-        action: ScrollAction,
-        desired: ScrollAction,
+        action: SwipeAction,
+        desired: SwipeAction,
         intent: SliderEndpointIntent,
         displayWidth: Int
     ): Boolean {
@@ -674,14 +674,14 @@ object VLMActionPostProcessor {
     }
 
     private fun endpointScroll(
-        original: ScrollAction,
+        original: SwipeAction,
         intent: SliderEndpointIntent,
         page: PageModel,
         context: UIContext,
         fallbackY: Float,
         displayWidth: Int,
         displayHeight: Int
-    ): ScrollAction {
+    ): SwipeAction {
         val width = displayWidth.coerceAtLeast(1)
         val height = displayHeight.coerceAtLeast(1)
         val horizontalInset = (width * 0.025f).roundToInt().coerceIn(8, 32)
@@ -701,13 +701,13 @@ object VLMActionPostProcessor {
         }
     }
 
-    private fun isHorizontalGesture(action: ScrollAction): Boolean {
+    private fun isHorizontalGesture(action: SwipeAction): Boolean {
         val dx = abs(action.x2 - action.x1)
         val dy = abs(action.y2 - action.y1)
         return dx >= 32f && dx >= dy * 1.4f
     }
 
-    private fun isVerticalGesture(action: ScrollAction): Boolean {
+    private fun isVerticalGesture(action: SwipeAction): Boolean {
         val dx = abs(action.x2 - action.x1)
         val dy = abs(action.y2 - action.y1)
         return dy >= 32f && dy >= dx * 1.2f
@@ -939,7 +939,7 @@ object VLMActionPostProcessor {
         displayWidth: Int,
         displayHeight: Int,
         pendingLabel: String
-    ): ScrollAction? {
+    ): SwipeAction? {
         val scrollBounds = bestScrollableBounds() ?: return null
         val width = displayWidth.coerceAtLeast(1)
         val height = displayHeight.coerceAtLeast(1)
@@ -949,7 +949,7 @@ object VLMActionPostProcessor {
         val y1 = (bottom - scrollBounds.height * 0.12f).coerceIn(top, bottom)
         val y2 = (top + scrollBounds.height * 0.22f).coerceIn(top, bottom)
         if (abs(y1 - y2) < 48f) return null
-        return ScrollAction(
+        return SwipeAction(
             targetDescription = "Scroll current list to find ${pendingLabel.take(80)}",
             x1 = x,
             y1 = y1,
@@ -1567,7 +1567,7 @@ object VLMActionPostProcessor {
 
     private fun isSettingsDomainMutationStep(step: UIStep, domain: SettingsDomain): Boolean {
         settingsStateMarkerCompletion(step, domain)?.let { return it }
-        if (step.action is OpenAppAction || step.action is PressBackAction || step.action is PressHomeAction) {
+        if (step.action is OpenAppAction || step.action is PressKeyAction) {
             return false
         }
         val actionText = actionSemanticText(step.action)
@@ -1884,7 +1884,7 @@ object VLMActionPostProcessor {
     private fun actionSemanticText(action: UIAction): String =
         when (action) {
             is ClickAction -> action.targetDescription
-            is ScrollAction -> action.targetDescription
+            is SwipeAction -> action.targetDescription
             is LongPressAction -> action.targetDescription
             is InputTextAction -> listOf(action.targetDescription, action.text).joinToString(" ")
             is RecordAction -> action.content
@@ -2176,7 +2176,7 @@ object VLMActionPostProcessor {
         "oob"
     )
     private val SCROLL_INTENT_TERMS = setOf(
-        "scroll",
+        "swipe",
         "swipe",
         "滑动",
         "滚动"

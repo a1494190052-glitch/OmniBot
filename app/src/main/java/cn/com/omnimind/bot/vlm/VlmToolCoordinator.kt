@@ -19,12 +19,11 @@ import cn.com.omnimind.assists.task.vlmserver.InfoAction
 import cn.com.omnimind.assists.task.vlmserver.InputTextAction
 import cn.com.omnimind.assists.task.vlmserver.LongPressAction
 import cn.com.omnimind.assists.task.vlmserver.OpenAppAction
-import cn.com.omnimind.assists.task.vlmserver.PressBackAction
-import cn.com.omnimind.assists.task.vlmserver.PressHomeAction
+import cn.com.omnimind.assists.task.vlmserver.PressKeyAction
 import cn.com.omnimind.assists.task.vlmserver.RecordAction
 import cn.com.omnimind.assists.task.vlmserver.RequireUserChoiceAction
 import cn.com.omnimind.assists.task.vlmserver.RequireUserConfirmationAction
-import cn.com.omnimind.assists.task.vlmserver.ScrollAction
+import cn.com.omnimind.assists.task.vlmserver.SwipeAction
 import cn.com.omnimind.assists.task.vlmserver.UIAction
 import cn.com.omnimind.assists.task.vlmserver.UIContext
 import cn.com.omnimind.assists.task.vlmserver.VLMClient
@@ -1353,7 +1352,7 @@ object VlmToolCoordinator {
                 "x" to x,
                 "y" to y,
             )
-            is ScrollAction -> linkedMapOf(
+            is SwipeAction -> linkedMapOf(
                 "tool" to name,
                 "target_description" to targetDescription,
                 "scrollable_index" to scrollableIndex,
@@ -1373,8 +1372,7 @@ object VlmToolCoordinator {
                 "y" to y,
             )
             is OpenAppAction -> linkedMapOf("tool" to name, "package_name" to packageName)
-            is PressHomeAction -> linkedMapOf("tool" to name)
-            is PressBackAction -> linkedMapOf("tool" to name)
+            is PressKeyAction -> linkedMapOf("tool" to name, "key" to key)
             is GetStateAction -> linkedMapOf("tool" to name, "reason" to reason)
             is FunctionRunAction -> linkedMapOf(
                 "tool" to name,

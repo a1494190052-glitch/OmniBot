@@ -12,7 +12,7 @@ VENV_DIR="$WORK_ROOT/venv"
 DIST_DIR="$WORK_ROOT/dist"
 CODEX_OUTPUT="$WORK_ROOT/codex-output.txt"
 RECALL_OUTPUT="$WORK_ROOT/canonical-recall-output.json"
-CALL_FUNCTION_OUTPUT="$WORK_ROOT/canonical-call-function-output.json"
+CALL_TOOL_OUTPUT="$WORK_ROOT/canonical-call-tool-output.json"
 CANONICAL_INSTALL_OUTPUT="$WORK_ROOT/canonical-install-function-output.json"
 INGEST_RUNLOG_OUTPUT="$WORK_ROOT/canonical-ingest-runlog-output.json"
 TIMING_OUTPUT="$WORK_ROOT/timing.tsv"
@@ -221,7 +221,7 @@ STEP_START_MS="$(now_ms)"
 "$VENV_DIR/bin/python" -m pip install --no-deps --force-reinstall "$DIST_DIR"/omniflow_agentkit-0.1.0-py3-none-any.whl
 record_timing "wheel_install" "$STEP_START_MS"
 
-rm -f "$RECALL_OUTPUT" "$CALL_FUNCTION_OUTPUT" \
+rm -f "$RECALL_OUTPUT" "$CALL_TOOL_OUTPUT" \
   "$CANONICAL_INSTALL_OUTPUT" "$INGEST_RUNLOG_OUTPUT" \
   "$FUNCTION_LIST_OUTPUT" "$FUNCTION_GET_OUTPUT" "$GUARD_CHECK_OUTPUT" \
   "$RUN_FUNCTION_OUTPUT" "$RUNLOG_LIST_OUTPUT" "$RUNLOG_GET_OUTPUT" \
@@ -272,16 +272,16 @@ PY
   record_timing "mcp_recall" "$STEP_START_MS"
 
   STEP_START_MS="$(now_ms)"
-  "$VENV_DIR/bin/omniflow-agentkit" mcp-call-function "$CLICK_FUNCTION_ID" --mcp-url "$MCP_URL" >"$CALL_FUNCTION_OUTPUT"
-  record_timing "mcp_call_function" "$STEP_START_MS"
-  record_function_run_timing "canonical_call_function" "$CALL_FUNCTION_OUTPUT"
+  "$VENV_DIR/bin/omniflow-agentkit" mcp-call-tool "$CLICK_FUNCTION_ID" --mcp-url "$MCP_URL" >"$CALL_TOOL_OUTPUT"
+  record_timing "mcp_call_tool" "$STEP_START_MS"
+  record_function_run_timing "canonical_call_tool" "$CALL_TOOL_OUTPUT"
 
   STEP_START_MS="$(now_ms)"
   "$VENV_DIR/bin/omniflow-agentkit" mcp-ingest-runlog runlog_install_demo --mcp-url "$MCP_URL" >"$INGEST_RUNLOG_OUTPUT"
   record_timing "mcp_ingest_runlog" "$STEP_START_MS"
 
   STEP_START_MS="$(now_ms)"
-  "$VENV_DIR/bin/omniflow-agentkit" mcp-call-function "$INSTALL_FUNCTION_ID" --mcp-url "$MCP_URL" >"$CANONICAL_INSTALL_OUTPUT"
+  "$VENV_DIR/bin/omniflow-agentkit" mcp-call-tool "$INSTALL_FUNCTION_ID" --mcp-url "$MCP_URL" >"$CANONICAL_INSTALL_OUTPUT"
   record_timing "mcp_call_ingested_function" "$STEP_START_MS"
   record_function_run_timing "canonical_ingested_function" "$CANONICAL_INSTALL_OUTPUT"
 
@@ -320,14 +320,14 @@ PY
   record_function_run_timing "function_run_install" "$RUN_FUNCTION_INSTALL_OUTPUT"
 
   STEP_START_MS="$(now_ms)"
-  CLICK_FUNCTION_ID="$CLICK_FUNCTION_ID" INSTALL_FUNCTION_ID="$INSTALL_FUNCTION_ID" RECALL_OUTPUT="$RECALL_OUTPUT" CALL_FUNCTION_OUTPUT="$CALL_FUNCTION_OUTPUT" INGEST_RUNLOG_OUTPUT="$INGEST_RUNLOG_OUTPUT" CANONICAL_INSTALL_OUTPUT="$CANONICAL_INSTALL_OUTPUT" FUNCTION_LIST_OUTPUT="$FUNCTION_LIST_OUTPUT" FUNCTION_GET_OUTPUT="$FUNCTION_GET_OUTPUT" GUARD_CHECK_OUTPUT="$GUARD_CHECK_OUTPUT" RUN_FUNCTION_OUTPUT="$RUN_FUNCTION_OUTPUT" RUNLOG_LIST_OUTPUT="$RUNLOG_LIST_OUTPUT" RUNLOG_GET_OUTPUT="$RUNLOG_GET_OUTPUT" RUNLOG_CONVERT_OUTPUT="$RUNLOG_CONVERT_OUTPUT" RUN_FUNCTION_INSTALL_OUTPUT="$RUN_FUNCTION_INSTALL_OUTPUT" "$VENV_DIR/bin/python" - <<'PY'
+  CLICK_FUNCTION_ID="$CLICK_FUNCTION_ID" INSTALL_FUNCTION_ID="$INSTALL_FUNCTION_ID" RECALL_OUTPUT="$RECALL_OUTPUT" CALL_TOOL_OUTPUT="$CALL_TOOL_OUTPUT" INGEST_RUNLOG_OUTPUT="$INGEST_RUNLOG_OUTPUT" CANONICAL_INSTALL_OUTPUT="$CANONICAL_INSTALL_OUTPUT" FUNCTION_LIST_OUTPUT="$FUNCTION_LIST_OUTPUT" FUNCTION_GET_OUTPUT="$FUNCTION_GET_OUTPUT" GUARD_CHECK_OUTPUT="$GUARD_CHECK_OUTPUT" RUN_FUNCTION_OUTPUT="$RUN_FUNCTION_OUTPUT" RUNLOG_LIST_OUTPUT="$RUNLOG_LIST_OUTPUT" RUNLOG_GET_OUTPUT="$RUNLOG_GET_OUTPUT" RUNLOG_CONVERT_OUTPUT="$RUNLOG_CONVERT_OUTPUT" RUN_FUNCTION_INSTALL_OUTPUT="$RUN_FUNCTION_INSTALL_OUTPUT" "$VENV_DIR/bin/python" - <<'PY'
 import json
 import os
 
 click_function_id = os.environ["CLICK_FUNCTION_ID"]
 install_function_id = os.environ["INSTALL_FUNCTION_ID"]
 recall = json.loads(open(os.environ["RECALL_OUTPUT"], encoding="utf-8").read())
-called = json.loads(open(os.environ["CALL_FUNCTION_OUTPUT"], encoding="utf-8").read())
+called = json.loads(open(os.environ["CALL_TOOL_OUTPUT"], encoding="utf-8").read())
 ingested = json.loads(open(os.environ["INGEST_RUNLOG_OUTPUT"], encoding="utf-8").read())
 installed = json.loads(open(os.environ["CANONICAL_INSTALL_OUTPUT"], encoding="utf-8").read())
 function_list = json.loads(open(os.environ["FUNCTION_LIST_OUTPUT"], encoding="utf-8").read())
@@ -375,7 +375,7 @@ assert direct_install["execution_mode"] == "background"
 
 print("canonical_recall=ok")
 print(f"canonical_hit_function_id={recall['hit']['function_id']}")
-print("canonical_call_function=ok")
+print("canonical_call_tool=ok")
 print(f"canonical_run_id={called['run_id']}")
 print(f"canonical_click_step_count={sum(1 for step in called['step_results'] if step_type(step) == 'click')}")
 print("canonical_ingest_runlog=ok")
@@ -411,7 +411,7 @@ Run exactly these commands and no variants:
 
 $VENV_DIR/bin/omniflow-agentkit probe-repo .
 $VENV_DIR/bin/omniflow-agentkit mcp-recall "open Android Settings and click through the demo path" --mcp-url "$MCP_URL"
-$VENV_DIR/bin/omniflow-agentkit mcp-call-function "$CLICK_FUNCTION_ID" --mcp-url "$MCP_URL"
+$VENV_DIR/bin/omniflow-agentkit mcp-call-tool "$CLICK_FUNCTION_ID" --mcp-url "$MCP_URL"
 $VENV_DIR/bin/omniflow-agentkit mcp-ingest-runlog runlog_install_demo --mcp-url "$MCP_URL"
 $VENV_DIR/bin/omniflow-agentkit mcp-list-functions --mcp-url "$MCP_URL"
 $VENV_DIR/bin/omniflow-agentkit mcp-guard-check "$CLICK_FUNCTION_ID" --mcp-url "$MCP_URL"

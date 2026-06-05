@@ -4,13 +4,8 @@ import android.content.Context
 import cn.com.omnimind.assists.task.vlmserver.UIContext
 import cn.com.omnimind.assists.task.vlmserver.VLMPageContextRequest
 import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextProvider
-import cn.com.omnimind.baselib.i18n.AppLocaleManager
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.listArg
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
-import cn.com.omnimind.bot.omniflow.OobFunctionSkillProfile
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonPrimitive
 
 class OobVlmFunctionRecallProvider(
     context: Context,
@@ -47,23 +42,18 @@ class OobVlmFunctionRecallProvider(
             put("omniflow_recall_context_chars", guidance.guidance.length.toString())
             snapshot?.capturedAtMs?.let { put("omniflow_recall_snapshot_timestamp", it.toString()) }
         }
-        val dynamicTools = recalledFunctionToolDefinitions(guidance.payload)
-        val dynamicToolNames = dynamicTools.mapNotNull { definition ->
-            (definition["function"] as? JsonObject)
-                ?.get("name")
-                ?.jsonPrimitive
-                ?.contentOrNull
-                ?.trim()
-                ?.takeIf(String::isNotEmpty)
+        val recalledFunctions = recalledFunctionCandidates(guidance.payload)
+        val recalledFunctionIds = recalledFunctions.mapNotNull { candidate ->
+            candidate["function_id"]?.toString()?.trim()?.takeIf(String::isNotEmpty)
         }
-        diagnostics["omniflow_dynamic_function_tool_count"] = dynamicTools.size.toString()
-        if (dynamicToolNames.isNotEmpty()) {
-            diagnostics["omniflow_dynamic_function_tool_names"] = dynamicToolNames.joinToString(",")
+        diagnostics["omniflow_call_tool_function_count"] = recalledFunctionIds.size.toString()
+        if (recalledFunctionIds.isNotEmpty()) {
+            diagnostics["omniflow_call_tool_function_ids"] = recalledFunctionIds.joinToString(",")
         }
         if (guidance.guidance.isBlank()) {
             return baseContext.copy(
                 stepSkillGuidance = cleanedSkillGuidance,
-                dynamicToolDefinitions = dynamicTools,
+                dynamicToolDefinitions = emptyList(),
                 pageDiagnostics = diagnostics,
             )
         }
@@ -71,17 +61,16 @@ class OobVlmFunctionRecallProvider(
         val recallBlock = buildString {
             appendLine(RECALL_START_MARKER)
             appendLine("OmniFlow tool recall for this current VLM step:")
-            if (dynamicToolNames.isNotEmpty()) {
-                appendLine("The recalled saved mobile workflows are exposed as native model tools this turn: ${dynamicToolNames.joinToString(", ")}")
-                appendLine("Each recalled tool can reuse a previously successful multi-step phone workflow, such as opening a page, searching, filling a form, or saving/sending content.")
-                appendLine("Use the same tool_call interface as GUI tools; one call may execute multiple phone actions.")
-                appendLine("If one clearly matches the user goal, call that tool directly and fill its arguments from the user request.")
-                appendLine("After each saved workflow tool runs, continue from the tool result, history context, and the next fresh page observe; call another tool if the goal is not done.")
+            if (recalledFunctionIds.isNotEmpty()) {
+                appendLine("The recalled saved mobile workflows are available through call_tool this turn: ${recalledFunctionIds.joinToString(", ")}")
+                appendLine("Each recalled Function can reuse a previously successful multi-step phone workflow, such as opening a page, searching, filling a form, or saving/sending content.")
+                appendLine("If one clearly matches the user goal, call call_tool with function_id set to the listed Function id and arguments filled from the user request.")
+                appendLine("After call_tool runs, continue from the tool result, history context, and the next fresh page observe; call another tool if the goal is not done.")
             }
             appendLine(guidance.guidance)
             appendLine(
                 "Policy: these are optional saved workflow tools from fresh current-page recall. " +
-                    "They share the same model tool interface as GUI tools, but one call may execute a reusable multi-step phone workflow."
+                    "They use the same call_tool action language as replay, and one call may execute a reusable multi-step phone workflow."
             )
             append(RECALL_END_MARKER)
         }.trim()
@@ -93,20 +82,9 @@ class OobVlmFunctionRecallProvider(
         diagnostics["omniflow_recall_injected"] = "true"
         return baseContext.copy(
             stepSkillGuidance = merged,
-            dynamicToolDefinitions = dynamicTools,
+            dynamicToolDefinitions = emptyList(),
             pageDiagnostics = diagnostics,
         )
-    }
-
-    private fun recalledFunctionToolDefinitions(payload: Map<String, Any?>): List<JsonObject> {
-        if (payload["success"] != true) return emptyList()
-        return recalledFunctionCandidates(payload)
-            .mapNotNull { candidate ->
-                OobFunctionSkillProfile.dynamicFunctionToolDefinition(
-                    spec = candidate,
-                    locale = AppLocaleManager.currentPromptLocale(),
-                )
-            }
     }
 
     private fun recalledFunctionCandidates(payload: Map<String, Any?>): List<Map<String, Any?>> {

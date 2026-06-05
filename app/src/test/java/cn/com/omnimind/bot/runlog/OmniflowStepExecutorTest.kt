@@ -25,12 +25,12 @@ class OmniflowStepExecutorTest {
     fun `detects model free local actions without explicit executor`() {
         val step = mapOf(
             "model_free" to true,
-            "tool" to "press_back",
-            "args" to emptyMap<String, Any?>(),
+            "tool" to "press_key",
+            "args" to mapOf("key" to "back"),
         )
 
         assertTrue(OmniflowStepExecutor.isOmniflowStep(step))
-        assertEquals("press_back", OmniflowStepExecutor.actionNameForStep(step))
+        assertEquals("press_key", OmniflowStepExecutor.actionNameForStep(step))
     }
 
     @Test
@@ -102,7 +102,7 @@ class OmniflowStepExecutorTest {
         )
         assertTrue(
             OmniflowStepExecutor.requiresAccessibility(
-                mapOf("executor" to "omniflow", "tool" to "scroll")
+                mapOf("executor" to "omniflow", "tool" to "swipe")
             )
         )
         assertFalse(
@@ -530,7 +530,7 @@ class OmniflowStepExecutorTest {
             val result = OmniflowStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
-                    "tool" to "scroll",
+                    "tool" to "swipe",
                     "coordinate_hook" to "omniflow",
                     "args" to mapOf(
                         "x1" to 540,
@@ -543,7 +543,7 @@ class OmniflowStepExecutorTest {
                     ),
                 ),
                 stepId = "step_scroll_after_launch",
-                stepTitle = "scroll after open app",
+                stepTitle = "swipe after open app",
             )
 
             assertEquals(true, result["success"])

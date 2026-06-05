@@ -568,7 +568,7 @@ void main() {
 
     await tester.tap(find.byType(DropdownButtonFormField<String>));
     await tester.pumpAndSettle();
-    await tester.tap(find.textContaining('scroll').last);
+    await tester.tap(find.textContaining('swipe').last);
     await tester.pumpAndSettle();
 
     expect(find.text('x1'), findsOneWidget);
@@ -760,6 +760,7 @@ void main() {
 
       expect(runCalls, 1);
       expect(find.text('执行中'), findsOneWidget);
+      expect(find.text('正在执行：打开 Settings'), findsOneWidget);
       final runCall = methodCalls.singleWhere(
         (call) => call.method == 'runOobReusableFunction',
       );
@@ -818,6 +819,7 @@ void main() {
       expect(find.text('复用指令执行结果'), findsNothing);
 
       expect(find.text('执行'), findsOneWidget);
+      expect(find.text('正在执行：打开 Settings'), findsNothing);
     },
   );
 
@@ -1041,6 +1043,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('执行中'), findsOneWidget);
+    expect(find.text('正在执行：打开 Settings'), findsOneWidget);
     final runCall = methodCalls.singleWhere(
       (call) => call.method == 'runOobReusableFunction',
     );

@@ -188,14 +188,15 @@ object ModelSceneRegistry {
         {
           "type": "object",
           "properties": {
-            "name": {"type": "string", "enum": ["scroll"]},
-            "target_description": {"type": "string", "description": "Description of the UI element to scroll (if needed)."},
-            "x1": {"type": "number", "description": "Start absolute screen-pixel X coordinate around which to scroll."},
-            "y1": {"type": "number", "description": "Start absolute screen-pixel Y coordinate around which to scroll."},
-            "x2": {"type": "number", "description": "End absolute screen-pixel X coordinate around which to scroll."},
-            "y2": {"type": "number", "description": "End absolute screen-pixel Y coordinate around which to scroll."}
+            "name": {"type": "string", "enum": ["swipe"]},
+            "target_description": {"type": "string", "description": "Description of the UI element or scrollable region to swipe (if needed)."},
+            "direction": {"type": "string", "enum": ["up", "down", "left", "right"]},
+            "x1": {"type": "number", "description": "Start absolute screen-pixel X coordinate around which to swipe."},
+            "y1": {"type": "number", "description": "Start absolute screen-pixel Y coordinate around which to swipe."},
+            "x2": {"type": "number", "description": "End absolute screen-pixel X coordinate around which to swipe."},
+            "y2": {"type": "number", "description": "End absolute screen-pixel Y coordinate around which to swipe."}
           },
-          "required": ["name", "target_description", "x1", "y1", "x2", "y2"]
+          "required": ["name", "target_description", "direction", "x1", "y1", "x2", "y2"]
         },
         {
           "type": "object",
@@ -216,16 +217,10 @@ object ModelSceneRegistry {
         {
           "type": "object",
           "properties": {
-            "name": {"type": "string", "enum": ["press_home"]}
+            "name": {"type": "string", "enum": ["press_key"]},
+            "key": {"type": "string", "enum": ["back", "home", "enter"]}
           },
-          "required": ["name"]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "name": {"type": "string", "enum": ["press_back"]}
-          },
-          "required": ["name"]
+          "required": ["name", "key"]
         },
         {
           "type": "object",

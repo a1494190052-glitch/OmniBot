@@ -7,8 +7,6 @@ class RunLogReplayPolicy {
 
   static const omniflowActions = OobCanonicalActionSchema.replayableToolNames;
 
-  static const omniflowActionAliases = OobCanonicalActionSchema.actionAliases;
-
   static const coordinateActions = OobCanonicalActionSchema.coordinateToolNames;
 
   static const perceptionTools = <String>{
@@ -41,21 +39,12 @@ class RunLogReplayPolicy {
   static const omniflowGraphTools = <String>{
     'go_to_node',
     'click_node',
-    'node_click',
-    'navigate_to_node',
-    'gotonode',
-    'goto_node',
   };
 
-  static const omniflowFunctionTools = <String>{
-    'oob_function_run',
-  };
+  static const omniflowFunctionTools = <String>{};
 
   static const omniflowToolCallTools = <String>{
-    'omniflow.call_tool',
     'call_tool',
-    'oob_tool_call',
-    'calltool',
   };
 
   static const providerOnlyTools = <String>{};
@@ -76,9 +65,7 @@ class RunLogReplayPolicy {
 
   static String? omniflowActionForToolName(String toolName) {
     final normalized = normalizeToolName(toolName);
-    return omniflowActions.contains(normalized)
-        ? normalized
-        : omniflowActionAliases[normalized];
+    return omniflowActions.contains(normalized) ? normalized : null;
   }
 
   static bool isCoordinateAction(String toolName) {

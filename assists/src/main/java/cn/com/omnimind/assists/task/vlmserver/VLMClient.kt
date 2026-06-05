@@ -226,11 +226,10 @@ class VLMClient(
         val actionSummary = when (val action = executedStep.action) {
             is ClickAction -> "click ${action.targetDescription} @(${action.x},${action.y})"
             is InputTextAction -> "input_text ${action.targetDescription} @(${action.x},${action.y})"
-            is ScrollAction -> "scroll ${action.targetDescription} ${action.direction.orEmpty()} @(${action.x1},${action.y1})->(${action.x2},${action.y2})"
+            is SwipeAction -> "swipe ${action.targetDescription} ${action.direction.orEmpty()} @(${action.x1},${action.y1})->(${action.x2},${action.y2})"
             is LongPressAction -> "long_press ${action.targetDescription} @(${action.x},${action.y})"
             is OpenAppAction -> "open_app ${action.packageName}"
-            is PressHomeAction -> "press_home"
-            is PressBackAction -> "press_back"
+            is PressKeyAction -> "press_key ${action.key}"
             is GetStateAction -> "get_state ${action.reason.take(MAX_HISTORY_ACTION_CHARS)}"
             is FunctionRunAction -> "${action.functionId} ${action.arguments.toString().take(MAX_HISTORY_ACTION_CHARS)}"
             is FinishedAction -> "finished"
@@ -543,14 +542,18 @@ class VLMClient(
         toolCall: AssistantToolCall,
         dynamicFunctionToolNames: Set<String>
     ): UIAction {
-        val toolName = toolCall.function.name
-        if (toolName in dynamicFunctionToolNames) {
+        val rawToolName = toolCall.function.name
+        if (rawToolName in dynamicFunctionToolNames) {
             return FunctionRunAction(
-                functionId = toolName,
+                functionId = rawToolName,
                 arguments = parseLooseArguments(toolCall.function.arguments)
             )
         }
-        val args = parseArguments(toolName, toolCall.function.arguments)
+        val toolName = OobCanonicalActionSchema.canonicalToolName(rawToolName) ?: rawToolName
+        val args = parseCanonicalArguments(
+            canonicalToolName = toolName,
+            rawArguments = toolCall.function.arguments,
+        )
         return when (toolName) {
             OobCanonicalActionSchema.TOOL_CLICK -> ClickAction(
                 targetDescription = requireString(args, OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION),
@@ -567,7 +570,7 @@ class VLMClient(
                 elementIndex = optionalInt(args, OobCanonicalActionSchema.ARG_ELEMENT_INDEX),
                 nodeId = optionalString(args, OobCanonicalActionSchema.ARG_NODE_ID)
             )
-            OobCanonicalActionSchema.TOOL_SCROLL -> ScrollAction(
+            OobCanonicalActionSchema.TOOL_SWIPE -> SwipeAction(
                 targetDescription = requireString(args, OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION),
                 x1 = requireFloat(args, OobCanonicalActionSchema.ARG_X1),
                 y1 = requireFloat(args, OobCanonicalActionSchema.ARG_Y1),
@@ -587,13 +590,19 @@ class VLMClient(
             OobCanonicalActionSchema.TOOL_OPEN_APP -> OpenAppAction(
                 packageName = requireString(args, OobCanonicalActionSchema.ARG_PACKAGE_NAME)
             )
-            OobCanonicalActionSchema.TOOL_PRESS_HOME -> PressHomeAction()
-            OobCanonicalActionSchema.TOOL_PRESS_BACK -> PressBackAction()
+            OobCanonicalActionSchema.TOOL_PRESS_KEY -> PressKeyAction(
+                key = requireString(args, OobCanonicalActionSchema.ARG_KEY).lowercase()
+            )
+            OobCanonicalActionSchema.TOOL_WAIT -> WaitAction(
+                timeS = optionalDouble(args, OobCanonicalActionSchema.ARG_TIME_S),
+                durationMs = optionalLong(args, OobCanonicalActionSchema.ARG_DURATION_MS)
+            )
             OobCanonicalActionSchema.TOOL_GET_STATE -> GetStateAction(
                 reason = optionalString(args, OobCanonicalActionSchema.ARG_REASON).orEmpty()
             )
-            OobCanonicalActionSchema.TOOL_OOB_FUNCTION_RUN -> FunctionRunAction(
-                functionId = requireFunctionId(args),
+            OobCanonicalActionSchema.TOOL_CALL_TOOL -> FunctionRunAction(
+                functionId = requireCallToolTarget(args),
+                toolName = optionalString(args, OobCanonicalActionSchema.ARG_TOOL_NAME),
                 arguments = (args[OobCanonicalActionSchema.ARG_ARGUMENTS] as? JsonObject) ?: buildJsonObject {}
             )
             OobCanonicalActionSchema.TOOL_FINISHED -> FinishedAction(
@@ -617,6 +626,13 @@ class VLMClient(
             )
             else -> throw IllegalArgumentException("Unsupported tool call: ${toolCall.function.name}")
         }
+    }
+
+    private fun parseCanonicalArguments(
+        canonicalToolName: String,
+        rawArguments: String
+    ): JsonObject {
+        return parseArguments(canonicalToolName, rawArguments)
     }
 
     private fun parseArguments(toolName: String, rawArguments: String): JsonObject {
@@ -770,7 +786,7 @@ class VLMClient(
             OobCanonicalActionSchema.TOOL_CLICK,
             OobCanonicalActionSchema.TOOL_LONG_PRESS,
             OobCanonicalActionSchema.TOOL_INPUT_TEXT,
-            OobCanonicalActionSchema.TOOL_SCROLL,
+            OobCanonicalActionSchema.TOOL_SWIPE,
         )
         if (!needsTargetDescription) return args
 
@@ -922,13 +938,14 @@ class VLMClient(
 
     private fun normalizeToolName(name: String, dynamicFunctionToolNames: Set<String>): String? {
         val normalized = name.trim().removePrefix("functions.").removePrefix("function.").trim()
+        if (normalized in dynamicFunctionToolNames) return normalized
+        OobCanonicalActionSchema.canonicalToolName(normalized)?.let { return it }
         return toolNames(dynamicFunctionToolNames).firstOrNull { it == normalized }
     }
 
     private fun toolNames(dynamicFunctionToolNames: Set<String> = emptySet()): Set<String> =
         OobCanonicalActionSchema.modelVisibleTools.mapTo(linkedSetOf()) { it.name }.apply {
             remove(OobCanonicalActionSchema.TOOL_GET_STATE)
-            remove(OobCanonicalActionSchema.TOOL_OOB_FUNCTION_RUN)
             addAll(dynamicFunctionToolNames)
         }
 
@@ -1019,9 +1036,12 @@ class VLMClient(
             ?: throw IllegalArgumentException("Missing or empty '$key'")
     }
 
-    private fun requireFunctionId(obj: JsonObject): String {
+    private fun requireCallToolTarget(obj: JsonObject): String {
         return optionalString(obj, OobCanonicalActionSchema.ARG_FUNCTION_ID)
-            ?: throw IllegalArgumentException("Missing or empty '${OobCanonicalActionSchema.ARG_FUNCTION_ID}'")
+            ?: optionalString(obj, OobCanonicalActionSchema.ARG_TOOL_NAME)
+            ?: throw IllegalArgumentException(
+                "Missing '${OobCanonicalActionSchema.ARG_FUNCTION_ID}' or '${OobCanonicalActionSchema.ARG_TOOL_NAME}'"
+            )
     }
 
     private fun optionalString(obj: JsonObject, key: String): String? {
@@ -1040,6 +1060,10 @@ class VLMClient(
     private fun optionalLong(obj: JsonObject, key: String): Long? {
         val raw = obj[key]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
         return raw.toLongOrNull() ?: raw.toDoubleOrNull()?.toLong()
+    }
+
+    private fun optionalDouble(obj: JsonObject, key: String): Double? {
+        return obj[key]?.jsonPrimitive?.contentOrNull?.trim()?.toDoubleOrNull()
     }
 
     private fun optionalInt(obj: JsonObject, key: String): Int? {

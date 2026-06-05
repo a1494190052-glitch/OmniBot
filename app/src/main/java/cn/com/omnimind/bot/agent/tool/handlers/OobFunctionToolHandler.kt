@@ -41,7 +41,6 @@ class OobFunctionToolHandler(
 ) : ToolHandler {
     override val toolNames: Set<String> = setOf(
         RunLogReplayPolicy.TOOL_CALL_TOOL,
-        RunLogReplayPolicy.TOOL_OOB_TOOL_CALL,
     )
 
     internal var router: cn.com.omnimind.bot.agent.AgentToolExecutor? = null
@@ -1220,10 +1219,6 @@ class OobFunctionToolHandler(
 
     private fun materializedSteps(materializedSpec: Map<String, Any?>): List<Map<String, Any?>> =
         OobFunctionSchemaBuilder.materializedSteps(materializedSpec)
-
-    // -----------------------------------------------------------------------
-    // Inlined from OobFunctionCallRequestResolver
-    // -----------------------------------------------------------------------
 
     private data class CallRequest(val targetTool: String, val targetArgs: Map<String, Any?>, val functionId: String)
 

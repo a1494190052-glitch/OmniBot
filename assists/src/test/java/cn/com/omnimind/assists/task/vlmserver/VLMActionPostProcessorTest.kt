@@ -188,7 +188,7 @@ class VLMActionPostProcessorTest {
         val step = VLMStep(
             observation = "brightness slider",
             thought = "scroll left to minimum",
-            action = ScrollAction(
+            action = SwipeAction(
                 targetDescription = "Display brightness slider",
                 x1 = 50f,
                 y1 = 141f,
@@ -213,7 +213,7 @@ class VLMActionPostProcessorTest {
 
         assertTrue(result.applied)
         assertEquals("slider_endpoint_direction", result.reason)
-        val action = result.step.action as ScrollAction
+        val action = result.step.action as SwipeAction
         assertTrue(action.x1 > action.x2)
         assertTrue(action.x2 <= 32f)
         assertEquals(action.y1, action.y2, 0.01f)
@@ -246,7 +246,7 @@ class VLMActionPostProcessorTest {
 
         assertTrue(result.applied)
         assertEquals("slider_click_to_drag", result.reason)
-        val action = result.step.action as ScrollAction
+        val action = result.step.action as SwipeAction
         assertTrue(action.x2 > action.x1)
         assertTrue(action.x2 >= 688f)
         assertEquals(action.y1, action.y2, 0.01f)
@@ -451,7 +451,7 @@ class VLMActionPostProcessorTest {
         val step = VLMStep(
             observation = "display settings",
             thought = "adjust the brightness level option to access the slider",
-            action = ScrollAction(
+            action = SwipeAction(
                 targetDescription = "Brightness level option to access the slider",
                 x1 = 18f,
                 y1 = 819f,
@@ -482,7 +482,7 @@ class VLMActionPostProcessorTest {
         val step = VLMStep(
             observation = "settings list",
             thought = "scroll down to find brightness",
-            action = ScrollAction(
+            action = SwipeAction(
                 targetDescription = "Settings list",
                 x1 = 360f,
                 y1 = 1152f,
@@ -521,7 +521,7 @@ class VLMActionPostProcessorTest {
         val step = VLMStep(
             observation = "settings home",
             thought = "scroll to find Apps",
-            action = ScrollAction(
+            action = SwipeAction(
                 targetDescription = "Settings list",
                 x1 = 360f,
                 y1 = 1152f,
@@ -545,7 +545,7 @@ class VLMActionPostProcessorTest {
         )
 
         assertFalse(result.applied)
-        val action = result.step.action as ScrollAction
+        val action = result.step.action as SwipeAction
         assertEquals("Settings list", action.targetDescription)
     }
 
@@ -554,7 +554,7 @@ class VLMActionPostProcessorTest {
         val step = VLMStep(
             observation = "settings home",
             thought = "scroll to find Display",
-            action = ScrollAction(
+            action = SwipeAction(
                 targetDescription = "Settings list",
                 x1 = 360f,
                 y1 = 1152f,
@@ -578,7 +578,7 @@ class VLMActionPostProcessorTest {
         )
 
         assertFalse(result.applied)
-        val action = result.step.action as ScrollAction
+        val action = result.step.action as SwipeAction
         assertEquals("Settings list", action.targetDescription)
     }
 
@@ -617,7 +617,7 @@ class VLMActionPostProcessorTest {
         val step = VLMStep(
             observation = "settings home",
             thought = "scroll to find Apps",
-            action = ScrollAction(
+            action = SwipeAction(
                 targetDescription = "Scroll down to locate the Apps option in the Settings menu",
                 x1 = 360f,
                 y1 = 1152f,
@@ -685,7 +685,7 @@ class VLMActionPostProcessorTest {
         val step = VLMStep(
             observation = "settings home",
             thought = "scroll to find Apps",
-            action = ScrollAction(
+            action = SwipeAction(
                 targetDescription = "Settings list",
                 x1 = 360f,
                 y1 = 1152f,
@@ -720,7 +720,7 @@ class VLMActionPostProcessorTest {
         val step = VLMStep(
             observation = "settings list",
             thought = "scroll down",
-            action = ScrollAction(
+            action = SwipeAction(
                 targetDescription = "Settings list",
                 x1 = 360f,
                 y1 = 1152f,
@@ -773,7 +773,7 @@ class VLMActionPostProcessorTest {
 
         assertTrue(result.applied)
         assertEquals("generic_click_to_search_scroll", result.reason)
-        val action = result.step.action as ScrollAction
+        val action = result.step.action as SwipeAction
         assertTrue(action.y1 > action.y2)
     }
 
@@ -926,7 +926,7 @@ class VLMActionPostProcessorTest {
 
         assertTrue(result.applied)
         assertEquals("generic_click_to_search_scroll", result.reason)
-        val action = result.step.action as ScrollAction
+        val action = result.step.action as SwipeAction
         assertFalse(action.targetDescription, action.targetDescription.contains("Connected devices", ignoreCase = true))
     }
 
@@ -1579,7 +1579,7 @@ class VLMActionPostProcessorTest {
             UIStep(
                 observation = "About phone page",
                 thought = "scroll to Android version",
-                action = ScrollAction(
+                action = SwipeAction(
                     targetDescription = "scroll down to reveal Android version",
                     x1 = 360f,
                     y1 = 1178f,
@@ -1593,7 +1593,7 @@ class VLMActionPostProcessorTest {
             UIStep(
                 observation = "detail page",
                 thought = "go back to Default apps",
-                action = PressBackAction(),
+                action = PressKeyAction(key = "back"),
                 result = "pressed back"
             )
 

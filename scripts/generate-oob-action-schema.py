@@ -422,7 +422,6 @@ class OobCanonicalActionSchema {{
   static const pointTargetToolNames = <String>{{{", ".join(dart_str(name) for name in point)}}};
   static const routeToolNames = <String>{{{", ".join(dart_str(name) for name in route)}}};
   static const sourceContextArgNames = <String>{{{", ".join(dart_str(name) for name in source_context_arg_names)}}};
-  static const actionAliases = <String, String>{{}};
 
   static List<OobActionToolSpec> get editorVisibleTools =>
       tools.where((tool) => tool.editorVisible).toList(growable: false);
