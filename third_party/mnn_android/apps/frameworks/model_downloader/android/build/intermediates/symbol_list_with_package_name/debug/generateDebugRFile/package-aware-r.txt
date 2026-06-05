@@ -1,4 +1,0 @@
-com.alibaba.mls.api.download
-string source_huggingface
-string source_modelers
-string source_modelscope

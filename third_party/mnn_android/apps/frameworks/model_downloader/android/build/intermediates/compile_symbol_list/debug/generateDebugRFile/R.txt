@@ -1,3 +1,0 @@
-int string source_huggingface 0x0
-int string source_modelers 0x0
-int string source_modelscope 0x0

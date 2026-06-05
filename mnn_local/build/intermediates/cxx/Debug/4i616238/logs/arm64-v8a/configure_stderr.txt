@@ -1,2 +1,0 @@
-INFOMNN_SOURCE_ROOT: /Users/wuzewen/Projects/Omni/OmniFlow/runtime/openomnibot-merge-worktree/mnn_local/src/main/cpp/../../../../third_party/mnn_android
-INFOMNN_INSTALL_ROOT: /Users/wuzewen/Projects/Omni/OmniFlow/runtime/openomnibot-merge-worktree/mnn_local/src/main/cpp/../../../../third_party/mnn_android/project/android/build_64

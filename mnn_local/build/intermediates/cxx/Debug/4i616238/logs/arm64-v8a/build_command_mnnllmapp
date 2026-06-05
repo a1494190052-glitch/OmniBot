@@ -1,4 +1,0 @@
-/Users/wuzewen/Library/Android/sdk/cmake/3.22.1/bin/ninja \
-  -C \
-  /Users/wuzewen/Projects/Omni/OmniFlow/runtime/openomnibot-merge-worktree/mnn_local/.cxx/Debug/4i616238/arm64-v8a \
-  mnnllmapp

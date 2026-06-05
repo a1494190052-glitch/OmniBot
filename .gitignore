@@ -6,6 +6,9 @@
 /local.properties
 .DS_Store
 /build
+mnn_local/build/
+third_party/mnn_android/**/build/
+third_party/mnn_android/**/build_*/
 node_modules/
 /captures
 .externalNativeBuild
@@ -35,6 +38,8 @@ outputs/
 runtime/
 
 workspace/
+tmp/real-device-debug/
+tmp/pdfs/
 *.egg-info/
 __pycache__/
 *.py[cod]
