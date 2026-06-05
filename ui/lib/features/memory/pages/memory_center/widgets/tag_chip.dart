@@ -13,7 +13,7 @@ class TagChip extends StatelessWidget {
   final bool showIcon;
 
   const TagChip({
-    Key? key,
+    super.key,
     required this.title,
     this.iconPath,
     this.svgPath,
@@ -21,7 +21,7 @@ class TagChip extends StatelessWidget {
     this.selected = false,
     this.backgroundColor,
     this.showIcon = true,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

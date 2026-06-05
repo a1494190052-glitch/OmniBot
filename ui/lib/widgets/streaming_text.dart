@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:ui/l10n/legacy_text_localizer.dart';
+import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/services/assists_core_service.dart';
+import 'package:ui/utils/ui.dart';
+import 'package:ui/widgets/chat_drawer_gesture_guard.dart';
 import 'package:ui/widgets/omnibot_markdown_body.dart';
 import 'package:ui/widgets/omnibot_resource_widgets.dart';
 
@@ -8,25 +10,27 @@ import 'package:ui/widgets/omnibot_resource_widgets.dart';
 const String kThinkingText = '小万正在思考...';
 
 /// 思考中的加载文案（本地化显示用）
-String get kThinkingTextLocalized =>
-    LegacyTextLocalizer.localize(kThinkingText);
+String get kThinkingTextLocalized => AppTextLocalizer.text(kThinkingText);
 
 /// 总结中的加载文案（本地化显示用）
-String get kSummarizingText => LegacyTextLocalizer.localize('总结中');
+String get kSummarizingText => AppTextLocalizer.text('总结中');
 
 /// 总结完成的提示文案（本地化显示用）
-String get kSummaryCompleteText => LegacyTextLocalizer.localize('总结如下');
+String get kSummaryCompleteText => AppTextLocalizer.text('总结如下');
 
 /// 流式文本显示组件，支持平滑渐显效果
 ///
-/// 用于显示流式推送的文本内容
+/// 用于显示流式推送的文本内容，每次新增的文字都会平滑扩展并渐显
+/// 支持可选的Markdown渲染功能
 ///
-/// **性能策略**：
-/// - 启用 Markdown 时，绝不在动画帧里重新解析 markdown。
-///   - 已有 [markdownRenderedLength]（>0 且 <fullText）时：走 fast-path，
-///     固化 markdown 前缀 + 纯文本尾部，仅对尾部做 Opacity 渐入。
-///   - 否则：一次性渲染最新 markdown，不做逐字动画。
-/// - 未启用 Markdown 时仍走 TweenAnimationBuilder 做逐字渐显（轻量）。
+/// 示例：
+/// ```dart
+/// StreamingText(
+///   fullText: _content,
+///   style: TextStyle(fontSize: 14),
+///   enableMarkdown: true, // 启用Markdown支持
+/// )
+/// ```
 class StreamingText extends StatefulWidget {
   /// 完整的文本内容（会随着流式推送逐渐增加）
   final String fullText;
@@ -49,15 +53,10 @@ class StreamingText extends StatefulWidget {
   /// 自定义聊天内资源打开方式。
   final OmnibotResourceOpenCallback? onResourceOpen;
 
-  /// 已完成 Markdown 渲染的文本长度（字符数）。
+  /// 兼容旧流式批次元数据。
   ///
-  /// 当流式输出时，每 N 个 chunk 才执行一次 Markdown 渲染。该值表示上次
-  /// flush 时已渲染为 Markdown 的文本长度。超出该长度的新文本以纯文本追加，
-  /// 避免整段文本在 Markdown 与纯文本之间来回跳动。
-  ///
-  /// - `null`：整段文本按 Markdown 渲染（默认行为 / flush 后）
-  /// - `0`：尚未执行过 flush，全部按 Markdown 渲染（避免首批文本跳变）
-  /// - `> 0 && < fullText.length`：前缀按 Markdown 渲染，尾部按纯文本追加
+  /// Markdown 消息始终按完整 `fullText` 做块级渲染，避免把新增长文本塞进
+  /// 内联占位组件后无法自然换行和撑高消息列表。
   final int? markdownRenderedLength;
 
   const StreamingText({
@@ -79,29 +78,22 @@ class StreamingText extends StatefulWidget {
 class _StreamingTextState extends State<StreamingText> {
   String _previousFullText = '';
   bool _isFirstBuild = true;
-  String? _lastSelectedContent; // 跟踪最后选中的内容
   int? _lastNotifiedDisplayLength;
-
-  // ── Markdown 前缀缓存 ──
-  // 当 mdText 不变时，复用同一 OmnibotMarkdownBody widget 对象，
-  // Flutter 的 identical() 检查会跳过整棵子树的更新（含 markdown 解析）。
-  // 变化的 trailing（纯文本尾部）通过 ValueNotifier 独立更新。
-  String? _cachedMdPrefixText;
-  TextStyle? _cachedMdPrefixStyle;
-  OmnibotResourceOpenCallback? _cachedMdPrefixOnResourceOpen;
-  Widget? _cachedMdPrefixWidget;
-  final ValueNotifier<Widget?> _trailingInlineNotifier = ValueNotifier(null);
-
-  @override
-  void dispose() {
-    _trailingInlineNotifier.dispose();
-    super.dispose();
-  }
+  // Only incremented when animation must restart from scratch:
+  // thinking→content transition, or full text replacement (not streaming append).
+  int _animationEpoch = 0;
 
   @override
   void didUpdateWidget(StreamingText oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.fullText != widget.fullText) {
+      final wasThinking = oldWidget.fullText == kThinkingText;
+      final isAppend = widget.fullText.startsWith(oldWidget.fullText);
+      // Restart animation only on thinking→content or full replacement,
+      // NOT on every streaming append.
+      if (wasThinking || !isAppend) {
+        _animationEpoch++;
+      }
       _previousFullText = _resolveAnimationStartText(
         previousText: oldWidget.fullText,
         nextText: widget.fullText,
@@ -159,84 +151,23 @@ class _StreamingTextState extends State<StreamingText> {
             )
           : Text(localizedText, style: widget.style);
 
-      return _wrapSelectable(child);
+      return _wrapSelectable(child, localizedText);
     }
 
     if (widget.enableMarkdown) {
-      return _buildMarkdownContent();
-    }
-
-    return _buildPlainAnimatedContent();
-  }
-
-  // ── Markdown 路径 ──
-  // 不在 TweenAnimationBuilder 里重渲染 markdown（避免 O(N²) 重解析）。
-  // 优先走 fast-path：cached markdown 前缀 + 尾部 Opacity 动画。
-  // 回退路径：直接渲染最新 fullText，不做动画。
-  Widget _buildMarkdownContent() {
-    final mdLen = widget.markdownRenderedLength;
-    if (mdLen != null && mdLen > 0 && mdLen < widget.fullText.length) {
-      return _buildMarkdownFastPath(mdLen);
-    }
-    _notifyDisplayedTextChanged(widget.fullText.length);
-    return _wrapSelectable(
-      OmnibotMarkdownBody(
-        data: widget.fullText,
-        baseStyle: widget.style,
-        inlineResourcePlainStyle: true,
-        onResourceOpen: widget.onResourceOpen,
-        trailingInline: widget.trailing,
-      ),
-    );
-  }
-
-  Widget _buildMarkdownFastPath(int mdLen) {
-    final safeMdLen = _clampToCodePointBoundary(widget.fullText, mdLen);
-    final mdText = widget.fullText.substring(0, safeMdLen);
-    final plainTail = widget.fullText.substring(safeMdLen);
-
-    _notifyDisplayedTextChanged(widget.fullText.length);
-
-    // 尾部走带 Opacity 渐入的 stateful widget（轻量重绘，不触碰 markdown 子树）。
-    final inlineTrailing = (plainTail.isEmpty && widget.trailing == null)
-        ? null
-        : _AnimatedStreamingTail(
-            key: const ValueKey('omnibot-streaming-tail'),
-            text: plainTail,
-            style: widget.style,
-            trailing: widget.trailing,
-          );
-
-    // 缓存命中：mdText 与 style/回调均未变化 → 复用 identical widget，
-    // 仅通过 ValueNotifier 推送新的 trailing。
-    if (_cachedMdPrefixText == mdText &&
-        _cachedMdPrefixStyle == widget.style &&
-        identical(_cachedMdPrefixOnResourceOpen, widget.onResourceOpen) &&
-        _cachedMdPrefixWidget != null) {
-      _trailingInlineNotifier.value = inlineTrailing;
-    } else {
-      _cachedMdPrefixText = mdText;
-      _cachedMdPrefixStyle = widget.style;
-      _cachedMdPrefixOnResourceOpen = widget.onResourceOpen;
-      _trailingInlineNotifier.value = inlineTrailing;
-      _cachedMdPrefixWidget = OmnibotMarkdownBody(
-        data: mdText,
-        baseStyle: widget.style,
-        inlineResourcePlainStyle: true,
-        onResourceOpen: widget.onResourceOpen,
-        trailingInline: ValueListenableBuilder<Widget?>(
-          valueListenable: _trailingInlineNotifier,
-          builder: (_, child, __) => child ?? const SizedBox.shrink(),
+      _notifyDisplayedTextChanged(widget.fullText.length);
+      return _wrapSelectable(
+        _MemoizedMarkdownBody(
+          text: widget.fullText,
+          style: widget.style,
+          onResourceOpen: widget.onResourceOpen,
+          trailing: widget.trailing,
         ),
+        widget.fullText,
       );
     }
 
-    return _wrapSelectable(_cachedMdPrefixWidget!);
-  }
-
-  // ── 纯文本路径 ──
-  // 仍保留逐字渐显动画。RichText 重建廉价，可承受 60fps。
-  Widget _buildPlainAnimatedContent() {
+    // ── 纯文本动画路径 ──
     // 如果从思考中文案切换到实际内容，从0开始
     final previousLength = _previousFullText == kThinkingText
         ? 0
@@ -252,7 +183,7 @@ class _StreamingTextState extends State<StreamingText> {
     );
 
     return TweenAnimationBuilder<double>(
-      key: ValueKey(previousLength), // 确保从"思考中..."切换时重建动画
+      key: ValueKey(_animationEpoch), // 只在思考→内容或文本替换时重建，流式追加不重建
       tween: Tween<double>(
         begin: previousLength.toDouble(),
         end: widget.fullText.length.toDouble(),
@@ -267,6 +198,19 @@ class _StreamingTextState extends State<StreamingText> {
         );
         final displayText = widget.fullText.substring(0, displayLength);
         _notifyDisplayedTextChanged(displayText.length);
+
+        if (widget.enableMarkdown) {
+          // 全量 Markdown 渲染（默认 / flush 后 / 首批文本）
+          Widget child = OmnibotMarkdownBody(
+            data: displayText,
+            baseStyle: widget.style,
+            inlineResourcePlainStyle: true,
+            onResourceOpen: widget.onResourceOpen,
+            trailingInline: widget.trailing,
+          );
+
+          return _wrapSelectable(child, displayText);
+        }
 
         // 计算动画进度（0.0 到 1.0）
         final progress = newCharsCount > 0
@@ -285,23 +229,41 @@ class _StreamingTextState extends State<StreamingText> {
           ),
         );
 
-        return _wrapSelectable(child);
+        // 计算新增部分的透明度（最后几个字符渐显）
+        return _wrapSelectable(child, displayText);
       },
     );
   }
 
-  Widget _wrapSelectable(Widget child) {
+  Widget _wrapSelectable(Widget child, String copyText) {
     if (!widget.selectable) {
       return child;
     }
-    return SelectionArea(
-      onSelectionChanged: (content) {
-        _lastSelectedContent = content?.plainText;
-      },
-      contextMenuBuilder: (context, selectableRegionState) {
-        return _buildSelectionContextMenu(selectableRegionState);
-      },
+
+    // Flutter's native SelectionArea can keep detached selectables registered
+    // while chat messages stream, animate, or get removed from a scrolling list.
+    // Prefer stable full-message copy over granular selection for dynamic chat.
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onLongPress: () => _copyText(copyText),
       child: child,
+    );
+  }
+
+  Future<void> _copyText(String text) async {
+    final normalized = text.trim();
+    if (normalized.isEmpty) {
+      return;
+    }
+    final copied = await AssistsMessageService.copyToClipboard(normalized);
+    if (!mounted) {
+      return;
+    }
+    showToast(
+      copied
+          ? AppTextLocalizer.choose(en: 'Copied', zh: '已复制')
+          : AppTextLocalizer.choose(en: 'Copy failed', zh: '复制失败'),
+      type: copied ? ToastType.success : ToastType.error,
     );
   }
 
@@ -377,146 +339,340 @@ class _StreamingTextState extends State<StreamingText> {
       ),
     ];
   }
-
-  /// 构建选择文本的上下文菜单（使用 AssistsMessageService 复制到剪贴板）
-  Widget _buildSelectionContextMenu(
-    SelectableRegionState selectableRegionState,
-  ) {
-    return AdaptiveTextSelectionToolbar.buttonItems(
-      anchors: selectableRegionState.contextMenuAnchors,
-      buttonItems: [
-        // 全选按钮
-        ContextMenuButtonItem(
-          label: LegacyTextLocalizer.localize('全选'),
-          onPressed: () {
-            selectableRegionState.selectAll(SelectionChangedCause.toolbar);
-          },
-        ),
-        // 复制按钮 - 使用 native channel 复制
-        ContextMenuButtonItem(
-          label: LegacyTextLocalizer.localize('复制'),
-          onPressed: () {
-            // 使用 onSelectionChanged 回调跟踪到的选中内容
-            final selectedText = _lastSelectedContent;
-
-            if (selectedText != null && selectedText.isNotEmpty) {
-              // 使用 native channel 复制到剪贴板
-              AssistsMessageService.copyToClipboard(selectedText);
-            }
-
-            selectableRegionState.hideToolbar();
-          },
-        ),
-      ],
-    );
-  }
 }
 
-/// 流式尾部文本（fast-path 内嵌）。
+/// Splits a streaming markdown response into a stable committed section and a
+/// live pending section. Committed paragraphs (everything before the last
+/// blank line) are rendered once and wrapped in [RepaintBoundary] so they are
+/// never repainted on subsequent token arrivals. Only the last (incomplete)
+/// paragraph rebuilds — O(last-paragraph) work per token instead of O(full text).
 ///
-/// 当 [text] 增长时，对新增片段做 Opacity 0.3 → 1.0 的渐入动画，
-/// 已稳定的字符保持不透明；shrink（如 flush 把尾部"吃掉"）则瞬时收敛。
-///
-/// 整体动画仅触发本地小区域重绘，不会拉动外层 markdown 子树。
-class _AnimatedStreamingTail extends StatefulWidget {
-  const _AnimatedStreamingTail({
-    super.key,
+/// This mirrors the MemoizedMarkdownBlock pattern from the Vercel AI SDK.
+class _MemoizedMarkdownBody extends StatefulWidget {
+  const _MemoizedMarkdownBody({
     required this.text,
     required this.style,
+    this.onResourceOpen,
     this.trailing,
   });
 
   final String text;
   final TextStyle style;
+  final OmnibotResourceOpenCallback? onResourceOpen;
   final Widget? trailing;
 
   @override
-  State<_AnimatedStreamingTail> createState() => _AnimatedStreamingTailState();
+  State<_MemoizedMarkdownBody> createState() => _MemoizedMarkdownBodyState();
 }
 
-class _AnimatedStreamingTailState extends State<_AnimatedStreamingTail>
-    with SingleTickerProviderStateMixin {
-  static const Duration _kFadeDuration = Duration(milliseconds: 220);
+final RegExp _markdownFenceLinePattern = RegExp(
+  r'^[ \t]{0,3}(`{3,}|~{3,})([^\r\n]*)$',
+);
 
-  late final AnimationController _controller;
-  int _frozenLength = 0;
+class _OpenMarkdownFenceSegment {
+  const _OpenMarkdownFenceSegment({
+    required this.prefix,
+    required this.info,
+    required this.code,
+  });
+
+  final String prefix;
+  final String info;
+  final String code;
+}
+
+class _MemoizedMarkdownBodyState extends State<_MemoizedMarkdownBody> {
+  // Text committed to the stable section — only grows, never shrinks.
+  String _committedText = '';
+  // Cached widget for the committed section, rebuilt only when _committedText grows.
+  Widget? _committedWidget;
+  String? _cachedOpenFencePrefixText;
+  Widget? _cachedOpenFencePrefixWidget;
 
   @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: _kFadeDuration,
-      value: 1.0,
-    );
-    _frozenLength = widget.text.length;
-  }
+  void didUpdateWidget(_MemoizedMarkdownBody old) {
+    super.didUpdateWidget(old);
+    if (widget.text == old.text) return;
 
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  void didUpdateWidget(_AnimatedStreamingTail oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.text == oldWidget.text) {
-      return;
+    if (_committedText.isNotEmpty && !widget.text.startsWith(_committedText)) {
+      _committedText = '';
+      _committedWidget = null;
     }
-    if (widget.text.length > oldWidget.text.length &&
-        widget.text.startsWith(oldWidget.text)) {
-      _frozenLength = oldWidget.text.length;
-      _controller.forward(from: 0.0);
-    } else {
-      // 文本回退或被替换：放弃动画，直接到末态。
-      _frozenLength = widget.text.length;
-      _controller.value = 1.0;
+
+    // Commit only at markdown-safe boundaries. Blank lines inside an open code
+    // fence are not safe split points because the next render would parse the
+    // code tail as regular markdown.
+    final breakIdx = _lastStableMarkdownBoundary(widget.text);
+    if (breakIdx > _committedText.length) {
+      // New paragraphs have completed — extend the committed section.
+      final newCommitted = widget.text.substring(0, breakIdx);
+      if (newCommitted != _committedText) {
+        _committedText = newCommitted;
+        _committedWidget = null; // rebuild committed on next frame
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final hasTrailing = widget.trailing != null;
-    if (widget.text.isEmpty && !hasTrailing) {
-      return const SizedBox.shrink();
-    }
-    return RepaintBoundary(
-      child: AnimatedBuilder(
-        animation: _controller,
-        builder: (context, _) {
-          final t = _controller.value;
-          final frozenLen = _frozenLength.clamp(0, widget.text.length);
-          final frozenText = widget.text.substring(0, frozenLen);
-          final freshText = widget.text.substring(frozenLen);
-          final baseColor = widget.style.color;
-          final freshOpacity = (0.3 + 0.7 * t).clamp(0.0, 1.0);
-          final freshColor = baseColor?.withValues(
-            alpha: (baseColor.a) * freshOpacity,
-          );
+    final pending = widget.text.length > _committedText.length
+        ? widget.text.substring(_committedText.length)
+        : '';
 
-          return Text.rich(
-            TextSpan(
-              style: widget.style,
-              children: <InlineSpan>[
-                if (frozenText.isNotEmpty) TextSpan(text: frozenText),
-                if (freshText.isNotEmpty)
-                  TextSpan(
-                    text: freshText,
-                    style: widget.style.copyWith(color: freshColor),
-                  ),
-                if (hasTrailing)
-                  WidgetSpan(
-                    alignment: PlaceholderAlignment.middle,
-                    child: Padding(
-                      padding: const EdgeInsets.only(left: 4),
-                      child: widget.trailing!,
+    if (_committedText.isEmpty) {
+      final openFence = _splitOpenMarkdownFence(widget.text);
+      if (openFence != null) {
+        return _buildOpenFenceBody(openFence);
+      }
+      // No committed section yet — render the whole text as pending.
+      return OmnibotMarkdownBody(
+        data: widget.text,
+        baseStyle: widget.style,
+        inlineResourcePlainStyle: true,
+        onResourceOpen: widget.onResourceOpen,
+        trailingInline: widget.trailing,
+      );
+    }
+
+    _committedWidget ??= RepaintBoundary(
+      child: OmnibotMarkdownBody(
+        data: _committedText,
+        baseStyle: widget.style,
+        inlineResourcePlainStyle: true,
+        onResourceOpen: widget.onResourceOpen,
+      ),
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _committedWidget!,
+        if (pending.isNotEmpty) _buildPendingBody(pending),
+      ],
+    );
+  }
+
+  Widget _buildPendingBody(String pending) {
+    final openFence = _splitOpenMarkdownFence(pending);
+    if (openFence != null) {
+      return _buildOpenFenceBody(openFence);
+    }
+    return OmnibotMarkdownBody(
+      data: pending,
+      baseStyle: widget.style,
+      inlineResourcePlainStyle: true,
+      onResourceOpen: widget.onResourceOpen,
+      trailingInline: widget.trailing,
+    );
+  }
+
+  Widget _buildOpenFenceBody(_OpenMarkdownFenceSegment segment) {
+    final children = <Widget>[];
+    if (segment.prefix.isNotEmpty) {
+      children.add(_buildCachedOpenFencePrefix(segment.prefix));
+    }
+    children.add(
+      _StreamingOpenCodeBlock(
+        code: segment.code,
+        info: segment.info,
+        style: widget.style,
+        trailing: widget.trailing,
+      ),
+    );
+    if (children.length == 1) {
+      return children.first;
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: children,
+    );
+  }
+
+  Widget _buildCachedOpenFencePrefix(String prefix) {
+    if (_cachedOpenFencePrefixText != prefix ||
+        _cachedOpenFencePrefixWidget == null) {
+      _cachedOpenFencePrefixText = prefix;
+      _cachedOpenFencePrefixWidget = RepaintBoundary(
+        child: OmnibotMarkdownBody(
+          data: prefix,
+          baseStyle: widget.style,
+          inlineResourcePlainStyle: true,
+          onResourceOpen: widget.onResourceOpen,
+        ),
+      );
+    }
+    return _cachedOpenFencePrefixWidget!;
+  }
+
+  int _lastStableMarkdownBoundary(String text) {
+    var offset = 0;
+    var lastBoundary = -1;
+    String? fenceMarker;
+    var fenceLength = 0;
+
+    while (offset <= text.length) {
+      final newlineIndex = text.indexOf('\n', offset);
+      final lineEnd = newlineIndex == -1 ? text.length : newlineIndex;
+      final lineBoundary = newlineIndex == -1 ? text.length : newlineIndex + 1;
+      var line = text.substring(offset, lineEnd);
+      if (line.endsWith('\r')) {
+        line = line.substring(0, line.length - 1);
+      }
+
+      var closedFence = false;
+      final match = _markdownFenceLinePattern.firstMatch(line);
+      if (match != null) {
+        final marker = match.group(1)!;
+        final markerChar = marker[0];
+        if (fenceMarker == null) {
+          fenceMarker = markerChar;
+          fenceLength = marker.length;
+        } else if (markerChar == fenceMarker && marker.length >= fenceLength) {
+          fenceMarker = null;
+          fenceLength = 0;
+          closedFence = true;
+        }
+      }
+
+      if (closedFence) {
+        lastBoundary = lineBoundary;
+      } else if (fenceMarker == null && line.trim().isEmpty) {
+        lastBoundary = lineBoundary;
+      }
+
+      if (newlineIndex == -1) {
+        break;
+      }
+      offset = newlineIndex + 1;
+    }
+
+    return lastBoundary;
+  }
+
+  _OpenMarkdownFenceSegment? _splitOpenMarkdownFence(String text) {
+    var offset = 0;
+    String? fenceMarker;
+    var fenceLength = 0;
+    var openingStart = -1;
+    var codeStart = -1;
+    var info = '';
+
+    while (offset <= text.length) {
+      final newlineIndex = text.indexOf('\n', offset);
+      final lineEnd = newlineIndex == -1 ? text.length : newlineIndex;
+      var line = text.substring(offset, lineEnd);
+      if (line.endsWith('\r')) {
+        line = line.substring(0, line.length - 1);
+      }
+
+      final match = _markdownFenceLinePattern.firstMatch(line);
+      if (match != null) {
+        final marker = match.group(1)!;
+        final markerChar = marker[0];
+        if (fenceMarker == null) {
+          fenceMarker = markerChar;
+          fenceLength = marker.length;
+          openingStart = offset;
+          codeStart = newlineIndex == -1 ? text.length : newlineIndex + 1;
+          info = (match.group(2) ?? '').trim();
+        } else if (markerChar == fenceMarker && marker.length >= fenceLength) {
+          fenceMarker = null;
+          fenceLength = 0;
+          openingStart = -1;
+          codeStart = -1;
+          info = '';
+        }
+      }
+
+      if (newlineIndex == -1) {
+        break;
+      }
+      offset = newlineIndex + 1;
+    }
+
+    if (fenceMarker == null || openingStart < 0 || codeStart < 0) {
+      return null;
+    }
+    return _OpenMarkdownFenceSegment(
+      prefix: text.substring(0, openingStart),
+      info: info,
+      code: text.substring(codeStart),
+    );
+  }
+}
+
+class _StreamingOpenCodeBlock extends StatelessWidget {
+  const _StreamingOpenCodeBlock({
+    required this.code,
+    required this.info,
+    required this.style,
+    this.trailing,
+  });
+
+  final String code;
+  final String info;
+  final TextStyle style;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final codeStyle = style.copyWith(
+      fontFamily: 'monospace',
+      backgroundColor: Colors.transparent,
+      color: theme.colorScheme.onSurfaceVariant,
+      fontSize: ((style.fontSize ?? 14) * 0.92).toDouble(),
+      height: 1.45,
+    );
+    final label = info.trim();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (label.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    label,
+                    style: style.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant.withValues(
+                        alpha: 0.72,
+                      ),
+                      fontSize: ((style.fontSize ?? 14) * 0.78).toDouble(),
+                      height: 1.2,
                     ),
                   ),
-              ],
-            ),
-          );
-        },
+                ),
+              ChatDrawerGestureGuard(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Text(
+                    code.isEmpty ? ' ' : code,
+                    style: codeStyle,
+                    softWrap: false,
+                  ),
+                ),
+              ),
+              if (trailing != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: trailing,
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }

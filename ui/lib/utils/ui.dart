@@ -3,10 +3,9 @@ import 'dart:async';
 import 'dart:ui' show ImageFilter;
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:ui/core/router/go_router_manager.dart';
-import 'package:ui/l10n/legacy_text_localizer.dart';
+import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/theme/omni_theme_palette.dart';
 import 'package:ui/theme/theme_context.dart';
-import 'package:ui/widgets/omni_glass.dart';
 
 /// 把 #RRGGBB / #AARRGGBB 转换成 [Color]
 Color hexToColor(String hex) {
@@ -38,7 +37,7 @@ class Loading {
       builder: (_) =>
           Center(
             child: _CustomLoadingWidget(
-              message: LegacyTextLocalizer.localize(message ?? '加载中'),
+              message: AppTextLocalizer.text(message ?? '加载中'),
             ),
           ),
     );
@@ -123,7 +122,7 @@ class AppToast {
     final alignment = _alignmentFor(position);
     final EdgeInsets margin = _marginFor(position);
 
-    final localizedMessage = LegacyTextLocalizer.localize(message);
+    final localizedMessage = AppTextLocalizer.text(message);
 
     _activeToken = token;
     _entry = OverlayEntry(
@@ -517,21 +516,19 @@ class AppDialog {
     bool barrierDismissible = true,
     double? buttonTextSize,
     Color? confirmButtonColor,
-    bool glassStyle = false,
   }) {
     return showDialog<bool>(
       context: context,
       barrierDismissible: barrierDismissible,
-      barrierColor: Colors.black.withValues(alpha: glassStyle ? 0.34 : 0.2),
+      barrierColor: Colors.black.withValues(alpha: 0.2),
       builder: (context) => _AppDialogWidget(
         title: title,
         content: content,
         type: DialogType.confirm,
-        cancelText: LegacyTextLocalizer.localize(cancelText),
-        confirmText: LegacyTextLocalizer.localize(confirmText),
+        cancelText: AppTextLocalizer.text(cancelText),
+        confirmText: AppTextLocalizer.text(confirmText),
         confirmButtonColor: confirmButtonColor,
         buttonTextSize: buttonTextSize,
-        glassStyle: glassStyle,
       ),
     );
   }
@@ -578,8 +575,8 @@ class AppDialog {
         title: title,
         content: content,
         type: DialogType.input,
-        cancelText: LegacyTextLocalizer.localize(cancelText),
-        confirmText: LegacyTextLocalizer.localize(confirmText),
+        cancelText: AppTextLocalizer.text(cancelText),
+        confirmText: AppTextLocalizer.text(confirmText),
         hintText: hintText,
         initialValue: initialValue,
         maxLines: maxLines,
@@ -614,7 +611,7 @@ class AppDialog {
   /// 加载对话框 - 显示loading状态
   static void loading(
     BuildContext context, {
-    String title = '加载中', // Will be localized via LegacyTextLocalizer.localize in widget
+    String title = '加载中', // Will be localized via AppTextLocalizer.text in widget
     dynamic content,
     bool barrierDismissible = false,
   }) {
@@ -667,7 +664,6 @@ class _AppDialogWidget extends StatefulWidget {
   final List<String>? options;
   final int? selectedIndex;
   final double? buttonTextSize;
-  final bool glassStyle;
 
   const _AppDialogWidget({
     required this.title,
@@ -683,7 +679,6 @@ class _AppDialogWidget extends StatefulWidget {
     this.options,
     this.selectedIndex,
     this.buttonTextSize,
-    this.glassStyle = false,
   });
 
   @override
@@ -711,58 +706,50 @@ class _AppDialogWidgetState extends State<_AppDialogWidget> {
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
     final isDark = context.isDarkTheme;
-    final body = Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _buildTitle(),
-        if (widget.content != null) ...[
-          const SizedBox(height: 8),
-          _buildContent(),
-        ],
-        if (widget.type == DialogType.input ||
-            widget.type == DialogType.select ||
-            widget.type == DialogType.loading) ...[
-          const SizedBox(height: 16),
-          _buildBody(),
-        ],
-        if (widget.type != DialogType.loading) ...[
-          const SizedBox(height: 16),
-          _buildButtons(),
-        ],
-      ],
-    );
     return Dialog(
       backgroundColor: Colors.transparent,
       alignment: Alignment.center,
       insetPadding: const EdgeInsets.symmetric(horizontal: 25, vertical: 50),
-      child: widget.glassStyle
-          ? OmniGlassPanel(
-              width: 325,
-              borderRadius: BorderRadius.circular(20),
-              padding: const EdgeInsets.all(24),
-              child: body,
-            )
-          : ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 3, sigmaY: 3),
-                child: Container(
-                  width: 325,
-                  padding: const EdgeInsets.all(24),
-                  decoration: ShapeDecoration(
-                    color: (isDark ? palette.surfacePrimary : Colors.white)
-                        .withValues(alpha: isDark ? 0.94 : 0.88),
-                    shape: RoundedRectangleBorder(
-                      side: isDark
-                          ? BorderSide(color: palette.borderSubtle)
-                          : BorderSide.none,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                  ),
-                  child: body,
-                ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 3, sigmaY: 3),
+          child: Container(
+            width: 325,
+            padding: const EdgeInsets.all(24),
+            decoration: ShapeDecoration(
+              color: (isDark ? palette.surfacePrimary : Colors.white)
+                  .withValues(alpha: isDark ? 0.94 : 0.88),
+              shape: RoundedRectangleBorder(
+                side: isDark
+                    ? BorderSide(color: palette.borderSubtle)
+                    : BorderSide.none,
+                borderRadius: BorderRadius.circular(16),
               ),
             ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildTitle(),
+                if (widget.content != null) ...[
+                  const SizedBox(height: 8),
+                  _buildContent(),
+                ],
+                if (widget.type == DialogType.input ||
+                    widget.type == DialogType.select ||
+                    widget.type == DialogType.loading) ...[
+                  const SizedBox(height: 16),
+                  _buildBody(),
+                ],
+                if (widget.type != DialogType.loading) ...[
+                  const SizedBox(height: 16),
+                  _buildButtons(),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -907,7 +894,7 @@ class _AppDialogWidgetState extends State<_AppDialogWidget> {
               ),
               SizedBox(width: 12),
               Text(
-                LegacyTextLocalizer.localize('请稍候...'),
+                AppTextLocalizer.text('请稍候...'),
                 style: TextStyle(
                   color: palette.textSecondary,
                   fontSize: 14,
@@ -945,7 +932,7 @@ class _AppDialogWidgetState extends State<_AppDialogWidget> {
                 ),
                 child: Center(
                   child: Text(
-                    LegacyTextLocalizer.localize(widget.confirmText ?? '确定'),
+                    AppTextLocalizer.text(widget.confirmText ?? '确定'),
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: confirmColor,
@@ -980,7 +967,7 @@ class _AppDialogWidgetState extends State<_AppDialogWidget> {
               ),
               child: Center(
                 child: Text(
-                  LegacyTextLocalizer.localize(widget.cancelText ?? '取消'),
+                  AppTextLocalizer.text(widget.cancelText ?? '取消'),
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: confirmColor,
@@ -1023,7 +1010,7 @@ class _AppDialogWidgetState extends State<_AppDialogWidget> {
               ),
               child: Center(
                 child: Text(
-                  LegacyTextLocalizer.localize(widget.confirmText ?? '确认'),
+                  AppTextLocalizer.text(widget.confirmText ?? '确认'),
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.white,

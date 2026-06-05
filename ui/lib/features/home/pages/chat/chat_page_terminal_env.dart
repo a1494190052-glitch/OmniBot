@@ -56,22 +56,48 @@ mixin _ChatPageTerminalEnvMixin on _ChatPageStateBase {
     _inputFocusNode.unfocus();
     final overlay =
         Overlay.of(context).context.findRenderObject() as RenderBox?;
-    final anchorRect = glassPopupAnchorFromContext(anchorContext);
-    if (overlay == null || anchorRect == null) {
+    final anchorBox = anchorContext.findRenderObject() as RenderBox?;
+    if (overlay == null || anchorBox == null || !anchorBox.hasSize) {
       return;
     }
+    final topLeft = anchorBox.localToGlobal(Offset.zero, ancestor: overlay);
+    final bottomRight = anchorBox.localToGlobal(
+      anchorBox.size.bottomRight(Offset.zero),
+      ancestor: overlay,
+    );
+    final anchorRect = Rect.fromPoints(topLeft, bottomRight);
     final popupWidth = (overlay.size.width - 32).clamp(220.0, 340.0).toDouble();
     const popupMaxHeight = 360.0;
-    await showGlassPopup<String>(
+    final position = PopupMenuAnchorPosition.fromAnchorRect(
+      anchorRect: anchorRect,
+      overlaySize: overlay.size,
+      estimatedMenuHeight: popupMaxHeight,
+      reservedBottom: MediaQuery.of(context).viewInsets.bottom,
+    );
+    final palette = context.omniPalette;
+    final isDark = context.isDarkTheme;
+    await showMenu<String>(
       context: context,
-      anchor: anchorRect,
-      horizontalPlacement: GlassPopupHorizontalPlacement.centerOnScreen,
-      child: _TerminalEnvironmentEditorContent(
-        width: popupWidth,
-        maxHeight: popupMaxHeight,
-        initialVariables: _terminalEnvironmentVariables,
-        onChanged: _updateTerminalEnvironmentVariables,
+      color: isDark ? palette.surfacePrimary : Colors.white,
+      elevation: isDark ? 0 : 8,
+      shadowColor: isDark ? palette.shadowColor : null,
+      surfaceTintColor: Colors.transparent,
+      constraints: BoxConstraints(minWidth: popupWidth, maxWidth: popupWidth),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: isDark
+            ? BorderSide(color: palette.borderSubtle)
+            : BorderSide.none,
       ),
+      position: position,
+      items: [
+        _TerminalEnvironmentEditorPopupEntry(
+          width: popupWidth,
+          estimatedHeight: popupMaxHeight,
+          initialVariables: _terminalEnvironmentVariables,
+          onChanged: _updateTerminalEnvironmentVariables,
+        ),
+      ],
     );
   }
 
@@ -84,26 +110,32 @@ mixin _ChatPageTerminalEnvMixin on _ChatPageStateBase {
   }
 }
 
-class _TerminalEnvironmentEditorContent extends StatefulWidget {
-  const _TerminalEnvironmentEditorContent({
+class _TerminalEnvironmentEditorPopupEntry extends PopupMenuEntry<String> {
+  const _TerminalEnvironmentEditorPopupEntry({
     required this.width,
-    required this.maxHeight,
+    required this.estimatedHeight,
     required this.initialVariables,
     required this.onChanged,
   });
 
   final double width;
-  final double maxHeight;
+  final double estimatedHeight;
   final List<ChatTerminalEnvironmentVariable> initialVariables;
   final Future<void> Function(List<ChatTerminalEnvironmentVariable>) onChanged;
 
   @override
-  State<_TerminalEnvironmentEditorContent> createState() =>
-      _TerminalEnvironmentEditorContentState();
+  double get height => estimatedHeight;
+
+  @override
+  bool represents(String? value) => false;
+
+  @override
+  State<_TerminalEnvironmentEditorPopupEntry> createState() =>
+      _TerminalEnvironmentEditorPopupEntryState();
 }
 
-class _TerminalEnvironmentEditorContentState
-    extends State<_TerminalEnvironmentEditorContent> {
+class _TerminalEnvironmentEditorPopupEntryState
+    extends State<_TerminalEnvironmentEditorPopupEntry> {
   final TextEditingController _keyController = TextEditingController();
   final TextEditingController _valueController = TextEditingController();
   late List<ChatTerminalEnvironmentVariable> _variables;
@@ -248,18 +280,14 @@ class _TerminalEnvironmentEditorContentState
         fontWeight: FontWeight.w500,
       ),
       filled: true,
-      fillColor: isDark
-          ? palette.surfaceSecondary.withValues(alpha: 0.62)
-          : Colors.white.withValues(alpha: 0.48),
+      fillColor: isDark ? palette.surfaceSecondary : Colors.white,
       border: const OutlineInputBorder(
         borderRadius: BorderRadius.all(Radius.circular(12)),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: const BorderRadius.all(Radius.circular(12)),
         borderSide: BorderSide(
-          color: isDark
-              ? palette.borderSubtle.withValues(alpha: 0.72)
-              : Colors.white.withValues(alpha: 0.70),
+          color: isDark ? palette.borderSubtle : const Color(0xFFE2EAF4),
         ),
       ),
       focusedBorder: OutlineInputBorder(
@@ -319,15 +347,9 @@ class _TerminalEnvironmentEditorContentState
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: isDark
-              ? palette.surfaceSecondary.withValues(alpha: 0.58)
-              : Colors.white.withValues(alpha: 0.38),
+          color: isDark ? palette.surfaceSecondary : const Color(0xFFF8FAFD),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isDark
-                ? palette.borderSubtle.withValues(alpha: 0.62)
-                : Colors.white.withValues(alpha: 0.58),
-          ),
+          border: isDark ? Border.all(color: palette.borderSubtle) : null,
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -395,15 +417,9 @@ class _TerminalEnvironmentEditorContentState
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: isDark
-              ? palette.surfaceSecondary.withValues(alpha: 0.58)
-              : Colors.white.withValues(alpha: 0.38),
+          color: isDark ? palette.surfaceSecondary : const Color(0xFFF8FAFD),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isDark
-                ? palette.borderSubtle.withValues(alpha: 0.62)
-                : Colors.white.withValues(alpha: 0.58),
-          ),
+          border: isDark ? Border.all(color: palette.borderSubtle) : null,
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -574,96 +590,89 @@ class _TerminalEnvironmentEditorContentState
     final isDark = context.isDarkTheme;
     final dynamicMaxHeight =
         (mediaQuery.size.height - mediaQuery.viewInsets.bottom - 96)
-            .clamp(220.0, widget.maxHeight)
+            .clamp(220.0, widget.estimatedHeight)
             .toDouble();
     return SizedBox(
       width: widget.width,
-      child: OmniGlassPanel(
-        width: widget.width,
-        borderRadius: BorderRadius.circular(18),
-        child: Material(
-          color: Colors.transparent,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxHeight: dynamicMaxHeight),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.tune_rounded,
-                        size: 16,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: dynamicMaxHeight),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.tune_rounded,
+                    size: 16,
+                    color: isDark
+                        ? palette.textSecondary
+                        : const Color(0xFF617390),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '终端环境变量',
+                      style: TextStyle(
+                        fontSize: 13,
                         color: isDark
-                            ? palette.textSecondary
-                            : const Color(0xFF617390),
+                            ? palette.textPrimary
+                            : const Color(0xFF1F2937),
+                        fontWeight: FontWeight.w700,
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          '终端环境变量',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: isDark
-                                ? palette.textPrimary
-                                : const Color(0xFF1F2937),
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      Text(
-                        '${_variables.length}',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: isDark
-                              ? palette.textTertiary
-                              : const Color(0xFF8FA1BC),
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
+                    ),
+                  ),
+                  Text(
+                    '${_variables.length}',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isDark
+                          ? palette.textTertiary
+                          : const Color(0xFF8FA1BC),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (_variables.isEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                child: Text(
+                  '还没有环境变量',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDark
+                        ? palette.textTertiary
+                        : const Color(0xFF94A3B8),
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
-                if (_variables.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                    child: Text(
-                      '还没有环境变量',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: isDark
-                            ? palette.textTertiary
-                            : const Color(0xFF94A3B8),
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  )
-                else
-                  Flexible(
-                    child: Scrollbar(
-                      child: ListView.builder(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        itemCount: _variables.length,
-                        itemBuilder: (context, index) {
-                          return _buildVariableRow(_variables[index]);
-                        },
-                      ),
-                    ),
+              )
+            else
+              Flexible(
+                child: Scrollbar(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    itemCount: _variables.length,
+                    itemBuilder: (context, index) {
+                      return _buildVariableRow(_variables[index]);
+                    },
                   ),
-                if (!_isEditing) ...[
-                  Divider(
-                    height: 1,
-                    color: isDark
-                        ? palette.borderSubtle.withValues(alpha: 0.62)
-                        : Colors.white.withValues(alpha: 0.62),
-                  ),
-                  _buildAddForm(),
-                ],
-              ],
-            ),
-          ),
+                ),
+              ),
+            if (!_isEditing) ...[
+              Divider(
+                height: 1,
+                color: isDark
+                    ? palette.borderSubtle
+                    : const Color(0xFFE5EDF8),
+              ),
+              _buildAddForm(),
+            ],
+          ],
         ),
       ),
     );

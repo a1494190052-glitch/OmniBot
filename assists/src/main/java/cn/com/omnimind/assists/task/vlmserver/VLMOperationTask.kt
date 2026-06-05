@@ -8,13 +8,13 @@ import cn.com.omnimind.assists.api.enums.TaskFinishType
 import cn.com.omnimind.assists.api.enums.TaskType
 import cn.com.omnimind.assists.api.interfaces.OnMessagePushListener
 import cn.com.omnimind.assists.api.interfaces.TaskChangeListener
-import cn.com.omnimind.assists.api.enums.toStatus
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.assists.controller.http.HttpController
 import cn.com.omnimind.assists.task.Task
 import cn.com.omnimind.assists.api.eventapi.ExecutionTaskEventApi
 import cn.com.omnimind.baselib.database.DatabaseHelper
 import cn.com.omnimind.baselib.http.Http429Exception
+import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.baselib.util.exception.PrivacyBlockedException
 import cn.com.omnimind.omniintelligence.models.AgentRequest
@@ -24,7 +24,17 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.longOrNull
 import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * 视觉模型执行任务
@@ -39,6 +49,9 @@ open class VLMOperationTask(
     private val Tag = "VLMOperationTask"
     private companion object {
         private const val SUMMARY_GENERATION_TIMEOUT_MS = 20_000L
+        private const val MAX_MANUAL_TRACE_MEMORY_ACTIONS = 12
+        private const val MAX_MANUAL_TRACE_PARAM_CHARS = 240
+        private const val MAX_MANUAL_TRACE_XML_CHARS = 6000
     }
 
     private lateinit var vlmOperationService: VLMOperationService
@@ -61,12 +74,15 @@ open class VLMOperationTask(
     private lateinit var streamClient: VLMStreamClient
 
     private var taskContext: Context? = null
+    private val terminalFinalized = AtomicBoolean(false)
+    private val completedVlmStepCardIds = mutableSetOf<String>()
 
     // INFO动作等待通道：用于挂起任务等待用户回复
     private val userInputChannel = Channel<String>(Channel.Factory.UNLIMITED)
 
     // 用户主动暂停通道：用于用户点击"接管"按钮时暂停任务
     private val userPauseChannel = Channel<Unit>(Channel.Factory.CONFLATED)
+    private var manualTraceCardSeq: Int = 0
 
     // 总结Sheet准备就绪通道：用于等待ChatBotSheet加载完成后再推送总结
     private val summarySheetReadyChannel = Channel<Unit>(Channel.Factory.CONFLATED)
@@ -109,7 +125,15 @@ open class VLMOperationTask(
             onPauseCheck = {
                 checkAndHandlePause()
             },
-            isSubTask = isSubTask
+            onStepStarted = { stepIndex, step ->
+                handleVlmStepStarted(stepIndex, step)
+            },
+            onStepCompleted = { stepIndex, step, success, error ->
+                handleVlmStepCompleted(stepIndex, step, success, error)
+            },
+            isSubTask = isSubTask,
+            taskId = id,
+            runId = id
 
         )
         androidDeviceOperator = AndroidDeviceOperator(executionTaskEventApi, taskContext)
@@ -149,6 +173,7 @@ open class VLMOperationTask(
 
         OmniLog.d(Tag, "等待用户完成操作并点击继续...")
         val userConfirmation = userInputChannel.receive()
+        throwIfCancellationRequested("info_action")
         OmniLog.d(Tag, "收到用户确认：$userConfirmation")
 
         AccessibilityController.hideKeyboard()
@@ -172,6 +197,7 @@ open class VLMOperationTask(
      * 检查并处理用户暂停请求（VLMOperationService每步执行前调用）
      */
     private suspend fun checkAndHandlePause() {
+        throwIfCancellationRequested("pause_check")
         if (pauseRequested) {
             OmniLog.d(Tag, "检测到用户暂停请求，进入暂停状态")
             pauseRequested = false // 重置标志
@@ -194,7 +220,19 @@ open class VLMOperationTask(
                 OmniLog.e(Tag, "通知UI层失败: ${e.message}")
             }
         }
-        userPauseChannel.receive() // 阻塞等待用户点击继续
+        val recorder = taskContext?.let { ManualVlmTraceRecorder(it, id) }
+        val recorderStarted = recorder?.start() == true
+        val manualTraceResult = try {
+            userPauseChannel.receive() // 阻塞等待用户点击继续
+            throwIfCancellationRequested("user_pause")
+            recorder?.stop()
+        } catch (e: Exception) {
+            recorder?.stop()
+            throw e
+        }
+        if (recorderStarted && manualTraceResult != null) {
+            appendManualTrace(manualTraceResult)
+        }
         AccessibilityController.Companion.hideKeyboard()
         setStartWithNotShowReadFlag = true
         onTaskStarted()
@@ -238,6 +276,83 @@ open class VLMOperationTask(
         }
     }
 
+    private fun throwIfCancellationRequested(stage: String) {
+        if (isCancellationRequested) {
+            throw CancellationException("任务已取消: $stage")
+        }
+    }
+
+    private fun unblockWaitingReceivers() {
+        userInputChannel.trySend("任务已取消")
+        userPauseChannel.trySend(Unit)
+        summarySheetReadyChannel.trySend(Unit)
+    }
+
+    private fun cancelRunningJob(message: String) {
+        val cause = CancellationException(message)
+        runCatching { taskJob.cancel(cause) }
+        runCatching { taskScope.cancel(cause) }
+    }
+
+    private fun finalizeCancellationAsync(message: String = "任务已取消") {
+        val context = taskContext
+        val runId = id
+        if (!terminalFinalized.compareAndSet(false, true)) return
+        cancelScope.launch {
+            if (context != null && runId.isNotBlank()) {
+                InternalRunLogStore.finishRun(
+                    context = context,
+                    runId = runId,
+                    success = false,
+                    doneReason = "cancelled",
+                    errorMessage = message
+                )
+            }
+            notifyTerminalResult(
+                VlmTaskTerminalResult(
+                    status = VlmTaskTerminalStatus.CANCELLED,
+                    message = message,
+                    errorMessage = message,
+                    needSummary = needSummary || hasSummaryIntent(goal)
+                )
+            )
+            onTaskStop(TaskFinishType.CANCEL, message)
+            onTaskDestroy()
+        }
+    }
+
+    private fun finalizeUserCompletionAsync(message: String = "任务已完成") {
+        val context = taskContext
+        val runId = id
+        if (!terminalFinalized.compareAndSet(false, true)) return
+        cancelScope.launch {
+            if (context != null && runId.isNotBlank()) {
+                InternalRunLogStore.finishRun(
+                    context = context,
+                    runId = runId,
+                    success = true,
+                    doneReason = "user_completed"
+                )
+            }
+            notifyTerminalResult(
+                VlmTaskTerminalResult(
+                    status = VlmTaskTerminalStatus.FINISHED,
+                    message = message,
+                    finishedContent = message,
+                    needSummary = needSummary || hasSummaryIntent(goal)
+                )
+            )
+            onTaskStop(TaskFinishType.FINISH, message)
+            onTaskDestroy()
+        }
+    }
+
+    private suspend fun finalizeTerminalOnce(block: suspend () -> Unit) {
+        if (terminalFinalized.compareAndSet(false, true)) {
+            block()
+        }
+    }
+
     private fun extractFinishedContent(report: TaskExecutionReport): String {
         val finishedStep = report.executionTrace.lastOrNull { it.action is FinishedAction }
         val fromResult = finishedStep?.result?.trim().orEmpty()
@@ -254,6 +369,564 @@ open class VLMOperationTask(
         return "任务完成"
     }
 
+    private fun appendInternalRunLog(context: Context, report: TaskExecutionReport) {
+        report.executionTrace.forEachIndexed { index, step ->
+            val cardId = vlmStepCardId(index)
+            val stepSuccess = isReplayableStepSuccess(step)
+            val card = buildInternalRunLogCard(
+                index = index,
+                step = step,
+                status = if (stepSuccess) "success" else "error",
+                successOverride = stepSuccess,
+                errorMessage = if (stepSuccess) null else step.result
+            )
+            InternalRunLogStore.upsertCard(
+                context = context,
+                runId = id,
+                cardId = cardId,
+                card = card
+            )
+            if (completedVlmStepCardIds.add(cardId)) {
+                notifyVlmToolEvent(
+                    streamKind = "tool_completed",
+                    index = index,
+                    card = card,
+                    step = step,
+                    status = if (stepSuccess) "success" else "error",
+                    success = stepSuccess,
+                    errorMessage = if (stepSuccess) null else step.result
+                )
+            }
+        }
+        InternalRunLogStore.finishRun(
+            context = context,
+            runId = id,
+            success = report.success,
+            doneReason = report.doneReason ?: if (report.success) "finished" else "error",
+            errorMessage = report.error
+        )
+    }
+
+    private fun appendManualTrace(result: ManualVlmTraceResult) {
+        if (result.actions.isEmpty()) return
+        val context = taskContext ?: return
+        val cards = result.actions.map { action ->
+            manualTraceCardSeq += 1
+            buildManualRunLogCard(manualTraceCardSeq, action)
+        }
+        InternalRunLogStore.appendCards(context, id, cards)
+        if (this::vlmOperationService.isInitialized) {
+            val memory = buildManualTraceMemory(result)
+            if (memory.isNotBlank()) {
+                vlmOperationService.addExternalMemory(memory)
+                vlmOperationService.addPriorityEvent(
+                    message = memory,
+                    eventType = "human_takeover",
+                    suggestCompletion = false
+                )
+            }
+        }
+        OmniLog.d(Tag, "已记录人工接管轨迹：${result.actionCount}步")
+    }
+
+    private fun buildManualTraceMemory(result: ManualVlmTraceResult): String {
+        if (result.actions.isEmpty()) return result.summary
+        val actions = result.actions.take(MAX_MANUAL_TRACE_MEMORY_ACTIONS)
+        val actionLines = actions.mapIndexed { index, action ->
+            val params = action.params.entries
+                .joinToString(", ") { (key, value) -> "$key=$value" }
+                .take(MAX_MANUAL_TRACE_PARAM_CHARS)
+            buildString {
+                append("${index + 1}. ${action.actionName}: ")
+                append(action.summary.ifBlank { action.title })
+                if (params.isNotBlank()) append(" ($params)")
+                action.packageName?.takeIf { it.isNotBlank() }?.let { append(" package=$it") }
+            }
+        }
+        val omitted = result.actions.size - actions.size
+        val finalAction = result.actions.lastOrNull()
+        val finalPage = finalAction?.afterXml?.trim().orEmpty()
+        return buildString {
+            appendLine(result.summary.ifBlank {
+                "用户在接管期间手动完成了 ${result.actionCount} 步操作。请基于当前屏幕继续执行原任务。"
+            })
+            appendLine("人工接管动作明细：")
+            actionLines.forEach { appendLine(it) }
+            if (omitted > 0) appendLine("... 另有 $omitted 步人工动作已记录在 RunLog。")
+            finalAction?.packageName?.takeIf { it.isNotBlank() }?.let {
+                appendLine("接管结束包名：$it")
+            }
+            if (finalPage.isNotBlank()) {
+                appendLine("接管结束页面 XML（截断）：")
+                appendLine(finalPage.take(MAX_MANUAL_TRACE_XML_CHARS))
+            }
+            append("下一步必须以当前截图和最新 Accessibility tree 为准，不要回退到接管前的页面。")
+        }.trim()
+    }
+
+    private fun isReplayableStepSuccess(step: UIStep): Boolean {
+        if (step.action is AbortAction) return false
+        return step.result?.startsWith("执行失败") != true
+    }
+
+    private fun buildManualRunLogCard(
+        index: Int,
+        action: ManualVlmRecordedAction
+    ): Map<String, Any?> {
+        val cardId = "$id-manual-$index"
+        val durationMs = (action.finishedAtMs - action.startedAtMs).coerceAtLeast(0L)
+        val sourceContext = sourceContextForManualAction(action)
+        return linkedMapOf(
+            "card_id" to cardId,
+            "tool_call_id" to cardId,
+            "header" to linkedMapOf<String, Any?>(
+                "step_index" to index,
+                "title" to action.title,
+                "tool_name" to action.actionName,
+                "status" to "success",
+                "success" to true,
+                "duration_ms" to durationMs
+            ),
+            "step_index" to index,
+            "title" to action.title,
+            "summary" to action.summary,
+            "tool_name" to action.actionName,
+            "toolName" to action.actionName,
+            "tool_type" to "manual_recording",
+            "toolType" to "manual_recording",
+            "status" to "success",
+            "action_type" to action.actionName,
+            "success" to true,
+            "duration_ms" to durationMs,
+            "started_at_ms" to action.startedAtMs,
+            "finished_at_ms" to action.finishedAtMs,
+            "package_name" to action.packageName,
+            "compile_kind" to "manual_recording",
+            "source" to "human_takeover",
+            "event_context" to action.eventContext.takeIf { it.isNotEmpty() },
+            "source_context" to sourceContext.takeIf { it.isNotEmpty() },
+            "tool_call" to linkedMapOf(
+                "id" to cardId,
+                "name" to action.actionName,
+                "arguments" to action.params
+            ),
+            "params" to action.params,
+            "result" to linkedMapOf(
+                "message" to action.summary,
+                "summary" to action.summary,
+                "source" to "human_takeover",
+                "source_context" to sourceContext.takeIf { it.isNotEmpty() }
+            ),
+            "before" to linkedMapOf(
+                "observation_xml" to action.beforeXml,
+                "screenshot" to action.beforeScreenshot?.asMap(),
+                "screenshot_path" to action.beforeScreenshot?.path,
+                "package_name" to action.packageName
+            ).filterValues { it != null },
+            "after" to linkedMapOf(
+                "observation_xml" to action.afterXml,
+                "screenshot" to action.afterScreenshot?.asMap(),
+                "screenshot_path" to action.afterScreenshot?.path,
+                "summary" to action.summary,
+                "package_name" to action.packageName
+            ).filterValues { it != null }
+        ).filterValues { it != null }
+    }
+
+    private fun sourceContextForManualAction(action: ManualVlmRecordedAction): Map<String, Any?> {
+        val beforeXml = action.beforeXml?.takeIf { it.isNotBlank() } ?: return emptyMap()
+        val recordingBackend = action.params["recording_backend"]?.toString()
+            ?.takeIf { it.isNotBlank() }
+            ?: "accessibility_event"
+        val actionMap = linkedMapOf<String, Any?>("tool" to action.actionName)
+        action.params.forEach { (key, value) ->
+            if (value != null) actionMap[key] = value
+        }
+        val dstCtx = linkedMapOf<String, Any?>(
+            "page" to action.afterXml?.takeIf { it.isNotBlank() },
+            "screenshot" to action.afterScreenshot?.asMap(),
+            "screenshot_path" to action.afterScreenshot?.path,
+            "package_name" to action.packageName
+        ).filterValues { it != null && it.toString().isNotBlank() }
+        return linkedMapOf(
+            "src_ctx" to linkedMapOf(
+                "page" to beforeXml,
+                "screenshot" to action.beforeScreenshot?.asMap(),
+                "screenshot_path" to action.beforeScreenshot?.path,
+                "package_name" to action.packageName,
+                "require_unique_action_signature" to false
+            ).filterValues { it != null && it.toString().isNotBlank() },
+            "dst_ctx" to dstCtx.takeIf { it.isNotEmpty() },
+            "action" to actionMap,
+            "_oob_meta" to linkedMapOf(
+                "mode" to "manual_operation_recording",
+                "recording_backend" to recordingBackend,
+                "event_context" to action.eventContext.takeIf { it.isNotEmpty() }
+            ).filterValues { it != null }
+        ).filterValues { it != null }
+    }
+
+    private fun handleVlmStepStarted(index: Int, step: UIStep) {
+        val context = taskContext ?: return
+        val cardId = vlmStepCardId(index)
+        val card = buildInternalRunLogCard(
+            index = index,
+            step = step,
+            status = "running",
+            successOverride = null
+        )
+        InternalRunLogStore.upsertCard(
+            context = context,
+            runId = id,
+            cardId = cardId,
+            card = card
+        )
+        notifyVlmToolEvent(
+            streamKind = "tool_started",
+            index = index,
+            card = card,
+            step = step,
+            status = "running",
+            success = null,
+            errorMessage = null
+        )
+    }
+
+    private fun handleVlmStepCompleted(
+        index: Int,
+        step: UIStep,
+        success: Boolean,
+        errorMessage: String?
+    ) {
+        val context = taskContext ?: return
+        val status = if (success) "success" else "error"
+        val cardId = vlmStepCardId(index)
+        val card = buildInternalRunLogCard(
+            index = index,
+            step = step,
+            status = status,
+            successOverride = success,
+            errorMessage = errorMessage
+        )
+        InternalRunLogStore.upsertCard(
+            context = context,
+            runId = id,
+            cardId = cardId,
+            card = card
+        )
+        completedVlmStepCardIds.add(cardId)
+        notifyVlmToolEvent(
+            streamKind = "tool_completed",
+            index = index,
+            card = card,
+            step = step,
+            status = status,
+            success = success,
+            errorMessage = errorMessage
+        )
+    }
+
+    private fun buildInternalRunLogCard(
+        index: Int,
+        step: UIStep,
+        status: String = "success",
+        successOverride: Boolean? = null,
+        errorMessage: String? = null
+    ): Map<String, Any?> {
+        val actionParams = actionParams(step.action)
+        val durationMs = if (step.startedAtMs != null && step.finishedAtMs != null) {
+            (step.finishedAtMs - step.startedAtMs).coerceAtLeast(0L)
+        } else {
+            null
+        }
+        val title = step.thought.trim().ifEmpty { actionTitle(step.action) }
+        val success = successOverride ?: (step.action !is AbortAction)
+        val cardId = vlmStepCardId(index)
+        val tokenUsage = step.tokenUsage?.let(VLMTokenUsageMapper::toRunLogMap)
+            ?.takeIf { it.isNotEmpty() }
+        val tokenUsageAttempts = step.tokenUsageAttempts
+            .map(VLMTokenUsageMapper::toRunLogMap)
+            .filter { it.isNotEmpty() }
+        val pageDiagnostics = step.pageDiagnostics.takeIf { it.isNotEmpty() }
+        val postActionObservation = VLMPostActionObservation.summarize(step)
+        val postActionObservationMap = postActionObservation?.toRunLogMap()
+        val actionResultData = step.actionResultData?.toRunLogAny()
+        val header = linkedMapOf<String, Any?>(
+            "step_index" to index,
+            "title" to title,
+            "tool_name" to step.action.name,
+            "status" to status,
+            "success" to success
+        )
+        durationMs?.let { header["duration_ms"] = it }
+        tokenUsage?.let {
+            header["token_usage"] = it
+            header["token_usage_total"] = it["total_tokens"]
+        }
+        return linkedMapOf(
+            "card_id" to cardId,
+            "tool_call_id" to cardId,
+            "header" to header,
+            "step_index" to index,
+            "title" to title,
+            "summary" to step.summary,
+            "tool_name" to step.action.name,
+            "toolName" to step.action.name,
+            "tool_type" to "vlm",
+            "toolType" to "vlm",
+            "status" to status,
+            "action_type" to step.action.name,
+            "success" to success,
+            "error_message" to errorMessage,
+            "duration_ms" to durationMs,
+            "started_at_ms" to step.startedAtMs,
+            "finished_at_ms" to step.finishedAtMs,
+            "package_name" to step.packageName,
+            "page_diagnostics" to pageDiagnostics,
+            "action_result_data" to actionResultData,
+            "function_result" to actionResultData.takeIf { step.action is FunctionRunAction },
+            "token_usage" to tokenUsage,
+            "token_usage_attempts" to tokenUsageAttempts.takeIf { it.isNotEmpty() },
+            "compile_kind" to "vlm_step",
+            "tool_call" to linkedMapOf(
+                "id" to cardId,
+                "name" to step.action.name,
+                "arguments" to actionParams
+            ),
+            "params" to actionParams,
+            "result" to linkedMapOf<String, Any?>(
+                "message" to step.result,
+                "summary" to step.summary,
+                "post_action_observation" to postActionObservationMap,
+                "screen_changed" to postActionObservation?.screenChanged,
+                "package_changed" to postActionObservation?.packageChanged,
+                "after_visible_texts" to postActionObservation?.afterVisibleTexts?.takeIf { it.isNotEmpty() },
+                "appeared_texts" to postActionObservation?.appearedTexts?.takeIf { it.isNotEmpty() },
+                "disappeared_texts" to postActionObservation?.disappearedTexts?.takeIf { it.isNotEmpty() },
+                "after_focused_editable" to postActionObservation?.afterFocusedEditable,
+                "observation_summary" to postActionObservation?.summaryText,
+                "data" to actionResultData,
+                "action_result_data" to actionResultData,
+                "function_result" to actionResultData.takeIf { step.action is FunctionRunAction },
+                "page_diagnostics" to pageDiagnostics
+            ).filterValues { it != null },
+            "before" to linkedMapOf(
+                "observation" to step.observation,
+                "observation_xml" to step.observationXml,
+                "package_name" to step.packageName
+            ),
+            "after" to linkedMapOf(
+                "summary" to step.summary,
+                "result" to step.result,
+                "observation_xml" to step.afterObservationXml,
+                "package_name" to (step.afterPackageName?.takeIf { it.isNotBlank() } ?: step.packageName)
+            )
+        )
+    }
+
+    private fun vlmStepCardId(index: Int): String = "$id-vlm-${index + 1}"
+
+    private fun VLMPostActionObservation.Summary.toRunLogMap(): Map<String, Any?> =
+        linkedMapOf<String, Any?>(
+            "summary" to summaryText,
+            "screen_changed" to screenChanged,
+            "package_changed" to packageChanged,
+            "before_package" to beforePackageName,
+            "after_package" to afterPackageName,
+            "after_visible_texts" to afterVisibleTexts.takeIf { it.isNotEmpty() },
+            "appeared_texts" to appearedTexts.takeIf { it.isNotEmpty() },
+            "disappeared_texts" to disappearedTexts.takeIf { it.isNotEmpty() },
+            "after_focused_editable" to afterFocusedEditable
+        ).filterValues { it != null }
+
+    private fun notifyVlmToolEvent(
+        streamKind: String,
+        index: Int,
+        card: Map<String, Any?>,
+        step: UIStep,
+        status: String,
+        success: Boolean?,
+        errorMessage: String?
+    ) {
+        val actionParams = actionParams(step.action)
+        val argsJson = runCatching { JSONObject(actionParams).toString() }
+            .getOrDefault("{}")
+        val resultJson = runCatching {
+            val tokenUsage = step.tokenUsage?.let(VLMTokenUsageMapper::toRunLogMap)
+                ?.takeIf { it.isNotEmpty() }
+            val postActionObservation = VLMPostActionObservation.summarize(step)
+            val postActionObservationMap = postActionObservation?.toRunLogMap()
+            val pageDiagnostics = step.pageDiagnostics.takeIf { it.isNotEmpty() }
+            val actionResultData = step.actionResultData?.toRunLogAny()
+            JSONObject(
+                linkedMapOf<String, Any?>(
+                    "message" to step.result,
+                    "summary" to step.summary,
+                    "status" to status,
+                    "success" to success,
+                    "error_message" to errorMessage,
+                    "package_name" to step.packageName,
+                    "page_diagnostics" to pageDiagnostics,
+                    "token_usage" to tokenUsage,
+                    "token_usage_total" to tokenUsage?.get("total_tokens"),
+                    "post_action_observation" to postActionObservationMap,
+                    "screen_changed" to postActionObservation?.screenChanged,
+                    "package_changed" to postActionObservation?.packageChanged,
+                    "after_visible_texts" to postActionObservation?.afterVisibleTexts?.takeIf { it.isNotEmpty() },
+                    "appeared_texts" to postActionObservation?.appearedTexts?.takeIf { it.isNotEmpty() },
+                    "disappeared_texts" to postActionObservation?.disappearedTexts?.takeIf { it.isNotEmpty() },
+                    "after_focused_editable" to postActionObservation?.afterFocusedEditable,
+                    "observation_summary" to postActionObservation?.summaryText,
+                    "data" to actionResultData,
+                    "action_result_data" to actionResultData,
+                    "function_result" to actionResultData.takeIf { step.action is FunctionRunAction },
+                    "compile_kind" to "vlm_step"
+                ).filterValues { it != null }
+            ).toString()
+        }.getOrDefault("{}")
+        val tokenUsage = step.tokenUsage?.let(VLMTokenUsageMapper::toRunLogMap)
+            ?.takeIf { it.isNotEmpty() }
+        val pageDiagnostics = step.pageDiagnostics.takeIf { it.isNotEmpty() }
+        val cardId = vlmStepCardId(index)
+        val title = card["title"]?.toString()?.trim().orEmpty()
+        val summary = listOf(step.summary, step.result, title)
+            .firstOrNull { it?.trim()?.isNotEmpty() == true }
+            ?.trim()
+            .orEmpty()
+        val payload = linkedMapOf<String, Any?>(
+            "agentStreamKind" to streamKind,
+            "taskId" to id,
+            "runLogId" to id,
+            "run_id" to id,
+            "cardId" to cardId,
+            "toolCallId" to cardId,
+            "toolName" to step.action.name,
+            "displayName" to step.action.name,
+            "toolType" to "vlm",
+            "toolTitle" to title,
+            "status" to status,
+            "summary" to summary,
+            "progress" to summary,
+            "argsJson" to argsJson,
+            "args" to argsJson,
+            "resultPreviewJson" to if (streamKind == "tool_completed") resultJson else "",
+            "rawResultJson" to if (streamKind == "tool_completed") resultJson else "",
+            "success" to success,
+            "actionResultData" to step.actionResultData?.toString().takeIf { streamKind == "tool_completed" },
+            "action_result_data" to step.actionResultData?.toString().takeIf { streamKind == "tool_completed" },
+            "stepIndex" to index,
+            "startedAtMs" to step.startedAtMs,
+            "started_at_ms" to step.startedAtMs,
+            "finishedAtMs" to step.finishedAtMs,
+            "finished_at_ms" to step.finishedAtMs,
+            "durationMs" to card["duration_ms"],
+            "duration_ms" to card["duration_ms"],
+            "pageDiagnostics" to pageDiagnostics,
+            "page_diagnostics" to pageDiagnostics,
+            "tokenUsage" to tokenUsage,
+            "token_usage" to tokenUsage,
+            "tokenUsageTotal" to tokenUsage?.get("total_tokens"),
+            "token_usage_total" to tokenUsage?.get("total_tokens"),
+            "spanKind" to "vlm_step",
+            "span_kind" to "vlm_step",
+            "parentSpanKind" to "vlm_task",
+            "parent_span_kind" to "vlm_task",
+            "compile_kind" to "vlm_step"
+        ).filterValues { it != null }
+        try {
+            onMessagePushListener?.onVlmToolEvent(payload)
+        } catch (e: Exception) {
+            OmniLog.e(Tag, "通知VLM步骤事件失败: ${e.message}")
+        }
+    }
+
+    private fun actionTitle(action: UIAction): String {
+        return when (action) {
+            is ClickAction -> "点击 ${action.targetDescription}"
+            is InputTextAction -> "输入文本 ${action.targetDescription}"
+            is SwipeAction -> "滚动 ${action.targetDescription}"
+            is LongPressAction -> "长按 ${action.targetDescription}"
+            is OpenAppAction -> "打开应用"
+            is PressKeyAction -> when (action.key.lowercase()) {
+                "home" -> "返回桌面"
+                "back" -> "返回"
+                "enter" -> "确认"
+                else -> "按键 ${action.key}"
+            }
+            is GetStateAction -> "刷新页面状态"
+            is FunctionRunAction -> "执行工具 ${action.functionId}"
+            is WaitAction -> "旧版停留"
+            is RecordAction -> "记录信息"
+            is FinishedAction -> "完成任务"
+            is RequireUserChoiceAction -> "请求用户选择"
+            is RequireUserConfirmationAction -> "请求用户确认"
+            is InfoAction -> "请求用户协助"
+            is FeedbackAction -> "反馈"
+            is AbortAction -> "中止任务"
+        }
+    }
+
+    private fun actionParams(action: UIAction): Map<String, Any?> {
+        return when (action) {
+            is ClickAction -> linkedMapOf(
+                "target_description" to action.targetDescription,
+                "x" to action.x,
+                "y" to action.y
+            )
+            is InputTextAction -> linkedMapOf(
+                "target_description" to action.targetDescription,
+                "text" to action.text,
+                "x" to action.x,
+                "y" to action.y
+            )
+            is SwipeAction -> linkedMapOf(
+                "target_description" to action.targetDescription,
+                "x1" to action.x1,
+                "y1" to action.y1,
+                "x2" to action.x2,
+                "y2" to action.y2,
+                "duration_ms" to action.durationMs
+            )
+            is LongPressAction -> linkedMapOf(
+                "target_description" to action.targetDescription,
+                "x" to action.x,
+                "y" to action.y
+            )
+            is OpenAppAction -> linkedMapOf("package_name" to action.packageName)
+            is PressKeyAction -> linkedMapOf("key" to action.key)
+            is GetStateAction -> linkedMapOf("reason" to action.reason)
+            is FunctionRunAction -> linkedMapOf(
+                "function_id" to action.functionId,
+                "arguments" to action.arguments.toRunLogAny()
+            )
+            is WaitAction -> emptyMap()
+            is RecordAction -> linkedMapOf("content" to action.content)
+            is FinishedAction -> linkedMapOf("content" to action.content)
+            is RequireUserChoiceAction -> linkedMapOf(
+                "options" to action.options,
+                "prompt" to action.prompt
+            )
+            is RequireUserConfirmationAction -> linkedMapOf("prompt" to action.prompt)
+            is InfoAction -> linkedMapOf("value" to action.value)
+            is FeedbackAction -> linkedMapOf("value" to action.value)
+            is AbortAction -> linkedMapOf("value" to action.value)
+        }
+    }
+
+    private fun JsonElement.toRunLogAny(): Any? =
+        when (this) {
+            is JsonNull -> null
+            is JsonObject -> entries.associate { (key, value) -> key to value.toRunLogAny() }
+            is JsonArray -> map { it.toRunLogAny() }
+            is JsonPrimitive -> {
+                if (isString) {
+                    contentOrNull
+                } else {
+                    booleanOrNull ?: longOrNull ?: doubleOrNull ?: contentOrNull
+                }
+            }
+        }
+
     fun start(
         context: Context,
         goal: String,
@@ -262,7 +935,8 @@ open class VLMOperationTask(
         packageName: String?,
         onTaskFinishListener: () -> Unit,
         skipGoHome: Boolean = false,  // 是否跳过回到主页，从当前页面开始执行
-        stepSkillGuidance: String = ""
+        stepSkillGuidance: String = "",
+        disableOmniFlowRecall: Boolean = false
     ) {
         this.goal = goal;
         this.taskContext = context
@@ -272,6 +946,14 @@ open class VLMOperationTask(
             val currentPackageName = packageName ?: (AccessibilityController.Companion.getPackageName() ?: "")
             val installedApps = AccessibilityController.Companion.mapInstalledApplications()
             val shouldSummary = (needSummary || hasSummaryIntent(goal))
+            InternalRunLogStore.beginRun(
+                context = context,
+                runId = id,
+                goal = goal,
+                source = "vlm",
+                toolName = "vlm_task",
+                operationDescription = goal
+            )
 
             executionRecordId = DatabaseHelper.saveExecutionRecord(
                 context,
@@ -306,7 +988,8 @@ open class VLMOperationTask(
                         skipGoHome = skipGoHome,
                         summary = shouldSummary,
                         currentStepGoal = goal,
-                        stepSkillGuidance = stepSkillGuidance
+                        stepSkillGuidance = stepSkillGuidance,
+                        disableOmniFlowRecall = disableOmniFlowRecall
                     )
                 } else {
                     vlmOperationService.executeTask(
@@ -318,11 +1001,13 @@ open class VLMOperationTask(
                         skipGoHome = skipGoHome,  // 使用传入的 skipGoHome 参数
                         summary = shouldSummary,
                         currentStepGoal = goal,
-                        stepSkillGuidance = stepSkillGuidance
+                        stepSkillGuidance = stepSkillGuidance,
+                        disableOmniFlowRecall = disableOmniFlowRecall
 
                     )
                 }
                 OmniLog.d(Tag, "VLM Operation Task Finished: $taskExecutionReport")
+                throwIfCancellationRequested("task_report_ready")
                 val finishType = when {
                     taskExecutionReport.success -> TaskFinishType.FINISH
                     else -> TaskFinishType.ERROR
@@ -342,72 +1027,103 @@ open class VLMOperationTask(
                 } else {
                     SummaryPushResult()
                 }
+                appendInternalRunLog(context, taskExecutionReport)
 
-                if (taskExecutionReport.success) {
-                    notifyTerminalResult(
-                        VlmTaskTerminalResult(
-                            status = VlmTaskTerminalStatus.FINISHED,
-                            message = extractFinishedContent(taskExecutionReport),
-                            finishedContent = extractFinishedContent(taskExecutionReport),
-                            summaryText = summaryResult.summaryText,
-                            needSummary = shouldSummary,
-                            feedback = taskExecutionReport.feedback,
-                            summaryUnavailable = summaryResult.summaryUnavailable
+                finalizeTerminalOnce {
+                    if (taskExecutionReport.success) {
+                        notifyTerminalResult(
+                            VlmTaskTerminalResult(
+                                status = VlmTaskTerminalStatus.FINISHED,
+                                message = extractFinishedContent(taskExecutionReport),
+                                finishedContent = extractFinishedContent(taskExecutionReport),
+                                summaryText = summaryResult.summaryText,
+                                needSummary = shouldSummary,
+                                feedback = taskExecutionReport.feedback,
+                                summaryUnavailable = summaryResult.summaryUnavailable
+                            )
                         )
+                    } else {
+                        val errorMessage = finishMessage.ifBlank { "任务执行失败" }
+                        notifyTerminalResult(
+                            VlmTaskTerminalResult(
+                                status = VlmTaskTerminalStatus.ERROR,
+                                message = errorMessage,
+                                finishedContent = null,
+                                summaryText = summaryResult.summaryText,
+                                errorMessage = errorMessage,
+                                needSummary = shouldSummary,
+                                feedback = taskExecutionReport.feedback,
+                                summaryUnavailable = summaryResult.summaryUnavailable
+                            )
+                        )
+                    }
+                    onTaskStop(finishType, finishMessage)
+                    onTaskDestroy()
+                }
+            } catch (e: PrivacyBlockedException) {
+                finalizeTerminalOnce {
+                    InternalRunLogStore.finishRun(
+                        context = context,
+                        runId = id,
+                        success = false,
+                        doneReason = "error",
+                        errorMessage = e.message ?: "应用未授权，已被隐私设置限制"
                     )
-                } else {
-                    val errorMessage = finishMessage.ifBlank { "任务执行失败" }
                     notifyTerminalResult(
                         VlmTaskTerminalResult(
                             status = VlmTaskTerminalStatus.ERROR,
-                            message = errorMessage,
-                            finishedContent = null,
-                            summaryText = summaryResult.summaryText,
-                            errorMessage = errorMessage,
-                            needSummary = shouldSummary,
-                            feedback = taskExecutionReport.feedback,
-                            summaryUnavailable = summaryResult.summaryUnavailable
+                            message = e.message ?: "应用未授权，已被隐私设置限制",
+                            errorMessage = e.message ?: "应用未授权，已被隐私设置限制",
+                            needSummary = needSummary || hasSummaryIntent(goal)
                         )
                     )
+                    onTaskStop(TaskFinishType.ERROR, e.message ?: "应用未授权，已被隐私设置限制")
+                    onTaskDestroy()
                 }
-                onTaskStop(finishType, finishMessage)
-                onTaskDestroy()
-            } catch (e: PrivacyBlockedException) {
-                notifyTerminalResult(
-                    VlmTaskTerminalResult(
-                        status = VlmTaskTerminalStatus.ERROR,
-                        message = e.message ?: "应用未授权，已被隐私设置限制",
-                        errorMessage = e.message ?: "应用未授权，已被隐私设置限制",
-                        needSummary = needSummary || hasSummaryIntent(goal)
-                    )
-                )
-                onTaskStop(TaskFinishType.ERROR, e.message ?: "应用未授权，已被隐私设置限制")
-                onTaskDestroy()
             } catch (e: Http429Exception) {
-                notifyTerminalResult(
-                    VlmTaskTerminalResult(
-                        status = VlmTaskTerminalStatus.ERROR,
-                        message = e.message ?: "请求过于频繁",
-                        errorMessage = e.message ?: "请求过于频繁",
-                        needSummary = needSummary || hasSummaryIntent(goal)
+                finalizeTerminalOnce {
+                    InternalRunLogStore.finishRun(
+                        context = context,
+                        runId = id,
+                        success = false,
+                        doneReason = "error",
+                        errorMessage = e.message ?: "请求过于频繁"
                     )
-                )
-                onTaskStop(TaskFinishType.ERROR, e.message)
-                onTaskDestroy()
+                    notifyTerminalResult(
+                        VlmTaskTerminalResult(
+                            status = VlmTaskTerminalStatus.ERROR,
+                            message = e.message ?: "请求过于频繁",
+                            errorMessage = e.message ?: "请求过于频繁",
+                            needSummary = needSummary || hasSummaryIntent(goal)
+                        )
+                    )
+                    onTaskStop(TaskFinishType.ERROR, e.message)
+                    onTaskDestroy()
+                }
             } catch (e: CancellationException) {
                 OmniLog.i(Tag, "VLM Operation Task cancelled")
+                finalizeCancellationAsync(e.message ?: "任务已取消")
             } catch (e: Exception) {
                 OmniLog.e(Tag, "VLM Operation Task Error: ${e.message}")
-                notifyTerminalResult(
-                    VlmTaskTerminalResult(
-                        status = VlmTaskTerminalStatus.ERROR,
-                        message = e.message ?: "任务执行异常",
-                        errorMessage = e.message ?: "任务执行异常",
-                        needSummary = needSummary || hasSummaryIntent(goal)
+                finalizeTerminalOnce {
+                    InternalRunLogStore.finishRun(
+                        context = context,
+                        runId = id,
+                        success = false,
+                        doneReason = "error",
+                        errorMessage = e.message ?: "任务执行异常"
                     )
-                )
-                onTaskStop(TaskFinishType.ERROR, e.message ?: "任务执行异常")
-                onTaskDestroy()
+                    notifyTerminalResult(
+                        VlmTaskTerminalResult(
+                            status = VlmTaskTerminalStatus.ERROR,
+                            message = e.message ?: "任务执行异常",
+                            errorMessage = e.message ?: "任务执行异常",
+                            needSummary = needSummary || hasSummaryIntent(goal)
+                        )
+                    )
+                    onTaskStop(TaskFinishType.ERROR, e.message ?: "任务执行异常")
+                    onTaskDestroy()
+                }
             }
 
         }
@@ -459,6 +1175,8 @@ open class VLMOperationTask(
             } catch (e: PrivacyBlockedException) {
                 onTaskStop(TaskFinishType.ERROR, e.message ?: "应用未授权，已被隐私设置限制")
                 onTaskDestroy()
+            } catch (e: CancellationException) {
+                finalizeCancellationAsync(e.message ?: "任务已取消")
             } catch (e: Exception) {
                 onTaskStop(TaskFinishType.ERROR, e.message ?: "任务执行异常")
                 onTaskDestroy()
@@ -470,8 +1188,16 @@ open class VLMOperationTask(
         super.onTaskStop(finishType, message)
         // 更新执行记录的状态
         if (finishType != TaskFinishType.WAITING_INPUT && finishType != TaskFinishType.USER_PAUSED && taskContext != null) {
-            DatabaseHelper.updateExecutionRecordStatus(executionRecordId, finishType.toStatus())
+            DatabaseHelper.updateExecutionRecordStatus(executionRecordId, finishType.toExecutionRecordStatus())
         }
+    }
+
+    private fun TaskFinishType.toExecutionRecordStatus(): String = when (this) {
+        TaskFinishType.FINISH -> "success"
+        TaskFinishType.ERROR -> "failed"
+        TaskFinishType.CANCEL -> "cancelled"
+        TaskFinishType.WAITING_INPUT -> "waiting"
+        TaskFinishType.USER_PAUSED -> "paused"
     }
 
     private fun hasSummaryIntent(goal: String?): Boolean {
@@ -497,11 +1223,22 @@ open class VLMOperationTask(
         val currentPackage = AccessibilityController.getPackageName().orEmpty()
         if (currentPackage == packageName) {
             OmniLog.i(Tag, "Open-app fast path hit: already in target package=$packageName")
+            val now = System.currentTimeMillis()
             return TaskExecutionReport(
                 success = true,
                 goal = goal,
-                totalSteps = 0,
-                executionTrace = emptyList(),
+                totalSteps = 1,
+                executionTrace = listOf(
+                    UIStep(
+                        observation = "当前已在目标应用：$packageName",
+                        thought = "目标应用已经打开，无需重复启动。",
+                        action = OpenAppAction(packageName = packageName),
+                        result = "目标应用已打开",
+                        packageName = packageName,
+                        startedAtMs = now,
+                        finishedAtMs = now
+                    )
+                ),
                 finalContext = UIContext(
                     overallTask = goal,
                     currentStepGoal = goal,
@@ -511,15 +1248,30 @@ open class VLMOperationTask(
             )
         }
 
+        val launchStartedAt = System.currentTimeMillis()
         val launchResult = androidDeviceOperator.launchApplication(packageName)
+        val launchFinishedAt = System.currentTimeMillis()
         val afterLaunchPackage = AccessibilityController.getPackageName().orEmpty()
-        if (launchResult.success && afterLaunchPackage == packageName) {
-            OmniLog.i(Tag, "Open-app fast path hit: launched target package=$packageName")
+        if (launchResult.success) {
+            OmniLog.i(
+                Tag,
+                "Open-app fast path hit: launch accepted target=$packageName observed=$afterLaunchPackage"
+            )
             return TaskExecutionReport(
                 success = true,
                 goal = goal,
-                totalSteps = 0,
-                executionTrace = emptyList(),
+                totalSteps = 1,
+                executionTrace = listOf(
+                    UIStep(
+                        observation = "准备打开目标应用：$packageName",
+                        thought = "启动目标应用以完成用户请求。",
+                        action = OpenAppAction(packageName = packageName),
+                        result = launchResult.message.ifBlank { "已打开目标应用" },
+                        packageName = afterLaunchPackage,
+                        startedAtMs = launchStartedAt,
+                        finishedAtMs = launchFinishedAt
+                    )
+                ),
                 finalContext = UIContext(
                     overallTask = goal,
                     currentStepGoal = goal,
@@ -653,6 +1405,7 @@ $goal
                 // 1. 等待主聊天页面准备就绪的回调
                 OmniLog.d(Tag, "等待主聊天页面准备就绪通知...")
                 summarySheetReadyChannel.receive()
+                throwIfCancellationRequested("summary_sheet_ready")
                 OmniLog.d(Tag, "主聊天页面已准备就绪，开始推送总结...")
 
                 // 2. 先推送"总结开始"消息，让前端显示"总结中"状态
@@ -759,6 +1512,24 @@ $goal
         return androidDeviceOperator.slideCoordinate(x1, y1, x2, y2, duration)
     }
 
+    override suspend fun slideCoordinateWithContext(
+        x1: Float,
+        y1: Float,
+        x2: Float,
+        y2: Float,
+        duration: Long,
+        targetDescription: String,
+    ): OperationResult {
+        return androidDeviceOperator.slideCoordinateWithContext(
+            x1 = x1,
+            y1 = y1,
+            x2 = x2,
+            y2 = y2,
+            duration = duration,
+            targetDescription = targetDescription,
+        )
+    }
+
     override suspend fun goHome(): OperationResult {
         return androidDeviceOperator.goHome()
     }
@@ -798,34 +1569,29 @@ $goal
     fun finishTask() {
         OmniLog.d(Tag, "Finishing VLM Operation Task")
         isCancellationRequested = true
-        notifyTerminalResult(
-            VlmTaskTerminalResult(
-                status = VlmTaskTerminalStatus.CANCELLED,
-                message = "任务已取消",
-                needSummary = needSummary || hasSummaryIntent(goal)
-            )
-        )
-        super.finishTask {
-        }
-        taskScope.cancel()
+        unblockWaitingReceivers()
+        cancelRunningJob("任务已取消")
+        finalizeCancellationAsync("任务已取消")
+    }
+
+    fun completeByUser(message: String = "任务已完成") {
+        OmniLog.d(Tag, "Completing VLM Operation Task by user")
+        isCancellationRequested = true
+        unblockWaitingReceivers()
+        cancelRunningJob(message)
+        finalizeUserCompletionAsync(message)
     }
 
     fun cancelTask() {
-        OmniLog.d(Tag, "Cancelling VLM Operation Task - cancelling taskScope immediately")
-        isCancellationRequested = true
-        notifyTerminalResult(
-            VlmTaskTerminalResult(
-                status = VlmTaskTerminalStatus.CANCELLED,
-                message = "任务已取消",
-                needSummary = needSummary || hasSummaryIntent(goal)
-            )
-        )
-        taskScope.cancel("Task cancelled by user")
+        finishTask()
     }
 
     override suspend fun onTaskDestroy() {
         AccessibilityController.Companion.restoreKeyboard()
-        onTaskFinishListener.invoke()
+        if (this::onTaskFinishListener.isInitialized) {
+            runCatching { onTaskFinishListener.invoke() }
+                .onFailure { OmniLog.e(Tag, "onTaskFinishListener failed: ${it.message}") }
+        }
         super.onTaskDestroy()
     }
 

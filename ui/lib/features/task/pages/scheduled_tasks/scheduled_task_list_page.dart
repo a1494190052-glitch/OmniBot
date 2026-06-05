@@ -14,7 +14,7 @@ import 'package:ui/utils/ui.dart';
 import 'package:ui/utils/cache_util.dart';
 import 'package:ui/widgets/common_app_bar.dart';
 import 'package:ui/widgets/image/cached_image.dart';
-import 'package:ui/l10n/legacy_text_localizer.dart';
+import 'package:ui/l10n/app_text_localizer.dart';
 
 /// 定时任务列表页面
 class ScheduledTaskListPage extends StatefulWidget {
@@ -100,7 +100,7 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
         _isLoading = false;
       });
     } catch (e) {
-      print('Error loading scheduled page data: $e');
+      debugPrint('Error loading scheduled page data: $e');
       if (!mounted) return;
       setState(() {
         _isLoading = false;
@@ -126,7 +126,7 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
         _scheduledTasks = tasks;
       });
     } catch (e) {
-      print('Error reloading scheduled tasks: $e');
+      debugPrint('Error reloading scheduled tasks: $e');
     }
   }
 
@@ -148,7 +148,7 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
         _exactAlarms = items;
       });
     } catch (e) {
-      print('Error reloading exact alarms: $e');
+      debugPrint('Error reloading exact alarms: $e');
     }
   }
 
@@ -187,20 +187,29 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
                 ? BorderSide(color: palette.borderSubtle)
                 : BorderSide.none,
           ),
-          title: Text(LegacyTextLocalizer.isEnglish ? 'Delete scheduled task' : '删除定时任务', style: TextStyle(color: palette.textPrimary)),
+          title: Text(
+            AppTextLocalizer.choose(en: 'Delete scheduled task', zh: '删除定时任务'),
+            style: TextStyle(color: palette.textPrimary),
+          ),
           content: Text(
-            LegacyTextLocalizer.isEnglish ? 'Are you sure you want to delete the scheduled task "${task.title}"?' : '确定要删除"${task.title}"的定时任务吗？',
+            AppTextLocalizer.choose(
+              en: 'Are you sure you want to delete the scheduled task "${task.title}"?',
+              zh: '确定要删除"${task.title}"的定时任务吗？',
+            ),
             style: TextStyle(color: palette.textSecondary),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: Text(LegacyTextLocalizer.localize('取消'), style: TextStyle(color: palette.textSecondary)),
+              child: Text(
+                AppTextLocalizer.text('取消'),
+                style: TextStyle(color: palette.textSecondary),
+              ),
             ),
             TextButton(
               onPressed: () => Navigator.pop(context, true),
               style: TextButton.styleFrom(foregroundColor: AppColors.alertRed),
-              child: Text(LegacyTextLocalizer.isEnglish ? 'Delete' : '删除'),
+              child: Text(AppTextLocalizer.choose(en: 'Delete', zh: '删除')),
             ),
           ],
         );
@@ -215,7 +224,12 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(LegacyTextLocalizer.isEnglish ? 'Scheduled task deleted' : '定时任务已删除'),
+            content: Text(
+              AppTextLocalizer.choose(
+                en: 'Scheduled task deleted',
+                zh: '定时任务已删除',
+              ),
+            ),
             behavior: SnackBarBehavior.floating,
             backgroundColor: context.isDarkTheme
                 ? context.omniPalette.surfaceElevated
@@ -247,20 +261,29 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
                 ? BorderSide(color: palette.borderSubtle)
                 : BorderSide.none,
           ),
-          title: Text(LegacyTextLocalizer.isEnglish ? 'Delete alarm' : '删除闹钟', style: TextStyle(color: palette.textPrimary)),
+          title: Text(
+            AppTextLocalizer.choose(en: 'Delete alarm', zh: '删除闹钟'),
+            style: TextStyle(color: palette.textPrimary),
+          ),
           content: Text(
-            LegacyTextLocalizer.isEnglish ? 'Are you sure you want to delete "${alarm.title}"?' : '确定要删除"${alarm.title}"吗？',
+            AppTextLocalizer.choose(
+              en: 'Are you sure you want to delete "${alarm.title}"?',
+              zh: '确定要删除"${alarm.title}"吗？',
+            ),
             style: TextStyle(color: palette.textSecondary),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: Text(LegacyTextLocalizer.localize('取消'), style: TextStyle(color: palette.textSecondary)),
+              child: Text(
+                AppTextLocalizer.text('取消'),
+                style: TextStyle(color: palette.textSecondary),
+              ),
             ),
             TextButton(
               onPressed: () => Navigator.pop(context, true),
               style: TextButton.styleFrom(foregroundColor: AppColors.alertRed),
-              child: Text(LegacyTextLocalizer.isEnglish ? 'Delete' : '删除'),
+              child: Text(AppTextLocalizer.choose(en: 'Delete', zh: '删除')),
             ),
           ],
         );
@@ -276,11 +299,84 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
 
     if (deleted) {
       await _reloadExactAlarmsOnly();
-      showToast(LegacyTextLocalizer.isEnglish ? 'Alarm deleted' : '闹钟已删除', type: ToastType.success);
+      showToast(
+        AppTextLocalizer.choose(en: 'Alarm deleted', zh: '闹钟已删除'),
+        type: ToastType.success,
+      );
       return;
     }
 
-    showToast(LegacyTextLocalizer.isEnglish ? 'Failed to delete alarm, please try again later' : '删除闹钟失败，请稍后重试', type: ToastType.error);
+    showToast(
+      AppTextLocalizer.choose(
+        en: 'Failed to delete alarm, please try again later',
+        zh: '删除闹钟失败，请稍后重试',
+      ),
+      type: ToastType.error,
+    );
+  }
+
+  Future<void> _deleteAllExactAlarms({bool confirm = true}) async {
+    if (confirm) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) {
+          final palette = context.omniPalette;
+          return AlertDialog(
+            backgroundColor: context.isDarkTheme
+                ? palette.surfacePrimary
+                : null,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+              side: context.isDarkTheme
+                  ? BorderSide(color: palette.borderSubtle)
+                  : BorderSide.none,
+            ),
+            title: Text(
+              AppTextLocalizer.choose(en: 'Stop all alarms', zh: '停止全部闹钟'),
+              style: TextStyle(color: palette.textPrimary),
+            ),
+            content: Text(
+              AppTextLocalizer.choose(
+                en: 'Stop and delete all in-app alarms?',
+                zh: '确定停止并删除全部应用内闹钟吗？',
+              ),
+              style: TextStyle(color: palette.textSecondary),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text(
+                  AppTextLocalizer.text('取消'),
+                  style: TextStyle(color: palette.textSecondary),
+                ),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.alertRed,
+                ),
+                child: Text(AppTextLocalizer.choose(en: 'Stop', zh: '停止')),
+              ),
+            ],
+          );
+        },
+      );
+      if (confirmed != true) return;
+    }
+
+    final deleted = await AssistsMessageService.deleteAllAgentExactAlarms();
+    if (!mounted) return;
+
+    await _reloadExactAlarmsOnly();
+    showToast(
+      deleted
+          ? (AppTextLocalizer.choose(en: 'All alarms stopped', zh: '已停止全部闹钟'))
+          : (AppTextLocalizer.choose(
+              en: 'Failed to stop alarms, please try again later',
+              zh: '停止闹钟失败，请稍后重试',
+            )),
+      type: deleted ? ToastType.success : ToastType.error,
+    );
   }
 
   void _showSuccessOverlay(ScheduledTask task) {
@@ -357,7 +453,10 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          LegacyTextLocalizer.isEnglish ? 'Scheduled task updated' : '定时任务已更新',
+                          AppTextLocalizer.choose(
+                            en: 'Scheduled task updated',
+                            zh: '定时任务已更新',
+                          ),
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
@@ -368,7 +467,10 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          LegacyTextLocalizer.isEnglish ? 'Will execute at ${task.getDisplayTimeText()}' : '将在 ${task.getDisplayTimeText()} 执行',
+                          AppTextLocalizer.choose(
+                            en: 'Will execute at ${task.getDisplayTimeText()}',
+                            zh: '将在 ${task.getDisplayTimeText()} 执行',
+                          ),
                           style: TextStyle(
                             fontSize: 12,
                             color: rootContext.isDarkTheme
@@ -427,7 +529,10 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
       backgroundColor: context.isDarkTheme
           ? palette.pageBackground
           : AppColors.background,
-      appBar: CommonAppBar(title: LegacyTextLocalizer.isEnglish ? 'Scheduled' : '定时', primary: true),
+      appBar: CommonAppBar(
+        title: AppTextLocalizer.choose(en: 'Scheduled', zh: '定时'),
+        primary: true,
+      ),
       body: Column(
         children: [
           const SizedBox(height: 8),
@@ -539,8 +644,17 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
                 ),
                 Row(
                   children: [
-                    _buildTabButton(label: LegacyTextLocalizer.isEnglish ? 'Scheduled Tasks' : '定时任务', tabIndex: _scheduleTab),
-                    _buildTabButton(label: LegacyTextLocalizer.isEnglish ? 'Alarms' : '闹钟列表', tabIndex: _alarmTab),
+                    _buildTabButton(
+                      label: AppTextLocalizer.choose(
+                        en: 'Scheduled Tasks',
+                        zh: '定时任务',
+                      ),
+                      tabIndex: _scheduleTab,
+                    ),
+                    _buildTabButton(
+                      label: AppTextLocalizer.choose(en: 'Alarms', zh: '闹钟列表'),
+                      tabIndex: _alarmTab,
+                    ),
                   ],
                 ),
               ],
@@ -594,12 +708,29 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
 
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: _exactAlarms.length,
+      itemCount: _exactAlarms.length + 1,
       itemBuilder: (context, index) {
-        final alarm = _exactAlarms[index];
+        if (index == 0) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: () => _deleteAllExactAlarms(),
+                icon: const Icon(Icons.alarm_off, size: 16),
+                label: Text(
+                  AppTextLocalizer.choose(en: 'Stop all', zh: '停止全部'),
+                ),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.alertRed,
+                ),
+              ),
+            ),
+          );
+        }
         return Padding(
           padding: const EdgeInsets.only(bottom: 8),
-          child: _buildAlarmItem(alarm),
+          child: _buildAlarmItem(_exactAlarms[index - 1]),
         );
       },
     );
@@ -622,7 +753,7 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
           ),
           const SizedBox(height: 16),
           Text(
-            LegacyTextLocalizer.isEnglish ? 'No scheduled tasks' : '暂无定时任务',
+            AppTextLocalizer.choose(en: 'No scheduled tasks', zh: '暂无定时任务'),
             style: TextStyle(
               fontSize: 16,
               color: context.isDarkTheme
@@ -632,7 +763,10 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
           ),
           const SizedBox(height: 8),
           Text(
-            LegacyTextLocalizer.isEnglish ? 'Tap the alarm icon in task records to add' : '在任务记录中点击闹钟图标添加',
+            AppTextLocalizer.choose(
+              en: 'Tap the alarm icon in task records to add',
+              zh: '在任务记录中点击闹钟图标添加',
+            ),
             style: TextStyle(
               fontSize: 14,
               color: context.isDarkTheme
@@ -660,7 +794,7 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
           ),
           const SizedBox(height: 16),
           Text(
-            LegacyTextLocalizer.isEnglish ? 'No in-app alarms' : '暂无应用内闹钟',
+            AppTextLocalizer.choose(en: 'No in-app alarms', zh: '暂无应用内闹钟'),
             style: TextStyle(
               fontSize: 16,
               color: context.isDarkTheme
@@ -670,7 +804,10 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
           ),
           const SizedBox(height: 8),
           Text(
-            LegacyTextLocalizer.isEnglish ? 'Alarms created via Agent will appear here' : '通过统一 Agent 创建 exact_alarm 后会显示在这里',
+            AppTextLocalizer.choose(
+              en: 'Alarms created via Agent will appear here',
+              zh: '通过统一 Agent 创建 exact_alarm 后会显示在这里',
+            ),
             style: TextStyle(
               fontSize: 14,
               color: context.isDarkTheme
@@ -799,6 +936,15 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
               ),
             ),
           ),
+          const SizedBox(height: 18),
+          TextButton.icon(
+            onPressed: () => _deleteAllExactAlarms(confirm: false),
+            icon: const Icon(Icons.alarm_off, size: 16),
+            label: Text(
+              AppTextLocalizer.choose(en: 'Stop all alarms', zh: '停止全部闹钟'),
+            ),
+            style: TextButton.styleFrom(foregroundColor: AppColors.alertRed),
+          ),
         ],
       ),
     );
@@ -914,9 +1060,11 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
                             !task.notificationEnabled) ...[
                           const SizedBox(width: 6),
                           Text(
-                            Localizations.localeOf(context).languageCode == 'en'
-                                ? 'Notifications off'
-                                : '通知关闭',
+                            AppTextLocalizer.choose(
+                              zh: '通知关闭',
+                              en: 'Notifications off',
+                              locale: Localizations.localeOf(context),
+                            ),
                             style: TextStyle(
                               fontSize: 10,
                               color: secondaryTextColor,
@@ -985,7 +1133,7 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
                                   : null,
                             ),
                             child: Text(
-                              LegacyTextLocalizer.localize('每日'),
+                              AppTextLocalizer.text('每日'),
                               style: TextStyle(
                                 fontSize: 10,
                                 color: accentColor,
@@ -1032,7 +1180,7 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
       future: CacheUtil.getAppIconByPackageName(packageName),
       builder: (context, snapshot) {
         if (snapshot.hasData && snapshot.data != null) {
-          final iconPath = snapshot.data!.icon_path;
+          final iconPath = snapshot.data!.iconPath;
           if (iconPath.isNotEmpty) {
             return _buildGrayFiltered(
               enabled: isExpired,

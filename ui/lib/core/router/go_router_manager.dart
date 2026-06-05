@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:ui/features/home/pages/chat/chat_page.dart';
@@ -41,7 +40,7 @@ class GoRouterManager {
       RouteObserver<ModalRoute<void>>();
 
   static void setInitialRoute(String? route) {
-    print('[GoRouterManager] setInitialRoute: $route');
+    debugPrint('[GoRouterManager] setInitialRoute: $route');
     _initialRoute = route;
   }
 
@@ -181,15 +180,20 @@ class GoRouterManager {
         .map(_wrapRoute)
         .toList();
 
-    print('initialLocation: $_initialRoute');
+    debugPrint('initialLocation: $_initialRoute');
 
     // Determine effective initial location with onboarding guard
     final welcomeCompleted =
-        StorageService.getBool(StorageKeys.welcomeCompleted,
-            defaultValue: false) ??
+        StorageService.getBool(
+          StorageKeys.welcomeCompleted,
+          defaultValue: false,
+        ) ??
         false;
-    final requestedInitial = _initialRoute ?? homeRoute;
-    final effectiveInitial = (!welcomeCompleted &&
+    // Secondary engines are attached to floating/embedded surfaces after
+    // startup. Keep them blank until native pushes the real overlay route.
+    final requestedInitial = _initialRoute ?? (_isSubEngine ? '/' : homeRoute);
+    final effectiveInitial =
+        (!welcomeCompleted &&
             !requestedInitial.startsWith('/welcome') &&
             !_isSubEngine)
         ? '/welcome/choice'
@@ -201,9 +205,11 @@ class GoRouterManager {
       redirect: _isSubEngine
           ? null
           : (context, state) {
-              final completed = StorageService.getBool(
-                      StorageKeys.welcomeCompleted,
-                      defaultValue: false) ??
+              final completed =
+                  StorageService.getBool(
+                    StorageKeys.welcomeCompleted,
+                    defaultValue: false,
+                  ) ??
                   false;
               final location = state.matchedLocation;
               final isWelcomeRoute = location.startsWith('/welcome');
@@ -218,10 +224,7 @@ class GoRouterManager {
               }
               return null;
             },
-      observers: [
-        routeObserver,
-        if (kDebugMode) LoggingRouterObserver(),
-      ],
+      observers: [routeObserver, if (kDebugMode) LoggingRouterObserver()],
       routes: [
         GoRoute(
           path: '/',
@@ -278,10 +281,10 @@ class GoRouterManager {
     Map<String, dynamic>? queryParams,
     RouteOptions? options,
   }) {
-    print(
+    debugPrint(
       '[GoRouterManager] go: $route, extra: $extra, queryParams: $queryParams, options: $options',
     );
-    print('[GoRouterManager] go 调用堆栈: ${StackTrace.current}');
+    debugPrint('[GoRouterManager] go 调用堆栈: ${StackTrace.current}');
     final context = _rootNavigatorKey.currentContext;
     if (context != null) {
       final finalRoute = _normalizeHomeRoute(
@@ -298,10 +301,10 @@ class GoRouterManager {
     Map<String, dynamic>? queryParams,
     RouteOptions? options,
   }) {
-    print(
+    debugPrint(
       '[GoRouterManager] clearAndNavigateTo: $route, extra: $extra, queryParams: $queryParams, options: $options',
     );
-    print('[GoRouterManager] clearAndNavigateTo 调用堆栈: ${StackTrace.current}');
+    debugPrint('[GoRouterManager] clearAndNavigateTo 调用堆栈: ${StackTrace.current}');
     final context = _rootNavigatorKey.currentContext;
     if (context != null) {
       final finalRoute = _normalizeHomeRoute(
@@ -319,10 +322,10 @@ class GoRouterManager {
     RouteOptions? options,
   }) {
     final context = _rootNavigatorKey.currentContext;
-    print(
+    debugPrint(
       '[GoRouterManager] push route: $route, extra: $extra, queryParams: $queryParams, options: $options',
     );
-    print('[GoRouterManager] push context: $context');
+    debugPrint('[GoRouterManager] push context: $context');
     if (context != null) {
       final finalRoute = _normalizeHomeRoute(
         _buildRouteWithQueryParams(route, queryParams),
@@ -344,10 +347,10 @@ class GoRouterManager {
     RouteOptions? options,
   }) async {
     final context = _rootNavigatorKey.currentContext;
-    print(
+    debugPrint(
       '[GoRouterManager] push route(for result): $route, extra: $extra, queryParams: $queryParams, options: $options',
     );
-    print('[GoRouterManager] push context: $context');
+    debugPrint('[GoRouterManager] push context: $context');
     if (context != null) {
       final finalRoute = _normalizeHomeRoute(
         _buildRouteWithQueryParams(route, queryParams),
@@ -359,7 +362,7 @@ class GoRouterManager {
   }
 
   static void pop([Object? result]) {
-    print('[GoRouterManager] pop: $result');
+    debugPrint('[GoRouterManager] pop: $result');
     final context = _rootNavigatorKey.currentContext;
     if (context != null && context.canPop()) {
       context.pop(result);
@@ -374,7 +377,7 @@ class GoRouterManager {
     RouteOptions? options,
   }) {
     final context = _rootNavigatorKey.currentContext;
-    print(
+    debugPrint(
       '[GoRouterManager] pushReplacement route: $route, extra: $extra, queryParams: $queryParams, options: $options',
     );
     if (context != null) {
@@ -389,7 +392,7 @@ class GoRouterManager {
   static bool canPop() {
     final context = _rootNavigatorKey.currentContext;
     final canPop = context?.canPop() ?? false;
-    print('[GoRouterManager] canPop: $canPop');
+    debugPrint('[GoRouterManager] canPop: $canPop');
     return canPop;
   }
 
@@ -416,7 +419,7 @@ class GoRouterManager {
     RouteOptions? options,
   }) {
     final context = _rootNavigatorKey.currentContext;
-    print(
+    debugPrint(
       '[GoRouterManager] resetToHomeAndPush route: $route, extra: $extra, queryParams: $queryParams, options: $options',
     );
     if (context == null) return;
@@ -427,7 +430,7 @@ class GoRouterManager {
 
     // 如果目标是聊天主页（包含 query 参数场景），直接替换到目标路由，不再 push
     if (_isHomeChatRoute(finalRoute)) {
-      print(
+      debugPrint(
         '[GoRouterManager] resetToHomeAndPush: target is home, only clearAndNavigateTo',
       );
       clearAndNavigateTo(finalRoute, extra: extra, options: options);

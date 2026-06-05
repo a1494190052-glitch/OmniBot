@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:ui/l10n/legacy_text_localizer.dart';
+import 'package:ui/l10n/app_text_localizer.dart';
 import '../../models/block_models.dart';
 import '../normal_choices_group.dart';
 import '../buttons_group_two.dart';
@@ -9,9 +9,9 @@ class AppOptionsCard extends StatefulWidget {
   final AppOptionsBlock block;
 
   const AppOptionsCard({
-    Key? key,
+    super.key,
     required this.block,
-  }) : super(key: key);
+  });
 
   @override
   State<AppOptionsCard> createState() => _AppOptionsCardState();
@@ -29,7 +29,7 @@ class _AppOptionsCardState extends State<AppOptionsCard>
       _executing = false;
     });
     _ctrl.reset();
-    print('Confirmed apps: ${_selected.map((a) => a.name).toList()}');
+    debugPrint('Confirmed apps: ${_selected.map((a) => a.name).toList()}');
   }
 
   void onAppCancel() {
@@ -38,7 +38,7 @@ class _AppOptionsCardState extends State<AppOptionsCard>
       _executing = false;
     });
     _ctrl.reset();
-    print('App selection cancelled');
+    debugPrint('App selection cancelled');
   }
 
   void onButtonPressed(ButtonModel button) {
@@ -50,7 +50,7 @@ class _AppOptionsCardState extends State<AppOptionsCard>
   }
 
   void onAppSelectionChanged(List<AppOption> selected) {
-    print('App selection changed');
+    debugPrint('App selection changed');
   }
   
   @override
@@ -80,7 +80,7 @@ class _AppOptionsCardState extends State<AppOptionsCard>
     final b = widget.block;
     return Column(
       children: [
-        BotStatus(status: BotStatusType.hint, hintText: LegacyTextLocalizer.localize('请选择一个应用程序')),
+        BotStatus(status: BotStatusType.hint, hintText: AppTextLocalizer.text('请选择一个应用程序')),
         const SizedBox(height: 8),
         Container(
           margin: const EdgeInsets.symmetric(vertical: 8.0),
@@ -114,11 +114,11 @@ class _AppOptionsCardState extends State<AppOptionsCard>
               if (!widget.block.isConsumed)
                 ButtonsGroupTwo(
                   leftButton: ButtonModel(
-                    text: LegacyTextLocalizer.localize('取消'),
+                    text: AppTextLocalizer.text('取消'),
                     action: 'cancel',
                   ),
                   rightButton: ButtonModel(
-                    text: LegacyTextLocalizer.localize('确认'),
+                    text: AppTextLocalizer.text('确认'),
                     action: 'confirm',
                   ),
                   countdownAnimation: _countdown,

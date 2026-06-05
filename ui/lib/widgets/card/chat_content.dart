@@ -53,12 +53,12 @@ class _ChatContentState extends State<ChatContent> {
         //     child: TextButton(
         //       style: TextButton.styleFrom(
         //         backgroundColor: theme.colorScheme.primary
-        //             .withOpacity(0.1),
+        //             .withValues(alpha: 0.1),
         //         foregroundColor: theme.colorScheme.primary,
         //         disabledBackgroundColor: Colors.grey
-        //             .withOpacity(0.1),
+        //             .withValues(alpha: 0.1),
         //         disabledForegroundColor: Colors.grey
-        //             .withOpacity(0.5),
+        //             .withValues(alpha: 0.5),
         //         shape: RoundedRectangleBorder(
         //           borderRadius: BorderRadius.circular(8.0),
         //         ),

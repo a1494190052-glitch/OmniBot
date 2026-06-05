@@ -6,8 +6,10 @@ import 'package:ui/features/home/pages/chat/tool_activity_utils.dart'
 import 'package:ui/features/home/pages/command_overlay/services/tool_card_detail_gesture_gate.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_transcript.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/terminal_output_utils.dart';
-import 'package:ui/l10n/legacy_text_localizer.dart';
+import 'package:ui/features/task/pages/execution_history/run_log_timeline_page.dart';
+import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/models/chat_message_model.dart';
+import 'package:ui/services/agent_tool_card_policy.dart';
 import 'package:ui/theme/app_colors.dart';
 import 'package:ui/theme/theme_context.dart';
 
@@ -27,16 +29,22 @@ const ValueKey<String> kChatToolActivityStopKey = ValueKey<String>(
   'chat-tool-activity-stop',
 );
 
-const double _kToolActivityRowHeight = 32;
+const double _kToolActivityRowHeight = 38;
+const double _kToolActivityRowGap = 5;
+const double _kToolActivityRowRadius = 10;
 const double _kToolActivitySurfaceRadius = 18;
 const double _kToolActivityPreviewWidth = 94;
 const double _kToolActivityPreviewHeight = 54;
 const double _kToolActivityPreviewOverlap = 30;
 const double _kToolActivitySurfaceHorizontalInset = 20;
+const double _kToolActivityDrawerHorizontalPadding = 6;
+const double _kToolActivityDrawerVerticalPadding = 6;
 const double _kToolActivityDrawerMaxHeight = 264;
-const double _kToolActivityTypeSlotWidth = 34;
-const double _kToolActivityStatusSlotWidth = 42;
+const double _kToolActivityStatusSlotWidth = 48;
+const double _kToolActivityRunLogSlotWidth = 22;
 const double _kToolActivityTrailingSlotWidth = 24;
+const double _kToolActivityAccentWidth = 3;
+const double _kToolActivityAccentGap = 7;
 const double _kToolActivityAttachedBorderReveal = 1.5;
 const Color _kToolActivitySurfaceColor = Color(0xFFF9FCFF);
 const BorderRadius _kToolActivitySurfaceBorderRadius = BorderRadius.only(
@@ -44,7 +52,7 @@ const BorderRadius _kToolActivitySurfaceBorderRadius = BorderRadius.only(
   topRight: Radius.circular(_kToolActivitySurfaceRadius),
 );
 const BorderRadius _kToolActivityPreviewBorderRadius = BorderRadius.all(
-  Radius.circular(18),
+  Radius.circular(10),
 );
 
 class ChatToolActivityStrip extends StatefulWidget {
@@ -93,6 +101,7 @@ class _ChatToolActivityStripState extends State<ChatToolActivityStrip> {
 
   @override
   Widget build(BuildContext context) {
+    final locale = Localizations.localeOf(context);
     final cards = _resolvedCards();
     final activeCard = resolveActiveAgentToolCard(cards);
     if (activeCard == null) {
@@ -110,7 +119,7 @@ class _ChatToolActivityStripState extends State<ChatToolActivityStrip> {
     final isExpanded = _resolvedExpanded && canExpand;
     final previewVisible = widget.showPreviewThumbnail && !isExpanded;
     final activeTranscript = previewVisible
-        ? buildAgentToolTranscript(activeCard)
+        ? buildAgentToolTranscript(activeCard, locale: locale)
         : null;
     if (!canExpand && _resolvedExpanded) {
       _scheduleExpandedResetIfNeeded();
@@ -118,9 +127,9 @@ class _ChatToolActivityStripState extends State<ChatToolActivityStrip> {
     final historyHeight = isExpanded
         ? _resolveHistoryHeight(historyCards)
         : 0.0;
-    final dividerHeight = isExpanded ? 1.0 : 0.0;
+    final historyGapHeight = isExpanded ? _kToolActivityRowGap : 0.0;
     final surfaceHeight =
-        _kToolActivityRowHeight + historyHeight + dividerHeight;
+        _kToolActivityRowHeight + historyHeight + historyGapHeight;
     final collapsedOccupiedHeight =
         _kToolActivityRowHeight +
         (widget.showPreviewThumbnail
@@ -160,7 +169,6 @@ class _ChatToolActivityStripState extends State<ChatToolActivityStrip> {
                 suppressShadow: widget.suppressSurfaceShadow,
                 leadingInset: previewVisible ? collapsedLeadingInset : 0,
                 showPreviewCutout: previewVisible,
-                openActiveCardOnTap: widget.openActiveCardOnTap,
                 onToggle: () => _handleExpandedChanged(!isExpanded),
                 onStopToolCall: widget.onStopToolCall == null
                     ? null
@@ -191,8 +199,9 @@ class _ChatToolActivityStripState extends State<ChatToolActivityStrip> {
                     );
                   },
                   child: previewVisible && activeTranscript != null
-                      ? _TerminalThumbnail(
+                      ? _ToolActivityPreviewThumbnail(
                           key: kChatToolActivityPreviewKey,
+                          cardData: activeCard,
                           transcript: activeTranscript,
                           onTap: () => _openCardDetailSheet(
                             context,
@@ -240,8 +249,11 @@ class _ChatToolActivityStripState extends State<ChatToolActivityStrip> {
   }
 
   double _resolveHistoryHeight(List<Map<String, dynamic>> cards) {
-    final visibleCount = cards.length.clamp(1, 5);
-    final estimated = visibleCount * _kToolActivityRowHeight;
+    final visibleCount = cards.length.clamp(1, 5).toInt();
+    final estimated =
+        (visibleCount * _kToolActivityRowHeight) +
+        (math.max(0, visibleCount - 1) * _kToolActivityRowGap) +
+        (_kToolActivityDrawerVerticalPadding * 2);
     return math.min(_kToolActivityDrawerMaxHeight, estimated.toDouble());
   }
 
@@ -341,7 +353,7 @@ class _ChatToolActivityStripState extends State<ChatToolActivityStrip> {
       }
     });
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(content: Text(LegacyTextLocalizer.localize('停止工具调用失败，请稍后重试'))),
+      SnackBar(content: Text(AppTextLocalizer.text('停止工具调用失败，请稍后重试'))),
     );
   }
 
@@ -389,6 +401,15 @@ class _ChatToolActivityStripState extends State<ChatToolActivityStrip> {
     BuildContext context, {
     required Map<String, dynamic> cardData,
   }) {
+    final locale = Localizations.localeOf(context);
+    final runLogRef = AgentToolCardPolicy.runLogRef(cardData);
+    if (runLogRef.hasRunLog) {
+      return showRunLogTimelineSheet(
+        context,
+        runId: runLogRef.runLogId,
+        title: resolveAgentToolTitle(cardData, locale: locale),
+      );
+    }
     return showAgentToolDetailSheet(context, cardData: cardData);
   }
 }
@@ -434,9 +455,9 @@ class _ChatCommandActivityStripState extends State<ChatCommandActivityStrip> {
     final historyHeight = showHistory
         ? _resolveHistoryHeight(historyCards)
         : 0.0;
-    final dividerHeight = showHistory ? 1.0 : 0.0;
+    final historyGapHeight = showHistory ? _kToolActivityRowGap : 0.0;
     final surfaceHeight =
-        _kToolActivityRowHeight + historyHeight + dividerHeight;
+        _kToolActivityRowHeight + historyHeight + historyGapHeight;
     _reportOccupiedHeight(surfaceHeight);
 
     return AnimatedSize(
@@ -488,8 +509,11 @@ class _ChatCommandActivityStripState extends State<ChatCommandActivityStrip> {
   }
 
   double _resolveHistoryHeight(List<Map<String, dynamic>> cards) {
-    final visibleCount = cards.length.clamp(1, 5);
-    final estimated = visibleCount * _kToolActivityRowHeight;
+    final visibleCount = cards.length.clamp(1, 5).toInt();
+    final estimated =
+        (visibleCount * _kToolActivityRowHeight) +
+        (math.max(0, visibleCount - 1) * _kToolActivityRowGap) +
+        (_kToolActivityDrawerVerticalPadding * 2);
     return math.min(_kToolActivityDrawerMaxHeight, estimated.toDouble());
   }
 
@@ -567,9 +591,6 @@ class _CommandDrawerSurface extends StatelessWidget {
     final surfaceColor = context.isDarkTheme
         ? palette.surfacePrimary
         : _kToolActivitySurfaceColor;
-    final dividerColor = context.isDarkTheme
-        ? palette.borderSubtle.withValues(alpha: 0.52)
-        : const Color(0x140F2034);
     final bottomReveal = suppressShadow
         ? _kToolActivityAttachedBorderReveal
         : 0.0;
@@ -617,17 +638,23 @@ class _CommandDrawerSurface extends StatelessWidget {
             AnimatedContainer(
               duration: const Duration(milliseconds: 220),
               curve: Curves.easeOutCubic,
-              height: expanded ? 1 : 0,
-              margin: const EdgeInsets.only(left: 18, right: 10),
-              color: dividerColor,
+              height: expanded ? _kToolActivityRowGap : 0,
             ),
-            ToolActivityRow(
-              card: activeCard,
-              leadingInset: leadingInset,
-              onTap: () => onSelectCommand(activeCard),
-              trailing: canExpand
-                  ? _ActivityBarTrailing(expanded: expanded, onToggle: onToggle)
-                  : null,
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: _kToolActivityDrawerHorizontalPadding,
+              ),
+              child: ToolActivityRow(
+                card: activeCard,
+                leadingInset: leadingInset,
+                onTap: () => onSelectCommand(activeCard),
+                trailing: canExpand
+                    ? _ActivityBarTrailing(
+                        expanded: expanded,
+                        onToggle: onToggle,
+                      )
+                    : null,
+              ),
             ),
           ],
         ),
@@ -646,7 +673,6 @@ class _ActivityDrawerSurface extends StatelessWidget {
     required this.suppressShadow,
     required this.leadingInset,
     required this.showPreviewCutout,
-    required this.openActiveCardOnTap,
     required this.onToggle,
     required this.isStopPending,
     required this.onStopToolCall,
@@ -663,7 +689,6 @@ class _ActivityDrawerSurface extends StatelessWidget {
   final bool suppressShadow;
   final double leadingInset;
   final bool showPreviewCutout;
-  final bool openActiveCardOnTap;
   final VoidCallback onToggle;
   final bool isStopPending;
   final VoidCallback? onStopToolCall;
@@ -677,9 +702,6 @@ class _ActivityDrawerSurface extends StatelessWidget {
     final surfaceColor = context.isDarkTheme
         ? palette.surfacePrimary
         : _kToolActivitySurfaceColor;
-    final dividerColor = context.isDarkTheme
-        ? palette.borderSubtle.withValues(alpha: 0.52)
-        : const Color(0x140F2034);
     final bottomReveal = suppressShadow
         ? _kToolActivityAttachedBorderReveal
         : 0.0;
@@ -727,24 +749,29 @@ class _ActivityDrawerSurface extends StatelessWidget {
             AnimatedContainer(
               duration: const Duration(milliseconds: 220),
               curve: Curves.easeOutCubic,
-              height: expanded ? 1 : 0,
-              margin: const EdgeInsets.only(left: 18, right: 10),
-              color: dividerColor,
+              height: expanded ? _kToolActivityRowGap : 0,
             ),
-            ToolActivityRow(
-              card: activeCard,
-              leadingInset: leadingInset,
-              onTap: openActiveCardOnTap
-                  ? () => onOpenCard(activeCard)
-                  : (canExpand ? onToggle : null),
-              trailing: _supportsToolStop(activeCard) && onStopToolCall != null
-                  ? _ToolStopButton(
-                      enabled: !isStopPending,
-                      onTap: onStopToolCall,
-                    )
-                  : canExpand
-                  ? _ActivityBarTrailing(expanded: expanded, onToggle: onToggle)
-                  : null,
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: _kToolActivityDrawerHorizontalPadding,
+              ),
+              child: ToolActivityRow(
+                card: activeCard,
+                leadingInset: leadingInset,
+                onTap: () => onOpenCard(activeCard),
+                trailing:
+                    _supportsToolStop(activeCard) && onStopToolCall != null
+                    ? _ToolStopButton(
+                        enabled: !isStopPending,
+                        onTap: onStopToolCall,
+                      )
+                    : canExpand
+                    ? _ActivityBarTrailing(
+                        expanded: expanded,
+                        onToggle: onToggle,
+                      )
+                    : null,
+              ),
             ),
           ],
         ),
@@ -808,7 +835,7 @@ class _ToolStopButton extends StatelessWidget {
         : Colors.white.withValues(alpha: enabled ? 0.9 : 0.72);
 
     return Tooltip(
-      message: LegacyTextLocalizer.localize(enabled ? '停止工具' : '正在停止工具'),
+      message: AppTextLocalizer.text(enabled ? '停止工具' : '正在停止工具'),
       child: GestureDetector(
         key: kChatToolActivityStopKey,
         behavior: HitTestBehavior.opaque,
@@ -859,13 +886,9 @@ class _HistoryDrawer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dividerColor = context.isDarkTheme
-        ? context.omniPalette.borderSubtle.withValues(alpha: 0.52)
-        : const Color(0x140F2034);
     final scrollable = cards.length > 4;
     return Container(
       key: kChatToolActivityPanelKey,
-      padding: EdgeInsets.zero,
       child: Listener(
         behavior: HitTestBehavior.translucent,
         onPointerDown: (event) => onPointerDown(event.pointer),
@@ -873,30 +896,29 @@ class _HistoryDrawer extends StatelessWidget {
         onPointerCancel: (event) => onPointerEnd(event.pointer),
         child: ListView.separated(
           reverse: true,
-          padding: EdgeInsets.zero,
+          padding: const EdgeInsets.symmetric(
+            horizontal: _kToolActivityDrawerHorizontalPadding,
+            vertical: _kToolActivityDrawerVerticalPadding,
+          ),
           shrinkWrap: true,
           physics: scrollable
               ? const BouncingScrollPhysics(parent: ClampingScrollPhysics())
               : const NeverScrollableScrollPhysics(),
           itemBuilder: (context, index) {
             final card = cards[index];
-            final isBottomMost = index == 0;
-            return DecoratedBox(
-              decoration: BoxDecoration(
-                border: isBottomMost
-                    ? null
-                    : Border(bottom: BorderSide(color: dividerColor, width: 1)),
-              ),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: () => onOpenCard(card),
-                  child: ToolActivityRow(card: card),
-                ),
+            return Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(_kToolActivityRowRadius),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(_kToolActivityRowRadius),
+                onTap: () => onOpenCard(card),
+                child: ToolActivityRow(card: card),
               ),
             );
           },
-          separatorBuilder: (_, __) => const SizedBox.shrink(),
+          separatorBuilder: (_, __) =>
+              const SizedBox(height: _kToolActivityRowGap),
           itemCount: cards.length,
         ),
       ),
@@ -911,150 +933,116 @@ class ToolActivityRow extends StatelessWidget {
     this.leadingInset = 0,
     this.onTap,
     this.trailing,
+    this.showRunLogButton = true,
   });
 
   final Map<String, dynamic> card;
   final double leadingInset;
   final VoidCallback? onTap;
   final Widget? trailing;
+  final bool showRunLogButton;
 
   @override
   Widget build(BuildContext context) {
+    final locale = Localizations.localeOf(context);
     final palette = context.omniPalette;
+    final activityColor = AgentToolCardPolicy.activityColorForCard(card);
+    final statusColor = resolveAgentToolStatusColor(
+      (card['status'] ?? 'running').toString(),
+    );
     final primaryTextColor = context.isDarkTheme
-        ? palette.textPrimary
-        : AppColors.text;
-    final secondaryTextColor = context.isDarkTheme
-        ? palette.textSecondary
-        : const Color(0xFF7C8DA5);
+        ? Color.lerp(palette.textPrimary, activityColor, 0.16)!
+        : Color.lerp(AppColors.text, activityColor, 0.12)!;
     final status = (card['status'] ?? 'running').toString();
-    final isCommandCard = _isCommandActivityCard(card);
-    final toolTypeLabel = resolveAgentToolTypeLabel(card);
-    final statusLabel = resolveAgentToolStatusLabel(card);
-    final titleText = _resolveActivityRowTitle(card);
-    final descriptionText = isCommandCard
-        ? _resolveCommandActivityDescription(card)
+    final statusLabel = resolveAgentToolStatusLabel(card, locale: locale);
+    final runLogId = showRunLogButton
+        ? AgentToolCardPolicy.runLogRef(card).runLogId
         : '';
-    final titleStyle = TextStyle(
-      color: primaryTextColor,
-      fontSize: 11,
-      fontWeight: FontWeight.w600,
-      letterSpacing: 0,
-      height: 1.05,
-    );
-    final descriptionStyle = TextStyle(
-      color: secondaryTextColor.withValues(alpha: 0.76),
-      fontSize: 9,
-      fontWeight: FontWeight.w400,
-      letterSpacing: 0,
-      height: 1.05,
-    );
+    final rowBackgroundColor = context.isDarkTheme
+        ? Color.alphaBlend(
+            activityColor.withValues(alpha: 0.10),
+            palette.surfacePrimary,
+          )
+        : activityColor.withValues(alpha: 0.070);
+    final rowBorderColor = context.isDarkTheme
+        ? Color.lerp(palette.borderSubtle, activityColor, 0.30)!
+        : activityColor.withValues(alpha: 0.16);
 
+    final title = resolveAgentToolTitle(card, locale: locale);
+    final preview = _resolveActivityRowPreview(
+      card,
+      title: title,
+      locale: locale,
+    );
     return SizedBox(
       height: _kToolActivityRowHeight,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 220),
         curve: Curves.easeOutCubic,
-        padding: EdgeInsets.fromLTRB(10 + leadingInset, 0, 8, 0),
+        padding: EdgeInsets.fromLTRB(10 + leadingInset, 0, 7, 0),
+        decoration: BoxDecoration(
+          color: rowBackgroundColor,
+          borderRadius: BorderRadius.circular(_kToolActivityRowRadius),
+          border: Border.all(color: rowBorderColor.withValues(alpha: 0.62)),
+        ),
+        clipBehavior: Clip.antiAlias,
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final commandDescriptionMaxWidth = math
-                .min(constraints.maxWidth * 0.42, 180.0)
-                .toDouble();
-            final showTypeLabel =
-                !isCommandCard &&
-                constraints.maxWidth >=
-                    _kToolActivityTypeSlotWidth +
-                        _kToolActivityStatusSlotWidth +
-                        _kToolActivityTrailingSlotWidth +
-                        28;
-            final showStatusLabel = !isCommandCard;
             return Row(
               children: [
+                Container(
+                  width: _kToolActivityAccentWidth,
+                  height: 20,
+                  margin: const EdgeInsets.only(right: _kToolActivityAccentGap),
+                  decoration: BoxDecoration(
+                    color: activityColor,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
                 Expanded(
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onTap: onTap,
                     child: Row(
                       children: [
-                        if (!isCommandCard) ...[
-                          _StatusDot(status: status),
-                          const SizedBox(width: 6),
-                        ],
+                        _StatusDot(
+                          status: status,
+                          activityColor: activityColor,
+                        ),
+                        const SizedBox(width: 6),
                         Expanded(
-                          child: descriptionText.isEmpty
-                              ? Text(
-                                  titleText,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: titleStyle,
-                                )
-                              : Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        titleText,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: titleStyle,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    SizedBox(
-                                      width: commandDescriptionMaxWidth,
-                                      child: Align(
-                                        alignment: Alignment.centerRight,
-                                        child: Text(
-                                          descriptionText,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          textAlign: TextAlign.right,
-                                          style: descriptionStyle,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                          child: _ActivityRowText(
+                            title: title,
+                            preview: preview,
+                            titleColor: primaryTextColor,
+                            previewColor: context.isDarkTheme
+                                ? palette.textTertiary
+                                : Color.lerp(
+                                    AppColors.text70,
+                                    activityColor,
+                                    0.18,
+                                  )!,
+                          ),
                         ),
-                        SizedBox(width: showTypeLabel ? 6 : 0),
+                        const SizedBox(width: 4),
                         SizedBox(
-                          width: showTypeLabel
-                              ? _kToolActivityTypeSlotWidth
-                              : 0,
-                          child: showTypeLabel
-                              ? Align(
-                                  alignment: Alignment.centerRight,
-                                  child: Text(
-                                    toolTypeLabel,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    textAlign: TextAlign.right,
-                                    style: TextStyle(
-                                      color: secondaryTextColor,
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w600,
-                                      letterSpacing: 0,
-                                      height: 1.05,
-                                    ),
-                                  ),
-                                )
-                              : null,
+                          width: _kToolActivityStatusSlotWidth,
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: _StatusTag(
+                                label: statusLabel,
+                                statusColor: statusColor,
+                              ),
+                            ),
+                          ),
                         ),
-                        SizedBox(width: showStatusLabel ? 4 : 0),
-                        SizedBox(
-                          width: showStatusLabel
-                              ? _kToolActivityStatusSlotWidth
-                              : 0,
-                          child: showStatusLabel
-                              ? Align(
-                                  alignment: Alignment.centerRight,
-                                  child: _StatusTag(
-                                    status: status,
-                                    label: statusLabel,
-                                  ),
-                                )
-                              : null,
-                        ),
+                        if (runLogId.isNotEmpty)
+                          SizedBox(
+                            width: _kToolActivityRunLogSlotWidth,
+                            child: _RunLogActivityButton(runLogId: runLogId),
+                          ),
                       ],
                     ),
                   ),
@@ -1076,50 +1064,126 @@ class ToolActivityRow extends StatelessWidget {
   }
 }
 
-bool _isCommandActivityCard(Map<String, dynamic> cardData) {
-  return (cardData['toolType'] ?? '').toString() == 'command';
+class _ActivityRowText extends StatelessWidget {
+  const _ActivityRowText({
+    required this.title,
+    required this.preview,
+    required this.titleColor,
+    required this.previewColor,
+  });
+
+  final String title;
+  final String preview;
+  final Color titleColor;
+  final Color previewColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasPreview = preview.trim().isNotEmpty;
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: titleColor,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0,
+            height: 1.05,
+          ),
+        ),
+        if (hasPreview)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              preview,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: previewColor,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                letterSpacing: 0,
+                height: 1.05,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
 }
 
-String _resolveActivityRowTitle(Map<String, dynamic> cardData) {
-  final title = resolveAgentToolTitle(cardData).trim();
-  if (!_isCommandActivityCard(cardData)) {
-    return title;
+class _RunLogActivityButton extends StatelessWidget {
+  const _RunLogActivityButton({required this.runLogId});
+
+  final String runLogId;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = context.isDarkTheme
+        ? context.omniPalette.textSecondary
+        : const Color(0xFF657891);
+    return Tooltip(
+      message: AppTextLocalizer.text(
+        '查看完整执行记录',
+        locale: Localizations.localeOf(context),
+      ),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => showRunLogTimelineSheet(context, runId: runLogId),
+        child: Center(
+          child: Icon(Icons.description_outlined, size: 14, color: color),
+        ),
+      ),
+    );
   }
-  return title.replaceFirst(RegExp(r'^/+'), '').trim();
 }
 
-String _resolveCommandActivityDescription(Map<String, dynamic> cardData) {
-  final title = resolveAgentToolTitle(cardData).trim();
-  final summary = (cardData['summary'] ?? '').toString().trim();
-  if (summary.isNotEmpty && summary != title) {
-    return summary;
+String _resolveActivityRowPreview(
+  Map<String, dynamic> card, {
+  required String title,
+  required Locale locale,
+}) {
+  final preview = resolveAgentToolPreview(card, locale: locale)
+      .replaceAll('\r\n', '\n')
+      .replaceAll('\r', '\n')
+      .split('\n')
+      .map((line) => line.replaceAll(RegExp(r'\s+'), ' ').trim())
+      .firstWhere((line) => line.isNotEmpty, orElse: () => '');
+  final statusLabel = resolveAgentToolStatusLabel(card, locale: locale).trim();
+  if (preview.isEmpty ||
+      preview == title ||
+      preview == statusLabel ||
+      AgentToolCardPolicy.isPlaceholderText(preview)) {
+    return '';
   }
-  final progress = (cardData['progress'] ?? '').toString().trim();
-  if (progress.isNotEmpty && progress != title) {
-    return progress;
-  }
-  final preview = resolveAgentToolPreview(cardData).trim();
-  if (preview.isNotEmpty && preview != title) {
+  if (preview.length <= 72) {
     return preview;
   }
-  return '';
+  return '${preview.substring(0, 71).trimRight()}…';
 }
 
 class _StatusDot extends StatelessWidget {
-  const _StatusDot({required this.status});
+  const _StatusDot({required this.status, required this.activityColor});
 
   final String status;
+  final Color activityColor;
 
   @override
   Widget build(BuildContext context) {
     final color = resolveAgentToolStatusColor(status);
     final palette = context.omniPalette;
+    final ringColor = status == 'running' ? activityColor : color;
     final outerColor = context.isDarkTheme
         ? Color.alphaBlend(
-            color.withValues(alpha: 0.14),
+            ringColor.withValues(alpha: 0.18),
             palette.surfaceElevated,
           )
-        : color.withValues(alpha: 0.16);
+        : ringColor.withValues(alpha: 0.18);
     return Container(
       width: 8,
       height: 8,
@@ -1135,14 +1199,14 @@ class _StatusDot extends StatelessWidget {
 }
 
 class _StatusTag extends StatelessWidget {
-  const _StatusTag({required this.status, required this.label});
+  const _StatusTag({required this.label, required this.statusColor});
 
-  final String status;
   final String label;
+  final Color statusColor;
 
   @override
   Widget build(BuildContext context) {
-    final color = resolveAgentToolStatusColor(status);
+    final color = statusColor;
     final palette = context.omniPalette;
     final backgroundColor = context.isDarkTheme
         ? Color.alphaBlend(
@@ -1165,8 +1229,9 @@ class _StatusTag extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
           color: textColor,
-          fontSize: 8.4,
+          fontSize: 12,
           fontWeight: FontWeight.w700,
+          letterSpacing: 0,
           height: 1,
         ),
       ),
@@ -1174,24 +1239,68 @@ class _StatusTag extends StatelessWidget {
   }
 }
 
-class _TerminalThumbnail extends StatelessWidget {
-  const _TerminalThumbnail({
+class _ToolActivityPreviewThumbnail extends StatelessWidget {
+  const _ToolActivityPreviewThumbnail({
     super.key,
+    required this.cardData,
     required this.transcript,
     required this.onTap,
   });
 
+  final Map<String, dynamic> cardData;
   final AgentToolTranscript transcript;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final locale = Localizations.localeOf(context);
+    final palette = context.omniPalette;
+    final activityColor = AgentToolCardPolicy.activityColorForCard(cardData);
+    final inputLabel = AppTextLocalizer.choose(
+      zh: '输入',
+      en: 'Input',
+      locale: locale,
+    );
+    final backgroundColor = context.isDarkTheme
+        ? Color.alphaBlend(
+            activityColor.withValues(alpha: 0.12),
+            palette.surfaceElevated,
+          )
+        : Color.alphaBlend(
+            activityColor.withValues(alpha: 0.075),
+            palette.surfacePrimary,
+          );
+    final borderColor = context.isDarkTheme
+        ? Color.lerp(palette.borderSubtle, activityColor, 0.32)!
+        : activityColor.withValues(alpha: 0.20);
+    final labelColor = context.isDarkTheme
+        ? Color.lerp(palette.textPrimary, activityColor, 0.12)!
+        : Color.lerp(AppColors.text, activityColor, 0.14)!;
+    final secondaryColor = context.isDarkTheme
+        ? palette.textSecondary
+        : Color.lerp(AppColors.text70, activityColor, 0.18)!;
+    final tertiaryColor = context.isDarkTheme
+        ? palette.textTertiary
+        : Color.lerp(AppColors.text70, activityColor, 0.05)!;
+    final inputText = transcript.inputText.trim();
+    final previewText = transcript.previewText.trim();
+    final previewStyle = TextStyle(
+      color: tertiaryColor,
+      fontSize: 12,
+      fontWeight: FontWeight.w500,
+      fontFamily: transcript.resultIsMonospace ? 'monospace' : null,
+      letterSpacing: 0,
+      height: 1,
+    );
+
     return PhysicalModel(
-      color: kTerminalSurfaceBlack,
+      color: backgroundColor,
       borderRadius: _kToolActivityPreviewBorderRadius,
       clipBehavior: Clip.antiAlias,
       elevation: 6,
-      shadowColor: kTerminalSurfaceShadow,
+      shadowColor: context.isDarkTheme
+          ? palette.shadowColor.withValues(alpha: 0.34)
+          : const Color(0x1A111B2D),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
@@ -1199,49 +1308,61 @@ class _TerminalThumbnail extends StatelessWidget {
           child: Ink(
             width: _kToolActivityPreviewWidth,
             height: _kToolActivityPreviewHeight,
-            padding: const EdgeInsets.fromLTRB(8, 7, 8, 7),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [kTerminalSurfaceBlackElevated, kTerminalSurfaceBlack],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
+              color: backgroundColor,
               borderRadius: _kToolActivityPreviewBorderRadius,
+              border: Border.all(color: borderColor),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
               children: [
-                Text(
-                  transcript.promptLine,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFFF4F7FB),
-                    fontSize: 6.9,
-                    height: 1.05,
-                    fontWeight: FontWeight.w600,
-                    fontFamily: 'monospace',
-                  ),
-                ),
-                if (transcript.previewText.trim().isNotEmpty) ...[
-                  const SizedBox(height: 2),
-                  Expanded(
-                    child: Text.rich(
-                      AnsiTextSpanBuilder.build(
-                        transcript.previewText,
-                        const TextStyle(
-                          color: Color(0xFF88EEA6),
-                          fontSize: 5.7,
-                          height: 1.08,
-                          fontFamily: 'monospace',
+                Container(width: 3, color: activityColor),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(7, 6, 7, 6),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          inputLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: labelColor,
+                            fontSize: 12,
+                            height: 1,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0,
+                          ),
                         ),
-                      ),
-                      maxLines: 3,
-                      overflow: TextOverflow.clip,
+                        const SizedBox(height: 2),
+                        Text(
+                          inputText,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: secondaryColor,
+                            fontSize: 12,
+                            height: 1,
+                            fontWeight: FontWeight.w600,
+                            fontFamily: 'monospace',
+                            letterSpacing: 0,
+                          ),
+                        ),
+                        if (previewText.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text.rich(
+                            AnsiTextSpanBuilder.build(
+                              previewText,
+                              previewStyle,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ],
                     ),
                   ),
-                ] else
-                  const Spacer(),
+                ),
               ],
             ),
           ),

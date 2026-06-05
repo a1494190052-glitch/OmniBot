@@ -40,6 +40,11 @@ extension _HomeDrawerHeaderFooter on HomeDrawerState {
         onTap: () => _navigateTo('/home/skill_store'),
       ),
       _DrawerShortcutAction(
+        label: context.l10n.workbenchWorkspaceProjectMode,
+        svgString: _kDrawerWorkbenchIconSvg,
+        onTap: _openProjectManagementPage,
+      ),
+      _DrawerShortcutAction(
         label: context.l10n.trajectoryTitle,
         svgString: _kDrawerTaskHistoryIconSvg,
         onTap: () => _navigateTo('/task/execution_history'),

@@ -3,7 +3,7 @@ import 'package:ui/models/task_models.dart';
 
 class ExecutionStatusChip extends StatelessWidget {
   final ExecutionActionStatus action;
-  const ExecutionStatusChip({required this.action});
+  const ExecutionStatusChip({super.key, required this.action});
 
   @override
   Widget build(BuildContext context) {

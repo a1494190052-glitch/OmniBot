@@ -1,13 +1,25 @@
 package cn.com.omnimind.uikit.api.callbackimpl
 
+import cn.com.omnimind.assists.AgentVlmUiSession
+import cn.com.omnimind.assists.AssistsCore
+import cn.com.omnimind.assists.HumanTrajectoryLearningSession
+import cn.com.omnimind.assists.OmniFlowUiSession
 import cn.com.omnimind.assists.api.eventapi.ExecutingTaskType
 import cn.com.omnimind.baselib.util.VibrationUtil
 import cn.com.omnimind.uikit.UIKit
 import cn.com.omnimind.uikit.api.callback.CatStepLayoutApi
+import cn.com.omnimind.uikit.loader.ManualRecordingControlOverlay
 import cn.com.omnimind.uikit.loader.cat.DraggableBallInstance
-import cn.com.omnimind.uikit.loader.cat.DraggableBallLoader
+import cn.com.omnimind.uikit.settings.CompanionOverlaySettings
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class CatStepLayoutApiImpl : CatStepLayoutApi {
+    private val manualRecordingScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     override fun onResumeClick() {
         VibrationUtil.vibrateLight()
 
@@ -20,18 +32,81 @@ class CatStepLayoutApiImpl : CatStepLayoutApi {
     }
 
     override fun onStopClick() {
-        // 不论什么情况，执行结束都需要结束任务
-        DraggableBallInstance.finishDoingTask("任务已结束!")
+        if (HumanTrajectoryLearningSession.isActive()) {
+            ManualRecordingControlOverlay.cancelRecording("人工轨迹学习已取消")
+            DraggableBallInstance.finishDoingTask("录制已取消")
+            return
+        }
+        if (AgentVlmUiSession.requestStopActiveSession()) {
+            DraggableBallInstance.finishDoingTask("任务已停止")
+            if (!CompanionOverlaySettings.isEnabled()) {
+                CompanionOverlaySettings.dismissFloatingUi()
+            }
+            return
+        }
+        if (OmniFlowUiSession.requestStopActiveSession()) {
+            DraggableBallInstance.finishDoingTask("任务已停止")
+            if (!CompanionOverlaySettings.isEnabled()) {
+                CompanionOverlaySettings.dismissFloatingUi()
+            }
+            return
+        }
+        if (UIKit.executionTaskEventApi?.vlmTask != null && completeActiveVlmUiSession()) {
+            return
+        }
+        if (completeActiveVlmUiSession()) {
+            return
+        }
+        DraggableBallInstance.finishDoingTask("任务已完成")
         if (UIKit.executionTaskEventApi?.taskType == ExecutingTaskType.VLM) {
-            UIKit.executionTaskEventApi?.vlmTask?.finishTask()
+            UIKit.executionTaskEventApi?.vlmTask?.completeByUser()
+        } else {
+            AssistsCore.finishDoingTask()
+        }
+        if (!CompanionOverlaySettings.isEnabled()) {
+            CompanionOverlaySettings.dismissFloatingUi()
         }
     }
 
     override fun onPauseClick() {
         VibrationUtil.vibrateLight()
 
+        if (HumanTrajectoryLearningSession.isActive()) {
+            val shouldResume = HumanTrajectoryLearningSession.isPaused()
+            manualRecordingScope.launch {
+                val updated = if (shouldResume) {
+                    HumanTrajectoryLearningSession.resumeActive()
+                } else {
+                    HumanTrajectoryLearningSession.pauseActive()
+                }
+                withContext(Dispatchers.Main) {
+                    if (!updated) {
+                        return@withContext
+                    }
+                    if (shouldResume) {
+                        ManualRecordingControlOverlay.markRecording()
+                    } else {
+                        ManualRecordingControlOverlay.markPaused()
+                    }
+                }
+            }
+            return
+        }
         if (UIKit.executionTaskEventApi?.taskType == ExecutingTaskType.VLM) {
+            DraggableBallInstance.pauseTask("用户已接管任务")
             UIKit.executionTaskEventApi?.vlmTask?.requestPause()
         }
+    }
+
+    private fun completeActiveVlmUiSession(): Boolean {
+        if (!AgentVlmUiSession.requestCompleteActiveSession()) {
+            return false
+        }
+        DraggableBallInstance.finishDoingTask("任务已完成")
+        UIKit.executionTaskEventApi?.vlmTask?.completeByUser()
+        if (!CompanionOverlaySettings.isEnabled()) {
+            CompanionOverlaySettings.dismissFloatingUi()
+        }
+        return true
     }
 }

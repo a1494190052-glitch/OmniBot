@@ -5,6 +5,7 @@ import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:ui/models/chat_message_model.dart';
+import 'package:ui/services/agent_tool_card_policy.dart';
 
 enum ChatIslandDisplayLayer {
   mode('mode'),
@@ -38,8 +39,6 @@ class ChatMessageListItemNotifier extends ValueNotifier<ChatMessageModel> {
 
 class ObservableChatMessageList extends ChangeNotifier
     with ListMixin<ChatMessageModel> {
-  static const String _kAgentToolSummaryCardType = 'agent_tool_summary';
-
   final List<ChatMessageModel> _messages = <ChatMessageModel>[];
   final List<ChatMessageListItemNotifier> _messageNotifiers =
       <ChatMessageListItemNotifier>[];
@@ -130,7 +129,6 @@ class ObservableChatMessageList extends ChangeNotifier
           _messageAffectsPageChrome(previous) ||
           _messageAffectsPageChrome(value),
     );
-    notifyListeners();
   }
 
   @override
@@ -171,9 +169,10 @@ class ObservableChatMessageList extends ChangeNotifier
   void insert(int index, ChatMessageModel element) {
     _messages.insert(index, element);
     _messageNotifiers.insert(index, ChatMessageListItemNotifier(element));
-    _recordStructureMutation(
-      affectsPageChrome: _messageAffectsPageChrome(element),
-    );
+    // Any structural insert shifts notifier indices, breaking per-message
+    // notifier subscriptions for existing widgets. Force a full setState()
+    // so ListView rebuilds and widgets re-subscribe to the correct notifiers.
+    _recordStructureMutation(affectsPageChrome: true);
     notifyListeners();
   }
 
@@ -188,9 +187,9 @@ class ObservableChatMessageList extends ChangeNotifier
       index,
       nextMessages.map(ChatMessageListItemNotifier.new),
     );
-    _recordStructureMutation(
-      affectsPageChrome: _batchAffectsPageChrome(nextMessages),
-    );
+    // Structural insert shifts notifier indices — force setState() so widgets
+    // re-subscribe to the correct notifiers after the rebuild.
+    _recordStructureMutation(affectsPageChrome: true);
     notifyListeners();
   }
 
@@ -199,9 +198,8 @@ class ObservableChatMessageList extends ChangeNotifier
     final removedMessage = _messages.removeAt(index);
     final removedNotifier = _messageNotifiers.removeAt(index);
     removedNotifier.dispose();
-    _recordStructureMutation(
-      affectsPageChrome: _messageAffectsPageChrome(removedMessage),
-    );
+    // Structural remove shifts notifier indices — same reason as insert.
+    _recordStructureMutation(affectsPageChrome: true);
     notifyListeners();
     return removedMessage;
   }
@@ -211,14 +209,11 @@ class ObservableChatMessageList extends ChangeNotifier
     if (start == end) {
       return;
     }
-    final removedMessages = _messages.sublist(start, end);
     final removedNotifiers = _messageNotifiers.sublist(start, end);
     _messages.removeRange(start, end);
     _messageNotifiers.removeRange(start, end);
     _disposeMessageNotifiers(removedNotifiers);
-    _recordStructureMutation(
-      affectsPageChrome: _batchAffectsPageChrome(removedMessages),
-    );
+    _recordStructureMutation(affectsPageChrome: true);
     notifyListeners();
   }
 
@@ -240,9 +235,7 @@ class ObservableChatMessageList extends ChangeNotifier
       return;
     }
     _disposeMessageNotifiers(removedNotifiers);
-    _recordStructureMutation(
-      affectsPageChrome: _batchAffectsPageChrome(removedMessages),
-    );
+    _recordStructureMutation(affectsPageChrome: true);
     notifyListeners();
   }
 
@@ -284,8 +277,7 @@ class ObservableChatMessageList extends ChangeNotifier
     if (message.type != 2) {
       return false;
     }
-    return (message.cardData?['type'] ?? '').toString() ==
-        _kAgentToolSummaryCardType;
+    return AgentToolCardPolicy.isToolCard(message.cardData);
   }
 
   void _disposeMessageNotifiers(

@@ -122,6 +122,14 @@ class StateMachine() {
         return taskManager?.provideUserInputToVLMTask(userInput) ?: false
     }
 
+    fun pauseVLMTask(): Boolean {
+        return taskManager?.pauseVLMTask() ?: false
+    }
+
+    fun resumeVLMTask(): Boolean {
+        return taskManager?.resumeVLMTask() ?: false
+    }
+
     fun appendVlmExternalMemory(memory: String): Boolean {
         return taskManager?.appendVlmExternalMemory(memory) ?: false
     }
@@ -205,8 +213,8 @@ class StateMachine() {
      * 取消等待中或运行中的任务，不检查 isRunning 状态
      * 用于在预执行 delay 期间取消任务
      */
-    fun cancelPendingTask(taskId: String? = null) {
-        taskManager?.cancelPendingTask(taskId)
+    fun cancelPendingTask(taskId: String? = null): Boolean {
+        return taskManager?.cancelPendingTask(taskId) ?: false
     }
 
 }

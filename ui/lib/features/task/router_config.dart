@@ -4,6 +4,9 @@ import 'pages/task_edit/task_edit_page.dart';
 import 'pages/task_history/task_execution_history_page.dart';
 import 'pages/execution_history/trajectory_page.dart';
 import 'pages/execution_history/task_execution_detail_page.dart';
+import 'pages/execution_history/run_log_list_page.dart';
+import 'pages/execution_history/run_log_timeline_page.dart';
+import 'pages/execution_history/function_library_page.dart';
 import 'pages/scheduled_tasks/scheduled_task_list_page.dart';
 import 'pages/task_modify/task_modify_page.dart';
 
@@ -31,6 +34,43 @@ List<GoRoute> taskRoutes = [
     name: 'task/execution_history',
     builder: (context, state) => TrajectoryPage(),
   ),
+  // OmniFlow RunLog 列表页
+  GoRoute(
+    path: '/task/run_logs',
+    name: 'task/run_logs',
+    builder: (context, state) {
+      final params = state.extra as Map<String, dynamic>?;
+      return RunLogListPage(baseUrl: params?['baseUrl']?.toString());
+    },
+  ),
+  // OmniFlow RunLog 时间线详情页
+  GoRoute(
+    path: '/task/run_log_timeline',
+    name: 'task/run_log_timeline',
+    builder: (context, state) {
+      final params = state.extra as Map<String, dynamic>? ?? const {};
+      return RunLogTimelinePage(
+        runId:
+            params['runId']?.toString() ??
+            state.uri.queryParameters['runId'] ??
+            '',
+        title:
+            params['title']?.toString() ??
+            state.uri.queryParameters['title'] ??
+            '',
+        baseUrl:
+            params['baseUrl']?.toString() ??
+            state.uri.queryParameters['baseUrl'],
+      );
+    },
+  ),
+  // Function library page
+  GoRoute(
+    path: '/task/function_library',
+    name: 'task/function_library',
+    builder: (context, state) => const FunctionLibraryPage(),
+  ),
+
   // 定时任务列表页
   GoRoute(
     path: '/task/scheduled_tasks',

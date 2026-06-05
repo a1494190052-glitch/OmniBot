@@ -63,6 +63,9 @@
   "settingsMcpEnabledToast": "MCP enabled: {endpoint}",
   "settingsMcpDisabledToast": "MCP disabled",
   "settingsMcpToggleFailed": "Failed to toggle MCP",
+  "settingsOobFunctionAsToolTitle": "OOB reusable Functions as tools",
+  "settingsOobFunctionAsToolSubtitle": "Let the agent call saved OOB reusable Functions as built-in tools",
+  "settingsOobFunctionAsToolToggleFailed": "Failed to update OOB reusable Function tool setting",
   "settingsCopiedAddress": "Address copied",
   "settingsCopiedToken": "Token copied",
   "settingsTokenRefreshed": "Token refreshed",
@@ -121,6 +124,8 @@
   "appearanceLocalImageMissing": "The local image no longer exists. Please choose it again",
   "appearanceAutosaveFailed": "Auto-save failed: {error}",
   "chatToolCalling": "Calling tool",
+  "chatToolOutputCopied": "Copied tool output",
+  "chatViewRunLogTooltip": "View Run Log",
   "chatFallbackReply": "I can't generate a reply right now. Please try again.",
   "chatPermissionRequired": "Permissions must be enabled before running tasks",
   "chatPermissionRequiredWithNames": "Enable these permissions before running tasks: {names}",
@@ -135,7 +140,6 @@
   "browserOverlayUnsupported": "Browser tool view is not supported on this platform yet",
   "networkErrorMessage": "Sorry, the network stumbled just now. Please try sending it again.",
   "rateLimitErrorMessage": "Omnibot is busy right now. Please try again in a moment.",
-
   "chatHistoryArchivedTitle": "Archived Conversations",
   "chatHistoryTitle": "Chat History",
   "chatHistoryNoArchived": "No archived conversations",
@@ -145,13 +149,15 @@
   "chatHistoryArchiveFailed": "Couldn't archive the conversation",
   "chatHistoryUnarchiveFailed": "Couldn't restore the conversation",
   "chatHistoryArchiveHint": "Swipe left on a conversation to archive it",
+  "conversationStatusRunning": "Running",
+  "conversationStatusCompleted": "Completed",
   "homeDrawerArchive": "Archive",
   "homeDrawerNewChat": "New conversation",
   "webchatNoChats": "Start a new conversation",
-
   "memoryCenterTitle": "Memory Center",
   "memoryShortTermTitle": "Short-term Memory",
   "memoryLongTermTitle": "Long-term Memory",
+  "memoryCommandsTitle": "Reusable Functions",
   "memoryNoShortTerm": "No short-term memory yet",
   "memoryNoShortTermDesc": "Process information from conversations settles into short-term memory and later gets organized into long-term memory.",
   "memoryFilteredNoShortTerm": "No short-term memory under current filter",
@@ -177,9 +183,9 @@
   "memoryDeleteLongTermConfirm": "Delete this long-term memory?",
   "memoryLongTermDeleted": "Long-term memory deleted",
   "memoryLongTermFailed": "Long-term memory operation failed: {error}",
+  "memoryLongTermLoadFailed": "Long-term memory load failed: {error}",
   "memoryNoMemories": "No memories",
   "memoryNoMemoriesDesc": "Start exploring and add content you like",
-
   "skillStoreTitle": "Skill Store",
   "skillBuiltin": "Built-in",
   "skillOfficial": "Official",
@@ -206,7 +212,6 @@
   "skillSyncOfficialSuccess": "Official skills synced ({count})",
   "skillSyncOfficialFailed": "Failed to sync official skills",
   "skillLoadFailed": "Failed to load skills",
-
   "trajectoryTitle": "Trajectory",
   "trajectoryNoRecords": "No execution records",
   "trajectoryNoRecordsDesc": "VLM tasks will be displayed here",
@@ -219,7 +224,6 @@
   "executionHistorySubtitle": "Recent 3 task executions",
   "executionHistoryEmpty": "No execution history",
   "executionHistoryTaskLabel": "{option} Tasks",
-
   "modelProviderConfigTitle": "Provider Configuration",
   "modelProviderConfigDesc": "Add, switch, and maintain model service provider names, addresses, and keys.",
   "modelProviderName": "Provider Name",
@@ -256,7 +260,6 @@
     }
   },
   "modelProviderFetchFailed": "Failed to fetch the model list: {error}",
-
   "sceneModelMapping": "Scene Mapping",
   "sceneModelMappingDesc": "Bind Providers and models by scene. Unbound scenes will continue using the default model.",
   "sceneModelRefreshList": "Refresh model list",
@@ -316,7 +319,6 @@
       "error": {}
     }
   },
-
   "localModelsTitle": "Local Models",
   "localModelsAutoPreheat": "Auto preheat on app open",
   "localModelsAutoPreheatDesc": "Automatically start local service and load the current model when entering the app.",
@@ -338,8 +340,8 @@
   "localModelsAutoPreheatSection": "Auto Preheat",
   "localModelsAutoPreheatSectionDesc": "Automatically start the local service and load the current model when the app opens.",
   "localModelsLocalInference": "Local Inference Model",
-  "localModelsStopping": "Stopping\u2026",
-  "localModelsStarting": "Starting\u2026",
+  "localModelsStopping": "Stopping…",
+  "localModelsStarting": "Starting…",
   "localModelsStopService": "Stop Service",
   "localModelsStartService": "Start Service",
   "localModelsConfigLoadFailed": "Failed to load local model config",
@@ -363,33 +365,47 @@
   "localModelsDownloadStartedToast": "Download started: {modelName}",
   "@localModelsDownloadStartedToast": {
     "placeholders": {
-      "modelName": { "type": "String" }
+      "modelName": {
+        "type": "String"
+      }
     }
   },
   "localModelsDownloadPausedToast": "Download paused: {modelName}",
   "@localModelsDownloadPausedToast": {
     "placeholders": {
-      "modelName": { "type": "String" }
+      "modelName": {
+        "type": "String"
+      }
     }
   },
   "localModelsDownloadCompletedToast": "Download completed: {modelName}",
   "@localModelsDownloadCompletedToast": {
     "placeholders": {
-      "modelName": { "type": "String" }
+      "modelName": {
+        "type": "String"
+      }
     }
   },
   "localModelsDownloadFailedToast": "Download failed: {modelName} — {reason}",
   "@localModelsDownloadFailedToast": {
     "placeholders": {
-      "modelName": { "type": "String" },
-      "reason": { "type": "String" }
+      "modelName": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
     }
   },
   "localModelsDownloadCancelledToast": "Download cancelled: {modelName} — {reason}",
   "@localModelsDownloadCancelledToast": {
     "placeholders": {
-      "modelName": { "type": "String" },
-      "reason": { "type": "String" }
+      "modelName": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
     }
   },
   "localModelsDownloadErrorUnknown": "Unknown error",
@@ -432,13 +448,20 @@
   "localModelsImportSuccess": "Model imported successfully",
   "localModelsImportFailed": "Import failed: {reason}",
   "@localModelsImportFailed": {
-    "placeholders": { "reason": { "type": "String" } }
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
   },
   "localModelsImporting": "Importing {modelId}...",
   "@localModelsImporting": {
-    "placeholders": { "modelId": { "type": "String" } }
+    "placeholders": {
+      "modelId": {
+        "type": "String"
+      }
+    }
   },
-
   "alarmSaved": "Alarm settings saved",
   "alarmRingtoneSource": "Ringtone Source",
   "alarmSystemDefault": "System Default",
@@ -453,7 +476,6 @@
   "alarmEnterHttpsUrl": "Please enter an HTTP(S) MP3 URL",
   "alarmLocalFile": "Local File",
   "alarmSelectMp3": "Select MP3 File",
-
   "authorizePageTitle": "App Permission Authorization",
   "authorizeReceiveNotifications": "Receive message notifications",
   "authorizeNotificationsDesc": "Enable this to get task progress updates in time",
@@ -461,7 +483,6 @@
   "companionPermissionDesc": "After revoking authorization, Omnibot will still be displayed but task execution content will be hidden",
   "companionPermissionNote": "Permission Notes",
   "companionAuthorizedApps": "Authorized Apps",
-
   "storageUsageTitle": "Storage Usage",
   "storageUsageSubtitle": "View storage usage details and clean up by category",
   "storageAnalyzeFailed": "Storage analysis failed, please try again",
@@ -497,7 +518,6 @@
   "storageSystemStats": "System statistics (closer to system settings)",
   "storageDirectoryScan": "Directory scan estimate",
   "storageAdditionalInfo": "Additional Info",
-
   "storageCatAppBinary": "App Binary",
   "storageCatAppBinaryDesc": "Installed app files (APK/AAB split)",
   "storageCatCache": "Cache",
@@ -547,14 +567,12 @@
   "storageCatLegacyWorkspaceHint": "Confirm it is no longer needed before cleanup",
   "storageCatOtherUserData": "Other Data",
   "storageCatOtherUserDataDesc": "Data not matched to any category rule",
-
   "storageStrategySafeQuick": "Safe Quick Cleanup",
   "storageStrategySafeQuickDesc": "Prioritize cleaning low-risk cache and temporary artifacts",
   "storageStrategyBalanceDeep": "Balanced Deep Cleanup",
   "storageStrategyBalanceDeepDesc": "Free more space while keeping core models and user files",
   "storageStrategyFree1gb": "Target Free 1GB",
   "storageStrategyFree1gbDesc": "Clean in high-value order, aiming for 1GB release target",
-
   "storageHintConversation": "If history is not released, re-enter the page and run \"Reanalyze\"",
   "storageHintLocalModels": "After models are cleaned, you can re-download from the Local Model Service page",
   "storageHintTerminal": "After terminal runtime is cleaned, you can re-initialize from the Alpine Environment page",
@@ -565,7 +583,6 @@
   "storageCleanPartialFailedGeneric": "Some files failed to clean up, please try again later",
   "storageTrendVsLast": "Vs last analysis: total {total}, cleanable {cleanable}",
   "storageLastAnalyzed": "Last analyzed: {time}",
-
   "aboutDescription": "Omnibot is an AI assistant app centered on\nintelligent conversation, using semantic understanding\nand continuous learning to help with information\nprocessing, decision support, and daily management.",
   "aboutBetaProgramTitle": "Join beta testing",
   "aboutBetaProgramDescription": "Get faster four-part beta updates.",
@@ -579,7 +596,6 @@
   "aboutApkSourceOptionGithubDescription": "Official release source",
   "aboutApkSourceSwitchFailed": "Failed to switch APK download source",
   "aboutUpdateHintDefault": "Check for updates to get the latest version",
-
   "workspaceMemoryLoadFailed": "Failed to load workspace memory config",
   "workspaceSoulSaved": "SOUL.md saved",
   "workspaceSoulSaveFailed": "Failed to save SOUL.md",
@@ -605,7 +621,6 @@
   "workspaceSoulMd": "SOUL.md (Agent Soul)",
   "workspaceChatMd": "CHAT.md (Chat-only system prompt)",
   "workspaceMemoryMd": "MEMORY.md (Long-term Memory)",
-
   "alpineNodeJs": "Node.js Runtime",
   "alpineNpm": "Node.js Package Manager",
   "alpineGit": "Git Version Control",
@@ -662,9 +677,7 @@
   "alpineAiAgent": "AI Agent",
   "alpineEnvConfig": "Environment Config",
   "alpineWorkDirValue": "Working directory: {dir}",
-
   "workspaceEmbeddingRetrieval": "Memory Embedding Retrieval",
-
   "chatHistoryStartConversation": "Start a conversation",
   "homeDrawerSearching": "Searching conversations...",
   "homeDrawerNoResults": "No matching conversations found",
@@ -715,5 +728,1063 @@
   "homeDrawerLateNightGreeting": "Put the phone down and sleep earlier",
   "homeDrawerLateNightSub": "Recharge for tomorrow",
   "homeDrawerLateNightGreeting2": "It is late",
-  "homeDrawerLateNightSub2": "Say good night to today"
+  "homeDrawerLateNightSub2": "Say good night to today",
+  "omniflowPanelTitle": "OmniFlow Trajectory Panel",
+  "omniflowPanelDesc": "Manage OmniFlow reusable Functions: view, execute, or delete saved Functions.",
+  "omniflowFunctionList": "Reusable Function list",
+  "omniflowFunctionSearch": "Search reusable Functions",
+  "omniflowFunctionSearchHint": "Filter by name, description, etc.",
+  "omniflowSettings": "OmniFlow Settings",
+  "omniflowSettingsSubtitle": "Record reusable action sequences to accelerate tasks",
+  "omniflowEnablePreHook": "Enable OmniFlow Acceleration",
+  "omniflowAutoStartProvider": "OmniFlow Auto-start",
+  "omniflowRefresh": "Refresh",
+  "omniflowProviderStart": "Start",
+  "omniflowProviderStop": "Stop",
+  "omniflowProviderRestart": "Restart",
+  "omniflowSaveConfig": "Save",
+  "omniflowConfigSaved": "OmniFlow config saved",
+  "omniflowConfigSaveFailed": "Failed to save OmniFlow config",
+  "omniflowConfigLoadFailed": "Failed to load OmniFlow config",
+  "omniflowFunctionsLoadFailed": "Failed to load reusable Functions",
+  "omniflowTempFunctions": "Temporary reusable Functions",
+  "omniflowReadyFunctions": "Ready reusable Functions",
+  "omniflowServiceAddressNotConfigured": "Service address not configured",
+  "omniflowSkillLibrary": "OmniFlow Skill Library",
+  "omniflowServiceStatus": "Service Status",
+  "omniflowServiceStatusRunning": "Running",
+  "omniflowServiceStatusStopped": "Not Running",
+  "omniflowServiceAddress": "Service Address",
+  "omniflowDataDirectory": "Data Directory",
+  "omniflowNotSet": "Not set",
+  "omniflowEnableAccelerationDesc": "Match learned skills before executing tasks",
+  "omniflowAutoStartDesc": "Auto-start skill service when app opens",
+  "omniflowStarting": "Starting...",
+  "omniflowRestarting": "Restarting...",
+  "omniflowStopping": "Stopping...",
+  "omniflowViewSkillLibrary": "View Skill Library",
+  "omniflowViewFunctionLibrary": "View reusable Functions",
+  "omniflowClearAllData": "Clear All Data",
+  "omniflowClearAllDataTitle": "Clear All Data",
+  "omniflowClearAllDataConfirm": "Confirm clear all OmniFlow data?\n\nThis will delete:\n• All reusable Functions\n• All Run Logs\n• All Shared Pages\n\nThis action cannot be undone!",
+  "omniflowCancel": "Cancel",
+  "omniflowClear": "Clear",
+  "omniflowClearSuccess": "Cleared: {functions} reusable Functions, {runLogs} run logs",
+  "omniflowClearFailed": "Clear failed",
+  "omniflowProviderActionSuccess": "provider {action} success",
+  "omniflowProviderActionFailed": "provider {action} failed",
+  "functionLibraryTitle": "Reusable Functions",
+  "functionLibrarySearchHint": "Search reusable Functions or apps",
+  "functionLibraryEmpty": "No reusable Functions yet",
+  "functionLibraryEmptyDesc": "Frequently used actions will be saved here after task execution",
+  "functionLibrarySteps": "steps",
+  "functionLibraryHasParams": "has params",
+  "functionLibraryRunCount": "runs",
+  "functionLibraryId": "ID",
+  "functionLibraryParams": "Params",
+  "functionLibrarySource": "Source",
+  "functionLibraryCreatedAt": "Created",
+  "functionLibraryEdit": "Edit",
+  "functionLibraryEditTitle": "Edit reusable Function",
+  "functionLibraryEditHint": "Modify reusable Function description",
+  "functionLibraryEditPlaceholder": "Enter new description",
+  "functionLibraryEditSuccess": "Updated",
+  "functionLibraryEditFailed": "Update failed",
+  "functionLibraryStepEditTitle": "Edit step",
+  "functionLibraryStepTitleLabel": "Step title",
+  "functionLibraryStepToolLabel": "Action tool",
+  "functionLibraryStepArgsLabel": "Arguments JSON",
+  "functionLibraryStepToolRequired": "Action tool is required",
+  "functionLibraryStepArgsInvalid": "Arguments must be a valid JSON object",
+  "functionLibraryStepArgsObjectRequired": "Arguments must be a JSON object",
+  "functionLibraryStepEditMissing": "Step to edit was not found",
+  "functionLibraryStepSaved": "Step saved",
+  "functionLibraryStepKeepOne": "A reusable Function needs at least one step",
+  "functionLibraryStepDeleteTitle": "Delete step",
+  "functionLibraryStepDeleteConfirm": "Delete \"{name}\"? It will no longer replay after saving.",
+  "functionLibraryStepDeleteMissing": "Step to delete was not found",
+  "functionLibraryStepDeleted": "Step deleted",
+  "functionLibraryStepSaveFailed": "Failed to save step",
+  "functionLibraryDelete": "Delete",
+  "functionLibraryDeleteTitle": "Delete reusable Function",
+  "functionLibraryDeleteConfirm": "Delete \"{name}\"?",
+  "functionLibraryDeleted": "Deleted",
+  "functionLibraryDeleteFailed": "Delete failed",
+  "functionLibraryUpload": "Upload",
+  "functionLibraryUploadTitle": "Upload to Cloud",
+  "functionLibraryUploadSuccess": "Upload successful",
+  "functionLibraryUploadFailed": "Upload failed",
+  "functionLibraryDownload": "Download from Cloud",
+  "functionLibraryDownloadTitle": "Download from Cloud",
+  "functionLibraryDownloadSuccess": "Download successful",
+  "functionLibraryDownloadFailed": "Download failed",
+  "functionLibraryCloudUrlHint": "Enter cloud service URL",
+  "functionLibraryConfirm": "Confirm",
+  "functionLibrarySyncStatus": "Sync Status",
+  "functionLibrarySynced": "Synced",
+  "functionLibraryLocalOnly": "Local Only",
+  "functionLibraryCloudOnly": "Cloud Only",
+  "functionLibraryStartNode": "Start Page",
+  "functionLibraryEndNode": "End Page",
+  "functionLibraryLastRun": "Last Run",
+  "functionLibraryLastRunSuccess": "Success",
+  "functionLibraryLastRunFailed": "Failed",
+  "functionLibraryLastRunGoal": "Task",
+  "functionLibraryNoDescription": "No description",
+  "functionLibrarySummaryOnPage": "On \"{page}\" page",
+  "functionLibrarySummaryFromTo": "From \"{from}\" to \"{to}\"",
+  "functionLibrarySummaryFrom": "Starting from \"{from}\"",
+  "functionLibrarySummaryTo": "Navigate to \"{to}\"",
+  "functionLibrarySummarySteps": "{count} steps",
+  "functionLibrarySummaryParams": "requires {count} params",
+  "functionLibraryTest": "Test",
+  "functionLibraryTestNeedParams": "Parameters needed: {params}",
+  "functionLibraryTestStarted": "Test execution started",
+  "functionLibraryViewDetails": "View Details",
+  "functionLibraryDetailExecutionSurface": "Execution Surface",
+  "functionLibraryDetailGraphAnchors": "Graph Anchors",
+  "functionLibraryDetailRunUsage": "Run Usage",
+  "functionLibraryDetailLifecycle": "Lifecycle",
+  "functionLibraryDetailExamples": "Parameter Examples",
+  "functionLibraryDetailDerivedFrom": "Source reusable Function",
+  "functionLibraryDetailRuns": "Run Count",
+  "functionLibraryDetailSuccessFail": "Success / Fail",
+  "functionLibraryDetailUpdatedAt": "Updated At",
+  "functionLibraryDetailBundleBacking": "Bundle Backing Asset",
+  "functionLibraryDetailActionCount": "Action Count",
+  "functionLibraryDetailActionPreview": "Action Preview",
+  "functionLibraryDetailNoActionPreview": "No actions",
+  "functionLibraryDetailStepIndex": "Step {index}",
+  "@functionLibraryDetailStepIndex": {
+    "placeholders": {
+      "index": {
+        "type": "String"
+      }
+    }
+  },
+  "functionLibraryDetailBundleFunction": "Bundle reusable Function",
+  "functionLibraryDetailInternalBlocks": "Internal reusable Function blocks",
+  "functionLibraryDetailNoBlocks": "No internal reusable Function blocks are available",
+  "functionLibraryDetailNoBundle": "No bundle reusable Function is available",
+  "functionLibraryDetailFunctionSchema": "Reusable Function schema",
+  "executionReuseHit": "Reusable Function",
+  "executionReuseHitWithFunction": "Reusable Function · {functionId}",
+  "executionVlmExecution": "VLM Execution",
+  "executionActionOpenApp": "Open App",
+  "executionActionClick": "Click",
+  "executionActionClickNode": "Click Element",
+  "executionActionLongPress": "Long Press",
+  "executionActionInputText": "Input Text",
+  "executionActionSwipe": "Swipe",
+  "executionActionScroll": "Scroll",
+  "executionActionPressKey": "Press Key",
+  "executionActionWait": "Wait",
+  "executionActionFinished": "Finished",
+  "executionActionCallTool": "Call Tool",
+  "executionActionDefault": "Action",
+  "executionStepLabel": "{count} steps",
+  "executionSuccess": "Success",
+  "executionFailed": "Failed",
+  "memorySaveAsSkillTitle": "Save as reusable Function",
+  "memorySaveAsSkillContent": "Save this execution as a reusable Function?\n\nYou can view and manage it in the reusable Function library.",
+  "memorySavingProgress": "Saving reusable Function...",
+  "memorySaveSuccess": "Saved as reusable Function: {functionId}",
+  "@memorySaveSuccess": {
+    "placeholders": {
+      "functionId": {
+        "type": "String"
+      }
+    }
+  },
+  "memorySaveSuccessSimple": "Saved as reusable Function",
+  "memorySaveSuccessHint": "Reusable Function saved to the local library.\nYou can view, edit, or upgrade it in the reusable Function library.",
+  "memoryViewInLibrary": "View Library",
+  "memorySaveCannotImport": "This execution cannot be saved as a reusable Function",
+  "memorySaveFailed": "Failed to save reusable Function",
+  "memorySaveFailedWithMessage": "Failed to save reusable Function: {message}",
+  "@memorySaveFailedWithMessage": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "memoryRunIdMissing": "Execution record ID missing, cannot save",
+  "omniflowAssetSuccess": "Success",
+  "omniflowAssetFailed": "Failed",
+  "omniflowAssetRunning": "Running",
+  "omniflowAssetUnknown": "Unknown",
+  "omniflowAssetReuseHit": "Reusable Function",
+  "omniflowAssetVlmExecution": "VLM Execution",
+  "omniflowAssetSteps": "{count} steps",
+  "@omniflowAssetSteps": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "omniflowAssetId": "ID",
+  "omniflowAssetPackage": "Package",
+  "omniflowAssetSourceRuns": "Source Runs",
+  "omniflowAssetLinkedFunction": "Linked reusable Function",
+  "omniflowAssetCopyId": "Copy ID",
+  "omniflowAssetEdit": "Edit",
+  "omniflowAssetMemory": "Memory",
+  "omniflowAssetReplay": "Replay",
+  "omniflowAssetDelete": "Delete",
+  "omniflowAssetEnrich": "Enrich",
+  "omniflowAssetUpload": "Upload",
+  "omniflowAssetIdCopied": "ID copied",
+  "omniflowAssetJsonCopied": "JSON copied",
+  "omniflowAssetFunctionDetail": "Reusable Function details",
+  "omniflowAssetRunLogDetail": "Run Log Details",
+  "omniflowAssetCopyJson": "Copy JSON",
+  "omniflowAssetClose": "Close",
+  "omniflowAssetStartPage": "Start Page",
+  "omniflowAssetEndPage": "End Page",
+  "omniflowAssetCreatedAt": "Created At",
+  "omniflowAssetGoal": "Goal",
+  "omniflowAssetStartedAt": "Started At",
+  "omniflowAssetDoneReason": "Done Reason",
+  "omniflowAssetView": "View",
+  "omniflowAssetLoadFailed": "Failed to load",
+  "omniflowAssetRunLogNotReady": "Run log not yet persisted",
+  "omniflowAssetRunLogIndexFailed": "Failed to read run log index",
+  "omniflowAssetReplayTitle": "Replay Run Log",
+  "omniflowAssetReplayConfirm": "Replay this execution?",
+  "omniflowAssetReplayProgress": "Replaying...",
+  "omniflowAssetReplaySuccess": "Replay successful",
+  "omniflowAssetReplaySuccessWithId": "Replay successful: {functionId}",
+  "@omniflowAssetReplaySuccessWithId": {
+    "placeholders": {
+      "functionId": {
+        "type": "String"
+      }
+    }
+  },
+  "omniflowAssetReplayFailed": "Replay failed",
+  "omniflowAssetReplayFailedWithMessage": "Replay failed: {message}",
+  "@omniflowAssetReplayFailedWithMessage": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "omniflowAssetCancel": "Cancel",
+  "omniflowAssetConfirm": "Confirm",
+  "omniflowAssetCopySuccess": "{label} copied",
+  "@omniflowAssetCopySuccess": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "omniflowAssetCopyFailed": "Failed to copy {label}",
+  "@omniflowAssetCopyFailed": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "omniflowAssetEmpty": "{label} is empty",
+  "@omniflowAssetEmpty": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "omniflowAssetNoSteps": "No steps to display",
+  "functionLibraryEnrich": "Upgrade",
+  "functionLibraryEnrichTitle": "Upgrade reusable Function",
+  "functionLibraryEnrichConfirm": "Use AI to enrich this reusable Function's semantic info?\n\nWill auto-generate: description, parameter slots, pre/post conditions, etc.",
+  "functionLibraryEnrichProgress": "Upgrading reusable Function...",
+  "functionLibraryEnrichSuccess": "Reusable Function upgraded successfully",
+  "functionLibraryEnrichFailed": "Upgrade failed",
+  "functionLibraryEnrichFailedWithMessage": "Upgrade failed: {message}",
+  "@functionLibraryEnrichFailedWithMessage": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "functionLibrarySplit": "Split",
+  "functionLibrarySplitTitle": "Split reusable Function",
+  "functionLibrarySplitConfirm": "Use AI to split this reusable Function into smaller ones?",
+  "functionLibrarySplitProgress": "Splitting reusable Function...",
+  "functionLibrarySplitSuccess": "Reusable Function split successfully, created {count} new Functions",
+  "@functionLibrarySplitSuccess": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "functionLibrarySplitFailed": "Split failed",
+  "actionTypeOpenApp": "Open App",
+  "actionTypeClick": "Click",
+  "actionTypeClickNode": "Click Node",
+  "actionTypeLongPress": "Long Press",
+  "actionTypeInputText": "Input Text",
+  "actionTypeSwipe": "Swipe",
+  "actionTypePressKey": "Press Key",
+  "actionTypeWait": "Wait",
+  "actionTypeFinished": "Finished",
+  "actionTypeCallTool": "Call Tool",
+  "actionTypeDefault": "Action",
+  "omniflowProviderUpdate": "Provider Update",
+  "omniflowConnectionMode": "Connection Mode",
+  "omniflowConnectionModeBridge": "Bridge Connection",
+  "omniflowConnectionModeEmbedded": "Local Embedded",
+  "omniflowProviderVersion": "Provider Version",
+  "omniflowProviderPort": "Provider Port",
+  "omniflowProviderStore": "Provider Store",
+  "omniflowCurrentVersion": "Current Version",
+  "omniflowLatestVersion": "Latest Version",
+  "omniflowUpdateAvailable": "Update Available",
+  "omniflowUpdateNotSupported": "Update available, but host Provider does not support auto-update (use git pull)",
+  "omniflowStartProviderFirst": "Please start Provider first to check for updates",
+  "omniflowCheckUpdate": "Check Update",
+  "omniflowCheckingUpdate": "Checking...",
+  "omniflowApplyUpdate": "Update Now",
+  "omniflowApplyingUpdate": "Updating...",
+  "omniflowCheckUpdateFailed": "Check update failed",
+  "omniflowNewVersionFound": "New version found: {version}",
+  "@omniflowNewVersionFound": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "omniflowPackageNotInstalled": "Not installed on this device",
+  "omniflowAlreadyLatest": "Already up to date",
+  "omniflowUpdateSuccess": "Updated current device to {version}",
+  "omniflowUpdateBridgeModeHint": "Current connection remains Bridge; only the device package was updated.",
+  "omniflowUpdateRestartRequired": "Device package updated; restart the local embedded Provider to apply it.",
+  "@omniflowUpdateSuccess": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "omniflowUpdateFailed": "Update failed",
+  "executionRouteMemorized": "⚡ Memorized",
+  "executionRouteAiPlanning": "🤔 AI Planning",
+  "runLogTimelineTitle": "Execution Steps",
+  "runLogTimelineViewSteps": "View Steps",
+  "runLogTimelineStepCount": "{count} steps",
+  "@runLogTimelineStepCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "runLogTimelineLoadFailed": "Failed to load steps",
+  "runLogTimelineEmpty": "No step data",
+  "runLogTimelineUnknown": "Unknown",
+  "chatInputCommandTooltip": "Command",
+  "chatInputTrajectoryTooltip": "Trajectories",
+  "chatInputViewTrajectories": "All",
+  "chatInputViewTrajectoriesTooltip": "View existing trajectories",
+  "chatInputViewCurrentTrajectory": "Latest",
+  "chatInputViewCurrentTrajectoryTooltip": "View the latest trajectory",
+  "chatInputRecordTrajectory": "Record",
+  "chatInputRecordTrajectoryTooltip": "Record a trajectory",
+  "workbenchTitle": "Workbench",
+  "workbenchWorkspaceTitle": "Workspace",
+  "workbenchWorkspaceOpenWorkbench": "Open Workbench",
+  "workbenchWorkspaceOpenProjectConsole": "Open Project console",
+  "workbenchWorkspaceWorkMode": "Work",
+  "workbenchWorkspaceProjectMode": "Project",
+  "workbenchWorkspaceProjectFrontendsTitle": "Project window",
+  "workbenchWorkspaceProjectFrontendsSubtitle": "After Project mode is enabled, this area hosts the active Project's OOB-native frontend like an embedded child window.",
+  "workbenchWorkspaceProjectFrontendsEmpty": "No Project frontends yet. Describe the project in chat and the Agent can create a visible Workbench Project.",
+  "workbenchWorkspaceProjectOpenFailed": "Failed to open Project frontend",
+  "workbenchWorkspaceProjectUnsupportedDisplay": "This Display is not supported in the embedded Project window yet. Open it as a full page from the top-right action.",
+  "workbenchWorkspaceGuideTooltip": "View Project Workbench guide",
+  "workbenchWorkspaceGuideClose": "Close guide",
+  "workbenchWorkspaceGuideTitle": "How Project Workbench works",
+  "workbenchWorkspaceGuideIntro": "Project mode is not another chat page. It is the native OOB workbench for vibe projects, linking generated frontends, Project Tools, Workspace files, skills, and persistent data into one editable unit.",
+  "workbenchWorkspaceGuideFlowTitle": "Interaction flow",
+  "workbenchWorkspaceGuideFlowPrompt": "Prompt + Skill split the requirement",
+  "workbenchWorkspaceGuideFlowProject": "Project registry records the container",
+  "workbenchWorkspaceGuideFlowApi": "Project Tools register business capabilities",
+  "workbenchWorkspaceGuideFlowDisplay": "Flutter Display renders the business frontend",
+  "workbenchWorkspaceGuideFlowPersist": "data/ + logs/ persist AI and UI calls",
+  "workbenchWorkspaceGuideProjectTitle": "What a Project binds",
+  "workbenchWorkspaceGuideProjectBody": "A Project binds the goal, skill, Workspace files, Display list, Project Tools, data, and logs. It is not an MCP tool list and it is not a loose generated HTML page.",
+  "workbenchWorkspaceGuideFrontendTitle": "How the frontend is shown",
+  "workbenchWorkspaceGuideFrontendBody": "The generated frontend is an OOB-native Flutter Display. After Workspace switches to Project mode, it no longer shows a large manager list; it hosts the active Project home like an embedded browser window. One Project can own multiple Displays, selected from the small menu.",
+  "workbenchWorkspaceGuideBackendTitle": "How the backend is called",
+  "workbenchWorkspaceGuideBackendBody": "Backend capabilities are registered as Project Tools, such as todo.add and todo.finish. The AI layer and frontend buttons call the same workbenchApiCall(projectId, toolId, inputs) path. Project create, export, and delete remain control APIs and do not mix into business tools.",
+  "workbenchWorkspaceGuideDataTitle": "How data flows",
+  "workbenchWorkspaceGuideDataBody": "A call goes through Flutter -> MethodChannel -> OOB native executor, then writes to the Project data/ and logs/. Frontend refreshes, AI execution stats, and state after restart all come from this persisted data.",
+  "workbenchWorkspaceGuideVibeTitle": "How to keep editing",
+  "workbenchWorkspaceGuideVibeBody": "To continue vibe coding, go back to the main Home input and describe the change. The Workbench Skill decides whether to create a new Project, extend Project Tools, adjust Displays, or hot update the current Project.",
+  "workbenchWorkspaceGuideExtendTitle": "Extending backend tools",
+  "workbenchWorkspaceGuideExtendBody": "When adding a capability, define toolId, input/output schemas, executorKind, persistence files, and the frontend trigger first. Then register the Project Tool through Workbench interfaces; do not hand-edit registry files.",
+  "workbenchWorkspaceProjectApiStats": "{apiCount} tools · {executionCount} executions",
+  "@workbenchWorkspaceProjectApiStats": {
+    "placeholders": {
+      "apiCount": {
+        "type": "int"
+      },
+      "executionCount": {
+        "type": "int"
+      }
+    }
+  },
+  "workbenchSubtitle": "A native OOB project example that registers Project Tools, persists state, and renders inside the Workbench.",
+  "workbenchVibeSubtitle": "Prompt-built native frontend, Project Tools, and workspace files stay connected inside OOB.",
+  "workbenchProjectDisplay": "Project Display",
+  "workbenchProjectSection": "Project",
+  "workbenchProjectIdLabel": "Project ID",
+  "workbenchRouteLabel": "Screen Path",
+  "workbenchSpacePathLabel": "Space path",
+  "workbenchPageIdsLabel": "Pages",
+  "workbenchDevelopmentMode": "Development mode",
+  "workbenchProjectRegistryPath": "Project registry",
+  "workbenchApiRegistryPath": "Tool registry",
+  "workbenchProjectFilePath": "Project file",
+  "workbenchDataFilePath": "Data file",
+  "workbenchLogFilePath": "Tool log",
+  "workbenchBackendTools": "Backend tools",
+  "workbenchFrontendBinding": "Frontend binding",
+  "workbenchCallApi": "Call tool",
+  "workbenchGeneratedFrontend": "Generated frontend",
+  "workbenchGeneratedFrontendSubtitle": "Open the OOB-native preview that a prompt-generated page should target. It uses the same Project Tools and persistent data as the AI layer.",
+  "workbenchOpenGeneratedFrontend": "Open generated frontend",
+  "workbenchPreviewClose": "Close preview",
+  "workbenchToolList": "Project Tools",
+  "workbenchProjectControlSubtitle": "Only registered business tools are shown here. Project create/open stays in the OOB Workbench control surface.",
+  "workbenchOpenWorkspace": "Open Workspace",
+  "workbenchApiEmpty": "No tools yet",
+  "workbenchToolListDefaultTodo": "Project Tool clicked the shared backend",
+  "workbenchToolExecutionCount": "Executed {count}",
+  "@workbenchToolExecutionCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "workbenchProjectDefaultEntity": "Item",
+  "workbenchProjectCreateTitle": "Create {entity}",
+  "@workbenchProjectCreateTitle": {
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchProjectInputHint": "Enter {entity} name",
+  "@workbenchProjectInputHint": {
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchProjectItemsTitle": "{entity} list",
+  "@workbenchProjectItemsTitle": {
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchProjectEmpty": "No {entity} yet",
+  "@workbenchProjectEmpty": {
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchProjectActiveItems": "Active",
+  "workbenchProjectArchivedItems": "Archived",
+  "workbenchProjectEditAction": "Edit",
+  "workbenchProjectEditTitle": "Edit item",
+  "workbenchProjectArchiveAction": "Archive",
+  "workbenchProjectMissingCreateApi": "This Project has no create tool",
+  "workbenchProjectMissingUpdateApi": "This Project has no edit tool",
+  "workbenchProjectMissingArchiveApi": "This Project has no archive tool",
+  "workbenchProjectInputRequired": "Enter {entity} first",
+  "@workbenchProjectInputRequired": {
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchProjectItemCreated": "{entity} created",
+  "@workbenchProjectItemCreated": {
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchProjectItemUpdated": "{entity} saved",
+  "@workbenchProjectItemUpdated": {
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchProjectItemArchived": "{entity} archived",
+  "@workbenchProjectItemArchived": {
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchLoadFailed": "Load failed",
+  "workbenchUnknownTool": "Workbench tool failed",
+  "workbenchStatusOpen": "Waiting",
+  "workbenchStatusFinished": "Archived",
+  "workbenchAssistantName": "Xiaowan",
+  "workbenchAssistantTooltip": "Open Xiaowan",
+  "workbenchAssistantPromptHint": "Describe the change to apply now",
+  "workbenchAssistantSend": "Hot update current Project",
+  "workbenchAssistantApplied": "Project hot updated",
+  "workbenchAssistantPromptRequired": "Enter the change first",
+  "workbenchAssistantNoProject": "Select a Project first",
+  "workbenchAssistantHotUpdateFailed": "Project hot update failed",
+  "workbenchProjectModeTitle": "Projects",
+  "workbenchFlutterDisplay": "Flutter Display",
+  "workbenchFlutterEvalTitle": "Flutter runtime",
+  "workbenchFlutterEvalNoSource": "This Project has no runnable Flutter source yet. Define OobProjectWidget in frontend/flutter/lib/main.dart.",
+  "workbenchFlutterEvalRuntimeFailed": "Flutter source is not runnable yet. Return to the input box and ask Xiaowan to fix this page.",
+  "workbenchProjectSwitcher": "Switch Project",
+  "workbenchProjectGenerateTitle": "Project container",
+  "workbenchProjectGenerateSubtitle": "This page only selects and opens Project containers. Create, edit, and hot update from the Home input with the active Project toolbox.",
+  "workbenchProjectPromptHint": "Return Home to describe the Project",
+  "workbenchProjectDefaultPrompt": "I want to create a simple todolist management system that can add todos and archive todos",
+  "workbenchProjectGenerateButton": "Continue from Home",
+  "workbenchInputProjectTooltip": "Open Project Workbench",
+  "workbenchGeneratedTodoProjectName": "Todo List Workbench",
+  "workbenchPromptSeedAddTodo": "Verify adding a todo",
+  "workbenchPromptSeedArchiveTodo": "Verify archiving a todo",
+  "workbenchProjectPlanTitle": "Decomposition plan",
+  "workbenchProjectPlanProject": "Create Project registry and editable Workspace",
+  "workbenchProjectPlanFrontend": "Generate an OOB-native Flutter frontend",
+  "workbenchProjectPlanApi": "Register Project Tools shared by AI and UI",
+  "workbenchProjectPlanData": "Persist data and tool call logs",
+  "workbenchUseMode": "Use mode",
+  "workbenchDebugMode": "Debug mode",
+  "workbenchDisplaysTitle": "Pages",
+  "workbenchDisplayCount": "{count} displays",
+  "@workbenchDisplayCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "workbenchUnnamedDisplay": "Unnamed display",
+  "workbenchOpenDisplay": "Open this frontend",
+  "workbenchDebugDisplay": "Debug this frontend",
+  "workbenchProjectCurrentTitle": "Project use surface",
+  "workbenchProjectCurrentSubtitle": "Default opens return to Home; debug opens return to the Workbench. Hot updates run from the Home input with the active Project.",
+  "workbenchProjectModeCreateTitle": "Vibe project entry",
+  "workbenchProjectModeSubtitle": "This page only shows projects and the active item.",
+  "workbenchProjectActiveTitle": "Active",
+  "workbenchProjectActiveEmpty": "No active Project yet",
+  "workbenchProjectListTitle": "Projects",
+  "workbenchProjectDetailTitle": "Project",
+  "workbenchProjectModeCreateButton": "Create from Home",
+  "workbenchProjectCreateFromHome": "Return to the Home input and say create project or describe the page you want.",
+  "workbenchProjectModeProjectsTitle": "Current tools",
+  "workbenchProjectApiForProject": "Tools",
+  "workbenchProjectModeOpen": "Open project",
+  "workbenchProjectModeEmpty": "No Workbench projects yet",
+  "workbenchProjectModeLoadFailed": "Project mode failed to load",
+  "workbenchProjectPromptRequired": "Enter a Project requirement first",
+  "workbenchProjectGenerated": "Project generated",
+  "workbenchDeleteProject": "Delete Project",
+  "workbenchDeleteProjectTitle": "Delete Project",
+  "workbenchDeleteProjectMessage": "Delete {projectId}? This removes its Project registry entry, business tool registrations, and Workspace project files.",
+  "@workbenchDeleteProjectMessage": {
+    "placeholders": {
+      "projectId": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchDeleteProjectCancel": "Cancel",
+  "workbenchDeleteProjectConfirm": "Delete",
+  "workbenchDeleteProjectFailed": "Project delete failed",
+  "workbenchProjectDeleted": "Project deleted",
+  "workbenchProjectIdRequired": "Enter a project ID",
+  "workbenchProjectCreated": "Project created",
+  "workbenchProjectInfoTitle": "Project info",
+  "workbenchProjectInfoDisplayTitle": "Display path",
+  "workbenchProjectInfoSourceTitle": "Source specs",
+  "workbenchProjectInfoSourceValue": "README.md / frontend/page_spec.json / backend/api_spec.json",
+  "workbenchProjectInfoRuntimeTitle": "Runtime state",
+  "workbenchProjectInfoRuntimeValue": "data/todos.json / logs/api_calls.jsonl",
+  "workbenchDebugToolsTitle": "Debug tools",
+  "workbenchDebugHotUpdate": "Use floating Xiaowan to hot-update this Project",
+  "workbenchDebugHotUpdateHomeInput": "Return to the Home input and describe the edit; the Agent will use the active Project toolbox for the hot update",
+  "workbenchDebugFloatingXiaowan": "Floating Xiaowan can attach the current frontend context, select page information, and call workbench_project_hot_update to iterate this Project.",
+  "workbenchDebugVlmInput": "VLM input can also attach the current Display, visible state, selected control, or screenshot summary as frontendContext for the Project Skill.",
+  "workbenchDebugContextProject": "Project {projectId}",
+  "@workbenchDebugContextProject": {
+    "placeholders": {
+      "projectId": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchDebugContextDisplay": "Display {displayId}",
+  "@workbenchDebugContextDisplay": {
+    "placeholders": {
+      "displayId": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchDebugContextRoute": "Screen path {route}",
+  "@workbenchDebugContextRoute": {
+    "placeholders": {
+      "route": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchDebugVlmTest": "Run a VLM human-operation simulation",
+  "workbenchDebugComingSoon": "Pending",
+  "workbenchAnnotationTitle": "Annotation canvas",
+  "workbenchAnnotationDrawMode": "Draw",
+  "workbenchAnnotationBrowseMode": "Browse page",
+  "workbenchAnnotationUndo": "Undo",
+  "workbenchAnnotationClear": "Clear",
+  "workbenchAnnotationApply": "Apply annotation",
+  "workbenchAnnotationApplying": "Applying",
+  "workbenchAnnotationPromptHint": "Add edit notes, for example: turn this into the primary button",
+  "workbenchAnnotationNoStrokes": "Draw the area to edit first",
+  "workbenchAnnotationNoShape": "No marks",
+  "workbenchAnnotationShapeCount": "{count} strokes marked",
+  "@workbenchAnnotationShapeCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "workbenchAnnotationDefaultPrompt": "Adjust the current Project frontend according to the canvas annotation.",
+  "workbenchAnnotationHotUpdateSuccess": "Applied the annotation to the Project",
+  "workbenchAnnotationHotUpdateFailed": "Annotation hot update failed",
+  "workbenchExportProjectPackage": "Export package",
+  "workbenchProjectExportFailed": "Project export failed",
+  "workbenchProjectExported": "Exported {packageName}",
+  "@workbenchProjectExported": {
+    "placeholders": {
+      "packageName": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchProjectExportPath": "Export path: {path}",
+  "@workbenchProjectExportPath": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchAndroidAssetsTitle": "Apps",
+  "workbenchAndroidSourceHint": "Enter an APK or Android project path, for example /workspace/apps/demo.apk",
+  "workbenchAndroidIngestButton": "Import into current Project",
+  "workbenchAndroidSourceRequired": "Enter an Android app or project path",
+  "workbenchAndroidIngestFailed": "Android asset import failed",
+  "workbenchAndroidIngested": "Imported {name}",
+  "@workbenchAndroidIngested": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchAndroidAssetsEmpty": "No imported Android apps or projects yet",
+  "workbenchProjectActivateFailed": "Project activation failed",
+  "workbenchProjectActivated": "Activated {projectName}",
+  "@workbenchProjectActivated": {
+    "placeholders": {
+      "projectName": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchProjectDeactivateFailed": "Project deactivation failed",
+  "workbenchProjectDeactivated": "Project deactivated",
+  "workbenchActivateProject": "Activate Project",
+  "workbenchDeactivateProject": "Deactivate",
+  "workbenchEditProjectLabels": "Edit labels",
+  "workbenchProjectNameLabel": "Name",
+  "workbenchProjectShortNameLabel": "Short name",
+  "workbenchSaveProjectLabels": "Save",
+  "workbenchProjectNameRequired": "Enter a name",
+  "workbenchProjectLabelsUpdated": "Saved",
+  "workbenchProjectLabelsUpdateFailed": "Save failed",
+  "workbenchProjectMoreActions": "More actions",
+  "workbenchActiveProject": "Active",
+  "workbenchInactiveProject": "Inactive",
+  "workbenchContinueInHome": "Activate Project",
+  "workbenchProjectHelpTooltip": "Project Workbench help",
+  "workbenchProjectHelpTitle": "Project Workbench",
+  "workbenchProjectHelpHomeInput": "Create, edit, and hot update Projects from the Home input.",
+  "workbenchProjectHelpSelect": "Select a Project here to activate it as the Agent workspace.",
+  "workbenchProjectHelpDisplays": "Each Project can own multiple Flutter Displays; open containers from here.",
+  "workbenchProjectHelpApis": "Project Tools are the current Project business toolbox and stay separate from MCP tools.",
+  "workbenchActiveProjectChip": "Project: {projectName}",
+  "@workbenchActiveProjectChip": {
+    "placeholders": {
+      "projectName": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchProjectSummaryGeneric": "Manage {entityName} records with saved status and quick actions.",
+  "@workbenchProjectSummaryGeneric": {
+    "placeholders": {
+      "entityName": {
+        "type": "String"
+      }
+    }
+  },
+  "workbenchAndroidAssetCount": "{count} Android assets",
+  "@workbenchAndroidAssetCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "workbenchProjectItemCount": "{activeCount} active / {archivedCount} archived",
+  "@workbenchProjectItemCount": {
+    "placeholders": {
+      "activeCount": {
+        "type": "int"
+      },
+      "archivedCount": {
+        "type": "int"
+      }
+    }
+  },
+  "workbenchApiCount": "{count} tools",
+  "@workbenchApiCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "workbenchPhilosophyBadge": "What is Workbench?",
+  "workbenchPhilosophyClose": "Close",
+  "workbenchPhilosophyTitle": "AI Product Display Workbench",
+  "workbenchPhilosophyTagline": "Turn AI results into interfaces users can see, tap, and keep changing",
+  "workbenchPhilosophySubtitle": "Workbench is not a template generator. It is the display and runtime layer for AI products. Agent reports, data, state, and actions land in a Project, render through HTML, Markdown, or Flutter, and connect to phone capabilities and persisted data through Project APIs.",
+  "workbenchPhilosophyPillarsTitle": "Current loop",
+  "workbenchPhilosophyComposable": "Display",
+  "workbenchPhilosophyComposableDesc": "HTML / Markdown / Flutter are Project Displays for presenting AI output",
+  "workbenchPhilosophyAIDriven": "Interaction",
+  "workbenchPhilosophyAIDrivenDesc": "User clicks, form input, and selections call Project APIs to trigger the next Agent or tool step",
+  "workbenchPhilosophyMobileNative": "Capabilities",
+  "workbenchPhilosophyMobileNativeDesc": "Screen control, reading UI, files, and scripts go through OOB native capabilities only when needed",
+  "workbenchPhilosophyStrengthsTitle": "Three essentials",
+  "workbenchPhilosophyBackendTitle": "Project API",
+  "workbenchPhilosophyBackendDesc": "Whitelisted tools, persisted data, run logs, and phone capabilities are mounted on the Project",
+  "workbenchPhilosophyFrontendTitle": "Display",
+  "workbenchPhilosophyFrontendDesc": "Normal interactive UI defaults to HTML; reports use Markdown / HTML; Flutter stays as the container and constrained supplement",
+  "workbenchPhilosophyRuntimeTitle": "Hot update",
+  "workbenchPhilosophyRuntimeDesc": "After one sentence or one annotated selection, AI edits only the necessary frontend files or APIs and the right side refreshes",
+  "workbenchPhilosophyHowToTitle": "Flow",
+  "workbenchPhilosophyStep1Label": "Generate",
+  "workbenchPhilosophyStep1Desc": "The Agent creates a Project and writes APIs plus display files",
+  "workbenchPhilosophyStep2Label": "View",
+  "workbenchPhilosophyStep2Desc": "The right Workspace previews HTML / Markdown / Flutter directly",
+  "workbenchPhilosophyStep3Label": "Update",
+  "workbenchPhilosophyStep3Desc": "Use the floating input or annotation to request a Project hot update",
+  "workbenchPhilosophyActivateHint": "After activation, the right Workspace shows the Project Display. Further input or annotations are passed as context to hot update.",
+  "sourceTextf9dfa89402": "Omnibot Floating Window",
+  "sourceTextea6631ac86": "Hide the desktop floating ball, half-screen input, and running capsule",
+  "sourceText60d33fd58f": "Omnibot floating window enabled",
+  "sourceText9803e0f8d8": "Omnibot floating window disabled",
+  "sourceText8ed5fe74f6": "Failed to update floating window setting",
+  "sourceText2a4a4de806": "Manual",
+  "sourceText76c9741888": "Shizuku Permission",
+  "sourceText5e04ad1c9a": "Running a command in the embedded Alpine terminal",
+  "sourceTextc0b7ed8600": "Executing a command in the embedded Alpine terminal",
+  "sourceText60cf09e22d": "Updating terminal output",
+  "sourceText140c80c696": "🎉Hi, I'm Omnibot. I can do many things, let me show you!",
+  "sourceText82347f1be8": "Hi, I'm Omnibot",
+  "sourceText5167632783": "Your AI assistant, always ready",
+  "sourceText63a921a287": "No internet needed, completely free",
+  "sourceText112e197134": "Data stays entirely on your device and is never sent to any server. Conversations, preferences, and sensitive info always remain under your control.",
+  "sourceText8de8b69cc9": "Run the AI assistant without any network connection. Whether on a plane, in the subway, or in a remote area — it's always available.",
+  "sourceTexteac537b43e": "No API costs or subscriptions. Once downloaded, use the model unlimited times with no hidden charges.",
+  "sourceTexte8b806ace2": "On-device models are smaller with lower quality than cloud models. Complex Agent tasks are not yet supported — best for everyday chat and Q&A.",
+  "sourceText7e1cc2fc3f": "Shuffle",
+  "sourceText63e272f624": "Omnibot is thinking...",
+  "sourceTextd9f594509d": "Summarizing",
+  "sourceText9384e034e5": "Summary",
+  "sourceText3e44b2a933": "Select all",
+  "sourceText4edd1d0087": "Copy",
+  "sourceTextb56d9ac6c5": "Confirm",
+  "sourceTextf526c89937": "OK",
+  "sourceText4d0b3bb4e9": "Please wait...",
+  "sourceTextee5037d25d": "Save & Send",
+  "sourceTextbe15d6f28c": "No model set",
+  "sourceText01047404ef": "New version available",
+  "sourceText1722589489": "Open terminal",
+  "sourceText649fc10b46": "Manage terminal environment variables",
+  "sourceTextd8f03e50ea": "Open browser for current session",
+  "sourceTextc1c986937d": "No browser session available",
+  "sourceText31b7c8d175": "Chat Only",
+  "sourceText7cda072d45": "Normal",
+  "sourceText17e83cc25e": "Today",
+  "sourceText59c4fcb09e": "Yesterday",
+  "sourceText1f425b6bf0": "Executing",
+  "sourceText6c189aad4d": "Succeeded",
+  "sourceText9746cfc7d2": "Failed",
+  "sourceTextd0de773436": "Pending",
+  "sourceText2029839d84": "Summary",
+  "sourceText6c2b60f0ee": "Image Recognition",
+  "sourceTexte9649f84f9": "Unknown type",
+  "sourceText756eae0324": "Replying...",
+  "sourceText292eea5849": "Never",
+  "sourceText08d65bdbc3": "Daily",
+  "sourceTexta93b55d8bf": "Weekly",
+  "sourceText24aedc3608": "Monthly",
+  "sourceText4a9ee561f9": "Yearly",
+  "sourceText89b4aa6364": "Time",
+  "sourceTextb6fed9af83": "Date",
+  "sourceText6e708ba759": "Repeat",
+  "sourceTextc1cb3fc29f": "Task options",
+  "sourceText39797f7a92": "Please select a task",
+  "sourceTexte03304491a": "Please select a task to execute",
+  "sourceTextb4a7ea5533": "Please select an application",
+  "sourceText1354374f76": "Expired",
+  "sourceText36d2d01f31": "Starting soon",
+  "sourceText13794e1f43": "OK, I'll help you complete it",
+  "sourceTextbaa298fbe1": "User action",
+  "sourceText86e8d12a79": "Deleted",
+  "sourceText9abb465039": "Modify failed",
+  "sourceTextf8913eb433": "Modified successfully",
+  "sourceText65fdeb927b": "Desktop",
+  "sourceText322eceb785": "Local Memory",
+  "sourceTextf90d5c751e": "Cloud Memory",
+  "sourceText7e68eb622d": "Saved successfully",
+  "sourceText6a6b660ba8": "Edit your message",
+  "sourceTextfcbd093292": "Create",
+  "sourceText8200c3d50b": "Untitled conversation",
+  "sourceText229127ec8d": "Collapse all dates",
+  "sourceTextbc51af6ffc": "Expand all dates",
+  "sourceText72be511e05": "Last executed",
+  "sourceText818a1f7be3": "No summary content",
+  "sourceTextc76c74e809": "Failed to check for updates",
+  "sourceTextae4535ef13": "Already up to date",
+  "sourceText00f512b5e8": "Checking GitHub Release for the latest version",
+  "sourceText9afc832d99": "View new version",
+  "sourceTexta6df38586d": "Check for updates",
+  "sourceText8ff0439ff9": "Thinking disabled",
+  "sourceTextd9d4d4e7dd": "Request logs",
+  "sourceTexta8ce402665": "Runtime logs",
+  "sourceText4c685c0454": "User guide",
+  "sourceText5060421d15": "Overview",
+  "sourceText9f14a3f4dd": "Recent logs",
+  "sourceTextb01090a29c": "The latest 10 AI requests are shown in reverse chronological order.",
+  "sourceTextc740eb5be5": "Tap an entry to expand the request and response payloads.",
+  "sourceTextcb80eb03ea": "The latest 200 error and crash logs are shown in reverse chronological order.",
+  "sourceText8334b58cfa": "Entries with stack traces can be expanded for details.",
+  "sourceTextfe12b789bf": "Export runtime logs",
+  "sourceText88f6dbf1a3": "All runtime logs copied",
+  "sourceText8b06115d35": "Failed to export runtime logs",
+  "sourceTextd6c8084d07": "Crash",
+  "sourceText367ff5ddd2": "Total",
+  "sourceText71bd34d484": "Latest entry",
+  "sourceText41654e0268": "Basic info",
+  "sourceText7364999103": "Payloads",
+  "sourceTextd70d425039": "Saving...",
+  "sourceTextdbb4430dc0": "No file selected",
+  "sourceText1e620e20a1": "Remote URL",
+  "sourceTextdde21b2cec": "Background run permission",
+  "sourceText135f1636e4": "Installed apps access",
+  "sourceTextf80103fee9": "Accessibility permission",
+  "sourceTextd78cde076b": "Enabled",
+  "sourceText13ec170881": "Enable",
+  "sourceText291952a2ab": "Clear cache",
+  "sourceText3d0c8b9d9f": "Help Omnibot better understand your preferences during companion mode",
+  "sourceText86890292b6": "Allow Omnibot to stay active on screen and accompany you anytime",
+  "sourceTexta86909c7ea": "Let Omnibot know what it can help you with",
+  "sourceText56735a4ab7": "Omnibot needs permission to perform actions when executing tasks",
+  "sourceText99ad612dd1": "Set up permissions",
+  "sourceTextaef926661d": "You can revoke these permissions anytime",
+  "sourceText02a75489b2": "Review and configure Accessibility, Overlay, Shizuku, and related permissions",
+  "sourceText75b40989f3": "Checking permissions...",
+  "sourceText2599599947": "Continue task",
+  "sourceText14411ce362": "Continue requires only",
+  "sourceTextf739c7d4a8": "Termux terminal capability",
+  "sourceText98bd36febc": "Optional: allow the Agent to run terminal commands via Termux",
+  "sourceText53e32830a5": "Optional",
+  "sourceTexte5d269502c": "Let Omnibot walk you through one task!",
+  "sourceText1aca95f544": "Termux capability is optional; leaving it off will not affect basic automation",
+  "sourceText3bf179d8d0": "Unbound",
+  "sourceText2a30881946": "Clear binding",
+  "sourceTexta191935bc6": "Restore default",
+  "sourceText8988c04935": "After tapping the button on the right, you can search, collapse, and select models by Provider; voice tone and auto-play can be adjusted below.",
+  "sourceText2415f124bd": "Auto-play after AI response",
+  "sourceTextc4301894a2": "Voice",
+  "sourceTextc0ae8ba446": "e.g. default_zh / mimo_default / default_en",
+  "sourceTexta4ce420c69": "Style",
+  "sourceText6614801dcd": "Custom note",
+  "sourceText558a2f3fd0": "Additional style is not supported in singing mode",
+  "sourceTextfa12d9ef1b": "e.g. softer, slower, podcast-like",
+  "sourceText2601f9e3cb": "Collapse voice settings",
+  "sourceTextbc2c7387f0": "Expand voice settings",
+  "sourceText6a7d5cd91d": "No matching models",
+  "sourceText7b0de927a6": "Search model ID",
+  "sourceTexte5463e3a94": "Please configure a provider in Model Providers first",
+  "sourceText13c9595745": "No selectable models for this provider",
+  "sourceText90bfe72640": "Entered chat-only mode",
+  "sourceText9c1153036d": "Exited chat-only mode",
+  "sourceTextd1a19c24c7": "Search skill name or description",
+  "sourceTextd636ae3e01": "No matching skills found",
+  "sourceTexte4d8c16cd2": "Streaming",
+  "sourceText36e8d9631f": "Non-streaming",
+  "sourceText0e84ef42ae": "Request URL",
+  "sourceText4d150364fe": "Request Method",
+  "sourceTexta38a81c9d5": "Error",
+  "sourceText0228e74add": "Request JSON",
+  "sourceText9f062a0dac": "Response JSON",
+  "sourceTexte2d53a6d3a": "Retry",
+  "sourceText661b2db84d": "Failed to load request logs",
+  "sourceTextfa604c3dba": "No AI request logs yet",
+  "sourceTexta22889b61d": "Failed to load runtime logs",
+  "sourceText71a159aa14": "No runtime logs yet",
+  "sourceText7b15e5e8e7": "Clear",
+  "sourceTextfb57d700b9": "AI Request",
+  "sourceText7a42fe12dc": "conversations",
+  "sourceTextadf4707731": "day streak",
+  "sourceText0fe8227aa4": "No conversations",
+  "sourceText7a54a1229e": "No token usage data yet",
+  "sourceTexte8666c377c": "Local",
+  "sourceText565481c9be": "Cloud",
+  "sourceText54c727b452": "No usage",
+  "sourceText7fe4999970": "Long-term memory is not ready",
+  "sourceTextb87a8a83f5": "After memory initialization, cross-session preferences and facts will appear here.",
+  "sourceTextb92a2068aa": "Long-term memory is temporarily unavailable",
+  "sourceTextd3a2b13fc2": "Long-term memory is still empty",
+  "sourceTexte8c59faf6d": "After the Agent writes long-term preferences, this section will gradually fill up.",
+  "sourceText495c0debaf": "Add long-term memory",
+  "sourceText4398777297": "Refresh long-term memory",
+  "sourceText9e636642d6": "Just now",
+  "sourceTextedab852efe": "Thinking complete",
+  "sourceText774d85ae0a": "Thinking",
+  "sourceTexte4b6477e6e": "Elapsed",
+  "sourceText15fc7643c5": "Preparing to execute task...",
+  "sourceTextd258a63cad": "Cancel task",
+  "sourceText6df9b76521": "Task canceled",
+  "sourceText038d05ca8c": "Stop tool",
+  "sourceText4078ac16b6": "Stopping tool",
+  "sourceTextcb1115d8c1": "Failed to stop tool call. Please try again later.",
+  "sourceTexteac987a597": "Unable to open Agent manager",
+  "sourceTexte3f4d6bd9d": "Failed to hide floating capsule",
+  "sourceTextf6d7e0312c": "Floating capsule hidden. You can re-enable it in Settings.",
+  "sourceText066af21f55": "Open",
+  "sourceText15197efe93": "Hide floating capsule",
+  "sourceText5d5815647c": "Collapse",
+  "sourceText151eeabaf6": "Failed to stop",
+  "sourceText6ef1200428": "Running Agents",
+  "sourceText5bd8f4879e": "No backend tasks running",
+  "sourceTextfaeb185030": "No Agents running",
+  "sourceText68685fc5c4": "Stop all",
+  "sourceTextf0b2cef7b0": "No running Agent backend tasks",
+  "sourceText65fc81e161": "Open",
+  "sourceText645fc8d22d": "Stop this Agent",
+  "sourceText5e59efab1e": "Agent backend idle. Tap to open manager.",
+  "sourceText0b961ab4d9": "Organizing plan",
+  "sourceText91796bb70a": "Writing response",
+  "sourceText33fe6867a2": "Starting tool call",
+  "sourceText76a18aa532": "Tool running",
+  "sourceTextd333e5691f": "Tool completed",
+  "sourceTextcc1f7be0b2": "Waiting for permission",
+  "sourceTextf7d01365f2": "Waiting for more information",
+  "sourceText9617084ded": "Run failed",
+  "sourceText832451d2f4": "Finishing",
+  "sourceTextc6dc0ad888": "Agent backend task",
+  "sourceTextbdde1def59": "Waiting for model response",
+  "sourceText3d4d1075e7": "Tool call",
+  "sourceTextff06c243d7": "Timeout",
+  "sourceText44e681a374": "Interrupted",
+  "sourceText71757f8d79": "Browsing",
+  "sourceTextda3d2d1482": "Responding",
+  "sourceTextfcb979ef0b": "Processing",
+  "sourceText7f55a26d7d": "Terminal",
+  "sourceText88d650dd4f": "Browser",
+  "sourceText81944e48a3": "Reminder",
+  "sourceText2ecbc11608": "Calendar",
+  "sourceText2a8ce33ff0": "Subtask",
+  "sourceTexta72ef18d9a": "Tool",
+  "sourceText15ec50fe7d": "[Earlier records omitted]",
+  "sourceTexta5dda12242": "Waiting for OpenClaw processing",
+  "sourceText70c53b8ac3": "Configure Your AI Assistant",
+  "sourceTextf7f58b95a7": "Choose a way to start using the assistant",
+  "sourceText1670225703": "Cloud AI Service",
+  "sourceText90f71a54c8": "Connect to OpenAI, Anthropic, or compatible APIs",
+  "sourceTextb0253cd034": "Local Model",
+  "sourceText10691e242c": "Run local AI on your device, offline and private",
+  "sourceText1fc1afc5c5": "Continue",
+  "sourceText184913c0f3": "Skip, configure later in Settings",
+  "sourceText1e797c0dac": "Cloud AI Setup",
+  "sourceText79973caeef": "Configure a cloud AI provider for more powerful models",
+  "sourceText993df7d096": "Protocol Type",
+  "sourceText530aafb12a": "e.g., My OpenAI",
+  "sourceText10b7d8eccc": "Test Connection",
+  "sourceTexteb06635875": "Connected",
+  "sourceText523e40a074": "found",
+  "sourceText674373aef1": "models",
+  "sourceText2c056f182f": "Connection failed",
+  "sourceTextd15ae9ad81": "Run Local AI on Your Device",
+  "sourceText4bbe706f8d": "Advantages",
+  "sourceText37dea6b39e": "Privacy",
+  "sourceText6bcfca9d58": "Data stays entirely on your device, never sent to any server",
+  "sourceText270d12d95b": "Offline",
+  "sourceText97fcfbb5dd": "No internet needed, use AI assistant anytime",
+  "sourceTextdd70b93ad6": "Free",
+  "sourceText5d4061aac5": "No API costs or subscriptions, no usage limits",
+  "sourceText498c2879b0": "Limitations",
+  "sourceTexta597376852": "Limited Performance",
+  "sourceTextb4d10c670a": "On-device models are smaller with limited quality vs. cloud models",
+  "sourceText390d11af9b": "Limited Tasks",
+  "sourceText7b5c99ecb8": "Cannot handle complex Agent tasks yet, suitable for simple chat",
+  "sourceTextea0ef2ae72": "Next",
+  "sourceText68e23d8fac": "Download Local Model",
+  "sourceText405be21f38": "Recommended Model",
+  "sourceTextf430f6d1d1": "A lightweight model recommended for your device",
+  "sourceText1b58744dff": "Loading model info...",
+  "sourceText3f9550508b": "Resume",
+  "sourceText4bbcf94739": "Download Complete",
+  "sourceText33246f6a5e": "Done",
+  "sourceText11d0241540": "Back",
+  "sourceText85d011402f": "Unable to fetch recommended model",
+  "sourceText1b2fe43b5e": "Check your network or download manually in Settings later",
+  "sourceText2bc19ec67e": "Get Started",
+  "sourceTextc55627eba1": "API Key (optional)",
+  "sourceText90988df4ff": "Browse Model Market",
+  "sourceText62b46f24ae": "Recommended",
+  "sourceTextc59773a6a4": "Choose Method",
+  "sourceTextb62ed716e3": "Features"
 }

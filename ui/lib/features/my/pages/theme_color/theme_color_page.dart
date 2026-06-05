@@ -5,7 +5,7 @@ import 'package:ui/widgets/common_app_bar.dart';
 import 'package:ui/widgets/theme_mode_setting_card.dart';
 
 class ThemeColorPage extends StatelessWidget {
-  const ThemeColorPage({Key? key}) : super(key: key);
+  const ThemeColorPage({super.key});
 
   @override
   Widget build(BuildContext context) {

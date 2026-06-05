@@ -3,6 +3,7 @@ package cn.com.omnimind.bot.agent
 import cn.com.omnimind.baselib.shizuku.ShizukuBackend
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
 import cn.com.omnimind.baselib.i18n.PromptLocale
+import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonArray
@@ -180,6 +181,7 @@ object AgentToolDefinitions {
         "执行会话命令" to "Run Session Command",
         "读取会话输出" to "Read Session Output",
         "结束终端会话" to "Stop Terminal Session",
+        "网页搜索" to "Web Search",
         "浏览器操作" to "Browser Action",
         "读取文件" to "Read File",
         "写入文件" to "Write File",
@@ -190,6 +192,7 @@ object AgentToolDefinitions {
         "移动文件" to "Move File",
         "列出 Skills" to "List Skills",
         "读取 Skill" to "Read Skill",
+        "读取 Skill 引用" to "Read Skill Reference",
         "创建定时任务" to "Create Scheduled Task",
         "查看定时任务" to "List Scheduled Tasks",
         "修改定时任务" to "Update Scheduled Task",
@@ -208,6 +211,17 @@ object AgentToolDefinitions {
         "沉淀长期记忆" to "Upsert Long-Term Memory",
         "整理当日记忆" to "Roll Up Daily Memory",
         "分派子任务" to "Dispatch Subtasks",
+        "调用工具" to "Call Tool",
+        "统一调用一个 OOB 工具，或通过 function_id 运行一个已保存的本地 Function 片段。Function 是可组合的复用片段，不要求一次覆盖完整用户目标；调用后要根据结果继续选择下一个 Function、VLM、网页、终端、文件或记忆工具。" to
+            "Call one OOB tool, or run one saved local Function by function_id when that capability is explicitly exposed. A Function is a saved mobile workflow tool; after the result, choose the next Function, VLM, web, terminal, file, or memory tool as needed.",
+        "目标工具名，例如 vlm_task、web_search、terminal_execute。传 function_id 时可留空。" to
+            "Target tool name, for example vlm_task, web_search, or terminal_execute. Leave empty when function_id is provided.",
+        "已保存 Function 的 id。传入后会走本地 Function runner，运行这一个复用片段，而不是把 Function id 当成独立工具名。" to
+            "Saved Function id. When provided and exposed by the current runtime, this runs that saved Function through the local runner instead of treating the Function id as a separate tool name.",
+        "传给目标工具或 Function 片段的参数对象。" to
+            "Arguments object passed to the target tool or Function.",
+        "可选自然语言目标，用于记录或需要规划的工具。" to
+            "Optional natural-language goal for tracing or tools that require planning.",
         "查询设备已安装应用列表。需要应用包名或确认应用是否已安装时优先调用。" to
             "Query the list of apps installed on the device. Prefer this when you need an app package name or need to confirm whether an app is installed.",
         "可选关键词，可匹配应用名或包名。" to
@@ -218,10 +232,14 @@ object AgentToolDefinitions {
             "Use a vision-language model to execute an on-device screen task. This tool blocks until the task finishes, needs user input, encounters a locked screen, or times out, and then returns the terminal state. Set `needSummary=true` when you need a final summarized result.",
         "任务目标，使用第一人称描述。" to
             "Task goal written in the first person.",
+        "可选视觉推理模型或场景 ID。一般留空；需要调试或固定模型时才传具体值。" to
+            "Optional vision reasoning model or scene ID. Usually leave unset; pass a concrete value only for debugging or pinned-model runs.",
         "目标应用包名。" to
             "Target app package name.",
         "是否在结束后生成总结。设为 true 时，工具结果会尽量直接返回最终整理文本。" to
             "Whether to generate a summary after completion. When true, the tool result tries to return a final polished summary directly.",
+        "可选最大执行步数。达到上限但模型未明确完成时，任务应返回未完成或超步错误。" to
+            "Optional maximum execution steps. If the limit is reached before the model explicitly finishes, the task should return incomplete or max-step failure.",
         "仅在用户明确要求从当前页面继续时设为 true。" to
             "Only set this to true when the user explicitly asks to continue from the current screen.",
         "通过应用内置的 Alpine（proot）环境执行一次性的非交互终端命令。这是默认首选的终端工具，适合文件处理、脚本、网络诊断、git、python、包管理等绝大多数 CLI 任务；不用于手机界面操作，也不用于交互式 TUI。只有明确需要跨多轮保留 cwd、环境或后台进程时，才改用 terminal_session_*。" to
@@ -268,6 +286,11 @@ object AgentToolDefinitions {
             "Stop an existing terminal session and clean up the corresponding tmux session. Call this after the stateful terminal task is complete.",
         "结束后等待工具结果，再回复用户。" to
             "Wait for the tool result after stopping the session before replying to the user.",
+        "用内置浏览器执行一次网页搜索，并返回搜索结果标题、URL、摘要和搜索页可读片段。用于调研、竞品/开源项目查找、事实核验；拿到候选 URL 后，若需要深读具体页面，再用 browser_use 打开目标页面。不要用它操作网页表单或点击页面。" to
+            "Run one web search through the built-in browser and return result titles, URLs, snippets, and a readable search-page excerpt. Use it for research, competitor or open-source discovery, and fact checking. After getting candidate URLs, use `browser_use` to open specific pages for deeper reading. Do not use it for form filling or page interaction.",
+        "搜索关键词或问题。" to "Search query or question.",
+        "返回结果数量上限，默认 5，范围 1-10。" to
+            "Maximum number of results to return. Default 5, range 1-10.",
         "控制一个最多 3 个标签页的离屏浏览器。不要用它打开 App deep link、omnibot:// 非 browser 资源或应用内路由。浏览器只支持访问 http(s) 页面，以及 omnibot://browser/... 资源文件。使用 navigate 打开页面，screenshot 查看当前视口截图（传 read_image=true 可让模型直接看到截图内容），click/type/hover 与元素交互，get_text/get_readable 抽取内容，scroll 导航长页面，scroll_and_collect 在一次调用中滚动并收集无限列表内容，find_elements 发现可交互元素，get_page_info 获取页面元信息，get_backbone 获取 DOM 骨架，execute_js 执行脚本，fetch 复用当前页面 session 下载资源并返回 omnibot://browser/... 产物，new_tab/close_tab/list_tabs 管理标签页，go_back/go_forward 浏览器前进后退，press_key 模拟键盘按键，wait_for_selector 等待元素出现，get_cookies 返回 cookie 摘要与可复用的 offload env 脚本路径，set_user_agent 兼容 desktop_safari/mobile_safari 入参但实际切换 Android Chrome 风格桌面/移动 UA。结果可能包含 riskChallengeDetected、riskChallengeKind、recommendedNextAction、throttleDelayMs；若 riskChallengeDetected=true，应停止自动交互/刷新并请用户手动接管。tool_title 必须是 5-10 个字的简洁摘要，并使用与用户相同的语言。" to
             "Control an off-screen browser with up to 3 tabs. Do not use it for app deep links, non-browser `omnibot://` resources, or in-app routes. The browser supports http(s) pages and `omnibot://browser/...` resources. Use navigate to open pages, screenshot to capture the current viewport (set read_image=true if the model should inspect the screenshot directly), click/type/hover for interaction, get_text/get_readable for extraction, scroll for long-page navigation, scroll_and_collect to collect infinite-list content in one call, find_elements to discover interactable elements, get_page_info for metadata, get_backbone for a DOM skeleton, execute_js for scripting, fetch to download resources with the current page session and return `omnibot://browser/...` artifacts, new_tab/close_tab/list_tabs for tab management, go_back/go_forward for navigation history, press_key to simulate keys, wait_for_selector to wait for elements, get_cookies for cookie summaries plus a reusable offload env script path, and set_user_agent to accept desktop_safari/mobile_safari for compatibility while actually switching Android Chrome-style desktop/mobile UAs. Results may include riskChallengeDetected, riskChallengeKind, recommendedNextAction, and throttleDelayMs; when riskChallengeDetected=true, stop automated interaction/reload attempts and ask the user to take over manually. `tool_title` must be a concise 5-10 word summary in the same language as the user.",
         "本次工具调用要做什么的简洁摘要，5-10 个字，展示给用户。" to
@@ -372,6 +395,14 @@ object AgentToolDefinitions {
             "Skill id, skill name, SKILL.md path, or the skill root directory path. Prefer checking with skills_list first.",
         "最多返回多少字符的正文，默认 16000，范围 512-64000。" to
             "Maximum number of body characters to return. Default 16000, range 512-64000.",
+        "读取某个已安装 skill 的 references 目录下的单个引用文件。Use this after skills_read shows that a referenced guide/template is needed." to
+            "Read a single reference file under an installed skill's references directory. Use this after skills_read shows that a referenced guide or template is needed.",
+        "读取 reference 后等待结果，再根据内容继续。" to
+            "Wait for the reference content before continuing.",
+        "reference id、文件名或不带扩展名的文件名，例如 agent-prompt-templates。" to
+            "Reference id, file name, or file name without extension, for example agent-prompt-templates.",
+        "最多返回多少字符的引用内容，默认 16000，范围 512-64000。" to
+            "Maximum number of reference characters to return. Default 16000, range 512-64000.",
         "创建新的定时任务。执行后等待工具结果，再决定是否回复用户。" to
             "Create a new scheduled task. Wait for the tool result before deciding how to reply to the user.",
         "创建完成后不要在同一轮继续调用其他工具；请等待工具结果，并通过 response 输出最终答复。" to
@@ -408,11 +439,12 @@ object AgentToolDefinitions {
             "List exact_alarm reminders created and managed by this app.",
         "查看结果后再决定是否删除或继续创建。" to
             "Review the result before deciding whether to delete or create more reminders.",
-        "按 alarmId 删除本应用创建并托管的 exact_alarm 提醒闹钟。" to
-            "Delete an exact_alarm reminder created and managed by this app by alarmId.",
+        "按 alarmId 删除本应用创建并托管的 exact_alarm 提醒闹钟；未传 alarmId 时停止并清空所有应用内 exact_alarm 提醒闹钟。" to
+            "Delete an exact_alarm reminder created and managed by this app by alarmId. If alarmId is omitted, stop and clear all in-app exact_alarm reminders.",
         "删除后等待工具结果，再向用户确认。" to
             "Wait for the tool result after deleting, then confirm with the user.",
-        "闹钟 ID。" to "Alarm ID.",
+        "可选闹钟 ID；用户只要求关闭当前或全部提醒时可不传。" to
+            "Optional alarm ID. Omit it when the user asks to stop the current reminder or all reminders.",
         "查询设备日历账户列表，可用于选择 calendarId。" to
             "Query the device's calendar accounts so the agent can choose a calendarId.",
         "查看结果后再决定新建或管理日程。" to
@@ -518,15 +550,49 @@ object AgentToolDefinitions {
         }
     }
 
+    val callToolTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", RunLogReplayPolicy.TOOL_CALL_TOOL)
+            put("displayName", "调用工具")
+            put("toolType", "builtin")
+            put(
+                "description",
+                "统一调用一个 OOB 工具，或通过 function_id 运行一个已保存的本地 Function 片段。Function 是可组合的复用片段，不要求一次覆盖完整用户目标；调用后要根据结果继续选择下一个 Function、VLM、网页、终端、文件或记忆工具。"
+            )
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("tool_name") {
+                        put("type", "string")
+                        put("description", "目标工具名，例如 vlm_task、web_search、terminal_execute。传 function_id 时可留空。")
+                    }
+                    putJsonObject("function_id") {
+                        put("type", "string")
+                        put("description", "已保存 Function 的 id。传入后会走本地 Function runner，运行这一个复用片段，而不是把 Function id 当成独立工具名。")
+                    }
+                    putJsonObject("arguments") {
+                        put("type", "object")
+                        put("description", "传给目标工具或 Function 片段的参数对象。")
+                    }
+                    putJsonObject("goal") {
+                        put("type", "string")
+                        put("description", "可选自然语言目标，用于记录或需要规划的工具。")
+                    }
+                }
+            }
+        }
+    }
+
     val vlmTaskTool: JsonObject = buildJsonObject {
         put("type", "function")
         putJsonObject("function") {
-            put("name", "vlm_task")
+            put("name", AgentToolNames.VLM_TASK)
             put("displayName", "视觉执行")
             put("toolType", "builtin")
             put(
                 "description",
-                "使用视觉语言模型执行手机屏幕操作任务。该工具会阻塞等待到任务完成、需要用户输入、屏幕锁定或超时，再把终态结果返回给模型。若需要最终整理文本，必须设置 needSummary=true。"
+                "使用视觉语言模型执行手机当前屏幕操作任务，只用于点击、滑动、输入、打开 App 或跨 App 自动化。一次 vlm_task 调用代表一次完整设备执行流程；打开 App 是该完整流程的第一步，不要先单独调用 vlm_task 打开 App、再第二次调用 vlm_task 执行后续目标。内部点击/输入/滚动会作为 vlm_step 进度持续上报。不要用于用户上传图片/截图/照片的识别、OCR、解释、总结或对比；这类图片已在多模态对话里，应该直接回答。该工具会阻塞等待到任务完成、需要用户输入、屏幕锁定或超时，再把终态结果返回给模型。若需要最终整理文本，必须设置 needSummary=true。在线 VLM 每轮 fresh observe 后会注入当前页面信息和已召回的 saved Function tools；这些 Function 与 click/input_text/swipe 一样是本轮真实 native model tools，由 VLM 原生 tool_call 显式选择并填写参数。Function 执行成功或失败后，下一轮仍基于新的 fresh observe 和工具结果继续判断；外层 Agent 不接管隐藏 Function replay 或 guard 工具。"
             )
             putJsonObject("parameters") {
                 put("type", "object")
@@ -534,6 +600,10 @@ object AgentToolDefinitions {
                     putJsonObject("goal") {
                         put("type", "string")
                         put("description", "任务目标，使用第一人称描述。")
+                    }
+                    putJsonObject("model") {
+                        put("type", "string")
+                        put("description", "可选视觉推理模型或场景 ID。一般留空；需要调试或固定模型时才传具体值。")
                     }
                     putJsonObject("packageName") {
                         put("type", "string")
@@ -543,14 +613,151 @@ object AgentToolDefinitions {
                         put("type", "boolean")
                         put("description", "是否在结束后生成总结。设为 true 时，工具结果会尽量直接返回最终整理文本。")
                     }
+                    putJsonObject("maxSteps") {
+                        put("type", "integer")
+                        put("default", 12)
+                        put("description", "可选最大执行步数。默认 12，上限 64。达到上限但模型未明确完成时返回未完成或超步错误。")
+                    }
+                    putJsonObject("timeoutMs") {
+                        put("type", "integer")
+                        put("description", "可选控制面等待超时，单位毫秒。默认 600000；超时会停止设备端 VLM，避免后台继续执行。")
+                    }
                     putJsonObject("startFromCurrent") {
                         put("type", "boolean")
                         put("description", "仅在用户明确要求从当前页面继续时设为 true。")
+                    }
+                    putJsonObject("disableOmniFlowRecall") {
+                        put("type", "boolean")
+                        put("default", false)
+                        put("description", "可选，默认 false。false 时每轮 fresh observe 后注入 UDEG page skill 和 OmniFlow Function recall 候选；只有要严格裸跑 baseline 时才设为 true。")
+                    }
+                    putJsonObject("parseOnly") {
+                        put("type", "boolean")
+                        put("default", false)
+                        put("description", "诊断参数。设为 true 时只让真实 VLM 基于当前页面规划并解析下一步 tool call，不执行任何手机操作或复用指令。普通执行不要设置。")
                     }
                 }
                 putJsonArray("required") {
                     add("goal")
                 }
+            }
+        }
+    }
+
+    val imagePickerTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "image_picker")
+            put("displayName", "选择图片")
+            put("toolType", "builtin")
+            put("description", "打开手机相册或相机，让用户选择一张或多张图片，返回图片的本地路径。选单张时返回 {path, name}；选多张时返回 {paths: [...], count}。取到路径后可传给 vlm_task 或 file_read 进行后续处理。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("source") {
+                        put("type", "string")
+                        putJsonArray("enum") { add("gallery"); add("camera") }
+                        put("description", "图片来源：gallery（相册，默认）或 camera（拍照）。")
+                    }
+                    putJsonObject("multiple") {
+                        put("type", "boolean")
+                        put("description", "是否允许多选，默认 false。")
+                    }
+                    putJsonObject("limit") {
+                        put("type", "integer")
+                        put("description", "多选时最大张数，默认 9。")
+                    }
+                }
+                putJsonArray("required") {}
+            }
+        }
+    }
+
+    val notificationSendTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "notification_send")
+            put("displayName", "发送通知")
+            put("toolType", "builtin")
+            put("description", "在手机状态栏显示一条本地通知。用于提醒用户某件事完成或需要关注。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("title") { put("type", "string"); put("description", "通知标题") }
+                    putJsonObject("body") { put("type", "string"); put("description", "通知正文") }
+                    putJsonObject("channel") { put("type", "string"); put("description", "通知渠道 ID，默认 oob_agent_notify") }
+                }
+                putJsonArray("required") { add("title"); add("body") }
+            }
+        }
+    }
+
+    val userDialogTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "user_dialog")
+            put("displayName", "请求用户确认")
+            put("toolType", "builtin")
+            put(
+                "description",
+                "暂停执行并向用户展示一张交互卡片，等待用户做出选择后继续。仅在用户必须做决策才能继续时使用——例如：确认危险操作（confirm）、分支选择（choices）、收集必要的文本输入（input）。不要用于纯信息展示；信息直接写进对话回复即可。" +
+                "type 枚举：" +
+                "confirm — 两个按钮（确认/取消），用于不可逆操作或需要明确授权的操作；" +
+                "choices — 2-4 个选项卡片，用于流程分支，每个选项有 label(展示文字) 和 value(注入为用户消息)；" +
+                "input — 单行文本框，用于需要用户提供名称、关键词、数字等场景。" +
+                "用户操作结果会作为新的用户消息注入，下一轮从该消息继续。"
+            )
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("type") {
+                        put("type", "string")
+                        put("description", "对话类型")
+                        putJsonArray("enum") { add("confirm"); add("choices"); add("input") }
+                    }
+                    putJsonObject("message") {
+                        put("type", "string")
+                        put("description", "展示给用户的问题或说明文字，简洁明确，不超过60字")
+                    }
+                    putJsonObject("title") {
+                        put("type", "string")
+                        put("description", "可选标题，confirm 类型下通常是操作名称")
+                    }
+                    putJsonObject("confirmLabel") {
+                        put("type", "string")
+                        put("description", "confirm 类型：确认按钮文字，默认「确定」")
+                    }
+                    putJsonObject("cancelLabel") {
+                        put("type", "string")
+                        put("description", "confirm 类型：取消按钮文字，默认「取消」")
+                    }
+                    putJsonObject("danger") {
+                        put("type", "boolean")
+                        put("description", "confirm 类型：确认按钮是否显示为危险红色，用于删除/清空等破坏性操作")
+                    }
+                    putJsonObject("choices") {
+                        put("type", "array")
+                        put("description", "choices 类型：选项列表，每项含 label(展示) 和 value(注入为用户消息)，2-4 项")
+                        putJsonObject("items") {
+                            put("type", "object")
+                            putJsonObject("properties") {
+                                putJsonObject("label") { put("type", "string") }
+                                putJsonObject("value") { put("type", "string") }
+                                putJsonObject("hint") { put("type", "string"); put("description", "可选的一行说明") }
+                            }
+                        }
+                    }
+                    putJsonObject("placeholder") {
+                        put("type", "string")
+                        put("description", "input 类型：输入框占位文字")
+                    }
+                    putJsonObject("inputType") {
+                        put("type", "string")
+                        put("description", "input 类型：输入框类型")
+                        putJsonArray("enum") { add("text"); add("number"); add("date") }
+                    }
+                }
+                putJsonArray("required") { add("type"); add("message") }
             }
         }
     }
@@ -622,7 +829,7 @@ object AgentToolDefinitions {
         return decorateToolDefinition(buildJsonObject {
             put("type", "function")
             putJsonObject("function") {
-                put("name", "android_privileged_action")
+                put("name", AgentToolNames.ANDROID_PRIVILEGED_ACTION)
                 put("displayName", text("安卓高级动作", "Android Privileged Action"))
                 put("toolType", "privileged")
                 put(
@@ -1006,10 +1213,39 @@ object AgentToolDefinitions {
         }
     }
 
+    val webSearchTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", AgentToolNames.WEB_SEARCH)
+            put("displayName", "网页搜索")
+            put("toolType", "research")
+            put(
+                "description",
+                "用内置浏览器执行一次网页搜索，并返回搜索结果标题、URL、摘要和搜索页可读片段。用于调研、竞品/开源项目查找、事实核验；拿到候选 URL 后，若需要深读具体页面，再用 browser_use 打开目标页面。不要用它操作网页表单或点击页面。"
+            )
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("query") {
+                        put("type", "string")
+                        put("description", "搜索关键词或问题。")
+                    }
+                    putJsonObject("limit") {
+                        put("type", "integer")
+                        put("description", "返回结果数量上限，默认 5，范围 1-10。")
+                    }
+                }
+                putJsonArray("required") {
+                    add("query")
+                }
+            }
+        }
+    }
+
     val browserUseTool: JsonObject = buildJsonObject {
         put("type", "function")
         putJsonObject("function") {
-            put("name", "browser_use")
+            put("name", AgentToolNames.BROWSER_USE)
             put("displayName", "浏览器操作")
             put("toolType", "browser")
             put(
@@ -1497,6 +1733,512 @@ object AgentToolDefinitions {
         }
     }
 
+    val skillsReadReferenceTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "skills_read_reference")
+            put("displayName", "读取 Skill 引用")
+            put("toolType", "skill")
+            put("description", "读取某个已安装 skill 的 references 目录下的单个引用文件。Use this after skills_read shows that a referenced guide/template is needed.")
+            put("postToolRule", "读取 reference 后等待结果，再根据内容继续。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("skillId") {
+                        put("type", "string")
+                        put("description", "skill 的 id、名称、SKILL.md 路径或 skill 根目录路径。建议先用 skills_list 查看。")
+                    }
+                    putJsonObject("refId") {
+                        put("type", "string")
+                        put("description", "reference id、文件名或不带扩展名的文件名，例如 agent-prompt-templates。")
+                    }
+                    putJsonObject("maxChars") {
+                        put("type", "integer")
+                        put("description", "最多返回多少字符的引用内容，默认 16000，范围 512-64000。")
+                    }
+                }
+                putJsonArray("required") {
+                    add("skillId")
+                    add("refId")
+                }
+            }
+        }
+    }
+
+    val workbenchProjectCreateTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_create")
+            put("displayName", "创建 Workbench Project")
+            put("toolType", "workbench")
+            put("description", "调用 OOB 内置 Workbench Project 创建接口。Project 创建是审慎控制面能力，只有用户明确要求创建/新建 Project 时才调用，不会出现在 Project 自己的工具列表里。OOB Workbench 是 AI 产品输出展示层：AI 提供 projectId、Project Tools、持久化初始数据和可显示的 HTML/Flutter/Markdown/page spec 资产，右侧 Flutter Workspace Host 负责优雅展示与交互。默认通过 htmlFiles 创建内嵌 WebView renderer，覆盖报告、图表、富文本、对比、表单、仪表盘和快速局部视觉编辑；只有用户明确要求 Markdown、可编辑文档、纯文本长文，或当前 Project 已经是 Markdown Display 时，才用 markdownFiles 创建 Markdown renderer。默认按 App 运行时注入的 Workbench Display layout profile 设计，使用实测 viewportWidthDp/viewportHeightDp 作为右侧 Workspace/WebView 的宽度和可见高度，首屏必须紧凑。竖屏报告也应使用手机宽文章布局，首屏给摘要，图表高度按实测可见高度响应式控制；只有明确宽屏报告/PPT/横向对比时才用 1280 固定画布。结构化数据操作通过 Project Tools 和默认 Project Display 呈现；flutterFiles 只作为受限 flutter_eval 补充路径。不要直接写 registry 文件。Display 只展示业务工作流，不展示 Project id、工具数量、executor、Toolbox、Workspace 或日志路径等控制面摘要。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("projectId") {
+                        put("type", "string")
+                        put("description", "Project id，例如 oob-workbench-research-summary。只能包含字母、数字、下划线和连字符。")
+                    }
+                    putJsonObject("name") {
+                        put("type", "string")
+                        put("description", "Project 展示名称。")
+                    }
+                    putJsonObject("prompt") {
+                        put("type", "string")
+                        put("description", "用户原始需求。Workbench 会把它写入 Project 源码规格，用于后续编辑和拆分复盘。")
+                    }
+                    putJsonObject("entityName") {
+                        put("type", "string")
+                        put("description", "可选。Project 管理的业务实体名，例如 Note、Expense、Habit。")
+                    }
+                    putJsonObject("description") {
+                        put("type", "string")
+                        put("description", "可选。Display 的简短业务说明；不要写 Project/Toolbox/日志/Workspace 等控制面摘要。")
+                    }
+                    putJsonObject("initialItems") {
+                        put("type", "array")
+                        put("description", "可选初始条目数组，可传字符串或对象，写入 data/items.json。")
+                    }
+                    putJsonObject("apis") {
+                        put("type", "array")
+                        put("description", "可选 Project Tool 规格。每项可包含 apiId 或 toolId、displayName、description、inputSchema、outputSchema、run。run.use 可为 native.collection.create/archive/update/list、script、agent、oob.<tool> 或 mcp.<tool>。简单本地数据操作不需要 AI；复杂 OOB 能力组合可用 agent/oob.*。")
+                    }
+                    putJsonObject("htmlFiles") {
+                        put("type", "array")
+                        put("description", "可选，且是默认前端路径。创建可即时运行的 HTML Display，路径限定在 frontend/html/ 内。每项包含 path 和 content，建议至少包含 {path:\"index.html\", content:\"...\"}。默认优先单页/hash 路由；确需拆页时可包含多个本地 HTML 文件并使用相对链接（如 detail.html?id=1#summary），仅支持 Project 内页面替换，不提供浏览器返回栈或外部跳转。HTML 由右侧 Flutter Host 的内嵌 WebView renderer 承载，可用 window.oob.callApi(apiId, inputs) 调 Project Tool。默认按系统提示中的 Workbench Display layout profile 生成：viewport=device-width、单列、以实测 viewportWidthDp/viewportHeightDp 为目标、首屏紧凑；竖屏报告用手机宽文章布局，首屏放摘要，图表按实测可见高度响应式控制。只有明确宽屏报告/PPT 时才使用 viewport width=1280。")
+                    }
+                    putJsonObject("flutterFiles") {
+                        put("type", "array")
+                        put("description", "可选。创建受限 flutter_eval Display 源码资产，路径限定在 frontend/flutter/ 内。仅在默认 Project Display 和 HTML 都不适合时使用。源码必须暴露 OobProjectWidget(dynamic _, {super.key}) Widget 入口，禁止 void main()/runApp()/普通 Flutter App 入口；Project Tool 调用使用 cn.com.omnimind.bot/AssistCoreEvent 的 workbenchApiCall，并带 projectId/apiId/inputs。")
+                    }
+                    putJsonObject("markdownFiles") {
+                        put("type", "array")
+                        put("description", "可选专项路径，不是默认 UI。创建可实时编辑和预览的 Markdown Display，路径限定在 frontend/markdown/ 内。每项包含 path 和 content，建议至少包含 {path:\"index.md\", content:\"...\"}。仅在用户明确要求 Markdown、可编辑文档、纯文本长文，或当前 Project 已经是 Markdown Display 时使用。")
+                    }
+                }
+                putJsonArray("required") {
+                    add("projectId")
+                }
+            }
+        }
+    }
+
+    val workbenchApiListTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_api_list")
+            put("displayName", "列出 Project Tool")
+            put("toolType", "workbench")
+            put("description", "列出已注册的 Project Tools。返回的是当前 Project 可被 AI 或 Display 复用的稳定动作，不包含 workbench_project_create 这类 OOB 控制面接口。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("projectId") {
+                        put("type", "string")
+                        put("description", "可选 Project id；为空时返回所有 Workbench Project Tools。")
+                    }
+                }
+            }
+        }
+    }
+
+    val workbenchProjectListTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_list")
+            put("displayName", "列出 Workbench Project")
+            put("toolType", "workbench")
+            put("description", "列出 OOB Workbench 已注册 Project。它是 OOB 控制面能力，用于管理已有 Project，不属于 Project Tool 列表。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {}
+            }
+        }
+    }
+
+    val workbenchProjectGetTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_get")
+            put("displayName", "读取 Workbench Project")
+            put("toolType", "workbench")
+            put("description", "读取某个 OOB Workbench Project 的注册信息、Project Tools 和当前持久化状态。打开或管理已有 Project 前应先调用它。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("projectId") {
+                        put("type", "string")
+                        put("description", "Project id。")
+                    }
+                }
+                putJsonArray("required") {
+                    add("projectId")
+                }
+            }
+        }
+    }
+
+    val workbenchProjectUpdateTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_update")
+            put("displayName", "更新 Workbench Project")
+            put("toolType", "workbench")
+            put("description", "在同一个 OOB Workbench Project 内追加或更新用户可见名称、Display 页面、Project Tools、Project-owned HTML、Flutter 和 Markdown 源码资产。用于 Project 迭代，不应为了加功能重新创建 Project。它会合并 frontend/page_spec.json、backend/api_spec.json 和工具 registry，安全写入 frontend/html/、frontend/flutter/ 与 frontend/markdown/，并写入 logs/hot_updates.jsonl。HTML 可通过右侧 Flutter Host 内的 /workbench/html WebView renderer 即时运行并调用 window.oob.callApi；Markdown 会进入可实时编辑/预览的 Project renderer；Flutter 源码仍是受限 flutter_eval 补充路径。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("projectId") {
+                        put("type", "string")
+                        put("description", "要迭代的 Project id。")
+                    }
+                    putJsonObject("name") {
+                        put("type", "string")
+                        put("description", "可选。更新 Project 展示名称。")
+                    }
+                    putJsonObject("shortName") {
+                        put("type", "string")
+                        put("description", "可选。更新 Project 短名，建议 2-8 个字符。")
+                    }
+                    putJsonObject("description") {
+                        put("type", "string")
+                        put("description", "可选。更新应用视角的一句话说明，不要写 Project/Toolbox/路径等控制面内容。")
+                    }
+                    putJsonObject("displays") {
+                        put("type", "array")
+                        put("description", "可选。追加或替换 Display 页面。每项可包含 id/pageId/title/shortName/route/renderer/description/isDefault。多页跳转只发生在右侧 Workbench Display surface。")
+                    }
+                    putJsonObject("apis") {
+                        put("type", "array")
+                        put("description", "可选。追加或替换 Project Tool。每项可包含 apiId 或 toolId、displayName、description、inputSchema、outputSchema、run。run.use 决定复用 native.collection/script/agent/OOB/MCP 执行链。控制面工具不允许放入这里。")
+                    }
+                    putJsonObject("flutterFiles") {
+                        put("type", "array")
+                        put("description", "可选。写入 Project 自有 Flutter 源码资产，路径限定在 frontend/flutter/ 内。每项包含 path 和 content。该源码用于受限 flutter_eval 补充 renderer，不是默认 Display 路径。源码必须暴露 OobProjectWidget(dynamic _, {super.key}) Widget 入口，禁止 void main()/runApp()/普通 Flutter App 入口；Project Tool 调用使用 cn.com.omnimind.bot/AssistCoreEvent 的 workbenchApiCall，并带 projectId/apiId/inputs。")
+                    }
+                    putJsonObject("htmlFiles") {
+                        put("type", "array")
+                        put("description", "可选。写入 Project 自有 HTML/CSS/JS 源码资产，路径限定在 frontend/html/ 内。每项包含 path 和 content。默认优先单页/hash 路由；确需拆页时可包含多个本地 HTML 文件并使用相对链接（如 detail.html?id=1#summary），仅支持 Project 内页面替换，不提供浏览器返回栈或外部跳转。HTML Display 可被右侧 Flutter Host 的 WebView renderer 即时加载，使用 window.oob.callApi 调 Project Tool。更新时保持与 App 实测 Workbench Display layout profile 匹配；竖屏报告使用 phone-width article，首屏放摘要，避免宽表格、满屏装饰区和桌面 hero；仅明确宽屏报告/PPT 时使用 1280 固定画布。")
+                    }
+                    putJsonObject("markdownFiles") {
+                        put("type", "array")
+                        put("description", "可选专项路径，不是默认 UI。写入 Project 自有 Markdown 文档资产，路径限定在 frontend/markdown/ 内。每项包含 path 和 content。Markdown Display 会在右侧 Project 区支持预览、编辑、分屏实时预览和手动保存。仅在用户明确要求 Markdown、可编辑文档、纯文本长文，或当前 Project 已经是 Markdown Display 时使用。")
+                    }
+                    putJsonObject("htmlPatches") {
+                        put("type", "array")
+                        put(
+                            "description",
+                            "强烈优先于 htmlFiles（全量重写）。对已有 HTML 文件做外科手术式文本替换，token 消耗减少 95%。每项包含 path（相对 frontend/html/）、oldText（文件中唯一可定位的原始文本）、newText（替换后文本）、replaceAll（默认 false）。" +
+                            "适用于几乎所有改动：CSS/样式修改（font-size、color、padding）；文字/属性修改；" +
+                            "新增元素——把锚点（如父元素闭合标签 </div>）包进 oldText，newText 里放锚点 + 新内容；" +
+                            "删除元素——newText 置空；多处修改——传多条 patch。" +
+                            "只有 >50% 结构大量重构时才退回 htmlFiles。" +
+                            "示例 CSS: [{\"path\":\"index.html\",\"oldText\":\"font-size: 14px\",\"newText\":\"font-size: 18px\"}]。" +
+                            "示例新增: [{\"path\":\"index.html\",\"oldText\":\"</body>\",\"newText\":\"<p>新段落</p>\\n</body>\"}]。" +
+                            "示例删除: [{\"path\":\"index.html\",\"oldText\":\"<div class=\\\"old\\\">旧内容</div>\",\"newText\":\"\"}]"
+                        )
+                    }
+                    putJsonObject("prompt") {
+                        put("type", "string")
+                        put("description", "可选。用户本次迭代需求，会写入 hot update 审计日志。")
+                    }
+                }
+                putJsonArray("required") {
+                    add("projectId")
+                }
+            }
+        }
+    }
+
+    val workbenchApiCallTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_api_call")
+            put("displayName", "调用 Project Tool")
+            put("toolType", "workbench")
+            put("description", "调用某个 Project 已注册的 Project Tool。AI 层和前端点击都通过这个接口进入同一个 native/script/agent executor；简单本地动作不需要额外 AI。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("projectId") {
+                        put("type", "string")
+                        put("description", "Project id。")
+                    }
+                    putJsonObject("apiId") {
+                        put("type", "string")
+                        put("description", "Project Tool id，例如 finding.create、finding.archive、record.update 或 record.list。")
+                    }
+                    putJsonObject("inputs") {
+                        put("type", "object")
+                        put("description", "Project Tool 输入对象。例如 <entity>.create 可传 {title}，<entity>.archive 可传 {item_id}，<entity>.update 可传 {item_id,title}。")
+                    }
+                }
+                putJsonArray("required") {
+                    add("projectId")
+                    add("apiId")
+                    add("inputs")
+                }
+            }
+        }
+    }
+
+    val workbenchProjectExportTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_export")
+            put("displayName", "导出 Workbench Project")
+            put("toolType", "workbench")
+            put("description", "把某个 Workbench Project 注册成可分发包并导出 zip。导出内容包括 Project 记录、Project Tools、Workspace 项目文件、持久化数据、工具调用日志和内置 skill 契约。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("projectId") {
+                        put("type", "string")
+                        put("description", "Project id。")
+                    }
+                }
+                putJsonArray("required") {
+                    add("projectId")
+                }
+            }
+        }
+    }
+
+    val workbenchProjectOpenTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_open")
+            put("displayName", "打开 Workbench Project")
+            put("toolType", "workbench")
+            put("description", "打开某个 Workbench Project 的 OOB 原生 Display。用于完成 Project 创建和工具调用后把应用界面展示给用户；可见页面应是业务应用视角，不是 Project/Toolbox 摘要。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("projectId") {
+                        put("type", "string")
+                        put("description", "Project id。")
+                    }
+                }
+                putJsonArray("required") {
+                    add("projectId")
+                }
+            }
+        }
+    }
+
+    val workbenchProjectActivateTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_activate")
+            put("displayName", "激活 Workbench Project")
+            put("toolType", "workbench")
+            put("description", "把某个 Workbench Project 设为当前 Agent 工作环境。激活后，该 Project 的 Displays、Workspace path、skill id 和 Project Tool manifest 会注入后续 Agent prompt。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("projectId") {
+                        put("type", "string")
+                        put("description", "Project id。")
+                    }
+                }
+                putJsonArray("required") {
+                    add("projectId")
+                }
+            }
+        }
+    }
+
+    val workbenchProjectActiveGetTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_active_get")
+            put("displayName", "读取当前 Workbench Project")
+            put("toolType", "workbench")
+            put("description", "读取当前已激活的 Workbench Project 及其 toolbox manifest。用于用户说当前 Project、这个页面、继续编辑时确认上下文。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {}
+            }
+        }
+    }
+
+    val workbenchProjectDeactivateTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_deactivate")
+            put("displayName", "取消激活 Workbench Project")
+            put("toolType", "workbench")
+            put("description", "清空当前 Agent 的 active Project 工作环境，但不删除 Project 本身。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {}
+            }
+        }
+    }
+
+    val workbenchProjectDeleteTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_delete")
+            put("displayName", "删除 Workbench Project")
+            put("toolType", "workbench")
+            put("description", "删除某个 Workbench Project 的 OOB 注册记录、Project Tool 注册记录和 Workspace 项目文件。它是 OOB 控制面能力，不属于 Project Tool 列表。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("projectId") {
+                        put("type", "string")
+                        put("description", "Project id。")
+                    }
+                }
+                putJsonArray("required") {
+                    add("projectId")
+                }
+            }
+        }
+    }
+
+    val workbenchProjectHotUpdateTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_hot_update")
+            put("displayName", "热更新 Workbench Project")
+            put("toolType", "workbench")
+            put("description", "根据用户在 Project 页面里和小万悬浮窗、画图标注或 VLM 输入得到的 prompt，对已有 Workbench Project 做一次控制面热更新，并返回刷新后的 OOB 原生页面状态。调用时尽量附带当前 Flutter Display 的 frontendContext，例如 route、displayId、可见状态、用户选择的控件、选区、drawingPaths、annotationMeta、workbenchLayout 或截图摘要。形状和 UI 语义由 VLM 结合截图分析，不由前端预识别。热更新必须保持 Display 的应用视角，只改业务工作流、输入、列表、筛选、状态或业务按钮；不要把 Project id、工具数量、executor、Toolbox、Workspace、data/log 路径等控制面信息写进可见界面。它不会注册成 Project Tool，也不会出现在 workbench_api_list。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("projectId") {
+                        put("type", "string")
+                        put("description", "Project id。")
+                    }
+                    putJsonObject("prompt") {
+                        put("type", "string")
+                        put("description", "用户希望修改当前 Project 或生成前端的自然语言请求。应按应用界面理解用户意图，避免生成 Project/Toolbox/日志/Workspace 等控制面摘要。")
+                    }
+                    putJsonObject("frontendContext") {
+                        put("type", "object")
+                        put("description", "可选。当前生成前端页面上下文，由小万悬浮窗、画图标注或 VLM 输入附带，例如 projectId、displayId、route、visibleState、selectedElement、selectedRegion、drawingPaths、annotationMeta、workbenchLayout、screenshotSummary。workbenchLayout 由 App 实测右侧 Workspace/WebView 的 viewportWidthDp/viewportHeightDp。")
+                        put("additionalProperties", true)
+                    }
+                }
+                putJsonArray("required") {
+                    add("projectId")
+                    add("prompt")
+                }
+            }
+        }
+    }
+
+    val workbenchProjectIngestAndroidTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_ingest_android")
+            put("displayName", "导入 Android 资产")
+            put("toolType", "workbench")
+            put("description", "把一个 Android APK 文件或 Android 项目目录导入到已存在的 Workbench Project。它是 OOB Workbench 控制面能力，会写入 Project 的 android/manifest.json 和 logs/android_ingest.jsonl，不会注册成 Project Tool，也不会出现在 workbench_api_list。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("projectId") {
+                        put("type", "string")
+                        put("description", "要接收 Android 资产的 Workbench Project id。")
+                    }
+                    putJsonObject("sourcePath") {
+                        put("type", "string")
+                        put("description", "设备上的 APK 文件或 Android 项目目录路径。可传 Android 绝对路径，也可传 /workspace/... shell 路径。")
+                    }
+                    putJsonObject("sourceKind") {
+                        put("type", "string")
+                        put("description", "可选。apk 表示 APK 文件，android_project 表示 Android 项目目录；不传时根据 sourcePath 自动推断。")
+                        putJsonArray("enum") {
+                            add("apk")
+                            add("android_project")
+                        }
+                    }
+                    putJsonObject("displayName") {
+                        put("type", "string")
+                        put("description", "可选。导入后在 Project 页面显示的资产名称。")
+                    }
+                }
+                putJsonArray("required") {
+                    add("projectId")
+                    add("sourcePath")
+                }
+            }
+        }
+    }
+
+    val workbenchProjectIngestOssTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_ingest_oss")
+            put("displayName", "导入 OSS/GitHub 源码")
+            put("toolType", "workbench")
+            put("description", "把一个 GitHub/OSS 项目或已下载的本地源码目录导入到已存在的 Workbench Project。它是 OOB Workbench 控制面能力，会写入 Project 的 source/manifest.json、logs/oss_ingest.jsonl 和 logs/project_progress.jsonl，不会注册成 Project Tool，也不会出现在 workbench_api_list。URL-only 导入只登记 fetch-required 元数据；真正拉取源码应通过批准的 terminal/tool 路径完成后再用 sourcePath 导入。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("projectId") {
+                        put("type", "string")
+                        put("description", "要接收 OSS/GitHub 源码的 Workbench Project id。")
+                    }
+                    putJsonObject("sourceUrl") {
+                        put("type", "string")
+                        put("description", "可选。GitHub 或 git 仓库 URL。只传 URL 时会登记为 requiresFetch=true，不直接联网拉取。")
+                    }
+                    putJsonObject("sourcePath") {
+                        put("type", "string")
+                        put("description", "可选。设备上已存在的源码目录或文件路径。可传 Android 绝对路径，也可传 /workspace/... shell 路径。")
+                    }
+                    putJsonObject("sourceKind") {
+                        put("type", "string")
+                        put("description", "可选。oss_repo 表示通用 OSS 仓库，github_repo 表示 GitHub 仓库，local_source 表示已下载本地源码；不传时根据 URL/path 自动推断。")
+                        putJsonArray("enum") {
+                            add("oss_repo")
+                            add("github_repo")
+                            add("local_source")
+                        }
+                    }
+                    putJsonObject("ref") {
+                        put("type", "string")
+                        put("description", "可选。分支、tag 或 commit，用于后续 fetch/replay。")
+                    }
+                    putJsonObject("displayName") {
+                        put("type", "string")
+                        put("description", "可选。导入后在 Project 运行时 manifest 中显示的源码名称。")
+                    }
+                }
+                putJsonArray("required") {
+                    add("projectId")
+                }
+            }
+        }
+    }
+
+    val workbenchProjectProgressGetTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_progress_get")
+            put("displayName", "读取 Project 创建进度")
+            put("toolType", "workbench")
+            put("description", "读取 Workbench Project 创建、源码导入、热更新等控制面进度。它是 OOB 运行时状态查询能力，不属于 Project Tool 列表。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("projectId") {
+                        put("type", "string")
+                        put("description", "可选 Project id。为空时返回所有 Project 的最新进度摘要。")
+                    }
+                    putJsonObject("limit") {
+                        put("type", "integer")
+                        put("description", "可选。返回最近多少条事件，默认 50，最大按运行时限制裁剪。")
+                    }
+                }
+            }
+        }
+    }
+
     val scheduleTaskCreateTool: JsonObject = buildJsonObject {
         put("type", "function")
         putJsonObject("function") {
@@ -1702,18 +2444,15 @@ object AgentToolDefinitions {
             put("name", "alarm_reminder_delete")
             put("displayName", "删除提醒闹钟")
             put("toolType", "alarm")
-            put("description", "按 alarmId 删除本应用创建并托管的 exact_alarm 提醒闹钟。")
+            put("description", "按 alarmId 删除本应用创建并托管的 exact_alarm 提醒闹钟；未传 alarmId 时停止并清空所有应用内 exact_alarm 提醒闹钟。")
             put("postToolRule", "删除后等待工具结果，再向用户确认。")
             putJsonObject("parameters") {
                 put("type", "object")
                 putJsonObject("properties") {
                     putJsonObject("alarmId") {
                         put("type", "string")
-                        put("description", "闹钟 ID。")
+                        put("description", "可选闹钟 ID；用户只要求关闭当前或全部提醒时可不传。")
                     }
-                }
-                putJsonArray("required") {
-                    add("alarmId")
                 }
             }
         }
@@ -2084,12 +2823,17 @@ object AgentToolDefinitions {
 
     private val builtinToolDefinitions: List<JsonObject> = listOf(
         contextAppsQueryTool,
+        callToolTool,
         vlmTaskTool,
+        imagePickerTool,
+        notificationSendTool,
+        userDialogTool,
         terminalExecuteTool,
         terminalSessionStartTool,
         terminalSessionExecTool,
         terminalSessionReadTool,
         terminalSessionStopTool,
+        webSearchTool,
         browserUseTool,
         fileReadTool,
         fileWriteTool,
@@ -2100,7 +2844,24 @@ object AgentToolDefinitions {
         fileStatTool,
         fileMoveTool,
         skillsListTool,
-        skillsReadTool
+        skillsReadTool,
+        skillsReadReferenceTool,
+        workbenchProjectCreateTool,
+        workbenchProjectListTool,
+        workbenchProjectGetTool,
+        workbenchProjectUpdateTool,
+        workbenchApiListTool,
+        workbenchApiCallTool,
+        workbenchProjectExportTool,
+        workbenchProjectOpenTool,
+        workbenchProjectActivateTool,
+        workbenchProjectActiveGetTool,
+        workbenchProjectDeactivateTool,
+        workbenchProjectDeleteTool,
+        workbenchProjectHotUpdateTool,
+        workbenchProjectIngestAndroidTool,
+        workbenchProjectIngestOssTool,
+        workbenchProjectProgressGetTool
     )
 
     private val scheduleToolDefinitions: List<JsonObject> = listOf(

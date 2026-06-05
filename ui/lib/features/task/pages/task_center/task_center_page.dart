@@ -1,14 +1,11 @@
-import 'dart:ffi';
 
 import 'package:flutter/material.dart';
-import '../../../../widgets/card/edit_task_card.dart';
-import '../../../../models/chat_models.dart';
 import '../../../../services/task_storage_service.dart';
 import '../../../../models/task_models.dart';
 import '../task_edit/task_edit_page.dart';
 import 'package:ui/widgets/common_app_bar.dart';
 import 'package:ui/utils/popup_menu_anchor_position.dart';
-import 'package:ui/l10n/legacy_text_localizer.dart';
+import 'package:ui/l10n/app_text_localizer.dart';
 
 class TaskCenterPage extends StatefulWidget {
   const TaskCenterPage({super.key});
@@ -19,9 +16,6 @@ class TaskCenterPage extends StatefulWidget {
 
 class _TaskCenterPageState extends State<TaskCenterPage> {
   List<TaskData> tasks = [];
-
-  bool _isEditing = false;
-  TaskData? _editingTask;
 
   @override
   void initState() {
@@ -44,26 +38,26 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
       final sampleTasks = [
         TaskData(
           id: '1',
-          title: LegacyTextLocalizer.isEnglish ? 'Taxi to company' : '打车去公司',
+          title: AppTextLocalizer.choose(en: 'Taxi to company', zh: '打车去公司'),
           date: DateTime.now().add(const Duration(days: 1)),
           time: const TimeOfDay(hour: 9, minute: 0),
-          repeatOption: RepeatOption.fromLabel(LegacyTextLocalizer.localize('每日')),
+          repeatOption: RepeatOption.fromLabel(AppTextLocalizer.text('每日')),
           isEnabled: true,
         ),
         TaskData(
           id: '2',
-          title: LegacyTextLocalizer.isEnglish ? 'Grab tickets' : '抢票',
+          title: AppTextLocalizer.choose(en: 'Grab tickets', zh: '抢票'),
           date: DateTime.now().add(const Duration(days: 2)),
           time: const TimeOfDay(hour: 15, minute: 0),
-          repeatOption: RepeatOption.fromLabel(LegacyTextLocalizer.localize('永不')),
+          repeatOption: RepeatOption.fromLabel(AppTextLocalizer.text('永不')),
           isEnabled: true,
         ),
         TaskData(
           id: '3',
-          title: LegacyTextLocalizer.isEnglish ? 'Taxi to company' : '打车去公司',
+          title: AppTextLocalizer.choose(en: 'Taxi to company', zh: '打车去公司'),
           date: DateTime.now().add(const Duration(days: 3)),
           time: const TimeOfDay(hour: 9, minute: 0),
-          repeatOption: RepeatOption.fromLabel(LegacyTextLocalizer.localize('每周')),
+          repeatOption: RepeatOption.fromLabel(AppTextLocalizer.text('每周')),
           isEnabled: true,
         ),
       ];
@@ -85,7 +79,7 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
       body: Column(
         children: [
           Expanded(
-            child: tasks.length > 0
+            child: tasks.isNotEmpty
                 ? ListView.builder(
                     padding: const EdgeInsets.symmetric(
                         vertical: 10, horizontal: 20),
@@ -105,7 +99,7 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
                         ),
                         const SizedBox(height: 16),
                         Text(
-                          LegacyTextLocalizer.isEnglish ? 'No tasks yet' : '暂无任务',
+                          AppTextLocalizer.choose(en: 'No tasks yet', zh: '暂无任务'),
                           style: TextStyle(
                             fontSize: 16,
                             color: Colors.grey[500],
@@ -132,7 +126,6 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
   }
 
   Widget _buildTaskCard(TaskData task) {
-    const primaryBlack = Color(0xFF333333);
     return Container(
       margin: const EdgeInsets.only(bottom: 15),
       decoration: BoxDecoration(
@@ -140,7 +133,7 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -166,7 +159,7 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
                 ),
                 Row(
                   children: [
-                    Container(
+                    SizedBox(
                       width: 20,
                       height: 20,
                       child: Transform.scale(
@@ -195,7 +188,7 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  task.repeatOption.label+'${task.time.hour.toString().padLeft(2, '0')}:${task.time.minute.toString().padLeft(2, '0')}',
+                  '${task.repeatOption.label}${task.time.hour.toString().padLeft(2, '0')}:${task.time.minute.toString().padLeft(2, '0')}',
                   style: TextStyle(
                     fontSize: 14,
                     color: Colors.grey[500],
@@ -220,7 +213,7 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
                               Icon(Icons.play_arrow,
                                   size: 18, color: Colors.grey[600]),
                               SizedBox(width: 8),
-                              Text(LegacyTextLocalizer.isEnglish ? 'Execute now' : '立即执行'),
+                              Text(AppTextLocalizer.choose(en: 'Execute now', zh: '立即执行')),
                             ],
                           ),
                         ),
@@ -230,7 +223,7 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
                             children: [
                               Icon(Icons.edit, size: 18, color: Colors.grey[600]),
                               SizedBox(width: 8),
-                              Text(LegacyTextLocalizer.isEnglish ? 'Edit' : '编辑'),
+                              Text(AppTextLocalizer.choose(en: 'Edit', zh: '编辑')),
                             ],
                           ),
                         ),
@@ -240,7 +233,7 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
                             children: [
                               Icon(Icons.delete, size: 18, color: Colors.grey[600]),
                               SizedBox(width: 8),
-                              Text(LegacyTextLocalizer.localize('取消').replaceAll('Cancel', 'Delete')),
+                              Text(AppTextLocalizer.text('取消').replaceAll('Cancel', 'Delete')),
                             ],
                           ),
                         ),
@@ -271,7 +264,7 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
   void _executeTaskImmediately(TaskData task) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(LegacyTextLocalizer.isEnglish ? 'Executing task: ${task.title}' : '正在执行任务：${task.title}'),
+        content: Text(AppTextLocalizer.choose(en: 'Executing task: ${task.title}', zh: '正在执行任务：${task.title}')),
         duration: Duration(seconds: 2),
       ),
     );
@@ -298,9 +291,9 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
           actionsPadding: EdgeInsets.all(0),
           backgroundColor: Colors.white,
           title: Center(
-            child: Text(LegacyTextLocalizer.isEnglish ? 'Confirm delete?' : '确认删除？'),
+            child: Text(AppTextLocalizer.choose(en: 'Confirm delete?', zh: '确认删除？')),
           ),
-          content: Text(LegacyTextLocalizer.isEnglish ? 'Are you sure you want to delete task: ${task.title}?' : '您确定要删除任务：${task.title}吗？'),
+          content: Text(AppTextLocalizer.choose(en: 'Are you sure you want to delete task: ${task.title}?', zh: '您确定要删除任务：${task.title}吗？')),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(8),
           ),
@@ -324,7 +317,7 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
                       padding: EdgeInsets.all(20),
                       child: Align(
                         alignment: Alignment.center,
-                        child: Text(LegacyTextLocalizer.localize('取消')),
+                        child: Text(AppTextLocalizer.text('取消')),
                       ),
                     ),
                   ),
@@ -332,18 +325,19 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
                 Expanded(
                   child: ElevatedButton(
                     onPressed: () async {
+                      final navigator = Navigator.of(context);
+                      final messenger = ScaffoldMessenger.of(context);
                       final success =
                           await TaskStorageService.deleteTask(task.id);
-                      Navigator.pop(context);
-
+                      navigator.pop();
                       if (success) {
                         _loadTasks();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(LegacyTextLocalizer.isEnglish ? 'Deleted task: ${task.title}' : '已删除任务：${task.title}')),
+                        messenger.showSnackBar(
+                          SnackBar(content: Text(AppTextLocalizer.choose(en: 'Deleted task: ${task.title}', zh: '已删除任务：${task.title}'))),
                         );
                       } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(LegacyTextLocalizer.isEnglish ? 'Failed to delete task' : '删除任务失败')),
+                        messenger.showSnackBar(
+                          SnackBar(content: Text(AppTextLocalizer.choose(en: 'Failed to delete task', zh: '删除任务失败'))),
                         );
                       }
                     },
@@ -359,7 +353,7 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
                       padding: EdgeInsets.all(20),
                       child: Align(
                         alignment: Alignment.center,
-                        child: Text(LegacyTextLocalizer.localize('确认'), style: TextStyle(color: Colors.red)),
+                        child: Text(AppTextLocalizer.text('确认'), style: TextStyle(color: Colors.red)),
                       ),
                     ),
                   ),

@@ -5,10 +5,10 @@ class SecondWelcomePage extends StatefulWidget {
   final double screenHeight;
 
   const SecondWelcomePage({
-    Key? key,
+    super.key,
     required this.screenWidth,
     required this.screenHeight,
-  }) : super(key: key);
+  });
 
   @override
   State<SecondWelcomePage> createState() => _SecondWelcomePageState();
@@ -55,7 +55,7 @@ class _SecondWelcomePageState extends State<SecondWelcomePage> {
           top: 160,
           left: 24,
           right: 24,
-          child: Container(
+          child: SizedBox(
             width: 327,
             child: Image(
               image: image2,

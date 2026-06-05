@@ -1,6 +1,5 @@
 package com.ai.assistance.operit.terminal.provider.filesystem
 
-import com.rk.libcommons.OmnibotTerminalEnvironment
 import java.io.File
 
 data class PRootBindMount(
@@ -20,15 +19,7 @@ object PRootMountMapping {
         PRootBindMount("/proc/self/fd/2", "/dev/stderr"),
         PRootBindMount("/storage/emulated/0", "/sdcard"),
         PRootBindMount("/storage/emulated/0", "/storage/emulated/0"),
-        PRootBindMount("/data/local/tmp", "/data/local/tmp"),
-        PRootBindMount(
-            OmnibotTerminalEnvironment.mtStorageHostPath(),
-            OmnibotTerminalEnvironment.mtStorageMountPath()
-        ),
-        PRootBindMount(
-            OmnibotTerminalEnvironment.mtStorageHostPath(),
-            OmnibotTerminalEnvironment.mtStorageShortcutPath()
-        )
+        PRootBindMount("/data/local/tmp", "/data/local/tmp")
     )
 
     private fun buildDataBindMounts(

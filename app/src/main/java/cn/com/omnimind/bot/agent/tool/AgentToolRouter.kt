@@ -5,6 +5,7 @@ import cn.com.omnimind.bot.agent.tool.handlers.BrowserToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.ContextToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.FileToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.ImageGenerationToolHandler
+import cn.com.omnimind.bot.agent.tool.handlers.ImagePickerToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.McpToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.MemoryLoadToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.MemoryToolHandler
@@ -16,6 +17,11 @@ import cn.com.omnimind.bot.agent.tool.handlers.SystemToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.TerminalToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.ToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.VlmToolHandler
+import cn.com.omnimind.bot.agent.tool.handlers.WebSearchToolHandler
+import cn.com.omnimind.bot.agent.tool.handlers.WorkbenchToolHandler
+import cn.com.omnimind.bot.agent.tool.handlers.OmniflowActionHandler
+import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
+import cn.com.omnimind.bot.workbench.WorkspaceFunctionStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -43,12 +49,16 @@ class AgentToolRouter(
     private val orderedHandlers: List<ToolHandler> = listOf(
         ContextToolHandler(helper),
         VlmToolHandler(helper, scope),
+        ImagePickerToolHandler(helper),
         privilegedHandler,
         terminalHandler,
+        WebSearchToolHandler(helper, workspaceManager),
         BrowserToolHandler(helper, workspaceManager),
         ImageGenerationToolHandler(helper, workspaceManager),
         FileToolHandler(helper, workspaceManager),
         SkillsToolHandler(helper, workspaceManager),
+        WorkbenchToolHandler(helper),
+        OmniflowActionHandler(),
         SystemToolHandler(helper, scheduleToolBridge, workspaceManager),
         MemoryToolHandler(helper),
         MemoryLoadToolHandler(helper),
@@ -56,6 +66,14 @@ class AgentToolRouter(
     )
 
     private val mcpFallback = McpToolHandler(helper)
+
+    private val oobFunctionHandler = OobFunctionToolHandler(context, helper)
+
+    init {
+        oobFunctionHandler.router = this
+        oobFunctionHandler.workspaceFunctionStore =
+            WorkspaceFunctionStore(AgentWorkspaceManager.rootDirectory(context))
+    }
 
     private val handlerMap: Map<String, ToolHandler> = buildMap {
         for (handler in orderedHandlers) {
@@ -76,6 +94,7 @@ class AgentToolRouter(
         helper.ensureRunActive()
         val toolName = toolCall.function.name
         val handler = handlerMap[toolName]
+            ?: if (oobFunctionHandler.canHandle(toolName)) oobFunctionHandler else null
         return if (handler != null) {
             handler.execute(toolCall, args, runtimeDescriptor, env, callback, toolHandle)
         } else {

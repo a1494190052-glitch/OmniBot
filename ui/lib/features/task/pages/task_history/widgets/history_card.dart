@@ -5,15 +5,15 @@ import 'package:ui/models/task_models.dart';
 
 class HistoryCard extends StatelessWidget {
   final TaskExecutionRecord record;
-  const HistoryCard({required this.record});
+  const HistoryCard({super.key, required this.record});
 
   String formatDuration(int totalSeconds) {
     final minutes = totalSeconds ~/ 60;
     final seconds = totalSeconds % 60;
     if (minutes > 0) {
-      return '${minutes}分${seconds}秒';
+      return '$minutes分$seconds秒';
     } else {
-      return '${seconds}秒';
+      return '$seconds秒';
     }
   }
 

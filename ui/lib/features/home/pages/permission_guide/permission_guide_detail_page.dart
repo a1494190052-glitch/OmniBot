@@ -32,8 +32,8 @@ class _PermissionGuideDetailPageState extends State<PermissionGuideDetailPage> {
     _selectedBrand = PermissionGuideRepository.normalizeBrandId(
       widget.initialBrand,
     );
-    if (_topic != null && !_topic!.supportsBrand(_selectedBrand)) {
-      _selectedBrand = _firstSupportedBrand(_topic!);
+    if (_topic != null && !_topic.supportsBrand(_selectedBrand)) {
+      _selectedBrand = _firstSupportedBrand(_topic);
     }
   }
 
@@ -59,7 +59,7 @@ class _PermissionGuideDetailPageState extends State<PermissionGuideDetailPage> {
       );
     }
 
-    final topic = _topic!;
+    final topic = _topic;
     final brandInfo = PermissionGuideRepository.brandInfo(_selectedBrand);
     final steps = topic.stepsFor(_selectedBrand);
     final brands = PermissionGuideRepository

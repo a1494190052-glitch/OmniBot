@@ -1,0 +1,1285 @@
+package cn.com.omnimind.bot.runlog
+
+import cn.com.omnimind.omniintelligence.models.ScrollDirection
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import kotlin.math.abs
+
+class OmniflowStepExecutorTest {
+    @Test
+    fun `detects explicit omniflow steps`() {
+        val step = mapOf(
+            "executor" to "omniflow",
+            "tool" to "click",
+            "args" to mapOf("x" to 10, "y" to 20),
+        )
+
+        assertTrue(OmniflowStepExecutor.isOmniflowStep(step))
+        assertEquals("click", OmniflowStepExecutor.actionNameForStep(step))
+    }
+
+    @Test
+    fun `detects model free local actions without explicit executor`() {
+        val step = mapOf(
+            "model_free" to true,
+            "tool" to "press_key",
+            "args" to mapOf("key" to "back"),
+        )
+
+        assertTrue(OmniflowStepExecutor.isOmniflowStep(step))
+        assertEquals("press_key", OmniflowStepExecutor.actionNameForStep(step))
+    }
+
+    @Test
+    fun `does not classify unknown model free tool as omniflow`() {
+        val step = mapOf(
+            "model_free" to true,
+            "tool" to "browser_use",
+            "args" to emptyMap<String, Any?>(),
+        )
+
+        assertFalse(OmniflowStepExecutor.isOmniflowStep(step))
+    }
+
+    @Test
+    fun `does not normalize legacy action aliases`() {
+        assertEquals(
+            "tap",
+            OmniflowStepExecutor.actionNameForStep(
+                mapOf("model_free" to true, "tool" to "tap")
+            )
+        )
+        assertFalse(
+            OmniflowStepExecutor.isOmniflowStep(
+                mapOf("model_free" to true, "tool" to "tap")
+            )
+        )
+        assertEquals(
+            "type_text",
+            OmniflowStepExecutor.actionNameForStep(
+                mapOf("model_free" to true, "tool" to "type_text")
+            )
+        )
+        assertFalse(
+            OmniflowStepExecutor.isOmniflowStep(
+                mapOf("model_free" to true, "tool" to "type_text")
+            )
+        )
+        assertEquals(
+            "done",
+            OmniflowStepExecutor.actionNameForStep(
+                mapOf("model_free" to true, "tool" to "done")
+            )
+        )
+        assertFalse(
+            OmniflowStepExecutor.isOmniflowStep(
+                mapOf("model_free" to true, "tool" to "done")
+            )
+        )
+    }
+
+    @Test
+    fun `detects omniflow canonical action names`() {
+        val step = mapOf(
+            "model_free" to true,
+            "tool" to "input_text",
+            "args" to mapOf("text" to "hello"),
+        )
+
+        assertTrue(OmniflowStepExecutor.isOmniflowStep(step))
+        assertEquals("input_text", OmniflowStepExecutor.actionNameForStep(step))
+    }
+
+    @Test
+    fun `identifies local replay actions that require accessibility`() {
+        assertTrue(
+            OmniflowStepExecutor.requiresAccessibility(
+                mapOf("executor" to "omniflow", "tool" to "click")
+            )
+        )
+        assertTrue(
+            OmniflowStepExecutor.requiresAccessibility(
+                mapOf("executor" to "omniflow", "tool" to "swipe")
+            )
+        )
+        assertFalse(
+            OmniflowStepExecutor.requiresAccessibility(
+                mapOf("executor" to "omniflow", "tool" to "open_app")
+            )
+        )
+        assertFalse(
+            OmniflowStepExecutor.requiresAccessibility(
+                mapOf("executor" to "omniflow", "tool" to "finished")
+            )
+        )
+    }
+
+    @Test
+    fun `does not classify legacy type content as input text`() {
+        val step = mapOf(
+            "executor" to "omniflow",
+            "tool" to "type",
+            "args" to mapOf("content" to "hello"),
+        )
+
+        assertFalse(OmniflowStepExecutor.isOmniflowStep(step))
+        assertEquals("type", OmniflowStepExecutor.actionNameForStep(step))
+    }
+
+    @Test
+    fun `execute derives coordinate remap from action and source context`() = runBlocking {
+        val backend = FakeBackend(beforeXml = SOURCE_XML, afterXml = AFTER_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "args" to mapOf("x" to 120, "y" to 240),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to SOURCE_XML),
+                        "dst_ctx" to mapOf(
+                            "page" to AFTER_XML,
+                            "package_name" to "com.example",
+                        ),
+                    ),
+                    "postcondition" to mapOf(
+                        "kind" to "recorded_after_page_similarity",
+                        "min_score" to 0.1,
+                    ),
+                ),
+                stepId = "step_1",
+                stepTitle = "click open",
+            )
+
+            assertEquals(true, result["success"])
+            assertEquals("action_transfer", result["replay_mode"])
+            assertFalse(result.containsKey("postcondition"))
+            val checker = result["checker"] as? Map<*, *> ?: error("missing checker")
+            assertEquals("before_action", checker["phase"])
+            assertEquals(true, checker["verified"])
+            assertFalse(result.containsKey("control_effects"))
+            val timing = result["timing"] as? Map<*, *> ?: error("missing timing")
+            assertEquals("oob_omniflow_step_executor", timing["source"])
+            val phaseMs = timing["phase_ms"] as? Map<*, *> ?: error("missing phase timing")
+            listOf("observe_ms", "checker_ms", "action_transfer_ms", "act_ms").forEach { phase ->
+                assertTrue("missing $phase", phaseMs.containsKey(phase))
+                assertTrue((phaseMs[phase] as Number).toLong() >= 0L)
+            }
+            assertTrue((result["duration_ms"] as Number).toLong() >= 0L)
+        }
+    }
+
+    @Test
+    fun `action transfer reuses the replay state captured for checker`() = runBlocking {
+        val backend = FakeBackend(beforeXml = SOURCE_XML, afterXml = AFTER_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "coordinate_hook" to "omniflow",
+                    "args" to mapOf("x" to 120, "y" to 240),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to SOURCE_XML),
+                    ),
+                ),
+                stepId = "step_single_state",
+                stepTitle = "click open",
+            )
+
+            assertEquals(true, result["success"])
+            assertEquals("action_transfer", result["replay_mode"])
+            assertTrue(backend.currentXmlReadCount >= 2)
+            val settle = result["step_settle"] as? Map<*, *> ?: error("missing settle")
+            assertEquals("screen_changed", settle["reason"])
+        }
+    }
+
+    @Test
+    fun `checker control action refreshes replay state before transfer`() = runBlocking {
+        val backend = FakeBackend(beforeXml = AD_OVERLAY_XML, afterXml = SOURCE_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "coordinate_hook" to "omniflow",
+                    "args" to mapOf("x" to 120, "y" to 240),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to SOURCE_XML),
+                    ),
+                ),
+                stepId = "step_control_refresh",
+                stepTitle = "click behind ad",
+            )
+
+            assertEquals(true, result["success"])
+            assertEquals("action_transfer", result["replay_mode"])
+            assertTrue(backend.currentXmlReadCount >= 2)
+            assertEquals(2, backend.clickPoints.size)
+        }
+    }
+
+    @Test
+    fun `execute normalizes recorded package from expected xml`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = SETTINGS_XML,
+            afterXml = SETTINGS_APPS_XML,
+            currentPackage = "com.android.settings",
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "args" to mapOf(
+                        "x" to 360,
+                        "y" to 977,
+                        "coordinate_replay_allowed" to true,
+                    ),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to SETTINGS_XML),
+                        "dst_ctx" to mapOf(
+                            "page" to SETTINGS_APPS_XML,
+                            "package_name" to "cn.com.omnimind.bot.debug",
+                        ),
+                    ),
+                    "postcondition" to mapOf(
+                        "kind" to "recorded_after_page_similarity",
+                        "min_score" to 0.1,
+                    ),
+                ),
+                stepId = "step_package_infer",
+                stepTitle = "click Apps",
+            )
+
+            assertEquals(true, result["success"])
+            assertFalse(result.containsKey("postcondition"))
+        }
+    }
+
+    @Test
+    fun `execute accepts android system package namespace alias`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = SETTINGS_APPS_XML,
+            afterXml = PERMISSION_CONTROLLER_XML,
+            currentPackage = "com.google.android.permissioncontroller",
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "args" to mapOf("x" to 360, "y" to 640),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to SETTINGS_APPS_XML),
+                        "dst_ctx" to mapOf(
+                            "page" to PERMISSION_CONTROLLER_XML,
+                            "package_name" to "com.android.permissioncontroller",
+                        ),
+                    ),
+                    "postcondition" to mapOf(
+                        "kind" to "recorded_after_page_similarity",
+                        "min_score" to 0.1,
+                    ),
+                ),
+                stepId = "step_permission_controller",
+                stepTitle = "click default apps",
+            )
+
+            assertEquals(true, result["success"])
+            assertFalse(result.containsKey("postcondition"))
+        }
+    }
+
+    @Test
+    fun `execute does not skip based on recorded after page`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = SETTINGS_APPS_XML,
+            afterXml = SETTINGS_APPS_XML,
+            currentPackage = "com.android.settings",
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "coordinate_hook" to "omniflow",
+                    "args" to mapOf(
+                        "x" to 360,
+                        "y" to 977,
+                        "coordinate_replay_allowed" to true,
+                    ),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf(
+                            "page" to SETTINGS_XML,
+                            "package_name" to "com.android.settings",
+                        ),
+                        "dst_ctx" to mapOf(
+                            "page" to SETTINGS_APPS_XML,
+                            "package_name" to "com.android.settings",
+                        ),
+                    ),
+                    "postcondition" to mapOf(
+                        "kind" to "recorded_after_page_similarity",
+                        "min_score" to 0.1,
+                    ),
+                ),
+                stepId = "step_already_done",
+                stepTitle = "click Apps",
+            )
+
+            assertEquals(true, result["success"])
+            assertFalse(result["skipped"] == true)
+            assertTrue(backend.clicked)
+            assertFalse(result.containsKey("postcondition"))
+        }
+    }
+
+    @Test
+    fun `execute ignores recorded after postcondition for transient settings search page`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = SETTINGS_XML,
+            afterXml = SETTINGS_SEARCH_CURRENT_XML,
+            currentPackage = "com.google.android.settings.intelligence",
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "title" to "点击 Search settings search_action_bar ViewGroup",
+                    "args" to mapOf(
+                        "x" to 500,
+                        "y" to 120,
+                        "target_description" to "Search settings search_action_bar ViewGroup",
+                    ),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to SETTINGS_XML),
+                        "dst_ctx" to mapOf(
+                            "page" to SETTINGS_SEARCH_RECORDED_XML,
+                            "package_name" to "com.google.android.settings.intelligence",
+                        ),
+                    ),
+                    "postcondition" to mapOf(
+                        "kind" to "recorded_after_page_similarity",
+                        "min_score" to 0.95,
+                        "allow_package_only_for_transient_search" to true,
+                    ),
+                ),
+                stepId = "step_search",
+                stepTitle = "click search settings",
+            )
+
+            assertEquals(true, result["success"])
+            assertFalse(result.containsKey("postcondition"))
+        }
+    }
+
+    @Test
+    fun `execute open app does not emit post checker`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = SOURCE_XML,
+            afterXml = AFTER_XML,
+            currentPackage = "com.example",
+            missingXmlReadsAfterAction = 2,
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "open_app",
+                    "args" to mapOf("package_name" to "com.example"),
+                    "source_context" to mapOf(
+                        "dst_ctx" to mapOf(
+                            "page" to AFTER_XML,
+                            "package_name" to "com.example",
+                        ),
+                    ),
+                    "postcondition" to mapOf(
+                        "kind" to "recorded_after_page_similarity",
+                        "min_score" to 0.1,
+                    ),
+                ),
+                stepId = "step_open_app",
+                stepTitle = "open app",
+            )
+
+            assertEquals(true, result["success"])
+            assertFalse(result.containsKey("postcondition"))
+            assertFalse(result.containsKey("checker"))
+        }
+    }
+
+    @Test
+    fun `execute opens app without activity post checker`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = "",
+            afterXml = "",
+            currentPackage = "",
+            currentActivity = "com.android.settings/.Settings",
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "open_app",
+                    "args" to mapOf("package_name" to "com.android.settings"),
+                ),
+                stepId = "step_open_app_activity_package",
+                stepTitle = "open settings",
+            )
+
+            assertEquals(true, result["success"])
+            assertFalse(result.containsKey("postcondition"))
+            assertFalse(result.containsKey("checker"))
+        }
+    }
+
+    @Test
+    fun `open app runs resolver checker after launch`() = runBlocking {
+        val backend = FakeBackend(beforeXml = SOURCE_XML, afterXml = RESOLVER_DIALOG_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "open_app",
+                    "args" to mapOf("package_name" to "com.example"),
+                ),
+                stepId = "step_open_app_resolver",
+                stepTitle = "open app with resolver",
+            )
+
+            assertEquals(true, result["success"])
+            assertEquals(listOf("com.example:false"), backend.launchRequests)
+            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
+            val effect = controlEffects.single() as Map<*, *>
+            assertEquals("confirm_resolver_always_after_open_app", effect["controller"])
+            assertEquals("post_action", effect["phase"])
+            assertEquals("resolver_dialog", effect["condition"])
+            assertEquals("confirm_resolver_always", effect["action"])
+            assertEquals(1, backend.clickPoints.size)
+            assertEquals(810f, backend.clickPoints.single().first, 0.01f)
+            assertEquals(1690f, backend.clickPoints.single().second, 0.01f)
+        }
+    }
+
+    @Test
+    fun `open app dismisses app upgrade prompt after launch`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = SOURCE_XML,
+            afterXml = HI_UPGRADE_DIALOG_XML,
+            currentPackage = "com.example.hi",
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "open_app",
+                    "args" to mapOf("package_name" to "com.example.hi"),
+                ),
+                stepId = "step_open_app_hi_upgrade",
+                stepTitle = "open hi app",
+            )
+
+            assertEquals(true, result["success"])
+            assertEquals(listOf("com.example.hi:false"), backend.launchRequests)
+            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
+            val effect = controlEffects.single() as Map<*, *>
+            assertEquals("dismiss_app_upgrade_prompt_after_open_app", effect["controller"])
+            assertEquals("post_action", effect["phase"])
+            assertEquals("app_upgrade_prompt", effect["condition"])
+            assertEquals("dismiss", effect["action"])
+            assertEquals("以后再说 later", effect["button_text"])
+            assertEquals(1, backend.clickPoints.size)
+            assertEquals(510f, backend.clickPoints.single().first, 0.01f)
+            assertEquals(1240f, backend.clickPoints.single().second, 0.01f)
+        }
+    }
+
+    @Test
+    fun `execute opens app with canonical package name only`() = runBlocking {
+        val backend = FakeBackend(beforeXml = SOURCE_XML, afterXml = AFTER_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "open_app",
+                    "args" to mapOf("package_name" to "com.example"),
+                ),
+                stepId = "step_open_app_reset",
+                stepTitle = "open app",
+            )
+
+            assertEquals(true, result["success"])
+            assertEquals(listOf("com.example:false"), backend.launchRequests)
+        }
+    }
+
+    @Test
+    fun `execute retries coordinate remap when current xml is temporarily unavailable`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = SCROLL_SOURCE_XML,
+            afterXml = SCROLL_SOURCE_XML,
+            missingXmlReadsBeforeAction = 2,
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "swipe",
+                    "coordinate_hook" to "omniflow",
+                    "args" to mapOf(
+                        "x1" to 540,
+                        "y1" to 1500,
+                        "x2" to 540,
+                        "y2" to 500,
+                    ),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to SCROLL_SOURCE_XML),
+                    ),
+                ),
+                stepId = "step_scroll_after_launch",
+                stepTitle = "swipe after open app",
+            )
+
+            assertEquals(true, result["success"])
+        }
+    }
+
+    @Test
+    fun `execute allows root projection only when explicitly requested`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = SOURCE_XML,
+            afterXml = SOURCE_XML,
+            postActionXmls = listOf(STALE_DIALOG_XML, CLOCK_HOME_XML),
+            postActionPackages = listOf("com.google.android.deskclock", "com.google.android.deskclock"),
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "coordinate_hook" to "omniflow",
+                    "args" to mapOf(
+                        "x" to 504,
+                        "y" to 1152,
+                        "coordinate_replay_allowed" to true,
+                    ),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to CLOCK_HOME_XML),
+                    ),
+                ),
+                stepId = "step_clock_tab",
+                stepTitle = "click stopwatch tab",
+            )
+
+            assertEquals(true, result["success"])
+        }
+    }
+
+    @Test
+    fun `execute does not wait for matching postcondition after action`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = SETTINGS_DISPLAY_XML,
+            afterXml = SYSTEMUI_SLIDER_XML,
+            currentPackage = "com.google.android.gms",
+            postActionXmls = listOf(GMS_STALE_XML, SYSTEMUI_SLIDER_XML),
+            postActionPackages = listOf("com.google.android.gms", "com.google.android.gms"),
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "args" to mapOf("x" to 360, "y" to 586),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to SETTINGS_DISPLAY_XML),
+                        "dst_ctx" to mapOf(
+                            "page" to SYSTEMUI_SLIDER_XML,
+                            "package_name" to "com.android.systemui",
+                        ),
+                    ),
+                    "postcondition" to mapOf(
+                        "kind" to "recorded_after_page_similarity",
+                        "min_score" to 0.1,
+                    ),
+                ),
+                stepId = "step_brightness_dialog",
+                stepTitle = "click brightness level",
+            )
+
+            assertEquals(true, result["success"])
+            assertFalse(result.containsKey("postcondition"))
+        }
+    }
+
+    @Test
+    fun `execute does not reject low recorded after similarity as step checker`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = SETTINGS_XML,
+            afterXml = SETTINGS_SECURITY_LIKE_XML,
+            currentPackage = "com.android.settings",
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "args" to mapOf("x" to 360, "y" to 749),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to SETTINGS_XML),
+                        "dst_ctx" to mapOf(
+                            "page" to SETTINGS_DISPLAY_XML,
+                            "package_name" to "com.android.settings",
+                        ),
+                    ),
+                    "postcondition" to mapOf(
+                        "kind" to "recorded_after_page_similarity",
+                        "min_score" to 0.12,
+                    ),
+                ),
+                stepId = "step_wrong_settings_page",
+                stepTitle = "click Display",
+            )
+
+            assertEquals(true, result["success"])
+            assertFalse(result.containsKey("postcondition"))
+        }
+    }
+
+    @Test
+    fun `execute ignores low similarity recorded after postcondition without transient marker`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = SETTINGS_XML,
+            afterXml = SETTINGS_SEARCH_CURRENT_XML,
+            currentPackage = "com.google.android.settings.intelligence",
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "args" to mapOf("x" to 500, "y" to 120),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to SETTINGS_XML),
+                        "dst_ctx" to mapOf(
+                            "page" to SETTINGS_SEARCH_RECORDED_XML,
+                            "package_name" to "com.google.android.settings.intelligence",
+                        ),
+                    ),
+                    "postcondition" to mapOf(
+                        "kind" to "recorded_after_page_similarity",
+                        "min_score" to 0.95,
+                    ),
+                ),
+                stepId = "step_search",
+                stepTitle = "click search settings",
+            )
+
+            assertEquals(true, result["success"])
+            assertFalse(result.containsKey("postcondition"))
+        }
+    }
+
+    @Test
+    fun `input text uses target metadata instead of focused node fallback`() = runBlocking {
+        val backend = FakeBackend(beforeXml = INPUT_FORM_XML, afterXml = INPUT_FORM_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "input_text",
+                    "args" to mapOf(
+                        "text" to "Alice",
+                        "target_description" to "First name",
+                        "node_resource_id" to "app:id/first_name",
+                        "x" to 180,
+                        "y" to 232,
+                    ),
+                ),
+                stepId = "step_input",
+                stepTitle = "type first name",
+            )
+
+            assertEquals(true, result["success"])
+            assertEquals(1, backend.inputRequests.size)
+            val request = backend.inputRequests.single()
+            assertEquals("Alice", request["text"])
+            assertEquals("First name", request["targetDescription"])
+            assertEquals("app:id/first_name", request["nodeResourceId"])
+            assertEquals(180f, request["x"])
+            assertEquals(232f, request["y"])
+            assertEquals(0, backend.focusedInputCount)
+        }
+    }
+
+    @Test
+    fun `action transfer preserves webview relative hotspot`() = runBlocking {
+        val backend = FakeBackend(beforeXml = WEBVIEW_CURRENT_XML, afterXml = WEBVIEW_CURRENT_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "coordinate_hook" to "omniflow",
+                    "args" to mapOf("x" to 180, "y" to 220),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to WEBVIEW_SOURCE_XML),
+                    ),
+                ),
+                stepId = "step_webview",
+                stepTitle = "click webview hotspot",
+            )
+
+            assertEquals(true, result["success"])
+            assertEquals("action_transfer", result["replay_mode"])
+            val click = backend.clickPoints.single()
+            assertEquals(360f, click.first, 0.01f)
+            assertEquals(440f, click.second, 0.01f)
+        }
+    }
+
+    @Test
+    fun `coordinate remap miss falls back to recorded action coordinates`() = runBlocking {
+        val backend = FakeBackend(beforeXml = EMPTY_PAGE_XML, afterXml = EMPTY_PAGE_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "coordinate_hook" to "omniflow",
+                    "args" to mapOf("x" to 120, "y" to 240),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to SOURCE_XML),
+                    ),
+                ),
+                stepId = "step_no_anchor",
+                stepTitle = "click stale target",
+            )
+
+            assertEquals(true, result["success"])
+            assertEquals("recorded_action_replay", result["replay_mode"])
+            val click = backend.clickPoints.single()
+            assertEquals(120f, click.first, 0.01f)
+            assertEquals(240f, click.second, 0.01f)
+        }
+    }
+
+    @Test
+    fun `omniflow loop dismisses blocking overlay before recorded click`() = runBlocking {
+        val backend = FakeBackend(beforeXml = AD_OVERLAY_XML, afterXml = SOURCE_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "coordinate_hook" to "omniflow",
+                    "args" to mapOf("x" to 120, "y" to 240),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to SOURCE_XML),
+                    ),
+                ),
+                stepId = "step_ad_overlay",
+                stepTitle = "click behind ad",
+            )
+
+            assertEquals(true, result["success"])
+            assertEquals("action_transfer", result["replay_mode"])
+            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
+            assertEquals(1, controlEffects.size)
+            assertEquals(2, backend.clickPoints.size)
+            assertEquals(120f, backend.clickPoints.last().first, 0.01f)
+            assertEquals(240f, backend.clickPoints.last().second, 0.01f)
+        }
+    }
+
+    @Test
+    fun `global checker skips splash ad before recorded click`() = runBlocking {
+        val backend = FakeBackend(beforeXml = SKIP_AD_XML, afterXml = SOURCE_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "coordinate_hook" to "omniflow",
+                    "args" to mapOf("x" to 120, "y" to 240),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to SOURCE_XML),
+                    ),
+                ),
+                stepId = "step_skip_ad",
+                stepTitle = "click behind splash ad",
+            )
+
+            assertEquals(true, result["success"])
+            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
+            val effect = controlEffects.single() as Map<*, *>
+            assertEquals("dismiss_ad_blocking", effect["controller"])
+            assertEquals("ad_blocking", effect["condition"])
+            assertEquals("dismiss", effect["action"])
+            assertEquals(2, backend.clickPoints.size)
+            assertEquals(950f, backend.clickPoints.first().first, 0.01f)
+            assertEquals(96f, backend.clickPoints.first().second, 0.01f)
+            assertEquals(120f, backend.clickPoints.last().first, 0.01f)
+            assertEquals(240f, backend.clickPoints.last().second, 0.01f)
+        }
+    }
+
+    @Test
+    fun `page guard skips splash ad without recorded step`() = runBlocking {
+        val backend = FakeBackend(beforeXml = SKIP_AD_XML, afterXml = SOURCE_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.runPageGuardOnce(
+                execute = true,
+                source = "test",
+                checkerBudget = OmniflowStepExecutor.CheckerTriggerBudget(),
+            )
+
+            assertEquals("oob.page_guard.v1", result["schema_version"])
+            assertEquals(true, result["matched"])
+            assertEquals(true, result["executed"])
+            assertEquals("ad_blocking", result["condition"])
+            assertEquals("dismiss", result["action"])
+            assertTrue(result["button_text"].toString().contains("跳过 3"))
+            assertEquals(1, backend.clickPoints.size)
+            assertEquals(950f, backend.clickPoints.single().first, 0.01f)
+            assertEquals(96f, backend.clickPoints.single().second, 0.01f)
+        }
+    }
+
+    @Test
+    fun `shared checker budget suppresses repeated global checker triggers`() = runBlocking {
+        val backend = FakeBackend(beforeXml = SKIP_AD_XML, afterXml = SKIP_AD_XML)
+        val checkerBudget = OmniflowStepExecutor.CheckerTriggerBudget()
+        val step = mapOf(
+            "executor" to "omniflow",
+            "tool" to "click",
+            "args" to mapOf("x" to 120, "y" to 240),
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val first = OmniflowStepExecutor.execute(
+                step = step,
+                stepId = "step_skip_ad_once",
+                stepTitle = "click behind splash ad",
+                checkerBudget = checkerBudget,
+            )
+            val second = OmniflowStepExecutor.execute(
+                step = step,
+                stepId = "step_skip_ad_budget_exhausted",
+                stepTitle = "click behind splash ad again",
+                checkerBudget = checkerBudget,
+            )
+
+            val firstEffects = first["control_effects"] as? List<*> ?: error("missing control effects")
+            val firstEffect = firstEffects.single() as Map<*, *>
+            assertEquals("dismiss_ad_blocking", firstEffect["controller"])
+            assertEquals(1, firstEffect["trigger_count"])
+            assertEquals(1, firstEffect["trigger_limit"])
+            assertEquals(0, firstEffect["trigger_remaining"])
+            assertFalse(second.containsKey("control_effects"))
+            assertEquals(3, backend.clickPoints.size)
+            assertEquals(1, backend.clickPoints.count { (x, y) ->
+                abs(x - 950f) < 0.01f && abs(y - 96f) < 0.01f
+            })
+        }
+    }
+
+    @Test
+    fun `global checker confirms resolver always open before recorded click`() = runBlocking {
+        val backend = FakeBackend(beforeXml = RESOLVER_DIALOG_XML, afterXml = SOURCE_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "coordinate_hook" to "omniflow",
+                    "args" to mapOf("x" to 120, "y" to 240),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to SOURCE_XML),
+                    ),
+                ),
+                stepId = "step_resolver_always",
+                stepTitle = "click behind resolver",
+            )
+
+            assertEquals(true, result["success"])
+            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
+            val effect = controlEffects.single() as Map<*, *>
+            assertEquals("confirm_resolver_always", effect["controller"])
+            assertEquals("resolver_dialog", effect["condition"])
+            assertEquals("confirm_resolver_always", effect["action"])
+            assertEquals(2, backend.clickPoints.size)
+            assertEquals(810f, backend.clickPoints.first().first, 0.01f)
+            assertEquals(1690f, backend.clickPoints.first().second, 0.01f)
+            assertEquals(120f, backend.clickPoints.last().first, 0.01f)
+            assertEquals(240f, backend.clickPoints.last().second, 0.01f)
+        }
+    }
+
+    @Test
+    fun `global checker confirms vivo resolver always open before recorded click`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = VIVO_RESOLVER_DIALOG_XML,
+            afterXml = SOURCE_XML,
+            currentPackage = "com.vivo.appfilter",
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "coordinate_hook" to "omniflow",
+                    "args" to mapOf("x" to 120, "y" to 240),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to SOURCE_XML),
+                    ),
+                ),
+                stepId = "step_vivo_resolver_always",
+                stepTitle = "click behind vivo resolver",
+            )
+
+            assertEquals(true, result["success"])
+            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
+            val effect = controlEffects.single() as Map<*, *>
+            assertEquals("confirm_resolver_always", effect["controller"])
+            assertEquals("resolver_dialog", effect["condition"])
+            assertEquals("confirm_resolver_always", effect["action"])
+            assertEquals(2, backend.clickPoints.size)
+            assertEquals(630f, backend.clickPoints.first().first, 0.01f)
+            assertEquals(2124.5f, backend.clickPoints.first().second, 0.01f)
+            assertEquals(120f, backend.clickPoints.last().first, 0.01f)
+            assertEquals(240f, backend.clickPoints.last().second, 0.01f)
+        }
+    }
+
+    @Test
+    fun `permission dialog recorded click uses action transfer before global checker`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = PERMISSION_ALWAYS_ALLOW_DIALOG_XML,
+            afterXml = SOURCE_XML,
+            currentPackage = "com.google.android.permissioncontroller",
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "coordinate_hook" to "omniflow",
+                    "args" to mapOf("x" to 540, "y" to 1290),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf(
+                            "page" to PERMISSION_RECORDED_ALWAYS_ALLOW_DIALOG_XML,
+                            "package_name" to "com.example.target",
+                        ),
+                    ),
+                ),
+                stepId = "step_permission_always_allow",
+                stepTitle = "click always allow",
+            )
+
+            assertEquals(true, result["success"])
+            assertEquals("action_transfer", result["replay_mode"])
+            assertFalse(result.containsKey("control_effects"))
+            assertTrue(backend.launchRequests.isEmpty())
+            assertEquals(1, backend.clickPoints.size)
+            assertEquals(540f, backend.clickPoints.single().first, 0.01f)
+            assertEquals(1350f, backend.clickPoints.single().second, 0.01f)
+        }
+    }
+
+    @Test
+    fun `global checker selects resolver app before disabled always open`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = RESOLVER_DIALOG_DISABLED_ALWAYS_XML,
+            afterXml = SOURCE_XML,
+            postActionXmls = listOf(RESOLVER_DIALOG_XML, SOURCE_XML, SOURCE_XML),
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "coordinate_hook" to "omniflow",
+                    "args" to mapOf("x" to 120, "y" to 240),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to SOURCE_XML),
+                    ),
+                ),
+                stepId = "step_resolver_select_then_always",
+                stepTitle = "click behind disabled resolver",
+            )
+
+            assertEquals(true, result["success"])
+            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
+            val effect = controlEffects.single() as Map<*, *>
+            assertEquals("confirm_resolver_always", effect["controller"])
+            assertEquals("resolver_dialog", effect["condition"])
+            assertEquals("confirm_resolver_always", effect["action"])
+            assertEquals("浏览器 text1", effect["preselected_app_text"])
+            assertEquals(3, backend.clickPoints.size)
+            assertEquals(540f, backend.clickPoints[0].first, 0.01f)
+            assertEquals(1020f, backend.clickPoints[0].second, 0.01f)
+            assertEquals(810f, backend.clickPoints[1].first, 0.01f)
+            assertEquals(1690f, backend.clickPoints[1].second, 0.01f)
+            assertEquals(120f, backend.clickPoints[2].first, 0.01f)
+            assertEquals(240f, backend.clickPoints[2].second, 0.01f)
+        }
+    }
+
+    @Test
+    fun `global checker does not replace recorded resolver dialog step`() = runBlocking {
+        val backend = FakeBackend(beforeXml = RESOLVER_DIALOG_DISABLED_ALWAYS_XML, afterXml = RESOLVER_DIALOG_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "args" to mapOf("x" to 540, "y" to 1020),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to RESOLVER_DIALOG_DISABLED_ALWAYS_XML),
+                    ),
+                ),
+                stepId = "step_recorded_resolver_choice",
+                stepTitle = "recorded resolver choice",
+            )
+
+            assertEquals(true, result["success"])
+            assertFalse(result.containsKey("control_effects"))
+            assertEquals(1, backend.clickPoints.size)
+            assertEquals(540f, backend.clickPoints.single().first, 0.01f)
+            assertEquals(1020f, backend.clickPoints.single().second, 0.01f)
+        }
+    }
+
+    @Test
+    fun `global checker does not wrap explicit skip ad action`() = runBlocking {
+        val backend = FakeBackend(beforeXml = SKIP_AD_XML, afterXml = SOURCE_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "args" to mapOf(
+                        "x" to 120,
+                        "y" to 240,
+                        "target_description" to "跳过 3",
+                    ),
+                ),
+                stepId = "step_explicit_skip_ad",
+                stepTitle = "skip splash ad",
+            )
+
+            assertEquals(true, result["success"])
+            assertFalse(result.containsKey("control_effects"))
+            assertEquals(1, backend.clickPoints.size)
+            assertEquals(120f, backend.clickPoints.single().first, 0.01f)
+            assertEquals(240f, backend.clickPoints.single().second, 0.01f)
+        }
+    }
+
+    @Test
+    fun `omniflow loop hides keyboard before covered recorded click`() = runBlocking {
+        val backend = FakeBackend(beforeXml = KEYBOARD_XML, afterXml = KEYBOARD_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = OmniflowStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "args" to mapOf("x" to 540, "y" to 1720),
+                ),
+                stepId = "step_keyboard",
+                stepTitle = "tap covered button",
+            )
+
+            assertEquals(true, result["success"])
+            assertEquals("direct_replay", result["replay_mode"])
+            assertEquals(1, backend.hideKeyboardCount)
+            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
+            assertEquals(1, controlEffects.size)
+            val click = backend.clickPoints.single()
+            assertEquals(540f, click.first, 0.01f)
+            assertEquals(1720f, click.second, 0.01f)
+        }
+    }
+
+    private class FakeBackend(
+        private val beforeXml: String,
+        private val afterXml: String,
+        private val currentPackage: String = "com.example",
+        private val currentActivity: String = "ExampleActivity",
+        private val missingXmlReadsBeforeAction: Int = 0,
+        private val missingXmlReadsAfterAction: Int = 0,
+        private val postActionXmls: List<String>? = null,
+        private val postActionPackages: List<String>? = null,
+    ) : OmniflowActionBackend {
+        var clicked = false
+            private set
+        private var currentXmlCallCount = 0
+        private var preActionXmlReadCount = 0
+        private var actionXmlReadCount = 0
+        val launchRequests = mutableListOf<String>()
+        val clickPoints = mutableListOf<Pair<Float, Float>>()
+        val inputRequests = mutableListOf<Map<String, Any?>>()
+        var focusedInputCount = 0
+            private set
+        var hideKeyboardCount = 0
+            private set
+        val currentXmlReadCount: Int
+            get() = currentXmlCallCount
+
+        override fun isReady(): Boolean = true
+
+        override suspend fun click(x: Float, y: Float) {
+            clicked = true
+            clickPoints += x to y
+        }
+
+        override suspend fun longPress(x: Float, y: Float, durationMs: Long) {
+            clicked = true
+        }
+
+        override suspend fun scroll(
+            x: Float,
+            y: Float,
+            direction: ScrollDirection,
+            distance: Float,
+            durationMs: Long,
+        ) {
+            clicked = true
+        }
+
+        override suspend fun inputTextToFocusedNode(text: String) {
+            clicked = true
+            focusedInputCount += 1
+        }
+
+        override suspend fun inputText(
+            text: String,
+            targetDescription: String,
+            x: Float?,
+            y: Float?,
+            nodeResourceId: String,
+        ) {
+            clicked = true
+            inputRequests += mapOf(
+                "text" to text,
+                "targetDescription" to targetDescription,
+                "x" to x,
+                "y" to y,
+                "nodeResourceId" to nodeResourceId,
+            )
+        }
+
+        override suspend fun launchApplication(packageName: String) {
+            launchApplication(packageName, resetTask = false)
+        }
+
+        override suspend fun launchApplication(packageName: String, resetTask: Boolean) {
+            clicked = true
+            launchRequests += "$packageName:$resetTask"
+        }
+
+        override suspend fun pressHotKey(key: String) {
+            clicked = true
+        }
+
+        override suspend fun hideKeyboard() {
+            hideKeyboardCount += 1
+        }
+
+        override fun currentXml(): String? {
+            currentXmlCallCount += 1
+            if (!clicked) {
+                if (preActionXmlReadCount < missingXmlReadsBeforeAction) {
+                    preActionXmlReadCount += 1
+                    return null
+                }
+                return beforeXml
+            }
+            if (actionXmlReadCount < missingXmlReadsAfterAction) {
+                actionXmlReadCount += 1
+                return null
+            }
+            postActionXmls?.let { xmls ->
+                if (xmls.isNotEmpty()) {
+                    val index = actionXmlReadCount.coerceAtMost(xmls.lastIndex)
+                    actionXmlReadCount += 1
+                    return xmls[index]
+                }
+            }
+            return afterXml
+        }
+
+        override fun currentPackageName(): String {
+            val packages = postActionPackages
+            if (clicked && !packages.isNullOrEmpty()) {
+                val index = (actionXmlReadCount - 1).coerceAtLeast(0).coerceAtMost(packages.lastIndex)
+                return packages[index]
+            }
+            return currentPackage
+        }
+
+        override fun currentActivityName(): String = currentActivity
+    }
+
+    companion object {
+        private const val SOURCE_XML =
+            "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[100,200][300,280]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"Open\" class=\"android.widget.Button\" resource-id=\"app:id/open\"/></hierarchy>"
+        private const val INPUT_FORM_XML =
+            "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[100,200][760,264]\" enabled=\"true\" visible-to-user=\"true\" editable=\"true\" focusable=\"true\" text=\"\" hint-text=\"First name\" class=\"android.widget.EditText\" resource-id=\"app:id/first_name\"/></hierarchy>"
+        private const val WEBVIEW_SOURCE_XML =
+            "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[100,100][500,500]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"android.webkit.WebView\" resource-id=\"app:id/webview\"/></hierarchy>"
+        private const val WEBVIEW_CURRENT_XML =
+            "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[200,200][1000,1000]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"android.webkit.WebView\" resource-id=\"app:id/webview\"/></hierarchy>"
+        private const val AD_OVERLAY_XML =
+            "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[100,200][300,280]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"Open\" class=\"android.widget.Button\" resource-id=\"app:id/open\"/><node bounds=\"[80,260][1000,1540]\" enabled=\"true\" visible-to-user=\"true\" text=\"Sponsored ad\" class=\"android.app.Dialog\" resource-id=\"ad:id/dialog\"><node bounds=\"[900,300][980,380]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" content-desc=\"Close ad\" class=\"android.widget.ImageButton\" resource-id=\"ad:id/close_ad\"/></node></hierarchy>"
+        private const val SKIP_AD_XML =
+            "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[0,0][1080,1920]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.FrameLayout\" resource-id=\"app:id/splash_container\"><node bounds=\"[870,64][1030,128]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"跳过 3\" class=\"android.widget.TextView\" resource-id=\"app:id/skip_btn\"/></node></hierarchy>"
+        private const val RESOLVER_DIALOG_XML =
+            "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[40,520][1040,1780]\" enabled=\"true\" visible-to-user=\"true\" class=\"com.android.internal.app.ResolverActivity\" package=\"android\" resource-id=\"android:id/resolver_list\"><node bounds=\"[80,570][1000,660]\" enabled=\"true\" visible-to-user=\"true\" text=\"打开方式\" class=\"android.widget.TextView\" resource-id=\"android:id/title\"/><node bounds=\"[80,720][1000,1320]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"浏览器\" class=\"android.widget.TextView\" resource-id=\"android:id/text1\"/><node bounds=\"[110,1620][500,1760]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"仅此一次\" class=\"android.widget.Button\" resource-id=\"android:id/button_once\"/><node bounds=\"[620,1620][1000,1760]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"始终打开\" class=\"android.widget.Button\" resource-id=\"android:id/button_always\"/></node></hierarchy>"
+        private const val VIVO_RESOLVER_DIALOG_XML =
+            "<hierarchy bounds=\"[0,0][1260,2800]\"><node bounds=\"[0,0][1260,2800]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.FrameLayout\" package=\"com.vivo.appfilter\"><node bounds=\"[0,0][1260,2800]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.FrameLayout\" package=\"com.vivo.appfilter\"><node bounds=\"[120,1420][1140,2646]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.LinearLayout\" package=\"com.vivo.appfilter\" resource-id=\"com.vivo.appfilter:id/dialog_parent\"><node bounds=\"[196,1512][1064,1606]\" enabled=\"true\" visible-to-user=\"true\" text=\"“小万”想要打开“小红书”\" class=\"android.widget.TextView\" package=\"com.vivo.appfilter\" resource-id=\"com.vivo.appfilter:id/alertTitle\"/><node bounds=\"[315,2044][945,2205]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" content-desc=\"始终打开\" class=\"android.widget.Button\" package=\"com.vivo.appfilter\" resource-id=\"android:id/button1\"/><node bounds=\"[315,2233][945,2394]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" content-desc=\"仅打开一次\" class=\"android.widget.Button\" package=\"com.vivo.appfilter\" resource-id=\"android:id/button3\"/><node bounds=\"[315,2422][945,2583]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"取消\" class=\"android.widget.Button\" package=\"com.vivo.appfilter\" resource-id=\"android:id/button2\"/></node></node></node></hierarchy>"
+        private const val RESOLVER_DIALOG_DISABLED_ALWAYS_XML =
+            "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[40,520][1040,1780]\" enabled=\"true\" visible-to-user=\"true\" class=\"com.android.internal.app.ResolverActivity\" package=\"android\" resource-id=\"android:id/resolver_list\"><node bounds=\"[80,570][1000,660]\" enabled=\"true\" visible-to-user=\"true\" text=\"打开方式\" class=\"android.widget.TextView\" resource-id=\"android:id/title\"/><node bounds=\"[80,720][1000,1320]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"浏览器\" class=\"android.widget.TextView\" resource-id=\"android:id/text1\"/><node bounds=\"[110,1620][500,1760]\" clickable=\"true\" enabled=\"false\" visible-to-user=\"true\" text=\"仅此一次\" class=\"android.widget.Button\" resource-id=\"android:id/button_once\"/><node bounds=\"[620,1620][1000,1760]\" clickable=\"true\" enabled=\"false\" visible-to-user=\"true\" text=\"始终打开\" class=\"android.widget.Button\" resource-id=\"android:id/button_always\"/></node></hierarchy>"
+        private const val PERMISSION_ALWAYS_ALLOW_DIALOG_XML =
+            "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[0,0][1080,1920]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.FrameLayout\" package=\"com.google.android.permissioncontroller\" resource-id=\"com.google.android.permissioncontroller:id/grant_dialog\"><node bounds=\"[120,520][960,640]\" enabled=\"true\" visible-to-user=\"true\" text=\"要允许小万获取此设备的位置信息吗？\" class=\"android.widget.TextView\" resource-id=\"com.google.android.permissioncontroller:id/permission_message\"/><node bounds=\"[80,960][1000,1100]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.LinearLayout\" package=\"com.google.android.permissioncontroller\" resource-id=\"com.google.android.permissioncontroller:id/permission_allow_one_time_button\"><node bounds=\"[160,1000][480,1050]\" enabled=\"true\" visible-to-user=\"true\" text=\"仅此一次\" class=\"android.widget.TextView\" resource-id=\"android:id/text1\"/></node><node bounds=\"[80,1120][1000,1260]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.LinearLayout\" package=\"com.google.android.permissioncontroller\" resource-id=\"com.google.android.permissioncontroller:id/permission_allow_foreground_only_button\"><node bounds=\"[160,1160][520,1210]\" enabled=\"true\" visible-to-user=\"true\" text=\"仅在使用中允许\" class=\"android.widget.TextView\" resource-id=\"android:id/text1\"/></node><node bounds=\"[80,1280][1000,1420]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.LinearLayout\" package=\"com.google.android.permissioncontroller\" resource-id=\"android:id/button1\"><node bounds=\"[160,1320][420,1370]\" enabled=\"true\" visible-to-user=\"true\" text=\"始终允许\" class=\"android.widget.TextView\" resource-id=\"android:id/text1\"/></node><node bounds=\"[80,1440][1000,1580]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.LinearLayout\" package=\"com.google.android.permissioncontroller\" resource-id=\"com.google.android.permissioncontroller:id/permission_deny_button\"><node bounds=\"[160,1480][360,1530]\" enabled=\"true\" visible-to-user=\"true\" text=\"不允许\" class=\"android.widget.TextView\" resource-id=\"android:id/text1\"/></node></node></hierarchy>"
+        private const val PERMISSION_RECORDED_ALWAYS_ALLOW_DIALOG_XML =
+            "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[0,0][1080,1920]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.FrameLayout\" package=\"com.google.android.permissioncontroller\" resource-id=\"com.google.android.permissioncontroller:id/grant_dialog\"><node bounds=\"[120,520][960,640]\" enabled=\"true\" visible-to-user=\"true\" text=\"要允许小万获取此设备的位置信息吗？\" class=\"android.widget.TextView\" resource-id=\"com.google.android.permissioncontroller:id/permission_message\"/><node bounds=\"[80,900][1000,1040]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.LinearLayout\" package=\"com.google.android.permissioncontroller\" resource-id=\"com.google.android.permissioncontroller:id/permission_allow_one_time_button\"><node bounds=\"[160,940][480,990]\" enabled=\"true\" visible-to-user=\"true\" text=\"仅此一次\" class=\"android.widget.TextView\" resource-id=\"android:id/text1\"/></node><node bounds=\"[80,1060][1000,1200]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.LinearLayout\" package=\"com.google.android.permissioncontroller\" resource-id=\"com.google.android.permissioncontroller:id/permission_allow_foreground_only_button\"><node bounds=\"[160,1100][520,1150]\" enabled=\"true\" visible-to-user=\"true\" text=\"仅在使用中允许\" class=\"android.widget.TextView\" resource-id=\"android:id/text1\"/></node><node bounds=\"[80,1220][1000,1360]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.LinearLayout\" package=\"com.google.android.permissioncontroller\" resource-id=\"android:id/button1\"><node bounds=\"[160,1260][420,1310]\" enabled=\"true\" visible-to-user=\"true\" text=\"始终允许\" class=\"android.widget.TextView\" resource-id=\"android:id/text1\"/></node><node bounds=\"[80,1380][1000,1520]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.LinearLayout\" package=\"com.google.android.permissioncontroller\" resource-id=\"com.google.android.permissioncontroller:id/permission_deny_button\"><node bounds=\"[160,1420][360,1470]\" enabled=\"true\" visible-to-user=\"true\" text=\"不允许\" class=\"android.widget.TextView\" resource-id=\"android:id/text1\"/></node></node></hierarchy>"
+        private const val HI_UPGRADE_DIALOG_XML =
+            "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[80,420][1000,1360]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.app.Dialog\" package=\"com.example.hi\" resource-id=\"com.example.hi:id/update_dialog\"><node bounds=\"[160,520][920,620]\" enabled=\"true\" visible-to-user=\"true\" text=\"Hi 发现新版本\" class=\"android.widget.TextView\" resource-id=\"com.example.hi:id/title\"/><node bounds=\"[160,680][920,980]\" enabled=\"true\" visible-to-user=\"true\" text=\"升级后体验更好\" class=\"android.widget.TextView\" resource-id=\"com.example.hi:id/message\"/><node bounds=\"[680,1180][940,1300]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"立即升级\" class=\"android.widget.Button\" resource-id=\"com.example.hi:id/update_now\"/><node bounds=\"[360,1180][660,1300]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"以后再说\" class=\"android.widget.Button\" resource-id=\"com.example.hi:id/later\"/></node></hierarchy>"
+        private const val KEYBOARD_XML =
+            "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[0,0][1080,1280]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.FrameLayout\" resource-id=\"app:id/content\"/><node bounds=\"[0,1320][1080,1920]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.inputmethodservice.KeyboardView\" package=\"com.google.android.inputmethod.latin\" resource-id=\"com.google.android.inputmethod.latin:id/keyboard_view\"/></hierarchy>"
+        private const val SCROLL_SOURCE_XML =
+            "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[0,0][1080,1920]\" scrollable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"androidx.recyclerview.widget.RecyclerView\" resource-id=\"app:id/list\"><node bounds=\"[100,300][900,380]\" enabled=\"true\" visible-to-user=\"true\" text=\"Network\" class=\"android.widget.TextView\" resource-id=\"android:id/title\"/></node></hierarchy>"
+        private const val AFTER_XML =
+            "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[100,200][300,280]\" enabled=\"true\" visible-to-user=\"true\" text=\"Done\" class=\"android.widget.TextView\" resource-id=\"app:id/done\"/></hierarchy>"
+        private const val EMPTY_PAGE_XML =
+            "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[0,0][1080,1920]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.FrameLayout\" resource-id=\"app:id/empty\"/></hierarchy>"
+        private const val SETTINGS_XML =
+            "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[30,40][1050,140]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"Search settings\" class=\"android.view.ViewGroup\" resource-id=\"com.android.settings:id/search_action_bar\"/></hierarchy>"
+        private const val STALE_DIALOG_XML =
+            "<hierarchy bounds=\"[0,0][720,1280]\"><node bounds=\"[199,66][640,157]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"android.view.ViewGroup\"><node bounds=\"[223,90][598,123]\" enabled=\"true\" visible-to-user=\"true\" text=\"Privacy\" class=\"android.widget.TextView\" resource-id=\"com.google.android.deskclock:id/body\"/></node></hierarchy>"
+        private const val CLOCK_HOME_XML =
+            "<hierarchy bounds=\"[0,0][720,1280]\"><node bounds=\"[0,0][720,1280]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.FrameLayout\"><node bounds=\"[0,176][720,1072]\" enabled=\"true\" focusable=\"true\" class=\"android.view.ViewGroup\" resource-id=\"com.google.android.deskclock:id/desk_clock_pager\"/><node bounds=\"[432,1072][576,1232]\" enabled=\"true\" clickable=\"true\" focusable=\"true\" content-desc=\"Stopwatch\" class=\"android.widget.FrameLayout\" resource-id=\"com.google.android.deskclock:id/tab_menu_stopwatch\"><node bounds=\"[433,1168][575,1209]\" enabled=\"true\" visible-to-user=\"true\" text=\"Stopwatch\" class=\"android.widget.TextView\" resource-id=\"com.google.android.deskclock:id/navigation_bar_item_small_label_view\"/></node></node></hierarchy>"
+        private const val SETTINGS_APPS_XML =
+            "<hierarchy bounds=\"[0,0][720,1280]\"><node bounds=\"[0,0][720,1232]\" enabled=\"true\" visible-to-user=\"true\" text=\"Apps\" class=\"android.widget.TextView\" resource-id=\"com.android.settings:id/content_parent\"/><node bounds=\"[48,594][273,648]\" enabled=\"true\" visible-to-user=\"true\" text=\"Default apps\" class=\"android.widget.TextView\" resource-id=\"android:id/title\"/></hierarchy>"
+        private const val PERMISSION_CONTROLLER_XML =
+            "<hierarchy bounds=\"[0,0][720,1280]\"><node bounds=\"[0,0][720,1232]\" enabled=\"true\" visible-to-user=\"true\" text=\"Default apps\" class=\"android.widget.TextView\" resource-id=\"com.android.permissioncontroller:id/content_parent\"/><node bounds=\"[144,438][368,492]\" enabled=\"true\" visible-to-user=\"true\" text=\"Browser app\" class=\"android.widget.TextView\" resource-id=\"android:id/title\"/></hierarchy>"
+        private const val SETTINGS_SEARCH_RECORDED_XML =
+            "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[20,40][1060,140]\" enabled=\"true\" visible-to-user=\"true\" text=\"Search settings\" class=\"android.widget.EditText\" resource-id=\"com.google.android.settings.intelligence:id/search_action_bar\"/></hierarchy>"
+        private const val SETTINGS_SEARCH_CURRENT_XML =
+            "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[40,220][1040,320]\" enabled=\"true\" visible-to-user=\"true\" text=\"No recent searches\" class=\"android.widget.TextView\" resource-id=\"com.google.android.settings.intelligence:id/empty\"/></hierarchy>"
+        private const val SETTINGS_DISPLAY_XML =
+            "<hierarchy bounds=\"[0,0][720,1280]\"><node bounds=\"[0,508][720,664]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.LinearLayout\"><node bounds=\"[48,540][330,594]\" enabled=\"true\" visible-to-user=\"true\" text=\"Brightness level\" class=\"android.widget.TextView\" resource-id=\"android:id/title\"/><node bounds=\"[48,594][85,632]\" enabled=\"true\" visible-to-user=\"true\" text=\"0%\" class=\"android.widget.TextView\" resource-id=\"android:id/summary\"/></node></hierarchy>"
+        private const val SYSTEMUI_SLIDER_XML =
+            "<hierarchy bounds=\"[0,48][720,176]\"><node bounds=\"[32,64][688,160]\" enabled=\"true\" visible-to-user=\"true\" text=\"Display brightness\" class=\"android.widget.SeekBar\" resource-id=\"com.android.systemui:id/slider\"/></hierarchy>"
+        private const val GMS_STALE_XML =
+            "<hierarchy bounds=\"[0,0][720,1280]\"><node bounds=\"[48,540][688,594]\" enabled=\"true\" visible-to-user=\"true\" text=\"Google Play services\" class=\"android.widget.TextView\" resource-id=\"com.google.android.gms:id/title\"/></hierarchy>"
+        private const val SETTINGS_SECURITY_LIKE_XML =
+            "<hierarchy bounds=\"[0,0][720,1280]\"><node bounds=\"[0,406][720,1232]\" enabled=\"true\" visible-to-user=\"true\" class=\"androidx.recyclerview.widget.RecyclerView\" resource-id=\"com.android.settings:id/recycler_view\"><node bounds=\"[48,454][688,492]\" enabled=\"true\" visible-to-user=\"true\" text=\"Security status\" class=\"android.widget.TextView\" resource-id=\"android:id/title\"/><node bounds=\"[144,540][496,594]\" enabled=\"true\" visible-to-user=\"true\" text=\"Google Play Protect\" class=\"android.widget.TextView\" resource-id=\"android:id/title\"/><node bounds=\"[144,712][562,750]\" enabled=\"true\" visible-to-user=\"true\" text=\"No Google account on this device\" class=\"android.widget.TextView\" resource-id=\"android:id/summary\"/></node></hierarchy>"
+    }
+}

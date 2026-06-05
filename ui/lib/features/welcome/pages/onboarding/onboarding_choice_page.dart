@@ -163,13 +163,13 @@ class _OnboardingChoicePageState extends ConsumerState<OnboardingChoicePage>
                                     ],
                             ).createShader(bounds),
                             child: Text(
-                              context.trLegacy('Hi，我是小万'),
+                              context.trText('Hi，我是小万'),
                               style: const TextStyle(
                                 fontSize: 28,
                                 fontWeight: FontWeight.w800,
                                 color: Colors.white,
                                 height: 1.4,
-                                letterSpacing: -0.5,
+                                letterSpacing: 0,
                               ),
                             ),
                           ),
@@ -204,7 +204,7 @@ class _OnboardingChoicePageState extends ConsumerState<OnboardingChoicePage>
                   Opacity(
                     opacity: _subtitleOpacity.value,
                     child: Text(
-                      context.trLegacy('你的 AI 助手，随时准备就绪'),
+                      context.trText('你的 AI 助手，随时准备就绪'),
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 15,
@@ -230,8 +230,8 @@ class _OnboardingChoicePageState extends ConsumerState<OnboardingChoicePage>
                           // Cloud AI
                           OnboardingChoiceCard(
                             svgIcon: _kCloudSvg,
-                            title: context.trLegacy('云 AI 服务'),
-                            subtitle: context.trLegacy(
+                            title: context.trText('云 AI 服务'),
+                            subtitle: context.trText(
                               '连接 OpenAI、Anthropic 或兼容的 API 服务',
                             ),
                             completed: state.cloudConfigured,
@@ -261,10 +261,8 @@ class _OnboardingChoicePageState extends ConsumerState<OnboardingChoicePage>
                             // Local Model
                             OnboardingChoiceCard(
                               svgIcon: _kDeviceSvg,
-                              title: context.trLegacy('本地模型'),
-                              subtitle: context.trLegacy(
-                                '在设备上运行本地 AI，离线可用，隐私安全',
-                              ),
+                              title: context.trText('本地模型'),
+                              subtitle: context.trText('在设备上运行本地 AI，离线可用，隐私安全'),
                               completed: state.localModelReady,
                               onTap: () =>
                                   GoRouterManager.push('/welcome/local_intro'),
@@ -291,7 +289,7 @@ class _OnboardingChoicePageState extends ConsumerState<OnboardingChoicePage>
                       child: Padding(
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         child: Text(
-                          context.trLegacy('跳过，稍后在设置中配置'),
+                          context.trText('跳过，稍后在设置中配置'),
                           style: TextStyle(
                             fontSize: 14,
                             color: palette.textTertiary,

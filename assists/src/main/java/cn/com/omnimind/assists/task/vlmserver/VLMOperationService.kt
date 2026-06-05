@@ -1,7 +1,5 @@
 package cn.com.omnimind.assists.task.vlmserver
 
-import cn.com.omnimind.accessibility.service.AssistsService
-import cn.com.omnimind.accessibility.util.XmlTreeUtils
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.baselib.http.Http429Exception
 import cn.com.omnimind.baselib.llm.contentText
@@ -19,6 +17,10 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import org.w3c.dom.Element
+import org.xml.sax.InputSource
+import java.io.StringReader
+import javax.xml.parsers.DocumentBuilderFactory
 import kotlin.math.roundToInt
 
 /**
@@ -30,9 +32,24 @@ class VLMOperationService(
     private val streamClient: VLMStreamClient,
     private val onInfoAction: suspend (String) -> String, // INFO动作回调：传入问题，返回用户答案
     private val onPauseCheck: suspend () -> Unit = {}, // 暂停检查回调：用于检测用户主动暂停
-    private val isSubTask: Boolean = false // 标识当前是否为子任务
+    private val onStepStarted: suspend (Int, UIStep) -> Unit = { _, _ -> },
+    private val onStepCompleted: suspend (Int, UIStep, Boolean, String?) -> Unit = { _, _, _, _ -> },
+    private val isSubTask: Boolean = false, // 标识当前是否为子任务
+    private val taskId: String = "",
+    private val runId: String = "",
 
 ) {
+    private data class XmlHealth(
+        val nodeCount: Int,
+        val largestArea: Int,
+        val hasAppSizedRoot: Boolean
+    ) {
+        val isUsable: Boolean
+            get() = nodeCount >= MIN_USABLE_XML_NODE_COUNT ||
+                largestArea >= MIN_USABLE_XML_AREA ||
+                hasAppSizedRoot
+    }
+
     private val Tag = "VLMOperationService"
     private val vlmClient = VLMClient()
     private val contextManager = UIContextManager()
@@ -59,6 +76,8 @@ class VLMOperationService(
     private val conversationState = VLMConversationState()
     private var lastReasoningOverlay = ""
     private var lastReasoningOverlayAt = 0L
+    private var lastUsableXml: String? = null
+    private var disableOmniFlowRecallForCurrentTask = false
 
     // Priority event management
     private var priorityEvent: Triple<String, String, Boolean>? = null  // (message, type, suggestCompletion)
@@ -169,6 +188,9 @@ class VLMOperationService(
     }
 
     private suspend fun ensureTaskActive(stage: String) {
+        if ((deviceOperator as? VLMOperationTask)?.isCancellationRequested == true) {
+            throw CancellationException("任务已取消: $stage")
+        }
         currentCoroutineContext().ensureActive()
     }
 
@@ -196,15 +218,17 @@ class VLMOperationService(
         skipGoHome: Boolean = false,
         summary: Boolean = false,
         currentStepGoal: String = goal,
-        stepSkillGuidance: String = ""
+        stepSkillGuidance: String = "",
+        disableOmniFlowRecall: Boolean = false
     ): TaskExecutionReport {
 
-        val normalizedMaxSteps = maxSteps?.takeIf { it > 0 }
+        val normalizedMaxSteps = maxSteps?.takeIf { it > 0 } ?: DEFAULT_VLM_MAX_STEPS
         OmniLog.d(Tag, "executeTask - package_name: $packageName, skipGoHome: $skipGoHome")
 
         // 重置 Compactor 触发记录
         compactorTriggerSteps.clear()
         resetConversationState()
+        disableOmniFlowRecallForCurrentTask = disableOmniFlowRecall
         ensureTaskActive("execute_task_start")
 
         // 任务开始执行时，先回到手机首页Home（除非 skipGoHome = true）
@@ -237,6 +261,7 @@ class VLMOperationService(
         var context = contextManager.initializeContext(
             overallTask = goal,
             installedApplications = installedApps,
+            targetPackageName = packageName.orEmpty(),
             maxSteps = normalizedMaxSteps,
             currentStepGoal = currentStepGoal,
             stepSkillGuidance = stepSkillGuidance
@@ -259,11 +284,10 @@ class VLMOperationService(
         }
 
         var stepIndex = 0
-        while (normalizedMaxSteps == null || stepIndex < normalizedMaxSteps) {
+        while (stepIndex < normalizedMaxSteps) {
             // 检查用户是否请求暂停（每一步执行前都检查）
             safePauseCheck("before_step_$stepIndex")
             context = drainExternalMemories(context)
-
             // === Context Compactor Logic (在超时计时之外执行) ===
             // 使用动态触发逻辑：随着步数增加，触发间隔逐渐从 12 步减少到 5 步
             if (shouldTriggerCompactor(stepIndex, normalizedMaxSteps)) {
@@ -319,7 +343,12 @@ class VLMOperationService(
             }
             // === Context Compactor Logic (End) ===
 
-            val result = executeSingleStepWithTimeOut(context, useModel, summary)
+            val result = executeSingleStepWithTimeOut(
+                context = context,
+                useModel = useModel,
+                summary = summary,
+                stepIndex = stepIndex
+            )
             ensureTaskActive("after_single_step_$stepIndex")
 
             if (result.feedback != null) {
@@ -357,6 +386,7 @@ class VLMOperationService(
                 if (result.step != null) {
                     context = updateContext(result.step, context)
                     executionTrace.add(result.step)
+                    onStepCompleted(stepIndex, result.step, false, result.error)
                 }
                 lastError = result.error
 
@@ -377,6 +407,9 @@ class VLMOperationService(
                     result.error?.contains("Failed to parse response") == true ||
                     result.error?.contains("Serializer for subclass") == true
                 ) {
+                    stepIndex++
+                    continue
+                } else if (result.step?.action?.isRecoverableDeviceAction() == true) {
                     stepIndex++
                     continue
                 } else {
@@ -499,6 +532,12 @@ class VLMOperationService(
                 }
             }
             if (step.action is AbortAction) {
+                onStepCompleted(
+                    stepIndex,
+                    step,
+                    false,
+                    "任务终止: ${(step.action as AbortAction).value}"
+                )
                 return TaskExecutionReport(
                     success = false,
                     goal = goal,
@@ -511,18 +550,18 @@ class VLMOperationService(
             stepIndex++
         }
 
+        val reachedMaxSteps = stepIndex >= normalizedMaxSteps
         return TaskExecutionReport(
             success = false,
             goal = goal,
             totalSteps = executionTrace.size,
             executionTrace = executionTrace,
             finalContext = context,
-            error = lastError ?: "任务未完成",
-            summaryScreenshotList = summaryScreenshotList
+            error = lastError ?: if (reachedMaxSteps) "达到最大步数，任务未完成" else "任务未完成",
+            summaryScreenshotList = summaryScreenshotList,
+            doneReason = if (reachedMaxSteps) "max_steps_reached" else "error"
         )
     }
-
-
 
     private fun updateContext(step: UIStep, context: UIContext): UIContext {
         return if (step.action is RecordAction) {
@@ -538,10 +577,11 @@ class VLMOperationService(
     suspend fun executeSingleStepWithTimeOut(
         context: UIContext,
         useModel: String = "scene.vlm.operation.primary",
-        summary: Boolean
+        summary: Boolean,
+        stepIndex: Int
     ): VLMOperationResult {
         return try {
-            executeSingleStep(context, useModel, summary)
+            executeSingleStep(context, useModel, summary, stepIndex)
         } catch (e: CancellationException) {
             throw e
         } catch (e: PrivacyBlockedException) {
@@ -557,6 +597,22 @@ class VLMOperationService(
         }
     }
 
+    private suspend fun captureCurrentPageSnapshot(stage: String): VLMCurrentPageSnapshot {
+        ensureTaskActive("before_screenshot_$stage")
+        val screenshot = deviceOperator.captureScreenshot()
+        safePauseCheck("after_screenshot_$stage")
+        val currentXml = captureCurrentXml()
+        safePauseCheck("after_capture_xml_$stage")
+        return VLMCurrentPageSnapshot(
+            packageName = AccessibilityController.Companion.getPackageName(),
+            xml = currentXml,
+            screenshotBase64 = screenshot,
+            displayWidth = deviceOperator.getDisplayWidth(),
+            displayHeight = deviceOperator.getDisplayHeight(),
+            capturedAtMs = System.currentTimeMillis()
+        )
+    }
+
     /**
      * 移除尾部的 WaitAction，避免深度递归导致栈溢出
      */
@@ -569,13 +625,28 @@ class VLMOperationService(
     suspend fun executeSingleStep(
         context: UIContext,
         model: String = "scene.vlm.operation.primary",
-        summary: Boolean
+        summary: Boolean,
+        stepIndex: Int
     ): VLMOperationResult {
         // 内部传递都用 scene.xxx 格式，只在需要判断模型类型或发送请求时才解析
 
         val maxRetries = 3
         // 创建可变的工作变量
         var _context = context
+        val tokenUsageAttempts = mutableListOf<VLMTokenUsage>()
+        var tokenUsageRequestIndex = 0
+
+        fun usageAggregate(): VLMTokenUsage? = VLMTokenUsageMapper.aggregate(tokenUsageAttempts)
+
+        fun usageAttemptsSnapshot(): List<VLMTokenUsage> = tokenUsageAttempts.toList()
+        val phaseMs = linkedMapOf<String, Long>()
+
+        fun markPhase(name: String, startedAtMs: Long) {
+            phaseMs[name] = (System.currentTimeMillis() - startedAtMs).coerceAtLeast(0L)
+        }
+
+        fun phaseDiagnostics(): Map<String, String> =
+            phaseMs.mapValues { it.value.toString() }
 
         var stabilityAttempt = 0
         while (stabilityAttempt < maxRetries) {
@@ -587,11 +658,78 @@ class VLMOperationService(
                     "executeSingleStep: stabilityAttempt=$stabilityAttempt, overallTask=${_context.overallTask}, currentStepGoal=${_context.activeGoal()}"
                 )
                 println("executeSingleStep: stabilityAttempt=$stabilityAttempt, overallTask=${_context.overallTask}, currentStepGoal=${_context.activeGoal()}")
-                ensureTaskActive("before_screenshot_$stabilityAttempt")
-                val screenshot = deviceOperator.captureScreenshot()
-                safePauseCheck("after_screenshot_$stabilityAttempt")
-                val beforeXml = captureCurrentXml()
-                safePauseCheck("after_capture_xml_$stabilityAttempt")
+                val observeStartedAt = System.currentTimeMillis()
+                val pageSnapshot = captureCurrentPageSnapshot("attempt_$stabilityAttempt")
+                markPhase("fresh_observe_ms", observeStartedAt)
+                val screenshot = pageSnapshot.screenshotBase64
+                val beforeXml = pageSnapshot.xml
+                _context = _context.copy(
+                    currentPageSummary = "",
+                    firstStepGuidance = "",
+                    pageDiagnostics = emptyMap(),
+                    dynamicToolDefinitions = emptyList(),
+                    displayWidth = pageSnapshot.displayWidth,
+                    displayHeight = pageSnapshot.displayHeight
+                )
+                _context = _context.copy(pageDiagnostics = phaseDiagnostics())
+                val firstStepStartedAt = System.currentTimeMillis()
+                _context = VLMFirstStepOptimizer.enrichContext(
+                    context = _context,
+                    currentXml = beforeXml,
+                    currentPackageName = pageSnapshot.packageName,
+                    stepIndex = stepIndex
+                )
+                markPhase("first_step_optimizer_ms", firstStepStartedAt)
+                _context = _context.copy(pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics())
+                val pageSkillStartedAt = System.currentTimeMillis()
+                _context = VLMPageContextProviderRegistry.enrich(
+                    VLMPageContextRequest(
+                        context = _context,
+                        currentXml = beforeXml,
+                        currentPackageName = pageSnapshot.packageName,
+                        screenshotBase64 = screenshot,
+                        stepIndex = stepIndex,
+                        snapshot = pageSnapshot
+                    )
+                )
+                markPhase("page_skill_ms", pageSkillStartedAt)
+                _context = _context.copy(pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics())
+                val functionRecallStartedAt = System.currentTimeMillis()
+                _context = VLMRecallContextProviderRegistry.enrich(
+                    VLMPageContextRequest(
+                        context = _context,
+                        currentXml = beforeXml,
+                        currentPackageName = pageSnapshot.packageName,
+                        screenshotBase64 = screenshot,
+                        stepIndex = stepIndex,
+                        snapshot = pageSnapshot,
+                        disableOmniFlowRecall = disableOmniFlowRecallForCurrentTask
+                    )
+                )
+                markPhase("function_recall_ms", functionRecallStartedAt)
+                _context = _context.copy(pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics())
+                val indexedEvidenceStartedAt = System.currentTimeMillis()
+                _context = VLMIndexedPageContext.enrich(
+                    context = _context,
+                    currentXml = beforeXml,
+                    displayWidth = pageSnapshot.displayWidth,
+                    displayHeight = pageSnapshot.displayHeight
+                )
+                markPhase("indexed_evidence_ms", indexedEvidenceStartedAt)
+                _context = _context.copy(pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics())
+                val markedScreenshot = if (SEND_MARKED_SCREENSHOT_BY_DEFAULT) {
+                    val markedScreenshotStartedAt = System.currentTimeMillis()
+                    VLMIndexedPageContext.renderMarkedScreenshot(
+                        screenshotBase64 = screenshot,
+                        currentXml = beforeXml,
+                        displayWidth = pageSnapshot.displayWidth,
+                        displayHeight = pageSnapshot.displayHeight
+                    ).also {
+                        markPhase("marked_screenshot_ms", markedScreenshotStartedAt)
+                    }
+                } else {
+                    null
+                }
 
                 // Note: Compactor 已移至 executeTask 主循环，在超时计时之外执行
 
@@ -600,27 +738,43 @@ class VLMOperationService(
                 var retryState: VLMToolCallRetryState? = null
                 var vlmResult: VLMResult
                 var sceneTurn: SceneChatCompletionTurn? = null
+                var lastRequestEnvelope: VLMRequestEnvelope? = null
                 var currentUserTextSnapshot = ""
                 conversationState.updateStreamingReasoning("")
                 lastReasoningOverlay = ""
                 lastReasoningOverlayAt = 0L
 
                 while (true) {
+                    val includeCurrentScreenshot = true
+                    val requestScreenshot = screenshot.takeIf { includeCurrentScreenshot }
+                    val requestMarkedScreenshot = markedScreenshot.takeIf { includeCurrentScreenshot }
+                    val requestBuildStartedAt = System.currentTimeMillis()
                     val requestEnvelope = vlmClient.buildUIOperationRequest(
                         context = _context,
-                        screenshot = screenshot,
+                        screenshot = requestScreenshot,
+                        markedScreenshot = requestMarkedScreenshot,
                         conversationState = conversationState,
                         model = model,
-                        retryState = retryState
+                        retryState = retryState,
+                        includeMarkedScreenshot = SEND_MARKED_SCREENSHOT_BY_DEFAULT && includeCurrentScreenshot
                     )
+                    markPhase("request_build_ms", requestBuildStartedAt)
+                    lastRequestEnvelope = requestEnvelope
                     currentUserTextSnapshot = requestEnvelope.currentUserText
+                    _context = _context.copy(
+                        pageDiagnostics = _context.pageDiagnostics +
+                            phaseDiagnostics() +
+                            buildContextBudgetDiagnostics(_context) +
+                            buildRequestEnvelopeDiagnostics(requestEnvelope)
+                    )
                     OmniLog.i(
                         Tag,
-                        "Dispatching VLM stream request: attempt=$stabilityAttempt toolRetry=$toolCallRetryCount scene=$model activeGoal=${_context.activeGoal()} traceSize=${_context.trace.size} historyRounds=${conversationState.roundCount()}"
+                        "Dispatching VLM stream request: attempt=$stabilityAttempt toolRetry=$toolCallRetryCount scene=$model activeGoal=${_context.activeGoal()} traceSize=${_context.trace.size} historyRounds=${conversationState.roundCount()} currentScreenshot=$includeCurrentScreenshot"
                     )
 
                     safePauseCheck("before_http_${stabilityAttempt}_retry_$toolCallRetryCount")
                     val httpClientStartTime = System.currentTimeMillis()
+                    val currentUsageAttemptIndex = ++tokenUsageRequestIndex
                     val streamedTurn = try {
                         streamClient.streamTurn(
                             request = requestEnvelope.request,
@@ -638,7 +792,10 @@ class VLMOperationService(
                             observation = "STREAM_ERROR",
                             thought = "VLM流式请求失败,忽略后面的action字段",
                             action = RecordAction(content = streamError),
-                            result = "VLM流式请求失败"
+                            result = "VLM流式请求失败",
+                            tokenUsage = usageAggregate(),
+                            tokenUsageAttempts = usageAttemptsSnapshot(),
+                            pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics()
                         )
                         return VLMOperationResult(
                             success = false,
@@ -647,7 +804,22 @@ class VLMOperationService(
                             context = _context
                         )
                     }
+                    markPhase("vlm_stream_ms", httpClientStartTime)
                     sceneTurn = streamedTurn
+                    VLMTokenUsageMapper.fromTurn(
+                        turn = streamedTurn,
+                        attemptIndex = currentUsageAttemptIndex,
+                        stabilityAttempt = stabilityAttempt,
+                        toolRetryIndex = toolCallRetryCount
+                    )?.let { usage ->
+                        tokenUsageAttempts += usage
+                        OmniLog.i(
+                            Tag,
+                            "VLM token usage: step=$stepIndex attempt=$currentUsageAttemptIndex " +
+                                "prompt=${usage.promptTokens ?: 0} completion=${usage.completionTokens ?: 0} " +
+                                "total=${usage.totalTokens ?: 0} cached=${usage.cachedTokens ?: 0}"
+                        )
+                    }
                     safePauseCheck("after_http_${stabilityAttempt}_retry_$toolCallRetryCount")
                     OmniLog.i(
                         "TimeRecord",
@@ -670,7 +842,14 @@ class VLMOperationService(
                     }
 
                     // 解析链路统一由主场景解析器处理
-                    vlmResult = vlmClient.parseVLMResponse(streamedTurn, model)
+                    val parseStartedAt = System.currentTimeMillis()
+                    vlmResult = vlmClient.parseVLMResponse(
+                        response = streamedTurn,
+                        modelOrScene = model,
+                        dynamicFunctionToolNames = requestEnvelope.dynamicFunctionToolNames
+                    )
+                    markPhase("parse_response_ms", parseStartedAt)
+                    _context = _context.copy(pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics())
                     safePauseCheck("after_parse_${stabilityAttempt}_retry_$toolCallRetryCount")
 
                     if (
@@ -717,7 +896,13 @@ class VLMOperationService(
                             ?: "VLM响应解析失败",
                         thought = buildParseFailureThought(vlmResult),
                         action = RecordAction(content = "解析失败: $resolvedError"),
-                        result = "解析失败，第${parseFailureCount}次失败"
+                        result = "解析失败，第${parseFailureCount}次失败",
+                        tokenUsage = usageAggregate(),
+                        tokenUsageAttempts = usageAttemptsSnapshot(),
+                        pageDiagnostics = _context.pageDiagnostics + buildParseFailureDiagnostics(
+                            sceneTurn = sceneTurn,
+                            requestEnvelope = lastRequestEnvelope
+                        )
                     )
 
                     return VLMOperationResult(
@@ -739,7 +924,10 @@ class VLMOperationService(
                         thought = processedStep.thought,
                         action = feedbackAction,
                         result = feedbackAction.value,
-                        summary = processedStep.summary
+                        summary = processedStep.summary,
+                        tokenUsage = usageAggregate(),
+                        tokenUsageAttempts = usageAttemptsSnapshot(),
+                        pageDiagnostics = _context.pageDiagnostics
                     )
                     sceneTurn?.let { completedTurn ->
                         conversationState.appendRound(
@@ -766,7 +954,12 @@ class VLMOperationService(
                         position = listOf(processedStep.action.x, processedStep.action.y)
                     )
 
-                    is ScrollAction -> processedStep = updateActionWithCoordinates(
+                    is InputTextAction -> processedStep = updateActionWithCoordinates(
+                        processedStep,
+                        position = listOf(processedStep.action.x, processedStep.action.y)
+                    )
+
+                    is SwipeAction -> processedStep = updateActionWithCoordinates(
                         processedStep,
                         position = listOf(
                             processedStep.action.x1,
@@ -783,16 +976,32 @@ class VLMOperationService(
 
                     else -> {}
                 }
+                processedStep = groundIndexedActionTarget(
+                    step = processedStep,
+                    currentXml = beforeXml,
+                    displayWidth = pageSnapshot.displayWidth,
+                    displayHeight = pageSnapshot.displayHeight
+                )
 
+                var dispatchXml = beforeXml
+                var dispatchPackageName =
+                    pageSnapshot.packageName ?: AccessibilityController.Companion.getPackageName()
                 if (needsPreciseLocation(processedStep.action)) {
-                    val afterXml = captureCurrentXml()
-                    if (!isPageStableByXml(beforeXml, afterXml)) {
-                        OmniLog.d(Tag, "页面不稳定，第${stabilityAttempt + 1}次重试")
-                        println("页面不稳定，第${stabilityAttempt + 1}次重试")
-                        safePauseCheck("before_retry_delay_$stabilityAttempt")
-                        delay(500)
-                        stabilityAttempt++  // 页面不稳定，增加重试计数
-                        continue
+                    val latestXml = captureCurrentXml()
+                    if (!isPageStableByXml(beforeXml, latestXml) && !latestXml.isNullOrBlank()) {
+                        OmniLog.d(
+                            Tag,
+                            "Pre-action page changed after VLM response; re-grounding ${processedStep.action.name} with latest XML instead of retrying"
+                        )
+                        dispatchXml = latestXml
+                        dispatchPackageName = AccessibilityController.Companion.getPackageName()
+                            ?: dispatchPackageName
+                        processedStep = groundIndexedActionTarget(
+                            step = processedStep,
+                            currentXml = latestXml,
+                            displayWidth = pageSnapshot.displayWidth,
+                            displayHeight = pageSnapshot.displayHeight
+                        )
                     }
                 } else {
                     OmniLog.d(
@@ -801,28 +1010,117 @@ class VLMOperationService(
                     )
                 }
 
+                if (shouldRunActionPipeline(processedStep.action)) {
+                    val pipelineResult = VLMActionPipelineRegistry.preflight(
+                        VLMActionPipelineRequest(
+                            context = _context,
+                            step = processedStep,
+                            currentXml = dispatchXml,
+                            currentPackageName = dispatchPackageName,
+                            displayWidth = pageSnapshot.displayWidth,
+                            displayHeight = pageSnapshot.displayHeight,
+                            stepIndex = stepIndex,
+                            snapshot = pageSnapshot.copy(
+                                xml = dispatchXml,
+                                packageName = dispatchPackageName
+                            )
+                        )
+                    )
+                    processedStep = pipelineResult.step
+                    dispatchXml = pipelineResult.currentXml?.takeIf { it.isNotBlank() } ?: dispatchXml
+                    dispatchPackageName = pipelineResult.currentPackageName
+                        ?.takeIf { it.isNotBlank() }
+                        ?: dispatchPackageName
+                    if (pipelineResult.diagnostics.isNotEmpty()) {
+                        _context = _context.copy(
+                            pageDiagnostics = _context.pageDiagnostics + pipelineResult.diagnostics
+                        )
+                    }
+                }
+
                 safePauseCheck("before_action_${processedStep.action.name}_${stabilityAttempt}")
                 ensureTaskActive("before_action_dispatch_${processedStep.action.name}_$stabilityAttempt")
 
+                val actionStartedAtMs = System.currentTimeMillis()
+                val beforePackageName = dispatchPackageName
+                val runningStep = UIStep(
+                    observation = processedStep.observation,
+                    thought = processedStep.thought,
+                    action = processedStep.action,
+                    summary = processedStep.summary,
+                    observationXml = dispatchXml,
+                    packageName = beforePackageName,
+                    startedAtMs = actionStartedAtMs,
+                    tokenUsage = usageAggregate(),
+                    tokenUsageAttempts = usageAttemptsSnapshot(),
+                    pageDiagnostics = _context.pageDiagnostics
+                )
+                onStepStarted(stepIndex, runningStep)
+                val actionDispatchStartedAt = System.currentTimeMillis()
                 val executedStep = actionExecutor.act(
                     VLMStep(
                         observation = processedStep.observation,
                         thought = processedStep.thought,
                         action = processedStep.action,
                         summary = processedStep.summary
+                    ),
+                    functionRunContext = VLMFunctionRunContext(
+                        taskId = taskId,
+                        runId = runId.ifBlank { taskId },
                     )
                 )
+                markPhase("action_dispatch_ms", actionDispatchStartedAt)
+                val actionFinishedAtMs = System.currentTimeMillis()
                 safePauseCheck("after_action_${processedStep.action.name}_${stabilityAttempt}")
-                val finalStep = executedStep.copy(summary = processedStep.summary)
-
+                val postObserveStartedAt = System.currentTimeMillis()
+                val afterActionXml = waitForPostActionStableXml(
+                    beforeXml = dispatchXml,
+                    expectPageChange = shouldWaitForChangedPostActionPage(processedStep.action)
+                )
+                markPhase("post_action_observe_ms", postObserveStartedAt)
+                val afterPackageName = AccessibilityController.Companion.getPackageName()
+                var finalStep = executedStep.copy(
+                    summary = processedStep.summary,
+                    observationXml = dispatchXml,
+                    afterObservationXml = afterActionXml.takeIf { it.isNotBlank() },
+                    actionResultData = executedStep.actionResultData,
+                    packageName = beforePackageName,
+                    afterPackageName = afterPackageName,
+                    startedAtMs = actionStartedAtMs,
+                    finishedAtMs = actionFinishedAtMs,
+                    tokenUsage = usageAggregate(),
+                    tokenUsageAttempts = usageAttemptsSnapshot(),
+                    pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics()
+                )
+                if (processedStep.action is GetStateAction) {
+                    finalStep = finalStep.copy(
+                        result = buildGetStateResult(
+                            reason = processedStep.action.reason,
+                            currentXml = afterActionXml.ifBlank { beforeXml.orEmpty() },
+                            packageName = afterPackageName ?: beforePackageName,
+                            activityName = runCatching {
+                                AccessibilityController.Companion.getCurrentActivity()
+                            }.getOrNull(),
+                            installedApps = _context.installedApplications
+                        ),
+                        summary = processedStep.summary.ifBlank { "已刷新当前页面状态" }
+                    )
+                }
                 OmniLog.d(
                     Tag,
                     "Execute action: ${finalStep.action.name}, result=${finalStep.result ?: "OK"}"
                 )
                 println("Execute action: ${finalStep.action.name}, result=${finalStep.result ?: "OK"}")
 
+                val actionSucceeded = finalStep.result?.startsWith("执行失败") != true
                 if (finalStep.result?.contains("不支持的操作类型") == true) {
                     parseFailureCount++
+                    onStepCompleted(
+                        stepIndex,
+                        finalStep,
+                        false,
+                        "不支持的操作类型: ${finalStep.result}"
+                    )
 
                     return VLMOperationResult(
                         success = false,
@@ -833,6 +1131,12 @@ class VLMOperationService(
                 }
 
                 parseFailureCount = 0
+                onStepCompleted(
+                    stepIndex,
+                    finalStep,
+                    actionSucceeded,
+                    if (actionSucceeded) null else finalStep.result
+                )
                 sceneTurn?.let { completedTurn ->
                     conversationState.appendRound(
                         vlmClient.buildConversationRound(
@@ -856,7 +1160,10 @@ class VLMOperationService(
                     observation = "429",
                     thought = "服务端请求失败,忽略后面的action字段",
                     action = RecordAction(content = "服务端请求失败"),
-                    result = "服务端请求失败"
+                    result = "服务端请求失败",
+                    tokenUsage = usageAggregate(),
+                    tokenUsageAttempts = usageAttemptsSnapshot(),
+                    pageDiagnostics = _context.pageDiagnostics
                 )
                 return VLMOperationResult(
                     success = false,
@@ -944,6 +1251,59 @@ class VLMOperationService(
         return vlmResult.error ?: "VLM推理失败"
     }
 
+    private fun buildParseFailureDiagnostics(
+        sceneTurn: SceneChatCompletionTurn?,
+        requestEnvelope: VLMRequestEnvelope?
+    ): Map<String, String> {
+        val diagnostics = linkedMapOf<String, String>()
+        requestEnvelope?.let { envelope ->
+            diagnostics += buildRequestEnvelopeDiagnostics(envelope)
+        }
+        sceneTurn?.let { turn ->
+            diagnostics["vlm_response_route"] = turn.route.orEmpty()
+            diagnostics["vlm_response_resolved_model"] = turn.resolvedModel
+            diagnostics["vlm_response_finish_reason"] = turn.turn.finishReason.orEmpty()
+            diagnostics["vlm_response_tool_call_count"] =
+                (turn.turn.message.toolCalls?.size ?: 0).toString()
+            diagnostics["vlm_response_tool_names"] = turn.turn.message.toolCalls
+                .orEmpty()
+                .map { it.function.name }
+                .joinToString(",")
+                .take(4000)
+            val rawContent = turn.turn.message.contentText()
+                .ifBlank { turn.turn.reasoning }
+                .trim()
+            if (rawContent.isNotBlank()) {
+                diagnostics["vlm_response_raw_content_preview"] = rawContent.take(4000)
+            }
+        }
+        return diagnostics
+    }
+
+    private fun buildRequestEnvelopeDiagnostics(envelope: VLMRequestEnvelope): Map<String, String> =
+        linkedMapOf(
+            "vlm_request_has_tools" to envelope.request.tools.isNotEmpty().toString(),
+            "vlm_request_tool_choice" to envelope.request.toolChoice?.toString().orEmpty(),
+            "vlm_request_parallel_tool_calls" to envelope.request.parallelToolCalls?.toString().orEmpty(),
+            "vlm_request_tool_count" to envelope.toolNames.size.toString(),
+            "vlm_request_tool_names" to envelope.toolNames.joinToString(",").take(4000),
+            "vlm_request_dynamic_function_tool_count" to envelope.dynamicFunctionToolNames.size.toString(),
+            "vlm_request_dynamic_function_tool_names" to
+                envelope.dynamicFunctionToolNames.joinToString(",").take(4000),
+            "vlm_request_system_prompt_chars" to envelope.systemPromptChars.toString(),
+            "vlm_request_current_user_text_chars" to envelope.currentUserTextChars.toString(),
+        )
+
+    private fun buildContextBudgetDiagnostics(context: UIContext): Map<String, String> =
+        linkedMapOf(
+            "vlm_context_current_page_summary_chars" to context.currentPageSummary.length.toString(),
+            "vlm_context_step_skill_guidance_chars" to context.stepSkillGuidance.length.toString(),
+            "vlm_context_running_summary_chars" to context.runningSummary.length.toString(),
+            "vlm_context_key_memory_count" to context.keyMemory.size.toString(),
+            "vlm_context_installed_app_count" to context.installedApplications.size.toString(),
+            "vlm_context_dynamic_tool_definition_count" to context.dynamicToolDefinitions.size.toString(),
+        )
+
     private fun normalizeOverlayText(text: String, maxLen: Int): String {
         val normalized = text.replace("\r\n", "\n").trim()
         return if (normalized.length <= maxLen) normalized else "..." + normalized.takeLast(maxLen - 3)
@@ -967,7 +1327,33 @@ class VLMOperationService(
 
     private fun needsPreciseLocation(action: UIAction): Boolean {
         return when (action) {
-            is ClickAction, is ScrollAction, is LongPressAction -> true
+            is ClickAction, is InputTextAction, is SwipeAction, is LongPressAction -> true
+            else -> false
+        }
+    }
+
+    private fun shouldRunActionPipeline(action: UIAction): Boolean {
+        return when (action) {
+            is ClickAction,
+            is InputTextAction,
+            is SwipeAction,
+            is LongPressAction,
+            is OpenAppAction,
+            is PressKeyAction -> true
+            else -> false
+        }
+    }
+
+    private fun UIAction.isRecoverableDeviceAction(): Boolean {
+        return when (this) {
+            is ClickAction,
+            is InputTextAction,
+            is SwipeAction,
+            is LongPressAction,
+            is OpenAppAction,
+            is PressKeyAction,
+            is GetStateAction,
+            is FunctionRunAction -> true
             else -> false
         }
     }
@@ -977,98 +1363,124 @@ class VLMOperationService(
         val encodedHeight = deviceOperator.getLastScreenshotHeight().coerceAtLeast(1)
         val displayWidth = deviceOperator.getDisplayWidth().coerceAtLeast(encodedWidth)
         val displayHeight = deviceOperator.getDisplayHeight().coerceAtLeast(encodedHeight)
-        val scaleX = if (encodedWidth > 0) displayWidth.toDouble() / encodedWidth else 1.0
-        val scaleY = if (encodedHeight > 0) displayHeight.toDouble() / encodedHeight else 1.0
 
-        fun coordType(value: Float, encodedSize: Int): String {
+        fun coordType(value: Float, displaySize: Int): String {
             return when {
                 value <= 1f -> "ratio_0-1"
-                value <= 1000f -> "norm_0-1000"
-                value <= encodedSize -> "pixel_in_encoded"
+                value <= 1000f && displaySize > 1000 -> "normalized_0-1000"
+                value <= displaySize -> "absolute_pixel"
                 else -> "pixel_overflow"
             }
         }
 
-        fun toScreenCoord(value: Float, encodedSize: Int, scale: Double, maxSize: Int): Int {
+        fun toScreenCoord(value: Float, maxSize: Int): Int {
             val mapped = when {
-                value <= 1f -> (value.toDouble() * encodedSize * scale).roundToInt()
-                value <= 1000f -> (value / 1000.0 * encodedSize * scale).roundToInt()
-                else -> (value * scale).roundToInt()
+                value <= 1f -> (value.toDouble() * maxSize).roundToInt()
+                value <= 1000f && maxSize > 1000 -> (value.toDouble() / 1000.0 * maxSize).roundToInt()
+                else -> value.roundToInt()
             }
             return mapped.coerceIn(0, maxSize)
         }
 
         val updatedAction = when (val action = step.action) {
             is ClickAction -> {
-                val absoluteX = toScreenCoord(position[0], encodedWidth, scaleX, displayWidth)
-                val absoluteY = toScreenCoord(position[1], encodedHeight, scaleY, displayHeight)
+                val absoluteX = toScreenCoord(position[0], displayWidth)
+                val absoluteY = toScreenCoord(position[1], displayHeight)
                 OmniLog.d(
                     Tag,
                     "Coord mapping(click): raw=(${position[0]}, ${position[1]}) type=(${
                         coordType(
                             position[0],
-                            encodedWidth
+                            displayWidth
                         )
                     }, ${
                         coordType(
                             position[1],
-                            encodedHeight
+                            displayHeight
                         )
                     }), encoded=${encodedWidth}x${encodedHeight}, mapped=(${absoluteX}, ${absoluteY}), display=${displayWidth}x${displayHeight}"
                 )
                 action.copy(x = absoluteX.toFloat(), y = absoluteY.toFloat())
             }
 
-            is ScrollAction -> {
+            is InputTextAction -> {
+                val absoluteX = toScreenCoord(position[0], displayWidth)
+                val absoluteY = toScreenCoord(position[1], displayHeight)
+                OmniLog.d(
+                    Tag,
+                    "Coord mapping(input_text): raw=(${position[0]}, ${position[1]}) type=(${
+                        coordType(
+                            position[0],
+                            displayWidth
+                        )
+                    }, ${
+                        coordType(
+                            position[1],
+                            displayHeight
+                        )
+                    }), encoded=${encodedWidth}x${encodedHeight}, mapped=(${absoluteX}, ${absoluteY}), display=${displayWidth}x${displayHeight}"
+                )
+                action.copy(x = absoluteX.toFloat(), y = absoluteY.toFloat())
+            }
+
+            is SwipeAction -> {
                 val rawX1 = position.getOrNull(0) ?: 0f
                 val rawY1 = position.getOrNull(1) ?: 0f
                 val rawX2 = position.getOrNull(2) ?: 0f
                 val rawY2 = position.getOrNull(3) ?: 0f
-                val absoluteX1 = toScreenCoord(rawX1, encodedWidth, scaleX, displayWidth)
-                val absoluteY1 = toScreenCoord(rawY1, encodedHeight, scaleY, displayHeight)
-                val absoluteX2 = toScreenCoord(rawX2, encodedWidth, scaleX, displayWidth)
-                val absoluteY2 = toScreenCoord(rawY2, encodedHeight, scaleY, displayHeight)
+                val absoluteX1 = toScreenCoord(rawX1, displayWidth)
+                val absoluteY1 = toScreenCoord(rawY1, displayHeight)
+                val absoluteX2 = toScreenCoord(rawX2, displayWidth)
+                val absoluteY2 = toScreenCoord(rawY2, displayHeight)
+                val safeScroll = sanitizeScrollGestureCoordinates(
+                    x1 = absoluteX1,
+                    y1 = absoluteY1,
+                    x2 = absoluteX2,
+                    y2 = absoluteY2,
+                    displayWidth = displayWidth,
+                    displayHeight = displayHeight
+                )
                 OmniLog.d(
                     Tag,
-                    "Coord mapping(scroll): raw=($rawX1, $rawY1, $rawX2, $rawY2) type=(${
+                    "Coord mapping(swipe): raw=($rawX1, $rawY1, $rawX2, $rawY2) type=(${
                         coordType(
                             rawX1,
-                            encodedWidth
+                            displayWidth
                         )
-                    }, ${coordType(rawY1, encodedHeight)}, ${
+                    }, ${coordType(rawY1, displayHeight)}, ${
                         coordType(
                             rawX2,
-                            encodedWidth
+                            displayWidth
                         )
                     }, ${
                         coordType(
                             rawY2,
-                            encodedHeight
+                            displayHeight
                         )
-                    }), encoded=${encodedWidth}x${encodedHeight}, mapped=($absoluteX1, $absoluteY1, $absoluteX2, $absoluteY2), display=${displayWidth}x${displayHeight}"
+                    }), encoded=${encodedWidth}x${encodedHeight}, mapped=($absoluteX1, $absoluteY1, $absoluteX2, $absoluteY2), safe=(${safeScroll.x1}, ${safeScroll.y1}, ${safeScroll.x2}, ${safeScroll.y2}, adjusted=${safeScroll.adjusted}), display=${displayWidth}x${displayHeight}"
                 )
                 action.copy(
-                    x1 = absoluteX1.toFloat(),
-                    y1 = absoluteY1.toFloat(),
-                    x2 = absoluteX2.toFloat(),
-                    y2 = absoluteY2.toFloat()
+                    x1 = safeScroll.x1.toFloat(),
+                    y1 = safeScroll.y1.toFloat(),
+                    x2 = safeScroll.x2.toFloat(),
+                    y2 = safeScroll.y2.toFloat()
                 )
             }
 
             is LongPressAction -> {
-                val absoluteX = toScreenCoord(position[0], encodedWidth, scaleX, displayWidth)
-                val absoluteY = toScreenCoord(position[1], encodedHeight, scaleY, displayHeight)
+                val absoluteX = toScreenCoord(position[0], displayWidth)
+                val absoluteY = toScreenCoord(position[1], displayHeight)
                 OmniLog.d(
                     Tag,
                     "Coord mapping(long_press): raw=(${position[0]}, ${position[1]}) type=(${
                         coordType(
                             position[0],
-                            encodedWidth
+                            displayWidth
                         )
                     }, ${
                         coordType(
                             position[1],
-                            encodedHeight
+                            displayHeight
                         )
                     }), encoded=${encodedWidth}x${encodedHeight}, mapped=(${absoluteX}, ${absoluteY}), display=${displayWidth}x${displayHeight}"
                 )
@@ -1079,6 +1491,185 @@ class VLMOperationService(
         }
 
         return step.copy(action = updatedAction)
+    }
+
+    private fun groundIndexedActionTarget(
+        step: VLMStep,
+        currentXml: String?,
+        displayWidth: Int,
+        displayHeight: Int
+    ): VLMStep {
+        return when (val action = step.action) {
+            is ClickAction -> {
+                val target = resolveIndexedElementTarget(
+                    currentXml = currentXml,
+                    displayWidth = displayWidth,
+                    displayHeight = displayHeight,
+                    nodeId = action.nodeId,
+                    explicitIndex = action.elementIndex,
+                    targetDescription = action.targetDescription,
+                    preferEditable = false,
+                    actionName = "click"
+                ) ?: return step
+                OmniLog.i(
+                    Tag,
+                    "Indexed click grounding applied: index=${target.index} label=${target.label} (${action.x},${action.y})->(${target.centerX},${target.centerY})"
+                )
+                step.copy(
+                    action = action.copy(
+                        targetDescription = target.label.ifBlank { action.targetDescription },
+                        x = target.centerX,
+                        y = target.centerY,
+                        elementIndex = target.index,
+                        nodeId = target.nodeId
+                    ),
+                    summary = appendRuntimeTag(step.summary, "indexed_element:${target.index}")
+                )
+            }
+
+            is InputTextAction -> {
+                val target = resolveIndexedElementTarget(
+                    currentXml = currentXml,
+                    displayWidth = displayWidth,
+                    displayHeight = displayHeight,
+                    nodeId = action.nodeId,
+                    explicitIndex = action.elementIndex,
+                    targetDescription = action.targetDescription,
+                    preferEditable = true,
+                    actionName = "input_text"
+                ) ?: return step
+                OmniLog.i(
+                    Tag,
+                    "Indexed input grounding applied: index=${target.index} label=${target.label} (${action.x},${action.y})->(${target.centerX},${target.centerY})"
+                )
+                step.copy(
+                    action = action.copy(
+                        targetDescription = target.label.ifBlank { action.targetDescription },
+                        x = target.centerX,
+                        y = target.centerY,
+                        elementIndex = target.index,
+                        nodeId = target.nodeId
+                    ),
+                    summary = appendRuntimeTag(step.summary, "indexed_element:${target.index}")
+                )
+            }
+
+            is LongPressAction -> {
+                val target = resolveIndexedElementTarget(
+                    currentXml = currentXml,
+                    displayWidth = displayWidth,
+                    displayHeight = displayHeight,
+                    nodeId = action.nodeId,
+                    explicitIndex = action.elementIndex,
+                    targetDescription = action.targetDescription,
+                    preferEditable = false,
+                    actionName = "long_press"
+                ) ?: return step
+                OmniLog.i(
+                    Tag,
+                    "Indexed long_press grounding applied: index=${target.index} label=${target.label} (${action.x},${action.y})->(${target.centerX},${target.centerY})"
+                )
+                step.copy(
+                    action = action.copy(
+                        targetDescription = target.label.ifBlank { action.targetDescription },
+                        x = target.centerX,
+                        y = target.centerY,
+                        elementIndex = target.index,
+                        nodeId = target.nodeId
+                    ),
+                    summary = appendRuntimeTag(step.summary, "indexed_element:${target.index}")
+                )
+            }
+
+            is SwipeAction -> {
+                val index = action.scrollableIndex ?: return step
+                val target = VLMIndexedPageContext.scrollTarget(
+                    currentXml = currentXml,
+                    displayWidth = displayWidth,
+                    displayHeight = displayHeight,
+                    index = index,
+                    direction = action.direction
+                ) ?: run {
+                    OmniLog.w(Tag, "Indexed swipe grounding failed: missing scrollable_index=$index")
+                    return step
+                }
+                val safeScroll = sanitizeScrollGestureCoordinates(
+                    x1 = target.x1.roundToInt(),
+                    y1 = target.y1.roundToInt(),
+                    x2 = target.x2.roundToInt(),
+                    y2 = target.y2.roundToInt(),
+                    displayWidth = displayWidth,
+                    displayHeight = displayHeight
+                )
+                OmniLog.i(
+                    Tag,
+                    "Indexed swipe grounding applied: index=$index direction=${action.direction.orEmpty()} label=${target.label} -> (${safeScroll.x1},${safeScroll.y1},${safeScroll.x2},${safeScroll.y2})"
+                )
+                step.copy(
+                    action = action.copy(
+                        targetDescription = target.label.ifBlank { action.targetDescription },
+                        x1 = safeScroll.x1.toFloat(),
+                        y1 = safeScroll.y1.toFloat(),
+                        x2 = safeScroll.x2.toFloat(),
+                        y2 = safeScroll.y2.toFloat()
+                    ),
+                    summary = appendRuntimeTag(step.summary, "indexed_scroll:$index")
+                )
+            }
+
+            else -> step
+        }
+    }
+
+    private fun resolveIndexedElementTarget(
+        currentXml: String?,
+        displayWidth: Int,
+        displayHeight: Int,
+        nodeId: String?,
+        explicitIndex: Int?,
+        targetDescription: String,
+        preferEditable: Boolean,
+        actionName: String
+    ): VLMIndexedPageContext.IndexedTarget? {
+        val targetByNodeId = VLMIndexedPageContext.elementTargetByNodeId(
+            currentXml = currentXml,
+            displayWidth = displayWidth,
+            displayHeight = displayHeight,
+            nodeId = nodeId
+        )
+        if (targetByNodeId != null) {
+            return targetByNodeId
+        }
+        if (explicitIndex != null) {
+            return VLMIndexedPageContext.elementTarget(
+                currentXml = currentXml,
+                displayWidth = displayWidth,
+                displayHeight = displayHeight,
+                index = explicitIndex
+            ) ?: run {
+                OmniLog.w(Tag, "Indexed $actionName grounding failed: missing element_index=$explicitIndex")
+                null
+            }
+        }
+        val target = VLMIndexedPageContext.uniqueElementTargetByDescription(
+            currentXml = currentXml,
+            displayWidth = displayWidth,
+            displayHeight = displayHeight,
+            targetDescription = targetDescription,
+            preferEditable = preferEditable
+        )
+        if (target == null && targetDescription.isNotBlank()) {
+            OmniLog.d(Tag, "Indexed $actionName text grounding skipped: no unique match for \"$targetDescription\"")
+        }
+        return target
+    }
+
+    private fun appendRuntimeTag(summary: String, tag: String): String {
+        return buildString {
+            append(summary)
+            if (isNotBlank()) append(" ")
+            append("[grounded:$tag]")
+        }
     }
 
     /**
@@ -1165,15 +1756,58 @@ class VLMOperationService(
      * 获取当前屏幕的XML表示
      */
     private fun captureCurrentXml(): String? {
-        return try {
-            val service = AssistsService.instance
-            val rootNode = service?.rootInActiveWindow ?: return null
-            val xmlTree = XmlTreeUtils.buildXmlTree(rootNode) ?: return null
-            XmlTreeUtils.serializeXml(xmlTree)
-        } catch (e: Exception) {
-            println("获取XML失败: ${e.message}")
-            null
+        var bestCandidate: String? = null
+        var bestHealth = XmlHealth(0, 0, false)
+        repeat(XML_CAPTURE_MAX_ATTEMPTS) { attempt ->
+            val current = try {
+                AccessibilityController.getCaptureScreenShotXml(true)
+            } catch (e: Exception) {
+                println("获取XML失败: ${e.message}")
+                null
+            }
+            val health = xmlHealth(current)
+            if (health.nodeCount > bestHealth.nodeCount || health.largestArea > bestHealth.largestArea) {
+                bestCandidate = current
+                bestHealth = health
+            }
+            if (current != null && health.isUsable) {
+                lastUsableXml = current
+                return current
+            }
+            if (attempt < XML_CAPTURE_MAX_ATTEMPTS - 1) {
+                Thread.sleep(XML_CAPTURE_RETRY_DELAY_MS)
+            }
         }
+        val fallback = lastUsableXml
+        if (fallback != null && bestHealth.nodeCount <= MIN_TINY_XML_NODE_COUNT) {
+            OmniLog.w(
+                Tag,
+                "Using last usable accessibility XML after tiny capture: nodes=${bestHealth.nodeCount}, area=${bestHealth.largestArea}"
+            )
+            return fallback
+        }
+        return bestCandidate
+    }
+
+    private fun xmlHealth(xml: String?): XmlHealth {
+        if (xml.isNullOrBlank()) return XmlHealth(0, 0, false)
+        val nodeCount = Regex("<node\\b").findAll(xml).count()
+        var largestArea = 0
+        var hasAppSizedRoot = false
+        val screenArea = deviceOperator.getDisplayWidth().coerceAtLeast(1) *
+            deviceOperator.getDisplayHeight().coerceAtLeast(1)
+        Regex("""bounds="\[(\d+),(\d+)]\[(\d+),(\d+)]"""").findAll(xml).forEach { match ->
+            val left = match.groupValues.getOrNull(1)?.toIntOrNull() ?: return@forEach
+            val top = match.groupValues.getOrNull(2)?.toIntOrNull() ?: return@forEach
+            val right = match.groupValues.getOrNull(3)?.toIntOrNull() ?: return@forEach
+            val bottom = match.groupValues.getOrNull(4)?.toIntOrNull() ?: return@forEach
+            val area = ((right - left).coerceAtLeast(0)) * ((bottom - top).coerceAtLeast(0))
+            largestArea = maxOf(largestArea, area)
+            if (area >= (screenArea * MIN_APP_XML_AREA_RATIO).toInt()) {
+                hasAppSizedRoot = true
+            }
+        }
+        return XmlHealth(nodeCount, largestArea, hasAppSizedRoot)
     }
 
     private fun isPageStableByXml(beforeXml: String?, afterXml: String?): Boolean {
@@ -1193,7 +1827,242 @@ class VLMOperationService(
             false
         }
     }
+
+    private fun shouldWaitForChangedPostActionPage(action: UIAction): Boolean =
+        when (action) {
+            is ClickAction,
+            is LongPressAction,
+            is SwipeAction,
+            is PressKeyAction,
+            is OpenAppAction,
+            is InputTextAction,
+            is FunctionRunAction -> true
+            else -> false
+        }
+
+    private data class GetStatePageSummary(
+        val visibleTexts: List<String> = emptyList(),
+        val actionables: List<String> = emptyList(),
+        val focusedEditable: String = "",
+        val scrollableCount: Int = 0,
+    )
+
+    private fun buildGetStateResult(
+        reason: String,
+        currentXml: String,
+        packageName: String?,
+        activityName: String?,
+        installedApps: Map<String, String>,
+    ): String {
+        val normalizedPackage = packageName?.trim().orEmpty()
+        val appName = installedApps[normalizedPackage]?.trim().orEmpty()
+        val page = summarizeGetStateXml(currentXml)
+        return buildString {
+            appendLine("get_state refreshed current page")
+            reason.trim().takeIf { it.isNotEmpty() }?.let { appendLine("reason: $it") }
+            appendLine("app_info:")
+            appendLine("- package_name: ${normalizedPackage.ifBlank { "unknown" }}")
+            if (appName.isNotBlank()) appendLine("- app_name: $appName")
+            appendLine("- activity_name: ${activityName?.trim()?.takeIf { it.isNotEmpty() } ?: "unknown"}")
+            appendLine("page:")
+            if (page.visibleTexts.isNotEmpty()) {
+                appendLine("- visible_texts: ${page.visibleTexts.joinToString(" / ")}")
+            } else {
+                appendLine("- visible_texts: none")
+            }
+            if (page.actionables.isNotEmpty()) {
+                appendLine("- actionables: ${page.actionables.joinToString(" / ")}")
+            } else {
+                appendLine("- actionables: none")
+            }
+            if (page.focusedEditable.isNotBlank()) {
+                appendLine("- focused_editable: ${page.focusedEditable}")
+            }
+            if (page.scrollableCount > 0) {
+                appendLine("- scrollable_regions: ${page.scrollableCount}")
+            }
+            appendLine("diagnostics:")
+            appendLine("- raw_xml_available: ${currentXml.isNotBlank()}")
+            appendLine("- raw_xml_chars: ${currentXml.length}")
+            appendLine("- raw_xml_model_visible: false")
+        }.take(MAX_GET_STATE_RESULT_CHARS)
+    }
+
+    private fun summarizeGetStateXml(xml: String): GetStatePageSummary {
+        if (xml.isBlank()) return GetStatePageSummary()
+        val visibleTexts = linkedSetOf<String>()
+        val actionables = linkedSetOf<String>()
+        var focusedEditable = ""
+        var scrollableCount = 0
+
+        fun attr(element: Element, name: String): String =
+            element.getAttribute(name)?.trim().orEmpty()
+
+        fun boolAttr(element: Element, name: String): Boolean =
+            attr(element, name).equals("true", ignoreCase = true)
+
+        fun labelOf(element: Element): String {
+            val text = attr(element, "text")
+            val contentDesc = attr(element, "content-desc").ifBlank { attr(element, "contentDescription") }
+            val resourceId = attr(element, "resource-id").ifBlank { attr(element, "viewIdResourceName") }
+            val className = attr(element, "class").substringAfterLast('.')
+            return listOf(text, contentDesc, resourceId.substringAfterLast('/'), className)
+                .map { it.trim() }
+                .firstOrNull { it.isNotEmpty() }
+                .orEmpty()
+                .take(MAX_GET_STATE_LABEL_CHARS)
+        }
+
+        val document = runCatching {
+            val factory = DocumentBuilderFactory.newInstance().apply {
+                isNamespaceAware = false
+                isIgnoringComments = true
+                isCoalescing = true
+            }
+            factory.newDocumentBuilder().parse(InputSource(StringReader(xml)))
+        }.getOrNull() ?: return GetStatePageSummary()
+
+        val nodes = document.getElementsByTagName("node")
+        val limit = minOf(nodes.length, MAX_GET_STATE_NODE_SCAN)
+        for (index in 0 until limit) {
+            val element = nodes.item(index) as? Element ?: continue
+            val label = labelOf(element)
+            if (label.isNotBlank() && visibleTexts.size < MAX_GET_STATE_VISIBLE_TEXTS) {
+                visibleTexts += label
+            }
+            val actionable = boolAttr(element, "clickable") ||
+                boolAttr(element, "focusable") ||
+                boolAttr(element, "editable") ||
+                boolAttr(element, "long-clickable") ||
+                boolAttr(element, "scrollable")
+            if (actionable && label.isNotBlank() && actionables.size < MAX_GET_STATE_ACTIONABLES) {
+                actionables += label
+            }
+            if (boolAttr(element, "scrollable")) {
+                scrollableCount += 1
+            }
+            if (focusedEditable.isBlank() && boolAttr(element, "focused") && boolAttr(element, "editable")) {
+                focusedEditable = label
+            }
+        }
+        return GetStatePageSummary(
+            visibleTexts = visibleTexts.toList(),
+            actionables = actionables.toList(),
+            focusedEditable = focusedEditable,
+            scrollableCount = scrollableCount,
+        )
+    }
+
+    private suspend fun waitForPostActionStableXml(
+        beforeXml: String?,
+        expectPageChange: Boolean,
+    ): String {
+        var previous: String? = null
+        var best: String? = null
+        var bestHealth = XmlHealth(0, 0, false)
+        var bestChanged: String? = null
+        var bestChangedHealth = XmlHealth(0, 0, false)
+        repeat(POST_ACTION_XML_STABLE_MAX_CHECKS) { attempt ->
+            val current = runCatching { captureCurrentXml() }.getOrNull()
+            val health = xmlHealth(current)
+            if (health.nodeCount > bestHealth.nodeCount || health.largestArea > bestHealth.largestArea) {
+                best = current
+                bestHealth = health
+            }
+            val changedFromBefore = hasPostActionPageChanged(beforeXml, current)
+            if (changedFromBefore &&
+                (health.nodeCount > bestChangedHealth.nodeCount ||
+                    health.largestArea > bestChangedHealth.largestArea)
+            ) {
+                bestChanged = current
+                bestChangedHealth = health
+            }
+            val previousSnapshot = previous
+            if (!current.isNullOrBlank() && !previousSnapshot.isNullOrBlank()) {
+                val similarity = runCatching {
+                    TreeEditDistance.getSimilarity(previousSnapshot, current).toDouble()
+                }.getOrDefault(0.0)
+                if (similarity >= POST_ACTION_XML_STABLE_SIMILARITY &&
+                    (!expectPageChange || changedFromBefore)
+                ) {
+                    OmniLog.d(
+                        Tag,
+                        "Post-action XML stable: attempt=$attempt similarity=$similarity " +
+                            "nodes=${health.nodeCount} changedFromBefore=$changedFromBefore"
+                    )
+                    return current
+                }
+            }
+            previous = current
+            if (attempt < POST_ACTION_XML_STABLE_MAX_CHECKS - 1) {
+                delay(POST_ACTION_XML_STABLE_INTERVAL_MS)
+            }
+        }
+        if (expectPageChange && !bestChanged.isNullOrBlank()) {
+            OmniLog.d(
+                Tag,
+                "Post-action XML fell back to best changed candidate: nodes=${bestChangedHealth.nodeCount}"
+            )
+            return bestChanged.orEmpty()
+        }
+        return best.orEmpty()
+    }
+
+    private fun hasPostActionPageChanged(beforeXml: String?, afterXml: String?): Boolean {
+        if (beforeXml.isNullOrBlank() || afterXml.isNullOrBlank()) return true
+        val beforeHealth = xmlHealth(beforeXml)
+        val afterHealth = xmlHealth(afterXml)
+        if (!afterHealth.isUsable) return false
+        val similarity = runCatching {
+            TreeEditDistance.getSimilarity(beforeXml, afterXml).toDouble()
+        }.getOrDefault(0.0)
+        if (similarity <= POST_ACTION_XML_CHANGED_MAX_SIMILARITY) return true
+        val beforePackage = packageHintFromXml(beforeXml)
+        val afterPackage = packageHintFromXml(afterXml)
+        return beforePackage.isNotBlank() &&
+            afterPackage.isNotBlank() &&
+            beforePackage != afterPackage &&
+            afterHealth.nodeCount >= beforeHealth.nodeCount.coerceAtMost(MIN_USABLE_XML_NODE_COUNT)
+    }
+
+    private fun packageHintFromXml(xml: String): String {
+        val counts = linkedMapOf<String, Int>()
+        fun add(raw: String?) {
+            val value = raw?.trim().orEmpty()
+            if (value.isBlank() || value == "android" || !value.contains('.')) return
+            if (!PACKAGE_NAME_PATTERN.matches(value)) return
+            counts[value] = (counts[value] ?: 0) + 1
+        }
+        PACKAGE_ATTR_PATTERN.findAll(xml).forEach { add(it.groupValues[1]) }
+        RESOURCE_ID_PACKAGE_PATTERN.findAll(xml).forEach { add(it.groupValues[1]) }
+        return counts.maxWithOrNull(
+            compareBy<Map.Entry<String, Int>> { it.value }
+                .thenByDescending { it.key.length }
+        )?.key.orEmpty()
+    }
 }
+
+private const val XML_CAPTURE_MAX_ATTEMPTS = 4
+private const val XML_CAPTURE_RETRY_DELAY_MS = 180L
+private const val MIN_USABLE_XML_NODE_COUNT = 3
+private const val MIN_TINY_XML_NODE_COUNT = 1
+private const val MIN_USABLE_XML_AREA = 180_000
+private const val MIN_APP_XML_AREA_RATIO = 0.28
+private const val POST_ACTION_XML_STABLE_MAX_CHECKS = 4
+private const val POST_ACTION_XML_STABLE_INTERVAL_MS = 350L
+private const val POST_ACTION_XML_STABLE_SIMILARITY = 0.86
+private const val POST_ACTION_XML_CHANGED_MAX_SIMILARITY = 0.82
+private const val SEND_MARKED_SCREENSHOT_BY_DEFAULT = false
+private const val MAX_GET_STATE_NODE_SCAN = 180
+private const val MAX_GET_STATE_VISIBLE_TEXTS = 18
+private const val MAX_GET_STATE_ACTIONABLES = 18
+private const val MAX_GET_STATE_LABEL_CHARS = 80
+private const val MAX_GET_STATE_RESULT_CHARS = 2200
+private const val DEFAULT_VLM_MAX_STEPS = 12
+private val PACKAGE_ATTR_PATTERN = Regex("""\bpackage\s*=\s*["']([^"']+)["']""")
+private val RESOURCE_ID_PACKAGE_PATTERN =
+    Regex("""\bresource-id\s*=\s*["']([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+):id/[^"']*["']""")
+private val PACKAGE_NAME_PATTERN = Regex("""[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+""")
 
 data class VLMOperationResult(
     val success: Boolean,
@@ -1212,5 +2081,45 @@ data class TaskExecutionReport(
     val finalContext: UIContext,
     val error: String?,
     val summaryScreenshotList: List<String>? = null,
-    val feedback: String? = null
+    val feedback: String? = null,
+    val doneReason: String? = null
 )
+
+internal data class SafeScrollCoordinates(
+    val x1: Int,
+    val y1: Int,
+    val x2: Int,
+    val y2: Int,
+    val adjusted: Boolean
+)
+
+internal fun sanitizeScrollGestureCoordinates(
+    x1: Int,
+    y1: Int,
+    x2: Int,
+    y2: Int,
+    displayWidth: Int,
+    displayHeight: Int
+): SafeScrollCoordinates {
+    val width = displayWidth.coerceAtLeast(1)
+    val height = displayHeight.coerceAtLeast(1)
+    val horizontalInset = (width * 0.025f).roundToInt().coerceIn(8, 32)
+    val topInset = (height * 0.04f).roundToInt().coerceAtLeast(48)
+    val bottomInset = (height * 0.08f).roundToInt().coerceAtLeast(96)
+    val minX = horizontalInset.coerceAtMost(width - 1)
+    val maxX = (width - horizontalInset).coerceAtLeast(minX)
+    val minY = topInset.coerceAtMost(height - 1)
+    val maxY = (height - bottomInset).coerceAtLeast(minY)
+
+    val safeX1 = x1.coerceIn(minX, maxX)
+    val safeY1 = y1.coerceIn(minY, maxY)
+    val safeX2 = x2.coerceIn(minX, maxX)
+    val safeY2 = y2.coerceIn(minY, maxY)
+    return SafeScrollCoordinates(
+        x1 = safeX1,
+        y1 = safeY1,
+        x2 = safeX2,
+        y2 = safeY2,
+        adjusted = safeX1 != x1 || safeY1 != y1 || safeX2 != x2 || safeY2 != y2
+    )
+}

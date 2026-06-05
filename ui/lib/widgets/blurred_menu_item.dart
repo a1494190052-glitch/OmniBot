@@ -6,7 +6,7 @@ class BlurredMenuItem<T> extends PopupMenuEntry<T> {
   final T value;
   final Widget child;
 
-  const BlurredMenuItem({
+  const BlurredMenuItem({super.key,
     required this.value,
     required this.child,
   });
@@ -31,7 +31,7 @@ class _BlurredMenuItemState<T> extends State<BlurredMenuItem<T>> {
         child: Container(
           width: 120,
           decoration: BoxDecoration(
-            color: const Color(0xFFF9F9F9).withOpacity(0.9),
+            color: const Color(0xFFF9F9F9).withValues(alpha: 0.9),
             borderRadius: BorderRadius.circular(12),
           ),
           child: InkWell(

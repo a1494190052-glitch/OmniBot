@@ -1,17 +1,59 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ui/features/home/pages/command_overlay/widgets/cards/deep_thinking_card.dart';
 import 'package:ui/features/home/pages/chat/chat_page_models.dart';
+import 'package:ui/features/home/pages/chat/widgets/chat_empty_greeting.dart';
+import 'package:ui/features/home/pages/chat/widgets/agent_tool_activity_card.dart';
 import 'package:ui/features/home/pages/chat/widgets/chat_widgets.dart';
+import 'package:ui/features/home/pages/command_overlay/widgets/cards/deep_thinking_card.dart';
+import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_transcript.dart';
 import 'package:ui/l10n/generated/app_localizations.dart';
 import 'package:ui/models/chat_message_model.dart';
 import 'package:ui/widgets/agent_avatar.dart';
 import 'package:ui/widgets/streaming_text.dart';
 
+const String _kThinkingDetailText = '详细思考过程';
+const String _kThinkingFixtureText = '思考摘要\n$_kThinkingDetailText';
+
 void main() {
-  testWidgets('empty chat state offsets with bottom overlay inset', (
-    tester,
-  ) async {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  const assistCoreChannel = MethodChannel(
+    'cn.com.omnimind.bot/AssistCoreEvent',
+  );
+
+  setUp(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(assistCoreChannel, (call) async {
+          if (call.method == 'getSceneModelBindings') {
+            return const <Map<String, dynamic>>[];
+          }
+          if (call.method == 'getSceneVoiceConfig') {
+            return const <String, dynamic>{
+              'autoPlay': false,
+              'voiceId': 'default_zh',
+              'stylePreset': '默认',
+              'customStyle': '',
+            };
+          }
+          if (call.method == 'getInternalRunLogTimeline') {
+            return <String, dynamic>{
+              'success': true,
+              'run_id': (call.arguments as Map?)?['runId'] ?? '',
+              'done_reason': 'finished',
+              'cards': const <Map<String, dynamic>>[],
+            };
+          }
+          return 'SUCCESS';
+        });
+  });
+
+  tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(assistCoreChannel, null);
+  });
+
+  testWidgets('empty chat state follows main greeting layout', (tester) async {
     await tester.pumpWidget(
       _buildLocalizedApp(
         child: ChatMessageList(
@@ -25,12 +67,8 @@ void main() {
 
     await tester.pump();
 
-    final animatedPadding = tester.widget<AnimatedPadding>(
-      find.byType(AnimatedPadding),
-    );
-
-    expect(animatedPadding.padding, const EdgeInsets.only(bottom: 128));
-    expect(find.text('有什么可以帮助你的？'), findsOneWidget);
+    expect(find.byType(AnimatedPadding), findsNothing);
+    expect(find.byType(ChatEmptyGreeting), findsOneWidget);
   });
 
   testWidgets(
@@ -104,7 +142,8 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 32));
 
     final deepThinkingCard = find.descendant(
       of: find.byType(ChatMessageList),
@@ -113,12 +152,14 @@ void main() {
     await tester.tap(
       find.descendant(of: deepThinkingCard, matching: find.byType(InkWell)),
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 32));
 
     final dragStart =
         tester.getTopLeft(deepThinkingCard) + const Offset(120, 96);
     await tester.dragFrom(dragStart, const Offset(0, 60));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 32));
 
     expect(controller.offset, lessThan(controller.position.maxScrollExtent));
 
@@ -130,7 +171,8 @@ void main() {
     });
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 16));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 220));
 
     expect(controller.offset, closeTo(controller.position.maxScrollExtent, 1));
 
@@ -142,7 +184,8 @@ void main() {
     });
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 16));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 220));
 
     expect(controller.offset, closeTo(controller.position.maxScrollExtent, 1));
   });
@@ -221,7 +264,8 @@ void main() {
     await tester.pumpWidget(
       _buildChatMessageListHarness(controller: controller, messages: messages),
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 220));
 
     final latestBubble = find.byKey(
       const ValueKey('user-message-bubble-latest-user'),
@@ -534,7 +578,8 @@ void main() {
     await tester.pumpWidget(
       _buildChatMessageListHarness(controller: controller, messages: messages),
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 220));
 
     expect(find.byType(RefreshIndicator), findsNothing);
   });
@@ -558,21 +603,19 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
 
-    // Collapsed state is unified across all agent modes: the header reads
-    // "已处理" rather than the per-tool count summary, regardless of how
-    // many tool calls happened inside. The count summary only resurfaces
-    // when the user expands the run.
-    expect(find.text('已处理'), findsOneWidget);
-    expect(find.text('已运行 1 条命令'), findsNothing);
+    expect(find.text('步骤'), findsOneWidget);
+    expect(find.text('已完成'), findsOneWidget);
+    expect(find.textContaining('2 步'), findsOneWidget);
     expect(find.text('最终回答'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('agent-run-avatar-task-1')),
       findsOneWidget,
     );
     expect(find.text('运行 git status'), findsNothing);
-    expect(find.text('详细思考过程'), findsNothing);
+    expect(_thinkingDetailFinder(), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('agent-run-summary-task-1')));
     await tester.pump();
@@ -580,154 +623,77 @@ void main() {
       find.byKey(const ValueKey('agent-run-process-task-1')),
       findsOneWidget,
     );
-    expect(find.byType(DeepThinkingCard), findsOneWidget);
+    expect(find.text('思考'), findsOneWidget);
     await tester.pump(const Duration(milliseconds: 120));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
 
     expect(find.text('运行 git status'), findsOneWidget);
-    expect(find.text('详细思考过程'), findsNothing);
+    expect(_thinkingDetailFinder(), findsOneWidget);
     expect(find.byType(AgentAvatarCircle), findsOneWidget);
     expect(find.byType(AgentAvatarButton), findsNothing);
   });
 
-  testWidgets(
-    'codex agent run shows codex avatar and "已处理" label when collapsed',
-    (tester) async {
-      final controller = ScrollController();
-      final messages = _buildCompletedCodexAgentRunMessages();
-
-      await tester.pumpWidget(
-        _buildLocalizedApp(
-          child: SizedBox(
-            width: 400,
-            height: 520,
-            child: ChatMessageList(
-              messages: messages,
-              scrollController: controller,
-              onBeforeTaskExecute: () async {},
-            ),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      // Collapsed: header reads "已处理 …" (possibly suffixed with an
-      // elapsed-time string), NEVER "已探索 N 次搜索 …".
-      expect(find.textContaining('已处理'), findsOneWidget);
-      expect(find.text('已探索 2 次搜索'), findsNothing);
-      // Codex group must surface the codex glyph instead of the default
-      // user-configurable agent avatar.
-      expect(
-        find.byKey(const ValueKey('agent-run-codex-avatar-task-1')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey('agent-run-avatar-task-1')),
-        findsNothing,
-      );
-
-      // Expanded: header still says "已处理 …" — and any inner tool-group
-      // capsule (when consecutive tool cards group together) ALSO says
-      // "已处理" instead of the previous count summary. So we expect AT
-      // LEAST one widget with "已处理" (could be the outer header alone,
-      // or outer + inner capsule depending on the messages).
-      await tester.tap(find.byKey(const ValueKey('agent-run-summary-task-1')));
-      await tester.pumpAndSettle();
-      expect(find.textContaining('已处理'), findsWidgets);
-      expect(find.textContaining('已探索'), findsNothing);
-    },
-  );
-
-  testWidgets(
-    'agent run summary chevron stays glued to the right edge regardless of '
-    'label length',
-    (tester) async {
-      final controller = ScrollController();
-      final messages = _buildCompletedAgentRunMessages();
-
-      await tester.pumpWidget(
-        _buildLocalizedApp(
-          child: SizedBox(
-            width: 400,
-            height: 520,
-            child: ChatMessageList(
-              messages: messages,
-              scrollController: controller,
-              onBeforeTaskExecute: () async {},
-            ),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      // Regression for the "横线长度有问题" bug: the horizontal divider
-      // must extend almost to the chevron — before the fix
-      // Flexible(Text)+Expanded(line) split the remaining row 50/50, so
-      // the line stopped near the middle of the row. We assert this
-      // structurally by sampling the Expanded(Container(height:1)) widget
-      // that draws the line and verifying it stretches across the bulk of
-      // the row.
-      final summaryToggle = find.byKey(
-        const ValueKey('agent-run-summary-task-1'),
-      );
-      expect(summaryToggle, findsOneWidget);
-      final toggleRect = tester.getRect(summaryToggle);
-      final rowFinder = find.descendant(
-        of: summaryToggle,
-        matching: find.byType(Row),
-      );
-      expect(rowFinder, findsOneWidget);
-      final rowRect = tester.getRect(rowFinder);
-      // The Container(height:1) wrapped by Expanded is the divider line.
-      final dividerFinder = find.descendant(
-        of: rowFinder,
-        matching: find.byWidgetPredicate((widget) {
-          if (widget is! Container) return false;
-          final constraints = widget.constraints;
-          return constraints != null && constraints.maxHeight == 1.0;
-        }),
-      );
-      expect(dividerFinder, findsOneWidget);
-      final dividerRect = tester.getRect(dividerFinder);
-      // The divider should fill at least 35% of the row width, regardless
-      // of how short the label text is (the 50/50 split bug capped this
-      // at ~50% minus padding; without the fix a short label like "已处理"
-      // would leave a huge blank between the label and the divider).
-      final minDividerWidth = rowRect.width * 0.35;
-      expect(
-        dividerRect.width,
-        greaterThan(minDividerWidth),
-        reason:
-            'divider width=${dividerRect.width} must take at least '
-            '${minDividerWidth.toStringAsFixed(1)} of row width '
-            '(${rowRect.width.toStringAsFixed(1)}).',
-      );
-      // And it must extend close to the right edge of the row so the
-      // chevron is glued to the right side. We allow up to chevron(18) +
-      // gap(6) + inner padding(2) + safety(10) ≈ 36px from the rightmost
-      // row pixel.
-      expect(
-        rowRect.right - dividerRect.right,
-        lessThan(40),
-        reason:
-            'divider right=${dividerRect.right} must be within 40px of row '
-            'right=${rowRect.right} (gap = chevron+spacer+padding).',
-      );
-      // Sanity: also confirm the entire summary fills the available list
-      // width (proves the row width itself is not being collapsed).
-      expect(
-        rowRect.width,
-        greaterThan(toggleRect.width * 0.8),
-        reason: 'row should fill most of the toggle width',
-      );
-    },
-  );
-
-  testWidgets('adjacent tool calls collapse into an expandable group', (
-    tester,
-  ) async {
+  testWidgets('agent run summary stays stable on narrow width', (tester) async {
     final controller = ScrollController();
-    final messages = _buildCompletedAgentRunMessagesWithToolGroup();
+    final messages = _buildCompletedAgentRunMessages();
+
+    await tester.pumpWidget(
+      _buildLocalizedApp(
+        child: SizedBox(
+          width: 220,
+          height: 520,
+          child: ChatMessageList(
+            messages: messages,
+            scrollController: controller,
+            onBeforeTaskExecute: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+
+    expect(find.text('步骤'), findsOneWidget);
+    expect(find.text('最终回答'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('agent run summary localizes in English', (tester) async {
+    final controller = ScrollController();
+    final messages = _buildCompletedAgentRunMessages();
+
+    await tester.pumpWidget(
+      _buildLocalizedApp(
+        locale: const Locale('en'),
+        child: SizedBox(
+          width: 400,
+          height: 520,
+          child: ChatMessageList(
+            messages: messages,
+            scrollController: controller,
+            onBeforeTaskExecute: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+
+    expect(find.text('Steps'), findsOneWidget);
+    expect(find.text('Done'), findsOneWidget);
+    expect(find.textContaining('2 steps'), findsOneWidget);
+    expect(find.textContaining('1 thought'), findsNothing);
+    expect(find.textContaining('1 tool'), findsNothing);
+    expect(find.textContaining('1 thoughts'), findsNothing);
+    expect(find.textContaining('1 tools'), findsNothing);
+    expect(find.text('步骤'), findsNothing);
+    expect(find.text('已完成'), findsNothing);
+  });
+
+  testWidgets('text-only agent run keeps compact runlog entry', (tester) async {
+    final controller = ScrollController();
+    final messages = _buildTextOnlyAgentRunMessages(runLogId: null);
 
     await tester.pumpWidget(
       _buildLocalizedApp(
@@ -742,36 +708,108 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
 
-    await tester.tap(find.byKey(const ValueKey('agent-run-summary-task-1')));
-    await tester.pumpAndSettle();
-
-    // The per-tool count summary is no longer surfaced anywhere — both the
-    // outer run header AND the inner tool-group capsule now read "已处理"
-    // (the user asked for the expanded UI to match the collapsed UI).
-    // There should be at least two "已处理" labels visible: the run header
-    // and the inner tool group capsule.
-    expect(find.text('已运行 1 条命令 · 已读取 1 个文件'), findsNothing);
-    expect(find.textContaining('已处理'), findsWidgets);
-
-    final toolGroupToggle = find.byKey(
-      const ValueKey(
-        'agent-tool-call-group-toggle-task-1-task-1-tool-1-task-1-tool-2',
-      ),
+    expect(find.text('步骤'), findsOneWidget);
+    expect(find.text('无可展开步骤'), findsOneWidget);
+    expect(find.text('已记录'), findsNothing);
+    expect(find.text('运行记录'), findsNothing);
+    expect(find.text('直接回答'), findsOneWidget);
+    expect(find.byIcon(Icons.keyboard_arrow_down_rounded), findsNothing);
+    expect(find.byIcon(Icons.route_rounded), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('agent-run-process-task-text-only')),
+      findsNothing,
     );
-    expect(toolGroupToggle, findsOneWidget);
-    expect(find.text('运行 git status'), findsNothing);
-    expect(find.text('读取 README.md'), findsNothing);
 
-    await tester.tap(toolGroupToggle);
-    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('agent-run-summary-task-text-only')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
 
-    expect(find.text('运行 git status'), findsOneWidget);
-    expect(find.text('读取 README.md'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('agent-run-process-task-text-only')),
+      findsNothing,
+    );
+    expect(find.text('直接回答'), findsOneWidget);
+    expect(find.text('暂无步骤数据'), findsOneWidget);
+    expect(find.text('RunLog 已记录'), findsNothing);
+    expect(find.textContaining('没有工具调用'), findsOneWidget);
   });
 
-  testWidgets('reopening run collapses thinking details by default again', (
+  testWidgets('text-only runlog entry localizes in English', (tester) async {
+    final controller = ScrollController();
+    final messages = _buildTextOnlyAgentRunMessages(runLogId: null);
+
+    await tester.pumpWidget(
+      _buildLocalizedApp(
+        locale: const Locale('en'),
+        child: SizedBox(
+          width: 400,
+          height: 520,
+          child: ChatMessageList(
+            messages: messages,
+            scrollController: controller,
+            onBeforeTaskExecute: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+
+    expect(find.text('Steps'), findsOneWidget);
+    expect(find.text('No steps'), findsOneWidget);
+    expect(find.text('Logged'), findsNothing);
+    expect(find.text('RunLog'), findsNothing);
+    expect(find.text('运行记录'), findsNothing);
+    expect(find.text('已记录'), findsNothing);
+
+    await tester.tap(
+      find.byKey(const ValueKey('agent-run-summary-task-text-only')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+
+    expect(find.text('No step data'), findsOneWidget);
+    expect(find.text('暂无步骤数据'), findsNothing);
+    expect(find.text('RunLog logged'), findsNothing);
+  });
+
+  testWidgets('text-only runlog entry stays stable on narrow width', (
+    tester,
+  ) async {
+    final controller = ScrollController();
+    final messages = _buildTextOnlyAgentRunMessages(runLogId: null);
+
+    await tester.pumpWidget(
+      _buildLocalizedApp(
+        locale: const Locale('en'),
+        child: SizedBox(
+          width: 180,
+          height: 520,
+          child: ChatMessageList(
+            messages: messages,
+            scrollController: controller,
+            onBeforeTaskExecute: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+
+    expect(find.text('Steps'), findsOneWidget);
+    expect(find.text('No steps'), findsOneWidget);
+    expect(find.text('Logged'), findsNothing);
+    expect(find.text('RunLog'), findsNothing);
+    expect(find.byIcon(Icons.keyboard_arrow_down_rounded), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('reopening run expands thinking details from summary again', (
     tester,
   ) async {
     final controller = ScrollController();
@@ -797,25 +835,433 @@ void main() {
     );
     await tester.tap(summaryToggle);
     await tester.pumpAndSettle();
+    expect(_thinkingDetailFinder(), findsOneWidget);
 
-    final thinkingToggle = find.descendant(
-      of: find.byType(DeepThinkingCard),
-      matching: find.byType(InkWell),
+    await tester.tap(find.text('思考'));
+    await tester.pumpAndSettle();
+    expect(_thinkingDetailFinder(), findsNothing);
+
+    await tester.tap(summaryToggle);
+    await tester.pumpAndSettle();
+    expect(_thinkingDetailFinder(), findsNothing);
+
+    await tester.tap(summaryToggle);
+    await tester.pumpAndSettle();
+    expect(find.text('思考'), findsOneWidget);
+    expect(_thinkingDetailFinder(), findsOneWidget);
+  });
+
+  testWidgets('single compacted browser process opens detail from header', (
+    tester,
+  ) async {
+    final controller = ScrollController();
+    final messages = _buildBrowserActivityAgentRunMessages();
+
+    await tester.pumpWidget(
+      _buildLocalizedApp(
+        child: SizedBox(
+          width: 400,
+          height: 520,
+          child: ChatMessageList(
+            messages: messages,
+            scrollController: controller,
+            onBeforeTaskExecute: () async {},
+          ),
+        ),
+      ),
     );
-    expect(thinkingToggle, findsOneWidget);
-
-    await tester.tap(thinkingToggle);
     await tester.pumpAndSettle();
-    expect(find.text('详细思考过程'), findsOneWidget);
 
-    await tester.tap(summaryToggle);
+    await tester.tap(find.byKey(const ValueKey('agent-run-summary-task-2')));
     await tester.pumpAndSettle();
-    expect(find.text('详细思考过程'), findsNothing);
 
-    await tester.tap(summaryToggle);
+    expect(find.byKey(kAgentToolDetailSheetKey), findsOneWidget);
+    expect(find.byType(AgentToolActivityCard), findsNothing);
+    expect(find.text('点击登录按钮'), findsOneWidget);
+  });
+
+  testWidgets('process rows localize in Chinese and stay compact', (
+    tester,
+  ) async {
+    final controller = ScrollController();
+    final messages = _buildMixedProcessRunMessages();
+
+    await tester.pumpWidget(
+      _buildLocalizedApp(
+        child: SizedBox(
+          width: 400,
+          height: 560,
+          child: ChatMessageList(
+            messages: messages,
+            scrollController: controller,
+            onBeforeTaskExecute: () async {},
+          ),
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
-    expect(find.byType(DeepThinkingCard), findsOneWidget);
-    expect(find.text('详细思考过程'), findsNothing);
+
+    await tester.tap(
+      find.byKey(const ValueKey('agent-run-summary-task-mixed')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+
+    expect(find.text('思考中'), findsOneWidget);
+    expect(find.text('搜索完成'), findsOneWidget);
+    expect(find.text('工具完成'), findsOneWidget);
+    expect(_thinkingDetailFinder(), findsNothing);
+    expect(find.text('Thinking'), findsNothing);
+    expect(find.text('Web search'), findsNothing);
+    expect(find.text('Tool call'), findsNothing);
+
+    final thinkingSurface = find.byKey(
+      const ValueKey('agent-thinking-activity-row-task-mixed-thinking'),
+    );
+    final genericSurface = find.byKey(
+      const ValueKey(
+        'agent-tool-activity-compact-surface-task-mixed-generic-activity',
+      ),
+    );
+    final researchSurface = find.byKey(
+      const ValueKey(
+        'agent-tool-activity-compact-surface-task-mixed-research-activity',
+      ),
+    );
+    expect(thinkingSurface, findsOneWidget);
+    expect(genericSurface, findsOneWidget);
+    expect(researchSurface, findsOneWidget);
+    final cardWidth = tester.getSize(researchSurface).width;
+    expect(cardWidth, lessThan(400 * 0.9));
+    expect(tester.getSize(thinkingSurface).width, closeTo(cardWidth, 0.01));
+    expect(tester.getSize(genericSurface).width, closeTo(cardWidth, 0.01));
+    _expectUniformProcessText(tester, thinkingSurface);
+    _expectUniformProcessText(tester, genericSurface);
+    _expectUniformProcessText(tester, researchSurface);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('repeated generic process activities keep unique row keys', (
+    tester,
+  ) async {
+    final controller = ScrollController();
+    final messages = _buildRepeatedGenericProcessRunMessages();
+
+    await tester.pumpWidget(
+      _buildLocalizedApp(
+        child: SizedBox(
+          width: 400,
+          height: 620,
+          child: ChatMessageList(
+            messages: messages,
+            scrollController: controller,
+            onBeforeTaskExecute: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('agent-run-summary-task-repeated')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+
+    expect(
+      find.byKey(const ValueKey('agent-run-process-task-repeated')),
+      findsOneWidget,
+    );
+    expect(find.byType(AgentToolActivityCard), findsNWidgets(2));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('process rows localize in English', (tester) async {
+    final controller = ScrollController();
+    final messages = _buildMixedProcessRunMessages();
+
+    await tester.pumpWidget(
+      _buildLocalizedApp(
+        locale: const Locale('en'),
+        child: SizedBox(
+          width: 400,
+          height: 560,
+          child: ChatMessageList(
+            messages: messages,
+            scrollController: controller,
+            onBeforeTaskExecute: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('agent-run-summary-task-mixed')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+
+    expect(find.text('思考摘要'), findsOneWidget);
+    expect(find.text('搜索完成'), findsOneWidget);
+    expect(find.text('工具完成'), findsOneWidget);
+    expect(find.text('思考中'), findsNothing);
+    expect(find.text('网页搜索'), findsNothing);
+    expect(find.text('工具调用'), findsNothing);
+  });
+
+  testWidgets('VLM process renders one compact summary card', (tester) async {
+    final controller = ScrollController();
+    final messages = _buildVlmProcessRunMessages();
+
+    await tester.pumpWidget(
+      _buildLocalizedApp(
+        child: SizedBox(
+          width: 400,
+          height: 560,
+          child: ChatMessageList(
+            messages: messages,
+            scrollController: controller,
+            onBeforeTaskExecute: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('agent-run-summary-task-vlm')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+
+    expect(find.text('输入 hello'), findsOneWidget);
+    expect(find.text('视觉执行'), findsNothing);
+    expect(find.text('网页搜索'), findsNothing);
+    expect(find.text('Visual task'), findsNothing);
+
+    expect(find.byType(AgentToolActivityCard), findsOneWidget);
+    final vlmSurface = find.byKey(
+      const ValueKey(
+        'agent-tool-activity-compact-surface-task-vlm-vlm-activity',
+      ),
+    );
+    expect(vlmSurface, findsOneWidget);
+    expect(tester.getSize(vlmSurface).width, lessThan(400 * 0.9));
+
+    expect(find.text('2 步'), findsNothing);
+    expect(find.textContaining('设置按钮'), findsNothing);
+
+    await tester.tap(vlmSurface);
+    await tester.pumpAndSettle();
+    expect(find.text('暂无步骤数据'), findsOneWidget);
+    expect(find.textContaining('没有工具调用'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('multi-step VLM activity stays one card and opens full runlog', (
+    tester,
+  ) async {
+    final controller = ScrollController();
+    final messages = _buildVlmProcessRunMessages(includeThinking: false);
+
+    await tester.pumpWidget(
+      _buildLocalizedApp(
+        child: SizedBox(
+          width: 400,
+          height: 560,
+          child: ChatMessageList(
+            messages: messages,
+            scrollController: controller,
+            onBeforeTaskExecute: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('agent-run-summary-task-vlm')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+
+    expect(find.byType(AgentToolActivityCard), findsOneWidget);
+    expect(find.text('输入 hello'), findsOneWidget);
+    expect(find.text('视觉执行'), findsNothing);
+    expect(find.text('2 步'), findsNothing);
+    expect(find.textContaining('设置按钮'), findsNothing);
+    expect(find.text('工具调用历史'), findsNothing);
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey(
+          'agent-tool-activity-compact-surface-task-vlm-vlm-activity',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('暂无步骤数据'), findsOneWidget);
+    expect(find.textContaining('没有工具调用'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('multi-step VLM card opens full RunLog from one click', (
+    tester,
+  ) async {
+    final controller = ScrollController();
+    final messages = _buildVlmProcessRunMessages(includeThinking: false);
+
+    await tester.pumpWidget(
+      _buildLocalizedApp(
+        child: SizedBox(
+          width: 400,
+          height: 560,
+          child: ChatMessageList(
+            messages: messages,
+            scrollController: controller,
+            onBeforeTaskExecute: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('agent-run-summary-task-vlm')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+
+    expect(find.byType(AgentToolActivityCard), findsOneWidget);
+    expect(find.text('查看完整 RunLog'), findsNothing);
+    expect(find.text('输入 hello'), findsOneWidget);
+    expect(find.textContaining('设置按钮'), findsNothing);
+
+    final surface = find.byKey(
+      const ValueKey(
+        'agent-tool-activity-compact-surface-task-vlm-vlm-activity',
+      ),
+    );
+    await tester.tap(surface);
+    await tester.pumpAndSettle();
+
+    expect(find.text('暂无步骤数据'), findsOneWidget);
+    expect(find.textContaining('没有工具调用'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('VLM run header exposes full runlog without expanding steps', (
+    tester,
+  ) async {
+    final controller = ScrollController();
+    final messages = _buildVlmProcessRunMessages(includeThinking: false);
+
+    await tester.pumpWidget(
+      _buildLocalizedApp(
+        child: SizedBox(
+          width: 400,
+          height: 560,
+          child: ChatMessageList(
+            messages: messages,
+            scrollController: controller,
+            onBeforeTaskExecute: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('agent-run-runlog-task-vlm')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('agent-run-process-task-vlm')),
+      findsNothing,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('agent-run-runlog-task-vlm')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('agent-run-process-task-vlm')),
+      findsNothing,
+    );
+    expect(find.text('暂无步骤数据'), findsOneWidget);
+    expect(find.textContaining('没有工具调用'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('single thinking process opens expanded detail from header', (
+    tester,
+  ) async {
+    final controller = ScrollController();
+    final messages = _buildSingleThinkingAgentRunMessages();
+
+    await tester.pumpWidget(
+      _buildLocalizedApp(
+        child: SizedBox(
+          width: 400,
+          height: 520,
+          child: ChatMessageList(
+            messages: messages,
+            scrollController: controller,
+            onBeforeTaskExecute: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('思考摘要'), findsOneWidget);
+    expect(_thinkingDetailFinder(), findsNothing);
+
+    await tester.tap(
+      find.byKey(const ValueKey('agent-run-summary-task-thinking-only')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+
+    expect(
+      find.byKey(const ValueKey('agent-run-process-task-thinking-only')),
+      findsOneWidget,
+    );
+    expect(_thinkingDetailFinder(), findsOneWidget);
+    final detailText = tester.widget<Text>(_thinkingDetailFinder());
+    expect(detailText.style?.fontFamily, 'monospace');
+    expect(detailText.style?.fontStyle, FontStyle.italic);
+    expect(detailText.style?.fontWeight, FontWeight.w500);
+    expect(detailText.style?.fontSize, 11);
+    expect(detailText.style?.letterSpacing ?? 0, 0);
+  });
+
+  testWidgets('single tool process opens detail sheet from header', (
+    tester,
+  ) async {
+    final controller = ScrollController();
+    final messages = _buildSingleToolAgentRunMessages();
+
+    await tester.pumpWidget(
+      _buildLocalizedApp(
+        child: SizedBox(
+          width: 400,
+          height: 520,
+          child: ChatMessageList(
+            messages: messages,
+            scrollController: controller,
+            onBeforeTaskExecute: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('agent-run-summary-task-tool-only')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(kAgentToolDetailSheetKey), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('agent-run-process-task-tool-only')),
+      findsNothing,
+    );
   });
 
   testWidgets('agent run expansion can be controlled by the parent page', (
@@ -928,7 +1374,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(expandedTaskIds, isEmpty);
-      expect(find.text('任务已取消'), findsOneWidget);
+      expect(_streamingTextFinder('任务已取消'), findsOneWidget);
       expect(find.text('运行 git status'), findsNothing);
     },
   );
@@ -993,7 +1439,7 @@ void main() {
     },
   );
 
-  testWidgets('active agent run remains expanded while task is in flight', (
+  testWidgets('active agent run keeps process collapsed by default', (
     tester,
   ) async {
     final controller = ScrollController();
@@ -1016,10 +1462,72 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 32));
 
-    expect(find.text('已折叠运行过程'), findsNothing);
-    expect(find.text('详细思考过程'), findsOneWidget);
-    expect(find.text('运行 git status'), findsOneWidget);
+    expect(find.text('步骤'), findsOneWidget);
+    expect(find.text('进行中'), findsOneWidget);
+    expect(find.byType(DeepThinkingCard), findsNothing);
+    expect(
+      find.byKey(const ValueKey('agent-run-process-task-1')),
+      findsNothing,
+    );
     expect(find.text('最终回答'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('agent-run-summary-task-1')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+
+    expect(find.text('思考中'), findsOneWidget);
+    expect(find.text('运行 git status'), findsOneWidget);
+  });
+
+  testWidgets('completed active run keeps tool output visible', (tester) async {
+    final controller = ScrollController();
+    var messages = _buildActiveAgentRunMessages();
+    var activeTaskIds = const <String>{'task-1'};
+
+    await tester.pumpWidget(
+      _buildLocalizedApp(
+        child: SizedBox(
+          width: 400,
+          height: 520,
+          child: ChatMessageList(
+            messages: messages,
+            activeAgentTaskIds: activeTaskIds,
+            scrollController: controller,
+            onBeforeTaskExecute: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 220));
+
+    messages = _buildCompletedAgentRunMessages();
+    activeTaskIds = const <String>{};
+    await tester.pumpWidget(
+      _buildLocalizedApp(
+        child: SizedBox(
+          width: 400,
+          height: 520,
+          child: ChatMessageList(
+            messages: messages,
+            activeAgentTaskIds: activeTaskIds,
+            scrollController: controller,
+            onBeforeTaskExecute: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+
+    expect(find.text('步骤'), findsOneWidget);
+    expect(find.text('已完成'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('agent-run-process-task-1')),
+      findsNothing,
+    );
+    expect(find.text('最终回答'), findsOneWidget);
+    expect(_thinkingDetailFinder(), findsNothing);
   });
 
   testWidgets('reaching top auto-loads older messages without jumping to top', (
@@ -1097,12 +1605,38 @@ Widget _buildChatMessageListHarness({
   );
 }
 
-Widget _buildLocalizedApp({required Widget child}) {
+Widget _buildLocalizedApp({
+  required Widget child,
+  Locale locale = const Locale('zh'),
+}) {
   return MaterialApp(
-    locale: const Locale('zh'),
+    locale: locale,
     localizationsDelegates: AppLocalizations.localizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
     home: Scaffold(body: child),
+  );
+}
+
+Finder _thinkingDetailFinder() => find.textContaining(_kThinkingDetailText);
+
+void _expectUniformProcessText(WidgetTester tester, Finder surface) {
+  final textWidgets = find
+      .descendant(of: surface, matching: find.byType(Text))
+      .evaluate()
+      .map((element) => element.widget)
+      .whereType<Text>()
+      .toList(growable: false);
+  expect(textWidgets, isNotEmpty);
+  for (final widget in textWidgets) {
+    expect(widget.style?.fontSize, 12);
+    expect(widget.style?.letterSpacing ?? 0, 0);
+  }
+}
+
+Finder _streamingTextFinder(String fullText) {
+  return find.byWidgetPredicate(
+    (widget) => widget is StreamingText && widget.fullText == fullText,
+    description: 'StreamingText("$fullText")',
   );
 }
 
@@ -1248,7 +1782,7 @@ List<ChatMessageModel> _buildCompletedAgentRunMessages({bool isFinal = true}) {
     ChatMessageModel.cardMessage(
       <String, dynamic>{
         'type': 'deep_thinking',
-        'thinkingContent': '详细思考过程',
+        'thinkingContent': _kThinkingFixtureText,
         'stage': 4,
         'isLoading': false,
         'taskID': 'task-1',
@@ -1267,18 +1801,41 @@ List<ChatMessageModel> _buildCompletedAgentRunMessages({bool isFinal = true}) {
   ];
 }
 
-List<ChatMessageModel> _buildCompletedAgentRunMessagesWithToolGroup() {
+List<ChatMessageModel> _buildTextOnlyAgentRunMessages({String? runLogId}) {
   return <ChatMessageModel>[
     ChatMessageModel(
-      id: 'task-1-text',
+      id: 'task-text-only-text',
       type: 1,
       user: 2,
-      content: const <String, dynamic>{'text': '最终回答', 'id': 'task-1-text'},
-      streamMeta: const <String, dynamic>{
-        'parentTaskId': 'task-1',
+      content: const <String, dynamic>{
+        'text': '直接回答',
+        'id': 'task-text-only-text',
+      },
+      streamMeta: <String, dynamic>{
+        'parentTaskId': 'task-text-only',
         'kind': 'text_snapshot',
-        'seq': 30,
-        'entryId': 'task-1-text',
+        'seq': 10,
+        'entryId': 'task-text-only-text',
+        'isFinal': true,
+        if (runLogId != null) 'runLogId': runLogId,
+      },
+    ),
+    ChatMessageModel.userMessage('用户问题', id: 'task-text-only-user'),
+  ];
+}
+
+List<ChatMessageModel> _buildBrowserActivityAgentRunMessages() {
+  return <ChatMessageModel>[
+    ChatMessageModel(
+      id: 'task-2-text',
+      type: 1,
+      user: 2,
+      content: const <String, dynamic>{'text': '页面已打开', 'id': 'task-2-text'},
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': 'task-2',
+        'kind': 'text_snapshot',
+        'seq': 40,
+        'entryId': 'task-2-text',
         'isFinal': true,
       },
     ),
@@ -1286,132 +1843,353 @@ List<ChatMessageModel> _buildCompletedAgentRunMessagesWithToolGroup() {
       <String, dynamic>{
         'type': 'agent_tool_summary',
         'status': 'success',
-        'toolType': 'workspace',
-        'toolTitle': '读取 README.md',
-        'summary': '读取完成',
+        'toolType': 'browser',
+        'toolName': 'browser_use',
+        'toolTitle': '点击登录按钮',
+        'argsJson': '{"action":"click","selector":"#login"}',
       },
-      id: 'task-1-tool-2',
+      id: 'task-2-browser-click',
       streamMeta: const <String, dynamic>{
-        'parentTaskId': 'task-1',
+        'parentTaskId': 'task-2',
         'kind': 'tool_completed',
-        'seq': 25,
-        'entryId': 'task-1-tool-2',
+        'seq': 30,
+        'entryId': 'task-2-browser-click',
         'isFinal': false,
       },
     ),
     ChatMessageModel.cardMessage(
       <String, dynamic>{
+        'type': 'agent_tool_summary',
+        'status': 'success',
+        'toolType': 'browser',
+        'toolName': 'browser_use',
+        'toolTitle': '打开 example.com',
+        'argsJson': '{"action":"navigate","url":"https://example.com"}',
+      },
+      id: 'task-2-browser-navigate',
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': 'task-2',
+        'kind': 'tool_completed',
+        'seq': 20,
+        'entryId': 'task-2-browser-navigate',
+        'isFinal': false,
+      },
+    ),
+    ChatMessageModel.userMessage('打开网页', id: 'task-2-user'),
+  ];
+}
+
+List<ChatMessageModel> _buildMixedProcessRunMessages() {
+  return <ChatMessageModel>[
+    ChatMessageModel(
+      id: 'task-mixed-text',
+      type: 1,
+      user: 2,
+      content: const <String, dynamic>{'text': '最终回答', 'id': 'task-mixed-text'},
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': 'task-mixed',
+        'kind': 'text_snapshot',
+        'seq': 50,
+        'entryId': 'task-mixed-text',
+        'isFinal': true,
+      },
+    ),
+    ChatMessageModel.cardMessage(
+      const <String, dynamic>{
+        'type': 'agent_tool_summary',
+        'status': 'success',
+        'toolType': 'tool',
+        'toolName': 'custom_tool',
+        'summary': '工具完成',
+        'argsJson': '{"query":"本地任务"}',
+      },
+      id: 'task-mixed-generic',
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': 'task-mixed',
+        'kind': 'tool_completed',
+        'seq': 40,
+        'entryId': 'task-mixed-generic',
+        'isFinal': false,
+      },
+    ),
+    ChatMessageModel.cardMessage(
+      const <String, dynamic>{
+        'type': 'agent_tool_summary',
+        'status': 'success',
+        'toolType': 'research',
+        'toolName': 'web_search',
+        'summary': '搜索完成',
+        'argsJson': '{"query":"今日天气"}',
+      },
+      id: 'task-mixed-research',
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': 'task-mixed',
+        'kind': 'tool_completed',
+        'seq': 30,
+        'entryId': 'task-mixed-research',
+        'isFinal': false,
+      },
+    ),
+    ChatMessageModel.cardMessage(
+      const <String, dynamic>{
+        'type': 'deep_thinking',
+        'thinkingContent': _kThinkingFixtureText,
+        'stage': 1,
+        'isLoading': true,
+        'taskID': 'task-mixed',
+        'cardId': 'task-mixed-thinking',
+      },
+      id: 'task-mixed-thinking',
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': 'task-mixed',
+        'kind': 'thinking_snapshot',
+        'seq': 20,
+        'entryId': 'task-mixed-thinking',
+        'isFinal': false,
+      },
+    ),
+    ChatMessageModel.userMessage('用户问题', id: 'task-mixed-user'),
+  ];
+}
+
+List<ChatMessageModel> _buildRepeatedGenericProcessRunMessages() {
+  return <ChatMessageModel>[
+    ChatMessageModel(
+      id: 'task-repeated-text',
+      type: 1,
+      user: 2,
+      content: const <String, dynamic>{
+        'text': '最终回答',
+        'id': 'task-repeated-text',
+      },
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': 'task-repeated',
+        'kind': 'text_snapshot',
+        'seq': 50,
+        'entryId': 'task-repeated-text',
+        'isFinal': true,
+      },
+    ),
+    ChatMessageModel.cardMessage(
+      const <String, dynamic>{
+        'type': 'agent_tool_summary',
+        'status': 'success',
+        'toolType': 'tool',
+        'toolName': 'custom_tool',
+        'summary': '第二次工具完成',
+        'argsJson': '{"query":"second"}',
+      },
+      id: 'task-repeated-tool-2',
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': 'task-repeated',
+        'kind': 'tool_completed',
+        'seq': 40,
+        'entryId': 'task-repeated-tool-2',
+        'isFinal': false,
+      },
+    ),
+    ChatMessageModel.cardMessage(
+      const <String, dynamic>{
+        'type': 'deep_thinking',
+        'thinkingContent': _kThinkingFixtureText,
+        'stage': 4,
+        'isLoading': false,
+        'taskID': 'task-repeated',
+        'cardId': 'task-repeated-thinking',
+      },
+      id: 'task-repeated-thinking',
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': 'task-repeated',
+        'kind': 'thinking_snapshot',
+        'seq': 30,
+        'entryId': 'task-repeated-thinking',
+        'isFinal': false,
+      },
+    ),
+    ChatMessageModel.cardMessage(
+      const <String, dynamic>{
+        'type': 'agent_tool_summary',
+        'status': 'success',
+        'toolType': 'tool',
+        'toolName': 'custom_tool',
+        'summary': '第一次工具完成',
+        'argsJson': '{"query":"first"}',
+      },
+      id: 'task-repeated-tool-1',
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': 'task-repeated',
+        'kind': 'tool_completed',
+        'seq': 20,
+        'entryId': 'task-repeated-tool-1',
+        'isFinal': false,
+      },
+    ),
+    ChatMessageModel.userMessage('用户问题', id: 'task-repeated-user'),
+  ];
+}
+
+List<ChatMessageModel> _buildVlmProcessRunMessages({
+  bool includeThinking = true,
+}) {
+  final messages = <ChatMessageModel>[
+    ChatMessageModel(
+      id: 'task-vlm-text',
+      type: 1,
+      user: 2,
+      content: const <String, dynamic>{'text': '已完成', 'id': 'task-vlm-text'},
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': 'task-vlm',
+        'kind': 'text_snapshot',
+        'seq': 40,
+        'entryId': 'task-vlm-text',
+        'isFinal': true,
+      },
+    ),
+    ChatMessageModel.cardMessage(
+      const <String, dynamic>{
+        'type': 'agent_tool_summary',
+        'status': 'success',
+        'toolType': 'vlm',
+        'toolName': 'type',
+        'toolTitle': '输入文本',
+        'summary': '输入 hello',
+        'runLogId': 'task-vlm',
+        'argsJson': '{"content":"hello"}',
+      },
+      id: 'task-vlm-step-2',
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': 'task-vlm',
+        'kind': 'tool_completed',
+        'seq': 35,
+        'entryId': 'task-vlm-step-2',
+        'runLogId': 'task-vlm',
+        'isFinal': false,
+      },
+    ),
+    ChatMessageModel.cardMessage(
+      const <String, dynamic>{
+        'type': 'agent_tool_summary',
+        'status': 'success',
+        'toolType': 'vlm',
+        'toolName': 'click',
+        'toolTitle': '点击 设置按钮',
+        'summary': '点击 设置按钮',
+        'runLogId': 'task-vlm',
+        'argsJson': '{"target_description":"设置按钮","x":120,"y":240}',
+      },
+      id: 'task-vlm-step-1',
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': 'task-vlm',
+        'kind': 'tool_completed',
+        'seq': 30,
+        'entryId': 'task-vlm-step-1',
+        'runLogId': 'task-vlm',
+        'isFinal': false,
+      },
+    ),
+    if (includeThinking)
+      ChatMessageModel.cardMessage(
+        const <String, dynamic>{
+          'type': 'deep_thinking',
+          'thinkingContent': _kThinkingFixtureText,
+          'stage': 4,
+          'isLoading': false,
+          'taskID': 'task-vlm',
+          'cardId': 'task-vlm-thinking',
+        },
+        id: 'task-vlm-thinking',
+        streamMeta: const <String, dynamic>{
+          'parentTaskId': 'task-vlm',
+          'kind': 'thinking_snapshot',
+          'seq': 20,
+          'entryId': 'task-vlm-thinking',
+          'isFinal': false,
+        },
+      ),
+    ChatMessageModel.userMessage('打开设置', id: 'task-vlm-user'),
+  ];
+  return messages;
+}
+
+List<ChatMessageModel> _buildSingleThinkingAgentRunMessages() {
+  return <ChatMessageModel>[
+    ChatMessageModel(
+      id: 'task-thinking-only-text',
+      type: 1,
+      user: 2,
+      content: const <String, dynamic>{
+        'text': '最终回答',
+        'id': 'task-thinking-only-text',
+      },
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': 'task-thinking-only',
+        'kind': 'text_snapshot',
+        'seq': 30,
+        'entryId': 'task-thinking-only-text',
+        'isFinal': true,
+      },
+    ),
+    ChatMessageModel.cardMessage(
+      const <String, dynamic>{
+        'type': 'deep_thinking',
+        'thinkingContent': _kThinkingFixtureText,
+        'stage': 1,
+        'isLoading': true,
+        'taskID': 'task-thinking-only',
+        'cardId': 'task-thinking-only-card',
+      },
+      id: 'task-thinking-only-card',
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': 'task-thinking-only',
+        'kind': 'thinking_snapshot',
+        'seq': 20,
+        'entryId': 'task-thinking-only-card',
+        'isFinal': false,
+      },
+    ),
+    ChatMessageModel.userMessage('用户问题', id: 'task-thinking-only-user'),
+  ];
+}
+
+List<ChatMessageModel> _buildSingleToolAgentRunMessages() {
+  return <ChatMessageModel>[
+    ChatMessageModel(
+      id: 'task-tool-only-text',
+      type: 1,
+      user: 2,
+      content: const <String, dynamic>{
+        'text': '最终回答',
+        'id': 'task-tool-only-text',
+      },
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': 'task-tool-only',
+        'kind': 'text_snapshot',
+        'seq': 30,
+        'entryId': 'task-tool-only-text',
+        'isFinal': true,
+      },
+    ),
+    ChatMessageModel.cardMessage(
+      const <String, dynamic>{
         'type': 'agent_tool_summary',
         'status': 'success',
         'toolType': 'terminal',
+        'toolName': 'terminal_exec',
         'toolTitle': '运行 git status',
         'summary': '命令执行完成',
         'terminalOutput': 'On branch main',
+        'argsJson': '{"command":"git status"}',
       },
-      id: 'task-1-tool-1',
+      id: 'task-tool-only-card',
       streamMeta: const <String, dynamic>{
-        'parentTaskId': 'task-1',
+        'parentTaskId': 'task-tool-only',
         'kind': 'tool_completed',
         'seq': 20,
-        'entryId': 'task-1-tool-1',
+        'entryId': 'task-tool-only-card',
         'isFinal': false,
       },
     ),
-    ChatMessageModel.cardMessage(
-      <String, dynamic>{
-        'type': 'deep_thinking',
-        'thinkingContent': '详细思考过程',
-        'stage': 4,
-        'isLoading': false,
-        'taskID': 'task-1',
-        'cardId': 'task-1-thinking',
-      },
-      id: 'task-1-thinking',
-      streamMeta: const <String, dynamic>{
-        'parentTaskId': 'task-1',
-        'kind': 'thinking_snapshot',
-        'seq': 10,
-        'entryId': 'task-1-thinking',
-        'isFinal': false,
-      },
-    ),
-    ChatMessageModel.userMessage('用户问题', id: 'task-1-user'),
-  ];
-}
-
-List<ChatMessageModel> _buildCompletedCodexAgentRunMessages() {
-  // Same shape as _buildCompletedAgentRunMessages but every tool card carries
-  // cardData.uiStyle = 'codex_tool', so the AgentRunGroup widget classifies
-  // the group as a codex run (collapsed → "已处理", avatar → codex SVG).
-  return <ChatMessageModel>[
-    ChatMessageModel(
-      id: 'task-1-text',
-      type: 1,
-      user: 2,
-      content: const <String, dynamic>{'text': '最终回答', 'id': 'task-1-text'},
-      streamMeta: const <String, dynamic>{
-        'parentTaskId': 'task-1',
-        'kind': 'text_snapshot',
-        'seq': 30,
-        'entryId': 'task-1-text',
-        'isFinal': true,
-      },
-    ),
-    ChatMessageModel.cardMessage(
-      <String, dynamic>{
-        'type': 'agent_tool_summary',
-        'uiStyle': 'codex_tool',
-        'status': 'success',
-        'toolType': 'search',
-        'toolTitle': 'rg foo',
-        'summary': 'rg 完成',
-      },
-      id: 'task-1-tool-search-1',
-      streamMeta: const <String, dynamic>{
-        'parentTaskId': 'task-1',
-        'kind': 'tool_completed',
-        'seq': 26,
-        'entryId': 'task-1-tool-search-1',
-        'isFinal': false,
-      },
-    ),
-    ChatMessageModel.cardMessage(
-      <String, dynamic>{
-        'type': 'agent_tool_summary',
-        'uiStyle': 'codex_tool',
-        'status': 'success',
-        'toolType': 'search',
-        'toolTitle': 'rg bar',
-        'summary': 'rg 完成',
-      },
-      id: 'task-1-tool-search-2',
-      streamMeta: const <String, dynamic>{
-        'parentTaskId': 'task-1',
-        'kind': 'tool_completed',
-        'seq': 25,
-        'entryId': 'task-1-tool-search-2',
-        'isFinal': false,
-      },
-    ),
-    ChatMessageModel.cardMessage(
-      <String, dynamic>{
-        'type': 'deep_thinking',
-        'thinkingContent': 'codex 在思考',
-        'stage': 4,
-        'isLoading': false,
-        'taskID': 'task-1',
-        'cardId': 'task-1-thinking',
-      },
-      id: 'task-1-thinking',
-      streamMeta: const <String, dynamic>{
-        'parentTaskId': 'task-1',
-        'kind': 'thinking_snapshot',
-        'seq': 10,
-        'entryId': 'task-1-thinking',
-        'isFinal': false,
-      },
-    ),
-    ChatMessageModel.userMessage('用户问题', id: 'task-1-user'),
+    ChatMessageModel.userMessage('用户问题', id: 'task-tool-only-user'),
   ];
 }
 
@@ -1451,7 +2229,7 @@ List<ChatMessageModel> _buildActiveAgentRunMessages() {
     ChatMessageModel.cardMessage(
       <String, dynamic>{
         'type': 'deep_thinking',
-        'thinkingContent': '详细思考过程',
+        'thinkingContent': _kThinkingFixtureText,
         'stage': 1,
         'isLoading': true,
         'taskID': 'task-1',

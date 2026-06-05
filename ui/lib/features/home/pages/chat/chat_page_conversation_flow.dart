@@ -138,7 +138,9 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
     }
 
     final startTime = DateTime.now().millisecondsSinceEpoch;
-    final thinkingCardId = cardId ?? '$taskID-thinking';
+    // Use -1 suffix to match Kotlin's first thinkingSequence, so the first
+    // thinkingSnapshot updates this card in-place rather than inserting a new one.
+    final thinkingCardId = cardId ?? '$taskID-thinking-1';
     final cardData = {
       'type': 'deep_thinking',
       'isLoading': isLoading ?? _isDeepThinking,
@@ -148,6 +150,7 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
       'cardId': thinkingCardId,
       'startTime': startTime,
       'endTime': null,
+      'isCollapsible': true,
     };
 
     setState(() {
@@ -196,6 +199,8 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
       int? endTime = cardData['endTime'] as int?;
       if (newStage == 4 && endTime == null) {
         endTime = DateTime.now().millisecondsSinceEpoch;
+      } else if (newStage != 4 && newStage != 5) {
+        endTime = null;
       }
 
       cardData['thinkingContent'] = thinkingContent ?? _deepThinkingContent;
@@ -489,10 +494,16 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
       return;
     }
 
+    final handledManualRecording = await _tryStartManualRecordingFromMessage(
+      messageText,
+      attachments: attachments,
+    );
+    if (handledManualRecording) return;
+
     if (_isOmniInferLocalModelSelected &&
         activeConversationModeValue != ConversationMode.chatOnly) {
       showToast(
-        LegacyTextLocalizer.localize('本地模型仅支持纯聊天模式，请开启新的纯聊天对话后再使用本地模型'),
+        AppTextLocalizer.text('本地模型仅支持纯聊天模式，请开启新的纯聊天对话后再使用本地模型'),
         type: ToastType.warning,
       );
       return;
@@ -855,6 +866,7 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
 
       final userMessage = latestUserUtterance();
       final attachments = _latestUserAgentAttachments();
+      final toolProfile = omniflowToolProfileForMessage(userMessage);
 
       final success = await AssistsMessageService.createAgentTask(
         taskId: aiMessageId,
@@ -868,6 +880,7 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
         modelOverride: _buildAgentModelOverridePayload(),
         reasoningEffort: _activeConversationReasoningEffort,
         terminalEnvironment: _buildAgentTerminalEnvironmentPayload(),
+        toolProfile: toolProfile,
       );
       if (!success) {
         _runtimeCoordinator.unregisterTask(aiMessageId);
@@ -1195,6 +1208,180 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
     } finally {
       _isAwaitingAuthorizeResult = false;
     }
+  }
+
+  Future<bool> _tryStartManualRecordingFromMessage(
+    String messageText, {
+    required List<Map<String, dynamic>> attachments,
+  }) async {
+    if (attachments.isNotEmpty || !_isManualRecordingCommand(messageText)) {
+      return false;
+    }
+    await _startManualRecordingFlow(messageText, recordDebugScreenshots: false);
+    return true;
+  }
+
+  @override
+  Future<void> _startManualRecordingFromShortcut(
+    bool recordDebugScreenshots,
+  ) async {
+    if (_isAiResponding) return;
+    await _startManualRecordingFlow(
+      '录制轨迹',
+      recordDebugScreenshots: recordDebugScreenshots,
+    );
+  }
+
+  @override
+  Future<void> _openRunLogListFromShortcut() async {
+    GoRouterManager.push('/task/run_logs');
+  }
+
+  @override
+  Future<void> _openLatestRunLogFromShortcut() async {
+    if (_isAiResponding) return;
+    try {
+      final snapshot = await AssistsMessageService.getInternalRunLogs(limit: 1);
+      if (!mounted) return;
+      UtgRunLogSummary? latest;
+      for (final run in snapshot.runs) {
+        if (run.runId.trim().isNotEmpty) {
+          latest = run;
+          break;
+        }
+      }
+      if (latest == null) {
+        showToast('暂无可查看的轨迹', type: ToastType.warning);
+        return;
+      }
+      unawaited(
+        showRunLogTimelineSheet(
+          context,
+          runId: latest.runId.trim(),
+          title: latest.goal.trim().isEmpty ? '当前轨迹' : latest.goal.trim(),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      showToast(error.toString(), type: ToastType.error);
+    }
+  }
+
+  Future<void> _startManualRecordingFlow(
+    String messageText, {
+    required bool recordDebugScreenshots,
+  }) async {
+    final canRecord = await ManualRecordingPermissionGuard.ensureAuthorized(
+      context,
+    );
+    if (!mounted || !canRecord) return;
+
+    _inputFocusNode.unfocus();
+    final messageIds = addUserMessage(messageText);
+    _syncUserMessageLinkPreviews(messageIds.userMessageId);
+    showToast('开始手动录制。请执行操作，结束后点小万「完成学习」。');
+    unawaited(AppStateService.exitApp());
+    try {
+      final result = await AssistsMessageService.startHumanTrajectoryLearning(
+        enableDebugScreenshots: recordDebugScreenshots,
+      );
+      if (!mounted) return;
+      _insertManualRecordingResultMessage(messageIds.aiMessageId, result);
+      final success = result['success'] == true;
+      final conversionSuccess =
+          result['conversion_success'] == true ||
+          result['conversionSuccess'] == true ||
+          (result['function_id'] ?? result['functionId'])
+              .toString()
+              .trim()
+              .isNotEmpty;
+      final runId = (result['run_id'] ?? result['runId'] ?? '').toString();
+      showToast(
+        success
+            ? (conversionSuccess
+                  ? '手动录制完成，人工 Function 已保存'
+                  : '手动录制完成，RunLog 已生成')
+            : '手动录制失败',
+        type: success ? ToastType.success : ToastType.error,
+      );
+      if (success && runId.trim().isNotEmpty && mounted) {
+        unawaited(
+          showRunLogTimelineSheet(
+            context,
+            runId: runId.trim(),
+            title: '手动录制 RunLog',
+          ),
+        );
+      }
+    } catch (error) {
+      if (!mounted) return;
+      _insertManualRecordingResultMessage(messageIds.aiMessageId, {
+        'success': false,
+        'error_message': error.toString(),
+      });
+      showToast(error.toString(), type: ToastType.error);
+    } finally {
+      if (mounted) {
+        setState(() => _isAiResponding = false);
+        _syncRuntimeSnapshotForMode(_activeMode);
+        unawaited(saveConversation());
+      }
+    }
+  }
+
+  bool _isManualRecordingCommand(String messageText) {
+    final normalized = messageText.trim().toLowerCase();
+    return normalized == '手动录制' ||
+        normalized == '开始手动录制' ||
+        normalized == '人工录制' ||
+        normalized == 'manual recording' ||
+        normalized == 'manual record';
+  }
+
+  void _insertManualRecordingResultMessage(
+    String messageId,
+    Map<String, dynamic> result,
+  ) {
+    final success = result['success'] == true;
+    final recordingSuccess =
+        result['recording_success'] ?? result['recordingSuccess'] ?? success;
+    final conversionSuccess =
+        result['conversion_success'] ?? result['conversionSuccess'];
+    final runId = (result['run_id'] ?? result['runId'] ?? '').toString();
+    final actionCount = result['action_count'] ?? result['actionCount'] ?? 0;
+    final functionId = result['function_id'] ?? result['functionId'];
+    final functionRegistered =
+        result['function_registered'] ?? result['functionRegistered'];
+    final agentVisible = result['agent_visible'] ?? result['agentVisible'];
+    final errorMessage = result['error_message'] ?? result['errorMessage'];
+    final cardData = <String, dynamic>{
+      'type': 'manual_recording_result',
+      'cardId': messageId,
+      'success': success,
+      'recordingSuccess': recordingSuccess,
+      'recording_success': recordingSuccess,
+      'conversionSuccess': conversionSuccess,
+      'conversion_success': conversionSuccess,
+      'runId': runId,
+      'run_id': runId,
+      'actionCount': actionCount,
+      'action_count': actionCount,
+      'functionId': functionId,
+      'function_id': functionId,
+      'functionRegistered': functionRegistered,
+      'function_registered': functionRegistered,
+      'agent_visible': agentVisible,
+      'summary': result['summary'],
+      'errorMessage': errorMessage,
+      'error_message': errorMessage,
+    }..removeWhere((_, value) => value == null || value.toString().isEmpty);
+    setState(() {
+      _messages.removeWhere((message) => message.id == messageId);
+      _messages.insert(
+        0,
+        ChatMessageModel.cardMessage(cardData, id: messageId),
+      );
+    });
   }
 
   @override

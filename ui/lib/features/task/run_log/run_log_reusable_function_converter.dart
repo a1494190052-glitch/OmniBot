@@ -1,0 +1,5973 @@
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:ui/features/task/run_log/oob_canonical_action_schema.dart';
+import 'package:ui/features/task/run_log/run_log_replay_policy.dart';
+import 'package:ui/services/assists_core_service.dart';
+
+enum RunLogReusableFunctionEnhancementStatus {
+  none,
+  enhancing,
+  enhanced,
+  unchanged,
+  partial,
+  failed,
+}
+
+extension RunLogReusableFunctionEnhancementStatusX
+    on RunLogReusableFunctionEnhancementStatus {
+  String get wireName => name;
+
+  bool get isApplied =>
+      this == RunLogReusableFunctionEnhancementStatus.enhanced ||
+      this == RunLogReusableFunctionEnhancementStatus.partial;
+
+  bool get isTerminal =>
+      this == RunLogReusableFunctionEnhancementStatus.enhanced ||
+      this == RunLogReusableFunctionEnhancementStatus.unchanged ||
+      this == RunLogReusableFunctionEnhancementStatus.partial ||
+      this == RunLogReusableFunctionEnhancementStatus.failed;
+}
+
+const String kOmniFlowFunctionEnhancerContractAsset =
+    'assets/execution_history/omniflow_function_enhancer_contract.md';
+
+const String kOmniFlowFunctionEnhancerContract = '''
+OmniFlow Function Enhancer skill contract:
+- This is the saved Function enhancement pass; RunLog is provenance only.
+- Enhancement is offline editing only; do not execute the Function while enhancing it.
+- Save changes only by calling `update_function`; do not hand-register rewritten Function JSON.
+- Improve reuse clarity without silently changing execution.
+- Never change function_id, executable step order, tools, executors, concrete args, validation, fallback, or callable tool definitions.
+- Explicit user corrections such as `应该点「外卖」而不是点「美食」` must use `update_function` with mode=repair and a replace_target op.
+- Repair mode may update the selected step's target_description, selector hints, and coordinates/bounds when the desired node is found in XML.
+- Insert/delete executable actions only when the user explicitly asks for it; call `update_function` with mode=repair, allowStructuralChange=true, and an insert_step/delete_step op.
+- If the target step is ambiguous, return/ask for confirmation instead of guessing.
+- Never register UDEG node/page memory/decision context as a skill; UDEG material is recall evidence only.
+- Header enhancement must write a compact but detailed reusable description that helps the Agent decide when to call the Function later. Include the user-visible operation sequence, required app/page conditions, runtime inputs, and success signal when known; avoid coordinates and internal implementation details.
+- Per-step enhancement must label every executable step/action with what it does and why it exists in the trajectory. Each step needs a concise title, a concrete description/action_purpose, importance, cleanup_action, and cleanup_reason.
+- Per-step enhancement must mark each step with useful/merge/drop/noise/optional_checker metadata when applicable, but this metadata must not rewrite executable steps by itself.
+- Conditional obstruction dismissals such as closing ads, popups, banners, coupons, or permission nudges should be annotated as optional_checker metadata, not treated as a guaranteed happy-path action.
+- When marking a step as optional_checker, also add supported runtime checker rules in metadata.checker_rules and link them from agent_reuse.checker_assets so replay can apply the condition only when it is observed.
+- Supported checker rules are limited to overlay_blocking/dismiss/pre_transfer, permission_dialog/allow/pre_transfer, keyboard_obscuring/hide_keyboard/pre_action, package_mismatch/open_app/pre_transfer, and app_upgrade_prompt/dismiss/post_action. Do not invent checker conditions, scripts, selectors, or model calls.
+- If there is no safe useful improvement for this section, return the current/fallback shape for this section rather than inventing content.
+- The app classifies the final attempt as enhanced, unchanged, partial, or failed from the validated patch and save result.
+''';
+
+String? _enhancementSkillContractCache;
+
+class RunLogReusableFunctionSpec {
+  RunLogReusableFunctionSpec({
+    required this.json,
+    required this.agentPrompt,
+    required this.aiEnhanced,
+    this.warning,
+    this.rawAiText,
+    RunLogReusableFunctionEnhancementStatus? enhancementStatus,
+    String? enhancementMessage,
+    Map<String, dynamic>? enhancementReport,
+  }) : enhancementStatus =
+           enhancementStatus ?? _enhancementStatusFromFunctionJson(json),
+       enhancementMessage =
+           enhancementMessage ?? _enhancementMessageFromFunctionJson(json),
+       enhancementReport =
+           enhancementReport ?? _enhancementReportFromFunctionJson(json);
+
+  final Map<String, dynamic> json;
+  final String agentPrompt;
+  final bool aiEnhanced;
+  final String? warning;
+  final String? rawAiText;
+  final RunLogReusableFunctionEnhancementStatus enhancementStatus;
+  final String? enhancementMessage;
+  final Map<String, dynamic>? enhancementReport;
+
+  String get functionId => (json['function_id'] ?? '').toString();
+  String get name => (json['name'] ?? '').toString();
+
+  RunLogReusableFunctionSpec copyWith({
+    Map<String, dynamic>? json,
+    String? agentPrompt,
+    bool? aiEnhanced,
+    String? warning,
+    String? rawAiText,
+    RunLogReusableFunctionEnhancementStatus? enhancementStatus,
+    String? enhancementMessage,
+    Map<String, dynamic>? enhancementReport,
+  }) {
+    return RunLogReusableFunctionSpec(
+      json: json ?? this.json,
+      agentPrompt: agentPrompt ?? this.agentPrompt,
+      aiEnhanced: aiEnhanced ?? this.aiEnhanced,
+      warning: warning ?? this.warning,
+      rawAiText: rawAiText ?? this.rawAiText,
+      enhancementStatus: enhancementStatus ?? this.enhancementStatus,
+      enhancementMessage: enhancementMessage ?? this.enhancementMessage,
+      enhancementReport: enhancementReport ?? this.enhancementReport,
+    );
+  }
+
+  int get stepCount {
+    final execution = _asStringKeyMap(json['execution']);
+    final steps = execution['steps'];
+    return steps is List ? steps.length : 0;
+  }
+
+  int get parameterCount {
+    final parameters = json['parameters'];
+    return parameters is List ? parameters.length : 0;
+  }
+
+  String get prettyJson => const JsonEncoder.withIndent('  ').convert(json);
+}
+
+class _LabelEnhancementPatchResult {
+  const _LabelEnhancementPatchResult({
+    required this.json,
+    required this.rawTexts,
+    required this.sectionReport,
+  });
+
+  final Map<String, dynamic>? json;
+  final List<String> rawTexts;
+  final Map<String, dynamic> sectionReport;
+}
+
+RunLogReusableFunctionEnhancementStatus _enhancementStatusFromFunctionJson(
+  Map<String, dynamic> functionJson,
+) {
+  final report = _enhancementReportFromFunctionJson(functionJson);
+  final rawStatus = _firstNonBlank([
+    report?['status'],
+    _asStringKeyMap(functionJson['metadata'])['enhancement_status'],
+    functionJson['enhancement_status'],
+  ]).trim().toLowerCase();
+  switch (rawStatus) {
+    case 'enhanced':
+    case 'applied':
+      return RunLogReusableFunctionEnhancementStatus.enhanced;
+    case 'partial':
+    case 'partially_enhanced':
+      return RunLogReusableFunctionEnhancementStatus.partial;
+    case 'unchanged':
+    case 'checked':
+    case 'no_change':
+      return RunLogReusableFunctionEnhancementStatus.unchanged;
+    case 'failed':
+    case 'error':
+      return RunLogReusableFunctionEnhancementStatus.failed;
+    case 'enhancing':
+      return RunLogReusableFunctionEnhancementStatus.enhancing;
+  }
+  return RunLogReusableFunctionEnhancementStatus.none;
+}
+
+String? _enhancementMessageFromFunctionJson(Map<String, dynamic> functionJson) {
+  final report = _enhancementReportFromFunctionJson(functionJson);
+  final message = _firstNonBlank([
+    report?['message'],
+    _asStringKeyMap(functionJson['metadata'])['enhancement_message'],
+    functionJson['enhancement_message'],
+  ]);
+  return message.isEmpty ? null : message;
+}
+
+Map<String, dynamic>? _enhancementReportFromFunctionJson(
+  Map<String, dynamic> functionJson,
+) {
+  final metadata = _asStringKeyMap(functionJson['metadata']);
+  final report = _asStringKeyMap(
+    metadata['oob_enhancement'] ??
+        metadata['enhancement'] ??
+        functionJson['oob_enhancement'],
+  );
+  return report.isEmpty ? null : report;
+}
+
+Map<String, dynamic> _buildEnhancementReport({
+  required RunLogReusableFunctionEnhancementStatus status,
+  required bool changed,
+  required String message,
+  required List<Map<String, dynamic>> sections,
+}) {
+  return {
+    'schema_version': 'oob.function_enhancement.v1',
+    'source': 'run_log_agent_label_enhancer',
+    'status': status.wireName,
+    'changed': changed,
+    'message': message,
+    'updated_at': DateTime.now().toUtc().toIso8601String(),
+    'sections': sections.map(_jsonSafeMap).toList(growable: false),
+  };
+}
+
+Map<String, dynamic> _withEnhancementMetadata(
+  Map<String, dynamic> functionJson,
+  Map<String, dynamic> report,
+) {
+  final result = _jsonSafeMap(functionJson);
+  final metadata = <String, dynamic>{..._asStringKeyMap(result['metadata'])};
+  metadata['oob_enhancement'] = _jsonSafeMap(report);
+  result['metadata'] = metadata;
+  return result;
+}
+
+bool _sectionReportFailed(Map<String, dynamic> report) {
+  final status = (report['status'] ?? '').toString().trim();
+  if (status == 'parsed' || status == 'repaired' || status == 'empty_patch') {
+    return false;
+  }
+  return report['accepted'] != true;
+}
+
+String _enhancementStatusMessage(
+  RunLogReusableFunctionEnhancementStatus status, {
+  required bool useEnglish,
+}) {
+  switch (status) {
+    case RunLogReusableFunctionEnhancementStatus.enhanced:
+      return _text(
+        useEnglish,
+        'Agent 增强已应用并保存：名称、步骤说明、运行时参数或复用元数据已有有效改进。',
+        'Agent enhancement applied and saved: labels, step descriptions, runtime parameters, or reuse metadata changed.',
+      );
+    case RunLogReusableFunctionEnhancementStatus.partial:
+      return _text(
+        useEnglish,
+        'Agent 增强已部分应用并保存：有可用改进，但部分增强片段未通过解析或校验。',
+        'Agent enhancement partially applied and saved: useful changes were kept, but some sections failed parsing or validation.',
+      );
+    case RunLogReusableFunctionEnhancementStatus.unchanged:
+      return _text(
+        useEnglish,
+        'Agent 已检查，未发现可安全应用的增强；当前复用指令保持不变。',
+        'Agent checked this Function and found no safe enhancement to apply. The reusable Function is unchanged.',
+      );
+    case RunLogReusableFunctionEnhancementStatus.failed:
+      return _text(
+        useEnglish,
+        'Agent 增强未产生可用结果，已保留当前复用指令。',
+        'Agent enhancement produced no usable result. Keeping the current reusable Function.',
+      );
+    case RunLogReusableFunctionEnhancementStatus.enhancing:
+      return _text(
+        useEnglish,
+        'Agent 正在后台增强这个复用指令。',
+        'Agent is enhancing this reusable Function in the background.',
+      );
+    case RunLogReusableFunctionEnhancementStatus.none:
+      return '';
+  }
+}
+
+class RunLogReusableFunctionConverter {
+  const RunLogReusableFunctionConverter._();
+
+  static Future<RunLogReusableFunctionSpec> convert({
+    required String runId,
+    required String title,
+    required Map<String, dynamic> payload,
+    required List<Map<String, dynamic>> cards,
+    bool useAi = true,
+    bool useEnglish = false,
+  }) async {
+    final baseJson = await buildLocalFunctionJsonAsync(
+      runId: runId,
+      title: title,
+      payload: payload,
+      cards: cards,
+      useEnglish: useEnglish,
+    );
+
+    if (!useAi || cards.isEmpty) {
+      final agentPrompt = await buildAgentPromptAsync(
+        baseJson,
+        useEnglish: useEnglish,
+      );
+      return RunLogReusableFunctionSpec(
+        json: baseJson,
+        agentPrompt: agentPrompt,
+        aiEnhanced: false,
+      );
+    }
+
+    final prompt = await buildAiPromptAsync(baseJson, useEnglish: useEnglish);
+    try {
+      final raw = await AssistsMessageService.postLLMChat(
+        text: prompt,
+        model: 'scene.compactor.context',
+        responseJsonObject: true,
+      );
+      var aiJson = await extractJsonObjectAsync(raw ?? '');
+      String? repairRaw;
+      if (aiJson == null && (raw ?? '').trim().isNotEmpty) {
+        repairRaw = await AssistsMessageService.postLLMChat(
+          text: await buildJsonRepairPromptAsync(
+            invalidOutput: raw ?? '',
+            fallbackJson: baseJson,
+            useEnglish: useEnglish,
+          ),
+          model: 'scene.compactor.context',
+          responseJsonObject: true,
+        );
+        aiJson = await extractJsonObjectAsync(repairRaw ?? '');
+      }
+      if (aiJson == null) {
+        final agentPrompt = await buildAgentPromptAsync(
+          baseJson,
+          useEnglish: useEnglish,
+        );
+        return RunLogReusableFunctionSpec(
+          json: baseJson,
+          agentPrompt: agentPrompt,
+          aiEnhanced: false,
+          rawAiText: repairRaw ?? raw,
+          warning: _text(
+            useEnglish,
+            'AI 未返回可解析 JSON，已使用本地规则生成，可继续注册和执行。',
+            'AI did not return parseable JSON. Using the local conversion.',
+          ),
+        );
+      }
+      final normalized = await normalizeAiJsonAsync(aiJson, baseJson);
+      final agentPrompt = await buildAgentPromptAsync(
+        normalized,
+        useEnglish: useEnglish,
+      );
+      return RunLogReusableFunctionSpec(
+        json: normalized,
+        agentPrompt: agentPrompt,
+        aiEnhanced: true,
+        rawAiText: raw,
+      );
+    } catch (error) {
+      final agentPrompt = await buildAgentPromptAsync(
+        baseJson,
+        useEnglish: useEnglish,
+      );
+      return RunLogReusableFunctionSpec(
+        json: baseJson,
+        agentPrompt: agentPrompt,
+        aiEnhanced: false,
+        warning: useEnglish
+            ? 'AI conversion failed. Using the local conversion: $error'
+            : 'AI 转换失败，已使用本地转换结果：$error',
+      );
+    }
+  }
+
+  static Map<String, dynamic> buildLocalFunctionJson({
+    required String runId,
+    required String title,
+    required Map<String, dynamic> payload,
+    required List<Map<String, dynamic>> cards,
+    bool useEnglish = false,
+  }) {
+    final goal = _firstNonBlank([
+      payload['goal'],
+      payload['task_goal'],
+      payload['operation_description'],
+      payload['operationDescription'],
+      title,
+    ]);
+    final steps = <Map<String, dynamic>>[];
+    final cleanupEvents = <Map<String, dynamic>>[];
+    final parametersBySignature = <String, Map<String, dynamic>>{};
+    final seenParameterNames = <String>{};
+    final snapshots = cards
+        .asMap()
+        .entries
+        .map(
+          (entry) => _RunLogActionSnapshot.fromCard(
+            entry.value,
+            fallbackIndex: entry.key,
+          ),
+        )
+        .toList(growable: false);
+    final hasRecordedReplayStep = snapshots.any(
+      (snapshot) =>
+          snapshot.success != false &&
+          _replayActionForSnapshot(snapshot) != null,
+    );
+
+    for (var index = 0; index < snapshots.length; index++) {
+      final snapshot = snapshots[index];
+      if (snapshot.success == false) {
+        cleanupEvents.add(
+          _cleanupEvent(
+            sourceIndex: index,
+            action: 'drop',
+            reason: 'failed_card',
+            toolName: snapshot.toolName,
+            title: snapshot.title,
+          ),
+        );
+        continue;
+      }
+      if (RunLogReplayPolicy.shouldSkipTool(snapshot.toolName)) {
+        cleanupEvents.add(
+          _cleanupEvent(
+            sourceIndex: index,
+            action: 'drop',
+            reason: 'non_replayable_noise_tool',
+            toolName: snapshot.toolName,
+            title: snapshot.title,
+          ),
+        );
+        continue;
+      }
+      final rawArgs = _replayArgsForSnapshot(snapshot);
+      final args = _canonicalCallToolArgs(snapshot.toolName, rawArgs);
+      final shouldSkipPerceptionStep =
+          RunLogReplayPolicy.isPerceptionTool(snapshot.toolName) &&
+          hasRecordedReplayStep;
+      // Skip vlm_task outer calls entirely when concrete recorded actions are
+      // present. The VLM-driven actions (click/swipe/input_text with VLM route kind
+      // metadata) are recorded as separate omniflow cards with source_context
+      // for coordinate remapping.
+      if (shouldSkipPerceptionStep) {
+        cleanupEvents.add(
+          _cleanupEvent(
+            sourceIndex: index,
+            action: 'drop',
+            reason: 'perception_wrapper_replaced_by_recorded_actions',
+            toolName: snapshot.toolName,
+            title: snapshot.title,
+          ),
+        );
+        continue;
+      }
+
+      final executionIndex = steps.length;
+      final stepId = 'step_${executionIndex + 1}';
+      final executor = _executorForSnapshot(
+        snapshot,
+        args: args,
+        skipPerceptionStep: shouldSkipPerceptionStep,
+      );
+      final replayAction = _replayActionForSnapshot(snapshot);
+      final modelFree = executor == 'omniflow';
+      final emittedToolName = modelFree && replayAction != null
+          ? replayAction
+          : _canonicalToolNameForStep(snapshot.toolName, args);
+      final scriptable = executor != 'agent';
+      final coordinateHook = _buildCoordinateHookMetadata(
+        snapshot: snapshot,
+        args: args,
+      );
+      final prompt = snapshot.prompt;
+      final fallbackPrompt = _stepFallbackPrompt(
+        title: snapshot.title,
+        toolName: snapshot.toolName,
+        args: args,
+        prompt: prompt,
+        useEnglish: useEnglish,
+      );
+      final summary = _stepSummary(
+        title: snapshot.title,
+        toolName: snapshot.toolName,
+        prompt: prompt,
+        args: args,
+        result: snapshot.result,
+      );
+      final observedResult = _compactObservedResult(snapshot.result);
+      final step = {
+        'id': stepId,
+        'index': executionIndex,
+        if (executionIndex != index) 'source_index': index,
+        'kind': _stepKindForToolName(
+          emittedToolName,
+          snapshot.route,
+          args: args,
+        ),
+        'title': snapshot.title.isNotEmpty ? snapshot.title : emittedToolName,
+        if (summary.isNotEmpty) 'summary': summary,
+        'tool': emittedToolName,
+        'executor': executor,
+        'scriptable': scriptable,
+        if (modelFree) 'model_free': true,
+        if (coordinateHook != null) ...coordinateHook,
+        'args': args,
+        if (prompt.isNotEmpty)
+          'prompt': {
+            'text': prompt,
+            'preview': _compactPreview(prompt, maxLength: 240),
+            'source': snapshot.promptSource,
+          },
+        'tool_binding': {
+          'kind': executor == 'agent'
+              ? 'agent_replan'
+              : RunLogReplayPolicy.isOmniflowGraphTool(emittedToolName)
+              ? 'omniflow_graph'
+              : RunLogReplayPolicy.isOmniflowFunctionTool(emittedToolName) ||
+                    _callToolFunctionId(args).isNotEmpty
+              ? 'omniflow_function'
+              : executor == 'omniflow'
+              ? 'function'
+              : 'oob_agent_tool',
+          'name': emittedToolName,
+        },
+        if (executor == 'agent')
+          'agent_call': {
+            'tool': 'oob.agent.run',
+            'args': {
+              'prompt': fallbackPrompt,
+              'original_tool': snapshot.toolName,
+              'original_args': args,
+              if (prompt.isNotEmpty) 'original_prompt': prompt,
+            },
+            'reason': RunLogReplayPolicy.agentStepReason(snapshot.toolName),
+          },
+        if (snapshot.route.isNotEmpty) 'route': snapshot.route,
+        if (snapshot.success != null) 'success': snapshot.success,
+        if (snapshot.durationMs != null) 'duration_ms': snapshot.durationMs,
+        if (snapshot.packageName.isNotEmpty)
+          'package_name': snapshot.packageName,
+        if (!_isEmptyJsonValue(observedResult))
+          'observed_result': observedResult,
+        if (snapshot.beforeSummary.isNotEmpty)
+          'before_state': snapshot.beforeSummary,
+        if (snapshot.afterSummary.isNotEmpty)
+          'after_state': snapshot.afterSummary,
+        'validation': {
+          'mode': 'soft_state_match',
+          if (snapshot.packageName.isNotEmpty)
+            'package_name': snapshot.packageName,
+          if (snapshot.beforeSummary.isNotEmpty)
+            'expected_before_state': snapshot.beforeSummary,
+        },
+        'fallback': {
+          'kind': 'agent_replan',
+          'tool': 'oob.agent.run',
+          'when': scriptable
+              ? 'state_or_selector_mismatch'
+              : 'always_for_agent_executor',
+          'prompt': fallbackPrompt,
+        },
+        'reuse_policy': {
+          'mode': 'prefer_script_then_agent_replan',
+          'allow_agent_replan_on_mismatch': true,
+          'requires_runtime_validation': true,
+        },
+      };
+      final previousStep = steps.isEmpty ? null : steps.last;
+      if (_isDuplicateTextInputStep(previousStep, step)) {
+        _recordMergedSourceStep(
+          keptStep: previousStep!,
+          droppedStep: step,
+          sourceIndex: index,
+          reason: 'duplicate_text_input_same_target',
+          title: snapshot.title,
+          toolName: snapshot.toolName,
+        );
+        cleanupEvents.add(
+          _cleanupEvent(
+            sourceIndex: index,
+            keptStepIndex: previousStep['index'],
+            keptStepId: previousStep['id'],
+            action: 'merge',
+            reason: 'duplicate_text_input_same_target',
+            toolName: snapshot.toolName,
+            title: snapshot.title,
+          ),
+        );
+        continue;
+      }
+      step['cleanup_annotation'] = _defaultStepCleanupAnnotation(
+        useEnglish: useEnglish,
+      );
+      steps.add(step);
+
+      _collectParametersFromArgs(
+        stepId: stepId,
+        stepIndex: executionIndex,
+        toolName: snapshot.toolName,
+        args: args,
+        parametersBySignature: parametersBySignature,
+        seenNames: seenParameterNames,
+        useEnglish: useEnglish,
+        bindAgentOriginalArgs: executor == 'agent',
+      );
+    }
+
+    final parameters = parametersBySignature.values.toList(growable: false);
+    final cleanupSummary = _buildStepCleanupSummary(
+      steps: steps,
+      cleanupEvents: cleanupEvents,
+    );
+    final packageName = _firstNonBlank([
+      ...steps.map((step) => step['package_name']),
+      payload['final_package_name'],
+      payload['package_name'],
+    ]);
+    final name = _normalizeFunctionName(
+      goal.isNotEmpty ? goal : title,
+      fallback: 'reusable_run_${_compactId(runId)}',
+    );
+    final now = DateTime.now().toUtc().toIso8601String();
+
+    final startState = _firstNonBlank([
+      _asStringKeyMap(
+        cards.isEmpty ? null : cards.first['before'],
+      )['page_title'],
+      _asStringKeyMap(cards.isEmpty ? null : cards.first['before'])['activity'],
+      _asStringKeyMap(
+        cards.isEmpty ? null : cards.first['before'],
+      )['package_name'],
+    ]);
+    final endState = _firstNonBlank([
+      _asStringKeyMap(cards.isEmpty ? null : cards.last['after'])['page_title'],
+      _asStringKeyMap(cards.isEmpty ? null : cards.last['after'])['activity'],
+      _asStringKeyMap(
+        cards.isEmpty ? null : cards.last['after'],
+      )['package_name'],
+    ]);
+
+    return {
+      'schema_version': 'oob.reusable_function.v1',
+      'function_id': 'runlog_${_compactId(runId)}',
+      'name': name,
+      'description': goal.isNotEmpty ? goal : name,
+      'source': {
+        'kind': 'run_log',
+        'run_id': runId,
+        'title': title,
+        'converted_at': now,
+        'converter': 'oob_run_log_reusable_function_converter',
+      },
+      'metadata': {
+        if (cleanupSummary.isNotEmpty) 'oob_step_cleanup': cleanupSummary,
+      },
+      'parameters': parameters,
+      'constraints': {
+        if (packageName.isNotEmpty) 'package_name': packageName,
+        if (startState.isNotEmpty) 'start_state': startState,
+        if (endState.isNotEmpty) 'end_state': endState,
+      },
+      'execution': {
+        'kind': 'tool_sequence',
+        'runner': 'oob_tool_sequence',
+        'entrypoint': 'execute',
+        'capabilities': {
+          'scriptable_step_count': steps
+              .where((step) => step['scriptable'] == true)
+              .length,
+          'model_free_step_count': steps
+              .where((step) => step['model_free'] == true)
+              .length,
+          'omniflow_step_count': steps
+              .where((step) => step['executor'] == 'omniflow')
+              .length,
+          'agent_step_count': steps
+              .where((step) => step['executor'] == 'agent')
+              .length,
+          'requires_agent_fallback': steps.any(
+            (step) => step['executor'] == 'agent',
+          ),
+        },
+        'fallback_runner': 'oob.agent.run',
+        'steps': steps,
+      },
+    };
+  }
+
+  static Future<Map<String, dynamic>> buildLocalFunctionJsonAsync({
+    required String runId,
+    required String title,
+    required Map<String, dynamic> payload,
+    required List<Map<String, dynamic>> cards,
+    bool useEnglish = false,
+  }) {
+    return compute(_buildLocalFunctionJsonInIsolate, {
+      'runId': runId,
+      'title': title,
+      'payload': _jsonSafeMap(payload),
+      'cards': cards.map(_jsonSafeMap).toList(growable: false),
+      'useEnglish': useEnglish,
+    });
+  }
+
+  static Future<String> buildAiPromptAsync(
+    Map<String, dynamic> baseJson, {
+    bool useEnglish = false,
+  }) {
+    return compute(_buildAiPromptInIsolate, {
+      'baseJson': _jsonSafeMap(baseJson),
+      'useEnglish': useEnglish,
+    });
+  }
+
+  static Future<String> buildJsonRepairPromptAsync({
+    required String invalidOutput,
+    required Map<String, dynamic> fallbackJson,
+    bool useEnglish = false,
+  }) {
+    return compute(_buildJsonRepairPromptInIsolate, {
+      'invalidOutput': invalidOutput,
+      'fallbackJson': _jsonSafeMap(fallbackJson),
+      'useEnglish': useEnglish,
+    });
+  }
+
+  static Future<RunLogReusableFunctionSpec> enhanceLabels({
+    required Map<String, dynamic> functionJson,
+    bool useEnglish = false,
+  }) async {
+    final fallbackJson = _jsonSafeMap(functionJson);
+    final skillContract = await enhancementSkillContractAsync();
+    final patches = <Map<String, dynamic>>[];
+    final rawParts = <String>[];
+    final sectionReports = <Map<String, dynamic>>[];
+    try {
+      Future<void> requestPart({
+        required String partName,
+        required String prompt,
+        required Map<String, dynamic> fallbackPatch,
+      }) async {
+        try {
+          final result = await _requestLabelEnhancementPatch(
+            partName: partName,
+            prompt: prompt,
+            fallbackPatch: fallbackPatch,
+            useEnglish: useEnglish,
+          );
+          rawParts.addAll(result.rawTexts);
+          sectionReports.add(result.sectionReport);
+          if (result.json != null && result.json!.isNotEmpty) {
+            patches.add(result.json!);
+          }
+        } catch (error) {
+          rawParts.add('[$partName error]\n$error');
+          sectionReports.add({
+            'part': partName,
+            'status': 'error',
+            'accepted': false,
+            'error': error.toString(),
+          });
+        }
+      }
+
+      await requestPart(
+        partName: 'header',
+        prompt: _buildLabelHeaderEnhancementPrompt(
+          fallbackJson,
+          skillContract: skillContract,
+          useEnglish: useEnglish,
+        ),
+        fallbackPatch: _labelHeaderFallbackPatch(fallbackJson),
+      );
+
+      for (final chunk in _labelStepPromptChunks(fallbackJson)) {
+        await requestPart(
+          partName: 'steps',
+          prompt: _buildLabelStepsEnhancementPrompt(
+            chunk,
+            skillContract: skillContract,
+            useEnglish: useEnglish,
+          ),
+          fallbackPatch: {'steps': _stepPromptFallback(chunk)},
+        );
+      }
+
+      await requestPart(
+        partName: 'parameters',
+        prompt: _buildLabelParametersEnhancementPrompt(
+          fallbackJson,
+          skillContract: skillContract,
+          useEnglish: useEnglish,
+        ),
+        fallbackPatch: _labelParametersFallbackPatch(fallbackJson),
+      );
+
+      await requestPart(
+        partName: 'agent_reuse',
+        prompt: _buildLabelReuseEnhancementPrompt(
+          fallbackJson,
+          skillContract: skillContract,
+          useEnglish: useEnglish,
+        ),
+        fallbackPatch: const {
+          'agent_reuse': {
+            'reuse_when': [],
+            'avoid_when': [],
+            'success_signal': '',
+            'key_actions': [],
+            'segments': [],
+          },
+        },
+      );
+
+      final aiJson = _mergeLabelEnhancementPatches(patches);
+      if (aiJson.isEmpty) {
+        final message = _text(
+          useEnglish,
+          'Agent 增强没有返回任何可解析 JSON 片段，已保留当前复用指令。',
+          'Agent enhancement did not return any parseable JSON fragments. Keeping the current Function.',
+        );
+        final report = _buildEnhancementReport(
+          status: RunLogReusableFunctionEnhancementStatus.failed,
+          changed: false,
+          message: message,
+          sections: sectionReports,
+        );
+        final agentPrompt = await buildAgentPromptAsync(
+          fallbackJson,
+          useEnglish: useEnglish,
+        );
+        return RunLogReusableFunctionSpec(
+          json: fallbackJson,
+          agentPrompt: agentPrompt,
+          aiEnhanced: false,
+          rawAiText: rawParts.join('\n\n'),
+          warning: message,
+          enhancementStatus: RunLogReusableFunctionEnhancementStatus.failed,
+          enhancementMessage: message,
+          enhancementReport: report,
+        );
+      }
+      final enhancedCore = _applyLabelEnhancement(aiJson, fallbackJson);
+      final hasSectionFailure = sectionReports.any(_sectionReportFailed);
+      final diffReport = _buildLabelEnhancementDiffReport(
+        original: fallbackJson,
+        enhanced: enhancedCore,
+        mergedPatch: aiJson,
+      );
+      final changed = diffReport['changed'] == true;
+      final status = changed
+          ? hasSectionFailure
+                ? RunLogReusableFunctionEnhancementStatus.partial
+                : RunLogReusableFunctionEnhancementStatus.enhanced
+          : hasSectionFailure
+          ? RunLogReusableFunctionEnhancementStatus.failed
+          : RunLogReusableFunctionEnhancementStatus.unchanged;
+      final message = _enhancementStatusMessage(status, useEnglish: useEnglish);
+      final report = _buildEnhancementReport(
+        status: status,
+        changed: changed,
+        message: message,
+        sections: [
+          ...sectionReports,
+          diffReport,
+          if (!changed)
+            {
+              'part': 'decision',
+              'status': 'unchanged_after_validation',
+              'accepted': true,
+              'reason': 'validated patch normalized to the same Function JSON',
+            },
+        ],
+      );
+      final enhanced = status == RunLogReusableFunctionEnhancementStatus.failed
+          ? fallbackJson
+          : _withEnhancementMetadata(enhancedCore, report);
+      final agentPrompt = await buildAgentPromptAsync(
+        enhanced,
+        useEnglish: useEnglish,
+      );
+      return RunLogReusableFunctionSpec(
+        json: enhanced,
+        agentPrompt: agentPrompt,
+        aiEnhanced: status.isApplied,
+        rawAiText: rawParts.join('\n\n'),
+        warning: status == RunLogReusableFunctionEnhancementStatus.failed
+            ? message
+            : null,
+        enhancementStatus: status,
+        enhancementMessage: message,
+        enhancementReport: report,
+      );
+    } catch (error) {
+      final message = _text(
+        useEnglish,
+        'Agent 增强失败，已保留当前复用指令：$error',
+        'Agent enhancement failed. Keeping the current Function: $error',
+      );
+      final report = _buildEnhancementReport(
+        status: RunLogReusableFunctionEnhancementStatus.failed,
+        changed: false,
+        message: message,
+        sections: [
+          ...sectionReports,
+          {
+            'part': 'enhancement',
+            'status': 'error',
+            'accepted': false,
+            'error': error.toString(),
+          },
+        ],
+      );
+      final agentPrompt = await buildAgentPromptAsync(
+        fallbackJson,
+        useEnglish: useEnglish,
+      );
+      return RunLogReusableFunctionSpec(
+        json: fallbackJson,
+        agentPrompt: agentPrompt,
+        aiEnhanced: false,
+        warning: message,
+        enhancementStatus: RunLogReusableFunctionEnhancementStatus.failed,
+        enhancementMessage: message,
+        enhancementReport: report,
+      );
+    }
+  }
+
+  static Future<_LabelEnhancementPatchResult> _requestLabelEnhancementPatch({
+    required String partName,
+    required String prompt,
+    required Map<String, dynamic> fallbackPatch,
+    required bool useEnglish,
+  }) async {
+    final raw = await AssistsMessageService.postLLMChat(
+      text: prompt,
+      model: 'scene.compactor.context',
+      responseJsonObject: true,
+    );
+    var aiJson = _extractJsonObject(raw ?? '');
+    final rawTexts = <String>[
+      if ((raw ?? '').trim().isNotEmpty) '[$partName]\n${raw!.trim()}',
+    ];
+    var repaired = false;
+    if (aiJson == null && (raw ?? '').trim().isNotEmpty) {
+      final repairRaw = await AssistsMessageService.postLLMChat(
+        text: _buildLabelEnhancementPartRepairPrompt(
+          partName: partName,
+          invalidOutput: raw ?? '',
+          fallbackPatch: fallbackPatch,
+          useEnglish: useEnglish,
+        ),
+        model: 'scene.compactor.context',
+        responseJsonObject: true,
+      );
+      if ((repairRaw ?? '').trim().isNotEmpty) {
+        rawTexts.add('[$partName repair]\n${repairRaw!.trim()}');
+      }
+      aiJson = _extractJsonObject(repairRaw ?? '');
+      repaired = aiJson != null;
+    }
+    final status = aiJson == null
+        ? (raw ?? '').trim().isEmpty
+              ? 'no_response'
+              : 'invalid_json'
+        : aiJson.isEmpty
+        ? 'empty_patch'
+        : repaired
+        ? 'repaired'
+        : 'parsed';
+    return _LabelEnhancementPatchResult(
+      json: aiJson,
+      rawTexts: rawTexts,
+      sectionReport: {
+        'part': partName,
+        'status': status,
+        'accepted':
+            status == 'parsed' ||
+            status == 'repaired' ||
+            status == 'empty_patch',
+        'patch_keys': aiJson?.keys.toList(growable: false) ?? const <String>[],
+      },
+    );
+  }
+
+  static Future<String> buildLabelEnhancementPromptAsync(
+    Map<String, dynamic> functionJson, {
+    bool useEnglish = false,
+  }) async {
+    final skillContract = await enhancementSkillContractAsync();
+    return compute(_buildLabelEnhancementPromptInIsolate, {
+      'functionJson': _jsonSafeMap(functionJson),
+      'useEnglish': useEnglish,
+      'skillContract': skillContract,
+    });
+  }
+
+  static Future<String> enhancementSkillContractAsync() async {
+    final cached = _enhancementSkillContractCache;
+    if (cached != null) {
+      return cached;
+    }
+    try {
+      final loaded = await rootBundle.loadString(
+        kOmniFlowFunctionEnhancerContractAsset,
+      );
+      final normalized = loaded.trim();
+      if (normalized.isNotEmpty) {
+        _enhancementSkillContractCache = normalized;
+        return normalized;
+      }
+    } catch (_) {
+      // Unit tests and some embedded hosts may not have the asset bundle ready.
+    }
+    final fallback = kOmniFlowFunctionEnhancerContract.trim();
+    _enhancementSkillContractCache = fallback;
+    return fallback;
+  }
+
+  @visibleForTesting
+  static String enhancementSkillContractForTesting() =>
+      kOmniFlowFunctionEnhancerContract.trim();
+
+  static Future<Map<String, dynamic>> applyLabelEnhancementAsync(
+    Map<String, dynamic> aiJson,
+    Map<String, dynamic> fallback,
+  ) {
+    return compute(_applyLabelEnhancementInIsolate, {
+      'aiJson': _jsonSafeMap(aiJson),
+      'fallback': _jsonSafeMap(fallback),
+    });
+  }
+
+  static Future<Map<String, dynamic>?> extractJsonObjectAsync(String raw) {
+    return compute(_extractJsonObjectInIsolate, raw);
+  }
+
+  static Future<Map<String, dynamic>> normalizeAiJsonAsync(
+    Map<String, dynamic> aiJson,
+    Map<String, dynamic> fallback,
+  ) {
+    return compute(_normalizeAiJsonInIsolate, {
+      'aiJson': _jsonSafeMap(aiJson),
+      'fallback': _jsonSafeMap(fallback),
+    });
+  }
+
+  static Future<String> buildAgentPromptAsync(
+    Map<String, dynamic> functionJson, {
+    bool useEnglish = false,
+  }) {
+    return compute(_buildAgentPromptInIsolate, {
+      'functionJson': _jsonSafeMap(functionJson),
+      'useEnglish': useEnglish,
+    });
+  }
+
+  static String buildAgentPrompt(
+    Map<String, dynamic> functionJson, {
+    bool useEnglish = false,
+  }) {
+    final functionId = (functionJson['function_id'] ?? '').toString();
+    final name = (functionJson['name'] ?? functionId).toString();
+    final description = (functionJson['description'] ?? '').toString();
+    final parameters = functionJson['parameters'];
+    final parameterLines = parameters is List && parameters.isNotEmpty
+        ? parameters
+              .map((item) {
+                final map = _asStringKeyMap(item);
+                final defaultValue = map.containsKey('default')
+                    ? useEnglish
+                          ? ' default=${map['default']}'
+                          : ' 默认值=${map['default']}'
+                    : '';
+                return '- ${map['name']}: ${map['description'] ?? map['type']}$defaultValue';
+              })
+              .join('\n')
+        : useEnglish
+        ? '- No explicit parameters'
+        : '- 无显式参数';
+
+    if (useEnglish) {
+      return [
+        'You can reuse this OOB reusable Function.',
+        '',
+        'Reusable Function: $name',
+        'Reusable Function ID: $functionId',
+        if (description.isNotEmpty) 'Goal: $description',
+        '',
+        'Parameters:',
+        parameterLines,
+        '',
+        'Execution strategy:',
+        '1. Prefer executing materialized execution.steps in order from the JSON.',
+        '2. For executor=omniflow/model_free, execute the local replay action without a model call.',
+        '3. For executor=tool, call step.tool with the materialized step.args after validation.',
+        '4. For executor=agent or validation mismatch, call step.agent_call.tool / fallback.tool and re-plan that step from the current screen.',
+        '5. Runtime arguments are applied through parameters.bindings before execution.',
+        '',
+        'Reusable Function JSON:',
+        const JsonEncoder.withIndent('  ').convert(functionJson),
+      ].join('\n');
+    }
+
+    return [
+      '你可以复用这个 OOB 复用指令。',
+      '',
+      '复用指令：$name',
+      '复用指令 ID：$functionId',
+      if (description.isNotEmpty) '目标: $description',
+      '',
+      '参数:',
+      parameterLines,
+      '',
+      '执行策略:',
+      '1. 优先按已物化的 execution.steps 顺序执行。',
+      '2. executor=omniflow/model_free 时直接执行本地动作，不需要模型调用。',
+        '3. executor=tool 时，先检查 validation，再用 step.tool 和已物化 step.args 调工具。',
+      '4. executor=agent 或状态不匹配时，调用 step.agent_call.tool / fallback.tool，从当前屏幕重规划该步。',
+      '5. 运行时参数会先通过 parameters.bindings 写入对应 step args。',
+      '',
+      '复用指令 JSON:',
+      const JsonEncoder.withIndent('  ').convert(functionJson),
+    ].join('\n');
+  }
+
+  static String _buildAiPrompt(
+    Map<String, dynamic> baseJson, {
+    bool useEnglish = false,
+  }) {
+    final compact = const JsonEncoder.withIndent('  ').convert(baseJson);
+    if (useEnglish) {
+      return '''
+You are the OOB/OmniFlow trajectory organizer. Convert the draft extracted from RunLog below into reusable Function JSON.
+
+Requirements:
+- Output exactly one JSON object. Do not use Markdown and do not explain.
+- The first non-whitespace character must be "{" and the last non-whitespace character must be "}".
+- Do not wrap the JSON in code fences. Do not include comments, prose, XML, YAML, or bullet lists.
+- Keep schema_version = "oob.reusable_function.v1" and keep function_id exactly unchanged.
+- Preserve execution.steps order, tool names, and key args. Do not invent tools that do not exist.
+- You may rewrite name/description to make it a clearer reusable Function name.
+- You may refine parameters: abstract hard-coded user input, search terms, message text, URLs, and target objects into parameters; do not abstract coordinate x/y into user parameters.
+- Every parameter must include name/type/description/bindings/default. bindings must be a JSONPath string array pointing to leaf fields under execution.steps[*].args, including nested call_tool arguments such as execution.steps[*].args.arguments.query.
+- Parameter names must be semantic, for example contact_name, search_query, message_text, target_date, or target_url. Do not use mechanical names such as input_text_3 as final parameter names.
+- Preserve or improve step executor/model_free/scriptable/tool/args/agent_call/validation/fallback fields.
+- Keep model_free OOB actions model-free; do not turn click/swipe/input_text/open_app/press_key/call_tool into agent steps.
+- Drop legacy wait cards. Page settling is handled internally by OmniFlow/VLM stability logic and must not become a replay step.
+- Keep data-flow and perception tools as executor=agent with tool=oob.agent.run; do not turn browser_use/web_search/memory/oob_run_log tools into direct tool replay.
+- Output must be consumable by both the agent and the script runner.
+
+Draft JSON:
+$compact
+''';
+    }
+    return '''
+你是 OOB/OmniFlow 的轨迹整理器。请把下面由 RunLog 抽取得到的草稿，整理成复用指令 JSON。
+
+要求：
+- 只能输出一个 JSON object，不要 Markdown，不要解释。
+- 第一个非空白字符必须是 "{"，最后一个非空白字符必须是 "}"。
+- 不要使用代码块，不要包含注释、说明文字、XML、YAML 或列表解释。
+- 保持 schema_version = "oob.reusable_function.v1"，并保持 function_id 完全不变。
+- 保留 execution.steps 的顺序、工具名和关键 args，不要编造不存在的工具。
+- 可以重写 name/description，使其更像复用指令名称。
+- 可以整理 parameters：把硬编码的用户输入、搜索词、消息文本、URL、目标对象抽象成参数；不要把坐标 x/y 抽象成用户参数。
+- 每个 parameter 必须包含 name/type/description/bindings/default，其中 bindings 是 JSONPath 字符串数组，指向 execution.steps[*].args 下的叶子字段，也可以指向嵌套 call_tool 的 arguments，例如 execution.steps[*].args.arguments.query。
+- parameter name 必须有语义，例如 contact_name、search_query、message_text、target_date 或 target_url。不要把 input_text_3 这类机械名作为最终参数名。
+- 保留或优化每步的 executor/model_free/scriptable/tool/args/agent_call/validation/fallback 字段。
+- 保持 model_free OOB 动作无模型执行，不要把 click/swipe/input_text/open_app/press_key/call_tool 改成 agent 步骤。
+- 丢弃旧版 wait 卡片。页面停留由 OmniFlow/VLM 内部稳定逻辑处理，不能生成回放步骤。
+- 保持 data-flow 和感知工具为 executor=agent 且 tool=oob.agent.run；不要把 browser_use/web_search/memory/oob_run_log 工具改成直接 tool replay。
+- 输出必须能被 agent 和 script 执行器共同消费。
+
+草稿 JSON：
+$compact
+''';
+  }
+
+  static String _buildJsonRepairPrompt({
+    required String invalidOutput,
+    required Map<String, dynamic> fallbackJson,
+    bool useEnglish = false,
+  }) {
+    final fallback = const JsonEncoder.withIndent('  ').convert(fallbackJson);
+    if (useEnglish) {
+      return '''
+Repair the model output into exactly one valid JSON object.
+
+Hard requirements:
+- Return raw JSON only. The first non-whitespace character must be "{" and the last must be "}".
+- Do not use Markdown, code fences, comments, or explanations.
+- Keep schema_version = "oob.reusable_function.v1" and keep function_id exactly unchanged.
+- If the invalid output is unusable, return a valid improved version of the fallback JSON.
+
+Invalid output:
+$invalidOutput
+
+Fallback JSON:
+$fallback
+''';
+    }
+    return '''
+把模型输出修复成一个合法 JSON object。
+
+硬性要求：
+- 只返回原始 JSON。第一个非空白字符必须是 "{"，最后一个必须是 "}"。
+- 不要 Markdown、代码块、注释或解释。
+- 保持 schema_version = "oob.reusable_function.v1"，并保持 function_id 完全不变。
+- 如果原输出不可用，就基于 fallback JSON 返回一个合法的优化版本。
+
+无效输出：
+$invalidOutput
+
+Fallback JSON：
+$fallback
+''';
+  }
+
+  static String _buildLabelEnhancementPrompt(
+    Map<String, dynamic> functionJson, {
+    required String skillContract,
+    bool useEnglish = false,
+  }) {
+    final compact = const JsonEncoder.withIndent(
+      '  ',
+    ).convert(_buildLabelEnhancementPromptInput(functionJson));
+    if (useEnglish) {
+      return '''
+You are an OOB/OmniFlow reusable trajectory editor.
+
+${_labelEnhancementSkillContract(skillContract: skillContract, section: 'all')}
+
+Work one section at a time:
+1. Name and description.
+2. Per-step titles/descriptions/action purpose labels.
+3. Runtime parameters from candidate_bindings only.
+4. Non-executable agent_reuse metadata.
+
+Return exactly one JSON object. Use this example shape:
+{
+  "name": "short reusable Function name",
+  "description": "On the contact edit page, fill the contact name and phone fields with runtime values and submit the form. Reuse when the same contact editor is visible; success is confirmed when the saved contact details appear.",
+  "parameters": [
+    {
+      "name": "contact_name",
+      "type": "string",
+      "description": "runtime contact name",
+      "default": "Mom",
+      "bindings": ["\$.execution.steps[0].args.text"]
+    }
+  ],
+  "steps": [
+    {
+      "index": 0,
+      "title": "short action title",
+      "description": "what visible action this step performs and why it is needed",
+      "action_purpose": "why this action exists in the recorded trajectory",
+      "importance": "key",
+      "cleanup_action": "keep",
+      "cleanup_reason": "why this step is useful or can be merged/dropped"
+    }
+  ],
+  "metadata": {
+    "checker_rules": [
+      {
+        "id": "dismiss_optional_overlay_before_action",
+        "phase": "pre_transfer",
+        "condition": "overlay_blocking",
+        "action": "dismiss",
+        "enabled": true,
+        "params": {}
+      }
+    ]
+  },
+  "agent_reuse": {
+    "reuse_when": ["when this recorded trajectory matches the current app/page"],
+    "avoid_when": ["when the target app/page is different"],
+    "success_signal": "visible state that confirms success",
+    "key_actions": [
+      {"step_index": 1, "reason": "writes the runtime contact name", "parameter_names": ["contact_name"]}
+    ],
+    "checker_assets": [
+      {"checker_id": "dismiss_optional_overlay_before_action", "step_index": 2, "reason": "turns a conditional popup close into a runtime checker"}
+    ],
+    "segments": [
+      {
+        "name": "Fill contact fields",
+        "start_step_index": 1,
+        "end_step_index": 2,
+        "description": "contiguous slice that can be considered for future split",
+        "inputs": ["contact_name", "phone_number"]
+      }
+    ]
+  }
+}
+
+Rules:
+- Do not use Markdown or explanations.
+- Do not change function_id, tools, executors, arguments, parameters, validation, fallback, or step order.
+- You may add or rename parameter descriptors only from candidate_bindings in the input digest. Candidate bindings may target nested call_tool arguments. Do not bind coordinates, bounds, widths, heights, or invented paths.
+- Do not rewrite execution.steps or tool arguments. Parameter abstraction is metadata + bindings only; the runner applies fresh arguments later.
+- Prefer reusable slots for user-entered text, contact names, phone numbers, search terms, message text, dates, URLs, and target object names.
+- Parameter names must be semantic, for example contact_name, search_query, message_text, target_date, or target_url. Do not use mechanical names such as input_text_3 as final parameter names.
+- Use agent_reuse only as non-executable metadata for key actions, reuse conditions, avoid conditions, success signal, and contiguous segment candidates.
+- Segment candidates must use inclusive contiguous step indexes from the existing execution.steps. Do not claim a segment is already registered as a new Function.
+- Write a compact but detailed description that helps the Agent decide when to call this Function later. Cover what user-visible operations it performs, required app/page conditions, runtime inputs, and success signal when known.
+- Keep titles concise and action-oriented.
+- Include every input step index from execution.steps.
+- Every executable step/action must have title, description, action_purpose, importance, cleanup_action, and cleanup_reason.
+- Step description/action_purpose must say what the action does and why it exists in this trajectory; avoid generic labels like "click button".
+- cleanup_action must be one of keep, merge_candidate, drop_candidate, noise, or optional_checker.
+- Use optional_checker for conditional obstruction actions such as closing ads, popups, banners, coupons, permission nudges, or upgrade prompts that may not appear on every replay. Add optional_condition when known. Do not remove or force the step.
+- For every optional_checker, add a supported metadata.checker_rules entry and link it from agent_reuse.checker_assets. Supported combinations only: overlay_blocking+dismiss+pre_transfer, permission_dialog+allow+pre_transfer, keyboard_obscuring+hide_keyboard+pre_action, package_mismatch+open_app+pre_transfer, app_upgrade_prompt+dismiss+post_action. Do not invent scripts, selectors, model calls, or unsupported checker types.
+- Mark repeated, wrapper, state-refresh, wait-like, or no-op steps as merge_candidate/drop_candidate/noise with a short cleanup_reason. This is annotation only; do not remove steps.
+
+Input digest:
+$compact
+''';
+    }
+    return '''
+你是 OOB/OmniFlow 的复用轨迹整理器。
+
+${_labelEnhancementSkillContract(skillContract: skillContract, section: 'all')}
+
+按顺序逐项处理：
+1. 名称和简介。
+2. 每个 step 的标题/描述/动作用途标注。
+3. 只从 candidate_bindings 中选择运行时参数。
+4. 非执行的 agent_reuse 元数据。
+参数名必须有语义，例如 contact_name、search_query、message_text、target_date 或 target_url；不要把 input_text_3 这类机械名作为最终参数名。
+
+只返回一个 JSON object。使用这个样例结构：
+{
+  "name": "简短的复用指令名称",
+  "description": "在联系人编辑页填写联系人姓名和手机号，并提交保存表单。当前页面是同类联系人编辑表单时可复用；保存后联系人详情页展示刚写入的信息即为成功。",
+  "parameters": [
+    {
+      "name": "contact_name",
+      "type": "string",
+      "description": "运行时联系人姓名",
+      "default": "妈妈",
+      "bindings": ["\$.execution.steps[0].args.text"]
+    }
+  ],
+  "steps": [
+    {
+      "index": 0,
+      "title": "简短动作标题",
+      "description": "这个动作具体做什么，以及为什么需要它",
+      "action_purpose": "这个动作在录制轨迹里的用途",
+      "importance": "key",
+      "cleanup_action": "keep",
+      "cleanup_reason": "说明这一步为什么有用，或为什么可合并/可删除"
+    }
+  ],
+  "metadata": {
+    "checker_rules": [
+      {
+        "id": "dismiss_optional_overlay_before_action",
+        "phase": "pre_transfer",
+        "condition": "overlay_blocking",
+        "action": "dismiss",
+        "enabled": true,
+        "params": {}
+      }
+    ]
+  },
+  "agent_reuse": {
+    "reuse_when": ["当前 app/页面与记录轨迹一致时"],
+    "avoid_when": ["目标 app/页面不同或字段语义不匹配时"],
+    "success_signal": "可见的完成状态",
+    "key_actions": [
+      {"step_index": 1, "reason": "写入运行时联系人姓名", "parameter_names": ["contact_name"]}
+    ],
+    "checker_assets": [
+      {"checker_id": "dismiss_optional_overlay_before_action", "step_index": 2, "reason": "把条件性弹窗关闭动作转成运行时 checker"}
+    ],
+    "segments": [
+      {
+        "name": "填写联系人字段",
+        "start_step_index": 1,
+        "end_step_index": 2,
+        "description": "未来可考虑拆分的连续步骤片段",
+        "inputs": ["contact_name", "phone_number"]
+      }
+    ]
+  }
+}
+
+规则：
+- 不要 Markdown，不要解释。
+- 不要改 function_id、tool、executor、arguments、parameters、validation、fallback 或 step 顺序。
+- 可以新增或重命名参数描述，但只能从输入摘要的 candidate_bindings 中选择；candidate_bindings 可以指向嵌套 call_tool 的 arguments。不要绑定坐标、bounds、宽高或不存在的路径。
+- 不要重写 execution.steps 或工具参数。参数抽象只落成 metadata + bindings，回放时由 runner 注入新的运行时参数。
+- 优先抽象用户输入文本、联系人姓名、手机号、搜索词、消息正文、日期、URL 和目标对象名。
+- agent_reuse 只作为非执行元数据，用来记录 key action、复用条件、避免条件、成功信号和连续 segment 候选。
+- segment 候选必须使用现有 execution.steps 的闭区间连续 step index。不要声称 segment 已经注册成新的复用指令。
+- 简介要紧凑但更详细，方便 Agent 下次判断是否调用。说明它执行了哪些可见操作、需要处于哪个 app/页面、依赖哪些运行时输入，以及已知的成功信号。
+- 标题要短，像动作说明。
+- execution.steps 里的每个 step index 都要覆盖。
+- 每个可执行 step/action 都必须有 title、description、action_purpose、importance、cleanup_action 和 cleanup_reason。
+- description/action_purpose 必须说明这个动作做什么、为什么在这条轨迹里需要它；不要写“点击按钮”这种空泛描述。
+- cleanup_action 只能是 keep、merge_candidate、drop_candidate、noise 或 optional_checker。
+- 对关闭广告、弹窗、横幅、优惠券、权限提示、升级/更新提示等不一定每次出现的条件性遮挡动作，标成 optional_checker，并在知道条件时写 optional_condition。不要删除或强制改执行。
+- 每个 optional_checker 都要补一个可运行的 metadata.checker_rules，并在 agent_reuse.checker_assets 里关联原 step。只允许这些组合：overlay_blocking+dismiss+pre_transfer、permission_dialog+allow+pre_transfer、keyboard_obscuring+hide_keyboard+pre_action、package_mismatch+open_app+pre_transfer、app_upgrade_prompt+dismiss+post_action。不要发明脚本、selector、模型调用或不支持的 checker 类型。
+- 对重复、wrapper、刷新状态、类似 wait、无页面变化的步骤，标成 merge_candidate/drop_candidate/noise 并写简短 cleanup_reason。这只是标注，不要删除步骤。
+
+输入摘要：
+$compact
+''';
+  }
+
+  static String _labelEnhancementSkillContract({
+    required String skillContract,
+    required String section,
+  }) {
+    final normalized = skillContract.trim().isEmpty
+        ? kOmniFlowFunctionEnhancerContract.trim()
+        : skillContract.trim();
+    return '$normalized\n- Current enhancement section: "$section". Do not include status prose.';
+  }
+
+  static String _buildLabelHeaderEnhancementPrompt(
+    Map<String, dynamic> functionJson, {
+    required String skillContract,
+    bool useEnglish = false,
+  }) {
+    final input = const JsonEncoder.withIndent(
+      '  ',
+    ).convert(_labelHeaderPromptInput(functionJson));
+    if (useEnglish) {
+      return '''
+You are editing only the name and description of an OOB reusable Function.
+
+${_labelEnhancementSkillContract(skillContract: skillContract, section: 'header')}
+
+Return exactly one JSON object:
+{"name":"short reusable Function name","description":"On the contact edit page, fill the contact name and phone fields with runtime values and submit the form. Reuse when the same contact editor is visible; success is confirmed when the saved contact details appear."}
+
+Rules:
+- Return raw JSON only. Do not use Markdown or explanations.
+- Do not include steps, parameters, execution, tools, or agent_reuse.
+- Keep the name concise and action-oriented.
+- The description must be compact but detailed enough for future Agent selection: state the user-visible operation sequence, required app/page conditions, runtime inputs, and success signal when known.
+- Do not describe low-level coordinates, raw selectors, or internal implementation details.
+
+Input digest:
+$input
+''';
+    }
+    return '''
+你只负责整理 OOB 复用指令的名称和简介。
+
+${_labelEnhancementSkillContract(skillContract: skillContract, section: 'header')}
+
+只返回一个 JSON object：
+{"name":"简短复用指令名称","description":"在联系人编辑页填写联系人姓名和手机号，并提交保存表单。当前页面是同类联系人编辑表单时可复用；保存后联系人详情页展示刚写入的信息即为成功。"}
+
+规则：
+- 只返回原始 JSON。不要 Markdown，不要解释。
+- 不要包含 steps、parameters、execution、tools 或 agent_reuse。
+- 名称要短，像可执行指令。
+- 简介要紧凑但足够详细，方便 Agent 后续选择：说明可见操作顺序、需要处于哪个 app/页面、依赖哪些运行时输入，以及已知成功信号。
+- 不要描述底层坐标、原始 selector 或内部实现细节。
+
+输入摘要：
+$input
+''';
+  }
+
+  static String _buildLabelStepsEnhancementPrompt(
+    List<Map<String, dynamic>> steps, {
+    required String skillContract,
+    bool useEnglish = false,
+  }) {
+    final input = const JsonEncoder.withIndent('  ').convert({'steps': steps});
+    if (useEnglish) {
+      return '''
+You are editing only per-step titles, descriptions, and action-purpose labels for an OOB reusable Function.
+
+${_labelEnhancementSkillContract(skillContract: skillContract, section: 'steps')}
+
+Return exactly one JSON object:
+{"steps":[{"index":0,"title":"short action title","description":"what visible action this step performs and why it is needed","action_purpose":"why this action exists in the recorded trajectory","importance":"key","cleanup_action":"keep","cleanup_reason":"why this step is useful or can be merged/dropped"}],"metadata":{"checker_rules":[{"id":"dismiss_optional_overlay_before_action","phase":"pre_transfer","condition":"overlay_blocking","action":"dismiss","enabled":true,"params":{}}]},"agent_reuse":{"checker_assets":[{"checker_id":"dismiss_optional_overlay_before_action","step_index":0,"reason":"turns a conditional popup close into a runtime checker"}]}}
+
+Rules:
+- Return raw JSON only. Do not use Markdown or explanations.
+- Include every input step index exactly once.
+- Use only indexes from the input digest.
+- Do not include name, parameters, execution, tools, or args.
+- Include metadata.checker_rules and agent_reuse.checker_assets only when a step is marked optional_checker.
+- Keep titles concise and action-oriented.
+- Describe visible user intent and why the action exists, not raw coordinates or low-level implementation.
+- Every executable step/action must have title, description, action_purpose, importance, cleanup_action, and cleanup_reason.
+- cleanup_action must be one of keep, merge_candidate, drop_candidate, noise, or optional_checker.
+- Use optional_checker for conditional obstruction actions such as closing ads, popups, banners, coupons, permission nudges, or upgrade prompts that may not appear on every replay. Add optional_condition when known. Do not remove or force the step.
+- For every optional_checker, add a supported metadata.checker_rules entry and link it from agent_reuse.checker_assets. Supported combinations only: overlay_blocking+dismiss+pre_transfer, permission_dialog+allow+pre_transfer, keyboard_obscuring+hide_keyboard+pre_action, package_mismatch+open_app+pre_transfer, app_upgrade_prompt+dismiss+post_action. Do not invent scripts, selectors, model calls, or unsupported checker types.
+- Mark repeated, wrapper, state-refresh, wait-like, or no-op steps as merge_candidate/drop_candidate/noise with a short cleanup_reason. This is annotation only; do not remove steps.
+
+Input digest:
+$input
+''';
+    }
+    return '''
+你只负责整理 OOB 复用指令中每个 step 的标题、描述和动作用途标注。
+
+${_labelEnhancementSkillContract(skillContract: skillContract, section: 'steps')}
+
+只返回一个 JSON object：
+{"steps":[{"index":0,"title":"简短动作标题","description":"这个动作具体做什么，以及为什么需要它","action_purpose":"这个动作在录制轨迹里的用途","importance":"key","cleanup_action":"keep","cleanup_reason":"说明这一步为什么有用，或为什么可合并/可删除"}],"metadata":{"checker_rules":[{"id":"dismiss_optional_overlay_before_action","phase":"pre_transfer","condition":"overlay_blocking","action":"dismiss","enabled":true,"params":{}}]},"agent_reuse":{"checker_assets":[{"checker_id":"dismiss_optional_overlay_before_action","step_index":0,"reason":"把条件性弹窗关闭动作转成运行时 checker"}]}}
+
+规则：
+- 只返回原始 JSON。不要 Markdown，不要解释。
+- 输入摘要里的每个 step index 都必须出现一次。
+- 只能使用输入摘要中已有的 index。
+- 不要包含 name、parameters、execution、tools 或 args。
+- 只有当 step 标成 optional_checker 时，才包含 metadata.checker_rules 和 agent_reuse.checker_assets。
+- 标题要短，像动作说明。
+- 描述可见用户意图和动作存在的原因，不要描述裸坐标或底层实现。
+- 每个可执行 step/action 都必须有 title、description、action_purpose、importance、cleanup_action 和 cleanup_reason。
+- cleanup_action 只能是 keep、merge_candidate、drop_candidate、noise 或 optional_checker。
+- 对关闭广告、弹窗、横幅、优惠券、权限提示、升级/更新提示等不一定每次出现的条件性遮挡动作，标成 optional_checker，并在知道条件时写 optional_condition。不要删除或强制改执行。
+- 每个 optional_checker 都要补一个可运行的 metadata.checker_rules，并在 agent_reuse.checker_assets 里关联原 step。只允许这些组合：overlay_blocking+dismiss+pre_transfer、permission_dialog+allow+pre_transfer、keyboard_obscuring+hide_keyboard+pre_action、package_mismatch+open_app+pre_transfer、app_upgrade_prompt+dismiss+post_action。不要发明脚本、selector、模型调用或不支持的 checker 类型。
+- 对重复、wrapper、刷新状态、类似 wait、无页面变化的步骤，标成 merge_candidate/drop_candidate/noise 并写简短 cleanup_reason。这只是标注，不要删除步骤。
+
+输入摘要：
+$input
+''';
+  }
+
+  static String _buildLabelParametersEnhancementPrompt(
+    Map<String, dynamic> functionJson, {
+    required String skillContract,
+    bool useEnglish = false,
+  }) {
+    final input = const JsonEncoder.withIndent(
+      '  ',
+    ).convert(_labelParametersPromptInput(functionJson));
+    if (useEnglish) {
+      return '''
+You are editing only runtime parameter metadata for an OOB reusable Function.
+
+${_labelEnhancementSkillContract(skillContract: skillContract, section: 'parameters')}
+
+Return exactly one JSON object:
+{"parameters":[{"name":"contact_name","type":"string","description":"runtime contact name","default":"Mom","bindings":["\$.execution.steps[0].args.text"]}]}
+
+Rules:
+- Return raw JSON only. Do not use Markdown or explanations.
+- Bindings must be copied exactly from candidate_bindings[*].binding.
+- A binding may point to a nested call_tool argument, for example \$.execution.steps[1].args.arguments.search_query.
+- Do not bind coordinates, bounds, widths, heights, or invented paths.
+- Prefer slots for user-entered text, contact names, phone numbers, search terms, message text, dates, URLs, and target object names.
+- Do not include name, steps, execution, tools, args, or agent_reuse.
+- Parameter names must be semantic, for example contact_name, search_query, message_text, target_date, or target_url.
+
+Input digest:
+$input
+''';
+    }
+    return '''
+你只负责整理 OOB 复用指令的运行时参数 metadata。
+
+${_labelEnhancementSkillContract(skillContract: skillContract, section: 'parameters')}
+
+只返回一个 JSON object：
+{"parameters":[{"name":"contact_name","type":"string","description":"运行时联系人姓名","default":"妈妈","bindings":["\$.execution.steps[0].args.text"]}]}
+
+规则：
+- 只返回原始 JSON。不要 Markdown，不要解释。
+- bindings 必须从 candidate_bindings[*].binding 原样复制。
+- binding 可以指向嵌套 call_tool 参数，例如 \$.execution.steps[1].args.arguments.search_query。
+- 不要绑定坐标、bounds、宽高或不存在的路径。
+- 优先抽象用户输入文本、联系人姓名、手机号、搜索词、消息正文、日期、URL 和目标对象名。
+- 不要包含 name、steps、execution、tools、args 或 agent_reuse。
+- 参数名必须有语义，例如 contact_name、search_query、message_text、target_date 或 target_url。
+
+输入摘要：
+$input
+''';
+  }
+
+  static String _buildLabelReuseEnhancementPrompt(
+    Map<String, dynamic> functionJson, {
+    required String skillContract,
+    bool useEnglish = false,
+  }) {
+    final input = const JsonEncoder.withIndent(
+      '  ',
+    ).convert(_labelReusePromptInput(functionJson));
+    if (useEnglish) {
+      return '''
+You are editing only non-executable agent_reuse metadata for an OOB reusable Function.
+
+${_labelEnhancementSkillContract(skillContract: skillContract, section: 'agent_reuse')}
+
+Return exactly one JSON object:
+{"agent_reuse":{"reuse_when":["when this recorded trajectory matches the current app/page"],"avoid_when":["when the target app/page is different"],"success_signal":"visible state that confirms success","key_actions":[{"step_index":1,"reason":"writes the runtime contact name","parameter_names":["contact_name"]}],"segments":[{"name":"Fill contact fields","start_step_index":1,"end_step_index":2,"description":"contiguous slice that can be considered for future split","inputs":["contact_name","phone_number"]}]}}
+
+Rules:
+- Return raw JSON only. Do not use Markdown or explanations.
+- agent_reuse is metadata only. Do not claim a segment is registered as a new Function.
+- Segment candidates must use inclusive contiguous step indexes from the input digest.
+- key_actions and segment inputs may reference only listed parameter names.
+- Do not include name, steps, parameters, execution, tools, or args.
+- reuse_when, avoid_when, and success_signal must be concrete visible app/page conditions.
+
+Input digest:
+$input
+''';
+    }
+    return '''
+你只负责整理 OOB 复用指令的非执行 agent_reuse metadata。
+
+${_labelEnhancementSkillContract(skillContract: skillContract, section: 'agent_reuse')}
+
+只返回一个 JSON object：
+{"agent_reuse":{"reuse_when":["当前 app/页面与记录轨迹一致时"],"avoid_when":["目标 app/页面不同或字段语义不匹配时"],"success_signal":"可见的完成状态","key_actions":[{"step_index":1,"reason":"写入运行时联系人姓名","parameter_names":["contact_name"]}],"segments":[{"name":"填写联系人字段","start_step_index":1,"end_step_index":2,"description":"未来可考虑拆分的连续步骤片段","inputs":["contact_name","phone_number"]}]}}
+
+规则：
+- 只返回原始 JSON。不要 Markdown，不要解释。
+- agent_reuse 只是 metadata。不要声称 segment 已经注册成新的复用指令。
+- segment 候选必须使用输入摘要里的闭区间连续 step index。
+- key_actions 和 segment inputs 只能引用已列出的参数名。
+- 不要包含 name、steps、parameters、execution、tools 或 args。
+- reuse_when、avoid_when 和 success_signal 必须是具体、可见的 app/page 条件。
+
+输入摘要：
+$input
+''';
+  }
+
+  static String _buildLabelEnhancementPartRepairPrompt({
+    required String partName,
+    required String invalidOutput,
+    required Map<String, dynamic> fallbackPatch,
+    bool useEnglish = false,
+  }) {
+    final fallback = const JsonEncoder.withIndent('  ').convert(fallbackPatch);
+    if (useEnglish) {
+      return '''
+Repair the previous OOB reusable Function $partName output into exactly one valid JSON object.
+
+Return raw JSON only. Do not use Markdown, code fences, comments, or explanations.
+If the invalid output is unusable, return the fallback JSON object.
+
+Previous invalid output:
+$invalidOutput
+
+Fallback JSON:
+$fallback
+''';
+    }
+    return '''
+把上一次 OOB 复用指令 $partName 输出修复成一个合法 JSON object。
+
+只返回原始 JSON。不要 Markdown、代码块、注释或解释。
+如果原输出不可用，就返回 fallback JSON object。
+
+上一次无效输出：
+$invalidOutput
+
+Fallback JSON：
+$fallback
+''';
+  }
+
+  static Map<String, dynamic> _labelHeaderPromptInput(
+    Map<String, dynamic> functionJson,
+  ) {
+    final digest = _buildLabelEnhancementPromptInput(functionJson);
+    final rawSteps = digest['steps'] is List
+        ? (digest['steps'] as List).map(_asStringKeyMap)
+        : const Iterable<Map<String, dynamic>>.empty();
+    return {
+      'function_id': digest['function_id'],
+      'current_name': digest['name'],
+      'current_description': digest['description'],
+      'constraints': digest['constraints'],
+      'steps': rawSteps
+          .take(12)
+          .map(
+            (step) => {
+              'index': step['index'],
+              'tool': step['tool'],
+              'title': step['title'],
+              'summary': step['summary'],
+            },
+          )
+          .toList(growable: false),
+    };
+  }
+
+  static Map<String, dynamic> _labelParametersPromptInput(
+    Map<String, dynamic> functionJson,
+  ) {
+    final digest = _buildLabelEnhancementPromptInput(functionJson);
+    return {
+      'function_id': digest['function_id'],
+      'name': digest['name'],
+      'description': digest['description'],
+      'existing_parameters': digest['existing_parameters'],
+      'steps': digest['steps'],
+      'candidate_bindings': digest['candidate_bindings'],
+    };
+  }
+
+  static Map<String, dynamic> _labelReusePromptInput(
+    Map<String, dynamic> functionJson,
+  ) {
+    final digest = _buildLabelEnhancementPromptInput(functionJson);
+    final parameterNames = _parameterNames(functionJson['parameters']);
+    return {
+      'function_id': digest['function_id'],
+      'name': digest['name'],
+      'description': digest['description'],
+      'steps': digest['steps'],
+      'parameter_names': parameterNames.toList(growable: false),
+    };
+  }
+
+  static Map<String, dynamic> _labelHeaderFallbackPatch(
+    Map<String, dynamic> functionJson,
+  ) {
+    return {
+      'name': _firstNonBlank([functionJson['name']]),
+      'description': _firstNonBlank([functionJson['description']]),
+    };
+  }
+
+  static Map<String, dynamic> _labelParametersFallbackPatch(
+    Map<String, dynamic> functionJson,
+  ) {
+    final digest = _buildLabelEnhancementPromptInput(functionJson);
+    return {
+      'parameters': digest['existing_parameters'] is List
+          ? digest['existing_parameters']
+          : const <dynamic>[],
+    };
+  }
+
+  static List<List<Map<String, dynamic>>> _labelStepPromptChunks(
+    Map<String, dynamic> functionJson, {
+    int chunkSize = 6,
+  }) {
+    final digest = _buildLabelEnhancementPromptInput(functionJson);
+    final steps = digest['steps'] is List
+        ? (digest['steps'] as List)
+              .map(_asStringKeyMap)
+              .where((step) => step.isNotEmpty)
+              .toList(growable: false)
+        : const <Map<String, dynamic>>[];
+    final chunks = <List<Map<String, dynamic>>>[];
+    for (var start = 0; start < steps.length; start += chunkSize) {
+      final end = (start + chunkSize) > steps.length
+          ? steps.length
+          : start + chunkSize;
+      chunks.add(steps.sublist(start, end));
+    }
+    return chunks;
+  }
+
+  static List<Map<String, dynamic>> _stepPromptFallback(
+    List<Map<String, dynamic>> steps,
+  ) {
+    return steps
+        .map(
+          (step) => {
+            'index': step['index'],
+            'title': step['title'],
+            'description': step['summary'],
+            'action_purpose': _firstNonBlank([
+              step['action_purpose'],
+              step['summary'],
+              step['title'],
+            ]),
+            'importance': 'normal',
+            'cleanup_action': 'keep',
+            'cleanup_reason': 'Existing executable step preserved.',
+          },
+        )
+        .toList(growable: false);
+  }
+
+  static Map<String, dynamic> _mergeLabelEnhancementPatches(
+    List<Map<String, dynamic>> patches,
+  ) {
+    final merged = <String, dynamic>{};
+    final steps = <dynamic>[];
+    final parameters = <dynamic>[];
+    var agentReuse = <String, dynamic>{};
+    var metadata = <String, dynamic>{};
+    for (final patch in patches) {
+      final name = _firstNonBlank([patch['name'], patch['title']]);
+      if (name.isNotEmpty) {
+        merged['name'] = name;
+      }
+      final description = _firstNonBlank([
+        patch['description'],
+        patch['summary'],
+      ]);
+      if (description.isNotEmpty) {
+        merged['description'] = description;
+      }
+      steps.addAll(_firstListValue(patch, const ['steps', 'actions']));
+      parameters.addAll(
+        _firstListValue(patch, const [
+          'parameters',
+          'slots',
+          'arguments',
+          'parameter_suggestions',
+          'parameterSuggestions',
+        ]),
+      );
+      agentReuse = _mergeMaps(
+        agentReuse,
+        _asStringKeyMap(patch['agent_reuse']),
+      );
+      for (final key in const [
+        'reuse_when',
+        'avoid_when',
+        'success_signal',
+        'key_actions',
+        'checker_assets',
+        'segments',
+      ]) {
+        if (patch.containsKey(key)) {
+          agentReuse[key] = patch[key];
+        }
+      }
+      metadata = _mergeMaps(metadata, _asStringKeyMap(patch['metadata']));
+      final checkerRules = _firstListValue(patch, const [
+        'checker_rules',
+        'checkerRules',
+      ]);
+      if (checkerRules.isNotEmpty) {
+        final existing = metadata['checker_rules'] is List
+            ? metadata['checker_rules'] as List
+            : const <dynamic>[];
+        metadata['checker_rules'] = [...existing, ...checkerRules];
+      }
+    }
+    if (steps.isNotEmpty) {
+      merged['steps'] = steps;
+    }
+    if (parameters.isNotEmpty) {
+      merged['parameters'] = parameters;
+    }
+    if (agentReuse.isNotEmpty) {
+      merged['agent_reuse'] = agentReuse;
+    }
+    if (metadata.isNotEmpty) {
+      merged['metadata'] = metadata;
+    }
+    return merged;
+  }
+
+  static Map<String, dynamic> _buildLabelEnhancementPromptInput(
+    Map<String, dynamic> functionJson,
+  ) {
+    final steps = _executionSteps(functionJson);
+    final rawParameters = functionJson['parameters'];
+    return {
+      'function_id': _firstNonBlank([functionJson['function_id']]),
+      'name': _firstNonBlank([functionJson['name']]),
+      'description': _firstNonBlank([functionJson['description']]),
+      'constraints': _asStringKeyMap(functionJson['constraints']),
+      'existing_parameters': rawParameters is List
+          ? rawParameters
+                .map(_asStringKeyMap)
+                .where((item) => item.isNotEmpty)
+                .map(
+                  (item) => {
+                    'name': _firstNonBlank([item['name']]),
+                    'type': _firstNonBlank([item['type'], 'string']),
+                    'description': _firstNonBlank([item['description']]),
+                    if (item.containsKey('default')) 'default': item['default'],
+                    'bindings': item['bindings'] is List
+                        ? (item['bindings'] as List)
+                              .map((entry) => entry.toString())
+                              .toList(growable: false)
+                        : const <String>[],
+                  },
+                )
+                .toList(growable: false)
+          : const <dynamic>[],
+      'steps': [
+        for (var index = 0; index < steps.length; index++)
+          _labelEnhancementStepDigest(steps[index], index),
+      ],
+      'candidate_bindings': _enhancementBindingCandidates(functionJson),
+    };
+  }
+
+  static Map<String, dynamic> _labelEnhancementStepDigest(
+    Map<String, dynamic> step,
+    int index,
+  ) {
+    final cleanupAnnotation = _asStringKeyMap(step['cleanup_annotation']);
+    return {
+      'index': index,
+      'id': _firstNonBlank([step['id'], 'step_${index + 1}']),
+      'tool': _firstNonBlank([step['tool']]),
+      'executor': _firstNonBlank([step['executor']]),
+      'title': _firstNonBlank([step['title']]),
+      'description': _firstNonBlank([step['description']]),
+      'action_purpose': _firstNonBlank([
+        cleanupAnnotation['action_purpose'],
+        step['description'],
+        step['summary'],
+      ]),
+      'summary': _firstNonBlank([step['description'], step['summary']]),
+      if (cleanupAnnotation.isNotEmpty) 'cleanup_annotation': cleanupAnnotation,
+      'args_preview': _enhancementArgsPreview(step['args']),
+    };
+  }
+
+  static Map<String, dynamic> _applyLabelEnhancement(
+    Map<String, dynamic> aiJson,
+    Map<String, dynamic> fallback,
+  ) {
+    final result = _jsonSafeMap(fallback);
+    final fallbackName = _firstNonBlank([
+      fallback['name'],
+      fallback['function_id'],
+    ]);
+    final name = _firstNonBlank([aiJson['name'], aiJson['title']]);
+    if (name.isNotEmpty) {
+      result['name'] = _normalizeFunctionName(
+        name,
+        fallback: fallbackName.isEmpty ? 'reusable_function' : fallbackName,
+      );
+    }
+    final description = _firstNonBlank([
+      aiJson['description'],
+      aiJson['summary'],
+    ]);
+    if (description.isNotEmpty) {
+      result['description'] = description;
+    }
+
+    final execution = _asStringKeyMap(result['execution']);
+    final rawSteps = execution['steps'];
+    if (rawSteps is List) {
+      final steps = rawSteps.map(_asStringKeyMap).toList(growable: true);
+      final aiStepsRaw = aiJson['steps'] is List
+          ? aiJson['steps'] as List
+          : aiJson['actions'] is List
+          ? aiJson['actions'] as List
+          : const <dynamic>[];
+      for (
+        var fallbackIndex = 0;
+        fallbackIndex < aiStepsRaw.length;
+        fallbackIndex++
+      ) {
+        final aiStep = _asStringKeyMap(aiStepsRaw[fallbackIndex]);
+        if (aiStep.isEmpty) continue;
+        final index =
+            _asInt(
+              aiStep['index'] ?? aiStep['step_index'] ?? aiStep['stepIndex'],
+            ) ??
+            fallbackIndex;
+        if (index < 0 || index >= steps.length) continue;
+        final title = _firstNonBlank([
+          aiStep['title'],
+          aiStep['summary'],
+          aiStep['name'],
+        ]);
+        final stepDescription = _firstNonBlank([
+          aiStep['description'],
+          aiStep['detail'],
+          aiStep['intent'],
+          aiStep['action_purpose'],
+          aiStep['actionPurpose'],
+          aiStep['purpose'],
+        ]);
+        if (title.isNotEmpty) {
+          steps[index]['title'] = title;
+          steps[index]['summary'] = title;
+        }
+        if (stepDescription.isNotEmpty) {
+          steps[index]['description'] = stepDescription;
+          steps[index].putIfAbsent('summary', () => stepDescription);
+          steps[index].putIfAbsent('title', () => stepDescription);
+        }
+        final cleanupAnnotation = _stepCleanupAnnotationFromAi(
+          aiStep,
+          fallback: _asStringKeyMap(steps[index]['cleanup_annotation']),
+        );
+        if (cleanupAnnotation.isNotEmpty) {
+          steps[index]['cleanup_annotation'] = cleanupAnnotation;
+        }
+      }
+      execution['steps'] = steps;
+      result['execution'] = execution;
+      _syncStepCleanupMetadata(result, steps);
+
+      final rawActions = result['actions'];
+      if (rawActions is List) {
+        final actions = rawActions.map(_asStringKeyMap).toList(growable: true);
+        for (
+          var index = 0;
+          index < steps.length && index < actions.length;
+          index++
+        ) {
+          final stepDescription = _firstNonBlank([
+            steps[index]['description'],
+            steps[index]['summary'],
+            steps[index]['title'],
+          ]);
+          if (stepDescription.isNotEmpty) {
+            actions[index]['description'] = stepDescription;
+          }
+        }
+        result['actions'] = actions;
+      }
+    }
+    result['parameters'] = _applyParameterEnhancement(aiJson, result);
+    final checkerEnhancement = _checkerRuleEnhancement(aiJson, result);
+    _applyCheckerRuleEnhancement(result, checkerEnhancement);
+    final agentReuse = _agentReuseEnhancement(
+      aiJson,
+      result,
+      checkerAssets: checkerEnhancement.assets,
+      checkerRuleIds: checkerEnhancement.ruleIds,
+    );
+    if (agentReuse.isNotEmpty) {
+      result['agent_reuse'] = _mergeMaps(
+        _asStringKeyMap(result['agent_reuse']),
+        agentReuse,
+      );
+    }
+    return result;
+  }
+
+  static Map<String, dynamic> _buildLabelEnhancementDiffReport({
+    required Map<String, dynamic> original,
+    required Map<String, dynamic> enhanced,
+    required Map<String, dynamic> mergedPatch,
+  }) {
+    final originalSteps = _executionSteps(original);
+    final enhancedSteps = _executionSteps(enhanced);
+    final originalParameters = _parameterSummaries(original['parameters']);
+    final enhancedParameters = _parameterSummaries(enhanced['parameters']);
+    final originalReuse = _asStringKeyMap(original['agent_reuse']);
+    final enhancedReuse = _asStringKeyMap(enhanced['agent_reuse']);
+    final originalCheckerRules = _asStringKeyMapList(
+      _asStringKeyMap(original['metadata'])['checker_rules'],
+    );
+    final enhancedCheckerRules = _asStringKeyMapList(
+      _asStringKeyMap(enhanced['metadata'])['checker_rules'],
+    );
+
+    final headerChanges = <String>[];
+    if (!_valuesEquivalent(original['name'], enhanced['name'])) {
+      headerChanges.add('name');
+    }
+    if (!_valuesEquivalent(original['description'], enhanced['description'])) {
+      headerChanges.add('description');
+    }
+
+    final stepChanges = <Map<String, dynamic>>[];
+    final maxStepCount = originalSteps.length < enhancedSteps.length
+        ? originalSteps.length
+        : enhancedSteps.length;
+    for (var index = 0; index < maxStepCount; index++) {
+      final changedFields = <String>[];
+      for (final field in const [
+        'title',
+        'summary',
+        'description',
+        'cleanup_annotation',
+      ]) {
+        if (!_valuesEquivalent(
+          originalSteps[index][field],
+          enhancedSteps[index][field],
+        )) {
+          changedFields.add(field);
+        }
+      }
+      if (changedFields.isNotEmpty) {
+        stepChanges.add({
+          'index': index,
+          'step_id': _firstNonBlank([
+            enhancedSteps[index]['id'],
+            originalSteps[index]['id'],
+            'step_${index + 1}',
+          ]),
+          'changed_fields': changedFields,
+        });
+      }
+    }
+
+    final parameterChanges = <String, dynamic>{
+      'before_names': originalParameters.map((item) => item['name']).toList(),
+      'after_names': enhancedParameters.map((item) => item['name']).toList(),
+      'added_names': _setDifference(
+        enhancedParameters.map((item) => item['name']),
+        originalParameters.map((item) => item['name']),
+      ),
+      'removed_names': _setDifference(
+        originalParameters.map((item) => item['name']),
+        enhancedParameters.map((item) => item['name']),
+      ),
+      'changed_names': _changedParameterNames(
+        originalParameters,
+        enhancedParameters,
+      ),
+    };
+
+    final requestedParameters = _firstListValue(mergedPatch, const [
+      'parameters',
+      'slots',
+      'arguments',
+      'parameter_suggestions',
+      'parameterSuggestions',
+    ]);
+    final requestedParameterNames = requestedParameters
+        .map(_asStringKeyMap)
+        .map((item) => _firstNonBlank([item['name'], item['id'], item['role']]))
+        .where((name) => name.isNotEmpty)
+        .toList(growable: false);
+    final appliedParameterNames = enhancedParameters
+        .map((item) => item['name']?.toString() ?? '')
+        .where((name) => name.isNotEmpty)
+        .toList(growable: false);
+    final rejectedParameterNames = _setDifference(
+      requestedParameterNames,
+      appliedParameterNames,
+    );
+
+    final reuseChangedKeys = <String>[];
+    for (final key in <String>{...originalReuse.keys, ...enhancedReuse.keys}) {
+      if (!_valuesEquivalent(originalReuse[key], enhancedReuse[key])) {
+        reuseChangedKeys.add(key);
+      }
+    }
+
+    final changed =
+        headerChanges.isNotEmpty ||
+        stepChanges.isNotEmpty ||
+        !_valuesEquivalent(originalParameters, enhancedParameters) ||
+        reuseChangedKeys.isNotEmpty ||
+        !_valuesEquivalent(originalCheckerRules, enhancedCheckerRules);
+
+    return {
+      'part': 'validated_diff',
+      'status': changed ? 'changed' : 'unchanged',
+      'accepted': true,
+      'changed': changed,
+      'header_changed_fields': headerChanges,
+      'step_changes': stepChanges,
+      'parameter_changes': parameterChanges,
+      'reuse_changed_keys': reuseChangedKeys,
+      'checker_rule_changes': {
+        'before_count': originalCheckerRules.length,
+        'after_count': enhancedCheckerRules.length,
+        'changed': !_valuesEquivalent(
+          originalCheckerRules,
+          enhancedCheckerRules,
+        ),
+      },
+      'rejected_candidates': {
+        'parameter_names': rejectedParameterNames,
+        'count': rejectedParameterNames.length,
+        if (rejectedParameterNames.isNotEmpty)
+          'reason':
+              'candidate binding was missing, unsafe, duplicate, or incompatible with recorded values',
+      },
+    };
+  }
+
+  static List<dynamic> _applyParameterEnhancement(
+    Map<String, dynamic> aiJson,
+    Map<String, dynamic> functionJson,
+  ) {
+    final existing = functionJson['parameters'] is List
+        ? (functionJson['parameters'] as List)
+              .map(_asStringKeyMap)
+              .where((item) => item.isNotEmpty)
+              .toList(growable: false)
+        : const <Map<String, dynamic>>[];
+    final aiParameters = _firstListValue(aiJson, const [
+      'parameters',
+      'slots',
+      'arguments',
+      'parameter_suggestions',
+      'parameterSuggestions',
+    ]);
+    if (aiParameters.isEmpty) {
+      return existing;
+    }
+
+    final steps = _executionSteps(functionJson);
+    final existingBindingTargets = <String, _ParameterBindingTarget>{};
+    final existingByBinding = <String, Map<String, dynamic>>{};
+    for (final parameter in existing) {
+      for (final target in _validBindingTargets(parameter['bindings'], steps)) {
+        existingBindingTargets[target.binding] = target;
+        existingByBinding[target.binding] = parameter;
+      }
+    }
+
+    final usedNames = <String>{};
+    final consumedBindings = <String>{};
+    final output = <Map<String, dynamic>>[];
+
+    for (final rawParameter in aiParameters) {
+      final parameter = _asStringKeyMap(rawParameter);
+      if (parameter.isEmpty) {
+        continue;
+      }
+      final inferredBindings = _fallbackInputTextBindingsForParameter(
+        parameter,
+        steps,
+      );
+      final explicitTargets = _validBindingTargets(
+        parameter['bindings'],
+        steps,
+      );
+      final candidateTargets = explicitTargets.isNotEmpty
+          ? explicitTargets
+          : _validBindingTargets(inferredBindings, steps);
+      final directTargets = candidateTargets
+          .where((target) => !consumedBindings.contains(target.binding))
+          .toList(growable: false);
+      if (directTargets.isEmpty) {
+        continue;
+      }
+      final compatibleTargets = _compatibleParameterTargets(
+        directTargets,
+        existingBindingTargets,
+        existingByBinding,
+        steps,
+      );
+      if (compatibleTargets.isEmpty ||
+          !_bindingTargetValuesMatch(compatibleTargets)) {
+        continue;
+      }
+      final defaultValue = _jsonSafe(compatibleTargets.first.value);
+      final baseName = _semanticParameterNameForTarget(
+        parameter,
+        compatibleTargets.first,
+        steps,
+      );
+      final name = _uniqueParameterName(baseName, usedNames);
+      final description = _firstNonBlank([
+        parameter['description'],
+        parameter['summary'],
+        parameter['role'],
+        name,
+      ]);
+      final type = _safeParameterType(parameter['type'], defaultValue);
+      final bindings = <String>[];
+      final sourceSteps = <String>[];
+      for (final target in compatibleTargets) {
+        if (!bindings.contains(target.binding)) {
+          bindings.add(target.binding);
+        }
+        if (target.stepId.isNotEmpty && !sourceSteps.contains(target.stepId)) {
+          sourceSteps.add(target.stepId);
+        }
+        consumedBindings.add(target.binding);
+      }
+      final enhanced = <String, dynamic>{
+        'name': name,
+        'type': type,
+        'description': description,
+        'default': defaultValue,
+        'required': parameter['required'] == true,
+        'bindings': bindings,
+        if (sourceSteps.isNotEmpty) 'source_steps': sourceSteps,
+      };
+      final reuseRole = _firstNonBlank([
+        parameter['reuse_role'],
+        parameter['reuseRole'],
+        parameter['role'],
+        parameter['semantic'],
+      ]);
+      if (reuseRole.isNotEmpty) {
+        enhanced['reuse_role'] = _compactPreview(reuseRole, maxLength: 80);
+      }
+      output.add(enhanced);
+    }
+
+    for (final parameter in existing) {
+      final targets = _validBindingTargets(parameter['bindings'], steps);
+      if (targets.isEmpty) {
+        final name = _uniqueParameterName(
+          _firstNonBlank([parameter['name'], 'parameter']),
+          usedNames,
+        );
+        output.add({...parameter, 'name': name});
+        continue;
+      }
+      final remainingBindings = targets
+          .map((target) => target.binding)
+          .where((binding) => !consumedBindings.contains(binding))
+          .toList(growable: false);
+      if (remainingBindings.isEmpty) {
+        continue;
+      }
+      final name = _uniqueParameterName(
+        _firstNonBlank([parameter['name'], 'parameter']),
+        usedNames,
+      );
+      output.add({...parameter, 'name': name, 'bindings': remainingBindings});
+    }
+
+    return output.isEmpty ? existing : output;
+  }
+
+  static Map<String, dynamic> _agentReuseEnhancement(
+    Map<String, dynamic> aiJson,
+    Map<String, dynamic> functionJson, {
+    List<Map<String, dynamic>> checkerAssets = const <Map<String, dynamic>>[],
+    Set<String> checkerRuleIds = const <String>{},
+  }) {
+    final raw = _mergeMaps(_asStringKeyMap(aiJson['agent_reuse']), {
+      if (aiJson['reuse_when'] != null) 'reuse_when': aiJson['reuse_when'],
+      if (aiJson['avoid_when'] != null) 'avoid_when': aiJson['avoid_when'],
+      if (aiJson['success_signal'] != null)
+        'success_signal': aiJson['success_signal'],
+      if (aiJson['key_actions'] != null) 'key_actions': aiJson['key_actions'],
+      if (aiJson['checker_assets'] != null)
+        'checker_assets': aiJson['checker_assets'],
+      if (aiJson['segments'] != null) 'segments': aiJson['segments'],
+    });
+    if (raw.isEmpty && checkerAssets.isEmpty) {
+      return const <String, dynamic>{};
+    }
+
+    final steps = _executionSteps(functionJson);
+    if (steps.isEmpty) {
+      return const <String, dynamic>{};
+    }
+    final parameterNames = _parameterNames(functionJson['parameters']);
+    final reuseWhen = _safeStringList(raw['reuse_when'], maxItems: 6);
+    final avoidWhen = _safeStringList(raw['avoid_when'], maxItems: 6);
+    final successSignal = _boundedText(raw['success_signal'], maxLength: 240);
+    final keyActions = _safeKeyActions(
+      raw['key_actions'],
+      steps,
+      parameterNames,
+    );
+    final existingAgentReuse = _asStringKeyMap(functionJson['agent_reuse']);
+    final safeCheckerAssets = _mergeCheckerAssets(
+      _asStringKeyMapList(existingAgentReuse['checker_assets']),
+      [
+        ..._safeCheckerAssets(raw['checker_assets'], steps, checkerRuleIds),
+        ...checkerAssets,
+      ],
+      steps,
+      checkerRuleIds,
+    );
+    final segments = _safeReuseSegments(raw['segments'], steps, parameterNames);
+
+    final output = <String, dynamic>{
+      'schema_version': 'oob.agent_reuse.v1',
+      'mode': 'metadata_only',
+      'execution_rewrite_allowed': false,
+      if (reuseWhen.isNotEmpty) 'reuse_when': reuseWhen,
+      if (avoidWhen.isNotEmpty) 'avoid_when': avoidWhen,
+      if (successSignal.isNotEmpty) 'success_signal': successSignal,
+      if (keyActions.isNotEmpty) 'key_actions': keyActions,
+      if (safeCheckerAssets.isNotEmpty) 'checker_assets': safeCheckerAssets,
+      if (segments.isNotEmpty) 'segments': segments,
+    };
+    return output.length <= 3 ? const <String, dynamic>{} : output;
+  }
+
+  static Map<String, dynamic> _normalizeAiJson(
+    Map<String, dynamic> aiJson,
+    Map<String, dynamic> fallback,
+  ) {
+    final normalized = Map<String, dynamic>.from(aiJson);
+    normalized['schema_version'] = 'oob.reusable_function.v1';
+    normalized['function_id'] = _normalizeFunctionId(
+      _firstNonBlank([fallback['function_id'], normalized['function_id']]),
+      fallback: _firstNonBlank([fallback['function_id']]),
+    );
+    normalized['source'] = _mergeMaps(
+      _asStringKeyMap(fallback['source']),
+      _asStringKeyMap(normalized['source']),
+    );
+    normalized['parameters'] = _normalizeParameters(
+      normalized['parameters'],
+      fallback['parameters'],
+    );
+    normalized['constraints'] = _mergeMaps(
+      _asStringKeyMap(fallback['constraints']),
+      _asStringKeyMap(normalized['constraints']),
+    );
+
+    final fallbackExecution = _asStringKeyMap(fallback['execution']);
+    final execution = _asStringKeyMap(normalized['execution']);
+    final aiSteps = execution['steps'];
+    final fallbackSteps = fallbackExecution['steps'];
+    final normalizedSteps = _normalizeExecutionSteps(aiSteps, fallbackSteps);
+    normalized['execution'] = {
+      ...fallbackExecution,
+      ...execution,
+      'capabilities': _executionCapabilitiesForSteps(
+        normalizedSteps,
+        fallback: _mergeMaps(
+          _asStringKeyMap(fallbackExecution['capabilities']),
+          _asStringKeyMap(execution['capabilities']),
+        ),
+      ),
+      'steps': normalizedSteps,
+    };
+    for (final key in const [
+      'tags',
+      'runtime_targets',
+      'call_contract',
+      'agent_reuse',
+      'script_reuse',
+    ]) {
+      normalized.remove(key);
+    }
+    if (_firstNonBlank([normalized['name']]).isEmpty) {
+      normalized['name'] = fallback['name'];
+    }
+    if (_firstNonBlank([normalized['description']]).isEmpty) {
+      normalized['description'] = fallback['description'];
+    }
+    final safe = _jsonSafe(normalized);
+    if (safe is Map<String, dynamic>) {
+      return safe;
+    }
+    if (safe is Map) {
+      return safe.map((key, value) => MapEntry(key.toString(), value));
+    }
+    return Map<String, dynamic>.from(fallback);
+  }
+
+  static List<Map<String, dynamic>> _parameterSummaries(dynamic rawParameters) {
+    if (rawParameters is! List) {
+      return const <Map<String, dynamic>>[];
+    }
+    return rawParameters
+        .map(_asStringKeyMap)
+        .where((item) => item.isNotEmpty)
+        .map(
+          (item) => {
+            'name': _firstNonBlank([item['name']]),
+            'type': _firstNonBlank([item['type']]),
+            'description': _firstNonBlank([item['description']]),
+            if (item.containsKey('default'))
+              'default': _jsonSafe(item['default']),
+            'bindings': item['bindings'] is List
+                ? (item['bindings'] as List)
+                      .map((entry) => entry.toString())
+                      .toList(growable: false)
+                : const <String>[],
+          },
+        )
+        .toList(growable: false);
+  }
+
+  static List<String> _setDifference(
+    Iterable<dynamic> left,
+    Iterable<dynamic> right,
+  ) {
+    final rightSet = right
+        .map((item) => item?.toString().trim() ?? '')
+        .where((item) => item.isNotEmpty)
+        .toSet();
+    final output = <String>[];
+    for (final raw in left) {
+      final value = raw?.toString().trim() ?? '';
+      if (value.isEmpty || rightSet.contains(value) || output.contains(value)) {
+        continue;
+      }
+      output.add(value);
+    }
+    return output;
+  }
+
+  static List<String> _changedParameterNames(
+    List<Map<String, dynamic>> before,
+    List<Map<String, dynamic>> after,
+  ) {
+    final beforeByName = {
+      for (final item in before)
+        if ((item['name'] ?? '').toString().trim().isNotEmpty)
+          item['name'].toString(): item,
+    };
+    final output = <String>[];
+    for (final item in after) {
+      final name = (item['name'] ?? '').toString().trim();
+      if (name.isEmpty) {
+        continue;
+      }
+      final previous = beforeByName[name];
+      if (previous != null && !_valuesEquivalent(previous, item)) {
+        output.add(name);
+      }
+    }
+    return output;
+  }
+
+  @visibleForTesting
+  static Map<String, dynamic> normalizeAiJsonForTesting(
+    Map<String, dynamic> aiJson,
+    Map<String, dynamic> fallback,
+  ) {
+    return _normalizeAiJson(aiJson, fallback);
+  }
+}
+
+Map<String, dynamic> _buildLocalFunctionJsonInIsolate(
+  Map<String, dynamic> args,
+) {
+  final payload = _asStringKeyMap(args['payload']);
+  final rawCards = args['cards'] is List ? args['cards'] as List : const [];
+  final cards = rawCards
+      .map(_asStringKeyMap)
+      .where((card) => card.isNotEmpty)
+      .toList(growable: false);
+  return RunLogReusableFunctionConverter.buildLocalFunctionJson(
+    runId: (args['runId'] ?? '').toString(),
+    title: (args['title'] ?? '').toString(),
+    payload: payload,
+    cards: cards,
+    useEnglish: args['useEnglish'] == true,
+  );
+}
+
+String _buildAiPromptInIsolate(Map<String, dynamic> args) {
+  return RunLogReusableFunctionConverter._buildAiPrompt(
+    _asStringKeyMap(args['baseJson']),
+    useEnglish: args['useEnglish'] == true,
+  );
+}
+
+String _buildJsonRepairPromptInIsolate(Map<String, dynamic> args) {
+  return RunLogReusableFunctionConverter._buildJsonRepairPrompt(
+    invalidOutput: (args['invalidOutput'] ?? '').toString(),
+    fallbackJson: _asStringKeyMap(args['fallbackJson']),
+    useEnglish: args['useEnglish'] == true,
+  );
+}
+
+Map<String, dynamic>? _extractJsonObjectInIsolate(String raw) {
+  return _extractJsonObject(raw);
+}
+
+Map<String, dynamic> _normalizeAiJsonInIsolate(Map<String, dynamic> args) {
+  return RunLogReusableFunctionConverter._normalizeAiJson(
+    _asStringKeyMap(args['aiJson']),
+    _asStringKeyMap(args['fallback']),
+  );
+}
+
+String _buildLabelEnhancementPromptInIsolate(Map<String, dynamic> args) {
+  return RunLogReusableFunctionConverter._buildLabelEnhancementPrompt(
+    _asStringKeyMap(args['functionJson']),
+    skillContract: (args['skillContract'] ?? '').toString(),
+    useEnglish: args['useEnglish'] == true,
+  );
+}
+
+Map<String, dynamic> _applyLabelEnhancementInIsolate(
+  Map<String, dynamic> args,
+) {
+  return RunLogReusableFunctionConverter._applyLabelEnhancement(
+    _asStringKeyMap(args['aiJson']),
+    _asStringKeyMap(args['fallback']),
+  );
+}
+
+String _buildAgentPromptInIsolate(Map<String, dynamic> args) {
+  return RunLogReusableFunctionConverter.buildAgentPrompt(
+    _asStringKeyMap(args['functionJson']),
+    useEnglish: args['useEnglish'] == true,
+  );
+}
+
+class _RunLogActionSnapshot {
+  const _RunLogActionSnapshot({
+    required this.title,
+    required this.toolName,
+    required this.args,
+    required this.result,
+    required this.route,
+    required this.success,
+    required this.durationMs,
+    required this.packageName,
+    required this.beforeSummary,
+    required this.afterSummary,
+    required this.beforeXml,
+    required this.prompt,
+    required this.promptSource,
+  });
+
+  final String title;
+  final String toolName;
+  final dynamic args;
+  final dynamic result;
+  final String route;
+  final bool? success;
+  final int? durationMs;
+  final String packageName;
+  final String beforeSummary;
+  final String afterSummary;
+  final String beforeXml;
+  final String prompt;
+  final String promptSource;
+
+  factory _RunLogActionSnapshot.fromCard(
+    Map<String, dynamic> card, {
+    required int fallbackIndex,
+  }) {
+    final header = _asStringKeyMap(card['header']);
+    final before = _asStringKeyMap(card['before']).isNotEmpty
+        ? _asStringKeyMap(card['before'])
+        : _asStringKeyMap(card['observation_before_act']).isNotEmpty
+        ? _asStringKeyMap(card['observation_before_act'])
+        : _asStringKeyMap(card['before_observation']).isNotEmpty
+        ? _asStringKeyMap(card['before_observation'])
+        : _asStringKeyMap(card['observation']);
+    final after = _asStringKeyMap(card['after']);
+    final toolCall = _extractToolCall(card);
+    final function = _asStringKeyMap(toolCall['function']);
+    final args = _extractArgs(card, toolCall, function);
+    final argsMap = _asStringKeyMap(args);
+    final promptHit = _extractPromptHit([
+      _PromptSearchRoot('args', args),
+      _PromptSearchRoot('tool_call', toolCall),
+      _PromptSearchRoot('function', function),
+      _PromptSearchRoot('card', card),
+    ]);
+    final toolName = _firstNonBlank([
+      toolCall['name'],
+      toolCall['tool_name'],
+      toolCall['toolName'],
+      function['name'],
+      card['tool_name'],
+      card['toolName'],
+      card['action_type'],
+      card['actionType'],
+      header['tool_name'],
+      header['toolName'],
+    ]);
+    return _RunLogActionSnapshot(
+      title: _firstNonBlank([
+        header['title'],
+        card['title'],
+        card['summary'],
+        card['operation_description'],
+        card['operationDescription'],
+        toolName,
+        'Step ${fallbackIndex + 1}',
+      ]),
+      toolName: toolName.isEmpty ? 'unknown_tool' : toolName,
+      args: args,
+      result: _extractResult(card),
+      route: _firstNonBlank([
+        header['compile_kind'],
+        header['compileKind'],
+        card['compile_kind'],
+        card['compileKind'],
+        card['selection_source'] == 'vlm' ? 'miss' : null,
+      ]),
+      success:
+          _asBool(_firstPresentValue(header, const ['success'])) ??
+          _asBool(_firstPresentValue(card, const ['success'])),
+      durationMs: _asInt(
+        _firstPresentValue(header, const ['duration_ms']) ??
+            _firstPresentValue(card, const ['duration_ms']),
+      ),
+      packageName: _firstNonBlank([
+        before['package_name'],
+        after['package_name'],
+        argsMap['package_name'],
+        card['package_name'],
+      ]),
+      beforeSummary: _stateSummary(before),
+      afterSummary: _stateSummary(after),
+      beforeXml: _firstNonBlank([
+        before['observation_xml'],
+        before['observationXml'],
+        before['xml'],
+        before['page'],
+      ]),
+      prompt: promptHit.text,
+      promptSource: promptHit.source,
+    );
+  }
+}
+
+class _ParameterBindingTarget {
+  const _ParameterBindingTarget({
+    required this.binding,
+    required this.stepIndex,
+    required this.stepId,
+    required this.pathSuffix,
+    required this.leafKey,
+    required this.value,
+  });
+
+  final String binding;
+  final int stepIndex;
+  final String stepId;
+  final String pathSuffix;
+  final String leafKey;
+  final dynamic value;
+}
+
+class _CheckerRuleEnhancement {
+  const _CheckerRuleEnhancement({
+    required this.rules,
+    required this.assets,
+    required this.allRuleIds,
+  });
+
+  final List<Map<String, dynamic>> rules;
+  final List<Map<String, dynamic>> assets;
+  final Set<String> allRuleIds;
+
+  Set<String> get ruleIds => allRuleIds;
+}
+
+_CheckerRuleEnhancement _checkerRuleEnhancement(
+  Map<String, dynamic> aiJson,
+  Map<String, dynamic> functionJson,
+) {
+  final metadata = _asStringKeyMap(functionJson['metadata']);
+  final existingRules = _asStringKeyMapList(metadata['checker_rules']);
+  final existingIds = existingRules
+      .map((rule) => _firstNonBlank([rule['id']]))
+      .where((id) => id.isNotEmpty)
+      .toSet();
+  final usedIds = <String>{...existingIds};
+  final signatureToId = <String, String>{};
+  for (final rule in existingRules) {
+    final sanitized = _sanitizeCheckerRule(
+      rule,
+      usedIds: <String>{},
+      reserveId: false,
+    );
+    if (sanitized == null) continue;
+    signatureToId[_checkerRuleSignature(sanitized)] = _firstNonBlank([
+      rule['id'],
+      sanitized['id'],
+    ]);
+  }
+
+  final newRules = <Map<String, dynamic>>[];
+  for (final rawRule in _checkerRuleCandidates(aiJson)) {
+    final sanitized = _sanitizeCheckerRule(
+      _asStringKeyMap(rawRule),
+      usedIds: usedIds,
+      fallbackId: 'function_checker_${newRules.length + 1}',
+    );
+    if (sanitized == null) continue;
+    final signature = _checkerRuleSignature(sanitized);
+    if (signatureToId.containsKey(signature)) {
+      continue;
+    }
+    signatureToId[signature] = _firstNonBlank([sanitized['id']]);
+    newRules.add(sanitized);
+  }
+
+  final steps = _executionSteps(functionJson);
+  final derivedAssets = <Map<String, dynamic>>[];
+  for (var index = 0; index < steps.length; index++) {
+    final derived = _deriveCheckerRuleFromOptionalStep(steps[index], index);
+    if (derived == null) continue;
+    final signature = _checkerRuleSignature(derived);
+    var checkerId = signatureToId[signature];
+    if (checkerId == null || checkerId.isEmpty) {
+      final rule = _sanitizeCheckerRule(
+        derived,
+        usedIds: usedIds,
+        fallbackId: 'optional_checker_step_$index',
+      );
+      if (rule == null) continue;
+      checkerId = _firstNonBlank([rule['id']]);
+      signatureToId[signature] = checkerId;
+      newRules.add(rule);
+    }
+    derivedAssets.add(
+      _checkerAssetForStep(
+        checkerId: checkerId,
+        step: steps[index],
+        stepIndex: index,
+        reason: _optionalCheckerReason(steps[index]),
+      ),
+    );
+  }
+
+  final allRuleIds = <String>{
+    ...existingIds,
+    ...newRules.map((rule) => _firstNonBlank([rule['id']])),
+  }..removeWhere((id) => id.isEmpty);
+  final rawAssets = <Map<String, dynamic>>[];
+  for (final rawAsset in _checkerAssetCandidates(aiJson)) {
+    rawAssets.addAll(_safeCheckerAssets([rawAsset], steps, allRuleIds));
+  }
+  final assets = _mergeCheckerAssets(
+    const <Map<String, dynamic>>[],
+    [...rawAssets, ...derivedAssets],
+    steps,
+    allRuleIds,
+  );
+
+  return _CheckerRuleEnhancement(
+    rules: newRules,
+    assets: assets,
+    allRuleIds: allRuleIds,
+  );
+}
+
+void _applyCheckerRuleEnhancement(
+  Map<String, dynamic> functionJson,
+  _CheckerRuleEnhancement enhancement,
+) {
+  if (enhancement.rules.isEmpty) return;
+  final metadata = <String, dynamic>{
+    ..._asStringKeyMap(functionJson['metadata']),
+  };
+  final existing = metadata['checker_rules'] is List
+      ? (metadata['checker_rules'] as List).map(_jsonSafe).toList()
+      : const <dynamic>[];
+  final merged = _mergeCheckerRules(existing, enhancement.rules);
+  if (!_valuesEquivalent(existing, merged)) {
+    metadata['checker_rules'] = merged;
+    functionJson['metadata'] = metadata;
+  }
+}
+
+List<dynamic> _checkerRuleCandidates(Map<String, dynamic> aiJson) {
+  final metadata = _asStringKeyMap(aiJson['metadata']);
+  final agentReuse = _asStringKeyMap(aiJson['agent_reuse']);
+  return [
+    ..._firstListValue(aiJson, const ['checker_rules', 'checkerRules']),
+    ..._firstListValue(metadata, const ['checker_rules', 'checkerRules']),
+    ..._firstListValue(agentReuse, const ['checker_rules', 'checkerRules']),
+  ];
+}
+
+List<dynamic> _checkerAssetCandidates(Map<String, dynamic> aiJson) {
+  final agentReuse = _asStringKeyMap(aiJson['agent_reuse']);
+  return [
+    ..._firstListValue(aiJson, const ['checker_assets', 'checkerAssets']),
+    ..._firstListValue(agentReuse, const ['checker_assets', 'checkerAssets']),
+  ];
+}
+
+Map<String, dynamic>? _sanitizeCheckerRule(
+  Map<String, dynamic> raw, {
+  required Set<String> usedIds,
+  String fallbackId = 'function_checker',
+  bool reserveId = true,
+}) {
+  if (raw.isEmpty) return null;
+  final condition = _normalizeCheckerCondition(
+    _firstNonBlank([raw['condition'], raw['when'], raw['type']]),
+  );
+  if (condition.isEmpty) return null;
+  final action = _normalizeCheckerAction(
+    _firstNonBlank([raw['action'], raw['then'], raw['effect']]),
+    condition: condition,
+  );
+  if (action.isEmpty || !_isSupportedCheckerPair(condition, action)) {
+    return null;
+  }
+  final phase = _checkerPhaseForCondition(condition);
+  final rawParams = _asStringKeyMap(raw['params']);
+  final packageName = _firstNonBlank([
+    rawParams['package_name'],
+    raw['package_name'],
+  ]);
+  final params = <String, dynamic>{};
+  if (condition == 'package_mismatch' &&
+      RegExp(
+        r'^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$',
+      ).hasMatch(packageName)) {
+    params['package_name'] = packageName;
+  }
+  final id = reserveId
+      ? _uniqueCheckerRuleId(raw['id'], usedIds, fallbackId)
+      : _firstNonBlank([raw['id'], fallbackId]);
+  if (id.isEmpty) return null;
+  return {
+    'id': id,
+    'phase': phase,
+    'condition': condition,
+    'action': action,
+    'enabled': _asBool(raw['enabled']) ?? true,
+    'params': params,
+  };
+}
+
+Map<String, dynamic>? _deriveCheckerRuleFromOptionalStep(
+  Map<String, dynamic> step,
+  int index,
+) {
+  final annotation = _asStringKeyMap(step['cleanup_annotation']);
+  if (!_isOptionalCheckerAnnotation(annotation)) return null;
+  final text = _checkerInferenceText(step, annotation);
+  final condition = _checkerConditionFromText(text);
+  final action = _checkerActionForCondition(condition);
+  return {
+    'id': 'optional_checker_step_${index}_$condition',
+    'phase': _checkerPhaseForCondition(condition),
+    'condition': condition,
+    'action': action,
+    'enabled': true,
+    'params': {},
+  };
+}
+
+bool _isOptionalCheckerAnnotation(Map<String, dynamic> annotation) {
+  final normalized = _normalizeCleanupAction(
+    _firstNonBlank([
+      annotation['cleanup_action'],
+      annotation['cleanupAction'],
+      annotation['action'],
+    ]),
+  );
+  final usefulness = _firstNonBlank([annotation['usefulness']]).toLowerCase();
+  final category = _firstNonBlank([annotation['category']]).toLowerCase();
+  return normalized == 'optional_checker' ||
+      usefulness == 'conditional_checker' ||
+      category == 'conditional_obstruction' ||
+      category == 'runtime_checker' ||
+      category == 'checker_candidate';
+}
+
+String _checkerInferenceText(
+  Map<String, dynamic> step,
+  Map<String, dynamic> annotation,
+) {
+  final args = _asStringKeyMap(step['args']);
+  return [
+    step['title'],
+    step['summary'],
+    step['description'],
+    annotation['optional_condition'],
+    annotation['reason'],
+    annotation['action_purpose'],
+    args['target_description'],
+    args['text'],
+  ].map((value) => value?.toString() ?? '').join(' ').toLowerCase();
+}
+
+String _checkerConditionFromText(String text) {
+  if (_containsAny(text, const [
+    'hi_upgrade',
+    'hi upgrade',
+    'hi 升级',
+    'hi_update',
+    'hi update',
+    'hi 更新',
+    'upgrade',
+    'update',
+    'new version',
+    'version upgrade',
+    'version update',
+    '升级',
+    '更新',
+    '版本升级',
+    '版本更新',
+    '新版本',
+  ])) {
+    return 'app_upgrade_prompt';
+  }
+  if (_containsAny(text, const ['keyboard', 'ime', '键盘', '输入法'])) {
+    return 'keyboard_obscuring';
+  }
+  if (_containsAny(text, const [
+    'permission',
+    'allow',
+    'authorize',
+    'grant',
+    '权限',
+    '授权',
+    '允许',
+  ])) {
+    return 'permission_dialog';
+  }
+  return 'overlay_blocking';
+}
+
+String _checkerActionForCondition(String condition) => switch (condition) {
+  'keyboard_obscuring' => 'hide_keyboard',
+  'permission_dialog' => 'allow',
+  'package_mismatch' => 'open_app',
+  'app_upgrade_prompt' => 'dismiss',
+  _ => 'dismiss',
+};
+
+String _normalizeCheckerCondition(String raw) {
+  final text = raw.trim().toLowerCase().replaceAll(RegExp(r'[\s-]+'), '_');
+  if (_containsAny(text, const ['升级', '更新'])) {
+    return 'app_upgrade_prompt';
+  }
+  return switch (text) {
+    'overlay_blocking' ||
+    'blocking_overlay' ||
+    'popup_blocking' ||
+    'popup' ||
+    'ad_popup' ||
+    'ad' ||
+    'banner' ||
+    'coupon' ||
+    'obstruction' ||
+    'conditional_obstruction' => 'overlay_blocking',
+    'permission_dialog' ||
+    'permission' ||
+    'permission_prompt' ||
+    'permission_nudge' => 'permission_dialog',
+    'keyboard_obscuring' ||
+    'keyboard' ||
+    'ime_obscuring' ||
+    'soft_keyboard' => 'keyboard_obscuring',
+    'package_mismatch' ||
+    'wrong_app' ||
+    'app_mismatch' ||
+    'foreground_package_mismatch' => 'package_mismatch',
+    'app_upgrade_prompt' ||
+    'upgrade_prompt' ||
+    'update_prompt' ||
+    'app_upgrade_dialog' ||
+    'app_update_dialog' ||
+    'app_upgrade' ||
+    'app_update' ||
+    'version_update' ||
+    'version_upgrade' ||
+    'version_prompt' ||
+    'new_version_prompt' ||
+    'hi_upgrade' ||
+    'hi_upgrade_prompt' ||
+    'hi_update' ||
+    'hi_update_prompt' => 'app_upgrade_prompt',
+    _ => '',
+  };
+}
+
+String _normalizeCheckerAction(String raw, {required String condition}) {
+  final text = raw.trim().toLowerCase().replaceAll('-', '_');
+  if (text.isEmpty) return _checkerActionForCondition(condition);
+  return switch (text) {
+    'dismiss' ||
+    'close' ||
+    'close_popup' ||
+    'click_close' ||
+    'click_dismiss' ||
+    'skip' ||
+    'not_now' ||
+    'later' ||
+    'remind_later' ||
+    'postpone' ||
+    'defer' ||
+    'skip_update' ||
+    'cancel' => 'dismiss',
+    'allow' || 'grant' || 'grant_permission' || 'click_allow' => 'allow',
+    'hide_keyboard' ||
+    'dismiss_keyboard' ||
+    'close_keyboard' => 'hide_keyboard',
+    'open_app' || 'launch_app' || 'start_app' => 'open_app',
+    'click' when condition == 'overlay_blocking' => 'dismiss',
+    'click' when condition == 'permission_dialog' => 'allow',
+    'click' when condition == 'app_upgrade_prompt' => 'dismiss',
+    _ => '',
+  };
+}
+
+String _checkerPhaseForCondition(String condition) => switch (condition) {
+  'keyboard_obscuring' => 'pre_action',
+  'app_upgrade_prompt' => 'post_action',
+  _ => 'pre_transfer',
+};
+
+bool _isSupportedCheckerPair(String condition, String action) =>
+    (condition == 'overlay_blocking' && action == 'dismiss') ||
+    (condition == 'permission_dialog' && action == 'allow') ||
+    (condition == 'keyboard_obscuring' && action == 'hide_keyboard') ||
+    (condition == 'package_mismatch' && action == 'open_app') ||
+    (condition == 'app_upgrade_prompt' && action == 'dismiss');
+
+String _checkerRuleSignature(Map<String, dynamic> rule) {
+  final params = _asStringKeyMap(rule['params']);
+  return [
+    rule['phase'],
+    rule['condition'],
+    rule['action'],
+    params['package_name'] ?? '',
+  ].map((value) => value?.toString() ?? '').join('|');
+}
+
+String _uniqueCheckerRuleId(dynamic raw, Set<String> usedIds, String fallback) {
+  var base = _firstNonBlank([raw, fallback])
+      .replaceAllMapped(RegExp(r'([a-z])([A-Z])'), (m) => '${m[1]}_${m[2]}')
+      .replaceAll(RegExp(r'[^A-Za-z0-9_]+'), '_')
+      .toLowerCase()
+      .replaceAll(RegExp(r'_+'), '_')
+      .replaceAll(RegExp(r'^_|_$'), '');
+  if (base.isEmpty) {
+    base = 'function_checker';
+  }
+  if (base.length > 80) {
+    base = base.substring(0, 80).replaceAll(RegExp(r'_$'), '');
+  }
+  var candidate = base;
+  var suffix = 2;
+  while (usedIds.contains(candidate)) {
+    final suffixText = '_$suffix';
+    final prefixLength = (80 - suffixText.length).clamp(1, 80).toInt();
+    final safeLength = base.length.clamp(1, prefixLength).toInt();
+    candidate =
+        '${base.substring(0, safeLength)}'
+        '$suffixText';
+    suffix += 1;
+  }
+  usedIds.add(candidate);
+  return candidate;
+}
+
+List<dynamic> _mergeCheckerRules(
+  List<dynamic> existing,
+  List<Map<String, dynamic>> additions,
+) {
+  final output = existing.map(_jsonSafe).toList(growable: true);
+  final signatures = <String>{};
+  for (final raw in existing) {
+    final sanitized = _sanitizeCheckerRule(
+      _asStringKeyMap(raw),
+      usedIds: <String>{},
+      reserveId: false,
+    );
+    if (sanitized != null) {
+      signatures.add(_checkerRuleSignature(sanitized));
+    }
+  }
+  for (final rule in additions) {
+    final signature = _checkerRuleSignature(rule);
+    if (signatures.add(signature)) {
+      output.add(rule);
+    }
+  }
+  return output;
+}
+
+List<Map<String, dynamic>> _safeCheckerAssets(
+  dynamic raw,
+  List<Map<String, dynamic>> steps,
+  Set<String> checkerRuleIds,
+) {
+  final items = raw is List ? raw : const <dynamic>[];
+  return items
+      .map(_asStringKeyMap)
+      .map((item) => _safeCheckerAsset(item, steps, checkerRuleIds))
+      .whereType<Map<String, dynamic>>()
+      .toList(growable: false);
+}
+
+Map<String, dynamic>? _safeCheckerAsset(
+  Map<String, dynamic> item,
+  List<Map<String, dynamic>> steps,
+  Set<String> checkerRuleIds,
+) {
+  final checkerId = _firstNonBlank([
+    item['checker_id'],
+    item['checkerId'],
+    item['id'],
+    item['rule_id'],
+    item['ruleId'],
+  ]);
+  if (checkerId.isEmpty ||
+      (checkerRuleIds.isNotEmpty && !checkerRuleIds.contains(checkerId))) {
+    return null;
+  }
+  final index = _resolveStepIndex(item, steps);
+  if (index < 0 || index >= steps.length) return null;
+  return _checkerAssetForStep(
+    checkerId: checkerId,
+    step: steps[index],
+    stepIndex: index,
+    reason: _boundedText(
+      _firstNonBlank([item['reason'], item['description'], item['summary']]),
+      maxLength: 240,
+    ),
+  );
+}
+
+int _resolveStepIndex(
+  Map<String, dynamic> item,
+  List<Map<String, dynamic>> steps,
+) {
+  final index = _asInt(
+    item['step_index'] ?? item['stepIndex'] ?? item['index'],
+  );
+  if (index != null) return index;
+  final stepId = _firstNonBlank([item['step_id'], item['stepId']]);
+  if (stepId.isEmpty) return -1;
+  return steps.indexWhere((step) => _firstNonBlank([step['id']]) == stepId);
+}
+
+Map<String, dynamic> _checkerAssetForStep({
+  required String checkerId,
+  required Map<String, dynamic> step,
+  required int stepIndex,
+  required String reason,
+}) {
+  return {
+    'checker_id': checkerId,
+    'step_index': stepIndex,
+    'step_id': _firstNonBlank([step['id'], 'step_${stepIndex + 1}']),
+    'role': 'checker_candidate',
+    'materialization': 'metadata_checker_rule',
+    if (reason.isNotEmpty) 'reason': _boundedText(reason, maxLength: 240),
+  };
+}
+
+String _optionalCheckerReason(Map<String, dynamic> step) {
+  final annotation = _asStringKeyMap(step['cleanup_annotation']);
+  return _firstNonBlank([
+    annotation['optional_condition'],
+    annotation['reason'],
+    annotation['action_purpose'],
+    step['description'],
+    step['summary'],
+    step['title'],
+    'Conditional obstruction action converted to runtime checker.',
+  ]);
+}
+
+List<Map<String, dynamic>> _mergeCheckerAssets(
+  List<Map<String, dynamic>> existing,
+  List<Map<String, dynamic>> additions,
+  List<Map<String, dynamic>> steps,
+  Set<String> checkerRuleIds,
+) {
+  final output = <Map<String, dynamic>>[];
+  final seen = <String>{};
+  void addAsset(Map<String, dynamic> raw) {
+    final asset = _safeCheckerAsset(raw, steps, checkerRuleIds) ?? raw;
+    final checkerId = _firstNonBlank([asset['checker_id']]);
+    final index = _asInt(asset['step_index']);
+    if (checkerId.isEmpty || index == null || index < 0) return;
+    final signature = '$checkerId|$index|${_firstNonBlank([asset['step_id']])}';
+    if (seen.add(signature)) {
+      output.add(asset);
+    }
+  }
+
+  for (final asset in existing) {
+    addAsset(asset);
+  }
+  for (final asset in additions) {
+    addAsset(asset);
+  }
+  return output;
+}
+
+bool _containsAny(String text, List<String> needles) =>
+    needles.any((needle) => text.contains(needle));
+
+List<dynamic> _firstListValue(Map<String, dynamic> source, List<String> keys) {
+  for (final key in keys) {
+    final value = source[key];
+    if (value is List && value.isNotEmpty) {
+      return value;
+    }
+  }
+  return const <dynamic>[];
+}
+
+List<Map<String, dynamic>> _executionSteps(Map<String, dynamic> functionJson) {
+  final execution = _asStringKeyMap(functionJson['execution']);
+  final rawSteps = execution['steps'];
+  if (rawSteps is! List) {
+    return const <Map<String, dynamic>>[];
+  }
+  return rawSteps
+      .map(_asStringKeyMap)
+      .where((step) => step.isNotEmpty)
+      .toList(growable: false);
+}
+
+Map<String, dynamic> _enhancementArgsPreview(dynamic rawArgs) {
+  final args = _asStringKeyMap(rawArgs);
+  if (args.isEmpty) {
+    return const <String, dynamic>{};
+  }
+  final output = <String, dynamic>{};
+  for (final entry in args.entries) {
+    final key = entry.key.trim();
+    if (key.isEmpty || _isCoordinateLikeKey(key.toLowerCase())) {
+      continue;
+    }
+    final preview = _enhancementPreviewValue(entry.value, depth: 0);
+    if (!_isEmptyJsonValue(preview)) {
+      output[key] = preview;
+    }
+    if (output.length >= 12) {
+      output['__truncated__'] = true;
+      break;
+    }
+  }
+  return output;
+}
+
+dynamic _enhancementPreviewValue(dynamic raw, {required int depth}) {
+  final value = _jsonSafe(raw);
+  if (value == null || value is num || value is bool) {
+    return value;
+  }
+  if (value is String) {
+    return _compactPreview(value, maxLength: 160);
+  }
+  if (depth >= 2) {
+    return '<nested>';
+  }
+  if (value is Map) {
+    final output = <String, dynamic>{};
+    for (final entry in value.entries) {
+      final key = entry.key.toString();
+      if (_isCoordinateLikeKey(key.toLowerCase())) {
+        continue;
+      }
+      output[key] = _enhancementPreviewValue(entry.value, depth: depth + 1);
+      if (output.length >= 8) {
+        output['__truncated__'] = true;
+        break;
+      }
+    }
+    return output;
+  }
+  if (value is Iterable) {
+    final output = <dynamic>[];
+    for (final item in value) {
+      output.add(_enhancementPreviewValue(item, depth: depth + 1));
+      if (output.length >= 5) {
+        output.add('<truncated>');
+        break;
+      }
+    }
+    return output;
+  }
+  return _compactPreview(value.toString(), maxLength: 120);
+}
+
+List<Map<String, dynamic>> _enhancementBindingCandidates(
+  Map<String, dynamic> functionJson,
+) {
+  final steps = _executionSteps(functionJson);
+  final output = <Map<String, dynamic>>[];
+  for (var stepIndex = 0; stepIndex < steps.length; stepIndex++) {
+    final step = steps[stepIndex];
+    final args = _asStringKeyMap(step['args']);
+    if (args.isEmpty) {
+      continue;
+    }
+    final toolName = _firstNonBlank([step['tool']]);
+    _collectEnhancementBindingCandidates(
+      output: output,
+      step: step,
+      stepIndex: stepIndex,
+      toolName: toolName,
+      value: args,
+      path: const <String>[],
+    );
+    if (output.length >= 80) {
+      break;
+    }
+  }
+  return output;
+}
+
+void _collectEnhancementBindingCandidates({
+  required List<Map<String, dynamic>> output,
+  required Map<String, dynamic> step,
+  required int stepIndex,
+  required String toolName,
+  required dynamic value,
+  required List<String> path,
+}) {
+  if (output.length >= 80) {
+    return;
+  }
+  final decoded = _jsonSafe(value);
+  if (decoded is Map) {
+    for (final entry in decoded.entries) {
+      final key = entry.key.toString().trim();
+      if (key.isEmpty) {
+        continue;
+      }
+      _collectEnhancementBindingCandidates(
+        output: output,
+        step: step,
+        stepIndex: stepIndex,
+        toolName: toolName,
+        value: entry.value,
+        path: [...path, key],
+      );
+    }
+    return;
+  }
+  if (decoded is Iterable && decoded is! String) {
+    var index = 0;
+    for (final item in decoded) {
+      _collectEnhancementBindingCandidates(
+        output: output,
+        step: step,
+        stepIndex: stepIndex,
+        toolName: toolName,
+        value: item,
+        path: [
+          ...path.take(path.length > 1 ? path.length - 1 : path.length),
+          path.isEmpty ? 'item[$index]' : '${path.last}[$index]',
+        ],
+      );
+      index++;
+      if (index >= 8) {
+        break;
+      }
+    }
+    return;
+  }
+  if (path.isEmpty) {
+    return;
+  }
+  final leafKey = path.last.split('[').first;
+  if (_isBlockedParameterPath(path.join('.')) ||
+      !_isParameterCandidate(toolName, leafKey, decoded)) {
+    return;
+  }
+  if (decoded is String && decoded.trim().isEmpty) {
+    return;
+  }
+  final suffix = _jsonPathSuffix(path);
+  if (suffix.isEmpty) {
+    return;
+  }
+  output.add({
+    'binding': '\$.execution.steps[$stepIndex].args.$suffix',
+    'step_index': stepIndex,
+    'step_id': _firstNonBlank([step['id'], 'step_${stepIndex + 1}']),
+    'step_title': _firstNonBlank([step['title']]),
+    'arg_key': leafKey,
+    'recorded_value': _enhancementPreviewValue(decoded, depth: 0),
+    'value_type': decoded is num
+        ? 'number'
+        : decoded is bool
+        ? 'boolean'
+        : 'string',
+  });
+}
+
+List<_ParameterBindingTarget> _validBindingTargets(
+  dynamic rawBindings,
+  List<Map<String, dynamic>> steps,
+) {
+  if (rawBindings is! List || rawBindings.isEmpty) {
+    return const <_ParameterBindingTarget>[];
+  }
+  final output = <_ParameterBindingTarget>[];
+  final seen = <String>{};
+  for (final rawBinding in rawBindings) {
+    final binding = rawBinding?.toString().trim() ?? '';
+    if (binding.isEmpty || seen.contains(binding)) {
+      continue;
+    }
+    final target = _bindingTargetForPath(binding, steps);
+    if (target == null) {
+      continue;
+    }
+    seen.add(binding);
+    output.add(target);
+  }
+  return output;
+}
+
+List<String> _fallbackInputTextBindingsForParameter(
+  Map<String, dynamic> parameter,
+  List<Map<String, dynamic>> steps,
+) {
+  final rawName = _firstNonBlank([parameter['name'], parameter['id']]);
+  final match = RegExp(
+    r'^input[_-]?text(?:[_-]?(\d+))?$',
+    caseSensitive: false,
+  ).firstMatch(rawName);
+  if (match == null) {
+    return const <String>[];
+  }
+  final explicitStepNumber = int.tryParse(match.group(1) ?? '');
+  final stepIndex = explicitStepNumber != null
+      ? explicitStepNumber - 1
+      : steps.indexWhere(_isTextInputStep);
+  if (stepIndex < 0 || stepIndex >= steps.length) {
+    return const <String>[];
+  }
+  final step = steps[stepIndex];
+  if (!_isTextInputStep(step)) {
+    return const <String>[];
+  }
+  final args = _asStringKeyMap(step['args']);
+  final inputTextArgs = OobCanonicalActionSchema.argNames(
+    OobCanonicalActionSchema.toolInputText,
+  );
+  return inputTextArgs
+      .where((key) => key == OobCanonicalActionSchema.argText)
+      .where(args.containsKey)
+      .map((key) => '\$.execution.steps[$stepIndex].args.$key')
+      .toList(growable: false);
+}
+
+String _semanticParameterNameForTarget(
+  Map<String, dynamic> parameter,
+  _ParameterBindingTarget target,
+  List<Map<String, dynamic>> steps,
+) {
+  final rawName = _firstNonBlank([
+    parameter['name'],
+    parameter['id'],
+    parameter['role'],
+    _parameterBaseName(target.leafKey, ''),
+  ]);
+  if (!_isGenericInputTextParameterName(rawName)) {
+    return rawName;
+  }
+  final step = target.stepIndex >= 0 && target.stepIndex < steps.length
+      ? steps[target.stepIndex]
+      : const <String, dynamic>{};
+  final args = _asStringKeyMap(step['args']);
+  final hint = _firstNonBlank([
+    parameter['description'],
+    parameter['summary'],
+    parameter['role'],
+    args['target_description'],
+    args['label'],
+    args['hint'],
+    args['placeholder'],
+    step['title'],
+    step['description'],
+    step['summary'],
+    target.leafKey,
+  ]);
+  return _semanticParameterNameFromHint(hint, target.stepIndex);
+}
+
+bool _isGenericInputTextParameterName(String name) {
+  return RegExp(
+    r'^input[_-]?text(?:[_-]?\d+)?$',
+    caseSensitive: false,
+  ).hasMatch(name.trim());
+}
+
+String _semanticParameterNameFromHint(String hint, int stepIndex) {
+  final lower = hint.toLowerCase();
+  if (lower.contains('search') ||
+      lower.contains('query') ||
+      lower.contains('keyword') ||
+      hint.contains('搜索') ||
+      hint.contains('关键词')) {
+    return 'search_query';
+  }
+  if (lower.contains('phone') || hint.contains('电话') || hint.contains('手机号')) {
+    return 'phone_number';
+  }
+  if (lower.contains('email') || hint.contains('邮箱')) {
+    return 'email';
+  }
+  if (lower.contains('address') || hint.contains('地址')) {
+    return 'address';
+  }
+  if (lower.contains('name') || hint.contains('姓名') || hint.contains('联系人')) {
+    return 'contact_name';
+  }
+  final normalized = _parameterBaseName(hint, 'runtime_text');
+  if (normalized.isNotEmpty && normalized != 'runtime_text_value') {
+    return normalized;
+  }
+  return 'entered_text_step_${stepIndex + 1}';
+}
+
+_ParameterBindingTarget? _bindingTargetForPath(
+  String binding,
+  List<Map<String, dynamic>> steps,
+) {
+  final match = RegExp(
+    r'^\$\.execution\.steps\[(\d+)\]\.(args|agent_call\.args\.original_args)\.([A-Za-z0-9_]+(?:\[\d+\])?(?:\.[A-Za-z0-9_]+(?:\[\d+\])?)*)$',
+  ).firstMatch(binding);
+  if (match == null) {
+    return null;
+  }
+  final stepIndex = int.tryParse(match.group(1) ?? '');
+  if (stepIndex == null || stepIndex < 0 || stepIndex >= steps.length) {
+    return null;
+  }
+  final rootKind = match.group(2) ?? '';
+  final pathSuffix = match.group(3) ?? '';
+  if (_isBlockedParameterPath(pathSuffix)) {
+    return null;
+  }
+  final step = steps[stepIndex];
+  if (rootKind == 'args') {
+    final canonicalTool = OobCanonicalActionSchema.canonicalToolName(
+      _firstNonBlank([step['tool']]),
+    );
+    if (canonicalTool != null) {
+      final rootArg = pathSuffix.split('.').first.split('[').first;
+      if (!OobCanonicalActionSchema.argNames(canonicalTool).contains(rootArg)) {
+        return null;
+      }
+    }
+  }
+  final root = rootKind == 'args'
+      ? _asStringKeyMap(step['args'])
+      : _asStringKeyMap(
+          _asStringKeyMap(
+            _asStringKeyMap(step['agent_call'])['args'],
+          )['original_args'],
+        );
+  if (root.isEmpty) {
+    return null;
+  }
+  final value = _valueAtPathSuffix(root, pathSuffix);
+  if (value == null || value is Map || value is Iterable) {
+    return null;
+  }
+  if (value is String && value.trim().isEmpty) {
+    return null;
+  }
+  final leafKey = pathSuffix.split('.').last.split('[').first;
+  return _ParameterBindingTarget(
+    binding: binding,
+    stepIndex: stepIndex,
+    stepId: _firstNonBlank([step['id'], 'step_${stepIndex + 1}']),
+    pathSuffix: pathSuffix,
+    leafKey: leafKey,
+    value: value,
+  );
+}
+
+dynamic _valueAtPathSuffix(Map<String, dynamic> root, String pathSuffix) {
+  dynamic current = root;
+  for (final part in pathSuffix.split('.')) {
+    final match = RegExp(r'^([A-Za-z0-9_]+)(?:\[(\d+)])?$').firstMatch(part);
+    if (match == null) {
+      return null;
+    }
+    final key = match.group(1) ?? '';
+    final index = int.tryParse(match.group(2) ?? '');
+    if (current is! Map) {
+      return null;
+    }
+    current = _asStringKeyMap(current)[key];
+    if (index != null) {
+      if (current is! List || index < 0 || index >= current.length) {
+        return null;
+      }
+      current = current[index];
+    }
+  }
+  return current;
+}
+
+bool _isBlockedParameterPath(String pathSuffix) {
+  if (pathSuffix.trim().isEmpty) {
+    return true;
+  }
+  for (final part in pathSuffix.split('.')) {
+    final key = part.split('[').first.toLowerCase();
+    if (_isCoordinateLikeKey(key)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+List<_ParameterBindingTarget> _compatibleParameterTargets(
+  List<_ParameterBindingTarget> directTargets,
+  Map<String, _ParameterBindingTarget> existingBindingTargets,
+  Map<String, Map<String, dynamic>> existingByBinding,
+  List<Map<String, dynamic>> steps,
+) {
+  final output = <_ParameterBindingTarget>[];
+  final seen = <String>{};
+  void addTarget(_ParameterBindingTarget target) {
+    if (seen.add(target.binding)) {
+      output.add(target);
+    }
+  }
+
+  for (final target in directTargets) {
+    addTarget(target);
+    final existingParameter = existingByBinding[target.binding];
+    if (existingParameter == null) {
+      continue;
+    }
+    for (final sibling in _validBindingTargets(
+      existingParameter['bindings'],
+      steps,
+    )) {
+      if (_valuesEquivalent(sibling.value, target.value)) {
+        addTarget(sibling);
+      }
+    }
+  }
+  for (final target in directTargets) {
+    final existingTarget = existingBindingTargets[target.binding];
+    if (existingTarget != null &&
+        _valuesEquivalent(existingTarget.value, target.value)) {
+      addTarget(existingTarget);
+    }
+  }
+  return output;
+}
+
+bool _bindingTargetValuesMatch(List<_ParameterBindingTarget> targets) {
+  if (targets.isEmpty) {
+    return false;
+  }
+  final first = targets.first.value;
+  return targets.every((target) => _valuesEquivalent(target.value, first));
+}
+
+bool _valuesEquivalent(dynamic left, dynamic right) {
+  return const JsonEncoder().convert(_jsonSafe(left)) ==
+      const JsonEncoder().convert(_jsonSafe(right));
+}
+
+String _safeParameterType(dynamic rawType, dynamic defaultValue) {
+  final type = rawType?.toString().trim().toLowerCase() ?? '';
+  if (const {'string', 'number', 'integer', 'boolean'}.contains(type)) {
+    return type;
+  }
+  if (defaultValue is num) {
+    return 'number';
+  }
+  if (defaultValue is bool) {
+    return 'boolean';
+  }
+  return 'string';
+}
+
+String _uniqueParameterName(String rawName, Set<String> usedNames) {
+  var base = rawName
+      .replaceAllMapped(RegExp(r'([a-z])([A-Z])'), (m) => '${m[1]}_${m[2]}')
+      .replaceAll(RegExp(r'[^A-Za-z0-9_]+'), '_')
+      .toLowerCase()
+      .replaceAll(RegExp(r'_+'), '_')
+      .replaceAll(RegExp(r'^_|_$'), '');
+  if (base.isEmpty) {
+    base = 'parameter';
+  }
+  if (RegExp(r'^[0-9]').hasMatch(base)) {
+    base = 'parameter_$base';
+  }
+  if (base.length > 48) {
+    base = base.substring(0, 48).replaceAll(RegExp(r'_+$'), '');
+  }
+  var name = base;
+  var suffix = 2;
+  while (usedNames.contains(name)) {
+    final suffixText = '_$suffix';
+    final prefixLimit = 48 - suffixText.length;
+    final prefixLength = base.length < prefixLimit ? base.length : prefixLimit;
+    name = '${base.substring(0, prefixLength)}$suffixText';
+    suffix++;
+  }
+  usedNames.add(name);
+  return name;
+}
+
+Set<String> _parameterNames(dynamic rawParameters) {
+  if (rawParameters is List) {
+    return rawParameters
+        .map(_asStringKeyMap)
+        .map((item) => _firstNonBlank([item['name']]))
+        .where((name) => name.isNotEmpty)
+        .toSet();
+  }
+  final schema = _asStringKeyMap(rawParameters);
+  return _asStringKeyMap(schema['properties']).keys.toSet();
+}
+
+List<String> _safeStringList(
+  dynamic value, {
+  int maxItems = 8,
+  int maxLength = 160,
+}) {
+  final rawItems = value is List
+      ? value
+      : value is String
+      ? <dynamic>[value]
+      : const <dynamic>[];
+  final output = <String>[];
+  for (final raw in rawItems) {
+    final text = _boundedText(raw, maxLength: maxLength);
+    if (text.isEmpty || output.contains(text)) {
+      continue;
+    }
+    output.add(text);
+    if (output.length >= maxItems) {
+      break;
+    }
+  }
+  return output;
+}
+
+String _boundedText(dynamic value, {int maxLength = 160}) {
+  final text = _firstNonBlank([value]);
+  if (text.isEmpty) {
+    return '';
+  }
+  return _compactPreview(text, maxLength: maxLength);
+}
+
+List<Map<String, dynamic>> _safeKeyActions(
+  dynamic value,
+  List<Map<String, dynamic>> steps,
+  Set<String> parameterNames,
+) {
+  if (value is! List || value.isEmpty) {
+    return const <Map<String, dynamic>>[];
+  }
+  final output = <Map<String, dynamic>>[];
+  final seenIndexes = <int>{};
+  for (final raw in value) {
+    final item = _asStringKeyMap(raw);
+    final index = _asInt(
+      item['step_index'] ?? item['stepIndex'] ?? item['index'],
+    );
+    if (index == null ||
+        index < 0 ||
+        index >= steps.length ||
+        seenIndexes.contains(index)) {
+      continue;
+    }
+    seenIndexes.add(index);
+    final step = steps[index];
+    final reason = _boundedText(
+      _firstNonBlank([item['reason'], item['description'], item['summary']]),
+      maxLength: 180,
+    );
+    final parameters = _safeParameterNameList(
+      item['parameter_names'] ?? item['parameters'] ?? item['inputs'],
+      parameterNames,
+    );
+    output.add({
+      'step_index': index,
+      'step_id': _firstNonBlank([step['id'], 'step_${index + 1}']),
+      'title': _boundedText(
+        _firstNonBlank([item['title'], item['name'], step['title']]),
+        maxLength: 80,
+      ),
+      if (reason.isNotEmpty) 'reason': reason,
+      if (parameters.isNotEmpty) 'parameter_names': parameters,
+      if (_safeImportance(item['importance']).isNotEmpty)
+        'importance': _safeImportance(item['importance']),
+    });
+    if (output.length >= 8) {
+      break;
+    }
+  }
+  return output;
+}
+
+List<Map<String, dynamic>> _safeReuseSegments(
+  dynamic value,
+  List<Map<String, dynamic>> steps,
+  Set<String> parameterNames,
+) {
+  if (value is! List || value.isEmpty) {
+    return const <Map<String, dynamic>>[];
+  }
+  final output = <Map<String, dynamic>>[];
+  for (final raw in value) {
+    final item = _asStringKeyMap(raw);
+    final start = _asInt(
+      item['start_step_index'] ??
+          item['startStepIndex'] ??
+          item['start_index'] ??
+          item['start'],
+    );
+    final end = _asInt(
+      item['end_step_index'] ??
+          item['endStepIndex'] ??
+          item['end_index'] ??
+          item['end'],
+    );
+    if (start == null ||
+        end == null ||
+        start < 0 ||
+        end < start ||
+        end >= steps.length) {
+      continue;
+    }
+    final parameters = _safeParameterNameList(
+      item['input_parameters'] ??
+          item['parameter_names'] ??
+          item['inputs'] ??
+          item['parameters'],
+      parameterNames,
+    );
+    final name = _boundedText(
+      _firstNonBlank([
+        item['name'],
+        item['title'],
+        'steps_${start + 1}_${end + 1}',
+      ]),
+      maxLength: 80,
+    );
+    final description = _boundedText(
+      _firstNonBlank([item['description'], item['summary'], item['reason']]),
+      maxLength: 220,
+    );
+    output.add({
+      'name': name,
+      'kind': 'contiguous_step_slice',
+      'materialization': 'metadata_only',
+      'split_candidate': true,
+      'start_step_index': start,
+      'end_step_index': end,
+      'step_ids': [
+        for (var index = start; index <= end; index++)
+          _firstNonBlank([steps[index]['id'], 'step_${index + 1}']),
+      ],
+      if (description.isNotEmpty) 'description': description,
+      if (parameters.isNotEmpty) 'input_parameters': parameters,
+      if (_safeImportance(item['importance']).isNotEmpty)
+        'importance': _safeImportance(item['importance']),
+    });
+    if (output.length >= 8) {
+      break;
+    }
+  }
+  return output;
+}
+
+List<String> _safeParameterNameList(dynamic value, Set<String> allowedNames) {
+  final rawItems = value is List
+      ? value
+      : value is String
+      ? value.split(RegExp(r'[,，\s]+'))
+      : const <dynamic>[];
+  final output = <String>[];
+  for (final raw in rawItems) {
+    final name = raw?.toString().trim() ?? '';
+    if (name.isEmpty || !allowedNames.contains(name) || output.contains(name)) {
+      continue;
+    }
+    output.add(name);
+  }
+  return output;
+}
+
+String _safeImportance(dynamic value) {
+  final text = value?.toString().trim().toLowerCase() ?? '';
+  return switch (text) {
+    'key' || 'critical' || 'important' => 'key',
+    'support' || 'supporting' => 'support',
+    'normal' => 'normal',
+    'noise' || 'noisy' || 'useless' => 'noise',
+    'redundant' || 'duplicate' => 'redundant',
+    'optional' => 'optional',
+    _ => '',
+  };
+}
+
+void _collectParametersFromArgs({
+  required String stepId,
+  required int stepIndex,
+  required String toolName,
+  required dynamic args,
+  required Map<String, Map<String, dynamic>> parametersBySignature,
+  required Set<String> seenNames,
+  required bool useEnglish,
+  bool bindAgentOriginalArgs = false,
+  List<String> path = const [],
+}) {
+  final argMap = _asStringKeyMap(args);
+  if (argMap.isEmpty) {
+    return;
+  }
+  for (final entry in argMap.entries) {
+    final key = entry.key.trim();
+    if (key.isEmpty) {
+      continue;
+    }
+    final value = _decodeJsonIfNeeded(entry.value);
+    final nextPath = [...path, key];
+    if (value is Map) {
+      _collectParametersFromArgs(
+        stepId: stepId,
+        stepIndex: stepIndex,
+        toolName: toolName,
+        args: value,
+        parametersBySignature: parametersBySignature,
+        seenNames: seenNames,
+        useEnglish: useEnglish,
+        bindAgentOriginalArgs: bindAgentOriginalArgs,
+        path: nextPath,
+      );
+      continue;
+    }
+    if (value is Iterable) {
+      var itemIndex = 0;
+      for (final rawItem in value) {
+        final item = _decodeJsonIfNeeded(rawItem);
+        if (item is Map) {
+          _collectParametersFromArgs(
+            stepId: stepId,
+            stepIndex: stepIndex,
+            toolName: toolName,
+            args: item,
+            parametersBySignature: parametersBySignature,
+            seenNames: seenNames,
+            useEnglish: useEnglish,
+            bindAgentOriginalArgs: bindAgentOriginalArgs,
+            path: [...path, '$key[$itemIndex]'],
+          );
+        }
+        itemIndex++;
+      }
+      continue;
+    }
+    final parameter = _parameterFromArg(
+      stepId: stepId,
+      stepIndex: stepIndex,
+      toolName: toolName,
+      key: key,
+      path: nextPath,
+      value: value,
+      useEnglish: useEnglish,
+      bindAgentOriginalArgs: bindAgentOriginalArgs,
+    );
+    if (parameter == null) {
+      continue;
+    }
+    final signature = _parameterSignature(parameter);
+    final existing = parametersBySignature[signature];
+    if (existing != null) {
+      _appendUnique(existing, 'bindings', parameter['bindings']);
+      _appendUnique(existing, 'source_steps', parameter['source_steps']);
+      continue;
+    }
+    final baseName = parameter['name'].toString();
+    var name = baseName;
+    var suffix = 2;
+    while (seenNames.contains(name)) {
+      name = '${baseName}_$suffix';
+      suffix++;
+    }
+    seenNames.add(name);
+    parametersBySignature[signature] = {...parameter, 'name': name};
+  }
+}
+
+Map<String, dynamic>? _parameterFromArg({
+  required String stepId,
+  required int stepIndex,
+  required String toolName,
+  required String key,
+  required List<String> path,
+  required dynamic value,
+  required bool useEnglish,
+  required bool bindAgentOriginalArgs,
+}) {
+  final normalizedKey = key.trim();
+  if (normalizedKey.isEmpty || value == null) {
+    return null;
+  }
+  if (!_isParameterCandidate(toolName, normalizedKey, value)) {
+    return null;
+  }
+  final defaultValue = value is String ? value.trim() : value;
+  if (defaultValue is String && defaultValue.isEmpty) {
+    return null;
+  }
+  final pathSuffix = _jsonPathSuffix(path);
+  if (pathSuffix.isEmpty) {
+    return null;
+  }
+  final bindings = <String>[
+    '\$.execution.steps[$stepIndex].args.$pathSuffix',
+    if (bindAgentOriginalArgs)
+      '\$.execution.steps[$stepIndex].agent_call.args.original_args.$pathSuffix',
+  ];
+  final baseName = _parameterBaseName(normalizedKey, toolName);
+  return {
+    'name': baseName,
+    'type': value is num
+        ? 'number'
+        : value is bool
+        ? 'boolean'
+        : 'string',
+    'description': _parameterDescription(
+      normalizedKey,
+      toolName,
+      useEnglish: useEnglish,
+    ),
+    'default': defaultValue,
+    'required': false,
+    'bindings': bindings,
+    'source_steps': [stepId],
+  };
+}
+
+String _parameterSignature(Map<String, dynamic> parameter) {
+  return const JsonEncoder().convert({
+    'name': parameter['name'],
+    'type': parameter['type'],
+    'default': parameter['default'],
+  });
+}
+
+void _appendUnique(Map<String, dynamic> target, String key, dynamic rawValues) {
+  final current = target[key] is List ? List<dynamic>.from(target[key]) : [];
+  final incoming = rawValues is Iterable ? rawValues : [rawValues];
+  for (final value in incoming) {
+    if (value == null) continue;
+    if (!current.contains(value)) {
+      current.add(value);
+    }
+  }
+  target[key] = current;
+}
+
+bool _isParameterCandidate(String toolName, String key, dynamic value) {
+  if (value is Map || value is Iterable) {
+    return false;
+  }
+  final normalizedKey = key.toLowerCase();
+  if (_isCoordinateLikeKey(normalizedKey)) {
+    return false;
+  }
+  final canonicalTool = OobCanonicalActionSchema.canonicalToolName(toolName);
+  if (canonicalTool != null) {
+    return OobCanonicalActionSchema.argNames(canonicalTool).contains(
+      normalizedKey,
+    );
+  }
+  const candidateKeys = {
+    'text',
+    'content',
+    'message',
+    'prompt',
+    'instruction',
+    'question',
+    'query',
+    'keyword',
+    'url',
+    'target',
+    'target_description',
+    'targetdescription',
+    'title',
+    'name',
+    'label',
+    'value',
+    'value_text',
+    'valuetext',
+    'package_name',
+    'packagename',
+    'app_name',
+    'appname',
+  };
+  if (candidateKeys.contains(normalizedKey)) {
+    return true;
+  }
+  final normalizedTool = toolName.toLowerCase();
+  return normalizedTool.contains('input') ||
+      normalizedTool.contains('type') ||
+      normalizedTool.contains('search') ||
+      normalizedTool.contains('open');
+}
+
+bool _isCoordinateLikeKey(String key) {
+  const blocked = {
+    'x',
+    'y',
+    'left',
+    'top',
+    'right',
+    'bottom',
+    'width',
+    'height',
+    'bounds',
+    'rect',
+  };
+  return blocked.contains(key);
+}
+
+String _jsonPathSuffix(List<String> segments) {
+  if (segments.isEmpty) {
+    return '';
+  }
+  final safeSegments = <String>[];
+  for (final raw in segments) {
+    final segment = raw.trim();
+    if (!RegExp(r'^[A-Za-z0-9_]+(?:\[\d+\])?$').hasMatch(segment)) {
+      return '';
+    }
+    safeSegments.add(segment);
+  }
+  return safeSegments.join('.');
+}
+
+String _canonicalToolNameForStep(String toolName, dynamic args) {
+  if (RunLogReplayPolicy.isOmniflowFunctionTool(toolName) ||
+      RunLogReplayPolicy.isOmniflowToolCallTool(toolName)) {
+    return 'call_tool';
+  }
+  return toolName;
+}
+
+Map<String, dynamic> _canonicalCallToolArgs(String toolName, dynamic args) {
+  final normalizedTool = RunLogReplayPolicy.normalizeToolName(toolName);
+  if (!RunLogReplayPolicy.isOmniflowFunctionTool(normalizedTool) &&
+      !RunLogReplayPolicy.isOmniflowToolCallTool(normalizedTool)) {
+    final safe = _jsonSafe(args);
+    return safe is Map<String, dynamic> ? safe : _asStringKeyMap(safe);
+  }
+  final mapped = Map<String, dynamic>.from(_asStringKeyMap(args));
+  final functionId = _firstNonBlank([
+    mapped['function_id'],
+  ]);
+  if (functionId.isNotEmpty) {
+    mapped['function_id'] = functionId;
+  }
+  final targetTool = _firstNonBlank([
+    mapped['tool_name'],
+  ]);
+  if (targetTool.isNotEmpty &&
+      !RunLogReplayPolicy.isOmniflowFunctionTool(normalizedTool)) {
+    mapped['tool_name'] = targetTool;
+  }
+  return mapped;
+}
+
+String _callToolFunctionId(dynamic args) {
+  final mapped = _asStringKeyMap(args);
+  return _firstNonBlank([
+    mapped['function_id'],
+  ]);
+}
+
+String _stepKindForToolName(String toolName, String route, {dynamic args}) {
+  if (RunLogReplayPolicy.isOmniflowToolCallTool(toolName)) {
+    return _callToolFunctionId(args).isNotEmpty
+        ? 'omniflow_function'
+        : 'tool_call';
+  }
+  final executor = _executorForToolName(toolName, route);
+  if (executor == 'agent') return 'agent_call';
+  if (RunLogReplayPolicy.isOmniflowGraphTool(toolName)) {
+    return 'omniflow_graph';
+  }
+  if (RunLogReplayPolicy.isOmniflowFunctionTool(toolName)) {
+    return 'omniflow_function';
+  }
+  return executor == 'omniflow' ? 'function' : 'tool_call';
+}
+
+String _executorForSnapshot(
+  _RunLogActionSnapshot snapshot, {
+  required dynamic args,
+  required bool skipPerceptionStep,
+}) {
+  if (RunLogReplayPolicy.isPerceptionTool(snapshot.toolName) &&
+      !skipPerceptionStep) {
+    return 'agent';
+  }
+  if (_replayActionForSnapshot(snapshot) != null) {
+    return 'omniflow';
+  }
+  if (RunLogReplayPolicy.isOmniflowToolCallTool(snapshot.toolName)) {
+    return _callToolFunctionId(args).isNotEmpty ? 'omniflow' : 'tool';
+  }
+  return _executorForToolName(snapshot.toolName, snapshot.route);
+}
+
+String _executorForToolName(String toolName, String route) {
+  final normalizedTool = RunLogReplayPolicy.normalizeToolName(toolName);
+  final normalizedRoute = route.trim().toLowerCase();
+  if (normalizedTool.isEmpty || normalizedTool == 'unknown_tool') {
+    return 'agent';
+  }
+  if (RunLogReplayPolicy.omniflowActionForToolName(normalizedTool) != null) {
+    return 'omniflow';
+  }
+  if (RunLogReplayPolicy.isOmniflowExecutionTool(normalizedTool)) {
+    return 'omniflow';
+  }
+  if (normalizedRoute == 'miss' || normalizedRoute == 'vlm') {
+    return 'agent';
+  }
+  if (normalizedTool.contains('agent') ||
+      normalizedTool.contains('llm') ||
+      normalizedTool.contains('vlm')) {
+    return 'agent';
+  }
+  // Data-flow and perception tools require live context.
+  if (RunLogReplayPolicy.isAgentTool(normalizedTool)) {
+    return 'agent';
+  }
+  return 'tool';
+}
+
+String _stepFallbackPrompt({
+  required String title,
+  required String toolName,
+  required dynamic args,
+  required String prompt,
+  required bool useEnglish,
+}) {
+  final argsText = const JsonEncoder.withIndent('  ').convert(_jsonSafe(args));
+  final normalizedPrompt = prompt.trim();
+  if (useEnglish) {
+    return [
+      'Re-plan this step from the current screen.',
+      if (title.trim().isNotEmpty) 'Step goal: ${title.trim()}',
+      if (normalizedPrompt.isNotEmpty) ...[
+        'Original prompt:',
+        normalizedPrompt,
+      ],
+      'Original tool: $toolName',
+      'Original args:',
+      argsText,
+    ].join('\n');
+  }
+  return [
+    '请从当前屏幕重新规划并执行这一步。',
+    if (title.trim().isNotEmpty) '步骤目标：${title.trim()}',
+    if (normalizedPrompt.isNotEmpty) ...['原始 prompt：', normalizedPrompt],
+    '原始工具：$toolName',
+    '原始参数：',
+    argsText,
+  ].join('\n');
+}
+
+String _stepSummary({
+  required String title,
+  required String toolName,
+  required String prompt,
+  required dynamic args,
+  required dynamic result,
+}) {
+  final promptPreview = _compactPreview(prompt, maxLength: 180);
+  if (promptPreview.isNotEmpty) {
+    return 'Prompt: $promptPreview';
+  }
+  final argsMap = _asStringKeyMap(args);
+  final resultMap = _asStringKeyMap(result);
+  final preview = _compactPreview(
+    _firstNonBlank([
+      argsMap['target_description'],
+      argsMap['text'],
+      argsMap['message'],
+      argsMap['query'],
+      argsMap['url'],
+      resultMap['summary'],
+      resultMap['message'],
+    ]),
+    maxLength: 180,
+  );
+  if (preview.isNotEmpty) {
+    return preview;
+  }
+  return _firstNonBlank([title, toolName]);
+}
+
+Map<String, dynamic>? _buildCoordinateHookMetadata({
+  required _RunLogActionSnapshot snapshot,
+  required dynamic args,
+}) {
+  final replayAction = _replayActionForSnapshot(snapshot);
+  if (replayAction == null ||
+      !RunLogReplayPolicy.isCoordinateAction(replayAction)) {
+    return null;
+  }
+  // No source XML → no coordinate remapping possible; use original coordinates.
+  if (snapshot.beforeXml.isEmpty) {
+    return null;
+  }
+  final argsMap = _asStringKeyMap(args);
+  final sourceAction = <String, dynamic>{
+    'tool': replayAction,
+    if (_firstNonBlank([argsMap['target_description']]).isNotEmpty)
+      'target_description': _firstNonBlank([argsMap['target_description']]),
+  };
+  for (final key in OobCanonicalActionSchema.sourceContextArgNames) {
+    if (key == OobCanonicalActionSchema.argText ||
+        key == OobCanonicalActionSchema.argTargetDescription) {
+      continue;
+    }
+    if (argsMap.containsKey(key) && argsMap[key] != null) {
+      sourceAction[key] = argsMap[key];
+    }
+  }
+
+  return {
+    'coordinate_hook': 'omniflow',
+    'coordinate_hook_policy': {
+      'mode': 'coordinate_remap',
+      'source_context_required': true,
+    },
+    'replay_policy': {
+      'mode': 'coordinate_remap',
+      'coordinate_transform': true,
+      'source_context_required': true,
+    },
+    'source_context': {
+      'src_ctx': {
+        'page': snapshot.beforeXml,
+        'require_unique_action_signature': false,
+      },
+      'action': sourceAction,
+    },
+  };
+}
+
+String? _replayActionForSnapshot(_RunLogActionSnapshot snapshot) {
+  final direct = RunLogReplayPolicy.omniflowActionForToolName(
+    snapshot.toolName,
+  );
+  if (direct != null) {
+    return direct;
+  }
+  if (!_isAndroidPrivilegedAction(snapshot.toolName)) {
+    return null;
+  }
+  final argsMap = _asStringKeyMap(snapshot.args);
+  return RunLogReplayPolicy.omniflowActionForToolName(
+    _firstNonBlank([argsMap['tool']]),
+  );
+}
+
+Map<String, dynamic> _cleanupEvent({
+  required int sourceIndex,
+  required String action,
+  required String reason,
+  required String toolName,
+  required String title,
+  dynamic keptStepIndex,
+  dynamic keptStepId,
+}) {
+  return {
+    'source_index': sourceIndex,
+    'action': action,
+    'reason': reason,
+    'tool': RunLogReplayPolicy.normalizeToolName(toolName),
+    if (title.trim().isNotEmpty) 'title': _compactPreview(title),
+    if (keptStepIndex != null) 'kept_step_index': keptStepIndex,
+    if (keptStepId != null) 'kept_step_id': keptStepId,
+  };
+}
+
+Map<String, dynamic> _defaultStepCleanupAnnotation({required bool useEnglish}) {
+  return {
+    'schema_version': 'oob.step_cleanup_annotation.v1',
+    'source': 'run_log_local_converter',
+    'cleanup_action': 'keep',
+    'usefulness': 'useful',
+    'confidence': 'high',
+    'reason': _text(
+      useEnglish,
+      '保留为可执行复用步骤。',
+      'Kept as an executable reusable step.',
+    ),
+  };
+}
+
+void _recordMergedSourceStep({
+  required Map<String, dynamic> keptStep,
+  required Map<String, dynamic> droppedStep,
+  required int sourceIndex,
+  required String reason,
+  required String title,
+  required String toolName,
+}) {
+  final keptSourceIndices = _stepSourceIndices(keptStep);
+  if (!keptSourceIndices.contains(sourceIndex)) {
+    keptSourceIndices.add(sourceIndex);
+  }
+  keptStep['source_indices'] = keptSourceIndices;
+
+  final mergedSteps = _asStringKeyMapList(
+    keptStep['merged_steps'],
+  ).toList(growable: true);
+  mergedSteps.add({
+    'source_index': sourceIndex,
+    'step_id': _firstNonBlank([droppedStep['id'], 'step_${sourceIndex + 1}']),
+    'tool': RunLogReplayPolicy.normalizeToolName(toolName),
+    if (title.trim().isNotEmpty) 'title': _compactPreview(title),
+    'reason': reason,
+  });
+  keptStep['merged_steps'] = mergedSteps;
+
+  final annotation = _asStringKeyMap(keptStep['cleanup_annotation']);
+  final mergedSourceIndices = annotation['merged_source_indices'] is List
+      ? List<dynamic>.from(annotation['merged_source_indices'] as List)
+      : <dynamic>[];
+  if (!mergedSourceIndices.contains(sourceIndex)) {
+    mergedSourceIndices.add(sourceIndex);
+  }
+  keptStep['cleanup_annotation'] = {
+    ...annotation,
+    'schema_version': 'oob.step_cleanup_annotation.v1',
+    'source': 'run_log_local_converter',
+    'cleanup_action': 'merged_duplicate',
+    'usefulness': 'useful_with_merged_noise',
+    'confidence': 'high',
+    'reason': reason,
+    'merged_source_indices': mergedSourceIndices,
+    'merged_step_count': mergedSourceIndices.length,
+  };
+}
+
+List<int> _stepSourceIndices(Map<String, dynamic> step) {
+  final raw = step['source_indices'];
+  final output = <int>[];
+  if (raw is List) {
+    for (final item in raw) {
+      final index = _asInt(item);
+      if (index != null && index >= 0 && !output.contains(index)) {
+        output.add(index);
+      }
+    }
+  }
+  final sourceIndex = _asInt(step['source_index']);
+  if (sourceIndex != null &&
+      sourceIndex >= 0 &&
+      !output.contains(sourceIndex)) {
+    output.add(sourceIndex);
+  }
+  final index = _asInt(step['index']);
+  if (output.isEmpty && index != null && index >= 0) {
+    output.add(index);
+  }
+  return output;
+}
+
+Map<String, dynamic> _buildStepCleanupSummary({
+  required List<Map<String, dynamic>> steps,
+  required List<Map<String, dynamic>> cleanupEvents,
+}) {
+  final annotatedSteps = steps
+      .map(_asStringKeyMap)
+      .where((step) {
+        final annotation = _asStringKeyMap(step['cleanup_annotation']);
+        return annotation.isNotEmpty &&
+            _firstNonBlank([annotation['cleanup_action']]) != 'keep';
+      })
+      .map(
+        (step) => {
+          'step_id': _firstNonBlank([step['id']]),
+          'index': step['index'],
+          'annotation': _asStringKeyMap(step['cleanup_annotation']),
+        },
+      )
+      .toList(growable: false);
+  if (cleanupEvents.isEmpty && annotatedSteps.isEmpty) {
+    return const <String, dynamic>{};
+  }
+  return {
+    'schema_version': 'oob.step_cleanup.v1',
+    'source': 'run_log_local_converter',
+    'mode': 'deterministic_safe_drop_plus_metadata_annotations',
+    'execution_rewrite_allowed': false,
+    'dropped_count': cleanupEvents
+        .where((event) => event['action'] == 'drop')
+        .length,
+    'merged_count': cleanupEvents
+        .where((event) => event['action'] == 'merge')
+        .length,
+    'annotated_step_count': annotatedSteps.length,
+    if (cleanupEvents.isNotEmpty) 'events': cleanupEvents,
+    if (annotatedSteps.isNotEmpty) 'annotated_steps': annotatedSteps,
+  };
+}
+
+Map<String, dynamic> _stepCleanupAnnotationFromAi(
+  Map<String, dynamic> aiStep, {
+  required Map<String, dynamic> fallback,
+}) {
+  final importance = _safeImportance(aiStep['importance']);
+  final rawAction = _firstNonBlank([
+    aiStep['cleanup_action'],
+    aiStep['cleanupAction'],
+    aiStep['cleanup'],
+    aiStep['action'] == 'drop' || aiStep['action'] == 'merge'
+        ? aiStep['action']
+        : null,
+  ]);
+  final normalizedAction = _normalizeCleanupAction(rawAction);
+  final isNoise =
+      _asBool(aiStep['is_noise'] ?? aiStep['isNoise']) == true ||
+      importance == 'noise';
+  final reason = _boundedText(
+    _firstNonBlank([
+      aiStep['cleanup_reason'],
+      aiStep['cleanupReason'],
+      aiStep['noise_reason'],
+      aiStep['noiseReason'],
+      aiStep['reason'],
+    ]),
+    maxLength: 240,
+  );
+  final actionPurpose = _boundedText(
+    _firstNonBlank([
+      aiStep['action_purpose'],
+      aiStep['actionPurpose'],
+      aiStep['purpose'],
+      aiStep['intent'],
+    ]),
+    maxLength: 240,
+  );
+  final optionalCondition = _boundedText(
+    _firstNonBlank([
+      aiStep['optional_condition'],
+      aiStep['optionalCondition'],
+      aiStep['condition'],
+      aiStep['checker_condition'],
+      aiStep['checkerCondition'],
+    ]),
+    maxLength: 240,
+  );
+  final category = _boundedText(
+    _firstNonBlank([
+      aiStep['cleanup_category'],
+      aiStep['cleanupCategory'],
+      aiStep['noise_type'],
+      aiStep['noiseType'],
+      aiStep['category'],
+    ]),
+    maxLength: 80,
+  );
+
+  if (importance.isEmpty &&
+      normalizedAction.isEmpty &&
+      !isNoise &&
+      reason.isEmpty &&
+      actionPurpose.isEmpty &&
+      optionalCondition.isEmpty &&
+      category.isEmpty) {
+    return fallback;
+  }
+
+  final cleanupAction = normalizedAction.isNotEmpty
+      ? normalizedAction
+      : isNoise
+      ? 'noise'
+      : fallback['cleanup_action']?.toString() ?? 'keep';
+
+  final output = <String, dynamic>{
+    ...fallback,
+    'schema_version': 'oob.step_cleanup_annotation.v1',
+    'source': 'run_log_agent_label_enhancer',
+    'cleanup_action': cleanupAction,
+    'usefulness': _usefulnessForCleanupAction(cleanupAction, importance),
+    'confidence': _safeCleanupConfidence(aiStep['confidence']),
+    'execution_rewrite_allowed': false,
+    if (importance.isNotEmpty) 'importance': importance,
+    if (actionPurpose.isNotEmpty) 'action_purpose': actionPurpose,
+    if (optionalCondition.isNotEmpty) 'optional_condition': optionalCondition,
+    if (reason.isNotEmpty) 'reason': reason,
+    if (category.isNotEmpty)
+      'category': category
+    else if (cleanupAction == 'optional_checker')
+      'category': 'conditional_obstruction',
+  };
+  final mergeWith = _asInt(
+    aiStep['merge_with_index'] ??
+        aiStep['mergeWithIndex'] ??
+        aiStep['merge_with_step_index'] ??
+        aiStep['mergeWithStepIndex'],
+  );
+  if (mergeWith != null && mergeWith >= 0) {
+    output['merge_with_index'] = mergeWith;
+  }
+  return output;
+}
+
+String _normalizeCleanupAction(String raw) {
+  final text = raw.trim().toLowerCase().replaceAll('-', '_');
+  return switch (text) {
+    'keep' || 'useful' => 'keep',
+    'merge' || 'merge_candidate' || 'merged' => 'merge_candidate',
+    'drop' || 'delete' || 'remove' || 'drop_candidate' => 'drop_candidate',
+    'noise' || 'noisy' || 'noop' || 'no_op' => 'noise',
+    'optional' ||
+    'optional_checker' ||
+    'conditional' ||
+    'conditional_checker' ||
+    'conditional_obstruction' ||
+    'popup_checker' ||
+    'ad_checker' => 'optional_checker',
+    'review' || 'review_candidate' => 'review',
+    _ => '',
+  };
+}
+
+String _usefulnessForCleanupAction(String cleanupAction, String importance) {
+  if (importance == 'noise') return 'noise';
+  return switch (cleanupAction) {
+    'drop_candidate' => 'probably_useless',
+    'merge_candidate' => 'redundant_candidate',
+    'noise' => 'noise',
+    'optional_checker' => 'conditional_checker',
+    'review' => 'review_required',
+    'merged_duplicate' => 'useful_with_merged_noise',
+    _ => 'useful',
+  };
+}
+
+String _safeCleanupConfidence(dynamic raw) {
+  final text = raw?.toString().trim().toLowerCase() ?? '';
+  return switch (text) {
+    'high' || 'certain' => 'high',
+    'medium' || 'med' => 'medium',
+    'low' || 'uncertain' => 'low',
+    _ => 'medium',
+  };
+}
+
+void _syncStepCleanupMetadata(
+  Map<String, dynamic> functionJson,
+  List<Map<String, dynamic>> steps,
+) {
+  final metadata = <String, dynamic>{
+    ..._asStringKeyMap(functionJson['metadata']),
+  };
+  final existingCleanup = _asStringKeyMap(metadata['oob_step_cleanup']);
+  final existingEvents = _asStringKeyMapList(existingCleanup['events']);
+  final summary = _buildStepCleanupSummary(
+    steps: steps,
+    cleanupEvents: existingEvents,
+  );
+  if (summary.isEmpty) {
+    functionJson['metadata'] = metadata;
+    return;
+  }
+  metadata['oob_step_cleanup'] = {
+    ...existingCleanup,
+    ...summary,
+    'source': existingCleanup['source'] ?? summary['source'],
+  };
+  functionJson['metadata'] = metadata;
+}
+
+bool _isDuplicateTextInputStep(
+  Map<String, dynamic>? previous,
+  Map<String, dynamic> current,
+) {
+  if (previous == null) return false;
+  if (!_isTextInputStep(previous) || !_isTextInputStep(current)) return false;
+  final previousText = _textInputValue(previous);
+  final currentText = _textInputValue(current);
+  if (previousText.isEmpty || previousText != currentText) return false;
+  final previousTarget = _textInputTargetSignature(previous);
+  final currentTarget = _textInputTargetSignature(current);
+  return previousTarget.isNotEmpty && previousTarget == currentTarget;
+}
+
+bool _isTextInputStep(Map<String, dynamic> step) {
+  final rawAction = _firstNonBlank([
+    step['tool'],
+  ]);
+  final action =
+      RunLogReplayPolicy.omniflowActionForToolName(rawAction) ??
+      RunLogReplayPolicy.normalizeToolName(rawAction);
+  return action == 'input_text';
+}
+
+String _textInputValue(Map<String, dynamic> step) {
+  final args = _asStringKeyMap(step['args']);
+  return _firstNonBlank([args['text']]);
+}
+
+String _textInputTargetSignature(Map<String, dynamic> step) {
+  final args = _asStringKeyMap(step['args']);
+  final sourceContext = _asStringKeyMap(step['source_context']);
+  final action = _asStringKeyMap(sourceContext['action']);
+  return _firstNonBlank([
+    args['node_resource_id'],
+    action['node_resource_id'],
+    args['selector'],
+    action['selector'],
+    args['bounds'],
+    action['bounds'],
+    args['target_description'],
+    action['target_description'],
+  ]);
+}
+
+dynamic _replayArgsForSnapshot(_RunLogActionSnapshot snapshot) {
+  final rawArgs = _jsonSafe(snapshot.args);
+  if (!_isAndroidPrivilegedAction(snapshot.toolName) ||
+      _replayActionForSnapshot(snapshot) == null) {
+    return rawArgs;
+  }
+  final argsMap = _asStringKeyMap(rawArgs);
+  final nestedArguments = _asStringKeyMap(argsMap['arguments']);
+  final flattened = <String, dynamic>{};
+  for (final entry in argsMap.entries) {
+    if (entry.key == 'tool' || entry.key == 'arguments') {
+      continue;
+    }
+    flattened[entry.key] = entry.value;
+  }
+  flattened.addAll(nestedArguments);
+  return flattened;
+}
+
+bool _isAndroidPrivilegedAction(String toolName) {
+  return RunLogReplayPolicy.normalizeToolName(toolName) ==
+      'android_privileged_action';
+}
+
+String _parameterBaseName(String key, String toolName) {
+  final normalized = key
+      .replaceAllMapped(RegExp(r'([a-z])([A-Z])'), (m) => '${m[1]}_${m[2]}')
+      .replaceAll(RegExp(r'[^A-Za-z0-9_]+'), '_')
+      .toLowerCase()
+      .replaceAll(RegExp(r'_+'), '_')
+      .replaceAll(RegExp(r'^_|_$'), '');
+  if (normalized == 'target_description' || normalized == 'targetdescription') {
+    return 'target';
+  }
+  if (normalized == 'package_name' || normalized == 'packagename') {
+    return 'package_name';
+  }
+  if (normalized == 'app_name' || normalized == 'appname') {
+    return 'app_name';
+  }
+  return normalized.isEmpty ? '${toolName}_value' : normalized;
+}
+
+String _parameterDescription(
+  String key,
+  String toolName, {
+  required bool useEnglish,
+}) {
+  switch (key.toLowerCase()) {
+    case 'text':
+    case 'content':
+    case 'message':
+      return _text(useEnglish, '运行时输入的文本内容', 'Text entered at runtime');
+    case 'query':
+    case 'keyword':
+      return _text(
+        useEnglish,
+        '运行时搜索或匹配的查询词',
+        'Search or matching query at runtime',
+      );
+    case 'url':
+      return _text(useEnglish, '运行时打开或访问的 URL', 'URL opened at runtime');
+    case 'package_name':
+    case 'packagename':
+      return _text(
+        useEnglish,
+        '目标 Android 应用包名',
+        'Target Android package name',
+      );
+    case 'target_description':
+    case 'targetdescription':
+    case 'target':
+      return _text(
+        useEnglish,
+        '目标控件或目标对象描述',
+        'Target control or object description',
+      );
+    default:
+      return useEnglish ? '$key parameter for $toolName' : '$toolName 的参数 $key';
+  }
+}
+
+String _text(bool useEnglish, String zh, String en) {
+  return useEnglish ? en : zh;
+}
+
+Map<String, dynamic> _extractToolCall(Map<String, dynamic> card) {
+  final explicit = _firstMap(card, const [
+    'tool_call',
+    'toolCall',
+    'action',
+    'call',
+  ]);
+  if (explicit.isNotEmpty) {
+    return explicit;
+  }
+  final toolName = _firstNonBlank([
+    card['tool_name'],
+    card['toolName'],
+    card['action_type'],
+    card['actionType'],
+  ]);
+  if (toolName.isEmpty) {
+    return const {};
+  }
+  return <String, dynamic>{
+    'name': toolName,
+    if (card.containsKey('params')) 'params': card['params'],
+    if (card.containsKey('arguments')) 'arguments': card['arguments'],
+  };
+}
+
+class _PromptHit {
+  const _PromptHit(this.text, this.source);
+
+  final String text;
+  final String source;
+}
+
+class _PromptSearchRoot {
+  const _PromptSearchRoot(this.name, this.value);
+
+  final String name;
+  final dynamic value;
+}
+
+const Set<String> _promptKeyNames = {
+  'prompt',
+  'subagentprompt',
+  'agentprompt',
+  'augmentprompt',
+  'augumentprompt',
+  'systemprompt',
+  'userprompt',
+  'instruction',
+  'instructions',
+  'query',
+  'question',
+  'message',
+  'usermessage',
+  'input',
+  'task',
+  'goal',
+  'request',
+};
+
+_PromptHit _extractPromptHit(List<_PromptSearchRoot> roots) {
+  for (final root in roots) {
+    final hit = _findPromptInValue(
+      root.value,
+      path: root.name,
+      visited: <Object>{},
+    );
+    if (hit.text.trim().isNotEmpty) {
+      return hit;
+    }
+  }
+  return const _PromptHit('', '');
+}
+
+_PromptHit _findPromptInValue(
+  dynamic raw, {
+  required String path,
+  required Set<Object> visited,
+}) {
+  final value = _decodeJsonIfNeeded(raw);
+  if (value is Map) {
+    if (!visited.add(value)) {
+      return const _PromptHit('', '');
+    }
+    final map = value.map((key, item) => MapEntry(key.toString(), item));
+    for (final entry in map.entries) {
+      final key = entry.key.trim();
+      final normalizedKey = _normalizePromptKey(key);
+      if (_promptKeyNames.contains(normalizedKey)) {
+        final text = _promptTextFromValue(entry.value);
+        if (text.isNotEmpty) {
+          return _PromptHit(text, '$path.$key');
+        }
+      }
+    }
+    for (final entry in map.entries) {
+      final hit = _findPromptInValue(
+        entry.value,
+        path: '$path.${entry.key}',
+        visited: visited,
+      );
+      if (hit.text.isNotEmpty) {
+        return hit;
+      }
+    }
+  } else if (value is Iterable) {
+    var index = 0;
+    for (final item in value) {
+      final hit = _findPromptInValue(
+        item,
+        path: '$path[$index]',
+        visited: visited,
+      );
+      if (hit.text.isNotEmpty) {
+        return hit;
+      }
+      index++;
+    }
+  }
+  return const _PromptHit('', '');
+}
+
+String _promptTextFromValue(dynamic raw) {
+  final value = _decodeJsonIfNeeded(raw);
+  if (value is String) {
+    return value.trim();
+  }
+  if (value is num || value is bool) {
+    return value.toString();
+  }
+  if (value is Map) {
+    return _firstNonBlank([
+      value['text'],
+      value['content'],
+      value['message'],
+      value['prompt'],
+      value['value'],
+    ]);
+  }
+  return '';
+}
+
+String _normalizePromptKey(String key) {
+  return key.replaceAll(RegExp(r'[^A-Za-z0-9]+'), '').toLowerCase().trim();
+}
+
+dynamic _extractArgs(
+  Map<String, dynamic> card,
+  Map<String, dynamic> toolCall,
+  Map<String, dynamic> function,
+) {
+  final value = _firstPresent([
+    toolCall['params'],
+    toolCall['arguments'],
+    toolCall['args'],
+    function['arguments'],
+    card['params'],
+    card['arguments'],
+    card['args'],
+  ]);
+  return _decodeJsonIfNeeded(value) ?? const <String, dynamic>{};
+}
+
+dynamic _extractResult(Map<String, dynamic> card) {
+  final value = _firstPresent([
+    card['result'],
+    card['tool_result'],
+    card['toolResult'],
+    card['execution_result'],
+    card['executionResult'],
+    card['raw_result_json'],
+    card['rawResultJson'],
+    card['resultPreviewJson'],
+    card['output'],
+    card['error'],
+    card['error_message'],
+    card['errorMessage'],
+  ]);
+  return _decodeJsonIfNeeded(value);
+}
+
+const int _observedResultStringLimit = 2000;
+const int _observedResultListLimit = 20;
+const int _observedResultMapLimit = 40;
+const int _observedResultMaxDepth = 4;
+
+dynamic _compactObservedResult(dynamic value) {
+  return _compactObservedJson(_jsonSafe(value), depth: 0);
+}
+
+dynamic _compactObservedJson(dynamic value, {required int depth}) {
+  if (value == null || value is num || value is bool) {
+    return value;
+  }
+  if (value is String) {
+    return _compactObservedString(value);
+  }
+  if (depth >= _observedResultMaxDepth) {
+    return const <String, dynamic>{
+      '__truncated__': true,
+      'reason': 'max_depth',
+    };
+  }
+  if (value is Map) {
+    final result = <String, dynamic>{};
+    var count = 0;
+    var omittedCount = 0;
+    for (final entry in value.entries) {
+      if (count < _observedResultMapLimit) {
+        result[entry.key.toString()] = _compactObservedJson(
+          entry.value,
+          depth: depth + 1,
+        );
+      } else {
+        omittedCount++;
+      }
+      count++;
+    }
+    if (omittedCount > 0) {
+      result['__truncated__'] = true;
+      result['__omitted_entry_count__'] = omittedCount;
+    }
+    return result;
+  }
+  if (value is Iterable) {
+    final result = <dynamic>[];
+    var count = 0;
+    var omittedCount = 0;
+    for (final item in value) {
+      if (count < _observedResultListLimit) {
+        result.add(_compactObservedJson(item, depth: depth + 1));
+      } else {
+        omittedCount++;
+      }
+      count++;
+    }
+    if (omittedCount > 0) {
+      result.add({
+        '__truncated__': true,
+        '__omitted_item_count__': omittedCount,
+      });
+    }
+    return result;
+  }
+  return _compactObservedString(value.toString());
+}
+
+String _compactObservedString(String value) {
+  if (value.length <= _observedResultStringLimit) {
+    return value;
+  }
+  final head = value.substring(0, _observedResultStringLimit).trimRight();
+  return '$head... [truncated, original_length=${value.length}]';
+}
+
+Map<String, dynamic>? _extractJsonObject(String raw) {
+  final text = raw.trim();
+  if (text.isEmpty) {
+    return null;
+  }
+  final candidates = <String>[text];
+  for (final match in RegExp(
+    r'```(?:json)?\s*([\s\S]*?)```',
+    caseSensitive: false,
+  ).allMatches(text)) {
+    final fenced = match.group(1)?.trim();
+    if (fenced != null && fenced.isNotEmpty) {
+      candidates.add(fenced);
+    }
+  }
+
+  for (final candidate in candidates) {
+    final direct = _tryDecodeMap(candidate);
+    if (direct != null) {
+      return direct;
+    }
+
+    Map<String, dynamic>? best;
+    var bestScore = -1;
+    for (final objectText in _balancedJsonObjectCandidates(candidate)) {
+      final parsed = _tryDecodeMap(objectText);
+      if (parsed == null) {
+        continue;
+      }
+      final score = _jsonObjectCandidateScore(parsed);
+      if (score >= bestScore) {
+        best = parsed;
+        bestScore = score;
+      }
+    }
+    if (best != null) {
+      return best;
+    }
+  }
+  return null;
+}
+
+Map<String, dynamic>? _tryDecodeMap(String value) {
+  try {
+    final decoded = jsonDecode(value);
+    if (decoded is Map) {
+      return _unwrapJsonObject(
+        decoded.map((key, item) => MapEntry(key.toString(), item)),
+      );
+    }
+    if (decoded is String && decoded.trim() != value.trim()) {
+      return _extractJsonObject(decoded);
+    }
+    if (decoded is List) {
+      for (final item in decoded) {
+        if (item is Map) {
+          final unwrapped = _unwrapJsonObject(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+          );
+          if (unwrapped != null) {
+            return unwrapped;
+          }
+        }
+      }
+    }
+  } catch (_) {
+    return null;
+  }
+  return null;
+}
+
+Iterable<String> _balancedJsonObjectCandidates(String value) sync* {
+  var depth = 0;
+  var start = -1;
+  var inString = false;
+  var escaped = false;
+  for (var index = 0; index < value.length; index++) {
+    final char = value[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char == '\\') {
+        escaped = true;
+      } else if (char == '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (char == '"') {
+      inString = true;
+      continue;
+    }
+    if (char == '{') {
+      if (depth == 0) {
+        start = index;
+      }
+      depth++;
+      continue;
+    }
+    if (char == '}' && depth > 0) {
+      depth--;
+      if (depth == 0 && start >= 0) {
+        yield value.substring(start, index + 1);
+        start = -1;
+      }
+    }
+  }
+}
+
+int _jsonObjectCandidateScore(Map<String, dynamic> value) {
+  var score = 0;
+  for (final key in const [
+    'schema_version',
+    'function_id',
+    'execution',
+    'agent_reuse',
+  ]) {
+    if (value.containsKey(key)) {
+      score += 12;
+    }
+  }
+  if (_firstNonBlank([value['name'], value['title']]).isNotEmpty) {
+    score +=
+        _looksLikePlaceholderJsonText(
+          _firstNonBlank([value['name'], value['title']]),
+        )
+        ? 1
+        : 8;
+  }
+  if (_firstNonBlank([value['description'], value['summary']]).isNotEmpty) {
+    score +=
+        _looksLikePlaceholderJsonText(
+          _firstNonBlank([value['description'], value['summary']]),
+        )
+        ? 1
+        : 8;
+  }
+  final steps = value['steps'];
+  if (steps is List && steps.isNotEmpty) {
+    score += 6;
+    for (final item in steps.take(4)) {
+      final step = _asStringKeyMap(item);
+      final title = _firstNonBlank([
+        step['title'],
+        step['description'],
+        step['summary'],
+      ]);
+      if (title.isNotEmpty && !_looksLikePlaceholderJsonText(title)) {
+        score += 2;
+      }
+    }
+  }
+  final parameters = value['parameters'];
+  if (parameters is List && parameters.isNotEmpty) {
+    score += 4;
+  }
+  return score;
+}
+
+bool _looksLikePlaceholderJsonText(String value) {
+  final normalized = value.trim().toLowerCase();
+  if (normalized.isEmpty) {
+    return true;
+  }
+  return const {
+    'short reusable Function name',
+    'one sentence',
+    'one sentence describing when and why to use it',
+    'runtime_slot',
+    'runtime value',
+    'recorded value',
+    'short action title',
+    'what this action does',
+    '简短复用指令名称',
+    '简短的复用指令名称',
+    '一句话简介',
+    '一句话说明它什么时候、为什么可复用',
+    '运行时值',
+    '记录值',
+    '简短动作标题',
+    '这个动作做了什么',
+  }.contains(normalized);
+}
+
+Map<String, dynamic>? _unwrapJsonObject(Map<String, dynamic> decoded) {
+  if (_looksLikeEnhancementOrFunctionJson(decoded)) {
+    return decoded;
+  }
+  for (final key in const [
+    'enhancement',
+    'function',
+    'function_json',
+    'functionJson',
+    'json',
+    'data',
+    'result',
+    'response',
+    'parsed',
+    'value',
+    'object',
+    'output',
+    'output_text',
+    'text',
+    'input',
+    'arguments',
+    'arguments_json',
+    'args_json',
+    'message',
+    'content',
+  ]) {
+    final nested = _extractJsonObjectFromValue(decoded[key]);
+    if (nested != null) {
+      return nested;
+    }
+  }
+  final choices = decoded['choices'];
+  if (choices is List) {
+    for (final rawChoice in choices) {
+      final choice = _asStringKeyMap(rawChoice);
+      for (final rawRoot in [choice['message'], choice['delta'], choice]) {
+        final root = _asStringKeyMap(rawRoot);
+        final nestedRoot = _unwrapJsonObject(root);
+        if (nestedRoot != null) {
+          return nestedRoot;
+        }
+        final content = _extractJsonObjectFromValue(root['content']);
+        if (content != null) {
+          return content;
+        }
+        final toolCalls = root['tool_calls'] ?? root['toolCalls'];
+        final toolJson = _extractJsonObjectFromToolCalls(toolCalls);
+        if (toolJson != null) {
+          return toolJson;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+bool _looksLikeEnhancementOrFunctionJson(Map<String, dynamic> value) {
+  for (final key in const [
+    'schema_version',
+    'function_id',
+    'name',
+    'title',
+    'description',
+    'summary',
+    'parameters',
+    'steps',
+    'actions',
+    'agent_reuse',
+    'execution',
+  ]) {
+    if (value.containsKey(key)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+Map<String, dynamic>? _extractJsonObjectFromValue(dynamic value) {
+  if (value is String) {
+    return _extractJsonObject(value);
+  }
+  if (value is Map) {
+    return _unwrapJsonObject(
+      value.map((key, item) => MapEntry(key.toString(), item)),
+    );
+  }
+  if (value is List) {
+    for (final item in value) {
+      final nested = _extractJsonObjectFromValue(item);
+      if (nested != null) {
+        return nested;
+      }
+      final itemMap = _asStringKeyMap(item);
+      for (final key in const [
+        'text',
+        'content',
+        'parsed',
+        'value',
+        'object',
+        'input',
+        'arguments',
+        'arguments_json',
+        'args_json',
+        'output_text',
+      ]) {
+        final blockJson = _extractJsonObjectFromValue(itemMap[key]);
+        if (blockJson != null) {
+          return blockJson;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+Map<String, dynamic>? _extractJsonObjectFromToolCalls(dynamic toolCalls) {
+  if (toolCalls is! List) {
+    return null;
+  }
+  for (final rawCall in toolCalls) {
+    final call = _asStringKeyMap(rawCall);
+    final function = _asStringKeyMap(call['function']);
+    for (final value in [
+      function['arguments'],
+      function['arguments_json'],
+      call['arguments'],
+      call['args'],
+    ]) {
+      final parsed = _extractJsonObjectFromValue(value);
+      if (parsed != null) {
+        return parsed;
+      }
+    }
+  }
+  return null;
+}
+
+String _stateSummary(Map<String, dynamic> state) {
+  return _firstNonBlank([
+    state['page_title'],
+    state['pageTitle'],
+    state['activity'],
+    state['package_name'],
+    state['packageName'],
+    state['description'],
+    state['summary'],
+  ]);
+}
+
+Map<String, dynamic> _mergeMaps(
+  Map<String, dynamic> base,
+  Map<String, dynamic> override,
+) {
+  return <String, dynamic>{...base, ...override};
+}
+
+List<dynamic> _normalizeParameters(dynamic value, dynamic fallback) {
+  final candidates = value is List && value.isNotEmpty ? value : fallback;
+  if (candidates is! List) {
+    return const [];
+  }
+  return candidates
+      .map((item) => _asStringKeyMap(item))
+      .where((item) => item.isNotEmpty)
+      .map((item) {
+        final bindings = item['bindings'];
+        return {
+          'name': _firstNonBlank([item['name']]),
+          'type': _firstNonBlank([item['type'], 'string']),
+          'description': _firstNonBlank([item['description'], item['name']]),
+          if (item.containsKey('default')) 'default': item['default'],
+          'required': item['required'] == true,
+          'bindings': bindings is List
+              ? bindings.map((entry) => entry.toString()).toList()
+              : const <String>[],
+          if (item['source_steps'] is List)
+            'source_steps': item['source_steps'],
+        };
+      })
+      .where((item) => item['name'].toString().trim().isNotEmpty)
+      .toList(growable: false);
+}
+
+List<dynamic> _normalizeExecutionSteps(dynamic value, dynamic fallback) {
+  final fallbackSteps = fallback is List ? fallback : const <dynamic>[];
+  final candidates = value is List && value.isNotEmpty ? value : fallbackSteps;
+  return List<dynamic>.generate(candidates.length, (index) {
+    final step = _asStringKeyMap(candidates[index]);
+    final fallbackStep = index < fallbackSteps.length
+        ? _asStringKeyMap(fallbackSteps[index])
+        : const <String, dynamic>{};
+    final merged = <String, dynamic>{...fallbackStep, ...step};
+    final toolName = _firstNonBlank([
+      merged['tool'],
+      fallbackStep['tool'],
+      'unknown_tool',
+    ]);
+    final route = _firstNonBlank([merged['route'], fallbackStep['route']]);
+    final normalizedArgs = _canonicalCallToolArgs(
+      toolName,
+      merged['args'] ?? fallbackStep['args'],
+    );
+    final canonicalToolName = _canonicalToolNameForStep(
+      toolName,
+      normalizedArgs,
+    );
+    final isCallTool =
+        RunLogReplayPolicy.isOmniflowToolCallTool(toolName) ||
+        RunLogReplayPolicy.isOmniflowToolCallTool(canonicalToolName);
+    final inferredExecutor = isCallTool
+        ? (_callToolFunctionId(normalizedArgs).isNotEmpty ? 'omniflow' : 'tool')
+        : _executorForToolName(toolName, route);
+    final executor = switch (inferredExecutor) {
+      'omniflow' => 'omniflow',
+      'agent' => 'agent',
+      _ => _firstNonBlank([
+        merged['executor'],
+        fallbackStep['executor'],
+        inferredExecutor,
+      ]),
+    };
+    final rawReplayAction = _firstNonBlank([
+      if (executor == 'omniflow')
+        RunLogReplayPolicy.omniflowActionForToolName(toolName),
+    ]);
+    final replayAction = executor == 'omniflow'
+        ? (RunLogReplayPolicy.omniflowActionForToolName(rawReplayAction) ??
+              RunLogReplayPolicy.omniflowActionForToolName(toolName) ??
+              rawReplayAction)
+        : '';
+    final emittedToolName = executor == 'omniflow' && replayAction.isNotEmpty
+        ? replayAction
+        : canonicalToolName;
+    final modelFree =
+        executor == 'omniflow' ||
+        (executor != 'agent' &&
+            (_asBool(merged['model_free']) == true ||
+                _asBool(fallbackStep['model_free']) == true));
+    final rawScriptable = merged['scriptable'] is bool
+        ? merged['scriptable']
+        : fallbackStep['scriptable'];
+    final scriptable = executor == 'agent'
+        ? false
+        : rawScriptable is bool
+        ? rawScriptable
+        : true;
+    final fallback = _mergeMaps(
+      _asStringKeyMap(fallbackStep['fallback']),
+      _asStringKeyMap(merged['fallback']),
+    );
+    final agentCall = _normalizeAgentCall(
+      raw: _mergeMaps(
+        _asStringKeyMap(fallbackStep['agent_call']),
+        _asStringKeyMap(merged['agent_call']),
+      ),
+      enabled: executor == 'agent',
+      fallback: fallback,
+      originalTool: toolName,
+      originalArgs: _jsonSafe(merged['args'] ?? fallbackStep['args']),
+      originalPrompt: _extractStepPromptText(merged, fallbackStep),
+      reason: _firstNonBlank([
+        _asStringKeyMap(merged['agent_call'])['reason'],
+        _asStringKeyMap(fallbackStep['agent_call'])['reason'],
+        RunLogReplayPolicy.agentStepReason(toolName),
+      ]),
+    );
+    final prompt = _extractStepPromptText(merged, fallbackStep);
+    return {
+      ..._stepBaseWithoutDerivedFields(merged),
+      'id': _firstNonBlank([
+        merged['id'],
+        fallbackStep['id'],
+        'step_${index + 1}',
+      ]),
+      'index': _asInt(merged['index']) ?? index,
+      'kind': _stepKindForToolName(
+        emittedToolName,
+        route,
+        args: normalizedArgs,
+      ),
+      'tool': emittedToolName,
+      'executor': executor,
+      'scriptable': scriptable,
+      if (modelFree) 'model_free': true,
+      'args': _jsonSafe(normalizedArgs),
+      'tool_binding': _mergeMaps(
+        _mergeMaps(
+          _asStringKeyMap(fallbackStep['tool_binding']),
+          _asStringKeyMap(merged['tool_binding']),
+        ),
+        {
+          'kind': executor == 'agent'
+              ? 'agent_replan'
+              : RunLogReplayPolicy.isOmniflowGraphTool(emittedToolName)
+              ? 'omniflow_graph'
+                  : RunLogReplayPolicy.isOmniflowFunctionTool(emittedToolName) ||
+                        _callToolFunctionId(normalizedArgs).isNotEmpty
+                  ? 'omniflow_function'
+                  : executor == 'omniflow'
+                  ? 'function'
+                  : 'oob_agent_tool',
+              'name': emittedToolName,
+            },
+          ),
+      if (prompt.isNotEmpty)
+        'prompt': {
+          ..._asStringKeyMap(fallbackStep['prompt']),
+          ..._asStringKeyMap(merged['prompt']),
+          'text': prompt,
+          'preview': _compactPreview(prompt, maxLength: 240),
+        },
+      if (executor == 'omniflow' &&
+          _firstNonBlank([
+            merged['coordinate_hook'],
+            fallbackStep['coordinate_hook'],
+          ]).isNotEmpty)
+        'coordinate_hook': _firstNonBlank([
+          merged['coordinate_hook'],
+          fallbackStep['coordinate_hook'],
+        ]),
+      if (executor == 'omniflow' &&
+          (_asStringKeyMap(merged['coordinate_hook_policy']).isNotEmpty ||
+              _asStringKeyMap(
+                fallbackStep['coordinate_hook_policy'],
+              ).isNotEmpty))
+        'coordinate_hook_policy': _mergeMaps(
+          _asStringKeyMap(fallbackStep['coordinate_hook_policy']),
+          _asStringKeyMap(merged['coordinate_hook_policy']),
+        ),
+      if (executor == 'omniflow' &&
+          _firstNonBlank([
+            merged['replay_engine'],
+            fallbackStep['replay_engine'],
+          ]).isNotEmpty)
+        'replay_engine': _firstNonBlank([
+          merged['replay_engine'],
+          fallbackStep['replay_engine'],
+        ]),
+      if (executor == 'omniflow' &&
+          (_asStringKeyMap(merged['replay_policy']).isNotEmpty ||
+              _asStringKeyMap(fallbackStep['replay_policy']).isNotEmpty))
+        'replay_policy': _mergeMaps(
+          _asStringKeyMap(fallbackStep['replay_policy']),
+          _asStringKeyMap(merged['replay_policy']),
+        ),
+      if (executor == 'omniflow' &&
+          (_asStringKeyMap(merged['source_context']).isNotEmpty ||
+              _asStringKeyMap(fallbackStep['source_context']).isNotEmpty))
+        'source_context': _mergeMaps(
+          _asStringKeyMap(fallbackStep['source_context']),
+          _asStringKeyMap(merged['source_context']),
+        ),
+      'validation': _mergeMaps(
+        _asStringKeyMap(fallbackStep['validation']),
+        _asStringKeyMap(merged['validation']),
+      ),
+      'fallback': fallback,
+      if (agentCall.isNotEmpty) 'agent_call': agentCall,
+      'reuse_policy': _mergeMaps(
+        _asStringKeyMap(fallbackStep['reuse_policy']),
+        _asStringKeyMap(merged['reuse_policy']),
+      ),
+    };
+  }, growable: false);
+}
+
+Map<String, dynamic> _stepBaseWithoutDerivedFields(Map<String, dynamic> step) {
+  final copy = Map<String, dynamic>.from(step);
+  for (final key in const [
+    'kind',
+    'callable_tool',
+    'executor',
+    'scriptable',
+    'model_free',
+    'modelFree',
+    'omniflow_action',
+    'local_action',
+    'tool_binding',
+    'agent_call',
+    'coordinate_hook',
+    'coordinate_hook_policy',
+    'replay_engine',
+    'replay_policy',
+    'source_context',
+    'validation',
+    'fallback',
+    'reuse_policy',
+  ]) {
+    copy.remove(key);
+  }
+  return copy;
+}
+
+Map<String, dynamic> _executionCapabilitiesForSteps(
+  List<dynamic> steps, {
+  required Map<String, dynamic> fallback,
+}) {
+  final stepMaps = steps.map(_asStringKeyMap).toList(growable: false);
+  return {
+    ...fallback,
+    'scriptable_step_count': stepMaps
+        .where((step) => step['scriptable'] == true)
+        .length,
+    'model_free_step_count': stepMaps
+        .where((step) => step['model_free'] == true)
+        .length,
+    'omniflow_step_count': stepMaps
+        .where((step) => step['executor'] == 'omniflow')
+        .length,
+    'agent_step_count': stepMaps
+        .where((step) => step['executor'] == 'agent')
+        .length,
+    'requires_agent_fallback': stepMaps.any(
+      (step) => step['executor'] == 'agent',
+    ),
+  };
+}
+
+Map<String, dynamic> _normalizeAgentCall({
+  required Map<String, dynamic> raw,
+  required bool enabled,
+  required Map<String, dynamic> fallback,
+  required String originalTool,
+  required dynamic originalArgs,
+  required String originalPrompt,
+  required String reason,
+}) {
+  if (!enabled && raw.isEmpty) {
+    return const <String, dynamic>{};
+  }
+  final rawArgs = _asStringKeyMap(raw['args']);
+  final prompt = _firstNonBlank([
+    rawArgs['prompt'],
+    raw['prompt'],
+    fallback['prompt'],
+  ]);
+  return {
+    ...raw,
+    'tool': enabled
+        ? 'oob.agent.run'
+        : _firstNonBlank([raw['tool'], 'oob.agent.run']),
+    'args': {
+      ...rawArgs,
+      if (prompt.isNotEmpty) 'prompt': prompt,
+      'original_tool': _firstNonBlank([rawArgs['original_tool'], originalTool]),
+      if (!_isEmptyJsonValue(originalArgs))
+        'original_args': rawArgs['original_args'] ?? originalArgs,
+      if (originalPrompt.trim().isNotEmpty)
+        'original_prompt': _firstNonBlank([
+          rawArgs['original_prompt'],
+          originalPrompt,
+        ]),
+    },
+    'reason': _firstNonBlank([
+      raw['reason'],
+      reason,
+      enabled ? 'non_scriptable_or_vlm_step' : 'agent_fallback',
+    ]),
+  };
+}
+
+String _extractStepPromptText(
+  Map<String, dynamic> step,
+  Map<String, dynamic> fallbackStep,
+) {
+  return _firstNonBlank([
+    _asStringKeyMap(step['prompt'])['text'],
+    step['prompt'],
+    _asStringKeyMap(fallbackStep['prompt'])['text'],
+    fallbackStep['prompt'],
+    _asStringKeyMap(
+      _asStringKeyMap(step['agent_call'])['args'],
+    )['original_prompt'],
+    _asStringKeyMap(
+      _asStringKeyMap(fallbackStep['agent_call'])['args'],
+    )['original_prompt'],
+  ]);
+}
+
+Map<String, dynamic> _asStringKeyMap(dynamic value) {
+  final decoded = _decodeJsonIfNeeded(value);
+  if (decoded is! Map) {
+    return const <String, dynamic>{};
+  }
+  return decoded.map((key, item) => MapEntry(key.toString(), item));
+}
+
+List<Map<String, dynamic>> _asStringKeyMapList(dynamic value) {
+  final decoded = _decodeJsonIfNeeded(value);
+  if (decoded is! List) {
+    return const <Map<String, dynamic>>[];
+  }
+  return decoded
+      .map(_asStringKeyMap)
+      .where((item) => item.isNotEmpty)
+      .toList(growable: false);
+}
+
+Map<String, dynamic> _firstMap(Map<String, dynamic> source, List<String> keys) {
+  for (final key in keys) {
+    final map = _asStringKeyMap(source[key]);
+    if (map.isNotEmpty) {
+      return map;
+    }
+  }
+  return const <String, dynamic>{};
+}
+
+dynamic _firstPresentValue(Map<String, dynamic> source, List<String> keys) {
+  for (final key in keys) {
+    if (source.containsKey(key) && source[key] != null) {
+      return source[key];
+    }
+  }
+  return null;
+}
+
+dynamic _firstPresent(List<dynamic> values) {
+  for (final value in values) {
+    if (value == null) {
+      continue;
+    }
+    if (value is String && value.trim().isEmpty) {
+      continue;
+    }
+    return value;
+  }
+  return null;
+}
+
+String _firstNonBlank(List<dynamic> values) {
+  for (final value in values) {
+    final text = value?.toString().trim() ?? '';
+    if (text.isNotEmpty) {
+      return text;
+    }
+  }
+  return '';
+}
+
+String _compactPreview(String value, {int maxLength = 160}) {
+  final normalized = value.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  if (maxLength <= 1) {
+    return normalized.substring(0, maxLength);
+  }
+  return '${normalized.substring(0, maxLength - 1).trimRight()}…';
+}
+
+bool? _asBool(dynamic value) {
+  if (value is bool) {
+    return value;
+  }
+  final text = value?.toString().trim().toLowerCase();
+  if (text == 'true') {
+    return true;
+  }
+  if (text == 'false') {
+    return false;
+  }
+  return null;
+}
+
+int? _asInt(dynamic value) {
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    return value.toInt();
+  }
+  return int.tryParse(value?.toString().trim() ?? '');
+}
+
+dynamic _decodeJsonIfNeeded(dynamic value) {
+  if (value is! String) {
+    return value;
+  }
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) {
+    return value;
+  }
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+    return value;
+  }
+  try {
+    return jsonDecode(trimmed);
+  } catch (_) {
+    return value;
+  }
+}
+
+bool _isEmptyJsonValue(dynamic value) {
+  if (value == null) {
+    return true;
+  }
+  if (value is String) {
+    return value.trim().isEmpty;
+  }
+  if (value is Map || value is Iterable) {
+    return value.isEmpty;
+  }
+  return false;
+}
+
+dynamic _jsonSafe(dynamic value) {
+  final decoded = _decodeJsonIfNeeded(value);
+  if (decoded == null ||
+      decoded is String ||
+      decoded is num ||
+      decoded is bool) {
+    return decoded;
+  }
+  if (decoded is Map) {
+    return decoded.map(
+      (key, item) => MapEntry(key.toString(), _jsonSafe(item)),
+    );
+  }
+  if (decoded is Iterable) {
+    return decoded.map(_jsonSafe).toList(growable: false);
+  }
+  return decoded.toString();
+}
+
+Map<String, dynamic> _jsonSafeMap(Map<String, dynamic> value) {
+  final safe = _jsonSafe(value);
+  return safe is Map<String, dynamic> ? safe : _asStringKeyMap(safe);
+}
+
+String _normalizeFunctionName(String value, {required String fallback}) {
+  final normalized = value.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (normalized.isEmpty) {
+    return fallback;
+  }
+  return normalized.length <= 60 ? normalized : normalized.substring(0, 60);
+}
+
+String _normalizeFunctionId(String value, {required String fallback}) {
+  final trimmed = value.trim();
+  if (RegExp(r'^[A-Za-z0-9_-]{1,64}$').hasMatch(trimmed)) {
+    return trimmed;
+  }
+  final normalized = trimmed
+      .replaceAll(RegExp(r'[^A-Za-z0-9_-]+'), '_')
+      .replaceAll(RegExp(r'_+'), '_')
+      .replaceAll(RegExp(r'^[_-]+|[_-]+$'), '');
+  if (normalized.isEmpty) {
+    return fallback.trim().isNotEmpty ? fallback.trim() : 'oob_function';
+  }
+  final safe = RegExp(r'^[A-Za-z]').hasMatch(normalized)
+      ? normalized
+      : 'oob_$normalized';
+  return safe.length <= 64 ? safe : safe.substring(0, 64);
+}
+
+String _compactId(String value) {
+  final normalized = value
+      .trim()
+      .replaceAll(RegExp(r'[^A-Za-z0-9_]+'), '_')
+      .replaceAll(RegExp(r'_+'), '_')
+      .replaceAll(RegExp(r'^_|_$'), '');
+  if (normalized.isEmpty) {
+    return DateTime.now().millisecondsSinceEpoch.toString();
+  }
+  return normalized.length <= 48 ? normalized : normalized.substring(0, 48);
+}

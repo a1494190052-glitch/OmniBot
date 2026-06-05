@@ -37,9 +37,7 @@ class SubagentDispatcher(
     private val toolExecutorProvider: () -> AgentToolExecutor,
     private val parentCatalogProvider: () -> AgentToolCatalog,
     private val eventAdapter: AgentEventAdapter,
-    private val model: String,
-    private val toolImageContinuationPolicy: AgentToolImageContinuationPolicy =
-        AgentToolImageContinuationPolicy.DEFAULT
+    private val model: String
 ) {
 
     data class SubagentTaskSpec(
@@ -178,8 +176,7 @@ class SubagentDispatcher(
                 toolRegistry = filteredCatalog,
                 toolRouter = toolExecutorProvider(),
                 eventAdapter = eventAdapter,
-                model = model,
-                toolImageContinuationPolicy = toolImageContinuationPolicy
+                model = model
             )
             val result = orchestrator.run(
                 AgentOrchestrator.Input(
@@ -336,6 +333,7 @@ private class ReportingSubagentCallback(
 
     override suspend fun onToolCallStart(
         toolName: String,
+        toolCallId: String,
         arguments: kotlinx.serialization.json.JsonObject
     ) {
         tools.add(toolName)

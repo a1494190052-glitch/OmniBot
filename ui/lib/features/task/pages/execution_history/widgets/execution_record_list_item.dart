@@ -17,7 +17,7 @@ class ExecutionRecordListItem extends StatelessWidget {
   final bool hasScheduledTask;
 
   const ExecutionRecordListItem({
-    Key? key,
+    super.key,
     required this.recordModel,
     this.onMorePressed,
     this.onRecommendPressed,
@@ -27,7 +27,7 @@ class ExecutionRecordListItem extends StatelessWidget {
     this.isSelected = false,
     this.onSchedulePressed,
     this.hasScheduledTask = false,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

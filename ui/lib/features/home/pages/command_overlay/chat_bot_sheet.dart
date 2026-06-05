@@ -1,27 +1,32 @@
 import 'dart:async';
-import 'package:file_picker/file_picker.dart';
+import 'dart:ui' show FlutterView;
 import 'package:flutter/material.dart';
+import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/models/agent_stream_event.dart';
 import 'package:ui/models/chat_link_preview.dart';
 import 'package:ui/models/chat_message_model.dart';
 import 'package:ui/models/conversation_model.dart';
+import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/services/ai_chat_service.dart';
 import 'widgets/message_bubble.dart';
 import 'widgets/chat_input_area.dart';
 import 'package:ui/utils/data_parser.dart';
 import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/services/agent_stream_meta.dart';
+import 'package:ui/services/app_state_service.dart';
 import 'package:ui/features/home/pages/command_overlay/services/chat_service.dart';
+import 'package:ui/features/home/pages/command_overlay/services/manual_recording_permission_guard.dart';
 import 'package:ui/features/home/pages/command_overlay/constants/messages.dart';
 import 'package:ui/features/home/pages/command_overlay/utils/deep_thinking_parser.dart';
 import 'package:ui/features/home/pages/chat/utils/agent_run_timeline.dart';
 import 'package:ui/features/home/pages/chat/utils/stream_text_merge.dart';
 import 'package:ui/features/home/pages/chat/utils/agent_thinking_card_locator.dart';
+import 'package:ui/features/home/pages/chat/utils/omniflow_tool_profile_router.dart';
 import 'package:ui/features/home/pages/chat/utils/deep_thinking_persistence.dart';
 import 'package:ui/features/home/pages/chat/utils/keyboard_inset_motion_tracker.dart';
 import 'package:ui/features/home/pages/chat/widgets/agent_run_group_message.dart';
-import 'package:ui/features/home/pages/chat/widgets/chat_empty_greeting.dart';
+import 'package:ui/features/task/pages/execution_history/run_log_timeline_page.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/services/voice_playback_coordinator.dart';
 import 'package:ui/services/screen_dialog_service.dart';
@@ -33,7 +38,6 @@ import 'package:ui/widgets/ai_generated_badge.dart';
 import 'package:ui/constants/openclaw/openclaw_keys.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/features/home/pages/chat/mixins/agent_stream_handler.dart';
-import 'package:ui/theme/theme_context.dart';
 
 /// 聊天上下文存储的key
 const String kChatContextStorageKey = 'chat_context_for_summary';
@@ -53,6 +57,7 @@ enum ChatBotLaunchScene {
 
 class ChatBotSheet extends StatefulWidget {
   final String? initialMessage;
+  final String? initialDisplayMessage;
   final List<Map<String, dynamic>> initialAttachments;
   final Map<String, dynamic>? initialScheduleInfo;
 
@@ -63,6 +68,7 @@ class ChatBotSheet extends StatefulWidget {
   const ChatBotSheet({
     super.key,
     this.initialMessage,
+    this.initialDisplayMessage,
     this.initialAttachments = const [],
     this.initialScheduleInfo,
     this.launchScene = ChatBotLaunchScene.normal,
@@ -86,7 +92,6 @@ class _ChatBotSheetState extends State<ChatBotSheet>
       GlobalKey<ChatInputAreaState>();
   final KeyboardInsetMotionTracker _emptyGreetingKeyboardLiftTracker =
       KeyboardInsetMotionTracker();
-  final List<ChatInputAttachment> _pendingAttachments = <ChatInputAttachment>[];
 
   late AiChatService _aiService;
   bool _isAiResponding = false;
@@ -97,6 +102,9 @@ class _ChatBotSheetState extends State<ChatBotSheet>
 
   final Map<String, String> _currentAiMessages = {};
   final Set<String> _expandedAgentRunTaskIds = <String>{};
+  final AgentRunCompletionExpansionTracker _agentRunExpansionTracker =
+      AgentRunCompletionExpansionTracker();
+  final Set<String> _ownedAgentStreamTaskIds = <String>{};
   bool _autoStickMessageListToLatest = true;
   bool _messageStickToLatestScheduled = false;
   bool _messageListScrollWasUserDriven = false;
@@ -184,7 +192,7 @@ class _ChatBotSheetState extends State<ChatBotSheet>
   }
 
   void _persistThinkingCardForTask(String taskID, {String? cardId}) {
-    final thinkingCardId = cardId ?? '$taskID-thinking';
+    final thinkingCardId = cardId ?? '$taskID-thinking-1';
     final index = _messages.indexWhere((msg) => msg.id == thinkingCardId);
     if (index != -1) {
       _persistDeepThinkingCardIfNeeded(_messages[index]);
@@ -258,11 +266,6 @@ class _ChatBotSheetState extends State<ChatBotSheet>
   Future<void> persistAgentConversation() => _saveConversationToDb();
 
   @override
-  void clearAgentStreamSessionState() {
-    super.clearAgentStreamSessionState();
-  }
-
-  @override
   void onAgentTextMessageUpdated(String messageId, {bool isFinal = true}) {
     if (isFinal) {
       _syncMessageLinkPreviews(messageId);
@@ -307,16 +310,14 @@ class _ChatBotSheetState extends State<ChatBotSheet>
       _clearSavedContext();
       StorageService.remove(kChatResumeAfterAuthKey);
 
-      // 如果有初始文本或附件，立即发送
-      final hasInitialPayload =
-          (widget.initialMessage?.trim().isNotEmpty ?? false) ||
-          widget.initialAttachments.isNotEmpty;
-      if (hasInitialPayload) {
+      // 如果有初始消息，立即发送
+      if (widget.initialMessage != null && widget.initialMessage!.isNotEmpty) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _pendingAttachments
-            ..clear()
-            ..addAll(_chatInputAttachmentsFromMaps(widget.initialAttachments));
-          _sendMessage(text: widget.initialMessage ?? '');
+          _sendMessage(
+            text: widget.initialMessage!,
+            displayText: widget.initialDisplayMessage,
+            attachments: widget.initialAttachments,
+          );
         });
       }
 
@@ -417,9 +418,10 @@ class _ChatBotSheetState extends State<ChatBotSheet>
   Future<void> _setOpenClawEnabled(bool enabled) async {
     if (enabled && _openClawBaseUrl.trim().isEmpty) {
       AppToast.show(
-        LegacyTextLocalizer.isEnglish
-            ? 'Please configure OpenClaw first using /openclaw'
-            : '请先使用 /openclaw 配置 OpenClaw',
+        AppTextLocalizer.choose(
+          en: 'Please configure OpenClaw first using /openclaw',
+          zh: '请先使用 /openclaw 配置 OpenClaw',
+        ),
       );
       _showOpenClawCommandPanel(expand: true);
       return;
@@ -534,9 +536,10 @@ class _ChatBotSheetState extends State<ChatBotSheet>
 
     if (!trimmed.startsWith('/openclaw')) {
       _showSnackBar(
-        LegacyTextLocalizer.isEnglish
-            ? 'Unknown command, please use /openclaw'
-            : '未知指令，请使用 /openclaw',
+        AppTextLocalizer.choose(
+          en: 'Unknown command, please use /openclaw',
+          zh: '未知指令，请使用 /openclaw',
+        ),
       );
       return true;
     }
@@ -544,9 +547,10 @@ class _ChatBotSheetState extends State<ChatBotSheet>
     final parts = trimmed.split(RegExp(r'\\s+'));
     if (parts.length < 2) {
       _showSnackBar(
-        LegacyTextLocalizer.isEnglish
-            ? 'Format: /openclaw <baseurl> --token <token> <userid>'
-            : '格式: /openclaw <baseurl> --token <token> <userid>',
+        AppTextLocalizer.choose(
+          en: 'Format: /openclaw <baseurl> --token <token> <userid>',
+          zh: '格式: /openclaw <baseurl> --token <token> <userid>',
+        ),
       );
       return true;
     }
@@ -555,9 +559,10 @@ class _ChatBotSheetState extends State<ChatBotSheet>
     final tokenIndex = parts.indexOf('--token');
     if (tokenIndex == -1) {
       _showSnackBar(
-        LegacyTextLocalizer.isEnglish
-            ? 'Please include --token explicitly in the command'
-            : '请在命令中显式包含 --token',
+        AppTextLocalizer.choose(
+          en: 'Please include --token explicitly in the command',
+          zh: '请在命令中显式包含 --token',
+        ),
       );
       return true;
     }
@@ -575,9 +580,10 @@ class _ChatBotSheetState extends State<ChatBotSheet>
 
     if (baseUrl.trim().isEmpty) {
       _showSnackBar(
-        LegacyTextLocalizer.isEnglish
-            ? 'OpenClaw baseurl cannot be empty'
-            : 'OpenClaw baseurl 不能为空',
+        AppTextLocalizer.choose(
+          en: 'OpenClaw baseurl cannot be empty',
+          zh: 'OpenClaw baseurl 不能为空',
+        ),
       );
       return true;
     }
@@ -592,9 +598,10 @@ class _ChatBotSheetState extends State<ChatBotSheet>
     _inputFocusNode.unfocus();
     _hideSlashCommandPanel();
     _showSnackBar(
-      LegacyTextLocalizer.isEnglish
-          ? 'OpenClaw configured and enabled'
-          : 'OpenClaw 已配置并启用',
+      AppTextLocalizer.choose(
+        en: 'OpenClaw configured and enabled',
+        zh: 'OpenClaw 已配置并启用',
+      ),
     );
     return true;
   }
@@ -624,7 +631,7 @@ class _ChatBotSheetState extends State<ChatBotSheet>
         final text = message.content?['text'] as String? ?? '';
         if (text.isNotEmpty) {
           buffer.write(
-            LegacyTextLocalizer.isEnglish ? 'User: $text\n' : '用户: $text\n',
+            AppTextLocalizer.choose(en: 'User: $text\n', zh: '用户: $text\n'),
           );
         }
       }
@@ -653,12 +660,12 @@ class _ChatBotSheetState extends State<ChatBotSheet>
       final firstUserMessage = _messages.firstWhere(
         (m) => m.user == 1,
         orElse: () => ChatMessageModel.userMessage(
-          LegacyTextLocalizer.isEnglish ? "New conversation" : "新对话",
+          AppTextLocalizer.choose(en: "New conversation", zh: "新对话"),
         ),
       );
       final userText =
           firstUserMessage.text ??
-          (LegacyTextLocalizer.isEnglish ? 'New conversation' : '新对话');
+          (AppTextLocalizer.choose(en: 'New conversation', zh: '新对话'));
       final title = userText.length > 20
           ? '${userText.substring(0, 20)}...'
           : userText;
@@ -847,9 +854,10 @@ class _ChatBotSheetState extends State<ChatBotSheet>
           type: 1, // 文本类型
           user: 2, // AI消息
           content: {
-            'text': LegacyTextLocalizer.isEnglish
-                ? 'This is your scheduled task about to be executed'
-                : '这是您即将执行的预约任务',
+            'text': AppTextLocalizer.choose(
+              en: 'This is your scheduled task about to be executed',
+              zh: '这是您即将执行的预约任务',
+            ),
             'id': textMessageId,
           },
         ),
@@ -896,6 +904,13 @@ class _ChatBotSheetState extends State<ChatBotSheet>
 
   void _handleIncomingAgentStreamEvent(AgentStreamEvent event) {
     if (!mounted) return;
+    final taskId = event.taskId.trim();
+    if (taskId.isEmpty) return;
+    if (!_ownedAgentStreamTaskIds.contains(taskId) &&
+        _currentDispatchTaskId != taskId) {
+      return;
+    }
+    _ownedAgentStreamTaskIds.add(taskId);
     handleAgentStreamEvent(event);
   }
 
@@ -907,29 +922,25 @@ class _ChatBotSheetState extends State<ChatBotSheet>
 
   void _syncEmptyGreetingKeyboardLiftFromView() {
     if (!mounted) return;
-    final view = View.of(context);
+    final view = _safeViewForMetrics();
+    if (view == null) return;
     final bottomInset = view.viewInsets.bottom / view.devicePixelRatio;
     if (_emptyGreetingKeyboardLiftTracker.update(bottomInset)) {
       setState(() {});
     }
   }
 
+  FlutterView? _safeViewForMetrics() {
+    try {
+      return View.maybeOf(context);
+    } catch (_) {
+      return null;
+    }
+  }
+
   void _handleHomeGreetingSettingsChanged() {
     if (!mounted) return;
     setState(() {});
-  }
-
-  void _applyHomeQuickPrompt(HomeQuickPrompt prompt) {
-    final text = prompt.resolvePrompt(context).trim();
-    if (text.isEmpty) {
-      return;
-    }
-    _messageController.value = TextEditingValue(
-      text: text,
-      selection: TextSelection.collapsed(offset: text.length),
-    );
-    _handleSlashCommandInput();
-    _inputFocusNode.requestFocus();
   }
 
   @override
@@ -958,6 +969,7 @@ class _ChatBotSheetState extends State<ChatBotSheet>
     AssistsMessageService.removeOnAgentStreamEventCallback(
       _handleIncomingAgentStreamEvent,
     );
+    ScreenDialogService.setOnBeforeCloseChatBotDialog(null);
     super.dispose();
   }
 
@@ -977,13 +989,6 @@ class _ChatBotSheetState extends State<ChatBotSheet>
         _inputAreaHeight = height;
       });
     }
-  }
-
-  void _onInputHeightChanged(double height) {
-    if (height == _inputAreaHeight || !mounted) return;
-    setState(() {
-      _inputAreaHeight = height;
-    });
   }
 
   /// 添加loading消息
@@ -1091,15 +1096,18 @@ class _ChatBotSheetState extends State<ChatBotSheet>
   Future<void> _onSubmitVlmInfo() async {
     if (_isSubmittingVlmReply || _vlmInfoQuestion == null) return;
     final reply = _vlmAnswerController.text.trim().isEmpty
-        ? (Localizations.localeOf(context).languageCode == 'en'
-              ? 'Completed action, continue execution'
-              : '已完成操作，继续执行')
+        ? AppTextLocalizer.choose(
+            zh: '已完成操作，继续执行',
+            en: 'Completed action, continue execution',
+            locale: Localizations.localeOf(context),
+          )
         : _vlmAnswerController.text.trim();
     setState(() {
       _isSubmittingVlmReply = true;
     });
-    final success = await AssistsMessageService.provideUserInputToVLMTask(
-      reply,
+    final success = await AssistsMessageService.continueVLMTaskPrompt(
+      question: _vlmInfoQuestion,
+      userInput: reply,
     );
     if (!mounted) return;
     setState(() {
@@ -1177,7 +1185,12 @@ class _ChatBotSheetState extends State<ChatBotSheet>
       return;
     }
     setState(() {
-      if (_expandedAgentRunTaskIds.contains(normalizedTaskId)) {
+      final wasExpanded = _agentRunExpansionTracker.isTaskExpanded(
+        normalizedTaskId,
+        _expandedAgentRunTaskIds,
+      );
+      _agentRunExpansionTracker.consumeAutoExpandedTask(normalizedTaskId);
+      if (wasExpanded) {
         _expandedAgentRunTaskIds.remove(normalizedTaskId);
       } else {
         _expandedAgentRunTaskIds.add(normalizedTaskId);
@@ -1186,6 +1199,13 @@ class _ChatBotSheetState extends State<ChatBotSheet>
     if (_autoStickMessageListToLatest) {
       _scheduleMessageStickToLatest();
     }
+  }
+
+  void _syncAgentRunExpansion(Set<String> activeTaskIds) {
+    _agentRunExpansionTracker.sync(
+      messages: _messages,
+      activeTaskIds: activeTaskIds,
+    );
   }
 
   void _handleParentScrollHandoff() {
@@ -1487,19 +1507,22 @@ class _ChatBotSheetState extends State<ChatBotSheet>
     }
 
     final startTime = DateTime.now().millisecondsSinceEpoch;
-    final thinkingCardId = cardId ?? '$taskID-thinking';
+    // Use -1 suffix to match Kotlin's first thinkingSequence value.
+    final thinkingCardId = cardId ?? '$taskID-thinking-1';
     final cardData = {
       'type': 'deep_thinking',
       'isLoading': isLoading ?? _isDeepThinking,
       'thinkingContent': thinkingContent ?? '',
       'stage': stage ?? _currentThinkingStage,
-      'taskID': taskID, // 添加taskID用于创建稳定的key
+      'taskID': taskID,
       'cardId': thinkingCardId,
-      'startTime': startTime, // 添加开始时间
-      'endTime': null, // 结束时间初始为null
+      'startTime': startTime,
+      'endTime': null,
+      'isCollapsible': true,
     };
 
     setState(() {
+      _messages.removeWhere((msg) => msg.id == thinkingCardId);
       _messages.insert(
         0,
         ChatMessageModel(
@@ -1527,7 +1550,7 @@ class _ChatBotSheetState extends State<ChatBotSheet>
     Map<String, dynamic>? streamMeta,
     bool lockCompleted = true,
   }) {
-    final thinkingCardId = cardId ?? '$taskID-thinking';
+    final thinkingCardId = cardId ?? '$taskID-thinking-1';
     final index = _messages.indexWhere((msg) => msg.id == thinkingCardId);
     if (index != -1) {
       setState(() {
@@ -1543,10 +1566,11 @@ class _ChatBotSheetState extends State<ChatBotSheet>
         // 保留开始时间（从现有 cardData 中读取）
         final startTime = cardData['startTime'] as int?;
 
-        // 如果思考完成且还没有结束时间，记录结束时间
         int? endTime = cardData['endTime'] as int?;
         if (newStage == 4 && endTime == null) {
           endTime = DateTime.now().millisecondsSinceEpoch;
+        } else if (newStage != 4 && newStage != 5) {
+          endTime = null;
         }
 
         // 更新卡片数据
@@ -1636,9 +1660,10 @@ class _ChatBotSheetState extends State<ChatBotSheet>
           type: 1,
           user: 2,
           content: {
-            'text': LegacyTextLocalizer.isEnglish
-                ? 'Omnibot is busy right now. Please try again in a moment.'
-                : '小万忙不过来了，等会儿再试试吧',
+            'text': AppTextLocalizer.choose(
+              en: 'Omnibot is busy right now. Please try again in a moment.',
+              zh: '小万忙不过来了，等会儿再试试吧',
+            ),
             'id': taskID,
           },
           isError: true,
@@ -1665,9 +1690,10 @@ class _ChatBotSheetState extends State<ChatBotSheet>
           type: 1,
           user: 2,
           content: {
-            'text': LegacyTextLocalizer.isEnglish
-                ? 'Unified Agent is enabled. The legacy chat dispatch has been removed. Please check your model config and try again.'
-                : '统一 Agent 已启用，旧聊天分发链路已移除，请检查模型配置后重试。',
+            'text': AppTextLocalizer.choose(
+              en: 'Unified Agent is enabled. The legacy chat dispatch has been removed. Please check your model config and try again.',
+              zh: '统一 Agent 已启用，旧聊天分发链路已移除，请检查模型配置后重试。',
+            ),
             'id': '$taskID-disabled',
           },
           isError: true,
@@ -1680,6 +1706,7 @@ class _ChatBotSheetState extends State<ChatBotSheet>
   /// 重置dispatch状态
   void _resetDispatchState() {
     _currentDispatchTaskId = null;
+    _ownedAgentStreamTaskIds.clear();
     _deepThinkingContent = '';
     _isDeepThinking = false;
     clearAgentStreamSessionState();
@@ -1696,7 +1723,7 @@ class _ChatBotSheetState extends State<ChatBotSheet>
 
     for (final message in recentMessages) {
       if (message.user == 1) {
-        final text = _buildMessageTextForModel(message);
+        final text = message.content?['text'] as String? ?? '';
         if (text.isNotEmpty) {
           history.insert(0, {'role': 'user', 'content': text});
         }
@@ -1721,25 +1748,28 @@ class _ChatBotSheetState extends State<ChatBotSheet>
   /// 发送消息（支持输入框发送、初始消息和恢复场景重发）
   Future<void> _sendMessage({
     String? text,
+    String? displayText,
+    List<Map<String, dynamic>> attachments = const [],
     bool appendUserBubble = true,
   }) async {
     final messageText = text ?? _messageController.text.trim();
-    final hasAttachments = _pendingAttachments.isNotEmpty;
-    if ((messageText.isEmpty && !hasAttachments) || _isAiResponding) return;
+    if (messageText.isEmpty || _isAiResponding) return;
+
+    final handledManualRecording = await _tryStartManualRecordingFromMessage(
+      messageText,
+    );
+    if (handledManualRecording) return;
 
     final handledSlash = await _tryHandleSlashCommand(messageText);
     if (handledSlash) return;
 
     _inputFocusNode.unfocus();
-    final attachments = _pendingAttachments
-        .map((item) => item.toMap())
-        .toList();
-    if (attachments.isNotEmpty && mounted) {
-      setState(() => _pendingAttachments.clear());
-    }
     late final ({String userMessageId, String aiMessageId}) messageIds;
     if (appendUserBubble) {
-      messageIds = _addUserMessage(messageText, attachments: attachments);
+      messageIds = _addUserMessage(
+        displayText ?? messageText,
+        attachments: attachments,
+      );
       await _saveConversationToDb();
     } else {
       final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
@@ -1752,7 +1782,7 @@ class _ChatBotSheetState extends State<ChatBotSheet>
       });
     }
 
-    if (_openClawEnabled) {
+    if (_openClawEnabled && attachments.isEmpty) {
       _sendChatMessage(messageIds.aiMessageId);
       return;
     }
@@ -1760,16 +1790,191 @@ class _ChatBotSheetState extends State<ChatBotSheet>
     final handled = await _handleExecutableTask(
       messageIds.aiMessageId,
       messageIds.userMessageId,
+      attachments: attachments,
+      userMessageOverride: messageText,
     );
     if (!handled &&
         mounted &&
         _currentDispatchTaskId == messageIds.aiMessageId) {
       handleAgentError(
-        LegacyTextLocalizer.isEnglish
-            ? 'Failed to start unified Agent. Please check model provider and scene model config.'
-            : '统一 Agent 启动失败，请检查模型提供商与场景模型配置。',
+        AppTextLocalizer.choose(
+          en: 'Failed to start unified Agent. Please check model provider and scene model config.',
+          zh: '统一 Agent 启动失败，请检查模型提供商与场景模型配置。',
+        ),
       );
     }
+  }
+
+  Future<bool> _tryStartManualRecordingFromMessage(String messageText) async {
+    if (!_isManualRecordingCommand(messageText)) {
+      return false;
+    }
+    await _startManualRecordingFlow(
+      userMessageText: messageText,
+      recordDebugScreenshots: false,
+    );
+    return true;
+  }
+
+  Future<void> _startManualRecordingFromShortcut(
+    bool recordDebugScreenshots,
+  ) async {
+    if (_isAiResponding) return;
+    await _startManualRecordingFlow(
+      userMessageText: '录制轨迹',
+      recordDebugScreenshots: recordDebugScreenshots,
+    );
+  }
+
+  Future<void> _openRunLogListFromShortcut() async {
+    GoRouterManager.push('/task/run_logs');
+  }
+
+  Future<void> _openLatestRunLogFromShortcut() async {
+    if (_isAiResponding) return;
+    try {
+      final snapshot = await AssistsMessageService.getInternalRunLogs(limit: 1);
+      if (!mounted) return;
+      UtgRunLogSummary? latest;
+      for (final run in snapshot.runs) {
+        if (run.runId.trim().isNotEmpty) {
+          latest = run;
+          break;
+        }
+      }
+      if (latest == null) {
+        showToast('暂无可查看的轨迹', type: ToastType.warning);
+        return;
+      }
+      unawaited(
+        showRunLogTimelineSheet(
+          context,
+          runId: latest.runId.trim(),
+          title: latest.goal.trim().isEmpty ? '当前轨迹' : latest.goal.trim(),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      showToast(error.toString(), type: ToastType.error);
+    }
+  }
+
+  Future<void> _startManualRecordingFlow({
+    required String userMessageText,
+    required bool recordDebugScreenshots,
+  }) async {
+    final canRecord = await ManualRecordingPermissionGuard.ensureAuthorized(
+      context,
+    );
+    if (!mounted || !canRecord) return;
+
+    _inputFocusNode.unfocus();
+    final messageIds = _addUserMessage(userMessageText);
+    await _saveConversationToDb();
+    showToast('开始手动录制。请执行操作，结束后点小万「完成学习」。');
+    unawaited(ScreenDialogService.hideForManualRecording());
+    try {
+      final result = await AssistsMessageService.startHumanTrajectoryLearning(
+        enableDebugScreenshots: recordDebugScreenshots,
+      );
+      if (!mounted) return;
+      unawaited(ScreenDialogService.restoreAfterManualRecording());
+      _insertManualRecordingResultMessage(messageIds.aiMessageId, result);
+      final success = result['success'] == true;
+      final conversionSuccess =
+          result['conversion_success'] == true ||
+          result['conversionSuccess'] == true ||
+          (result['function_id'] ?? result['functionId'])
+              .toString()
+              .trim()
+              .isNotEmpty;
+      final runId = (result['run_id'] ?? result['runId'] ?? '').toString();
+      showToast(
+        success
+            ? (conversionSuccess
+                  ? '手动录制完成，人工 Function 已保存'
+                  : '手动录制完成，RunLog 已生成')
+            : '手动录制失败',
+        type: success ? ToastType.success : ToastType.error,
+      );
+      if (success && runId.trim().isNotEmpty && mounted) {
+        unawaited(
+          showRunLogTimelineSheet(
+            context,
+            runId: runId.trim(),
+            title: '手动录制 RunLog',
+          ),
+        );
+      }
+    } catch (error) {
+      if (!mounted) return;
+      unawaited(ScreenDialogService.restoreAfterManualRecording());
+      _insertManualRecordingResultMessage(messageIds.aiMessageId, {
+        'success': false,
+        'error_message': error.toString(),
+      });
+      showToast(error.toString(), type: ToastType.error);
+    } finally {
+      if (mounted) {
+        setState(() => _isAiResponding = false);
+        await _saveConversationToDb();
+      }
+    }
+  }
+
+  bool _isManualRecordingCommand(String messageText) {
+    final normalized = messageText.trim().toLowerCase();
+    return normalized == '手动录制' ||
+        normalized == '开始手动录制' ||
+        normalized == '人工录制' ||
+        normalized == 'manual recording' ||
+        normalized == 'manual record';
+  }
+
+  void _insertManualRecordingResultMessage(
+    String messageId,
+    Map<String, dynamic> result,
+  ) {
+    final success = result['success'] == true;
+    final recordingSuccess =
+        result['recording_success'] ?? result['recordingSuccess'] ?? success;
+    final conversionSuccess =
+        result['conversion_success'] ?? result['conversionSuccess'];
+    final runId = (result['run_id'] ?? result['runId'] ?? '').toString();
+    final actionCount = result['action_count'] ?? result['actionCount'] ?? 0;
+    final functionId = result['function_id'] ?? result['functionId'];
+    final functionRegistered =
+        result['function_registered'] ?? result['functionRegistered'];
+    final agentVisible = result['agent_visible'] ?? result['agentVisible'];
+    final errorMessage = result['error_message'] ?? result['errorMessage'];
+    final cardData = <String, dynamic>{
+      'type': 'manual_recording_result',
+      'cardId': messageId,
+      'success': success,
+      'recordingSuccess': recordingSuccess,
+      'recording_success': recordingSuccess,
+      'conversionSuccess': conversionSuccess,
+      'conversion_success': conversionSuccess,
+      'runId': runId,
+      'run_id': runId,
+      'actionCount': actionCount,
+      'action_count': actionCount,
+      'functionId': functionId,
+      'function_id': functionId,
+      'functionRegistered': functionRegistered,
+      'function_registered': functionRegistered,
+      'agent_visible': agentVisible,
+      'summary': result['summary'],
+      'errorMessage': errorMessage,
+      'error_message': errorMessage,
+    }..removeWhere((_, value) => value == null || value.toString().isEmpty);
+    setState(() {
+      _messages.removeWhere((message) => message.id == messageId);
+      _messages.insert(
+        0,
+        ChatMessageModel.cardMessage(cardData, id: messageId),
+      );
+    });
   }
 
   ({String userMessageId, String aiMessageId}) _addUserMessage(
@@ -1779,15 +1984,20 @@ class _ChatBotSheetState extends State<ChatBotSheet>
     final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
     final userMessageId = '$timestamp-user';
     final aiMessageId = '$timestamp-ai';
-    final content = <String, dynamic>{'text': text, 'id': userMessageId};
-    if (attachments.isNotEmpty) {
-      content['attachments'] = attachments;
-    }
 
     setState(() {
       _messages.insert(
         0,
-        ChatMessageModel(id: userMessageId, type: 1, user: 1, content: content),
+        ChatMessageModel(
+          id: userMessageId,
+          type: 1,
+          user: 1,
+          content: {
+            'text': text,
+            'id': userMessageId,
+            if (attachments.isNotEmpty) 'attachments': attachments,
+          },
+        ),
       );
       _messageController.clear();
       _isAiResponding = true;
@@ -1799,21 +2009,34 @@ class _ChatBotSheetState extends State<ChatBotSheet>
 
   Future<bool> _handleExecutableTask(
     String aiMessageId,
-    String userMessageId,
-  ) async {
+    String userMessageId, {
+    List<Map<String, dynamic>> attachments = const [],
+    String? userMessageOverride,
+  }) async {
     _isCheckingExecutableTask = true;
     try {
-      return await _tryAgentFlow(aiMessageId, userMessageId);
+      return await _tryAgentFlow(
+        aiMessageId,
+        userMessageId,
+        attachments: attachments,
+        userMessageOverride: userMessageOverride,
+      );
     } finally {
       _isCheckingExecutableTask = false;
     }
   }
 
   // 新增：Agent 流程
-  Future<bool> _tryAgentFlow(String aiMessageId, String userMessageId) async {
+  Future<bool> _tryAgentFlow(
+    String aiMessageId,
+    String userMessageId, {
+    List<Map<String, dynamic>> attachments = const [],
+    String? userMessageOverride,
+  }) async {
     try {
       setState(() {
         _currentDispatchTaskId = aiMessageId;
+        _ownedAgentStreamTaskIds.add(aiMessageId);
         _deepThinkingContent = '';
         _isDeepThinking = false;
         _currentThinkingStage = 1;
@@ -1821,14 +2044,17 @@ class _ChatBotSheetState extends State<ChatBotSheet>
 
       _createThinkingCard(aiMessageId);
 
-      final userMessage = _latestUserUtterance();
-      final attachments = _latestUserAgentAttachments();
+      final userMessage = userMessageOverride?.trim().isNotEmpty == true
+          ? userMessageOverride!.trim()
+          : _latestUserUtterance();
+      final toolProfile = omniflowToolProfileForMessage(userMessage);
       final success = await AssistsMessageService.createAgentTask(
         taskId: aiMessageId,
         userMessage: userMessage,
         attachments: attachments,
         conversationId: _currentConversationId,
         conversationMode: ConversationMode.normal.storageValue,
+        toolProfile: toolProfile,
       );
 
       return success;
@@ -1838,248 +2064,16 @@ class _ChatBotSheetState extends State<ChatBotSheet>
     }
   }
 
-  List<Map<String, dynamic>> _historyBeforeLatestUser(
-    List<Map<String, dynamic>> history,
-  ) {
-    if (history.isEmpty) return history;
-    final normalized = List<Map<String, dynamic>>.from(history);
-    final last = normalized.last;
-    if ((last['role'] as String?) == 'user') {
-      normalized.removeLast();
-    }
-    return normalized;
-  }
-
   String _latestUserUtterance() {
     for (final message in _messages) {
       if (message.user == 1) {
-        final text = _buildMessageTextForModel(message);
+        final text = message.content?['text'] as String? ?? '';
         if (text.isNotEmpty) {
           return text;
         }
       }
     }
     return '';
-  }
-
-  List<Map<String, dynamic>> _latestUserAgentAttachments() {
-    for (final message in _messages) {
-      if (message.user != 1) continue;
-      final raw = message.content?['attachments'];
-      if (raw is! List) return const [];
-      return raw
-          .whereType<Map>()
-          .map((item) => item.map((k, v) => MapEntry(k.toString(), v)))
-          .where(_attachmentShouldSendToModel)
-          .toList();
-    }
-    return const [];
-  }
-
-  bool _attachmentShouldSendToModel(Map<String, dynamic> attachment) {
-    final raw = attachment['sendToModel'];
-    if (raw is bool) return raw;
-    if (raw is String) return raw.toLowerCase() != 'false';
-    return true;
-  }
-
-  String _buildMessageTextForModel(ChatMessageModel message) {
-    final text = message.content?['text'] as String? ?? '';
-    final attachments = _extractAttachmentList(message);
-    if (attachments.isEmpty) return text;
-
-    final pathHint = _buildAttachmentPathHint(attachments);
-    if (pathHint.isNotEmpty) {
-      if (text.trim().isEmpty) return pathHint;
-      return '$text\n$pathHint';
-    }
-
-    final names = attachments
-        .where((attachment) => !_isImageAttachmentMap(attachment))
-        .map(_resolveAttachmentName)
-        .where((name) => name.trim().isNotEmpty)
-        .map((name) => name.trim())
-        .toList();
-    if (names.isEmpty) return text;
-    final attachmentHint = '已附加附件：${names.join('、')}';
-    if (text.trim().isEmpty) return attachmentHint;
-    return '$text\n$attachmentHint';
-  }
-
-  List<Map<String, dynamic>> _extractAttachmentList(ChatMessageModel message) {
-    final raw = message.content?['attachments'];
-    if (raw is! List) return const [];
-    return raw
-        .whereType<Map>()
-        .map((item) => item.map((k, v) => MapEntry(k.toString(), v)))
-        .toList();
-  }
-
-  String _buildAttachmentPathHint(List<Map<String, dynamic>> attachments) {
-    final lines = attachments
-        .map((attachment) {
-          final promptPath = (attachment['promptPath'] as String? ?? '').trim();
-          if (promptPath.isEmpty) return '';
-          final name = _resolveAttachmentName(attachment);
-          return name.isEmpty ? '- $promptPath' : '- $name: $promptPath';
-        })
-        .where((line) => line.isNotEmpty)
-        .toList();
-    if (lines.isEmpty) return '';
-    return '已添加到 workspace，可通过以下路径读取：\n${lines.join('\n')}';
-  }
-
-  String _resolveAttachmentName(Map<String, dynamic> attachment) {
-    final name = (attachment['name'] as String? ?? '').trim();
-    if (name.isNotEmpty) return name;
-    final path = (attachment['path'] as String? ?? '').trim();
-    return path.isEmpty ? '' : _fileNameFromPath(path);
-  }
-
-  bool _isImageAttachmentMap(Map<String, dynamic> attachment) {
-    final explicit = attachment['isImage'];
-    if (explicit is bool && explicit) return true;
-    final mimeType = (attachment['mimeType'] as String? ?? '').toLowerCase();
-    if (mimeType.startsWith('image/')) return true;
-    final path = (attachment['path'] as String? ?? '').toLowerCase();
-    return _isImageFilePath(path, mimeType: mimeType);
-  }
-
-  Future<void> _pickAttachments() async {
-    var hiddenForPicker = false;
-    try {
-      hiddenForPicker = await ScreenDialogService.hideForExternalActivity();
-      if (hiddenForPicker) {
-        await Future<void>.delayed(const Duration(milliseconds: 80));
-      }
-      final result = await FilePicker.platform.pickFiles(
-        allowMultiple: true,
-        type: FileType.any,
-      );
-      if (result == null || result.files.isEmpty || !mounted) return;
-
-      setState(() {
-        for (final file in result.files) {
-          final path = file.path;
-          if (path == null || path.isEmpty) continue;
-          final exists = _pendingAttachments.any((item) => item.path == path);
-          if (exists) continue;
-          final displayName = file.name.trim().isNotEmpty
-              ? file.name.trim()
-              : _fileNameFromPath(path);
-          final extension = (file.extension ?? '').toLowerCase();
-          final mimeType = _mimeTypeFromExtension(path, extension: extension);
-          _pendingAttachments.add(
-            ChatInputAttachment(
-              id: '${path}_${DateTime.now().microsecondsSinceEpoch}',
-              name: displayName,
-              path: path,
-              size: file.size > 0 ? file.size : null,
-              mimeType: mimeType,
-              isImage: _isImageFilePath(path, mimeType: mimeType),
-            ),
-          );
-        }
-      });
-    } catch (e) {
-      _showSnackBar('添加附件失败：$e');
-    } finally {
-      if (hiddenForPicker) {
-        await Future<void>.delayed(const Duration(milliseconds: 120));
-        await ScreenDialogService.restoreAfterExternalActivity();
-      }
-    }
-  }
-
-  void _removePendingAttachment(String id) {
-    if (!mounted) return;
-    setState(() {
-      _pendingAttachments.removeWhere((item) => item.id == id);
-    });
-  }
-
-  List<ChatInputAttachment> _chatInputAttachmentsFromMaps(
-    List<Map<String, dynamic>> rawAttachments,
-  ) {
-    return rawAttachments
-        .map((item) {
-          final path = (item['path'] as String? ?? '').trim();
-          final name = (item['name'] as String? ?? '').trim();
-          final mimeType = item['mimeType'] as String?;
-          final size = item['size'];
-          return ChatInputAttachment(
-            id: (item['id'] as String? ?? '').trim().isNotEmpty
-                ? (item['id'] as String).trim()
-                : '${path}_${DateTime.now().microsecondsSinceEpoch}',
-            name: name.isNotEmpty ? name : _fileNameFromPath(path),
-            path: path,
-            size: size is int ? size : int.tryParse(size?.toString() ?? ''),
-            mimeType: mimeType,
-            isImage: item['isImage'] is bool
-                ? item['isImage'] as bool
-                : _isImageFilePath(path, mimeType: mimeType),
-            promptPath: item['promptPath'] as String?,
-            sendToModel: item['sendToModel'] is bool
-                ? item['sendToModel'] as bool
-                : true,
-          );
-        })
-        .where((item) => item.path.isNotEmpty)
-        .toList();
-  }
-
-  String _fileNameFromPath(String path) {
-    final normalized = path.replaceAll('\\', '/');
-    final segments = normalized.split('/');
-    if (segments.isEmpty) return path;
-    return segments.last.isEmpty ? path : segments.last;
-  }
-
-  bool _isImageFilePath(String path, {String? mimeType}) {
-    final normalizedMime = mimeType?.trim().toLowerCase();
-    if (normalizedMime != null && normalizedMime.startsWith('image/')) {
-      return true;
-    }
-    final lowerPath = path.toLowerCase();
-    return lowerPath.endsWith('.png') ||
-        lowerPath.endsWith('.jpg') ||
-        lowerPath.endsWith('.jpeg') ||
-        lowerPath.endsWith('.webp') ||
-        lowerPath.endsWith('.gif') ||
-        lowerPath.endsWith('.bmp') ||
-        lowerPath.endsWith('.heic') ||
-        lowerPath.endsWith('.heif');
-  }
-
-  String? _mimeTypeFromExtension(String path, {String extension = ''}) {
-    final ext = extension.isNotEmpty
-        ? extension
-        : _fileNameFromPath(path).split('.').last.toLowerCase();
-    switch (ext) {
-      case 'png':
-        return 'image/png';
-      case 'jpg':
-      case 'jpeg':
-        return 'image/jpeg';
-      case 'gif':
-        return 'image/gif';
-      case 'webp':
-        return 'image/webp';
-      case 'bmp':
-        return 'image/bmp';
-      case 'heic':
-        return 'image/heic';
-      case 'heif':
-        return 'image/heif';
-      case 'pdf':
-        return 'application/pdf';
-      case 'txt':
-        return 'text/plain';
-      case 'md':
-        return 'text/markdown';
-      default:
-        return null;
-    }
   }
 
   /// 处理 429 限流错误
@@ -2124,9 +2118,10 @@ class _ChatBotSheetState extends State<ChatBotSheet>
   void _sendChatMessage(String aiMessageId) {
     if (!_openClawEnabled) {
       handleAgentError(
-        LegacyTextLocalizer.isEnglish
-            ? 'Unified Agent is enabled. The legacy chat path has been removed. Please check config and try again.'
-            : '统一 Agent 已启用，旧聊天链路已移除，请检查配置后重试。',
+        AppTextLocalizer.choose(
+          en: 'Unified Agent is enabled. The legacy chat path has been removed. Please check config and try again.',
+          zh: '统一 Agent 已启用，旧聊天链路已移除，请检查配置后重试。',
+        ),
       );
       return;
     }
@@ -2157,9 +2152,10 @@ class _ChatBotSheetState extends State<ChatBotSheet>
             type: 1,
             user: 2,
             content: {
-              'text': LegacyTextLocalizer.isEnglish
-                  ? 'Sorry, failed to send message: $error'
-                  : '抱歉，发送消息失败：$error',
+              'text': AppTextLocalizer.choose(
+                en: 'Sorry, failed to send message: $error',
+                zh: '抱歉，发送消息失败：$error',
+              ),
               'id': errorId,
             },
           ),
@@ -2322,17 +2318,128 @@ class _ChatBotSheetState extends State<ChatBotSheet>
     });
   }
 
+  Future<void> _openCurrentConversationInMain() async {
+    if (_messages.isEmpty && _currentConversationId == null) {
+      _showSnackBar(
+        AppTextLocalizer.choose(en: 'No conversation to open', zh: '暂无可管理的对话'),
+      );
+      return;
+    }
+
+    await _saveConversationToDb(generateSummary: true);
+    final conversationId = _currentConversationId;
+    if (conversationId == null) {
+      _showSnackBar(
+        AppTextLocalizer.choose(
+          en: 'Conversation is not ready yet',
+          zh: '对话尚未准备好',
+        ),
+      );
+      return;
+    }
+
+    final opened = await AppStateService.navigateBackToChat(
+      conversationId: conversationId,
+      mode: _currentConversation?.mode ?? ConversationMode.normal,
+    );
+    if (!opened) {
+      _showSnackBar(
+        AppTextLocalizer.choose(
+          en: 'Failed to open conversation',
+          zh: '无法打开对话',
+        ),
+      );
+    } else {
+      await AppStateService.dismissFloatingOverlay();
+    }
+  }
+
+  Future<void> _dismissFloatingOverlay() async {
+    _inputFocusNode.unfocus();
+    final dismissed = await AppStateService.dismissFloatingOverlay();
+    if (!dismissed) {
+      await ScreenDialogService.closeChatBotDialog();
+    }
+  }
+
+  void _closeFloatingWindow() {
+    unawaited(_dismissFloatingOverlay());
+  }
+
+  Widget _buildSheetHeader(double screenHeight) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onVerticalDragUpdate: (details) {
+            final delta = details.primaryDelta ?? 0;
+            final currentSize = _sheetController.size;
+            final newSize = currentSize - (delta / screenHeight);
+            _sheetController.jumpTo(newSize.clamp(0.4, 0.95));
+          },
+          child: SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Container(
+                  width: 100,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFCCCCCC),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+                Positioned(
+                  left: 10,
+                  child: Tooltip(
+                    message: AppTextLocalizer.choose(
+                      en: 'Open conversation',
+                      zh: '管理对话',
+                    ),
+                    child: IconButton(
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(
+                        Icons.open_in_new,
+                        size: 20,
+                        color: Color(0xFF353E53),
+                      ),
+                      onPressed: () =>
+                          unawaited(_openCurrentConversationInMain()),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  right: 10,
+                  child: Tooltip(
+                    message: AppTextLocalizer.choose(en: 'Close', zh: '关闭'),
+                    child: IconButton(
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(
+                        Icons.close,
+                        size: 22,
+                        color: Color(0xFF353E53),
+                      ),
+                      onPressed: _closeFloatingWindow,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const Align(alignment: Alignment.center, child: AiGeneratedBadge()),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     final inputAreaHeight = _inputAreaHeight > 0 ? _inputAreaHeight : 72.0;
-    final palette = context.omniPalette;
-    final isDark = context.isDarkTheme;
-    final liftEmptyGreeting = _emptyGreetingKeyboardLiftTracker.resolveForBuild(
-      bottomInset,
-    );
-    final homeGreetingSettings = HomeGreetingSettingsService.notifier.value;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _updateInputAreaMetrics();
     });
@@ -2362,107 +2469,34 @@ class _ChatBotSheetState extends State<ChatBotSheet>
               behavior: HitTestBehavior.translucent,
               onPointerDown: (event) => _handleOutsideTap(event.position),
               child: Container(
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? palette.pageBackground
-                      : const Color(0xFFF9FCFF),
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(20),
-                  ),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFF9FCFF), // #F9FCFF
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
                   boxShadow: [
                     BoxShadow(
-                      color: isDark
-                          ? Colors.black.withValues(alpha: 0.28)
-                          : const Color(0x1A000000),
+                      color: Color(0x1A000000),
                       blurRadius: 20,
-                      offset: const Offset(0, -4),
+                      offset: Offset(0, -4),
                     ),
                   ],
                 ),
                 child: Stack(
                   children: [
-                    Column(
-                      children: [
-                        // 拖动指示条 - 仅用于拖动整个 sheet 高度
-                        GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onVerticalDragUpdate: (details) {
-                            final delta = details.primaryDelta ?? 0;
-                            final currentSize = _sheetController.size;
-                            // 向上拖动(delta<0)增大size，向下拖动(delta>0)减小size
-                            final newSize =
-                                currentSize - (delta / screenHeight);
-                            _sheetController.jumpTo(newSize.clamp(0.4, 0.95));
-                          },
-                          child: Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.fromLTRB(0, 8, 0, 0),
-                            child: Center(
-                              child: Container(
-                                width: 100,
-                                height: 4,
-                                decoration: BoxDecoration(
-                                  color: isDark
-                                      ? palette.borderStrong
-                                      : const Color(0xFFCCCCCC),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                        // AI 生成标识
-                        const Padding(
-                          padding: EdgeInsets.only(top: 4),
-                          child: Align(
-                            alignment: Alignment.center,
-                            child: AiGeneratedBadge(),
-                          ),
-                        ),
-                        // 消息列表 - 使用 NotificationListener 阻止滚动事件影响 sheet
-                        Expanded(
-                          child: NotificationListener<ScrollNotification>(
-                            onNotification: (notification) {
-                              _handleMessageScrollNotification(notification);
-                              return true; // 阻止滚动事件冒泡到 sheet
-                            },
-                            child: _buildMessageList(),
-                          ),
-                        ),
-                        if (_vlmInfoQuestion != null) _buildVlmInfoPrompt(),
-                        // 输入框 - 根据 _isInputAreaVisible 控制显示
-                        if (_isInputAreaVisible) _buildInputArea(),
-                        SizedBox(height: bottomInset),
-                      ],
-                    ),
-                    if (_messages.isEmpty &&
-                        homeGreetingSettings.greetingEnabled)
-                      AnimatedPositioned(
-                        duration: const Duration(milliseconds: 280),
-                        curve: Curves.easeInOutCubic,
-                        left: 0,
-                        right: 0,
-                        top: liftEmptyGreeting ? 56 : 116,
-                        child: IgnorePointer(
-                          child: AnimatedAlign(
-                            duration: const Duration(milliseconds: 280),
-                            curve: Curves.easeInOutCubic,
-                            alignment: liftEmptyGreeting
-                                ? Alignment.centerLeft
-                                : Alignment.center,
-                            child: ChatEmptyGreeting(
-                              compact: true,
-                              primaryTextColor: palette.textPrimary,
-                              secondaryTextColor: palette.textSecondary,
-                              accentColor: palette.accentPrimary,
-                              quickPrompts: homeGreetingSettings.quickPrompts,
-                              pinnedQuickPromptIds:
-                                  homeGreetingSettings.pinnedQuickPromptIds,
-                              onQuickPromptSelected: _applyHomeQuickPrompt,
-                            ),
-                          ),
-                        ),
+                    _buildSheetHeader(screenHeight),
+                    // 消息列表 - 使用 NotificationListener 阻止滚动事件影响 sheet
+                    Expanded(
+                      child: NotificationListener<ScrollNotification>(
+                        onNotification: (notification) {
+                          _handleMessageScrollNotification(notification);
+                          return true; // 阻止滚动事件冒泡到 sheet
+                        },
+                        child: _buildMessageList(),
                       ),
+                    ),
+                    if (_vlmInfoQuestion != null) _buildVlmInfoPrompt(),
+                    // 输入框 - 根据 _isInputAreaVisible 控制显示
+                    if (_isInputAreaVisible) _buildInputArea(),
+                    SizedBox(height: bottomInset),
                   ],
                 ),
               ),
@@ -2490,52 +2524,68 @@ class _ChatBotSheetState extends State<ChatBotSheet>
 
   Widget _buildMessageList() {
     if (_messages.isEmpty) {
+      final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+      final liftEmptyGreeting = _emptyGreetingKeyboardLiftTracker
+          .resolveForBuild(bottomInset);
+      final emptyStateBottomInset = liftEmptyGreeting ? bottomInset : 0.0;
       // 使用 GestureDetector 阻止手势穿透到原生层
       return GestureDetector(
         onVerticalDragUpdate: (_) {},
         behavior: HitTestBehavior.opaque,
-        child: const SizedBox.expand(),
+        child: AnimatedPadding(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          padding: EdgeInsets.only(bottom: emptyStateBottomInset),
+          child: Center(
+            child: Text(
+              AppTextLocalizer.choose(
+                zh: '有什么可以帮助你的？',
+                en: 'How can I help you?',
+                locale: Localizations.localeOf(context),
+              ),
+              style: const TextStyle(color: Color(0xFF999999), fontSize: 14),
+            ),
+          ),
+        ),
       );
     }
 
     if (_autoStickMessageListToLatest) {
       _scheduleMessageStickToLatest();
     }
+    final activeTaskIds = <String>{
+      ..._currentAiMessages.keys,
+      ...activeAgentStreamTaskIds(),
+    };
+    _syncAgentRunExpansion(activeTaskIds);
     final timelineEntries = buildAgentRunTimelineEntries(
       _messages,
-      activeTaskIds: {
-        ..._currentAiMessages.keys,
-        ...activeAgentStreamTaskIds(),
-      },
+      activeTaskIds: activeTaskIds,
     );
-    return Align(
-      alignment: Alignment.topCenter,
-      child: ListView.builder(
-        controller: _messageScrollController,
-        reverse: true,
-        shrinkWrap: true,
-        // 使用 ClampingScrollPhysics 阻止边界弹性效果，防止手势穿透到原生层
-        // 这在悬浮窗模式下尤为重要，可以防止向下拖动时整个页面跟着移动
-        physics: const ClampingScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-        itemCount: timelineEntries.length,
-        itemBuilder: (context, index) {
-          final entry = timelineEntries[index];
-          final isLastMessage = index == 0; // 最后一条消息（最新的）
-          final isOldestMessage =
-              index == timelineEntries.length - 1; // 最旧的一条消息
-          // 只有当消息数量大于1时，最后一条消息才添加底部padding
-          final needBottomPadding = isLastMessage && timelineEntries.length > 1;
-          // 如果最旧的一条消息不是用户发送的，给顶部添加24的padding
-          final needTopPadding = isOldestMessage && !entry.isUserMessage;
-          final padding = EdgeInsets.only(
-            top: needTopPadding ? 24.0 : 0.0,
-            bottom: needBottomPadding ? 40.0 : 0.0,
-          );
-          if (entry.message != null) {
-            final message = entry.message!;
-            return Padding(
-              padding: padding,
+    // shrinkWrap removed: parent DraggableScrollableSheet provides bounded
+    // height. shrinkWrap=true forces O(n) remeasure of ALL items on every
+    // rebuild, which freezes the UI during long streaming output.
+    return ListView.builder(
+      controller: _messageScrollController,
+      reverse: true,
+      physics: const ClampingScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+      itemCount: timelineEntries.length,
+      itemBuilder: (context, index) {
+        final entry = timelineEntries[index];
+        final isLastMessage = index == 0;
+        final isOldestMessage = index == timelineEntries.length - 1;
+        final needBottomPadding = isLastMessage && timelineEntries.length > 1;
+        final needTopPadding = isOldestMessage && !entry.isUserMessage;
+        final padding = EdgeInsets.only(
+          top: needTopPadding ? 24.0 : 0.0,
+          bottom: needBottomPadding ? 40.0 : 0.0,
+        );
+        if (entry.message != null) {
+          final message = entry.message!;
+          return Padding(
+            padding: padding,
+            child: RepaintBoundary(
               child: MessageBubble(
                 message: message,
                 key: ValueKey(message.dbId ?? message.contentId ?? message.id),
@@ -2545,16 +2595,21 @@ class _ChatBotSheetState extends State<ChatBotSheet>
                 onParentScrollHandoff: _handleParentScrollHandoff,
                 onStreamingTextLayoutChanged: _handleStreamingTextLayoutChanged,
               ),
-            );
-          }
+            ),
+          );
+        }
 
-          final group = entry.group!;
-          return Padding(
-            padding: padding,
+        final group = entry.group!;
+        return Padding(
+          padding: padding,
+          child: RepaintBoundary(
             child: AgentRunGroupMessage(
               key: ValueKey('overlay-agent-run-${group.taskId}'),
               group: group,
-              expanded: _expandedAgentRunTaskIds.contains(group.taskId),
+              expanded: _agentRunExpansionTracker.isGroupExpanded(
+                group,
+                _expandedAgentRunTaskIds,
+              ),
               onToggleExpanded: () => _toggleAgentRunGroup(group.taskId),
               onBeforeTaskExecute: _handleBeforeTaskExecute,
               onCancelTask: _onCancelTaskFromCard,
@@ -2562,87 +2617,103 @@ class _ChatBotSheetState extends State<ChatBotSheet>
               onParentScrollHandoff: _handleParentScrollHandoff,
               onStreamingTextLayoutChanged: _handleStreamingTextLayoutChanged,
             ),
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 
   Widget _buildVlmInfoPrompt() {
-    final palette = context.omniPalette;
-    final isDark = context.isDarkTheme;
-    final promptAccentColor = isDark
-        ? palette.accentPrimary
-        : const Color(0xFF4F83FF);
-    final promptTextColor = isDark
-        ? palette.textPrimary
-        : const Color(0xFF1D3E7B);
+    final isTakeover = AssistsMessageService.isVlmManualTakeoverPrompt(
+      _vlmInfoQuestion,
+    );
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: isDark ? palette.surfaceSecondary : const Color(0xFFE8F2FF),
+        color: const Color(0xFFE8F2FF),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: promptAccentColor),
+        border: Border.all(color: const Color(0xFF4F83FF)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            Localizations.localeOf(context).languageCode == 'en'
-                ? 'Need your confirmation'
-                : '需要你的确认',
+            isTakeover
+                ? AppTextLocalizer.choose(
+                    zh: '人工接管中',
+                    en: 'Manual takeover',
+                    locale: Localizations.localeOf(context),
+                  )
+                : AppTextLocalizer.choose(
+                    zh: '需要你的确认',
+                    en: 'Need your confirmation',
+                    locale: Localizations.localeOf(context),
+                  ),
             style: const TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
-            ).copyWith(color: promptTextColor),
+              color: Color(0xFF1D3E7B),
+            ),
           ),
           const SizedBox(height: 6),
           Text(
             _vlmInfoQuestion ?? '',
-            style: TextStyle(fontSize: 13, color: promptTextColor),
+            style: const TextStyle(fontSize: 13, color: Color(0xFF1D3E7B)),
           ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: _vlmAnswerController,
-            maxLines: 2,
-            decoration: InputDecoration(
-              hintText: Localizations.localeOf(context).languageCode == 'en'
-                  ? 'Optional: add details. Default sends: Completed action, continue execution'
-                  : '可选：补充你的操作说明，默认发送“已完成操作，继续执行”',
-              isDense: true,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 8,
+          if (!isTakeover) ...[
+            const SizedBox(height: 10),
+            TextField(
+              controller: _vlmAnswerController,
+              maxLines: 2,
+              decoration: InputDecoration(
+                hintText: AppTextLocalizer.choose(
+                  zh: '可选：补充你的操作说明，默认发送“已完成操作，继续执行”',
+                  en: 'Optional: add details. Default sends: Completed action, continue execution',
+                  locale: Localizations.localeOf(context),
+                ),
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                border: const OutlineInputBorder(),
               ),
-              border: const OutlineInputBorder(),
             ),
-          ),
+          ],
           const SizedBox(height: 10),
           Row(
             children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: _isSubmittingVlmReply ? null : _dismissVlmInfo,
-                  child: Text(
-                    Localizations.localeOf(context).languageCode == 'en'
-                        ? 'Later'
-                        : '稍后再说',
+              if (!isTakeover) ...[
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _isSubmittingVlmReply ? null : _dismissVlmInfo,
+                    child: Text(
+                      AppTextLocalizer.choose(
+                        zh: '稍后再说',
+                        en: 'Later',
+                        locale: Localizations.localeOf(context),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 12),
+                const SizedBox(width: 12),
+              ],
               Expanded(
                 child: ElevatedButton(
                   onPressed: _isSubmittingVlmReply ? null : _onSubmitVlmInfo,
                   child: Text(
                     _isSubmittingVlmReply
-                        ? (Localizations.localeOf(context).languageCode == 'en'
-                              ? 'Sending...'
-                              : '发送中...')
-                        : (Localizations.localeOf(context).languageCode == 'en'
-                              ? 'Continue'
-                              : '继续执行'),
+                        ? AppTextLocalizer.choose(
+                            zh: isTakeover ? '恢复中...' : '发送中...',
+                            en: isTakeover ? 'Resuming...' : 'Sending...',
+                            locale: Localizations.localeOf(context),
+                          )
+                        : AppTextLocalizer.choose(
+                            zh: '继续执行',
+                            en: 'Continue',
+                            locale: Localizations.localeOf(context),
+                          ),
                   ),
                 ),
               ),
@@ -2655,17 +2726,6 @@ class _ChatBotSheetState extends State<ChatBotSheet>
 
   Widget _buildSlashCommandPanel() {
     final visible = _showSlashCommandPanel || _openClawPanelExpanded;
-    final palette = context.omniPalette;
-    final isDark = context.isDarkTheme;
-    final panelTextColor = isDark
-        ? palette.textPrimary
-        : const Color(0xFF1F2937);
-    final panelSecondaryTextColor = isDark
-        ? palette.textSecondary
-        : const Color(0xFF6B7280);
-    final panelAccentColor = isDark
-        ? palette.accentPrimary
-        : const Color(0xFF2563EB);
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 180),
       transitionBuilder: (child, animation) {
@@ -2687,12 +2747,11 @@ class _ChatBotSheetState extends State<ChatBotSheet>
               margin: const EdgeInsets.fromLTRB(24, 0, 24, 6),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: isDark ? palette.surfacePrimary : Colors.white,
+                color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
-                border: isDark ? Border.all(color: palette.borderSubtle) : null,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: isDark ? 0.24 : 0.08),
+                    color: Colors.black.withValues(alpha: 0.08),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
@@ -2702,12 +2761,12 @@ class _ChatBotSheetState extends State<ChatBotSheet>
                   ? Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        const Text(
                           'OpenClaw 配置',
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
-                            color: panelTextColor,
+                            color: Color(0xFF1F2937),
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -2723,12 +2782,14 @@ class _ChatBotSheetState extends State<ChatBotSheet>
                         TextField(
                           controller: _openClawTokenController,
                           decoration: InputDecoration(
-                            labelText: LegacyTextLocalizer.isEnglish
-                                ? 'Token (optional)'
-                                : 'Token（可选）',
-                            hintText: LegacyTextLocalizer.isEnglish
-                                ? 'Leave empty if no token required'
-                                : '为空表示无需 token',
+                            labelText: AppTextLocalizer.choose(
+                              en: 'Token (optional)',
+                              zh: 'Token（可选）',
+                            ),
+                            hintText: AppTextLocalizer.choose(
+                              en: 'Leave empty if no token required',
+                              zh: '为空表示无需 token',
+                            ),
                             isDense: true,
                           ),
                         ),
@@ -2749,23 +2810,27 @@ class _ChatBotSheetState extends State<ChatBotSheet>
                       borderRadius: BorderRadius.circular(10),
                       child: Row(
                         children: [
-                          Icon(Icons.link, size: 16, color: panelAccentColor),
+                          const Icon(
+                            Icons.link,
+                            size: 16,
+                            color: Color(0xFF2563EB),
+                          ),
                           const SizedBox(width: 8),
-                          Expanded(
+                          const Expanded(
                             child: Text(
                               'OpenClaw',
                               style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w600,
-                                color: panelTextColor,
+                                color: Color(0xFF1F2937),
                               ),
                             ),
                           ),
                           Text(
-                            LegacyTextLocalizer.isEnglish ? 'Config' : '配置',
-                            style: TextStyle(
+                            AppTextLocalizer.choose(en: 'Config', zh: '配置'),
+                            style: const TextStyle(
                               fontSize: 12,
-                              color: panelSecondaryTextColor,
+                              color: Color(0xFF6B7280),
                             ),
                           ),
                         ],
@@ -2779,22 +2844,24 @@ class _ChatBotSheetState extends State<ChatBotSheet>
     return Container(
       key: _inputAreaKey,
       padding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
-      child: ChatInputArea(
-        key: _chatInputAreaKey,
-        controller: _messageController,
-        focusNode: _inputFocusNode,
-        isProcessing: _isAiResponding,
-        onSendMessage: _sendMessage,
-        onCancelTask: _onCancelTask,
-        onPopupVisibilityChanged: _onPopupVisibilityChanged,
-        onInputHeightChanged: _onInputHeightChanged,
-        openClawEnabled: _openClawEnabled,
-        onToggleOpenClaw: _setOpenClawEnabled,
-        useLargeComposerStyle: true,
-        useAttachmentPickerForPlus: true,
-        onPickAttachment: _pickAttachments,
-        attachments: _pendingAttachments,
-        onRemoveAttachment: _removePendingAttachment,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ChatInputArea(
+            key: _chatInputAreaKey,
+            controller: _messageController,
+            focusNode: _inputFocusNode,
+            isProcessing: _isAiResponding,
+            onSendMessage: _sendMessage,
+            onCancelTask: _onCancelTask,
+            onPopupVisibilityChanged: _onPopupVisibilityChanged,
+            openClawEnabled: _openClawEnabled,
+            onToggleOpenClaw: _setOpenClawEnabled,
+            onViewTrajectoriesTap: _openRunLogListFromShortcut,
+            onViewCurrentTrajectoryTap: _openLatestRunLogFromShortcut,
+            onManualRecordingTap: _startManualRecordingFromShortcut,
+          ),
+        ],
       ),
     );
   }

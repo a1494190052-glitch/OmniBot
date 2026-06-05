@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/block_models.dart';
-import 'package:ui/l10n/legacy_text_localizer.dart';
+import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:url_launcher/url_launcher.dart';
 class ReferenceLabel extends StatelessWidget {
   final List<ReferenceItem> referenceItems;
@@ -30,7 +30,7 @@ class ReferenceLabel extends StatelessWidget {
                 itemCount: items.length,
                 itemBuilder: (context, index) {
                   return ListTile(
-                    title: Text(LegacyTextLocalizer.isEnglish ? 'Reference ${index + 1}' : '参考文档 ${index + 1}'),
+                    title: Text(AppTextLocalizer.choose(en: 'Reference ${index + 1}', zh: '参考文档 ${index + 1}')),
                     subtitle: Text(items[index].title),
                     onTap: () {
                       Navigator.pop(context);
@@ -50,8 +50,6 @@ class ReferenceLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     const backGroundColor = Color(0xFFF8F8F8);
     const lightGrey = Color(0xFF999999);
     return GestureDetector(
@@ -73,9 +71,7 @@ class ReferenceLabel extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              (LegacyTextLocalizer.isEnglish
-                  ? 'Found ${referenceItems.length} related documents'
-                  : "已找到${referenceItems.length}篇相关文档"),
+              (AppTextLocalizer.choose(en: 'Found ${referenceItems.length} related documents', zh: "已找到${referenceItems.length}篇相关文档")),
               style: TextStyle(
                 color: lightGrey,
                 fontWeight: FontWeight.w500,

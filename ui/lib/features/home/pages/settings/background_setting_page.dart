@@ -338,6 +338,7 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
     if (config.sourceType == AppBackgroundSourceType.local &&
         config.localImagePath.trim().isNotEmpty &&
         !await File(config.localImagePath).exists()) {
+      if (!mounted) return null;
       return context.l10n.appearanceLocalImageMissing;
     }
     if (config.sourceType == AppBackgroundSourceType.remote) {
@@ -345,6 +346,7 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
       if (uri == null ||
           !(uri.scheme == 'http' || uri.scheme == 'https') ||
           (uri.host.isEmpty)) {
+        if (!mounted) return null;
         return context.l10n.appearanceInvalidHttpUrl;
       }
     }
@@ -502,7 +504,7 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
               Padding(
                 padding: const EdgeInsets.only(left: 4, bottom: 12),
                 child: Text(
-                  context.trLegacy(_autoSaveHint),
+                  context.trText(_autoSaveHint),
                   style: TextStyle(
                     fontSize: 12,
                     color: palette.textSecondary,
@@ -1132,14 +1134,14 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
     final identityBaseName = _petIdentityBaseName(file);
     final candidates = <File>[
       File('${file.parent.path}${Platform.pathSeparator}${baseName}_readme.md'),
-      File('${file.parent.path}${Platform.pathSeparator}${baseName}.md'),
+      File('${file.parent.path}${Platform.pathSeparator}$baseName.md'),
       if (identityBaseName != baseName)
         File(
           '${file.parent.path}${Platform.pathSeparator}${identityBaseName}_readme.md',
         ),
       if (identityBaseName != baseName)
         File(
-          '${file.parent.path}${Platform.pathSeparator}${identityBaseName}.md',
+          '${file.parent.path}${Platform.pathSeparator}$identityBaseName.md',
         ),
       File('${file.parent.path}${Platform.pathSeparator}README.md'),
     ];
@@ -1150,7 +1152,7 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
           '$workspaceRoot${Platform.pathSeparator}pets${Platform.pathSeparator}${baseName}_readme.md',
         ),
         File(
-          '$workspaceRoot${Platform.pathSeparator}pets${Platform.pathSeparator}${baseName}.md',
+          '$workspaceRoot${Platform.pathSeparator}pets${Platform.pathSeparator}$baseName.md',
         ),
         if (identityBaseName != baseName)
           File(
@@ -1158,7 +1160,7 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
           ),
         if (identityBaseName != baseName)
           File(
-            '$workspaceRoot${Platform.pathSeparator}pets${Platform.pathSeparator}${identityBaseName}.md',
+            '$workspaceRoot${Platform.pathSeparator}pets${Platform.pathSeparator}$identityBaseName.md',
           ),
       ]);
     }
@@ -1942,17 +1944,6 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
     return null;
   }
 
-  String _shellPathForFile(String path, String workspaceRoot) {
-    final normalized = _normalizePath(path);
-    final normalizedRoot = _normalizePath(workspaceRoot);
-    if (normalizedRoot.isEmpty) return path;
-    if (normalized == normalizedRoot) return '/workspace';
-    if (normalized.startsWith('$normalizedRoot/')) {
-      return '/workspace/${normalized.substring(normalizedRoot.length + 1)}';
-    }
-    return path;
-  }
-
   String _resolveWorkspaceDisplayPath(String path, String workspaceRoot) {
     final trimmed = path.trim();
     if (trimmed == '/workspace') return workspaceRoot;
@@ -2212,7 +2203,7 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
           Row(
             children: [
               Text(
-                context.trLegacy(label),
+                context.trText(label),
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
@@ -2228,7 +2219,7 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
           ),
           const SizedBox(height: 2),
           Text(
-            context.trLegacy(subtitle),
+            context.trText(subtitle),
             style: TextStyle(fontSize: 12, color: palette.textSecondary),
           ),
           Slider(value: value, min: min, max: max, onChanged: onChanged),

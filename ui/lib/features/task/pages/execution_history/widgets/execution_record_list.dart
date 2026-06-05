@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
-import 'package:ui/theme/app_colors.dart';
-import 'package:ui/theme/app_text_styles.dart';
 import 'package:ui/features/task/pages/execution_history/widgets/execution_record_list_item.dart';
 
 class ExecutionRecordList extends StatelessWidget {
@@ -18,7 +16,7 @@ class ExecutionRecordList extends StatelessWidget {
   final Function(ExecutionRecordListItemData)? onSchedulePressed;
   final Set<String> scheduledTaskKeys;
 
-  const ExecutionRecordList({
+  const ExecutionRecordList({super.key,
     required this.records,
     required this.onDelete,
     required this.onMore,
@@ -40,96 +38,59 @@ class ExecutionRecordList extends StatelessWidget {
       grouped.putIfAbsent(section, () => []).add(record);
     }
 
+    final visibleRecords = <ExecutionRecordListItemData>[
+      for (final entry in grouped.entries) ...entry.value,
+    ];
+
     return SlidableAutoCloseBehavior(
       closeWhenTapped: true,
-      child: Padding(
+      child: SliverPadding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Column(
-          children: [
-            ...grouped.entries.map((entry) {
-              final section = entry.key;
-              final sectionCards = entry.value;
+        sliver: SliverList(
+          delegate: SliverChildBuilderDelegate((context, index) {
+            final record = visibleRecords[index];
+            final recordKey =
+                getRecordKey?.call(record) ??
+                '${record.nodeId}|${record.suggestionId}';
+            final isSelected = selectedKeys.contains(recordKey);
+            final hasScheduledTask = scheduledTaskKeys.contains(recordKey);
 
-              return Column(
-                children: [
-                  // 分组标题
-                  // _buildSectionHeader(section),
-
-                  // 分组内容
-                  ...List.generate(sectionCards.length, (index) {
-                    final record = sectionCards[index];
-                    final showSeparator = index < sectionCards.length - 1;
-                    final recordKey =
-                        getRecordKey?.call(record) ??
-                        '${record.nodeId}|${record.suggestionId}';
-                    final isSelected = selectedKeys.contains(recordKey);
-                    final hasScheduledTask = scheduledTaskKeys.contains(
-                      recordKey,
-                    );
-
-                    return Column(
-                      children: [
-                        GestureDetector(
-                          onTap: isSelectionMode
-                              ? () => onToggleSelection?.call(record)
-                              : () => onTap?.call(record),
-                          child: ExecutionRecordListItem(
-                            recordModel: record,
-                            isSelectionMode: isSelectionMode,
-                            isSelected: isSelected,
-                            hasScheduledTask: hasScheduledTask,
-                            onSchedulePressed: isSelectionMode
-                                ? null
-                                : () => onSchedulePressed?.call(record),
-                            onMorePressed: isSelectionMode
-                                ? null
-                                : (context, position) {
-                                    onMore(record, context, position);
-                                  },
-                            onDelete: isSelectionMode
-                                ? null
-                                : () {
-                                    onDelete(record.id);
-                                  },
-                            onLongPress: isSelectionMode
-                                ? null
-                                : () {
-                                    onLongPress?.call(record);
-                                  },
-                          ),
-                        ),
-                        // if (showSeparator)
-                        const SizedBox(height: 8),
-                      ],
-                    );
-                  }),
-
-                  // const SizedBox(height: 16),
-                ],
-              );
-            }).toList(),
-          ],
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: GestureDetector(
+                onTap: isSelectionMode
+                    ? () => onToggleSelection?.call(record)
+                    : () => onTap?.call(record),
+                child: ExecutionRecordListItem(
+                  recordModel: record,
+                  isSelectionMode: isSelectionMode,
+                  isSelected: isSelected,
+                  hasScheduledTask: hasScheduledTask,
+                  onSchedulePressed: isSelectionMode
+                      ? null
+                      : () => onSchedulePressed?.call(record),
+                  onMorePressed: isSelectionMode
+                      ? null
+                      : (context, position) {
+                          onMore(record, context, position);
+                        },
+                  onDelete: isSelectionMode
+                      ? null
+                      : () {
+                          onDelete(record.id);
+                        },
+                  onLongPress: isSelectionMode
+                      ? null
+                      : () {
+                          onLongPress?.call(record);
+                        },
+                ),
+              ),
+            );
+          }, childCount: visibleRecords.length),
         ),
       ),
     );
   }
 
-  Widget _buildSectionHeader(String section) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      alignment: Alignment.centerLeft,
-      height: 20,
-      child: Text(
-        section,
-        style: TextStyle(
-          fontSize: AppTextStyles.fontSizeSmall,
-          color: AppColors.text50,
-          fontWeight: AppTextStyles.fontWeightRegular,
-          height: AppTextStyles.lineHeightH2,
-          letterSpacing: AppTextStyles.letterSpacingNormal,
-        ),
-      ),
-    );
-  }
 }

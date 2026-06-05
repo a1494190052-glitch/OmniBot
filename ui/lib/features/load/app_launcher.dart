@@ -8,10 +8,10 @@ class AppLauncher extends StatefulWidget {
   final Future<void> Function()? onInitialize;
 
   const AppLauncher({
-    Key? key,
+    super.key,
     required this.app,
     this.onInitialize,
-  }) : super(key: key);
+  });
 
   @override
   State<AppLauncher> createState() => _AppLauncherState();

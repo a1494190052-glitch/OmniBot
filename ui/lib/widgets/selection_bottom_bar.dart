@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
-import 'package:ui/l10n/legacy_text_localizer.dart';
+import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/theme/app_colors.dart';
   
 
@@ -9,10 +9,10 @@ import 'package:ui/theme/app_colors.dart';
     final VoidCallback? onDeletePressed;
 
     const SelectionBottomBar({
-      Key? key,
+      super.key,
       required this.isActive,
       this.onDeletePressed,
-    }) : super(key: key);
+    });
 
     @override
     Widget build(BuildContext context) {
@@ -31,7 +31,7 @@ import 'package:ui/theme/app_colors.dart';
         decoration: BoxDecoration(
           color: Color(0xFFFFFFFF),
           border: Border(
-            top: BorderSide(color: Colors.black.withOpacity(0.1), width: 0.5),
+            top: BorderSide(color: Colors.black.withValues(alpha: 0.1), width: 0.5),
           ),
         ),
         child: Column(
@@ -47,7 +47,7 @@ import 'package:ui/theme/app_colors.dart';
               ),
             ),
             Text(
-              LegacyTextLocalizer.isEnglish ? 'Delete' : '删除',
+              AppTextLocalizer.choose(en: 'Delete', zh: '删除'),
               style: TextStyle(
                 color: AppColors.alertRed,
                 fontSize: 12,

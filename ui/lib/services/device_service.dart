@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 /// 设备信息服务
@@ -10,10 +11,10 @@ class DeviceService {
       final String? androidId = await _methodChannel.invokeMethod('getAndroidId');
       return androidId;
     } on PlatformException catch (e) {
-      print('获取Android ID失败: ${e.message}');
+      debugPrint('获取Android ID失败: ${e.message}');
       return null;
     } catch (e) {
-      print('获取Android ID时发生未知错误: $e');
+      debugPrint('获取Android ID时发生未知错误: $e');
       return null;
     }
   }
@@ -24,10 +25,10 @@ class DeviceService {
       final result = await _methodChannel.invokeMethod('getDeviceInfo');
       return _mapFromResult(result);
     } on PlatformException catch (e) {
-      print('获取设备信息失败: ${e.message}');
+      debugPrint('获取设备信息失败: ${e.message}');
       return null;
     } catch (e) {
-      print('获取设备信息时发生未知错误: $e');
+      debugPrint('获取设备信息时发生未知错误: $e');
       return null;
     }
   }
@@ -38,10 +39,10 @@ class DeviceService {
       final String? ipAddress = await _methodChannel.invokeMethod('getIpAddress');
       return ipAddress;
     } on PlatformException catch (e) {
-      print('获取IP地址失败: ${e.message}');
+      debugPrint('获取IP地址失败: ${e.message}');
       return null;
     } catch (e) {
-      print('获取IP地址时发生未知错误: $e');
+      debugPrint('获取IP地址时发生未知错误: $e');
       return null;
     }
   }
@@ -55,22 +56,22 @@ class DeviceService {
       }
       return Map<String, dynamic>.from(result);
     } on PlatformException catch (e) {
-      print('获取应用版本失败: ${e.message}');
+      debugPrint('获取应用版本失败: ${e.message}');
       return null;
     } catch (e) {
-      print('获取应用版本时发生未知错误: $e');
+      debugPrint('获取应用版本时发生未知错误: $e');
       return null;
     }
   }
 
-  /// 将从平台调用返回的动态结果规范化为 Map<String, dynamic>
+  /// 将从平台调用返回的动态结果规范化为 Map&lt;String, dynamic&gt;
   static Map<String, dynamic>? _mapFromResult(dynamic result) {
     if (result == null) return null;
     if (result is Map) {
       try {
         return result.map((key, value) => MapEntry(key?.toString() ?? '', value));
       } catch (e) {
-        print('无法将结果转换为 Map<String, dynamic>: $e');
+        debugPrint('无法将结果转换为 Map<String, dynamic>: $e');
         return null;
       }
     }

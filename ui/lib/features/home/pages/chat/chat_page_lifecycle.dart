@@ -18,6 +18,7 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
   void initState() {
     super.initState();
 
+    UserDialogRegistry.register((text) => _sendMessage(text: text));
     WidgetsBinding.instance.addObserver(this);
     _loadHdPadPanePreferences();
     _checkCompanionTaskState();
@@ -64,6 +65,7 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     unawaited(_refreshCodexStatus());
 
     _inputFocusNode.addListener(_onFocusChange);
+    _messageController.addListener(_handleMessageControllerChanged);
     _messageController.addListener(_handleSlashCommandInput);
     unawaited(_bootstrapConversationThread());
   }
@@ -94,6 +96,13 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
   @override
   void didUpdateWidget(covariant ChatPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialSurfaceMode != widget.initialSurfaceMode) {
+      _hasAppliedInitialSurfaceMode = false;
+      final initialSurfaceMode = _requestedInitialSurfaceMode;
+      if (initialSurfaceMode != null) {
+        unawaited(_switchChatMode(initialSurfaceMode));
+      }
+    }
     if (_threadTargetChanged(oldWidget.threadTarget, widget.threadTarget)) {
       debugPrint(
         '[ChatPage] thread target changed: '
@@ -111,10 +120,19 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
 
   void _syncEmptyGreetingKeyboardLiftFromView() {
     if (!mounted) return;
-    final view = View.of(context);
+    final view = _safeViewForMetrics();
+    if (view == null) return;
     final bottomInset = view.viewInsets.bottom / view.devicePixelRatio;
     if (_emptyGreetingKeyboardLiftTracker.update(bottomInset)) {
       setState(() {});
+    }
+  }
+
+  FlutterView? _safeViewForMetrics() {
+    try {
+      return View.maybeOf(context);
+    } catch (_) {
+      return null;
     }
   }
 
@@ -139,12 +157,6 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     );
     if (normalizedIncomingTarget != null) {
       return normalizedIncomingTarget;
-    }
-
-    if (normalizedPreferredMode == null &&
-        StorageService.getChatStartupBehavior() ==
-            ChatStartupBehavior.newConversation) {
-      return _newThreadTargetForConversationMode(ConversationMode.normal);
     }
 
     if (normalizedPreferredMode == null) {
@@ -254,6 +266,24 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
       return;
     }
     final targetMode = _pageModeForConversationMode(effectiveTarget.mode);
+    final initialSurfaceMode = !_hasAppliedInitialSurfaceMode
+        ? _requestedInitialSurfaceMode
+        : null;
+    final hasInitialSurfaceMode = initialSurfaceMode != null;
+    final requestedWorkspaceProjectMode =
+        initialSurfaceMode == ChatSurfaceMode.project ||
+        (initialSurfaceMode == ChatSurfaceMode.workspace &&
+            _workspaceProjectModeEnabled);
+    final targetSurfaceMode = initialSurfaceMode == ChatSurfaceMode.project
+        ? ChatSurfaceMode.workspace
+        : initialSurfaceMode ??
+              _surfaceForConversationMode(effectiveTarget.mode);
+    final workspacePathsFuture =
+        targetSurfaceMode == ChatSurfaceMode.workspace ||
+            targetSurfaceMode == ChatSurfaceMode.project
+        ? (_workspacePathsLoadFuture ??
+              OmnibotResourceService.ensureWorkspacePathsLoaded())
+        : _workspacePathsLoadFuture;
     _storeDraftForActiveConversationMode();
     if (effectiveTarget.isNewConversation) {
       _draftMessageByMode[targetMode] = '';
@@ -264,7 +294,15 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     setState(() {
       _resolvedThreadTarget = effectiveTarget;
       _activeConversationMode = targetMode;
-      _activeSurfaceMode = _surfaceForConversationMode(effectiveTarget.mode);
+      _activeSurfaceMode = targetSurfaceMode;
+      _workspacePathsLoadFuture = workspacePathsFuture;
+      _hasAppliedInitialSurfaceMode = true;
+      _workspaceProjectModeEnabled = hasInitialSurfaceMode
+          ? requestedWorkspaceProjectMode
+          : _workspaceProjectModeEnabled;
+      if (_workspaceProjectModeEnabled) {
+        _workspaceBrowserCanGoUp = false;
+      }
       _showSlashCommandPanel = false;
       _showModelMentionPanel = false;
       _activeModelMentionToken = null;
@@ -597,6 +635,7 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
 
   @override
   void dispose() {
+    UserDialogRegistry.clear();
     unawaited(_clearVisibleChatConversation());
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_runtimeCoordinator.flushAllPendingPersistence());
@@ -615,6 +654,7 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     AppUpdateService.statusNotifier.removeListener(
       _handleAppUpdateStatusChanged,
     );
+    _messageController.removeListener(_handleMessageControllerChanged);
     _messageController.removeListener(_handleSlashCommandInput);
     _messageController.dispose();
     _normalMessageScrollController.dispose();
@@ -629,7 +669,6 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     _openClawBaseUrlController.dispose();
     _openClawTokenController.dispose();
     _openClawUserIdController.dispose();
-    _stopRemoteCodexSessionSync();
     _codexEventSubscription?.cancel();
     super.dispose();
   }
@@ -765,6 +804,7 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
   int _pageIndexForSurface(ChatSurfaceMode mode) => switch (mode) {
     ChatSurfaceMode.normal => 0,
     ChatSurfaceMode.workspace => 1,
+    ChatSurfaceMode.project => 1,
     ChatSurfaceMode.openclaw => 0,
   };
 
@@ -793,16 +833,14 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
       });
       return;
     }
-    final currentPage = _modePageController.page?.round();
+    final currentPage = _safeModePageControllerPage?.round();
     if (currentPage == targetPage) return;
-    if (animate) {
-      _modePageController.animateToPage(
-        targetPage,
-        duration: const Duration(milliseconds: 240),
-        curve: Curves.easeOutCubic,
-      );
-    } else {
-      _modePageController.jumpToPage(targetPage);
+    final didDrive = _driveModePagePositions(targetPage, animate: animate);
+    if (!didDrive) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _jumpToCurrentModePage(animate: animate);
+      });
     }
   }
 
@@ -811,8 +849,17 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     ChatSurfaceMode targetMode, {
     bool syncPage = true,
   }) async {
+    final requestedProjectMode =
+        targetMode == ChatSurfaceMode.project ||
+        (targetMode == ChatSurfaceMode.workspace &&
+            _activeSurfaceMode != ChatSurfaceMode.workspace &&
+            _workspaceProjectModeEnabled);
+    final requestId = ++_surfaceSwitchRequestId;
+    bool isStaleRequest() => !mounted || requestId != _surfaceSwitchRequestId;
     final resolvedTargetMode = targetMode == ChatSurfaceMode.openclaw
         ? ChatSurfaceMode.normal
+        : requestedProjectMode
+        ? ChatSurfaceMode.workspace
         : targetMode;
     if (_isLocalModelPureChatLocked &&
         resolvedTargetMode != ChatSurfaceMode.normal) {
@@ -822,10 +869,17 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
       }
       return;
     }
-    final requestId = ++_surfaceSwitchRequestId;
-    bool isStaleRequest() => !mounted || requestId != _surfaceSwitchRequestId;
     if (!mounted) return;
     if (_activeSurfaceMode == resolvedTargetMode) {
+      if (resolvedTargetMode == ChatSurfaceMode.workspace &&
+          _workspaceProjectModeEnabled != requestedProjectMode) {
+        setState(() {
+          _workspaceProjectModeEnabled = requestedProjectMode;
+          if (requestedProjectMode) {
+            _workspaceBrowserCanGoUp = false;
+          }
+        });
+      }
       if (syncPage) _jumpToCurrentModePage();
       if (resolvedTargetMode == ChatSurfaceMode.normal &&
           !_isSurfacePageScrolling &&
@@ -846,9 +900,12 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
           _workspacePathsLoadFuture ??
           OmnibotResourceService.ensureWorkspacePathsLoaded();
       setState(() {
-        _activeSurfaceMode = ChatSurfaceMode.workspace;
+        _activeSurfaceMode = resolvedTargetMode;
         _workspacePathsLoadFuture = workspacePathsFuture;
-        _messageController.clear();
+        _workspaceProjectModeEnabled = requestedProjectMode;
+        if (requestedProjectMode) {
+          _workspaceBrowserCanGoUp = false;
+        }
         _setChatIslandDisplayLayerForMode(
           ChatPageMode.normal,
           ChatIslandDisplayLayer.tools,
@@ -902,13 +959,25 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     _draftMessageByMode[_activeConversationMode] = _messageController.text;
   }
 
+  void _handleMessageControllerChanged() {
+    if (_isApplyingDraftToMessageController) {
+      return;
+    }
+    _storeDraftForActiveConversationMode();
+  }
+
   @override
   void _applyDraftForConversationMode(ChatPageMode mode) {
     final draft = _draftMessageByMode[mode] ?? '';
-    _messageController.value = TextEditingValue(
-      text: draft,
-      selection: TextSelection.collapsed(offset: draft.length),
-    );
+    _isApplyingDraftToMessageController = true;
+    try {
+      _messageController.value = TextEditingValue(
+        text: draft,
+        selection: TextSelection.collapsed(offset: draft.length),
+      );
+    } finally {
+      _isApplyingDraftToMessageController = false;
+    }
   }
 
   Future<ConversationThreadTarget> _overrideTargetWithSharedDraftIfNeeded(
@@ -1021,6 +1090,15 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     }
   }
 
+  ChatSurfaceMode? get _requestedInitialSurfaceMode {
+    return switch (widget.initialSurfaceMode?.trim().toLowerCase()) {
+      'workspace' || 'work' => ChatSurfaceMode.workspace,
+      'project' => ChatSurfaceMode.project,
+      _ => null,
+    };
+  }
+
+  @override
   Future<void> _syncVisibleChatConversation() async {
     if (!mounted) return;
     final route = ModalRoute.of(context);
@@ -1041,6 +1119,7 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     );
   }
 
+  @override
   Future<void> _clearVisibleChatConversation() {
     return AssistsMessageService.setVisibleChatConversation(visible: false);
   }

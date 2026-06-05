@@ -9,7 +9,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:ui/core/router/go_router_manager.dart';
+import 'package:ui/features/home/pages/chat/services/chat_conversation_runtime_coordinator.dart';
 import 'package:ui/features/home/widgets/conversation_slidable.dart';
+import 'package:ui/features/home/widgets/conversation_status_indicator.dart';
 import 'package:ui/features/home/widgets/home_drawer_search_field.dart';
 import 'package:ui/models/chat_message_model.dart';
 import 'package:ui/models/conversation_model.dart';
@@ -79,6 +81,16 @@ const String _kDrawerTaskHistoryIconSvg =
     '<rect x="18.5" y="0" width="5" height="5" rx="1.5" fill="currentColor"/>'
     '</svg>';
 
+const String _kDrawerWorkbenchIconSvg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" '
+    'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+    'stroke-linecap="round" stroke-linejoin="round">'
+    '<rect width="7" height="9" x="3" y="3" rx="1"/>'
+    '<rect width="7" height="5" x="14" y="3" rx="1"/>'
+    '<rect width="7" height="9" x="14" y="12" rx="1"/>'
+    '<rect width="7" height="5" x="3" y="16" rx="1"/>'
+    '</svg>';
+
 /// 首页侧边栏
 class HomeDrawer extends ConsumerStatefulWidget {
   const HomeDrawer({
@@ -123,6 +135,8 @@ class HomeDrawerState extends ConsumerState<HomeDrawer> {
       <String, Set<String>>{};
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
+  final ChatConversationRuntimeCoordinator _runtimeCoordinator =
+      ChatConversationRuntimeCoordinator.instance;
   final Map<String, _ConversationSearchIndex> _conversationSearchCache =
       <String, _ConversationSearchIndex>{};
   final Map<String, List<_ConversationImagePreview>>
@@ -151,10 +165,15 @@ class HomeDrawerState extends ConsumerState<HomeDrawer> {
   StreamSubscription<Map<String, dynamic>>?
   _conversationListChangedSubscription;
   StreamSubscription<List<ScheduledTask>>? _scheduledTasksChangedSubscription;
+  String _runtimeConversationStatusSignature = '';
+  bool _runtimeConversationStatusRefreshScheduled = false;
 
   @override
   void initState() {
     super.initState();
+    _runtimeCoordinator
+      ..ensureInitialized()
+      ..addListener(_handleConversationRuntimeChanged);
     _searchController.addListener(_handleSearchQueryChanged);
     _searchFocusNode.addListener(_handleSearchFocusChanged);
     _titleEditingFocusNode.addListener(_handleTitleEditingFocusChanged);
@@ -174,6 +193,7 @@ class HomeDrawerState extends ConsumerState<HomeDrawer> {
   @override
   void dispose() {
     _searchDebounceTimer?.cancel();
+    _runtimeCoordinator.removeListener(_handleConversationRuntimeChanged);
     _conversationListChangedSubscription?.cancel();
     _scheduledTasksChangedSubscription?.cancel();
     _searchController
@@ -203,6 +223,47 @@ class HomeDrawerState extends ConsumerState<HomeDrawer> {
 
   void reloadConversations() {
     _loadConversations();
+  }
+
+  void _handleConversationRuntimeChanged() {
+    if (!mounted) {
+      return;
+    }
+    final nextSignature = _buildRuntimeConversationStatusSignature();
+    if (nextSignature == _runtimeConversationStatusSignature) {
+      return;
+    }
+    _runtimeConversationStatusSignature = nextSignature;
+    if (_runtimeConversationStatusRefreshScheduled) {
+      return;
+    }
+    _runtimeConversationStatusRefreshScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _runtimeConversationStatusRefreshScheduled = false;
+      if (!mounted) {
+        return;
+      }
+      setState(() {});
+    });
+  }
+
+  String _buildRuntimeConversationStatusSignature() {
+    if (_allConversations.isEmpty) {
+      return '';
+    }
+    return _allConversations
+        .map((conversation) {
+          return '${conversation.threadKey}:${_isConversationRunning(conversation) ? 1 : 0}';
+        })
+        .join('|');
+  }
+
+  bool _isConversationRunning(ConversationModel conversation) {
+    final runtime = _runtimeCoordinator.runtimeFor(
+      conversationId: conversation.id,
+      mode: conversation.mode.storageValue,
+    );
+    return runtime?.hasInFlightTask == true || conversation.isActive;
   }
 
   @override

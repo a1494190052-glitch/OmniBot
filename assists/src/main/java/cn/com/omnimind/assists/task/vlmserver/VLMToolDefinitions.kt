@@ -1,6 +1,7 @@
 package cn.com.omnimind.assists.task.vlmserver
 
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
+import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
 import cn.com.omnimind.baselib.llm.ChatCompletionFunction
 import cn.com.omnimind.baselib.llm.ChatCompletionTool
 import cn.com.omnimind.baselib.i18n.PromptLocale
@@ -20,6 +21,12 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 object VLMToolDefinitions {
+    private const val MAX_COMPACT_ACTION_SCHEMA_CHARS = 1_600
+    private const val TOOL_TITLE_FIELD = "tool_title"
+    private val HIDDEN_BASE_TOOL_NAMES = setOf(
+        OobCanonicalActionSchema.TOOL_GET_STATE,
+    )
+
     data class ToolSpec(
         val name: String,
         val description: String,
@@ -36,255 +43,25 @@ object VLMToolDefinitions {
         }
     }
 
-    private fun buildToolSpecs(locale: PromptLocale): List<ToolSpec> = listOf(
-        ToolSpec(
-            name = "click",
-            description = t(locale, "点击一个可见目标。", "Tap a visible target."),
-            parameters = objectSchema(
-                properties = linkedMapOf(
-                    "target_description" to stringSchema(
-                        t(locale, "要点击的目标描述。", "Description of the target to tap.")
-                    ),
-                    "x" to coordinateNumberSchema(
-                        t(locale, "点击位置的 X 坐标。", "X coordinate of the tap target.")
-                    ),
-                    "y" to coordinateNumberSchema(
-                        t(locale, "点击位置的 Y 坐标。", "Y coordinate of the tap target.")
-                    )
+    private fun OobCanonicalActionSchema.LocalizedText.text(locale: PromptLocale): String =
+        t(locale, zhCn, enUs)
+
+    private fun buildToolSpecs(locale: PromptLocale): List<ToolSpec> =
+        OobCanonicalActionSchema.modelVisibleTools
+            .filterNot { it.name in HIDDEN_BASE_TOOL_NAMES }
+            .map { schema ->
+            ToolSpec(
+                name = schema.name,
+                description = schema.description.text(locale),
+                parameters = objectSchema(
+                    properties = schema.args.associate { arg ->
+                        arg.name to jsonSchemaForArg(arg, locale)
+                    },
+                    required = schema.args.filter { it.required }.map { it.name },
                 ),
-                required = listOf("target_description", "x", "y")
-            ),
-            promptGuide = t(
-                locale,
-                "- click(target_description, x, y): 点击一个可见目标。",
-                "- click(target_description, x, y): Tap a visible target."
+                promptGuide = schema.promptGuide.text(locale),
             )
-        ),
-        ToolSpec(
-            name = "type",
-            description = t(locale, "在当前输入焦点中输入文本。", "Type text into the current focused input."),
-            parameters = objectSchema(
-                properties = linkedMapOf(
-                    "content" to stringSchema(
-                        t(locale, "要输入的文本内容。", "Text content to type.")
-                    )
-                ),
-                required = listOf("content")
-            ),
-            promptGuide = t(
-                locale,
-                "- type(content): 在当前输入框输入文本。",
-                "- type(content): Type text into the current input box."
-            )
-        ),
-        ToolSpec(
-            name = "scroll",
-            description = t(locale, "从起点滑动到终点。", "Swipe from the start point to the end point."),
-            parameters = objectSchema(
-                properties = linkedMapOf(
-                    "target_description" to stringSchema(
-                        t(locale, "本次滚动想浏览或定位的目标描述。", "Description of what this scroll action is trying to browse or locate.")
-                    ),
-                    "x1" to coordinateNumberSchema(t(locale, "起点 X 坐标。", "Start X coordinate.")),
-                    "y1" to coordinateNumberSchema(t(locale, "起点 Y 坐标。", "Start Y coordinate.")),
-                    "x2" to coordinateNumberSchema(t(locale, "终点 X 坐标。", "End X coordinate.")),
-                    "y2" to coordinateNumberSchema(t(locale, "终点 Y 坐标。", "End Y coordinate.")),
-                    "duration" to numberSchema(t(locale, "滑动时长，单位秒。", "Swipe duration in seconds."))
-                ),
-                required = listOf("target_description", "x1", "y1", "x2", "y2")
-            ),
-            promptGuide = t(
-                locale,
-                "- scroll(target_description, x1, y1, x2, y2, duration?): 在屏幕上滑动。",
-                "- scroll(target_description, x1, y1, x2, y2, duration?): Swipe on the screen."
-            )
-        ),
-        ToolSpec(
-            name = "long_press",
-            description = t(locale, "长按一个目标。", "Long-press a target."),
-            parameters = objectSchema(
-                properties = linkedMapOf(
-                    "target_description" to stringSchema(
-                        t(locale, "要长按的目标描述。", "Description of the target to long-press.")
-                    ),
-                    "x" to coordinateNumberSchema(t(locale, "长按位置的 X 坐标。", "X coordinate of the long press.")),
-                    "y" to coordinateNumberSchema(t(locale, "长按位置的 Y 坐标。", "Y coordinate of the long press."))
-                ),
-                required = listOf("target_description", "x", "y")
-            ),
-            promptGuide = t(
-                locale,
-                "- long_press(target_description, x, y): 长按一个目标。",
-                "- long_press(target_description, x, y): Long-press a target."
-            )
-        ),
-        ToolSpec(
-            name = "open_app",
-            description = t(locale, "打开指定应用。", "Open a specific app."),
-            parameters = objectSchema(
-                properties = linkedMapOf(
-                    "package_name" to stringSchema(
-                        t(locale, "目标应用的 Android package name。", "Android package name of the target app.")
-                    )
-                ),
-                required = listOf("package_name")
-            ),
-            promptGuide = t(
-                locale,
-                "- open_app(package_name): 打开指定应用。",
-                "- open_app(package_name): Open a specific app."
-            )
-        ),
-        ToolSpec(
-            name = "press_home",
-            description = t(locale, "回到桌面。", "Go to the home screen."),
-            parameters = objectSchema(),
-            promptGuide = t(locale, "- press_home(): 回到桌面。", "- press_home(): Go to the home screen.")
-        ),
-        ToolSpec(
-            name = "press_back",
-            description = t(locale, "返回上一级。", "Go back one level."),
-            parameters = objectSchema(),
-            promptGuide = t(locale, "- press_back(): 返回上一级。", "- press_back(): Go back one level.")
-        ),
-        ToolSpec(
-            name = "wait",
-            description = t(locale, "等待界面稳定。", "Wait for the UI to stabilize."),
-            parameters = objectSchema(
-                properties = linkedMapOf(
-                    "duration_ms" to integerSchema(
-                        t(locale, "等待时长，单位毫秒。", "Wait duration in milliseconds.")
-                    ),
-                    "duration" to numberSchema(
-                        t(locale, "兼容字段：等待时长，单位秒。", "Compatibility field: wait duration in seconds.")
-                    )
-                ),
-                required = listOf("duration_ms")
-            ),
-            promptGuide = t(
-                locale,
-                "- wait(duration_ms): 等待指定毫秒数。若服务商兼容性较差，也可额外提供 duration(秒)。",
-                "- wait(duration_ms): Wait for the specified number of milliseconds. If provider compatibility is weak, you may also include duration in seconds."
-            )
-        ),
-        ToolSpec(
-            name = "hot_key",
-            description = t(locale, "发送一个受支持的快捷键。", "Send a supported hot key."),
-            parameters = objectSchema(
-                properties = linkedMapOf(
-                    "key" to enumSchema(
-                        description = t(locale, "当前受支持的快捷键。", "Supported hot keys."),
-                        values = listOf("ENTER", "BACK", "HOME")
-                    )
-                ),
-                required = listOf("key")
-            ),
-            promptGuide = t(
-                locale,
-                "- hot_key(key): 兼容 ENTER / BACK / HOME，但系统导航优先使用 press_back 或 press_home。",
-                "- hot_key(key): Supports ENTER / BACK / HOME, but prefer press_back or press_home for system navigation."
-            )
-        ),
-        ToolSpec(
-            name = "finished",
-            description = t(locale, "任务真正完成时结束。", "End the task only when it is truly complete."),
-            parameters = objectSchema(
-                properties = linkedMapOf(
-                    "content" to stringSchema(
-                        t(locale, "给用户的最终完成说明，可为空。", "Final completion note for the user. May be empty.")
-                    )
-                )
-            ),
-            promptGuide = t(
-                locale,
-                "- finished(content?): 仅在任务真正完成时调用。",
-                "- finished(content?): Call only when the task is truly complete."
-            )
-        ),
-        ToolSpec(
-            name = "info",
-            description = t(locale, "向用户询问或请求手动协助。", "Ask the user a question or request manual help."),
-            parameters = objectSchema(
-                properties = linkedMapOf(
-                    "value" to stringSchema(
-                        t(locale, "你要问用户的问题或需要用户执行的说明。", "Question to ask the user or instructions for the user to perform.")
-                    )
-                ),
-                required = listOf("value")
-            ),
-            promptGuide = t(
-                locale,
-                "- info(value): 询问用户或请求用户协助。",
-                "- info(value): Ask the user for information or manual assistance."
-            )
-        ),
-        ToolSpec(
-            name = "feedback",
-            description = t(locale, "反馈当前上下文与目标不匹配。", "Report that the current context does not match the goal."),
-            parameters = objectSchema(
-                properties = linkedMapOf(
-                    "value" to stringSchema(t(locale, "反馈原因。", "Reason for the feedback."))
-                ),
-                required = listOf("value")
-            ),
-            promptGuide = t(
-                locale,
-                "- feedback(value): 请求上层重新规划。",
-                "- feedback(value): Ask the upper layer to re-plan."
-            )
-        ),
-        ToolSpec(
-            name = "abort",
-            description = t(locale, "任务无法继续时终止。", "Abort when the task cannot continue."),
-            parameters = objectSchema(
-                properties = linkedMapOf(
-                    "value" to stringSchema(t(locale, "终止任务的原因。", "Reason for aborting the task."))
-                )
-            ),
-            promptGuide = t(
-                locale,
-                "- abort(value?): 在任务无法继续时终止。",
-                "- abort(value?): Abort when the task cannot continue."
-            )
-        ),
-        ToolSpec(
-            name = "require_user_choice",
-            description = t(locale, "让用户在若干选项中选择一个。", "Ask the user to choose one option from a list."),
-            parameters = objectSchema(
-                properties = linkedMapOf(
-                    "options" to stringArraySchema(
-                        t(locale, "可供用户选择的选项列表。", "List of options the user can choose from.")
-                    ),
-                    "prompt" to stringSchema(
-                        t(locale, "要求用户做选择的提示文案。", "Prompt shown to the user when asking for a choice.")
-                    )
-                ),
-                required = listOf("options", "prompt")
-            ),
-            promptGuide = t(
-                locale,
-                "- require_user_choice(options, prompt): 让用户做互斥选择。",
-                "- require_user_choice(options, prompt): Ask the user to make a mutually exclusive choice."
-            )
-        ),
-        ToolSpec(
-            name = "require_user_confirmation",
-            description = t(locale, "让用户确认当前状态后继续。", "Ask the user to confirm the current state before continuing."),
-            parameters = objectSchema(
-                properties = linkedMapOf(
-                    "prompt" to stringSchema(
-                        t(locale, "要求用户确认的提示文案。", "Prompt asking the user for confirmation.")
-                    )
-                ),
-                required = listOf("prompt")
-            ),
-            promptGuide = t(
-                locale,
-                "- require_user_confirmation(prompt): 让用户确认后继续。",
-                "- require_user_confirmation(prompt): Ask the user to confirm before continuing."
-            )
-        )
-    )
+        }
 
     private fun toolSpecs(locale: PromptLocale = currentLocale()): List<ToolSpec> {
         return buildToolSpecs(locale)
@@ -302,6 +79,48 @@ object VLMToolDefinitions {
         }
     }
 
+    fun dynamicToolsFromDefinitions(definitions: List<JsonObject>): List<ChatCompletionTool> {
+        return definitions.mapNotNull { definition ->
+            val function = definition["function"] as? JsonObject ?: return@mapNotNull null
+            val name = function["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            if (name.isBlank()) return@mapNotNull null
+            ChatCompletionTool(
+                function = ChatCompletionFunction(
+                    name = name,
+                    description = function["description"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    parameters = sanitizeVlmDynamicFunctionParameters(
+                        (function["parameters"] as? JsonObject) ?: JsonObject(emptyMap())
+                    )
+                )
+            )
+        }
+    }
+
+    private fun sanitizeVlmDynamicFunctionParameters(parameters: JsonObject): JsonObject {
+        if (parameters.isEmpty()) return parameters
+        return buildJsonObject {
+            parameters.forEach { (key, value) ->
+                when (key) {
+                    "properties" -> {
+                        val properties = value as? JsonObject ?: JsonObject(emptyMap())
+                        put("properties", JsonObject(properties.filterKeys { it != TOOL_TITLE_FIELD }))
+                    }
+                    "required" -> {
+                        val required = value as? JsonArray ?: JsonArray(emptyList())
+                        put("required", buildJsonArray {
+                            required.forEach { item ->
+                                if (item.jsonPrimitive.contentOrNull?.trim() != TOOL_TITLE_FIELD) {
+                                    add(item)
+                                }
+                            }
+                        })
+                    }
+                    else -> put(key, value)
+                }
+            }
+        }
+    }
+
     fun renderPromptGuide(locale: PromptLocale = currentLocale()): String {
         val guides = toolSpecs(locale).joinToString(separator = "\n") { it.promptGuide }
         return buildString {
@@ -309,11 +128,28 @@ object VLMToolDefinitions {
             append(
                 t(
                     locale,
-                    "注意：所有 function.arguments 必须是严格合法的 JSON object。坐标必须分别写入 x / y / x1 / y1 / x2 / y2 字段，不要写成 \"x\": 827, 76 这类非法格式。",
-                    "Important: every function.arguments value must be a strictly valid JSON object. Coordinates must be written into x / y / x1 / y1 / x2 / y2 as separate scalar fields. Do not emit invalid forms such as \"x\": 827, 76."
+                    "注意：每个 tool call 的 JSON 参数必须是严格合法的 object；如需调用本轮 recall 给出的复用流程，使用 call_tool(function_id, arguments)，不要把 Function id 当成单独工具名。把 OOB indexed page evidence 作为主要 grounding：click/input_text/long_press 优先填写 element_index，swipe 优先填写 scrollable_index 和 direction。坐标必须是屏幕绝对像素，不是 0-1000 归一化坐标；分别写入 x / y / x1 / y1 / x2 / y2 字段，不要写成 \"x\": 827, 76 这类非法格式，坐标只作为兜底。wait 只在页面明确加载、动画或等待外部状态时使用。",
+                    "Important: every tool call JSON argument value must be a strict object. To call a recalled reusable workflow for this turn, use call_tool(function_id, arguments); do not treat the Function id as a separate tool name. Use OOB indexed page evidence as the primary grounding: for click/input_text/long_press prefer element_index, and for swipe prefer scrollable_index plus direction. Coordinates must be absolute screen pixels, not 0-1000 normalized coordinates; write them into x / y / x1 / y1 / x2 / y2 as separate scalar fields; do not emit invalid forms such as \"x\": 827, 76. Coordinates are fallback only. Use wait only when the page is clearly loading, animating, or waiting for an external state change."
                 )
             )
         }
+    }
+
+    fun renderCompactActionSchemaGuide(locale: PromptLocale = currentLocale()): String {
+        val toolLines = toolSpecs(locale).joinToString(separator = "\n") { spec ->
+            val required = requiredFieldsFor(spec.name, locale).joinToString(",").ifBlank { "-" }
+            "- ${spec.name}: required=[$required]"
+        }
+        return buildString {
+            appendLine(toolLines)
+            append(
+                t(
+                    locale,
+                    "统一格式：只能使用原生 tool_call。OOB indexed page evidence 是首选可执行菜单：click/input_text/long_press 目标在 #index 中时必须填 element_index；swipe 目标在 Sindex 中时必须填 scrollable_index 和 direction。坐标只在 evidence 缺失时兜底，且必须是屏幕绝对像素，不是 0-1000；不要使用旧 action/coordinate/coordinate2。",
+                    "Unified format: native tool_call only. OOB indexed page evidence is the preferred executable menu: when a click/input_text/long_press target appears as #index, include element_index; when a swipe target appears as Sindex, include scrollable_index plus direction. Coordinates are fallback only when evidence is missing, and must be absolute screen pixels, not 0-1000. Do not use legacy action/coordinate/coordinate2."
+                )
+            )
+        }.take(MAX_COMPACT_ACTION_SCHEMA_CHARS)
     }
 
     fun responseContract(locale: PromptLocale = currentLocale()): String {
@@ -342,8 +178,10 @@ object VLMToolDefinitions {
         if (arguments.isEmpty()) return arguments
         val normalized = arguments.toMutableMap()
         when (toolName) {
-            "click", "long_press" -> normalizePointArguments(normalized)
-            "scroll" -> normalizeScrollArguments(normalized)
+            OobCanonicalActionSchema.TOOL_CLICK,
+            OobCanonicalActionSchema.TOOL_LONG_PRESS,
+            OobCanonicalActionSchema.TOOL_INPUT_TEXT -> normalizePointArguments(normalized)
+            OobCanonicalActionSchema.TOOL_SWIPE -> normalizeScrollArguments(normalized)
         }
         return JsonObject(normalized)
     }
@@ -365,19 +203,25 @@ object VLMToolDefinitions {
     }
 
     fun validateArguments(toolName: String, arguments: JsonObject) {
+        val toolSpec = toolSpec(toolName)
+            ?: throw IllegalArgumentException("Unknown VLM tool: $toolName")
         val properties = propertiesFor(toolName)
         val requiredFields = requiredFieldsFor(toolName)
+        val allowsAdditionalProperties =
+            toolSpec.parameters["additionalProperties"]?.jsonPrimitive?.booleanOrNull == true
         requiredFields.forEach { field ->
-            if (toolName == "wait" && field == "duration_ms" && arguments["duration"] != null) {
-                return@forEach
-            }
             if (arguments[field] == null || arguments[field] is JsonNull) {
                 throw IllegalArgumentException("Tool $toolName missing required argument: $field")
             }
         }
 
         arguments.entries.forEach { (field, value) ->
-            val schema = properties[field] ?: return@forEach
+            val schema = properties[field] ?: run {
+                if (!allowsAdditionalProperties) {
+                    throw IllegalArgumentException("Tool $toolName has unknown argument: $field")
+                }
+                return@forEach
+            }
             val expectedType = schema["type"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
             if (expectedType.isNotEmpty() && !matchesType(expectedType, value)) {
                 val coordinateHint = if (expectedType == "number" && isCoordinateField(field)) {
@@ -416,20 +260,6 @@ object VLMToolDefinitions {
             }
             arguments["y"] = buildNumericPrimitive(y)
         }
-        if (extractScalarNumber(arguments["x"]) != null && extractScalarNumber(arguments["y"]) != null) {
-            return
-        }
-
-        POINT_ALIAS_FIELDS.firstNotNullOfOrNull { alias ->
-            extractPoint(arguments[alias])
-        }?.let { (x, y) ->
-            if (extractScalarNumber(arguments["x"]) == null) {
-                arguments["x"] = buildNumericPrimitive(x)
-            }
-            if (extractScalarNumber(arguments["y"]) == null) {
-                arguments["y"] = buildNumericPrimitive(y)
-            }
-        }
     }
 
     private fun normalizeScrollArguments(arguments: MutableMap<String, JsonElement>) {
@@ -446,51 +276,6 @@ object VLMToolDefinitions {
             }
         }
 
-        if (hasCompleteScrollCoordinates(arguments)) {
-            return
-        }
-
-        RANGE_ALIAS_FIELDS.firstNotNullOfOrNull { alias ->
-            extractRange(arguments[alias])
-        }?.let { (x1, y1, x2, y2) ->
-            if (extractScalarNumber(arguments["x1"]) == null) {
-                arguments["x1"] = buildNumericPrimitive(x1)
-            }
-            if (extractScalarNumber(arguments["y1"]) == null) {
-                arguments["y1"] = buildNumericPrimitive(y1)
-            }
-            if (extractScalarNumber(arguments["x2"]) == null) {
-                arguments["x2"] = buildNumericPrimitive(x2)
-            }
-            if (extractScalarNumber(arguments["y2"]) == null) {
-                arguments["y2"] = buildNumericPrimitive(y2)
-            }
-        }
-
-        if (hasCompleteScrollCoordinates(arguments)) {
-            return
-        }
-
-        val startPoint = RANGE_START_ALIAS_FIELDS.firstNotNullOfOrNull { alias ->
-            extractPoint(arguments[alias])
-        }
-        val endPoint = RANGE_END_ALIAS_FIELDS.firstNotNullOfOrNull { alias ->
-            extractPoint(arguments[alias])
-        }
-        if (startPoint != null && endPoint != null) {
-            if (extractScalarNumber(arguments["x1"]) == null) {
-                arguments["x1"] = buildNumericPrimitive(startPoint.first)
-            }
-            if (extractScalarNumber(arguments["y1"]) == null) {
-                arguments["y1"] = buildNumericPrimitive(startPoint.second)
-            }
-            if (extractScalarNumber(arguments["x2"]) == null) {
-                arguments["x2"] = buildNumericPrimitive(endPoint.first)
-            }
-            if (extractScalarNumber(arguments["y2"]) == null) {
-                arguments["y2"] = buildNumericPrimitive(endPoint.second)
-            }
-        }
     }
 
     private fun hasCompleteScrollCoordinates(arguments: Map<String, JsonElement>): Boolean {
@@ -547,15 +332,6 @@ object VLMToolDefinitions {
                 )
                 if (direct != null) return direct
 
-                val start = RANGE_START_ALIAS_FIELDS.firstNotNullOfOrNull { alias ->
-                    extractPoint(value[alias])
-                }
-                val end = RANGE_END_ALIAS_FIELDS.firstNotNullOfOrNull { alias ->
-                    extractPoint(value[alias])
-                }
-                if (start != null && end != null) {
-                    return ScrollCoordinates(start.first, start.second, end.first, end.second)
-                }
                 null
             }
 
@@ -702,11 +478,12 @@ object VLMToolDefinitions {
 
     private fun objectSchema(
         properties: Map<String, JsonObject> = emptyMap(),
-        required: List<String> = emptyList()
+        required: List<String> = emptyList(),
+        additionalProperties: Boolean = false
     ): JsonObject {
         return buildJsonObject {
             put("type", JsonPrimitive("object"))
-            put("additionalProperties", JsonPrimitive(false))
+            put("additionalProperties", JsonPrimitive(additionalProperties))
             put(
                 "properties",
                 JsonObject(properties)
@@ -722,6 +499,35 @@ object VLMToolDefinitions {
         }
     }
 
+    private fun jsonSchemaForArg(
+        arg: OobCanonicalActionSchema.ArgSpec,
+        locale: PromptLocale,
+    ): JsonObject {
+        return when (arg.type) {
+            OobCanonicalActionSchema.Type.STRING -> {
+                if (arg.enumValues.isNotEmpty()) {
+                    enumSchema(arg.description.text(locale), arg.enumValues)
+                } else {
+                    stringSchema(arg.description.text(locale))
+                }
+            }
+            OobCanonicalActionSchema.Type.NUMBER -> numberSchema(
+                description = arg.description.text(locale),
+                minimum = arg.minimum,
+                maximum = arg.maximum,
+            )
+            OobCanonicalActionSchema.Type.INTEGER -> integerSchema(
+                description = arg.description.text(locale),
+                minimum = arg.minimum,
+            )
+            OobCanonicalActionSchema.Type.BOOLEAN -> booleanSchema(arg.description.text(locale))
+            OobCanonicalActionSchema.Type.OBJECT -> objectSchema(
+                additionalProperties = arg.additionalProperties,
+            )
+            OobCanonicalActionSchema.Type.STRING_ARRAY -> stringArraySchema(arg.description.text(locale))
+        }
+    }
+
     private fun stringSchema(description: String): JsonObject {
         return buildJsonObject {
             put("type", JsonPrimitive("string"))
@@ -729,28 +535,33 @@ object VLMToolDefinitions {
         }
     }
 
-    private fun coordinateNumberSchema(description: String): JsonObject {
-        return buildJsonObject {
-            put("type", JsonPrimitive("number"))
-            put(
-                "description",
-                JsonPrimitive("$description 单个数值，范围 0-1000；不要传数组、对象或坐标对。")
-            )
-            put("minimum", JsonPrimitive(0))
-            put("maximum", JsonPrimitive(1000))
-        }
-    }
-
-    private fun numberSchema(description: String): JsonObject {
+    private fun numberSchema(
+        description: String,
+        minimum: Number? = null,
+        maximum: Number? = null,
+    ): JsonObject {
         return buildJsonObject {
             put("type", JsonPrimitive("number"))
             put("description", JsonPrimitive(description))
+            minimum?.let { put("minimum", JsonPrimitive(it.toDouble())) }
+            maximum?.let { put("maximum", JsonPrimitive(it.toDouble())) }
         }
     }
 
-    private fun integerSchema(description: String): JsonObject {
+    private fun integerSchema(
+        description: String,
+        minimum: Number? = null,
+    ): JsonObject {
         return buildJsonObject {
             put("type", JsonPrimitive("integer"))
+            put("description", JsonPrimitive(description))
+            minimum?.let { put("minimum", JsonPrimitive(it.toInt())) }
+        }
+    }
+
+    private fun booleanSchema(description: String): JsonObject {
+        return buildJsonObject {
+            put("type", JsonPrimitive("boolean"))
             put("description", JsonPrimitive(description))
         }
     }
@@ -791,28 +602,5 @@ object VLMToolDefinitions {
         return if (number == asLong.toDouble()) JsonPrimitive(asLong) else JsonPrimitive(number)
     }
 
-    private val POINT_ALIAS_FIELDS = listOf(
-        "position",
-        "point",
-        "coord",
-        "coords",
-        "coordinate",
-        "coordinates",
-        "tap_point",
-        "click_point"
-    )
-
-    private val RANGE_ALIAS_FIELDS = listOf(
-        "path",
-        "points",
-        "coords",
-        "coordinate",
-        "coordinates",
-        "positions",
-        "range"
-    )
-
-    private val RANGE_START_ALIAS_FIELDS = listOf("start", "from", "begin", "start_point")
-    private val RANGE_END_ALIAS_FIELDS = listOf("end", "to", "finish", "end_point")
     private val NUMBER_REGEX = Regex("""[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?""")
 }

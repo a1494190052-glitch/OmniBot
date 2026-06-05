@@ -6,9 +6,9 @@ class ThinkingAnimation extends StatefulWidget {
   final bool isThinking;
 
   const ThinkingAnimation({
-    Key? key,
+    super.key,
     this.isThinking = true,
-  }) : super(key: key);
+  });
 
   @override
   State<ThinkingAnimation> createState() => _ThinkingAnimationState();

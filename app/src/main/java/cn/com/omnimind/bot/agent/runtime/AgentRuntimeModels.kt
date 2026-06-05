@@ -145,8 +145,20 @@ data class ResolvedSkillContext(
         return if (base.length <= maxChars) base else base.take(maxChars) + "\n..."
     }
 
-    fun stepGuidance(maxChars: Int = 900): String {
-        val lines = bodyMarkdown.lines()
+    fun stepGuidance(maxChars: Int = 2200): String {
+        val sourceLines = bodyMarkdown.lines()
+        val bodyLines = if (sourceLines.firstOrNull()?.trim() == "---") {
+            sourceLines.drop(1).dropWhile { it.trim() != "---" }.drop(1)
+        } else {
+            sourceLines
+        }
+        val guidanceSection = bodyLines
+            .dropWhile { it.trim() != "## Step Guidance Essentials" }
+            .drop(1)
+            .takeWhile { !it.trim().startsWith("## ") }
+            .takeIf { it.isNotEmpty() }
+            ?: bodyLines
+        val lines = guidanceSection
             .map { it.trim() }
             .filter { line ->
                 line.isNotEmpty() &&
@@ -154,10 +166,11 @@ data class ResolvedSkillContext(
                     !line.startsWith("#") &&
                     !line.startsWith("```")
             }
-            .take(10)
+            .take(24)
         val base = lines.joinToString("\n")
         return if (base.length <= maxChars) base else base.take(maxChars) + "\n..."
     }
+
 }
 
 data class SkillCompatibilityResult(

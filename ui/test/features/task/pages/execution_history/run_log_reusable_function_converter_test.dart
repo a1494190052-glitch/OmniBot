@@ -1,0 +1,1438 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:ui/features/task/run_log/run_log_reusable_function_converter.dart';
+import 'package:ui/features/task/run_log/run_log_replay_policy.dart';
+
+void main() {
+  const sourceXml =
+      '<hierarchy bounds="[0,0][1080,2400]">'
+      '<node bounds="[100,200][300,280]" clickable="true" text="Open"/>'
+      '</hierarchy>';
+
+  Map<String, dynamic> card(
+    String toolName,
+    Map<String, dynamic> args, {
+    bool? success,
+    dynamic result,
+  }) {
+    return {
+      'tool_name': toolName,
+      'args': args,
+      if (success != null) 'success': success,
+      if (result != null) 'result': result,
+      'before': {
+        'package_name': 'com.example.app',
+        'observation_xml': sourceXml,
+      },
+    };
+  }
+
+  List<Map<String, dynamic>> stepsFrom(Map<String, dynamic> spec) {
+    final execution = spec['execution'] as Map<String, dynamic>;
+    return (execution['steps'] as List).cast<Map<String, dynamic>>();
+  }
+
+  Map<String, dynamic> argsFor(String toolName) {
+    switch (toolName) {
+      case 'click':
+      case 'long_press':
+        return {'x': 120, 'y': 240};
+      case 'swipe':
+        return {'x1': 500, 'y1': 1600, 'x2': 500, 'y2': 800};
+      case 'input_text':
+        return {'text': 'hello'};
+      case 'open_app':
+        return {'package_name': 'com.example.app'};
+      case 'press_key':
+        return {'key': 'ENTER'};
+      case 'finished':
+        return {'content': 'done'};
+      default:
+        return const {};
+    }
+  }
+
+  test('replay policy matches shared json contract', () {
+    final file = File(
+      '../app/src/main/assets/omniflow/runlog/replay_policy.json',
+    );
+    final policy = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+
+    expect(policy['schema_version'], RunLogReplayPolicy.schemaVersion);
+    expect(
+      _stringSet(policy['omniflow_actions']),
+      RunLogReplayPolicy.omniflowActions,
+    );
+    expect(
+      _stringSet(policy['coordinate_actions']),
+      RunLogReplayPolicy.coordinateActions,
+    );
+    expect(
+      _stringSet(policy['perception_tools']),
+      RunLogReplayPolicy.perceptionTools,
+    );
+    expect(
+      _stringSet(policy['data_flow_tools']),
+      RunLogReplayPolicy.dataFlowTools,
+    );
+    expect(
+      _stringSet(policy['omniflow_graph_tools']),
+      RunLogReplayPolicy.omniflowGraphTools,
+    );
+    expect(
+      _stringSet(policy['omniflow_function_tools']),
+      RunLogReplayPolicy.omniflowFunctionTools,
+    );
+    expect(
+      _stringSet(policy['omniflow_tool_call_tools']),
+      RunLogReplayPolicy.omniflowToolCallTools,
+    );
+    expect(
+      _stringSet(policy['provider_only_tools']),
+      RunLogReplayPolicy.providerOnlyTools,
+    );
+    expect(_stringSet(policy['skip_tools']), RunLogReplayPolicy.skipTools);
+  });
+
+  test('marks executable VLM actions as omniflow model-free steps', () {
+    const actions = [
+      'click',
+      'long_press',
+      'input_text',
+      'swipe',
+      'open_app',
+      'press_key',
+      'finished',
+    ];
+
+    final spec = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+      runId: 'run-1',
+      title: 'Replay actions',
+      payload: const {'goal': 'Replay actions'},
+      cards: [for (final action in actions) card(action, argsFor(action))],
+      useEnglish: true,
+    );
+
+    expect(spec.containsKey('tags'), isFalse);
+    expect(spec.containsKey('runtime_targets'), isFalse);
+    expect(spec.containsKey('call_contract'), isFalse);
+    expect(spec.containsKey('script_reuse'), isFalse);
+    expect(spec.containsKey('agent_reuse'), isFalse);
+    final steps = stepsFrom(spec);
+    expect(steps, hasLength(actions.length));
+
+    for (var index = 0; index < actions.length; index++) {
+      final action = actions[index];
+      final step = steps[index];
+      expect(step['tool'], action);
+      expect(step['executor'], 'omniflow');
+      expect(step['model_free'], isTrue);
+      expect(step['omniflow_action'], action);
+      expect(step['callable_tool'], action);
+      expect(step.containsKey('agent_call'), isFalse);
+      expect((step['tool_binding'] as Map)['kind'], 'omniflow_action');
+
+      if (RunLogReplayPolicy.isCoordinateAction(action)) {
+        expect(step['coordinate_hook'], 'omniflow');
+        expect(
+          ((step['source_context'] as Map)['src_ctx'] as Map)['page'],
+          sourceXml,
+        );
+      } else {
+        expect(step.containsKey('coordinate_hook'), isFalse);
+      }
+    }
+  });
+
+  test('skips legacy wait cards during local conversion', () {
+    final spec = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+      runId: 'run-wait-skip',
+      title: 'Skip wait',
+      payload: const {'goal': 'Skip wait'},
+      cards: [
+        card('click', const {'target_description': 'Open', 'x': 120, 'y': 240}),
+        card('wait', const {'duration_ms': 1000}),
+        card('input_text', const {'text': 'hello'}),
+      ],
+      useEnglish: true,
+    );
+
+    final steps = stepsFrom(spec);
+    expect(steps.map((step) => step['tool']), ['click', 'input_text']);
+    expect(steps.last['source_tool'], 'input_text');
+    expect(steps.map((step) => step['id']), ['step_1', 'step_2']);
+    expect(
+      steps.any(
+        (step) => step['tool'] == 'wait' || step['source_tool'] == 'wait',
+      ),
+      isFalse,
+    );
+
+    final cleanup = (spec['metadata'] as Map)['oob_step_cleanup'] as Map;
+    expect(cleanup['execution_rewrite_allowed'], isFalse);
+    expect(cleanup['dropped_count'], 1);
+    final events = (cleanup['events'] as List).cast<Map>();
+    expect(events.single['source_index'], 1);
+    expect(events.single['reason'], 'non_replayable_noise_tool');
+  });
+
+  test('deduplicates repeated input_text events', () {
+    final spec = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+      runId: 'run-duplicate-type',
+      title: 'Type once',
+      payload: const {'goal': 'Type once'},
+      cards: [
+        card('input_text', const {
+          'text': 'hello',
+          'target_description': 'Search',
+          'node_resource_id': 'search_box',
+        }),
+        card('input_text', const {
+          'text': 'hello',
+          'target_description': 'Search',
+          'node_resource_id': 'search_box',
+        }),
+      ],
+      useEnglish: true,
+    );
+
+    final steps = stepsFrom(spec);
+    expect(steps, hasLength(1));
+    expect(steps.single['tool'], 'input_text');
+    expect((steps.single['args'] as Map)['content'], 'hello');
+    expect(steps.single['source_indices'], [0, 1]);
+
+    final annotation = steps.single['cleanup_annotation'] as Map;
+    expect(annotation['cleanup_action'], 'merged_duplicate');
+    expect(annotation['merged_source_indices'], [1]);
+
+    final mergedSteps = (steps.single['merged_steps'] as List).cast<Map>();
+    expect(mergedSteps.single['source_index'], 1);
+    expect(mergedSteps.single['reason'], 'duplicate_text_input_same_target');
+
+    final cleanup = (spec['metadata'] as Map)['oob_step_cleanup'] as Map;
+    expect(cleanup['execution_rewrite_allowed'], isFalse);
+    expect(cleanup['merged_count'], 1);
+    expect(cleanup['annotated_step_count'], 1);
+  });
+
+  test('keeps canonical Omniflow actions before export', () {
+    final spec = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+      runId: 'run-canonical-actions',
+      title: 'Replay canonical actions',
+      payload: const {'goal': 'Replay canonical actions'},
+      cards: [
+        card('click', const {'x': 120, 'y': 240}),
+        card('input_text', const {'text': 'hello'}),
+        card('finished', const {'content': 'done'}),
+      ],
+      useEnglish: true,
+    );
+
+    final steps = stepsFrom(spec);
+    expect(steps.map((step) => step['tool']), [
+      'click',
+      'input_text',
+      'finished',
+    ]);
+    expect(steps.map((step) => step['callable_tool']), [
+      'click',
+      'input_text',
+      'finished',
+    ]);
+    expect(steps.map((step) => step['source_tool']), [
+      'click',
+      'input_text',
+      'finished',
+    ]);
+    expect(
+      (steps.first['source_context'] as Map)['action'],
+      containsPair('tool', 'click'),
+    );
+  });
+
+  test('keeps unknown VLM-routed actions on agent fallback', () {
+    final spec = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+      runId: 'run-2',
+      title: 'Fallback action',
+      payload: const {'goal': 'Fallback action'},
+      cards: [
+        {
+          ...card('unknown_state_action', const {'target': 'something'}),
+          'compile_kind': 'vlm',
+        },
+      ],
+      useEnglish: true,
+    );
+
+    final steps = stepsFrom(spec);
+    expect(steps.single['executor'], 'agent');
+    expect(steps.single['model_free'], isNot(isTrue));
+    expect(steps.single['callable_tool'], 'oob.agent.run');
+    expect(steps.single['agent_call'], isA<Map>());
+  });
+
+  test('keeps VLM-only runlog as an agent replay step', () {
+    final spec = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+      runId: 'run-vlm-only',
+      title: 'Find and tap settings',
+      payload: const {'goal': 'Find and tap settings'},
+      cards: [
+        card('vlm_task', const {'goal': 'Find and tap settings'}),
+      ],
+      useEnglish: true,
+    );
+
+    final steps = stepsFrom(spec);
+    expect(steps, hasLength(1));
+    final step = steps.single;
+    expect(step['tool'], 'vlm_task');
+    expect(step['executor'], 'agent');
+    expect(step['callable_tool'], 'oob.agent.run');
+    expect((step['tool_binding'] as Map)['kind'], 'agent_replan');
+
+    final agentCall = step['agent_call'] as Map;
+    expect(agentCall['tool'], 'oob.agent.run');
+    expect(
+      agentCall['reason'],
+      'perception_only_step_without_recorded_actions',
+    );
+    expect((agentCall['args'] as Map)['original_tool'], 'vlm_task');
+
+    final capabilities = (spec['execution'] as Map)['capabilities'] as Map;
+    expect(capabilities['agent_step_count'], 1);
+    expect(capabilities['omniflow_step_count'], 0);
+    expect(capabilities['requires_agent_fallback'], isTrue);
+  });
+
+  test('skips VLM perception wrapper when recorded action card exists', () {
+    final spec = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+      runId: 'run-vlm-click',
+      title: 'Tap Open',
+      payload: const {'goal': 'Tap Open'},
+      cards: [
+        card('vlm_task', const {'goal': 'Tap Open'}),
+        card('click', const {'target_description': 'Open', 'x': 120, 'y': 240}),
+      ],
+      useEnglish: true,
+    );
+
+    final steps = stepsFrom(spec);
+    expect(steps, hasLength(1));
+    final clickStep = steps.single;
+    expect(clickStep['id'], 'step_1');
+    expect(clickStep['index'], 0);
+    expect(clickStep['source_index'], 1);
+    expect(clickStep['tool'], 'click');
+    expect(clickStep['executor'], 'omniflow');
+    expect(clickStep['model_free'], isTrue);
+    expect(clickStep['coordinate_hook'], 'omniflow');
+    expect(clickStep.containsKey('agent_call'), isFalse);
+
+    final parameters = (spec['parameters'] as List).cast<Map>();
+    final targetParameter = parameters.firstWhere(
+      (item) => item['name'] == 'target',
+    );
+    expect(
+      targetParameter['bindings'],
+      contains(r'$.execution.steps[0].args.target_description'),
+    );
+  });
+
+  test('failed replay card does not suppress VLM fallback', () {
+    final spec = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+      runId: 'run-vlm-failed-click',
+      title: 'Tap Open',
+      payload: const {'goal': 'Tap Open'},
+      cards: [
+        card('vlm_task', const {'goal': 'Tap Open'}),
+        card('click', const {
+          'target_description': 'Open',
+          'x': 120,
+          'y': 240,
+        }, success: false),
+      ],
+      useEnglish: true,
+    );
+
+    final steps = stepsFrom(spec);
+    expect(steps, hasLength(1));
+    final step = steps.single;
+    expect(step['tool'], 'vlm_task');
+    expect(step['executor'], 'agent');
+    expect(
+      (step['agent_call'] as Map)['reason'],
+      'perception_only_step_without_recorded_actions',
+    );
+  });
+
+  test('keeps data-flow tools on agent replan instead of direct replay', () {
+    final spec = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+      runId: 'run-browser',
+      title: 'Research docs',
+      payload: const {'goal': 'Research docs'},
+      cards: [
+        card('browser_use', const {
+          'url': 'https://example.com',
+          'query': 'release notes',
+        }),
+        card('web_search', const {'query': 'OmniBot docs'}),
+      ],
+      useEnglish: true,
+    );
+
+    final steps = stepsFrom(spec);
+    expect(steps, hasLength(2));
+    for (final step in steps) {
+      expect(step['executor'], 'agent');
+      expect(step['scriptable'], isFalse);
+      expect(step['callable_tool'], 'oob.agent.run');
+      expect((step['tool_binding'] as Map)['kind'], 'agent_replan');
+      final agentCall = step['agent_call'] as Map;
+      expect(agentCall['tool'], 'oob.agent.run');
+      expect(agentCall['reason'], 'data_flow_tool_requires_live_context');
+      expect((agentCall['args'] as Map)['original_tool'], step['tool']);
+    }
+
+    final parameters = (spec['parameters'] as List).cast<Map>();
+    final queryParameter = parameters.firstWhere(
+      (item) => item['name'] == 'query',
+    );
+    expect(
+      queryParameter['bindings'],
+      contains(r'$.execution.steps[0].agent_call.args.original_args.query'),
+    );
+  });
+
+  test('keeps graph tools and canonicalizes function calls to call_tool', () {
+    final spec = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+      runId: 'run-omniflow-tools',
+      title: 'OmniFlow tool replay',
+      payload: const {'goal': 'OmniFlow tool replay'},
+      cards: [
+        card('go_to_node', const {'node_id': 'node_1'}),
+        card('call_tool', const {'function_id': 'func_provider'}),
+      ],
+      useEnglish: true,
+    );
+
+    final steps = stepsFrom(spec);
+    expect(steps, hasLength(2));
+    expect(steps[0]['executor'], 'omniflow');
+    expect(steps[0]['kind'], 'omniflow_graph');
+    expect(steps[0]['model_free'], isTrue);
+    expect(steps[0]['scriptable'], isTrue);
+    expect(steps[0]['callable_tool'], 'go_to_node');
+    expect((steps[0]['tool_binding'] as Map)['kind'], 'omniflow_graph');
+    expect(steps[0].containsKey('agent_call'), isFalse);
+
+    expect(steps[1]['executor'], 'omniflow');
+    expect(steps[1]['kind'], 'omniflow_function');
+    expect(steps[1]['model_free'], isTrue);
+    expect(steps[1]['scriptable'], isTrue);
+    expect(steps[1]['tool'], 'call_tool');
+    expect(steps[1]['callable_tool'], 'call_tool');
+    expect(steps[1]['source_tool'], 'call_tool');
+    expect((steps[1]['tool_binding'] as Map)['kind'], 'omniflow_function');
+    expect(steps[1].containsKey('agent_call'), isFalse);
+  });
+
+  test(
+    'keeps generic call_tool as compact tool delegation when no function id',
+    () {
+      final spec = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+        runId: 'run-call-tool',
+        title: 'Call a live tool',
+        payload: const {'goal': 'Call a live tool'},
+        cards: [
+          card('call_tool', const {
+            'toolName': 'vlm_task',
+            'arguments': {'goal': 'Tap Settings'},
+          }),
+        ],
+        useEnglish: true,
+      );
+
+      final step = stepsFrom(spec).single;
+      expect(step['executor'], 'tool');
+      expect(step['kind'], 'tool_call');
+      expect(step['tool'], 'call_tool');
+      expect(step['callable_tool'], 'call_tool');
+      expect(step['source_tool'], 'call_tool');
+      expect(step.containsKey('model_free'), isFalse);
+      expect((step['args'] as Map)['tool_name'], 'vlm_task');
+    },
+  );
+
+  test('compacts oversized observed result in local conversion draft', () {
+    final largeText = List.filled(600, '0123456789').join();
+    final resultItems = [
+      for (var index = 0; index < 25; index++)
+        {
+          'index': index,
+          'text': largeText,
+          'deep': {
+            'a': {
+              'b': {
+                'c': {'d': 'too deep'},
+              },
+            },
+          },
+        },
+    ];
+    final spec = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+      runId: 'run-large-result',
+      title: 'Read page text',
+      payload: const {'goal': 'Read page text'},
+      cards: [
+        card(
+          'web_search',
+          const {'query': 'large page'},
+          result: {
+            'page_text': largeText,
+            'items': resultItems,
+            for (var index = 0; index < 45; index++) 'meta_$index': index,
+          },
+        ),
+      ],
+      useEnglish: true,
+    );
+
+    final observed = stepsFrom(spec).single['observed_result'] as Map;
+    final encoded = jsonEncode(observed);
+
+    expect(encoded.length, lessThan(60000));
+    expect(encoded, isNot(contains(largeText)));
+    expect(observed['page_text'], contains('[truncated'));
+    expect(observed['__truncated__'], isTrue);
+    expect(observed['__omitted_entry_count__'], 7);
+    final items = observed['items'] as List;
+    expect(items, hasLength(21));
+    expect((items.last as Map)['__omitted_item_count__'], 5);
+    expect(
+      (((items.first as Map)['deep'] as Map)['a'] as Map)['__truncated__'],
+      isTrue,
+    );
+  });
+
+  test('flattens android privileged local action arguments for replay', () {
+    final spec = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+      runId: 'run-privileged-click',
+      title: 'Tap Open through privileged action',
+      payload: const {'goal': 'Tap Open'},
+      cards: [
+        card('android_privileged_action', const {
+          'action': 'tap',
+          'arguments': {'target_description': 'Open', 'x': 120, 'y': 240},
+        }),
+      ],
+      useEnglish: true,
+    );
+
+    final step = stepsFrom(spec).single;
+    expect(step['tool'], 'click');
+    expect(step['omniflow_action'], 'click');
+    expect(step['source_tool'], 'android_privileged_action');
+    expect(step['executor'], 'omniflow');
+    expect(step['coordinate_hook'], 'omniflow');
+    final args = step['args'] as Map;
+    expect(args['x'], 120);
+    expect(args['y'], 240);
+    expect(args.containsKey('action'), isFalse);
+    expect(args.containsKey('arguments'), isFalse);
+    expect(
+      (step['source_context'] as Map)['action'],
+      containsPair('tool', 'click'),
+    );
+  });
+
+  test(
+    'AI normalization cannot turn data-flow steps into direct tool replay',
+    () {
+      final fallback = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+        runId: 'run-ai-browser',
+        title: 'Research docs',
+        payload: const {'goal': 'Research docs'},
+        cards: [
+          card('browser_use', const {
+            'url': 'https://example.com',
+            'query': 'release notes',
+          }),
+        ],
+        useEnglish: true,
+      );
+      final aiJson = {
+        ...fallback,
+        'execution': {
+          ...(fallback['execution'] as Map),
+          'capabilities': {
+            'scriptable_step_count': 1,
+            'agent_step_count': 0,
+            'requires_agent_fallback': false,
+          },
+          'steps': [
+            {
+              ...(stepsFrom(fallback).single),
+              'executor': 'tool',
+              'scriptable': true,
+              'callable_tool': 'browser_use',
+              'tool_binding': {'kind': 'oob_agent_tool', 'name': 'browser_use'},
+              'agent_call': {
+                'tool': 'browser_use',
+                'args': {'prompt': 'Search release notes'},
+              },
+            },
+          ],
+        },
+      };
+
+      final normalized =
+          RunLogReusableFunctionConverter.normalizeAiJsonForTesting(
+            aiJson.cast<String, dynamic>(),
+            fallback,
+          );
+
+      final step = stepsFrom(normalized).single;
+      expect(step['executor'], 'agent');
+      expect(step['scriptable'], isFalse);
+      expect(step['callable_tool'], 'oob.agent.run');
+      expect((step['tool_binding'] as Map)['kind'], 'agent_replan');
+      expect((step['tool_binding'] as Map)['callable_tool'], 'oob.agent.run');
+      expect(
+        (step['agent_call'] as Map)['reason'],
+        'data_flow_tool_requires_live_context',
+      );
+
+      final capabilities =
+          (normalized['execution'] as Map)['capabilities'] as Map;
+      expect(capabilities['scriptable_step_count'], 0);
+      expect(capabilities['agent_step_count'], 1);
+      expect(capabilities['requires_agent_fallback'], isTrue);
+    },
+  );
+
+  test('AI normalization keeps a tool-safe fallback function id', () {
+    final fallback = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+      runId: 'run-safe-id',
+      title: 'Replay safe id',
+      payload: const {'goal': 'Replay safe id'},
+      cards: [
+        card('click', const {'x': 120, 'y': 240}),
+      ],
+      useEnglish: true,
+    );
+    final aiJson = {...fallback, 'function_id': '打开 微信.bad id'};
+
+    final normalized =
+        RunLogReusableFunctionConverter.normalizeAiJsonForTesting(
+          aiJson.cast<String, dynamic>(),
+          fallback,
+        );
+
+    expect(normalized['function_id'], fallback['function_id']);
+  });
+
+  test(
+    'AI organizer prompt avoids user-facing route-building jargon',
+    () async {
+      final fallback = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+        runId: 'run-prompt-wording',
+        title: 'Open settings',
+        payload: const {'goal': 'Open settings'},
+        cards: [
+          card('open_app', const {'package_name': 'com.android.settings'}),
+        ],
+        useEnglish: true,
+      );
+
+      final englishPrompt =
+          await RunLogReusableFunctionConverter.buildAiPromptAsync(
+            fallback,
+            useEnglish: true,
+          );
+      final zhPrompt = await RunLogReusableFunctionConverter.buildAiPromptAsync(
+        fallback,
+      );
+
+      expect(englishPrompt, contains('trajectory organizer'));
+      expect(englishPrompt.toLowerCase(), isNot(contains('compiler')));
+      expect(englishPrompt, isNot(contains('reusable function JSON')));
+      expect(englishPrompt, isNot(contains('reusable function name')));
+      expect(zhPrompt, contains('轨迹整理器'));
+      expect(zhPrompt, isNot(contains('轨迹编译器')));
+      expect(zhPrompt, isNot(contains('可复用的 function JSON')));
+      expect(zhPrompt, isNot(contains('可复用功能名')));
+    },
+  );
+
+  test('agent prompt uses reusable Function wording', () {
+    final spec = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+      runId: 'run-agent-prompt-wording',
+      title: 'Open settings',
+      payload: const {'goal': 'Open settings'},
+      cards: [
+        card('open_app', const {'package_name': 'com.android.settings'}),
+      ],
+      useEnglish: true,
+    );
+
+    final englishPrompt = RunLogReusableFunctionConverter.buildAgentPrompt(
+      spec,
+      useEnglish: true,
+    );
+    final zhPrompt = RunLogReusableFunctionConverter.buildAgentPrompt(spec);
+
+    expect(englishPrompt, contains('Reusable Function:'));
+    expect(englishPrompt, contains('Reusable Function ID:'));
+    expect(englishPrompt, contains('Reusable Function JSON:'));
+    expect(englishPrompt, isNot(contains('Function:')));
+    expect(englishPrompt, isNot(contains('Function ID:')));
+    expect(englishPrompt, isNot(contains('Function JSON:')));
+    expect(zhPrompt, contains('复用指令：'));
+    expect(zhPrompt, contains('复用指令 ID：'));
+    expect(zhPrompt, contains('复用指令 JSON:'));
+    expect(zhPrompt, isNot(contains('Function:')));
+    expect(zhPrompt, isNot(contains('Function ID:')));
+    expect(zhPrompt, isNot(contains('Function JSON:')));
+  });
+
+  test('JSON extractor unwraps common model response envelopes', () async {
+    final wrapped =
+        await RunLogReusableFunctionConverter.extractJsonObjectAsync(
+          jsonEncode({
+            'content': jsonEncode({
+              'name': 'Wrapped Function',
+              'steps': [
+                {'index': 0, 'title': 'Tap target'},
+              ],
+            }),
+          }),
+        );
+
+    expect(wrapped?['name'], 'Wrapped Function');
+    expect(wrapped?['steps'], isA<List>());
+
+    final listWrapped =
+        await RunLogReusableFunctionConverter.extractJsonObjectAsync(
+          jsonEncode([
+            {
+              'enhancement': {'description': 'Recovered from array envelope'},
+            },
+          ]),
+        );
+
+    expect(listWrapped?['description'], 'Recovered from array envelope');
+
+    final openAiWrapped =
+        await RunLogReusableFunctionConverter.extractJsonObjectAsync(
+          jsonEncode({
+            'id': 'chatcmpl-test',
+            'choices': [
+              {
+                'message': {
+                  'content': jsonEncode({
+                    'name': 'OpenAI wrapped Function',
+                    'steps': [
+                      {'index': 0, 'title': 'Open app'},
+                    ],
+                  }),
+                },
+              },
+            ],
+          }),
+        );
+
+    expect(openAiWrapped?['name'], 'OpenAI wrapped Function');
+
+    final objectContent =
+        await RunLogReusableFunctionConverter.extractJsonObjectAsync(
+          jsonEncode({
+            'choices': [
+              {
+                'message': {
+                  'content': {
+                    'name': 'Object content Function',
+                    'steps': [
+                      {'index': 0, 'title': 'Tap target'},
+                    ],
+                  },
+                },
+              },
+            ],
+          }),
+        );
+
+    expect(objectContent?['name'], 'Object content Function');
+
+    final outputWrapped =
+        await RunLogReusableFunctionConverter.extractJsonObjectAsync(
+          jsonEncode({
+            'output': [
+              {
+                'content': [
+                  {
+                    'type': 'output_text',
+                    'text': jsonEncode({
+                      'name': 'Responses wrapped Function',
+                      'steps': [
+                        {'index': 0, 'title': 'Use output text'},
+                      ],
+                    }),
+                  },
+                ],
+              },
+            ],
+          }),
+        );
+
+    expect(outputWrapped?['name'], 'Responses wrapped Function');
+
+    final parsedWrapped =
+        await RunLogReusableFunctionConverter.extractJsonObjectAsync(
+          jsonEncode({
+            'choices': [
+              {
+                'message': {
+                  'parsed': {
+                    'name': 'Parsed object Function',
+                    'steps': [
+                      {'index': 0, 'title': 'Use parsed object'},
+                    ],
+                  },
+                },
+              },
+            ],
+          }),
+        );
+
+    expect(parsedWrapped?['name'], 'Parsed object Function');
+
+    final toolCallWrapped =
+        await RunLogReusableFunctionConverter.extractJsonObjectAsync(
+          jsonEncode({
+            'choices': [
+              {
+                'message': {
+                  'tool_calls': [
+                    {
+                      'function': {
+                        'name': 'emit_json',
+                        'arguments': jsonEncode({
+                          'name': 'Tool call Function',
+                          'steps': [
+                            {'index': 0, 'title': 'Use tool args'},
+                          ],
+                        }),
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+        );
+
+    expect(toolCallWrapped?['name'], 'Tool call Function');
+
+    final doubleEncoded =
+        await RunLogReusableFunctionConverter.extractJsonObjectAsync(
+          jsonEncode(
+            jsonEncode({
+              'name': 'Double encoded Function',
+              'steps': [
+                {'index': 0, 'title': 'Decode twice'},
+              ],
+            }),
+          ),
+        );
+
+    expect(doubleEncoded?['name'], 'Double encoded Function');
+
+    final multiObjectText =
+        await RunLogReusableFunctionConverter.extractJsonObjectAsync('''
+Example shape:
+{"name":"short reusable Function name","description":"one sentence","steps":[{"index":0,"title":"short action title"}]}
+
+Actual output:
+{"name":"Actual enhanced Function","description":"真实增强结果","steps":[{"index":0,"title":"执行真实动作"}]}
+''');
+
+    expect(multiObjectText?['name'], 'Actual enhanced Function');
+
+    final irrelevantJson =
+        await RunLogReusableFunctionConverter.extractJsonObjectAsync(
+          jsonEncode({'status': 'ok', 'message': 'success'}),
+        );
+
+    expect(irrelevantJson, isNull);
+  });
+
+  test(
+    'label enhancement prompt uses sample JSON and compact candidates',
+    () async {
+      final spec = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+        runId: 'run-enhance-prompt',
+        title: 'Create contact',
+        payload: const {'goal': 'Create contact'},
+        cards: [
+          card('click', const {
+            'target_description': 'Name field',
+            'x': 120,
+            'y': 240,
+          }),
+          card('input_text', const {'text': '妈妈'}),
+        ],
+        useEnglish: true,
+      );
+
+      final prompt =
+          await RunLogReusableFunctionConverter.buildLabelEnhancementPromptAsync(
+            spec,
+            useEnglish: true,
+          );
+
+      expect(prompt, contains('Use this example shape'));
+      expect(prompt, contains('OmniFlow Function Enhancer skill contract'));
+      expect(prompt, contains('candidate_bindings'));
+      expect(prompt, contains('cleanup_action'));
+      expect(prompt, contains('action_purpose'));
+      expect(prompt, contains('Every executable step/action must have'));
+      expect(prompt, contains('optional_checker'));
+      expect(prompt, contains('conditional obstruction actions'));
+      expect(prompt, contains('metadata.checker_rules'));
+      expect(prompt, contains('agent_reuse.checker_assets'));
+      expect(prompt, contains('overlay_blocking'));
+      expect(prompt, contains('keyboard_obscuring'));
+      expect(prompt, contains('user-visible operation sequence'));
+      expect(prompt, contains('success signal when known'));
+      expect(prompt, contains(r'$.execution.steps[1].args.text'));
+      expect(prompt, contains('Work one section at a time'));
+      expect(prompt, contains('enhanced, unchanged, partial, or failed'));
+      expect(prompt, isNot(contains(sourceXml)));
+      expect(prompt, isNot(contains('source_context')));
+      expect(prompt, isNot(contains('Reusable Function JSON:')));
+    },
+  );
+
+  test(
+    'agent enhancement adds safe runtime slots and reuse metadata',
+    () async {
+      final fallback = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+        runId: 'run-contact',
+        title: 'Create contact',
+        payload: const {'goal': 'Create a contact'},
+        cards: [
+          card('input_text', const {
+            'text': '妈妈',
+            'target_description': 'Name field',
+          }),
+          card('input_text', const {
+            'text': '13800138000',
+            'target_description': 'Phone field',
+          }),
+        ],
+        useEnglish: true,
+      );
+
+      final enhanced =
+          await RunLogReusableFunctionConverter.applyLabelEnhancementAsync({
+            'name': 'Create contact',
+            'description': 'Create or update a contact with runtime fields.',
+            'parameters': [
+              {
+                'name': 'contact_name',
+                'type': 'string',
+                'description': 'Contact name to enter at runtime',
+                'default': '妈妈',
+                'bindings': [r'$.execution.steps[0].args.content'],
+              },
+              {
+                'name': 'phone_number',
+                'type': 'string',
+                'description': 'Phone number to enter at runtime',
+                'default': '13800138000',
+                'bindings': [r'$.execution.steps[1].args.text'],
+              },
+            ],
+            'steps': [
+              {
+                'index': 0,
+                'title': 'Enter contact name',
+                'description': 'Fill the contact name field.',
+              },
+              {
+                'index': 1,
+                'title': 'Enter phone number',
+                'description': 'Fill the phone field.',
+              },
+            ],
+            'agent_reuse': {
+              'reuse_when': ['The current page shows the same contact fields.'],
+              'avoid_when': ['The target page is not a contact editor.'],
+              'success_signal': 'Saved contact details are visible.',
+              'key_actions': [
+                {
+                  'step_index': 0,
+                  'reason': 'Binds the runtime contact name.',
+                  'parameter_names': ['contact_name'],
+                },
+              ],
+              'segments': [
+                {
+                  'name': 'Fill contact fields',
+                  'start_step_index': 0,
+                  'end_step_index': 1,
+                  'description': 'A contiguous slice for future split.',
+                  'inputs': ['contact_name', 'phone_number'],
+                },
+              ],
+            },
+          }, fallback);
+
+      final steps = stepsFrom(enhanced);
+      expect((steps[0]['args'] as Map)['content'], '妈妈');
+      expect((steps[1]['args'] as Map)['text'], '13800138000');
+
+      final parameters = (enhanced['parameters'] as List).cast<Map>();
+      final contact = parameters.firstWhere(
+        (item) => item['name'] == 'contact_name',
+      );
+      final phone = parameters.firstWhere(
+        (item) => item['name'] == 'phone_number',
+      );
+      expect(contact['default'], '妈妈');
+      expect(
+        contact['bindings'],
+        contains(r'$.execution.steps[0].args.content'),
+      );
+      expect(phone['default'], '13800138000');
+      expect(phone['bindings'], contains(r'$.execution.steps[1].args.text'));
+
+      final reuse = enhanced['agent_reuse'] as Map;
+      expect(reuse['mode'], 'metadata_only');
+      expect(reuse['execution_rewrite_allowed'], isFalse);
+      final keyActions = (reuse['key_actions'] as List).cast<Map>();
+      expect(keyActions.single['step_id'], steps[0]['id']);
+      expect(keyActions.single['parameter_names'], ['contact_name']);
+      final segments = (reuse['segments'] as List).cast<Map>();
+      expect(segments.single['materialization'], 'metadata_only');
+      expect(segments.single['step_ids'], [steps[0]['id'], steps[1]['id']]);
+      expect(segments.single['input_parameters'], [
+        'contact_name',
+        'phone_number',
+      ]);
+    },
+  );
+
+  test(
+    'agent enhancement uses input text step names only as binding fallback',
+    () async {
+      final fallback = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+        runId: 'run-xhs-search',
+        title: '小红书搜索关键词',
+        payload: const {'goal': '小红书搜索关键词'},
+        cards: [
+          card('open_app', const {'package_name': 'com.xingin.xhs'}),
+          card('click', const {'x': 300, 'y': 400}),
+          card('input_text', const {'text': '彩票', 'target_description': '搜索框'}),
+        ],
+        useEnglish: false,
+      );
+
+      final enhanced =
+          await RunLogReusableFunctionConverter.applyLabelEnhancementAsync({
+            'parameters': [
+              {
+                'name': 'input_text_3',
+                'type': 'string',
+                'description': '小红书搜索关键词',
+                'default': '彩票',
+              },
+            ],
+          }, fallback);
+
+      final parameters = (enhanced['parameters'] as List).cast<Map>();
+      expect(
+        parameters.map((item) => item['name']),
+        isNot(contains('input_text_3')),
+      );
+      final searchQuery = parameters.firstWhere(
+        (item) => item['name'] == 'search_query',
+      );
+      expect(
+        searchQuery['bindings'],
+        contains(r'$.execution.steps[2].args.text'),
+      );
+    },
+  );
+
+  test(
+    'agent enhancement keeps semantic binding into nested function arguments',
+    () async {
+      final fallback = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+        runId: 'run-nested-function-search',
+        title: '小红书搜索关键词',
+        payload: const {'goal': '小红书搜索关键词'},
+        cards: [
+          card('call_tool', const {
+            'function_id': 'child_search',
+            'arguments': {'query': '彩票'},
+          }),
+        ],
+        useEnglish: false,
+      );
+
+      final enhanced =
+          await RunLogReusableFunctionConverter.applyLabelEnhancementAsync({
+            'parameters': [
+              {
+                'name': 'search_query',
+                'type': 'string',
+                'description': '搜索关键词',
+                'default': '彩票',
+                'bindings': [r'$.execution.steps[0].args.arguments.query'],
+              },
+            ],
+          }, fallback);
+
+      final parameters = (enhanced['parameters'] as List).cast<Map>();
+      final searchQuery = parameters.firstWhere(
+        (item) => item['name'] == 'search_query',
+      );
+      expect(
+        searchQuery['bindings'],
+        contains(r'$.execution.steps[0].args.arguments.query'),
+      );
+    },
+  );
+
+  test(
+    'agent enhancement annotates cleanup candidates without rewriting execution',
+    () async {
+      final fallback = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+        runId: 'run-cleanup-annotation',
+        title: 'Tap duplicate control',
+        payload: const {'goal': 'Tap duplicate control'},
+        cards: [
+          card('click', const {
+            'target_description': 'Open',
+            'x': 120,
+            'y': 240,
+          }),
+        ],
+        useEnglish: true,
+      );
+      final beforeStep = stepsFrom(fallback).single;
+
+      final enhanced =
+          await RunLogReusableFunctionConverter.applyLabelEnhancementAsync({
+            'steps': [
+              {
+                'index': 0,
+                'title': 'Tap duplicate button',
+                'description': 'Duplicate tap after the target was selected.',
+                'importance': 'noise',
+                'cleanup_action': 'drop',
+                'cleanup_reason':
+                    'Repeated tap after the same target was already clicked.',
+              },
+            ],
+            'execution': {
+              'steps': [
+                {
+                  'tool': 'shell_exec',
+                  'executor': 'agent',
+                  'args': {'cmd': 'rm -rf /'},
+                },
+              ],
+            },
+          }, fallback);
+
+      final afterStep = stepsFrom(enhanced).single;
+      expect(afterStep['tool'], beforeStep['tool']);
+      expect(afterStep['executor'], beforeStep['executor']);
+      expect(afterStep['args'], beforeStep['args']);
+      expect(afterStep['title'], 'Tap duplicate button');
+      expect(
+        afterStep['description'],
+        'Duplicate tap after the target was selected.',
+      );
+
+      final annotation = afterStep['cleanup_annotation'] as Map;
+      expect(annotation['source'], 'run_log_agent_label_enhancer');
+      expect(annotation['cleanup_action'], 'drop_candidate');
+      expect(annotation['importance'], 'noise');
+      expect(annotation['execution_rewrite_allowed'], isFalse);
+      expect(
+        annotation['reason'],
+        'Repeated tap after the same target was already clicked.',
+      );
+
+      final cleanup = (enhanced['metadata'] as Map)['oob_step_cleanup'] as Map;
+      expect(cleanup['execution_rewrite_allowed'], isFalse);
+      expect(cleanup['annotated_step_count'], 1);
+      final annotatedSteps = (cleanup['annotated_steps'] as List).cast<Map>();
+      expect(annotatedSteps.single['index'], 0);
+      expect(
+        (annotatedSteps.single['annotation'] as Map)['cleanup_action'],
+        'drop_candidate',
+      );
+    },
+  );
+
+  test(
+    'optional checker annotation materializes supported runtime checker rule',
+    () async {
+      final fallback = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+        runId: 'run-optional-checker',
+        title: 'Close popup then continue',
+        payload: const {'goal': 'Continue after optional popup'},
+        cards: [
+          card('click', const {
+            'target_description': 'Close ad popup',
+            'x': 900,
+            'y': 120,
+          }),
+          card('click', const {
+            'target_description': 'Continue',
+            'x': 540,
+            'y': 1680,
+          }),
+        ],
+        useEnglish: true,
+      );
+
+      final enhanced =
+          await RunLogReusableFunctionConverter.applyLabelEnhancementAsync({
+            'steps': [
+              {
+                'index': 0,
+                'title': 'Dismiss optional ad popup',
+                'description':
+                    'Close the ad popup only when it blocks the main path.',
+                'action_purpose':
+                    'Handle a conditional obstruction that is not always present.',
+                'importance': 'optional',
+                'cleanup_action': 'optional_checker',
+                'cleanup_reason':
+                    'The ad popup may not appear on every replay.',
+                'optional_condition':
+                    'Only when the popup is visible and blocking the target.',
+              },
+            ],
+            'metadata': {
+              'checker_rules': [
+                {
+                  'id': 'dismiss_optional_overlay_before_action',
+                  'phase': 'pre_transfer',
+                  'condition': 'overlay_blocking',
+                  'action': 'dismiss',
+                  'enabled': true,
+                  'params': {'selector': 'unsupported'},
+                },
+                {
+                  'id': 'unsupported_model_checker',
+                  'phase': 'pre_action',
+                  'condition': 'model_call',
+                  'action': 'run_script',
+                },
+              ],
+            },
+          }, fallback);
+
+      final steps = stepsFrom(enhanced);
+      final annotation = steps.first['cleanup_annotation'] as Map;
+      expect(annotation['cleanup_action'], 'optional_checker');
+      expect(annotation['optional_condition'], contains('popup is visible'));
+
+      final metadata = enhanced['metadata'] as Map;
+      final checkerRules = (metadata['checker_rules'] as List).cast<Map>();
+      expect(checkerRules, hasLength(1));
+      expect(
+        checkerRules.single['id'],
+        'dismiss_optional_overlay_before_action',
+      );
+      expect(checkerRules.single['condition'], 'overlay_blocking');
+      expect(checkerRules.single['action'], 'dismiss');
+      expect(checkerRules.single['phase'], 'pre_transfer');
+      expect(checkerRules.single['params'], isEmpty);
+      expect(
+        checkerRules.map((rule) => rule['id']),
+        isNot(contains('unsupported_model_checker')),
+      );
+
+      final reuse = enhanced['agent_reuse'] as Map;
+      final checkerAssets = (reuse['checker_assets'] as List).cast<Map>();
+      expect(
+        checkerAssets.single['checker_id'],
+        'dismiss_optional_overlay_before_action',
+      );
+      expect(checkerAssets.single['step_index'], 0);
+      expect(checkerAssets.single['role'], 'checker_candidate');
+      expect(checkerAssets.single['materialization'], 'metadata_checker_rule');
+    },
+  );
+
+  test(
+    'hi upgrade checker aliases normalize to app upgrade post action rule',
+    () async {
+      final fallback = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+        runId: 'run-hi-upgrade-checker',
+        title: 'Open app and continue',
+        payload: const {
+          'goal': 'Open the app and continue after update prompt',
+        },
+        cards: [
+          card('click', const {
+            'target_description': '以后再说',
+            'x': 900,
+            'y': 1800,
+          }),
+          card('click', const {
+            'target_description': 'Continue',
+            'x': 540,
+            'y': 1680,
+          }),
+        ],
+        useEnglish: true,
+      );
+
+      final enhanced =
+          await RunLogReusableFunctionConverter.applyLabelEnhancementAsync({
+            'steps': [
+              {
+                'index': 0,
+                'title': 'Dismiss Hi upgrade prompt',
+                'description':
+                    'Tap Later only when the Hi app upgrade prompt appears.',
+                'action_purpose':
+                    'Handle a conditional Hi 升级提示 before continuing.',
+                'importance': 'optional',
+                'cleanup_action': 'optional_checker',
+                'cleanup_reason':
+                    'The upgrade prompt may not appear on every replay.',
+                'optional_condition': 'Hi 升级提示出现时点击以后再说，不要立即升级。',
+              },
+            ],
+            'metadata': {
+              'checker_rules': [
+                {
+                  'id': 'hi_upgrade_checker',
+                  'phase': 'pre_transfer',
+                  'condition': 'hi_upgrade',
+                  'action': 'click',
+                  'enabled': true,
+                  'params': {'selector': 'unsupported'},
+                },
+              ],
+            },
+          }, fallback);
+
+      final metadata = enhanced['metadata'] as Map;
+      final checkerRules = (metadata['checker_rules'] as List).cast<Map>();
+      expect(checkerRules, hasLength(1));
+      expect(checkerRules.single['id'], 'hi_upgrade_checker');
+      expect(checkerRules.single['condition'], 'app_upgrade_prompt');
+      expect(checkerRules.single['action'], 'dismiss');
+      expect(checkerRules.single['phase'], 'post_action');
+      expect(checkerRules.single['params'], isEmpty);
+
+      final reuse = enhanced['agent_reuse'] as Map;
+      final checkerAssets = (reuse['checker_assets'] as List).cast<Map>();
+      expect(checkerAssets, hasLength(1));
+      expect(checkerAssets.single['checker_id'], 'hi_upgrade_checker');
+      expect(checkerAssets.single['step_index'], 0);
+      expect(checkerAssets.single['role'], 'checker_candidate');
+    },
+  );
+
+  test(
+    'agent enhancement ignores unsafe paths and execution rewrites',
+    () async {
+      final fallback = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+        runId: 'run-unsafe-enhancement',
+        title: 'Tap and type',
+        payload: const {'goal': 'Tap and type'},
+        cards: [
+          card('click', const {
+            'target_description': 'Name',
+            'x': 120,
+            'y': 240,
+          }),
+          card('input_text', const {'text': 'hello'}),
+        ],
+        useEnglish: true,
+      );
+
+      final enhanced =
+          await RunLogReusableFunctionConverter.applyLabelEnhancementAsync({
+            'parameters': [
+              {
+                'name': 'tap_x',
+                'type': 'number',
+                'default': 120,
+                'bindings': [r'$.execution.steps[0].args.x'],
+              },
+              {
+                'name': 'missing_value',
+                'type': 'string',
+                'bindings': [r'$.execution.steps[99].args.text'],
+              },
+            ],
+            'steps': [
+              {
+                'index': 0,
+                'title': 'Unsafe label only',
+                'tool': 'shell_exec',
+                'args': {'cmd': 'rm -rf /'},
+              },
+            ],
+            'execution': {
+              'steps': [
+                {
+                  'tool': 'shell_exec',
+                  'args': {'cmd': 'rm -rf /'},
+                },
+              ],
+            },
+            'agent_reuse': {
+              'key_actions': [
+                {'step_index': 99, 'reason': 'invalid'},
+              ],
+              'segments': [
+                {
+                  'name': 'bad slice',
+                  'start_step_index': 1,
+                  'end_step_index': 0,
+                },
+              ],
+            },
+          }, fallback);
+
+      final steps = stepsFrom(enhanced);
+      expect(steps.first['tool'], 'click');
+      expect((steps.first['args'] as Map)['x'], 120);
+      expect((steps.first['args'] as Map).containsKey('cmd'), isFalse);
+
+      final parameterNames = (enhanced['parameters'] as List)
+          .cast<Map>()
+          .map((item) => item['name'])
+          .toSet();
+      expect(parameterNames.contains('tap_x'), isFalse);
+      expect(parameterNames.contains('missing_value'), isFalse);
+      expect(enhanced.containsKey('agent_reuse'), isFalse);
+    },
+  );
+}
+
+Set<String> _stringSet(Object? value) {
+  return (value as List).map((item) => item.toString()).toSet();
+}
+
+Map<String, String> _stringMap(Object? value) {
+  return (value as Map).map(
+    (key, item) => MapEntry(key.toString(), item.toString()),
+  );
+}

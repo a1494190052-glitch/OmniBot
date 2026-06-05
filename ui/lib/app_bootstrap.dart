@@ -1,17 +1,21 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:ui/l10n/app_locale_controller.dart';
 import 'package:ui/l10n/generated/app_localizations.dart';
-import 'package:ui/l10n/legacy_text_localizer.dart';
+import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/services/omnibot_resource_service.dart';
 import 'package:ui/services/app_background_service.dart';
+import 'package:ui/services/run_log_function_enhancement_job_service.dart';
 import 'package:ui/services/scheduled_task_scheduler_service.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/theme/app_theme_controller.dart';
 import 'package:ui/theme/app_theme_mode.dart';
 import 'package:ui/theme/app_theme.dart';
+import 'package:ui/widgets/agent_run_monitor_overlay.dart';
 import 'package:ui/widgets/embedded_terminal_init_overlay.dart';
 
 import 'core/router/go_router_manager.dart';
@@ -44,10 +48,8 @@ Future<void> bootstrapMain(List<String> args) async {
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
   final container = ProviderContainer();
-  await StorageService.init();
-  await AppBackgroundService.load();
-  await ScheduledTaskSchedulerService.initialize();
-  await OmnibotResourceService.ensureWorkspacePathsLoaded();
+  await StorageService.init().timeout(const Duration(seconds: 3));
+  await AppBackgroundService.load().timeout(const Duration(seconds: 3));
   SystemChrome.setSystemUIOverlayStyle(
     AppTheme.overlayStyleForBrightness(
       _resolveStartupBrightness(StorageService.getThemeMode()),
@@ -61,6 +63,9 @@ Future<void> bootstrapMain(List<String> args) async {
     ),
   );
   WidgetsBinding.instance.allowFirstFrame();
+  unawaited(ScheduledTaskSchedulerService.initialize());
+  unawaited(RunLogFunctionEnhancementJobService.resumePendingJobs());
+  unawaited(OmnibotResourceService.ensureWorkspacePathsLoaded());
 }
 
 @pragma('vm:entry-point')
@@ -81,10 +86,8 @@ Future<void> bootstrapSubEngine(List<String> args) async {
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
   final container = ProviderContainer();
-  await StorageService.init();
-  await AppBackgroundService.load();
-  await ScheduledTaskSchedulerService.initialize();
-  await OmnibotResourceService.ensureWorkspacePathsLoaded();
+  await StorageService.init().timeout(const Duration(seconds: 3));
+  await AppBackgroundService.load().timeout(const Duration(seconds: 3));
   SystemChrome.setSystemUIOverlayStyle(
     AppTheme.overlayStyleForBrightness(
       _resolveStartupBrightness(StorageService.getThemeMode()),
@@ -97,6 +100,7 @@ Future<void> bootstrapSubEngine(List<String> args) async {
       child: MyApp(args: args),
     ),
   );
+  unawaited(RunLogFunctionEnhancementJobService.resumePendingJobs());
 }
 
 Brightness _resolveStartupBrightness(AppThemeMode mode) {
@@ -152,8 +156,9 @@ class _MyAppState extends ConsumerState<MyApp> {
     final widgetBuildStart = DateTime.now();
     final themeMode = ref.watch(appThemeModeProvider).materialThemeMode;
     final resolvedLocale = ref.watch(appResolvedLocaleProvider);
-    LegacyTextLocalizer.setResolvedLocale(resolvedLocale.locale);
+    AppTextLocalizer.setResolvedLocale(resolvedLocale.locale);
     final widget = MaterialApp.router(
+      debugShowCheckedModeBanner: false,
       onGenerateTitle: (context) =>
           AppLocalizations.of(context)?.appName ?? 'Omnibot',
       theme: AppTheme.lightTheme,
@@ -165,15 +170,26 @@ class _MyAppState extends ConsumerState<MyApp> {
       locale: resolvedLocale.locale,
       builder: (context, child) {
         final brightness = Theme.of(context).brightness;
-        return AnnotatedRegion<SystemUiOverlayStyle>(
+        final content = AnnotatedRegion<SystemUiOverlayStyle>(
           value: AppTheme.overlayStyleForBrightness(brightness),
           child: Stack(
             fit: StackFit.expand,
             children: [
               child ?? const SizedBox.shrink(),
               const EmbeddedTerminalInitToastListener(),
+              if (!GoRouterManager.isSubEngine) const AgentRunMonitorOverlay(),
             ],
           ),
+        );
+        final mediaQuery = MediaQuery.maybeOf(context);
+        if (mediaQuery == null) {
+          return content;
+        }
+        return MediaQuery(
+          data: mediaQuery.copyWith(
+            textScaler: mediaQuery.textScaler.clamp(maxScaleFactor: 1.2),
+          ),
+          child: content,
         );
       },
       localizationsDelegates: AppLocalizations.localizationsDelegates,

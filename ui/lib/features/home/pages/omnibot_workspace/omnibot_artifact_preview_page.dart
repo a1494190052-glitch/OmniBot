@@ -3,14 +3,13 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/services/assists_core_service.dart';
-import 'package:ui/services/chat_detail_sheet_preferences.dart';
 import 'package:ui/services/omnibot_resource_service.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/widgets/common_app_bar.dart';
 import 'package:ui/widgets/image_preview_overlay.dart';
-import 'package:ui/widgets/omni_glass.dart';
 import 'package:ui/widgets/omnibot_markdown_body.dart';
 import 'package:ui/widgets/omnibot_resource_widgets.dart';
 
@@ -28,9 +27,7 @@ class OmnibotArtifactPreviewPage extends StatefulWidget {
   final bool showPathBar;
   final bool appBarPrimary;
   final bool showLeading;
-  final bool glassSurface;
   final VoidCallback? onClose;
-  final ValueChanged<bool>? onEditingChanged;
 
   const OmnibotArtifactPreviewPage({
     super.key,
@@ -45,9 +42,7 @@ class OmnibotArtifactPreviewPage extends StatefulWidget {
     this.showPathBar = true,
     this.appBarPrimary = true,
     this.showLeading = true,
-    this.glassSurface = false,
     this.onClose,
-    this.onEditingChanged,
   });
 
   @override
@@ -87,12 +82,6 @@ class _OmnibotArtifactPreviewPageState
     _loadIfNeeded();
     _fileChangedSubscription = AssistsMessageService.agentAiConfigChangedStream
         .listen(_handleExternalFileChanged);
-    if (_isEditing) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        widget.onEditingChanged?.call(true);
-      });
-    }
   }
 
   @override
@@ -102,6 +91,18 @@ class _OmnibotArtifactPreviewPageState
       ..removeListener(_handleEditorChanged)
       ..dispose();
     super.dispose();
+  }
+
+  String _text(String text) {
+    return AppTextLocalizer.text(text, locale: Localizations.localeOf(context));
+  }
+
+  String _choose({required String zh, required String en}) {
+    return AppTextLocalizer.choose(
+      zh: zh,
+      en: en,
+      locale: Localizations.localeOf(context),
+    );
   }
 
   void _handleEditorChanged() {
@@ -189,7 +190,6 @@ class _OmnibotArtifactPreviewPageState
         selection: TextSelection.collapsed(offset: (_textContent ?? '').length),
       );
     });
-    widget.onEditingChanged?.call(true);
   }
 
   Future<void> _handleCancelEditing() async {
@@ -197,18 +197,13 @@ class _OmnibotArtifactPreviewPageState
     if (_isDirty) {
       final confirmed = await AppDialog.confirm(
         context,
-        title: Localizations.localeOf(context).languageCode == 'en'
-            ? 'Discard changes'
-            : '放弃修改',
-        content: Localizations.localeOf(context).languageCode == 'en'
-            ? 'There are unsaved changes. Discard them?'
-            : '当前有未保存修改，确认放弃吗？',
-        cancelText: Localizations.localeOf(context).languageCode == 'en'
-            ? 'Keep editing'
-            : '继续编辑',
-        confirmText: Localizations.localeOf(context).languageCode == 'en'
-            ? 'Discard'
-            : '放弃',
+        title: _choose(zh: '放弃修改', en: 'Discard changes'),
+        content: _choose(
+          zh: '当前有未保存修改，确认放弃吗？',
+          en: 'There are unsaved changes. Discard them?',
+        ),
+        cancelText: _choose(zh: '继续编辑', en: 'Keep editing'),
+        confirmText: _choose(zh: '放弃', en: 'Discard'),
       );
       if (confirmed != true || !mounted) {
         return;
@@ -222,7 +217,6 @@ class _OmnibotArtifactPreviewPageState
         selection: TextSelection.collapsed(offset: (_textContent ?? '').length),
       );
     });
-    widget.onEditingChanged?.call(false);
   }
 
   Future<void> _handleSaveText() async {
@@ -241,17 +235,13 @@ class _OmnibotArtifactPreviewPageState
       await _loadIfNeeded(showLoading: false);
       if (!mounted) return;
       showToast(
-        Localizations.localeOf(context).languageCode == 'en'
-            ? 'File saved'
-            : '文件已保存',
+        _choose(zh: '文件已保存', en: 'File saved'),
         type: ToastType.success,
       );
     } catch (error) {
       if (!mounted) return;
       showToast(
-        Localizations.localeOf(context).languageCode == 'en'
-            ? 'Save failed: $error'
-            : '保存失败：$error',
+        _choose(zh: '保存失败：$error', en: 'Save failed: $error'),
         type: ToastType.error,
       );
     } finally {
@@ -262,7 +252,6 @@ class _OmnibotArtifactPreviewPageState
   }
 
   Future<void> _handleOpenWithSystem() async {
-    final isEnglish = Localizations.localeOf(context).languageCode == 'en';
     try {
       final opened = await OmnibotResourceService.openWithSystem(
         sourcePath: widget.path,
@@ -271,23 +260,23 @@ class _OmnibotArtifactPreviewPageState
       if (!mounted) return;
       if (!opened) {
         showToast(
-          isEnglish
-              ? 'Open with system failed. Please try again later.'
-              : '系统打开失败，请稍后重试',
+          _choose(
+            zh: '系统打开失败，请稍后重试',
+            en: 'Open with system failed. Please try again later.',
+          ),
           type: ToastType.error,
         );
       }
     } catch (error) {
       if (!mounted) return;
       showToast(
-        isEnglish ? 'Open with system failed: $error' : '系统打开失败：$error',
+        _choose(zh: '系统打开失败：$error', en: 'Open with system failed: $error'),
         type: ToastType.error,
       );
     }
   }
 
   Future<void> _handleShareFile() async {
-    final isEnglish = Localizations.localeOf(context).languageCode == 'en';
     try {
       final shared = await OmnibotResourceService.shareFile(
         sourcePath: widget.path,
@@ -297,14 +286,17 @@ class _OmnibotArtifactPreviewPageState
       if (!mounted) return;
       if (!shared) {
         showToast(
-          isEnglish ? 'Share failed. Please try again later.' : '分享失败，请稍后重试',
+          _choose(
+            zh: '分享失败，请稍后重试',
+            en: 'Share failed. Please try again later.',
+          ),
           type: ToastType.error,
         );
       }
     } catch (error) {
       if (!mounted) return;
       showToast(
-        isEnglish ? 'Share failed: $error' : '分享失败：$error',
+        _choose(zh: '分享失败：$error', en: 'Share failed: $error'),
         type: ToastType.error,
       );
     }
@@ -327,18 +319,13 @@ class _OmnibotArtifactPreviewPageState
     }
     final confirmed = await AppDialog.confirm(
       context,
-      title: Localizations.localeOf(context).languageCode == 'en'
-          ? 'Exit editing'
-          : '退出编辑',
-      content: Localizations.localeOf(context).languageCode == 'en'
-          ? 'There are unsaved changes. Exit editing?'
-          : '当前有未保存修改，确认退出吗？',
-      cancelText: Localizations.localeOf(context).languageCode == 'en'
-          ? 'Keep editing'
-          : '继续编辑',
-      confirmText: Localizations.localeOf(context).languageCode == 'en'
-          ? 'Exit'
-          : '退出',
+      title: _choose(zh: '退出编辑', en: 'Exit editing'),
+      content: _choose(
+        zh: '当前有未保存修改，确认退出吗？',
+        en: 'There are unsaved changes. Exit editing?',
+      ),
+      cancelText: _choose(zh: '继续编辑', en: 'Keep editing'),
+      confirmText: _choose(zh: '退出', en: 'Exit'),
     );
     if (confirmed != true || !mounted) {
       return;
@@ -392,6 +379,20 @@ class _OmnibotArtifactPreviewPageState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          color: palette.surfaceSecondary,
+          child: Text(
+            _isDirty
+                ? _choose(zh: '编辑中，存在未保存修改', en: 'Editing with unsaved changes')
+                : _choose(
+                    zh: '编辑中，保存后会立即写回 workspace',
+                    en: 'Editing. Save will write back to workspace immediately',
+                  ),
+            style: TextStyle(fontSize: 12, color: palette.textSecondary),
+          ),
+        ),
         Expanded(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -412,9 +413,7 @@ class _OmnibotArtifactPreviewPageState
               decoration: InputDecoration(
                 filled: true,
                 fillColor: palette.surfacePrimary,
-                hintText: Localizations.localeOf(context).languageCode == 'en'
-                    ? 'Enter file content'
-                    : '输入文件内容',
+                hintText: _choose(zh: '输入文件内容', en: 'Enter file content'),
                 alignLabelWithHint: true,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -439,11 +438,7 @@ class _OmnibotArtifactPreviewPageState
   Widget _buildBody() {
     if (!widget.exists) {
       return Center(
-        child: Text(
-          Localizations.localeOf(context).languageCode == 'en'
-              ? 'File does not exist'
-              : '文件不存在',
-        ),
+        child: Text(_choose(zh: '文件不存在', en: 'File does not exist')),
       );
     }
     if (_error != null) {
@@ -479,13 +474,7 @@ class _OmnibotArtifactPreviewPageState
           return const Center(child: CircularProgressIndicator());
         }
         if (_textContent == null) {
-          return Center(
-            child: Text(
-              Localizations.localeOf(context).languageCode == 'en'
-                  ? 'No content'
-                  : '暂无内容',
-            ),
-          );
+          return Center(child: Text(_text('暂无内容')));
         }
         if (widget.mimeType == 'text/markdown') {
           return SingleChildScrollView(
@@ -527,11 +516,7 @@ class _OmnibotArtifactPreviewPageState
                 FilledButton.icon(
                   onPressed: _handleOpenWithSystem,
                   icon: const Icon(Icons.open_in_new_outlined),
-                  label: Text(
-                    Localizations.localeOf(context).languageCode == 'en'
-                        ? 'Open with system'
-                        : '系统打开',
-                  ),
+                  label: Text(_choose(zh: '系统打开', en: 'Open with system')),
                 ),
               ],
             ),
@@ -546,14 +531,14 @@ class _OmnibotArtifactPreviewPageState
       if (_isEditing) {
         actions.add(
           IconButton(
-            tooltip: '取消编辑',
+            tooltip: _choose(zh: '取消编辑', en: 'Cancel editing'),
             onPressed: _handleCancelEditing,
             icon: const Icon(Icons.close_rounded),
           ),
         );
         actions.add(
           IconButton(
-            tooltip: '保存文件',
+            tooltip: _choose(zh: '保存文件', en: 'Save file'),
             onPressed: _isSaving ? null : _handleSaveText,
             icon: _isSaving
                 ? const SizedBox(
@@ -567,7 +552,7 @@ class _OmnibotArtifactPreviewPageState
       } else {
         actions.add(
           IconButton(
-            tooltip: '编辑文件',
+            tooltip: _choose(zh: '编辑文件', en: 'Edit file'),
             onPressed: _handleEditPressed,
             icon: const Icon(Icons.edit_outlined),
           ),
@@ -578,27 +563,17 @@ class _OmnibotArtifactPreviewPageState
       actions.add(
         PopupMenuButton<_ArtifactPreviewAction>(
           key: const ValueKey('artifact-preview-more-actions'),
-          tooltip: Localizations.localeOf(context).languageCode == 'en'
-              ? 'More actions'
-              : '更多操作',
+          tooltip: _choose(zh: '更多操作', en: 'More actions'),
           splashRadius: 18,
           onSelected: _handleToolbarAction,
           itemBuilder: (context) => [
             PopupMenuItem<_ArtifactPreviewAction>(
               value: _ArtifactPreviewAction.openWithSystem,
-              child: Text(
-                Localizations.localeOf(context).languageCode == 'en'
-                    ? 'Open with system'
-                    : '系统打开',
-              ),
+              child: Text(_choose(zh: '系统打开', en: 'Open with system')),
             ),
             PopupMenuItem<_ArtifactPreviewAction>(
               value: _ArtifactPreviewAction.shareFile,
-              child: Text(
-                Localizations.localeOf(context).languageCode == 'en'
-                    ? 'Share file'
-                    : '分享文件',
-              ),
+              child: Text(_choose(zh: '分享文件', en: 'Share file')),
             ),
           ],
           icon: const Icon(Icons.more_horiz_rounded),
@@ -615,14 +590,10 @@ class _OmnibotArtifactPreviewPageState
       canPop: _allowPop || !(_isEditing && _isDirty),
       onPopInvokedWithResult: (didPop, _) => _handleBackNavigation(didPop),
       child: Scaffold(
-        resizeToAvoidBottomInset: !widget.glassSurface,
-        backgroundColor: widget.glassSurface
-            ? Colors.transparent
-            : palette.pageBackground,
+        backgroundColor: palette.pageBackground,
         appBar: CommonAppBar(
           title: widget.title,
           primary: widget.appBarPrimary,
-          backgroundColor: widget.glassSurface ? Colors.transparent : null,
           showLeading: widget.showLeading,
           onBackPressed: widget.onClose,
           actions: _buildActions(),
@@ -711,12 +682,9 @@ class _OmnibotArtifactPreviewSheetFrame extends StatefulWidget {
 class _OmnibotArtifactPreviewSheetFrameState
     extends State<_OmnibotArtifactPreviewSheetFrame> {
   static const double _minHeightFactor = 0.36;
-  static const double _editingMinHeightFactor = 0.58;
-  static const double _keyboardEditingMinHeightFactor = 0.82;
   static const double _maxHeightFactor = 0.94;
 
   double? _heightFactor;
-  bool _isEditing = false;
 
   double _initialHeightFactor(double viewportHeight) {
     return viewportHeight < 720 ? 0.72 : 0.62;
@@ -726,76 +694,16 @@ class _OmnibotArtifactPreviewSheetFrameState
     if (availableHeight <= 0) {
       return;
     }
-    final mediaQuery = MediaQuery.of(context);
-    final minHeightFactor = _effectiveMinHeightFactor(
-      keyboardVisible: mediaQuery.viewInsets.bottom > 0,
-    );
     final delta = details.primaryDelta ?? details.delta.dy;
     setState(() {
       final current =
-          (_heightFactor ??
-                  ChatDetailSheetPreferences.resolveHeightFactor(
-                    fallback: _initialHeightFactor(
-                      MediaQuery.sizeOf(context).height,
-                    ),
-                    min: _minHeightFactor,
-                    max: _maxHeightFactor,
-                  ))
-              .clamp(minHeightFactor, _maxHeightFactor);
+          _heightFactor ??
+          _initialHeightFactor(MediaQuery.sizeOf(context).height);
       _heightFactor = (current - delta / availableHeight).clamp(
-        minHeightFactor,
+        _minHeightFactor,
         _maxHeightFactor,
       );
     });
-  }
-
-  double _effectiveMinHeightFactor({required bool keyboardVisible}) {
-    if (!_isEditing) {
-      return _minHeightFactor;
-    }
-    return keyboardVisible
-        ? _keyboardEditingMinHeightFactor
-        : _editingMinHeightFactor;
-  }
-
-  double _resolveHeightFactor(MediaQueryData mediaQuery) {
-    final minHeightFactor = _effectiveMinHeightFactor(
-      keyboardVisible: mediaQuery.viewInsets.bottom > 0,
-    );
-    return (_heightFactor ??
-            ChatDetailSheetPreferences.resolveHeightFactor(
-              fallback: _initialHeightFactor(MediaQuery.sizeOf(context).height),
-              min: _minHeightFactor,
-              max: _maxHeightFactor,
-            ))
-        .clamp(minHeightFactor, _maxHeightFactor)
-        .toDouble();
-  }
-
-  void _handleEditingChanged(bool isEditing) {
-    if (_isEditing == isEditing) {
-      return;
-    }
-    setState(() {
-      _isEditing = isEditing;
-    });
-  }
-
-  void _persistHeightFactor() {
-    if (_isEditing) {
-      return;
-    }
-    final heightFactor = _heightFactor;
-    if (heightFactor == null) {
-      return;
-    }
-    unawaited(
-      ChatDetailSheetPreferences.saveHeightFactor(
-        heightFactor,
-        min: _minHeightFactor,
-        max: _maxHeightFactor,
-      ),
-    );
   }
 
   @override
@@ -808,71 +716,62 @@ class _OmnibotArtifactPreviewSheetFrameState
           mediaQuery.padding.top -
           mediaQuery.viewInsets.bottom,
     );
-    final heightFactor = _resolveHeightFactor(mediaQuery);
-    final sheetHeight = availableHeight * heightFactor;
-    const borderRadius = BorderRadius.vertical(top: Radius.circular(24));
+    final heightFactor =
+        _heightFactor ?? _initialHeightFactor(mediaQuery.size.height);
     return SafeArea(
       top: false,
       child: AnimatedPadding(
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOutCubic,
         padding: EdgeInsets.only(bottom: mediaQuery.viewInsets.bottom),
-        child: TweenAnimationBuilder<double>(
-          tween: Tween<double>(end: sheetHeight),
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOutCubic,
-          builder: (context, animatedHeight, _) {
-            return OmniGlassPanel(
-              height: animatedHeight,
-              width: double.infinity,
-              borderRadius: borderRadius,
-              child: Material(
-                color: Colors.transparent,
-                child: Column(
-                  children: [
-                    GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onVerticalDragUpdate: (details) =>
-                          _handleDragUpdate(details, availableHeight),
-                      onVerticalDragEnd: (_) => _persistHeightFactor(),
-                      child: SizedBox(
-                        height: 22,
-                        width: double.infinity,
-                        child: Center(
-                          child: Container(
-                            width: 42,
-                            height: 4,
-                            decoration: BoxDecoration(
-                              color: palette.textSecondary.withValues(
-                                alpha: 0.34,
-                              ),
-                              borderRadius: BorderRadius.circular(999),
+        child: SizedBox(
+          height: availableHeight * heightFactor,
+          width: double.infinity,
+          child: ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            child: Material(
+              color: palette.pageBackground,
+              child: Column(
+                children: [
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onVerticalDragUpdate: (details) =>
+                        _handleDragUpdate(details, availableHeight),
+                    child: SizedBox(
+                      height: 22,
+                      width: double.infinity,
+                      child: Center(
+                        child: Container(
+                          width: 42,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: palette.textSecondary.withValues(
+                              alpha: 0.28,
                             ),
+                            borderRadius: BorderRadius.circular(999),
                           ),
                         ),
                       ),
                     ),
-                    Expanded(
-                      child: OmnibotArtifactPreviewPage(
-                        path: widget.metadata.path,
-                        uri: widget.metadata.uri,
-                        title: widget.metadata.title,
-                        previewKind: widget.metadata.previewKind,
-                        mimeType: widget.metadata.mimeType,
-                        shellPath: widget.metadata.shellPath,
-                        exists: widget.metadata.exists,
-                        showPathBar: false,
-                        appBarPrimary: false,
-                        showLeading: false,
-                        glassSurface: true,
-                        onEditingChanged: _handleEditingChanged,
-                      ),
+                  ),
+                  Expanded(
+                    child: OmnibotArtifactPreviewPage(
+                      path: widget.metadata.path,
+                      uri: widget.metadata.uri,
+                      title: widget.metadata.title,
+                      previewKind: widget.metadata.previewKind,
+                      mimeType: widget.metadata.mimeType,
+                      shellPath: widget.metadata.shellPath,
+                      exists: widget.metadata.exists,
+                      showPathBar: false,
+                      appBarPrimary: false,
+                      showLeading: false,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            );
-          },
+            ),
+          ),
         ),
       ),
     );

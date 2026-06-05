@@ -50,10 +50,6 @@ class ScreenMaskLoader(override val context: Service) :
             getInstance()?.loadLockScreenMask()
         }
 
-        fun loadUnlockScreenMask() {
-            getInstance()?.loadUnlockScreenMask()
-        }
-
         fun loadGoneViewScreenMask() {
             getInstance()?.loadGoneViewScreenMask()
         }
@@ -110,12 +106,6 @@ class ScreenMaskLoader(override val context: Service) :
     fun loadLockScreenMask(x: Int, y: Int) {
         loadLockScreenMask()
         view.startCircleAnimation(x, y)
-    }
-
-    fun loadUnlockScreenMask() {
-        lockFlag = WindowFlag.SCREEN_UNLOCK_FLAG
-        visibility = View.VISIBLE
-        toLoad()
     }
 
     fun loadGoneViewScreenMask() {

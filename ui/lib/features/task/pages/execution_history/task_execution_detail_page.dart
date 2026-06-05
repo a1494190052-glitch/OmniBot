@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:intl/intl.dart';
+import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/l10n/l10n.dart';
 import 'package:ui/models/execution_record.dart';
 import 'package:ui/theme/app_colors.dart';
@@ -84,7 +85,11 @@ class TaskExecutionDetailPage extends StatefulWidget {
 }
 
 class _TaskExecutionDetailPageState extends State<TaskExecutionDetailPage> {
+  static const int _executionRecordPageSize = 50;
+
   bool _isLoading = true;
+  bool _isLoadingMore = false;
+  bool _hasMoreRecords = false;
   List<ExecutionRecord> _executionRecords = [];
   ImageProvider? _appIconProvider;
   bool get _isSummaryType =>
@@ -107,6 +112,8 @@ class _TaskExecutionDetailPageState extends State<TaskExecutionDetailPage> {
       final records = await CacheUtil.getExecutionRecordsByNodeAndSuggestionId(
         widget.params.nodeId,
         widget.params.suggestionId,
+        limit: _executionRecordPageSize,
+        offset: 0,
       );
 
       // 加载应用图标
@@ -120,15 +127,40 @@ class _TaskExecutionDetailPageState extends State<TaskExecutionDetailPage> {
       if (mounted) {
         setState(() {
           _executionRecords = records;
+          _hasMoreRecords = records.length >= _executionRecordPageSize;
           _isLoading = false;
         });
       }
     } catch (e) {
-      print('加载执行记录详情失败: $e');
+      debugPrint('加载执行记录详情失败: $e');
       if (mounted) {
         setState(() {
           _isLoading = false;
         });
+      }
+    }
+  }
+
+  Future<void> _loadMoreRecords() async {
+    if (_isLoadingMore || !_hasMoreRecords) return;
+    setState(() => _isLoadingMore = true);
+    try {
+      final records = await CacheUtil.getExecutionRecordsByNodeAndSuggestionId(
+        widget.params.nodeId,
+        widget.params.suggestionId,
+        limit: _executionRecordPageSize,
+        offset: _executionRecords.length,
+      );
+      if (!mounted) return;
+      setState(() {
+        _executionRecords = [..._executionRecords, ...records];
+        _hasMoreRecords = records.length >= _executionRecordPageSize;
+        _isLoadingMore = false;
+      });
+    } catch (e) {
+      debugPrint('加载更多执行记录失败: $e');
+      if (mounted) {
+        setState(() => _isLoadingMore = false);
       }
     }
   }
@@ -324,7 +356,7 @@ class _TaskExecutionDetailPageState extends State<TaskExecutionDetailPage> {
     return Row(
       children: [
         Text(
-          '${context.trLegacy('最近执行')} $lastTimeLabel',
+          '${context.trText('最近执行')} $lastTimeLabel',
           style: TextStyle(
             fontSize: 10,
             color: context.isDarkTheme
@@ -374,7 +406,7 @@ class _TaskExecutionDetailPageState extends State<TaskExecutionDetailPage> {
         padding: const EdgeInsets.all(32),
         child: Center(
           child: Text(
-            context.trLegacy('暂无总结内容'),
+            context.trText('暂无总结内容'),
             style: TextStyle(
               fontSize: AppTextStyles.fontSizeMain,
               color: context.isDarkTheme
@@ -488,12 +520,31 @@ class _TaskExecutionDetailPageState extends State<TaskExecutionDetailPage> {
       ),
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
-        children: _executionRecords.asMap().entries.map((entry) {
-          final index = entry.key;
-          final record = entry.value;
-          final isLast = index == _executionRecords.length - 1;
-          return _buildExecutionItem(record, isLast);
-        }).toList(),
+        children: [
+          ..._executionRecords.asMap().entries.map((entry) {
+            final index = entry.key;
+            final record = entry.value;
+            final isLast = index == _executionRecords.length - 1;
+            return _buildExecutionItem(record, isLast);
+          }),
+          if (_hasMoreRecords)
+            TextButton(
+              onPressed: _isLoadingMore ? null : _loadMoreRecords,
+              child: _isLoadingMore
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Text(
+                      AppTextLocalizer.choose(
+                        zh: '加载更多',
+                        en: 'Load more',
+                        locale: Localizations.localeOf(context),
+                      ),
+                    ),
+            ),
+        ],
       ),
     );
   }
@@ -588,7 +639,7 @@ class _TaskExecutionDetailPageState extends State<TaskExecutionDetailPage> {
 
   /// 格式化最后执行时间
   String _formatLastExecutionTime(int timestamp) {
-    if (timestamp == 0) return context.trLegacy('未知');
+    if (timestamp == 0) return context.trText('未知');
 
     final now = DateTime.now();
     final date = DateTime.fromMillisecondsSinceEpoch(timestamp);
@@ -596,11 +647,11 @@ class _TaskExecutionDetailPageState extends State<TaskExecutionDetailPage> {
     if (date.year == now.year &&
         date.month == now.month &&
         date.day == now.day) {
-      return '${context.trLegacy('今天')} ${DateFormat('HH:mm').format(date)}';
+      return '${context.trText('今天')} ${DateFormat('HH:mm').format(date)}';
     } else if (date.year == now.year &&
         date.month == now.month &&
         date.day == now.day - 1) {
-      return '${context.trLegacy('昨天')} ${DateFormat('HH:mm').format(date)}';
+      return '${context.trText('昨天')} ${DateFormat('HH:mm').format(date)}';
     } else {
       return DateFormat('yyyy/MM/dd HH:mm').format(date);
     }
@@ -608,7 +659,7 @@ class _TaskExecutionDetailPageState extends State<TaskExecutionDetailPage> {
 
   /// 格式化记录时间
   String _formatRecordTime(int timestamp) {
-    if (timestamp == 0) return context.trLegacy('未知');
+    if (timestamp == 0) return context.trText('未知');
 
     final now = DateTime.now();
     final date = DateTime.fromMillisecondsSinceEpoch(timestamp);
@@ -616,11 +667,11 @@ class _TaskExecutionDetailPageState extends State<TaskExecutionDetailPage> {
     if (date.year == now.year &&
         date.month == now.month &&
         date.day == now.day) {
-      return '${context.trLegacy('今天')} ${DateFormat('HH:mm').format(date)}';
+      return '${context.trText('今天')} ${DateFormat('HH:mm').format(date)}';
     } else if (date.year == now.year &&
         date.month == now.month &&
         date.day == now.day - 1) {
-      return '${context.trLegacy('昨天')} ${DateFormat('HH:mm').format(date)}';
+      return '${context.trText('昨天')} ${DateFormat('HH:mm').format(date)}';
     } else {
       return DateFormat('yyyy/MM/dd HH:mm').format(date);
     }

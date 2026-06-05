@@ -132,12 +132,12 @@ class MemorySection extends StatefulWidget {
   final AnimationController? animationController;
 
   const MemorySection({
-    Key? key,
+    super.key,
     this.memorySummary,
     this.isSummaryLoading = false,
     this.onTap,
     this.animationController,
-  }) : super(key: key);
+  });
 
   @override
   State<MemorySection> createState() => _MemorySectionState();
@@ -209,7 +209,7 @@ class _MemorySectionState extends State<MemorySection> {
                           TextSpan(
                             children: [
                               TextSpan(
-                                text: widget.memorySummary!.title + '\n',
+                                text: '${widget.memorySummary!.title}\n',
                                 style: TextStyle(
                                   color: context.isDarkTheme
                                       ? palette.textSecondary

@@ -1,9 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'dart:ui';
 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ui/l10n/app_language_mode.dart';
-import 'package:ui/models/chat_startup_behavior.dart';
 import 'package:ui/models/habitual_hand.dart';
 import 'package:ui/theme/app_theme_mode.dart';
 
@@ -71,7 +71,7 @@ class StorageService {
           : jsonEncode(value.toJson());
       return await setString(key, jsonString);
     } catch (e) {
-      print('StorageService: setJson 失败 - $e');
+      debugPrint('StorageService: setJson 失败 - $e');
       return false;
     }
   }
@@ -92,7 +92,7 @@ class StorageService {
       }
       return decoded as T?;
     } catch (e) {
-      print('StorageService: getJson 失败 - $e');
+      debugPrint('StorageService: getJson 失败 - $e');
       return null;
     }
   }
@@ -162,7 +162,6 @@ class StorageService {
   static const String kPetOverlayVisibleKey = 'pet_overlay_visible';
   static const String kUseIndependentChatSendButtonKey =
       'use_independent_chat_send_button';
-  static const String kChatStartupBehaviorKey = 'chat_startup_behavior';
   static const String kHabitualHandKey = 'habitual_hand';
   static const String kThemeOptionKey = 'theme_option';
   static const String kLanguageOptionKey = 'language_option';
@@ -271,19 +270,6 @@ class StorageService {
 
   static Future<bool> setIndependentChatSendButtonEnabled(bool enabled) {
     return setBool(kUseIndependentChatSendButtonKey, enabled);
-  }
-
-  static ChatStartupBehavior getChatStartupBehavior() {
-    return ChatStartupBehavior.fromStorageValue(
-      getString(
-        kChatStartupBehaviorKey,
-        defaultValue: ChatStartupBehavior.resumeLast.storageValue,
-      ),
-    );
-  }
-
-  static Future<bool> setChatStartupBehavior(ChatStartupBehavior behavior) {
-    return setString(kChatStartupBehaviorKey, behavior.storageValue);
   }
 
   static HabitualHand getHabitualHand() {

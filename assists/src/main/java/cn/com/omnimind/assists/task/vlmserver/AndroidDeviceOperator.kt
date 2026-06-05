@@ -4,18 +4,26 @@ package cn.com.omnimind.assists.task.vlmserver
  * Android设备操作器 - 基于现有的AccessibilityController实现
  */
 
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import BaseApplication
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.assists.api.eventapi.ExecutionTaskEventApi
+import cn.com.omnimind.baselib.util.APPPackageUtil
 import cn.com.omnimind.baselib.shizuku.ShizukuCapabilityManager
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.baselib.util.exception.PrivacyBlockedException
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
 import cn.com.omnimind.baselib.util.ImageQuality
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlin.coroutines.resume
 import kotlin.math.abs
 import kotlin.math.sqrt
@@ -26,6 +34,7 @@ class AndroidDeviceOperator(
 ) : DeviceOperator {
 
     private val Tag = "AndroidDeviceOperator"
+    private val json = Json { encodeDefaults = false }
 
     // 存储最后一次截图的尺寸（传给VLM的图片）以及设备实际尺寸
     private var lastScreenshotWidth: Int = 1080
@@ -71,6 +80,22 @@ class AndroidDeviceOperator(
         }
     }
 
+    override suspend fun clickNodeById(nodeId: String, targetDescription: String): OperationResult {
+        return try {
+            AccessibilityController.clickNodeById(nodeId, targetDescription)
+            OperationResult(
+                success = true,
+                message = "点击组件 ${targetDescription.ifBlank { nodeId }} 成功",
+                data = json.encodeToJsonElement(mapOf(
+                    "node_id" to nodeId,
+                    "execution" to "accessibility_node_action"
+                ))
+            )
+        } catch (e: Exception) {
+            OperationResult(false, "组件点击失败: ${e.message}", null)
+        }
+    }
+
     override suspend fun longClickCoordinate(x: Float, y: Float, duration: Long): OperationResult {
         return try {
             if (executionTaskEventApi != null) {
@@ -83,6 +108,26 @@ class AndroidDeviceOperator(
             OperationResult(true, "长按坐标 ($x, $y) 成功", null)
         } catch (e: Exception) {
             OperationResult(false, "长按失败: ${e.message}", null)
+        }
+    }
+
+    override suspend fun longClickNodeById(
+        nodeId: String,
+        targetDescription: String,
+        duration: Long
+    ): OperationResult {
+        return try {
+            AccessibilityController.longClickNodeById(nodeId, targetDescription)
+            OperationResult(
+                success = true,
+                message = "长按组件 ${targetDescription.ifBlank { nodeId }} 成功",
+                data = json.encodeToJsonElement(mapOf(
+                    "node_id" to nodeId,
+                    "execution" to "accessibility_node_action"
+                ))
+            )
+        } catch (e: Exception) {
+            OperationResult(false, "组件长按失败: ${e.message}", null)
         }
     }
 
@@ -106,6 +151,26 @@ class AndroidDeviceOperator(
                 return shellFallback
             }
             OperationResult(false, "输入失败: ${e.message}", null)
+        }
+    }
+
+    override suspend fun inputTextToNodeById(
+        nodeId: String,
+        text: String,
+        targetDescription: String
+    ): OperationResult {
+        return try {
+            AccessibilityController.inputTextToNodeById(nodeId, text, targetDescription)
+            OperationResult(
+                success = true,
+                message = "向组件 ${targetDescription.ifBlank { nodeId }} 输入文本成功",
+                data = json.encodeToJsonElement(mapOf(
+                    "node_id" to nodeId,
+                    "execution" to "accessibility_node_action"
+                ))
+            )
+        } catch (e: Exception) {
+            OperationResult(false, "组件输入失败: ${e.message}", null)
         }
     }
 
@@ -288,6 +353,24 @@ class AndroidDeviceOperator(
         y2: Float,
         duration: Long
     ): OperationResult {
+        return slideCoordinateWithContext(
+            x1 = x1,
+            y1 = y1,
+            x2 = x2,
+            y2 = y2,
+            duration = duration,
+            targetDescription = ""
+        )
+    }
+
+    override suspend fun slideCoordinateWithContext(
+        x1: Float,
+        y1: Float,
+        x2: Float,
+        y2: Float,
+        duration: Long,
+        targetDescription: String
+    ): OperationResult {
         return try {
             val dx = x2 - x1
             val dy = y2 - y1
@@ -298,6 +381,8 @@ class AndroidDeviceOperator(
             }
 
             val distance = sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+            var usedSemanticSliderProgress = false
+            var usedSemanticNodeScroll = false
             if (executionTaskEventApi != null) {
                 executionTaskEventApi.scrollCoordinate(
                     x1,
@@ -305,24 +390,67 @@ class AndroidDeviceOperator(
                     scrollDirection,
                     distance.toInt()
                 ) {
-                    AccessibilityController.scrollCoordinate(
-                        x1,
-                        y1,
-                        scrollDirection,
-                        distance,
-                        duration = duration
+                    usedSemanticSliderProgress = AccessibilityController.setSliderProgressFromGesture(
+                        x1 = x1,
+                        y1 = y1,
+                        x2 = x2,
+                        y2 = y2,
+                        targetDescription = targetDescription
                     )
+                    if (!usedSemanticSliderProgress) {
+                        usedSemanticNodeScroll = AccessibilityController.scrollScrollableNodeFromGesture(
+                            x1 = x1,
+                            y1 = y1,
+                            x2 = x2,
+                            y2 = y2,
+                            targetDescription = targetDescription
+                        )
+                        if (!usedSemanticNodeScroll) {
+                            AccessibilityController.scrollCoordinate(
+                                x1,
+                                y1,
+                                scrollDirection,
+                                distance,
+                                duration = duration
+                            )
+                        }
+                    }
                 }
             } else {
-                AccessibilityController.scrollCoordinate(
-                    x1,
-                    y1,
-                    scrollDirection,
-                    distance,
-                    duration = duration
+                usedSemanticSliderProgress = AccessibilityController.setSliderProgressFromGesture(
+                    x1 = x1,
+                    y1 = y1,
+                    x2 = x2,
+                    y2 = y2,
+                    targetDescription = targetDescription
                 )
+                if (!usedSemanticSliderProgress) {
+                    usedSemanticNodeScroll = AccessibilityController.scrollScrollableNodeFromGesture(
+                        x1 = x1,
+                        y1 = y1,
+                        x2 = x2,
+                        y2 = y2,
+                        targetDescription = targetDescription
+                    )
+                    if (!usedSemanticNodeScroll) {
+                        AccessibilityController.scrollCoordinate(
+                            x1,
+                            y1,
+                            scrollDirection,
+                            distance,
+                            duration = duration
+                        )
+                    }
+                }
             }
-            OperationResult(true, "滑动 ($x1, $y1) → ($x2, $y2) 成功", null)
+            val message = if (usedSemanticSliderProgress) {
+                "语义设置滑块进度 ($x1, $y1) → ($x2, $y2) 成功"
+            } else if (usedSemanticNodeScroll) {
+                "语义滚动节点 ($x1, $y1) → ($x2, $y2) 成功"
+            } else {
+                "滑动 ($x1, $y1) → ($x2, $y2) 成功"
+            }
+            OperationResult(true, message, null)
         } catch (e: Exception) {
             OperationResult(false, "滑动失败: ${e.message}", null)
         }
@@ -366,18 +494,41 @@ class AndroidDeviceOperator(
      */
     override suspend fun launchApplication(packageName: String): OperationResult {
         return try {
+            if (!APPPackageUtil.isPackageAuthorized(packageName)) {
+                val appContext = context ?: BaseApplication.instance
+                val appName = APPPackageUtil.getAppName(appContext, packageName)
+                    .takeIf { it.isNotBlank() }
+                    ?: packageName
+                throw PrivacyBlockedException("应用 $appName 未授权，已被隐私设置限制")
+            }
 
-            AccessibilityController.launchApplication(packageName) { x, y ->
-
-                if (executionTaskEventApi != null) {
-                    executionTaskEventApi.clickCoordinate(x, y) {
-                        AccessibilityController.clickCoordinate(x, y)
+            val accessibilityReady = AccessibilityController.initController()
+            if (accessibilityReady) {
+                val accessibilityLaunch = runCatching {
+                    AccessibilityController.launchApplicationBestEffort(packageName) { x, y ->
+                        if (executionTaskEventApi != null) {
+                            executionTaskEventApi.clickCoordinate(x, y) {
+                                AccessibilityController.clickCoordinate(x, y)
+                            }
+                        } else {
+                            AccessibilityController.clickCoordinate(x, y)
+                        }
                     }
-                } else {
-                    AccessibilityController.clickCoordinate(x, y)
+                }
+                if (accessibilityLaunch.isSuccess) {
+                    return OperationResult(true, "已发起启动应用 $packageName", null)
+                }
+                accessibilityLaunch.exceptionOrNull()?.let { error ->
+                    if (error is PrivacyBlockedException) throw error
+                    OmniLog.w(Tag, "Accessibility launchApplication failed: ${error.message}")
                 }
             }
-            OperationResult(true, "启动应用 $packageName 成功", null)
+
+            if (launchApplicationByIntent(packageName)) {
+                OperationResult(true, "通过系统启动应用 $packageName 成功", null)
+            } else {
+                OperationResult(false, "启动应用失败: 无法通过无障碍或系统 Intent 启动 $packageName", null)
+            }
         } catch (e: PrivacyBlockedException) {
             // 隐私限制异常需要终止任务，重新抛出
             throw e
@@ -389,6 +540,30 @@ class AndroidDeviceOperator(
             OperationResult(false, "启动应用失败: ${e.message}", null)
         }
     }
+
+    private suspend fun launchApplicationByIntent(packageName: String): Boolean =
+        withContext(Dispatchers.Main) {
+            val appContext = context ?: BaseApplication.instance
+            val startContext = BaseApplication.foregroundActivity ?: appContext
+            val launchIntent = appContext.packageManager.getLaunchIntentForPackage(packageName)
+                ?: return@withContext false
+            return@withContext try {
+                launchIntent.addFlags(
+                    Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED or
+                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP
+                )
+                if (startContext !is Activity) {
+                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startContext.startActivity(launchIntent)
+                delay(800L)
+                true
+            } catch (e: Exception) {
+                OmniLog.e(Tag, "launchApplicationByIntent failed: ${e.message}", e)
+                false
+            }
+        }
 
     private suspend fun launchApplicationViaShizuku(packageName: String): OperationResult {
         val ctx = context ?: return OperationResult(false, "Shizuku 不可用", null)
@@ -444,8 +619,18 @@ class AndroidDeviceOperator(
 
             finalBase64
         } catch (e: Exception) {
-            OmniLog.e("Assists", "captureScreenshot failed: ${e.message}", e)
-            throw RuntimeException("截图失败: ${e.message}")
+            val rawMessage = e.message.orEmpty()
+            val errorCode = Regex("error code:?\\s*(\\d+)", RegexOption.IGNORE_CASE)
+                .find(rawMessage)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?.toIntOrNull()
+            val normalizedMessage = when (errorCode) {
+                1 -> "系统截图内部错误(error code: 1)，通常发生在切换前台应用后窗口尚未稳定"
+                else -> rawMessage.ifBlank { "unknown screenshot error" }
+            }
+            OmniLog.e("Assists", "captureScreenshot failed: $normalizedMessage", e)
+            throw RuntimeException("截图失败: $normalizedMessage")
         }
     }
 

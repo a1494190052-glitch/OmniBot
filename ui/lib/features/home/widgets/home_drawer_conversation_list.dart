@@ -724,6 +724,9 @@ extension _HomeDrawerConversationList on HomeDrawerState {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               GestureDetector(
+                key: ValueKey<String>(
+                  'home-drawer-scheduled-parent-toggle-${group.parent.threadKey}',
+                ),
                 behavior: HitTestBehavior.opaque,
                 onTap: onToggle,
                 child: SizedBox(
@@ -748,6 +751,11 @@ extension _HomeDrawerConversationList on HomeDrawerState {
                 ),
               ),
               const SizedBox(width: 2),
+              ConversationStatusIndicator(
+                isRunning: _isConversationRunning(group.parent),
+                compact: true,
+              ),
+              const SizedBox(width: 8),
               Expanded(
                 child: _buildEditableConversationTitle(
                   title: title,
@@ -1023,6 +1031,11 @@ extension _HomeDrawerConversationList on HomeDrawerState {
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
+                        ConversationStatusIndicator(
+                          isRunning: _isConversationRunning(conversation),
+                          compact: true,
+                        ),
+                        const SizedBox(width: 8),
                         Expanded(
                           child: _buildEditableConversationTitle(
                             title: title,

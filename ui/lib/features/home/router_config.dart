@@ -123,13 +123,25 @@ ConversationThreadTarget? _parseChatThreadTarget(GoRouterState state) {
   );
 }
 
+String? _parseChatInitialSurfaceMode(GoRouterState state) {
+  final surface = state.uri.queryParameters['surface']?.trim().toLowerCase();
+  return switch (surface) {
+    'workspace' || 'work' => 'workspace',
+    'project' => 'project',
+    _ => null,
+  };
+}
+
 List<GoRoute> homeRoutes = [
   // 兼容旧首页路由，统一落到聊天页
   GoRoute(
     path: '/home/home',
     name: 'home/home',
     builder: (context, state) {
-      return ChatPage(threadTarget: _parseChatThreadTarget(state));
+      return ChatPage(
+        threadTarget: _parseChatThreadTarget(state),
+        initialSurfaceMode: _parseChatInitialSurfaceMode(state),
+      );
     },
   ),
   GoRoute(
@@ -143,7 +155,10 @@ List<GoRoute> homeRoutes = [
     path: '/home/chat',
     name: 'home/chat',
     builder: (context, state) {
-      return ChatPage(threadTarget: _parseChatThreadTarget(state));
+      return ChatPage(
+        threadTarget: _parseChatThreadTarget(state),
+        initialSurfaceMode: _parseChatInitialSurfaceMode(state),
+      );
     },
   ),
 
@@ -202,7 +217,6 @@ List<GoRoute> homeRoutes = [
         shellPath: extra['shellPath']?.toString(),
         exists: extra['exists'] != false,
         startInEditMode: extra['startInEditMode'] == true,
-        showPathBar: false,
       );
     },
   ),
@@ -216,6 +230,7 @@ List<GoRoute> homeRoutes = [
         workspacePath: (extra['workspacePath'] ?? '').toString(),
         workspaceId: extra['workspaceId']?.toString(),
         workspaceShellPath: extra['workspaceShellPath']?.toString(),
+        startInProjectMode: extra['startInProjectMode'] != false,
       );
     },
   ),

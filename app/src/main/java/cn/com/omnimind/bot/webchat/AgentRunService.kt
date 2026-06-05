@@ -57,7 +57,15 @@ internal object AgentRunRequestNormalizer {
         val attachments = mutableListOf<Map<String, Any?>>()
         blocks.forEachIndexed { index, item ->
             val block = normalizeMap(item) ?: return@forEachIndexed
-            val type = inferBlockType(block)
+            val type = block["type"]?.toString()?.trim()?.lowercase().orEmpty().ifEmpty {
+                when {
+                    block.containsKey("image_url") ||
+                        block.containsKey("imageUrl") ||
+                        block.containsKey("url") -> "image_url"
+                    block.containsKey("text") -> "text"
+                    else -> ""
+                }
+            }
             when (type) {
                 "text", "input_text" -> {
                     val text = block["text"]?.toString().orEmpty()
@@ -93,56 +101,12 @@ internal object AgentRunRequestNormalizer {
                     }
                     attachments += attachment
                 }
-
-                "file", "attachment", "input_file" -> {
-                    val attachment = extractAttachment(block, index)
-                    if (attachment != null) {
-                        attachments += attachment
-                    }
-                }
             }
         }
         return NormalizedAgentRunPayload(
             userMessage = texts.joinToString("\n").trim(),
             attachments = attachments
         )
-    }
-
-    private fun inferBlockType(block: Map<String, Any?>): String {
-        val explicit = block["type"]?.toString()?.trim()?.lowercase().orEmpty()
-        if (explicit.isNotEmpty()) {
-            return explicit
-        }
-        if (block.containsKey("image_url") || block.containsKey("imageUrl")) {
-            return "image_url"
-        }
-        if (block.containsKey("text")) {
-            return "text"
-        }
-        if (block.containsKey("file") ||
-            block.containsKey("attachment") ||
-            block.containsKey("input_file")
-        ) {
-            return "attachment"
-        }
-        val mimeType = block["mimeType"]?.toString()?.trim().orEmpty()
-        if (mimeType.startsWith("image/", ignoreCase = true) &&
-            (block.containsKey("url") || block.containsKey("dataUrl"))
-        ) {
-            return "image_url"
-        }
-        return if (block.containsKey("url") ||
-            block.containsKey("path") ||
-            block.containsKey("filePath") ||
-            block.containsKey("promptPath") ||
-            block.containsKey("workspacePath") ||
-            block.containsKey("fileName") ||
-            block.containsKey("name")
-        ) {
-            "attachment"
-        } else {
-            ""
-        }
     }
 
     private fun extractImageUrl(block: Map<String, Any?>): String {
@@ -174,112 +138,16 @@ internal object AgentRunRequestNormalizer {
         return ""
     }
 
-    private fun extractAttachment(
-        block: Map<String, Any?>,
-        index: Int
-    ): Map<String, Any?>? {
-        val nested = sequenceOf(
-            block["attachment"],
-            block["file"],
-            block["input_file"]
-        ).mapNotNull(::normalizeMap).firstOrNull()
-
-        fun readField(key: String): Any? = nested?.get(key) ?: block[key]
-
-        val attachment = linkedMapOf<String, Any?>()
-        val name = readField("name")?.toString()?.trim().orEmpty()
-        val fileName = readField("fileName")?.toString()?.trim().orEmpty()
-        val resolvedName = fileName.ifEmpty { name }
-        if (resolvedName.isNotEmpty()) {
-            attachment["name"] = resolvedName
-            attachment["fileName"] = resolvedName
-        } else {
-            attachment["fileName"] = "attachment_$index"
-            attachment["name"] = "attachment_$index"
-        }
-
-        val mimeType = readField("mimeType")?.toString()?.trim().orEmpty()
-        if (mimeType.isNotEmpty()) {
-            attachment["mimeType"] = mimeType
-        }
-
-        copyIfNotBlank(attachment, "id", readField("id")?.toString())
-        copyIfNotBlank(attachment, "path", firstNonBlank(readField("path"), readField("filePath")))
-        copyIfNotBlank(attachment, "promptPath", readField("promptPath")?.toString())
-        copyIfNotBlank(attachment, "workspacePath", readField("workspacePath")?.toString())
-        copyIfNotBlank(attachment, "url", readField("url")?.toString())
-        copyIfNotBlank(attachment, "dataUrl", readField("dataUrl")?.toString())
-
-        when (val raw = readField("size") ?: readField("sizeBytes")) {
-            is Number -> attachment["size"] = raw.toLong()
-            is String -> raw.trim().toLongOrNull()?.let { attachment["size"] = it }
-        }
-
-        val explicitImage = when (val raw = readField("isImage")) {
-            is Boolean -> raw
-            is String -> raw.equals("true", ignoreCase = true)
-            else -> false
-        }
-        val looksLikeImage = explicitImage ||
-            mimeType.startsWith("image/", ignoreCase = true) ||
-            attachment["dataUrl"]?.toString()?.startsWith("data:image/", ignoreCase = true) == true ||
-            firstNonBlank(attachment["path"], attachment["url"])
-                ?.let(::looksLikeImagePath) == true
-        attachment["isImage"] = looksLikeImage
-
-        when (val raw = readField("sendToModel")) {
-            is Boolean -> if (!raw) attachment["sendToModel"] = false
-            is String -> if (raw.equals("false", ignoreCase = true)) {
-                attachment["sendToModel"] = false
-            }
-        }
-
-        return if (
-            attachment["path"] != null ||
-            attachment["url"] != null ||
-            attachment["dataUrl"] != null ||
-            attachment["promptPath"] != null ||
-            attachment["workspacePath"] != null
-        ) {
-            attachment
-        } else {
-            null
-        }
-    }
-
-    private fun firstNonBlank(vararg values: Any?): String? {
-        return values.firstNotNullOfOrNull { value ->
-            value?.toString()?.trim()?.takeIf { it.isNotEmpty() }
-        }
-    }
-
-    private fun copyIfNotBlank(
-        target: MutableMap<String, Any?>,
-        key: String,
-        value: String?
-    ) {
-        val normalized = value?.trim().orEmpty()
-        if (normalized.isNotEmpty()) {
-            target[key] = normalized
-        }
-    }
-
-    private fun looksLikeImagePath(value: String): Boolean {
-        val normalized = value.trim().lowercase().split('?').firstOrNull().orEmpty()
-        return normalized.endsWith(".png") ||
-            normalized.endsWith(".jpg") ||
-            normalized.endsWith(".jpeg") ||
-            normalized.endsWith(".webp") ||
-            normalized.endsWith(".gif") ||
-            normalized.endsWith(".bmp") ||
-            normalized.endsWith(".heic") ||
-            normalized.endsWith(".heif")
-    }
-
     internal fun normalizeMap(value: Any?): Map<String, Any?>? {
         return (value as? Map<*, *>)?.entries?.associate { entry ->
             entry.key.toString() to normalizeValue(entry.value)
         }
+    }
+
+    internal fun normalizeStringList(value: Any?): List<String> {
+        return (value as? List<*>)
+            ?.mapNotNull { item -> item?.toString()?.trim()?.takeIf { it.isNotEmpty() } }
+            ?: emptyList()
     }
 
     internal fun normalizeListOfMaps(value: Any?): List<Map<String, Any?>> {
@@ -320,7 +188,11 @@ class AgentRunService(
             "userMessage" to normalizedPayload.userMessage,
             "attachments" to normalizedPayload.attachments,
             "terminalEnvironment" to AgentRunRequestNormalizer.normalizeMap(request["terminalEnvironment"]),
-            "modelOverride" to AgentRunRequestNormalizer.normalizeMap(request["modelOverride"])
+            "modelOverride" to AgentRunRequestNormalizer.normalizeMap(request["modelOverride"]),
+            "toolProfile" to request["toolProfile"]?.toString()?.trim()?.takeIf { it.isNotEmpty() },
+            "allowedTools" to AgentRunRequestNormalizer.normalizeStringList(
+                request["allowedTools"] ?: request["allowed_tools"]
+            )
         )
         invokeManager("createAgentTask", arguments) {
             manager.createAgentTask(it, this)

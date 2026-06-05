@@ -202,13 +202,15 @@ class _LocalModelIntroPageState extends State<LocalModelIntroPage>
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 ShaderMask(
-                                  shaderCallback: (bounds) =>
-                                      LinearGradient(
+                                  shaderCallback: (bounds) => LinearGradient(
                                     colors: context.isDarkTheme
                                         ? [
                                             palette.accentPrimary,
-                                            Color.lerp(palette.accentPrimary,
-                                                palette.textPrimary, 0.3)!,
+                                            Color.lerp(
+                                              palette.accentPrimary,
+                                              palette.textPrimary,
+                                              0.3,
+                                            )!,
                                           ]
                                         : const [
                                             Color(0xFF1930D9),
@@ -216,19 +218,19 @@ class _LocalModelIntroPageState extends State<LocalModelIntroPage>
                                           ],
                                   ).createShader(bounds),
                                   child: Text(
-                                    context.trLegacy('在设备上运行本地 AI'),
+                                    context.trText('在设备上运行本地 AI'),
                                     style: const TextStyle(
                                       fontSize: 26,
                                       fontWeight: FontWeight.w800,
                                       color: Colors.white,
                                       height: 1.2,
-                                      letterSpacing: -0.5,
+                                      letterSpacing: 0,
                                     ),
                                   ),
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
-                                  context.trLegacy('无需网络，完全免费'),
+                                  context.trText('无需网络，完全免费'),
                                   style: TextStyle(
                                     fontSize: 15,
                                     color: palette.textSecondary,
@@ -258,8 +260,8 @@ class _LocalModelIntroPageState extends State<LocalModelIntroPage>
                                 // Feature 1: Privacy
                                 _FeatureItem(
                                   svgIcon: _kShieldSvg,
-                                  title: context.trLegacy('隐私安全'),
-                                  description: context.trLegacy(
+                                  title: context.trText('隐私安全'),
+                                  description: context.trText(
                                     '数据完全留在设备上，不会发送到任何服务器。对话内容、个人偏好等敏感信息始终由你掌控。',
                                   ),
                                 ),
@@ -268,8 +270,8 @@ class _LocalModelIntroPageState extends State<LocalModelIntroPage>
                                 // Feature 2: Offline
                                 _FeatureItem(
                                   svgIcon: _kWifiOffSvg,
-                                  title: context.trLegacy('离线可用'),
-                                  description: context.trLegacy(
+                                  title: context.trText('离线可用'),
+                                  description: context.trText(
                                     '无需网络连接即可运行 AI 助手。无论在飞机上、地铁里还是偏远地区，随时随地可用。',
                                   ),
                                 ),
@@ -278,8 +280,8 @@ class _LocalModelIntroPageState extends State<LocalModelIntroPage>
                                 // Feature 3: Free
                                 _FeatureItem(
                                   svgIcon: _kZapSvg,
-                                  title: context.trLegacy('完全免费'),
-                                  description: context.trLegacy(
+                                  title: context.trText('完全免费'),
+                                  description: context.trText(
                                     '无需 API 费用或订阅。模型下载后可无限次使用，没有任何隐藏费用。',
                                   ),
                                 ),
@@ -315,7 +317,7 @@ class _LocalModelIntroPageState extends State<LocalModelIntroPage>
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    context.trLegacy(
+                                    context.trText(
                                       '端侧模型较小，回复质量不如云端模型，暂不支持复杂 Agent 任务，适合日常对话与问答。',
                                     ),
                                     style: TextStyle(
@@ -343,13 +345,19 @@ class _LocalModelIntroPageState extends State<LocalModelIntroPage>
                     child: GradientButton(
                       width: screenWidth - 48,
                       height: 48,
-                      text: context.trLegacy('浏览模型市场'),
+                      text: context.trText('浏览模型市场'),
                       gradientColors: context.isDarkTheme
                           ? [
-                              Color.lerp(palette.surfaceElevated,
-                                  palette.accentPrimary, 0.55)!,
-                              Color.lerp(palette.surfaceSecondary,
-                                  palette.accentPrimary, 0.70)!,
+                              Color.lerp(
+                                palette.surfaceElevated,
+                                palette.accentPrimary,
+                                0.55,
+                              )!,
+                              Color.lerp(
+                                palette.surfaceSecondary,
+                                palette.accentPrimary,
+                                0.70,
+                              )!,
                             ]
                           : const [Color(0xFF1930D9), Color(0xFF2DA5F0)],
                       onTap: () async {

@@ -64,6 +64,7 @@ class _AlarmSettingPageState extends State<AlarmSettingPage> {
 
   Future<void> _pickLocalMp3() async {
     final granted = await _ensureAudioReadPermission();
+    if (!mounted) return;
     if (!granted) {
       showToast(context.l10n.alarmAudioPermissionDenied, type: ToastType.warning);
       return;
@@ -79,6 +80,7 @@ class _AlarmSettingPageState extends State<AlarmSettingPage> {
       return;
     }
     final path = result.files.first.path;
+    if (!mounted) return;
     if (path == null || path.isEmpty) {
       showToast(context.l10n.alarmInvalidFilePath, type: ToastType.warning);
       return;
@@ -134,7 +136,7 @@ class _AlarmSettingPageState extends State<AlarmSettingPage> {
       return;
     }
 
-    final error = (payload['message'] ?? payload['summary'] ?? context.trLegacy('保存失败'))
+    final error = (payload['message'] ?? payload['summary'] ?? context.trText('保存失败'))
         .toString();
     showToast(error, type: ToastType.error);
   }
@@ -165,7 +167,7 @@ class _AlarmSettingPageState extends State<AlarmSettingPage> {
                     ],
                     if (_source == _sourceRemoteMp3) ...[
                       const SizedBox(height: 18),
-                      SettingsSectionTitle(label: context.trLegacy('远程地址')),
+                      SettingsSectionTitle(label: context.trText('远程地址')),
                       _buildRemoteUrlCard(),
                     ],
                     const Spacer(),
@@ -182,7 +184,7 @@ class _AlarmSettingPageState extends State<AlarmSettingPage> {
                               : Colors.white,
                           minimumSize: const Size.fromHeight(48),
                         ),
-                        child: Text(_saving ? context.trLegacy('保存中...') : context.trLegacy('保存')),
+                        child: Text(_saving ? context.trText('保存中...') : context.trText('保存')),
                       ),
                     ),
                   ],
@@ -193,26 +195,35 @@ class _AlarmSettingPageState extends State<AlarmSettingPage> {
   }
 
   Widget _buildSourceCard() {
-    return Column(
-      children: [
-        _buildSourceTile(
-          value: _sourceDefault,
-          title: context.l10n.alarmSystemDefault,
-          subtitle: context.l10n.alarmSystemDefaultDesc,
-        ),
-        const Divider(height: 1),
-        _buildSourceTile(
-          value: _sourceLocalMp3,
-          title: context.l10n.alarmLocalMp3,
-          subtitle: context.l10n.alarmLocalMp3Desc,
-        ),
-        const Divider(height: 1),
-        _buildSourceTile(
-          value: _sourceRemoteMp3,
-          title: context.l10n.alarmMp3Url,
-          subtitle: context.l10n.alarmMp3UrlDesc,
-        ),
-      ],
+    return RadioGroup<String>(
+      groupValue: _source,
+      onChanged: (next) {
+        if (next == null) return;
+        setState(() {
+          _source = next;
+        });
+      },
+      child: Column(
+        children: [
+          _buildSourceTile(
+            value: _sourceDefault,
+            title: context.l10n.alarmSystemDefault,
+            subtitle: context.l10n.alarmSystemDefaultDesc,
+          ),
+          const Divider(height: 1),
+          _buildSourceTile(
+            value: _sourceLocalMp3,
+            title: context.l10n.alarmLocalMp3,
+            subtitle: context.l10n.alarmLocalMp3Desc,
+          ),
+          const Divider(height: 1),
+          _buildSourceTile(
+            value: _sourceRemoteMp3,
+            title: context.l10n.alarmMp3Url,
+            subtitle: context.l10n.alarmMp3UrlDesc,
+          ),
+        ],
+      ),
     );
   }
 
@@ -239,16 +250,9 @@ class _AlarmSettingPageState extends State<AlarmSettingPage> {
             children: [
               Radio<String>(
                 value: value,
-                groupValue: _source,
                 activeColor: context.isDarkTheme
                     ? palette.accentPrimary
                     : AppColors.primaryBlue,
-                onChanged: (next) {
-                  if (next == null) return;
-                  setState(() {
-                    _source = next;
-                  });
-                },
               ),
               const SizedBox(width: 2),
               Expanded(
@@ -298,7 +302,7 @@ class _AlarmSettingPageState extends State<AlarmSettingPage> {
 
   Widget _buildLocalFileCard() {
     final palette = context.omniPalette;
-    final displayPath = _localPath.isEmpty ? context.trLegacy('未选择文件') : _localPath;
+    final displayPath = _localPath.isEmpty ? context.trText('未选择文件') : _localPath;
 
     return SizedBox(
       width: double.infinity,

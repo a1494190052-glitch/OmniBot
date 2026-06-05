@@ -624,16 +624,14 @@ class ButtonModel{
 
 class UnknownBlock extends Block {
   final Map<String, dynamic> raw;
-  final String taskId;
 
-  UnknownBlock(String id, {required this.raw, required this.taskId}) : super(id, taskId, 'unknown', meta: const {});
+  UnknownBlock(String id, {required this.raw, required String taskId}) : super(id, taskId, 'unknown', meta: const {});
 
   @override
-  Block appendText(String text) {
-    // 对于UnknownBlock，尝试更新raw数据中的text字段
+  Block appendText(String appendText) {
     final updatedRaw = Map<String, dynamic>.from(raw);
     final existingText = updatedRaw['text'] ?? '';
-    updatedRaw['text'] = '$existingText$text';
+    updatedRaw['text'] = '$existingText$appendText';
     return UnknownBlock(id, raw: updatedRaw, taskId: taskId);
   }
 }

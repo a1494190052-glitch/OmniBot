@@ -90,8 +90,7 @@ object ExternalApkInstaller {
         }
 
         notifier.showStarting()
-        val existingApk = existingDownloadedApk(appContext, apkFileName)
-        val apkFile = existingApk ?: downloadApk(
+        val apkFile = downloadApk(
             context = appContext,
             downloadUrl = downloadUrl,
             apkFileName = apkFileName,
@@ -105,7 +104,6 @@ object ExternalApkInstaller {
             )
         }
 
-        notifier.showCompleted(apkFile)
         val launched = withContext(Dispatchers.Main) {
             installApk(context, apkFile)
         }
@@ -129,11 +127,6 @@ object ExternalApkInstaller {
                 filePath = apkFile.absolutePath
             )
         }
-    }
-
-    private fun existingDownloadedApk(context: Context, apkFileName: String): File? {
-        val apkFile = File(File(context.filesDir, DOWNLOAD_DIR_NAME), apkFileName)
-        return apkFile.takeIf { it.exists() && it.length() > 0L }
     }
 
     private suspend fun downloadApk(
@@ -189,7 +182,10 @@ object ExternalApkInstaller {
                         output.flush()
                     }
                 }
-                notifier.showDownloadFinished()
+                notifier.updateProgress(
+                    downloadedBytes = downloadedBytes,
+                    totalBytes = totalBytes
+                )
 
                 if (apkFile.exists()) {
                     apkFile.delete()
@@ -202,7 +198,6 @@ object ExternalApkInstaller {
                     }
                     tempFile.delete()
                 }
-                notifier.showCompleted(apkFile)
                 apkFile
             }
         } catch (e: Exception) {
@@ -308,17 +303,6 @@ object ExternalApkInstaller {
                     .setContentText("已下载 $progress%")
                     .setProgress(100, progress, false)
                     .setOngoing(progress < 100)
-            )
-        }
-
-        fun showDownloadFinished() {
-            hasShownIndeterminateProgress = false
-            lastProgress = 100
-            notify(
-                baseBuilder()
-                    .setContentText("已下载 100%")
-                    .setProgress(100, 100, false)
-                    .setOngoing(false)
             )
         }
 

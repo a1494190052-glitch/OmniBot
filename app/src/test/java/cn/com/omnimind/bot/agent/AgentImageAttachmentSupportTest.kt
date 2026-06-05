@@ -54,14 +54,9 @@ class AgentImageAttachmentSupportTest {
 
         assertEquals(1, prepared.modelAttachments.size)
         assertEquals(1, prepared.historyAttachments.size)
-        assertEquals(1, prepared.runtimeAttachments.size)
         assertEquals(
             "data:image/jpeg;base64,MODEL",
             prepared.modelAttachments.single()["dataUrl"]
-        )
-        assertEquals(
-            "data:image/jpeg;base64,MODEL",
-            prepared.runtimeAttachments.single()["dataUrl"]
         )
         assertEquals(
             "data:image/jpeg;base64,PREVIEW",
@@ -106,30 +101,5 @@ class AgentImageAttachmentSupportTest {
         assertFalse(result?.payload.toString().orEmpty().contains("base64"))
         assertEquals(1179, result?.payload?.get("width"))
         assertEquals(2556, result?.payload?.get("height"))
-    }
-
-    @Test
-    fun `prepareAttachments keeps non-image files out of model attachments`() {
-        val prepared = AgentImageAttachmentSupport.prepareAttachments(
-            listOf(
-                mapOf(
-                    "path" to "/tmp/notes.md",
-                    "name" to "notes.md",
-                    "mimeType" to "text/markdown",
-                    "isImage" to false,
-                    "promptPath" to "/workspace/shared/notes.md",
-                    "sendToModel" to false
-                )
-            )
-        )
-
-        assertEquals(0, prepared.modelAttachments.size)
-        assertEquals(1, prepared.runtimeAttachments.size)
-        assertEquals(1, prepared.historyAttachments.size)
-        assertEquals(false, prepared.runtimeAttachments.single()["sendToModel"])
-        assertEquals(
-            "/workspace/shared/notes.md",
-            prepared.runtimeAttachments.single()["promptPath"]
-        )
     }
 }

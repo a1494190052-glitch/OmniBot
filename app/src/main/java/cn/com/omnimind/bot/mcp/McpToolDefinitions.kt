@@ -1,15 +1,21 @@
 package cn.com.omnimind.bot.mcp
 
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
+import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
+import cn.com.omnimind.bot.agent.AgentToolNames
+import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
+import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 
 /**
  * MCP 工具定义
  */
 object McpToolDefinitions {
     private fun brandName(): String = AppLocaleManager.brandName()
+    private val canonicalReplayTools: String =
+        OobCanonicalActionSchema.replayableToolNames.joinToString(", ")
     
     val vlmTaskTool = mapOf(
-        "name" to "vlm_task",
+        "name" to AgentToolNames.VLM_TASK,
         "description" to """Execute an autonomous VLM (Visual Language Model) agent task on an Android device.
 
 This tool enables AI-driven device automation by using a visual language model to understand screen content and perform actions. The agent will:
@@ -18,11 +24,20 @@ This tool enables AI-driven device automation by using a visual language model t
 3. Execute UI actions (tap, scroll, input text, etc.)
 4. Iterate until the goal is achieved or intervention is needed
 
+Do not use this tool for uploaded image, screenshot, or photo recognition, OCR, explanation, summary, or comparison. Uploaded images are already part of the multimodal conversation; this tool is only for the current Android device screen and real UI automation.
+
 Use cases:
 - Automate repetitive mobile tasks (ordering food, sending messages, etc.)
 - Navigate complex app workflows autonomously
 - Extract information from mobile applications
 - Perform multi-step operations across different apps
+
+OMNIFLOW FUNCTION REUSE:
+- Online VLM observes the current page each turn, recalls matching saved Functions, and exposes them as call_tool candidates inside the VLM task.
+- A saved Function call may execute multiple phone actions and may finish only part of the goal. After its result, VLM observes the fresh page again and chooses the next tool.
+- Parameterized Functions are valid matches. The VLM fills required arguments from the user goal before calling call_tool with function_id.
+- The outer Agent should not call hidden Function replay or guard tools. Guard checks, checker handling, action transfer, and replay safety stay inside the local runner.
+- If a Function fails, the failure is returned as the tool result. The next VLM step handles the current page; the Agent should not resume hidden Function replay itself.
 
 IMPORTANT FOR SUMMARY TASKS:
 - If the user's goal is to summarize, extract key points, or produce a report (e.g., "总结/汇总/整理/概括/提炼" or "summary/recap"),
@@ -57,9 +72,32 @@ WORKFLOW:
                     "type" to "string",
                     "description" to "Optional: Target app package name (e.g., 'com.tencent.mm' for WeChat). If not specified, the agent will start from the current screen."
                 ),
+                "maxSteps" to mapOf(
+                    "type" to "integer",
+                    "default" to 12,
+                    "description" to "Optional maximum execution steps. Defaults to 12 and is capped at 64. If the model does not explicitly finish before the limit, the task reports incomplete or max-step failure."
+                ),
+                "timeoutMs" to mapOf(
+                    "type" to "integer",
+                    "description" to "Optional control-plane wait timeout in milliseconds. If it expires, OOB stops the on-device VLM task instead of leaving it running."
+                ),
+                "startFromCurrent" to mapOf(
+                    "type" to "boolean",
+                    "description" to "Optional: set true to keep the current app/page and skip launching packageName."
+                ),
                 "needSummary" to mapOf(
                     "type" to "boolean",
                     "description" to "Optional: Set true for summarization/report tasks so the summary is generated and returned in the tool result. Default: false."
+                ),
+                "disableOmniFlowRecall" to mapOf(
+                    "type" to "boolean",
+                    "default" to false,
+                    "description" to "Optional flag. Default false: inject UDEG page skill and OmniFlow Function recall candidates after each fresh VLM observe. Set true only for a strict no-recall baseline."
+                ),
+                "parseOnly" to mapOf(
+                    "type" to "boolean",
+                    "default" to false,
+                    "description" to "Diagnostic only. Set true to run one real VLM planning turn on the current page, parse the selected tool call, and return it without executing any device action or Function."
                 )
             ),
             "required" to listOf("goal")
@@ -153,6 +191,59 @@ BEHAVIOR:
         )
     )
 
+    val getStateTool = mapOf(
+        "name" to "get_state",
+        "description" to """Capture the current Android device state from OOB's on-device Accessibility runtime.
+
+Returns the foreground package/activity, live Accessibility XML, screenshot metadata, and optionally a JPEG screenshot data URI plus OOB indexed page evidence. This is a read-only state capture tool for external testing and GUI agents; it avoids slow host-side adb uiautomator/screencap capture.
+""".trimIndent(),
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "include_xml" to mapOf(
+                    "type" to "boolean",
+                    "default" to true,
+                    "description" to "Include the full live Accessibility XML string. Default: true."
+                ),
+                "include_screenshot" to mapOf(
+                    "type" to "boolean",
+                    "default" to true,
+                    "description" to "Include a JPEG screenshot data URI under screenshot.data_uri. Default: true."
+                ),
+                "include_indexed_context" to mapOf(
+                    "type" to "boolean",
+                    "default" to true,
+                    "description" to "Include OOB indexed page evidence rendered from XML for element grounding. Default: true."
+                ),
+                "include_marked_screenshot" to mapOf(
+                    "type" to "boolean",
+                    "default" to false,
+                    "description" to "Include a marked screenshot with element indexes. This duplicates image payload size. Default: false."
+                ),
+                "include_image_content" to mapOf(
+                    "type" to "boolean",
+                    "default" to false,
+                    "description" to "Also attach screenshot as MCP image content. Default false because screenshot.data_uri already contains it."
+                ),
+                "filter_overlay" to mapOf(
+                    "type" to "boolean",
+                    "default" to true,
+                    "description" to "Try to hide/filter OOB overlays during screenshot capture. Default: true."
+                ),
+                "image_quality" to mapOf(
+                    "type" to "string",
+                    "enum" to listOf("original", "high", "medium", "low", "summary"),
+                    "default" to "medium",
+                    "description" to "Screenshot compression level. Default: medium."
+                ),
+                "max_xml_chars" to mapOf(
+                    "type" to "integer",
+                    "description" to "Optional XML truncation limit for the returned xml field. Omit or set <=0 for full XML."
+                )
+            )
+        )
+    )
+
     val fileTransferTool
         get() = mapOf(
         "name" to "file_transfer",
@@ -201,6 +292,370 @@ NOTES:
         )
     )
 
+    val agentRunTool = mapOf(
+        "name" to "agent_run",
+        "description" to """Submit a prompt into the normal in-app ${brandName()} Agent runtime.
+
+Use this when you need OOB itself to create or modify Workbench Projects, call internal Agent tools, or run a toolvox-style validation without relying on visual typing into the Flutter Home input.
+
+This is not a Workbench debug shortcut:
+- It starts the same Agent task path used by WebChat/Home.
+- The Agent must call Workbench tools such as workbench_project_create and workbench_api_call by itself.
+- Workbench control tools are still not exposed as Project Tools.
+
+BEHAVIOR:
+- Returns once the Agent run is accepted.
+- Use WebChat events, task logs, or Project runtime files to verify completion.
+- Do not claim Project creation succeeded until workspace/projects/<project-id>/project.json exists on the device.
+""".trimIndent(),
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "userMessage" to mapOf(
+                    "type" to "string",
+                    "description" to "The user prompt to submit to the normal OOB Agent runtime."
+                ),
+                "conversationId" to mapOf(
+                    "type" to "integer",
+                    "description" to "Optional existing OOB conversation id. If omitted, a new conversation is created."
+                ),
+                "conversationMode" to mapOf(
+                    "type" to "string",
+                    "description" to "Optional conversation mode. Defaults to normal."
+                ),
+                "title" to mapOf(
+                    "type" to "string",
+                    "description" to "Optional title when creating a new conversation."
+                ),
+                "taskId" to mapOf(
+                    "type" to "string",
+                    "description" to "Optional stable task id for correlation. If omitted, OOB generates one."
+                ),
+                "attachments" to mapOf(
+                    "type" to "array",
+                    "description" to "Optional image/file attachments in the same shape accepted by WebChat."
+                ),
+                "modelOverride" to mapOf(
+                    "type" to "object",
+                    "description" to "Optional providerProfileId/modelId override in the same shape accepted by WebChat."
+                ),
+                "toolProfile" to mapOf(
+                    "type" to "string",
+                    "enum" to listOf("function_management"),
+                    "description" to "Optional focused tool exposure profile. Use function_management when the Agent only needs to list, inspect, register, convert, update, or delete OOB Functions; this keeps regular Agent behavior unchanged while reducing tool-schema tokens."
+                ),
+                "allowedTools" to mapOf(
+                    "type" to "array",
+                    "description" to "Optional explicit model tool allowlist for this Agent run. When set, only these tool schemas are exposed to the model.",
+                    "items" to mapOf("type" to "string")
+                )
+            ),
+            "required" to listOf("userMessage")
+        )
+    )
+
+    val callToolTool = mapOf(
+        "name" to RunLogReplayPolicy.TOOL_CALL_TOOL,
+        "description" to """Call one OOB capability through the normal in-app Agent runtime, or run one saved Function by function_id. For phone UI automation, use vlm_task; recalled saved Functions are selected inside vlm_task through call_tool candidates.""".trimIndent(),
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "tool_name" to mapOf("type" to "string", "description" to "OOB or MCP tool name, for example vlm_task or file_transfer."),
+                "function_id" to mapOf("type" to "string", "description" to "Saved Function id to run. Do not also set tool_name."),
+                "arguments" to mapOf("type" to "object", "description" to "Arguments to pass to the requested tool."),
+                "goal" to mapOf("type" to "string", "description" to "Optional natural-language goal when the tool requires planning or composition.")
+            )
+        )
+    )
+
+    val omniflowRecallTool = mapOf(
+        "name" to "omniflow.recall",
+        "description" to """Recall by the UDEG path: page match -> UDEG node -> node skill-like decision context -> VLM/tool decision. The result is candidate context for inspection and diagnostics. Online execution should use vlm_task, where recalled Functions are selected through call_tool candidates.""".trimIndent(),
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "goal" to mapOf("type" to "string", "description" to "Natural-language task goal."),
+                "current_package" to mapOf("type" to "string", "description" to "Optional foreground Android package for scope matching."),
+                "current_node_id" to mapOf("type" to "string", "description" to "Optional current page/node id for future OmniFlow compatibility."),
+                "current_xml" to mapOf("type" to "string", "description" to "Optional live accessibility XML. When omitted, OOB captures the foreground page and page-matches it to a UDEG node."),
+                "k" to mapOf("type" to "integer", "description" to "Maximum candidates to return. Default 8."),
+                "include_debug" to mapOf(
+                    "type" to "boolean",
+                    "default" to false,
+                    "description" to "Default false returns an agent-compact payload without timing, full node skill body, page vectors, or artifacts. Set true only for tests/debugging."
+                )
+            ),
+            "required" to listOf("goal")
+        )
+    )
+
+    val omniflowIngestRunLogTool = mapOf(
+        "name" to "omniflow.ingest_run_log",
+        "description" to """Convert a successful OOB RunLog into a local manual Function asset. By default this returns or saves an agent-hidden manual Function; set register=true and agent_visible=true only when explicitly publishing it as a reusable Function candidate.""".trimIndent(),
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "run_id" to mapOf("type" to "string", "description" to "Existing OOB internal RunLog id."),
+                "run_log" to mapOf("type" to "object", "description" to "Optional inline canonical run log."),
+                "register" to mapOf("type" to "boolean", "description" to "Persist the converted manual Function. Default false."),
+                "agent_visible" to mapOf("type" to "boolean", "description" to "Publish into agent-visible reusable Function recall/tool candidates. Default false."),
+                "auto_enrich" to mapOf("type" to "boolean", "description" to "Accepted for compatibility; OOB simple mode does deterministic local import.")
+            )
+        )
+    )
+
+    val omniflowExploreReplayTool = mapOf(
+        "name" to "omniflow.explore_replay",
+        "description" to """Run OOB-native exploratory UI crawling, persist the path as a UTG-backed RunLog, convert it into a reusable Function, then optionally replay that Function through the existing local runner.""".trimIndent(),
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "goal" to mapOf("type" to "string", "description" to "Natural-language objective used to rank safe clickable UI nodes."),
+                "package_name" to mapOf("type" to "string", "description" to "Optional Android package to launch before exploration."),
+                "max_steps" to mapOf("type" to "integer", "description" to "Maximum exploration clicks. Default 3, capped at 8."),
+                "settle_delay_ms" to mapOf("type" to "integer", "description" to "Delay after launch/click before capturing XML. Default 800ms."),
+                "stop_text" to mapOf("type" to "string", "description" to "Optional text/content/resource substring that stops exploration once seen in captured XML."),
+                "allow_risky_actions" to mapOf("type" to "boolean", "description" to "Allow labels such as delete, pay, submit, or logout. Default false."),
+                "function_id" to mapOf("type" to "string", "description" to "Optional stable Function id for the generated path."),
+                "replay" to mapOf("type" to "boolean", "description" to "Whether to replay after registration. Default true."),
+                "reset_before_replay" to mapOf("type" to "boolean", "description" to "Optionally press Back and relaunch package before replay."),
+                "reset_back_steps" to mapOf("type" to "integer", "description" to "Back presses used when reset_before_replay=true. Default 1."),
+                "arguments" to mapOf("type" to "object", "description" to "Function arguments for replay; generated UTG functions are usually argument-free.")
+            ),
+            "required" to listOf("goal")
+        )
+    )
+
+    val oobFunctionListTool = mapOf(
+        "name" to OobFunctionToolNames.FUNCTION_LIST,
+        "description" to "List registered OOB reusable Functions available for direct deterministic replay.",
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "limit" to mapOf("type" to "integer", "description" to "Maximum number of Functions to return. Default: 100.")
+            )
+        )
+    )
+
+    val oobFunctionGetTool = mapOf(
+        "name" to OobFunctionToolNames.FUNCTION_GET,
+        "description" to "Read one registered OOB reusable Function by id.",
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "function_id" to mapOf("type" to "string", "description" to "Function id to read.")
+            ),
+            "required" to listOf("function_id")
+        )
+    )
+
+    val oobFunctionRegisterTool = mapOf(
+        "name" to OobFunctionToolNames.FUNCTION_REGISTER,
+        "description" to "Register or update one OOB reusable Function. Prefer the simple shape {function_id,name,description,steps,source_page}; pass function_spec only when you already have a full oob.reusable_function.v1 spec. Registration never auto-executes the Function.",
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "function_id" to mapOf("type" to "string", "description" to "Optional stable Function id. Generated from name when omitted."),
+                "name" to mapOf("type" to "string", "description" to "User-readable Function name."),
+                "description" to mapOf("type" to "string", "description" to "One-sentence description of when to reuse this Function."),
+                "package_name" to mapOf("type" to "string", "description" to "Optional target/source app package for page-scoped recall."),
+                "source_page" to mapOf("type" to "object", "description" to "Optional source page context, for example {xml, package_name, activity_name}."),
+                "parameters" to mapOf("type" to "array", "description" to "Optional Function parameter descriptors with name/type/required/default/bindings."),
+                "steps" to mapOf(
+                    "type" to "array",
+                    "description" to "Simple canonical step list. Each item must use {tool,args,title?}. Supported tool values are $canonicalReplayTools. input_text uses args.text; finished uses args.content.",
+                    "items" to mapOf("type" to "object")
+                ),
+                "function_spec" to mapOf("type" to "object", "description" to "Optional full oob.reusable_function.v1 spec object.")
+            )
+        )
+    )
+
+    val updateFunctionTool = mapOf(
+        "name" to OobFunctionToolNames.FUNCTION_UPDATE,
+        "description" to "Update one saved OOB Function from a structured patch, user correction, or RunLog evidence. Passing run_id without analysis/patch returns analysis_context and agent_prompt; saving RunLog evidence uses analysis plus an optional patch.",
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "function_id" to mapOf("type" to "string", "description" to "Function id to update."),
+                "run_id" to mapOf("type" to "string", "description" to "Optional local RunLog id used as evidence for agent analysis."),
+                "instruction" to mapOf("type" to "string", "description" to "Optional user correction or enhancement instruction."),
+                "mode" to mapOf("type" to "string", "description" to "enhance, repair, or annotate."),
+                "analysis" to mapOf("type" to "object", "description" to "Agent-authored RunLog evidence analysis to persist in Function metadata."),
+                "patch" to mapOf("type" to "object", "description" to "Optional structured Function patch generated from the analysis."),
+                "dry_run" to mapOf("type" to "boolean", "description" to "Preview changes without saving."),
+                "allow_execution_change" to mapOf("type" to "boolean", "description" to "Allow repair operations that alter executable step targets."),
+                "allow_structural_change" to mapOf("type" to "boolean", "description" to "Allow insert/delete step operations.")
+            ),
+            "required" to listOf("function_id")
+        )
+    )
+
+    val oobFunctionGuardCheckTool = mapOf(
+        "name" to OobFunctionToolNames.FUNCTION_GUARD_CHECK,
+        "description" to "Run preflight guard checks for one OOB reusable Function before replay.",
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "function_id" to mapOf("type" to "string", "description" to "Function id to check."),
+                "arguments" to mapOf("type" to "object", "description" to "Materialization arguments for the Function.")
+            ),
+            "required" to listOf("function_id")
+        )
+    )
+
+    val oobFunctionDeleteTool = mapOf(
+        "name" to OobFunctionToolNames.FUNCTION_DELETE,
+        "description" to "Delete one registered OOB reusable Function from Workspace, local registry, and UDEG node references.",
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "function_id" to mapOf("type" to "string", "description" to "Function id to delete.")
+            ),
+            "required" to listOf("function_id")
+        )
+    )
+
+    val oobFunctionClearTool = mapOf(
+        "name" to OobFunctionToolNames.FUNCTION_CLEAR,
+        "description" to "Clear all registered OOB reusable Functions and detach all Function references from UDEG node skills. Requires confirm=true.",
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "confirm" to mapOf("type" to "boolean", "description" to "Must be true to clear all Functions.")
+            ),
+            "required" to listOf("confirm")
+        )
+    )
+
+    val oobRunLogListTool = mapOf(
+        "name" to OobFunctionToolNames.RUN_LOG_LIST,
+        "description" to "List recent OOB internal RunLogs that can be inspected or converted to Functions.",
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "limit" to mapOf("type" to "integer", "description" to "Maximum number of RunLogs to return. Default: 50.")
+            )
+        )
+    )
+
+    val oobRunLogGetTool = mapOf(
+        "name" to OobFunctionToolNames.RUN_LOG_GET,
+        "description" to "Read one OOB internal RunLog timeline payload by id.",
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "run_id" to mapOf("type" to "string", "description" to "RunLog id to read.")
+            ),
+            "required" to listOf("run_id")
+        )
+    )
+
+    val oobRunLogConvertTool = mapOf(
+        "name" to OobFunctionToolNames.RUN_LOG_CONVERT,
+        "description" to "Convert one successful OOB RunLog into a reusable Function and optionally register it.",
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "run_id" to mapOf("type" to "string", "description" to "RunLog id to convert."),
+                "register" to mapOf("type" to "boolean", "description" to "Register the converted Function. Default follows service policy."),
+                "function_id" to mapOf("type" to "string", "description" to "Optional Function id override."),
+                "name" to mapOf("type" to "string", "description" to "Optional Function name override."),
+                "description" to mapOf("type" to "string", "description" to "Optional Function description override.")
+            ),
+            "required" to listOf("run_id")
+        )
+    )
+
+    val oobProjectCreateTool = mapOf(
+        "name" to "oob_project_create",
+        "description" to """Create or reuse an OOB Workbench Project.
+
+This is the MCP control entry for Project creation. It writes the normal Workbench runtime files under /workspace/projects/<project-id>/ and registers Project Tools. It does not add Workbench control tools to the Project Toolbox.
+""".trimIndent(),
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "projectId" to mapOf("type" to "string", "description" to "Stable Project id. Example: oob-workbench-v01-research-summary"),
+                "name" to mapOf("type" to "string", "description" to "Human-readable Project name."),
+                "prompt" to mapOf("type" to "string", "description" to "Original creation prompt preserved in Project files."),
+                "entityName" to mapOf("type" to "string", "description" to "Optional Project entity name for the default Project Display."),
+                "initialItems" to mapOf("type" to "array", "description" to "Optional initial Project data written to data/items.json."),
+                "apis" to mapOf("type" to "array", "description" to "Optional Project Tool contracts. Each item may include apiId or toolId, displayName, description, inputSchema, outputSchema, and run."),
+                "htmlFiles" to mapOf("type" to "array", "description" to "Optional HTML/CSS/JS files under frontend/html/. This is the default frontend path. Include index.html for html_webview Displays. Use for reports, interactive UI, charts, dashboards, forms, and rich layouts. Prefer a single page with hash routing; multiple local HTML files may link to each other with relative URLs such as detail.html?id=1#summary, but only as Project-local page replacement with no browser back stack or external navigation. Default to the app-injected Workbench Display layout profile: viewport width=device-width, one column, compact first viewport, targeting the measured viewportWidthDp/viewportHeightDp instead of hard-coded phone dimensions. Portrait reports should use a phone-width article layout with the executive summary in the first measured viewport; use viewport width=1280 only for explicit wide reports or slide decks."),
+                "markdownFiles" to mapOf("type" to "array", "description" to "Optional specialized Markdown files under frontend/markdown/. Not the default UI path. Include index.md for markdown Displays only when the user explicitly asks for Markdown, editable documents, plain-text long-form output, or when the current Project is already a Markdown Display."),
+                "flutterFiles" to mapOf("type" to "array", "description" to "Optional Flutter files under frontend/flutter/ for the limited flutter_eval renderer. Expose an OobProjectWidget(dynamic _, {super.key}) Widget entry; do not include void main(), runApp(), normal app entry code, or third-party packages.")
+            )
+        )
+    )
+
+    val oobProjectActivateTool = mapOf(
+        "name" to "oob_project_activate",
+        "description" to "Activate one OOB Project so its Project Tools are mounted as the current MCP Toolbox.",
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "projectId" to mapOf("type" to "string", "description" to "Project id to activate.")
+            ),
+            "required" to listOf("projectId")
+        )
+    )
+
+    val oobProjectOpenTool = mapOf(
+        "name" to "oob_project_open",
+        "description" to "Open a Project's native OOB Flutter Display route on the device.",
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "projectId" to mapOf("type" to "string", "description" to "Project id to open.")
+            ),
+            "required" to listOf("projectId")
+        )
+    )
+
+    val oobProjectProgressGetTool = mapOf(
+        "name" to "oob_project_progress_get",
+        "description" to "Read recent Project creation/import progress rows from the Workbench progress log.",
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "projectId" to mapOf("type" to "string", "description" to "Optional Project id. Defaults to active/latest context when supported."),
+                "limit" to mapOf("type" to "integer", "description" to "Maximum rows to return. Defaults to 50.")
+            )
+        )
+    )
+
+    val fixedTools
+        get() = listOf(
+            vlmTaskTool,
+            taskStatusTool,
+            taskReplyTool,
+            taskWaitUnlockTool,
+            getStateTool,
+            fileTransferTool,
+            agentRunTool,
+            callToolTool,
+            omniflowRecallTool,
+            omniflowIngestRunLogTool,
+            omniflowExploreReplayTool,
+            oobFunctionListTool,
+            oobFunctionGetTool,
+            oobFunctionRegisterTool,
+            updateFunctionTool,
+            oobFunctionDeleteTool,
+            oobFunctionClearTool,
+            oobRunLogListTool,
+            oobRunLogGetTool,
+            oobRunLogConvertTool,
+            oobProjectCreateTool,
+            oobProjectActivateTool,
+            oobProjectOpenTool,
+            oobProjectProgressGetTool
+        )
+
+    val fixedToolNames: Set<String>
+        get() = fixedTools.mapNotNull { it["name"]?.toString() }.toSet()
+
     val allTools
-        get() = listOf(vlmTaskTool, taskStatusTool, taskReplyTool, taskWaitUnlockTool, fileTransferTool)
+        get() = fixedTools
 }

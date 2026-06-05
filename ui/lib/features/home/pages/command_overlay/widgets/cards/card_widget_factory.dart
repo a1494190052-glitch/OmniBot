@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:ui/services/agent_tool_card_policy.dart';
 import 'package:ui/services/app_background_service.dart';
 import 'artifact_card.dart';
 import 'agent_tool_summary_card.dart';
@@ -10,6 +11,9 @@ import 'permission_button_card.dart';
 import 'permission_section_card.dart';
 import 'stage_hint_card.dart';
 import 'openclaw_attachment_card.dart';
+import 'user_dialog_card.dart';
+import 'workbench_project_card.dart';
+import 'manual_recording_result_card.dart';
 
 /// 任务执行前的回调类型
 typedef OnBeforeTaskExecute = Future<void> Function();
@@ -103,7 +107,11 @@ class CardWidgetFactory {
           cardData: cardData,
           onRequestAuthorize: onRequestAuthorize,
         );
-      case 'agent_tool_summary':
+      case kAgentToolSummaryCardType:
+        final toolType = (cardData['toolType'] ?? '').toString();
+        if (toolType == 'workspace' || toolType == 'workbench') {
+          return const SizedBox.shrink();
+        }
         return AgentToolSummaryCard(
           cardData: cardData,
           parentScrollController: parentScrollController,
@@ -115,9 +123,16 @@ class CardWidgetFactory {
         return CodexRequestCard(cardData: cardData);
       case 'history_omitted_card':
         return _HistoryOmittedCard(cardData: cardData);
+      case 'user_dialog':
+        final card = UserDialogCard.tryFromCardData(cardData);
+        return card ?? const SizedBox.shrink();
       case 'artifact_card':
         final artifact = cardData['artifact'] as Map<String, dynamic>? ?? {};
         return ArtifactCard(artifact: artifact);
+      case 'workbench_project':
+        return WorkbenchProjectCard(cardData: cardData);
+      case 'manual_recording_result':
+        return ManualRecordingResultCard(cardData: cardData);
       default:
         return _UnknownCard(type: type);
     }

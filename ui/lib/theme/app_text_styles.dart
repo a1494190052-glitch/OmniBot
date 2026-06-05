@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'app_colors.dart';
 
 /// 应用文本样式系统 - 基于 Figma 设计令牌
 class AppTextStyles {

@@ -195,7 +195,7 @@ class _ExecutableTaskCardState extends State<ExecutableTaskCard> {
 
       const String execMode = 'VLM';
 
-      print(
+      debugPrint(
         '执行任务 - packageName: $packageName, isHomeTask: $isHomeTask, execMode: $execMode',
       );
 
@@ -203,7 +203,7 @@ class _ExecutableTaskCardState extends State<ExecutableTaskCard> {
       final filledParams =
           widget.cardData['filled_params'] as Map<String, dynamic>?;
 
-      // 构建 taskJson，传入 filledParams 以填充 slotValues
+      // 构建 taskJson，传入 filledParams 以填充 arguments
       final Map<String, dynamic>? taskJsonMap =
           ExecutableTaskService.buildTaskJsonFromSuggestion(
             suggestion: suggestion,
@@ -230,7 +230,7 @@ class _ExecutableTaskCardState extends State<ExecutableTaskCard> {
         showToast('任务执行出错', type: ToastType.error);
       }
     } catch (e) {
-      print('执行任务出错: $e');
+      debugPrint('执行任务出错: $e');
       if (mounted) {
         setState(() {
           _isExecuting = false;

@@ -3,16 +3,14 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:ui/services/office_preview_service.dart';
 import 'package:ui/services/omnibot_resource_service.dart';
 import 'package:ui/services/pdf_preview_service.dart';
-import 'package:ui/theme/theme_context.dart';
 import 'package:ui/widgets/chat_drawer_gesture_guard.dart';
 import 'package:ui/widgets/image_preview_overlay.dart';
-import 'package:ui/l10n/legacy_text_localizer.dart';
+import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:video_player/video_player.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
@@ -102,18 +100,6 @@ class OmnibotResourceLinkCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = context.omniPalette;
-    final isDark = context.isDarkTheme;
-    final surfaceColor = plainStyle
-        ? Colors.transparent
-        : (isDark ? palette.surfaceSecondary : Colors.white);
-    final borderColor = isDark ? palette.borderSubtle : const Color(0xFFD8E4F8);
-    final iconBackgroundColor = isDark
-        ? palette.surfaceElevated
-        : const Color(0xFFEAF3FF);
-    final iconColor = isDark ? palette.accentPrimary : const Color(0xFF1F4ED8);
-    final titleColor = isDark ? palette.textPrimary : const Color(0xFF0F172A);
-    final metaColor = isDark ? palette.textSecondary : const Color(0xFF64748B);
     final icon = switch (metadata.previewKind) {
       'pdf' => Icons.picture_as_pdf_outlined,
       'html' => Icons.language_outlined,
@@ -131,9 +117,11 @@ class OmnibotResourceLinkCard extends StatelessWidget {
       child: Ink(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: surfaceColor,
+          color: plainStyle ? Colors.transparent : Colors.white,
           borderRadius: BorderRadius.circular(14),
-          border: plainStyle ? null : Border.all(color: borderColor),
+          border: plainStyle
+              ? null
+              : Border.all(color: const Color(0xFFD8E4F8)),
           boxShadow: plainStyle
               ? null
               : const [
@@ -151,10 +139,10 @@ class OmnibotResourceLinkCard extends StatelessWidget {
               width: 38,
               height: 38,
               decoration: BoxDecoration(
-                color: iconBackgroundColor,
+                color: const Color(0xFFEAF3FF),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(icon, size: 20, color: iconColor),
+              child: Icon(icon, size: 20, color: const Color(0xFF1F4ED8)),
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -166,10 +154,10 @@ class OmnibotResourceLinkCard extends StatelessWidget {
                     metadata.title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
-                      color: titleColor,
+                      color: Color(0xFF0F172A),
                     ),
                   ),
                   const SizedBox(height: 3),
@@ -177,9 +165,9 @@ class OmnibotResourceLinkCard extends StatelessWidget {
                     metadata.shellPath,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 11,
-                      color: metaColor,
+                      color: Color(0xFF64748B),
                       fontFamily: 'monospace',
                     ),
                   ),
@@ -187,7 +175,11 @@ class OmnibotResourceLinkCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            Icon(Icons.open_in_new_rounded, size: 18, color: metaColor),
+            const Icon(
+              Icons.open_in_new_rounded,
+              size: 18,
+              color: Color(0xFF64748B),
+            ),
           ],
         ),
       ),
@@ -241,9 +233,7 @@ class _OmnibotInlineImageCard extends StatelessWidget {
                     errorBuilder: (_, __, ___) => _MissingResourceCard(
                       metadata: metadata,
                       icon: Icons.broken_image_outlined,
-                      subtitle: LegacyTextLocalizer.isEnglish
-                          ? 'Failed to load image'
-                          : '图片加载失败',
+                      subtitle: AppTextLocalizer.choose(en: 'Failed to load image', zh: '图片加载失败'),
                       plainStyle: plainStyle,
                       onOpen: onOpen,
                     ),
@@ -252,9 +242,7 @@ class _OmnibotInlineImageCard extends StatelessWidget {
               : _MissingResourceCard(
                   metadata: metadata,
                   icon: Icons.image_not_supported_outlined,
-                  subtitle: LegacyTextLocalizer.isEnglish
-                      ? 'Image does not exist or is not readable'
-                      : '图片不存在或暂不可读',
+                  subtitle: AppTextLocalizer.choose(en: 'Image does not exist or is not readable', zh: '图片不存在或暂不可读'),
                   plainStyle: plainStyle,
                   onOpen: onOpen,
                 ),
@@ -334,12 +322,8 @@ class _OmnibotInlineAudioPlayerState extends State<_OmnibotInlineAudioPlayer> {
         metadata: widget.metadata,
         icon: Icons.audio_file_outlined,
         subtitle: _error == null
-            ? (LegacyTextLocalizer.isEnglish
-                  ? 'Audio does not exist or is not readable'
-                  : '音频不存在或暂不可读')
-            : (LegacyTextLocalizer.isEnglish
-                  ? 'Failed to load audio'
-                  : '音频加载失败'),
+            ? (AppTextLocalizer.choose(en: 'Audio does not exist or is not readable', zh: '音频不存在或暂不可读'))
+            : (AppTextLocalizer.choose(en: 'Failed to load audio', zh: '音频加载失败')),
         plainStyle: widget.plainStyle,
         onOpen: widget.onOpen,
       );
@@ -393,7 +377,7 @@ class _OmnibotInlineAudioPlayerState extends State<_OmnibotInlineAudioPlayer> {
                     const SizedBox(height: 3),
                     Text(
                       _duration == null
-                          ? (LegacyTextLocalizer.isEnglish ? 'Audio' : '音频资源')
+                          ? (AppTextLocalizer.choose(en: 'Audio', zh: '音频资源'))
                           : _formatDuration(_duration!),
                       style: const TextStyle(
                         fontSize: 11,
@@ -404,9 +388,7 @@ class _OmnibotInlineAudioPlayerState extends State<_OmnibotInlineAudioPlayer> {
                 ),
               ),
               IconButton(
-                tooltip: LegacyTextLocalizer.isEnglish
-                    ? 'Open preview'
-                    : '打开预览',
+                tooltip: AppTextLocalizer.choose(en: 'Open preview', zh: '打开预览'),
                 onPressed: () => _openMetadata(
                   context,
                   widget.metadata,
@@ -514,12 +496,8 @@ class _OmnibotInlineVideoPlayerState extends State<_OmnibotInlineVideoPlayer> {
         metadata: widget.metadata,
         icon: Icons.video_file_outlined,
         subtitle: _error == null
-            ? (LegacyTextLocalizer.isEnglish
-                  ? 'Video does not exist or is not readable'
-                  : '视频不存在或暂不可读')
-            : (LegacyTextLocalizer.isEnglish
-                  ? 'Failed to load video'
-                  : '视频加载失败'),
+            ? (AppTextLocalizer.choose(en: 'Video does not exist or is not readable', zh: '视频不存在或暂不可读'))
+            : (AppTextLocalizer.choose(en: 'Failed to load video', zh: '视频加载失败')),
         plainStyle: widget.plainStyle,
         onOpen: widget.onOpen,
       );
@@ -872,9 +850,7 @@ class _OmnibotVideoSurfaceState extends State<_OmnibotVideoSurface> {
                                 ),
                                 iconSize: 22,
                                 splashRadius: 18,
-                                tooltip: LegacyTextLocalizer.isEnglish
-                                    ? 'Fullscreen'
-                                    : '全屏',
+                                tooltip: AppTextLocalizer.choose(en: 'Fullscreen', zh: '全屏'),
                               ),
                             ],
                           ),
@@ -972,9 +948,7 @@ class _OmnibotInlinePdfCard extends StatelessWidget {
       return _MissingResourceCard(
         metadata: metadata,
         icon: Icons.picture_as_pdf_outlined,
-        subtitle: LegacyTextLocalizer.isEnglish
-            ? 'PDF does not exist or is not readable'
-            : 'PDF 不存在或暂不可读',
+        subtitle: AppTextLocalizer.choose(en: 'PDF does not exist or is not readable', zh: 'PDF 不存在或暂不可读'),
         plainStyle: plainStyle,
         onOpen: onOpen,
       );
@@ -1108,9 +1082,7 @@ class _OmnibotPdfScrollablePreviewState
                   return _MissingResourceCard(
                     metadata: widget.metadata,
                     icon: Icons.picture_as_pdf_outlined,
-                    subtitle: LegacyTextLocalizer.isEnglish
-                        ? 'PDF preview failed'
-                        : 'PDF 预览失败',
+                    subtitle: AppTextLocalizer.choose(en: 'PDF preview failed', zh: 'PDF 预览失败'),
                     plainStyle: widget.plainStyle,
                     onOpen: widget.onOpen,
                   );
@@ -1226,9 +1198,7 @@ class _PdfPagePlaceholder extends StatelessWidget {
           const CircularProgressIndicator(),
           const SizedBox(height: 10),
           Text(
-            LegacyTextLocalizer.isEnglish
-                ? 'Page ${pageIndex + 1} loading'
-                : '第 ${pageIndex + 1} 页加载中',
+            AppTextLocalizer.choose(en: 'Page ${pageIndex + 1} loading', zh: '第 ${pageIndex + 1} 页加载中'),
             style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
           ),
         ],
@@ -1253,9 +1223,7 @@ class _PdfPageError extends StatelessWidget {
           const Icon(Icons.error_outline_rounded, color: Color(0xFFB45309)),
           const SizedBox(height: 8),
           Text(
-            LegacyTextLocalizer.isEnglish
-                ? 'Page ${pageIndex + 1} render failed'
-                : '第 ${pageIndex + 1} 页渲染失败',
+            AppTextLocalizer.choose(en: 'Page ${pageIndex + 1} render failed', zh: '第 ${pageIndex + 1} 页渲染失败'),
             style: const TextStyle(fontSize: 12, color: Color(0xFF92400E)),
           ),
         ],
@@ -1282,11 +1250,6 @@ class _OmnibotInlineHtmlCard extends StatefulWidget {
 }
 
 class _OmnibotInlineHtmlCardState extends State<_OmnibotInlineHtmlCard> {
-  static final Set<Factory<OneSequenceGestureRecognizer>>
-  _webViewGestureRecognizers = <Factory<OneSequenceGestureRecognizer>>{
-    Factory<EagerGestureRecognizer>(() => EagerGestureRecognizer()),
-  };
-
   late final WebViewController _controller;
   bool _isLoading = true;
   String? _errorMessage;
@@ -1409,9 +1372,7 @@ class _OmnibotInlineHtmlCardState extends State<_OmnibotInlineHtmlCard> {
             ),
             const SizedBox(height: 10),
             Text(
-              LegacyTextLocalizer.isEnglish
-                  ? 'HTML preview failed'
-                  : 'HTML 预览失败',
+              AppTextLocalizer.choose(en: 'HTML preview failed', zh: 'HTML 预览失败'),
               style: const TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
@@ -1436,7 +1397,7 @@ class _OmnibotInlineHtmlCardState extends State<_OmnibotInlineHtmlCard> {
             OutlinedButton.icon(
               onPressed: _loadHtmlFile,
               icon: const Icon(Icons.refresh_rounded),
-              label: Text(LegacyTextLocalizer.isEnglish ? 'Reload' : '重新加载'),
+              label: Text(AppTextLocalizer.choose(en: 'Reload', zh: '重新加载')),
             ),
           ],
         ),
@@ -1450,9 +1411,7 @@ class _OmnibotInlineHtmlCardState extends State<_OmnibotInlineHtmlCard> {
       return _MissingResourceCard(
         metadata: widget.metadata,
         icon: Icons.language_outlined,
-        subtitle: LegacyTextLocalizer.isEnglish
-            ? 'HTML file does not exist or is not readable'
-            : 'HTML 文件不存在或暂不可读',
+        subtitle: AppTextLocalizer.choose(en: 'HTML file does not exist or is not readable', zh: 'HTML 文件不存在或暂不可读'),
         plainStyle: widget.plainStyle,
         onOpen: widget.onOpen,
       );
@@ -1489,7 +1448,6 @@ class _OmnibotInlineHtmlCardState extends State<_OmnibotInlineHtmlCard> {
                     child: WebViewWidget(
                       key: ValueKey(widget.metadata.path),
                       controller: _controller,
-                      gestureRecognizers: _webViewGestureRecognizers,
                     ),
                   ),
                 )
@@ -1561,9 +1519,7 @@ class _OmnibotInlineOfficePreviewCardState
       return _MissingResourceCard(
         metadata: widget.metadata,
         icon: _officeIconForKind(widget.metadata.previewKind),
-        subtitle: LegacyTextLocalizer.isEnglish
-            ? 'File does not exist or is not readable'
-            : '文件不存在或暂不可读',
+        subtitle: AppTextLocalizer.choose(en: 'File does not exist or is not readable', zh: '文件不存在或暂不可读'),
         plainStyle: widget.plainStyle,
         onOpen: widget.onOpen,
       );
@@ -1634,9 +1590,7 @@ class _OmnibotInlineOfficePreviewCardState
                   ),
                 ),
                 IconButton(
-                  tooltip: LegacyTextLocalizer.isEnglish
-                      ? 'Open preview'
-                      : '打开预览',
+                  tooltip: AppTextLocalizer.choose(en: 'Open preview', zh: '打开预览'),
                   onPressed: () => _openMetadata(
                     context,
                     widget.metadata,
@@ -1666,9 +1620,7 @@ class _OmnibotInlineOfficePreviewCardState
                     return _OfficePreviewErrorView(
                       message:
                           snapshot.error?.toString() ??
-                          (LegacyTextLocalizer.isEnglish
-                              ? 'Office preview failed'
-                              : 'Office 预览失败'),
+                          (AppTextLocalizer.choose(en: 'Office preview failed', zh: 'Office 预览失败')),
                       onOpen: () => _openMetadata(
                         context,
                         widget.metadata,
@@ -1716,9 +1668,7 @@ class _OfficePreviewBody extends StatelessWidget {
           if (data.truncated) ...[
             const SizedBox(height: 12),
             Text(
-              LegacyTextLocalizer.isEnglish
-                  ? 'Content is too long. Only showing the first part.'
-                  : '内容较多，当前仅展示前面一部分。',
+              AppTextLocalizer.choose(en: 'Content is too long. Only showing the first part.', zh: '内容较多，当前仅展示前面一部分。'),
               style: TextStyle(
                 fontSize: 11,
                 color: Colors.blueGrey.withValues(alpha: 0.78),
@@ -1894,7 +1844,7 @@ class _OfficePreviewErrorView extends StatelessWidget {
             OutlinedButton.icon(
               onPressed: onOpen,
               icon: const Icon(Icons.open_in_new_rounded),
-              label: Text(LegacyTextLocalizer.isEnglish ? 'Open file' : '打开文件'),
+              label: Text(AppTextLocalizer.choose(en: 'Open file', zh: '打开文件')),
             ),
           ],
         ),
@@ -2055,13 +2005,11 @@ IconData _officeIconForKind(String previewKind) {
 String _officeKindLabel(String previewKind) {
   return switch (previewKind) {
     'office_word' =>
-      LegacyTextLocalizer.isEnglish ? 'Word Document' : 'Word 文档',
+      AppTextLocalizer.choose(en: 'Word Document', zh: 'Word 文档'),
     'office_sheet' =>
-      LegacyTextLocalizer.isEnglish ? 'Excel Spreadsheet' : 'Excel 表格',
+      AppTextLocalizer.choose(en: 'Excel Spreadsheet', zh: 'Excel 表格'),
     'office_slide' =>
-      LegacyTextLocalizer.isEnglish
-          ? 'PowerPoint Presentation'
-          : 'PowerPoint 演示文稿',
-    _ => LegacyTextLocalizer.isEnglish ? 'Office File' : 'Office 文件',
+      AppTextLocalizer.choose(en: 'PowerPoint Presentation', zh: 'PowerPoint 演示文稿'),
+    _ => AppTextLocalizer.choose(en: 'Office File', zh: 'Office 文件'),
   };
 }

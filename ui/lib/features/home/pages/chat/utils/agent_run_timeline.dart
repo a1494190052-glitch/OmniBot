@@ -1,4 +1,6 @@
+import 'package:ui/features/home/pages/chat/utils/agent_internal_tool_payload.dart';
 import 'package:ui/models/chat_message_model.dart';
+import 'package:ui/services/agent_tool_card_policy.dart';
 
 class AgentRunTimelineEntry {
   const AgentRunTimelineEntry.message(this.message) : group = null;
@@ -20,11 +22,13 @@ class AgentRunTimelineGroup {
     required this.taskId,
     required this.visibleMessagesNewestFirst,
     required this.processMessagesNewestFirst,
+    this.isActiveRun = false,
   });
 
   final String taskId;
   final List<ChatMessageModel> visibleMessagesNewestFirst;
   final List<ChatMessageModel> processMessagesNewestFirst;
+  final bool isActiveRun;
 
   List<ChatMessageModel> get visibleMessagesOldestFirst =>
       visibleMessagesNewestFirst.reversed.toList(growable: false);
@@ -33,12 +37,127 @@ class AgentRunTimelineGroup {
       processMessagesNewestFirst.reversed.toList(growable: false);
 
   int get thinkingCount => processMessagesNewestFirst
-      .where((message) => _cardType(message) == 'deep_thinking')
+      .where((message) => agentRunMessageRef(message)?.isThinkingCard ?? false)
       .length;
 
   int get toolCount => processMessagesNewestFirst
-      .where((message) => _cardType(message) == 'agent_tool_summary')
+      .where((message) => agentRunMessageRef(message)?.isToolCard ?? false)
       .length;
+
+  int get outputSegmentCount => processMessagesNewestFirst
+      .where((message) => agentRunMessageRef(message)?.isAssistantText ?? false)
+      .length;
+
+  bool get isRunLogOnly => !isActiveRun && processMessagesNewestFirst.isEmpty;
+
+  String get runLogId {
+    final candidates = <Object?>[
+      ...visibleMessagesNewestFirst.map(_runLogIdFromMessage),
+      ...processMessagesNewestFirst.map(_runLogIdFromMessage),
+      taskId,
+    ];
+    for (final candidate in candidates) {
+      final value = candidate?.toString().trim() ?? '';
+      if (value.isNotEmpty) {
+        return value;
+      }
+    }
+    return '';
+  }
+}
+
+class AgentRunMessageRef {
+  const AgentRunMessageRef({
+    required this.taskId,
+    required this.entryId,
+    required this.kind,
+    required this.cardType,
+    required this.sequence,
+    required this.roundIndex,
+    required this.isFinal,
+    required this.hasExplicitFinalFlag,
+    required this.isAssistantText,
+  });
+
+  final String taskId;
+  final String entryId;
+  final String kind;
+  final String cardType;
+  final int sequence;
+  final int roundIndex;
+  final bool isFinal;
+  final bool hasExplicitFinalFlag;
+  final bool isAssistantText;
+
+  bool get isThinkingCard => cardType == 'deep_thinking';
+
+  bool get isToolCard => cardType == kAgentToolSummaryCardType;
+
+  bool get isPermissionCard => cardType == 'permission_section';
+
+  String get thinkingDedupeKey {
+    if (entryId.isNotEmpty) {
+      return '$taskId#thinking#$entryId';
+    }
+    return '$taskId#thinking#$sequence';
+  }
+
+  String get entryDedupeKey {
+    if (entryId.isNotEmpty) {
+      return '$taskId#$kind#$entryId';
+    }
+    return '$taskId#$kind#$sequence';
+  }
+}
+
+class AgentRunCompletionExpansionTracker {
+  final Set<String> _autoExpandedCompletedTaskIds = <String>{};
+
+  Set<String> get autoExpandedCompletedTaskIds =>
+      Set.unmodifiable(_autoExpandedCompletedTaskIds);
+
+  Set<String> effectiveExpandedTaskIds(Iterable<String> manualTaskIds) {
+    return normalizeAgentRunTaskIds(manualTaskIds);
+  }
+
+  bool sync({
+    required Iterable<ChatMessageModel> messages,
+    required Iterable<String> activeTaskIds,
+  }) {
+    final before = Set<String>.from(_autoExpandedCompletedTaskIds);
+
+    _autoExpandedCompletedTaskIds.clear();
+    return !_setEquals(before, _autoExpandedCompletedTaskIds);
+  }
+
+  bool isTaskExpanded(String taskId, Iterable<String> manualExpandedTaskIds) {
+    final normalizedTaskId = _normalizeTaskId(taskId);
+    if (normalizedTaskId == null) {
+      return false;
+    }
+    return normalizeAgentRunTaskIds(
+      manualExpandedTaskIds,
+    ).contains(normalizedTaskId);
+  }
+
+  bool isGroupExpanded(
+    AgentRunTimelineGroup group,
+    Iterable<String> manualExpandedTaskIds,
+  ) {
+    return isTaskExpanded(group.taskId, manualExpandedTaskIds);
+  }
+
+  bool consumeAutoExpandedTask(String taskId) {
+    final normalizedTaskId = _normalizeTaskId(taskId);
+    if (normalizedTaskId == null) {
+      return false;
+    }
+    return _autoExpandedCompletedTaskIds.remove(normalizedTaskId);
+  }
+
+  void clear() {
+    _autoExpandedCompletedTaskIds.clear();
+  }
 }
 
 List<AgentRunTimelineEntry> buildAgentRunTimelineEntries(
@@ -49,12 +168,19 @@ List<AgentRunTimelineEntry> buildAgentRunTimelineEntries(
     return const <AgentRunTimelineEntry>[];
   }
 
-  final normalizedActiveTaskIds = activeTaskIds
-      .map((item) => item.trim())
-      .where((item) => item.isNotEmpty)
-      .toSet();
+  final normalizedActiveTaskIds = normalizeAgentRunTaskIds(activeTaskIds);
   final emittedTaskIds = <String>{};
   final entries = <AgentRunTimelineEntry>[];
+
+  // Pre-group candidate messages by taskId in a single O(n) pass so that
+  // _buildTimelineGroup never needs to scan all messages again.
+  final candidatesByTaskId = <String, List<ChatMessageModel>>{};
+  for (final message in messages) {
+    if (!_isAgentRunCandidateMessage(message)) continue;
+    final taskId = agentRunParentTaskId(message);
+    if (taskId == null) continue;
+    candidatesByTaskId.putIfAbsent(taskId, () => []).add(message);
+  }
 
   for (final message in messages) {
     final taskId = agentRunParentTaskId(message);
@@ -70,7 +196,7 @@ List<AgentRunTimelineEntry> buildAgentRunTimelineEntries(
     }
 
     final group = _buildTimelineGroup(
-      messages,
+      candidatesByTaskId[taskId] ?? const [],
       taskId: taskId,
       isActive: normalizedActiveTaskIds.contains(taskId),
     );
@@ -86,94 +212,297 @@ List<AgentRunTimelineEntry> buildAgentRunTimelineEntries(
   return entries;
 }
 
+Set<String> normalizeAgentRunTaskIds(Iterable<String> taskIds) {
+  return taskIds.map(_normalizeTaskId).whereType<String>().toSet();
+}
+
+Set<String> agentRunTaskIdsFromMessages(Iterable<ChatMessageModel> messages) {
+  return messages.map(agentRunParentTaskId).whereType<String>().toSet();
+}
+
 String? agentRunParentTaskId(ChatMessageModel message) {
-  final raw =
-      message.streamMeta?['parentTaskId'] ??
-      message.cardData?['taskID'] ??
-      message.cardData?['taskId'];
-  final normalized = raw?.toString().trim() ?? '';
-  return normalized.isEmpty ? null : normalized;
+  return agentRunMessageRef(message)?.taskId;
 }
 
 bool isAgentRunFinalMessage(ChatMessageModel message) {
-  return message.streamMeta?['isFinal'] == true;
+  return agentRunMessageRef(message)?.isFinal ?? false;
 }
 
 String agentRunKind(ChatMessageModel message) {
-  return (message.streamMeta?['kind'] ?? '').toString().trim().toLowerCase();
+  return agentRunMessageRef(message)?.kind ?? '';
 }
 
 int agentRunSequence(ChatMessageModel message) {
-  final value = message.streamMeta?['seq'];
-  if (value is int) {
-    return value;
+  return agentRunMessageRef(message)?.sequence ?? -1;
+}
+
+AgentRunMessageRef? agentRunMessageRef(ChatMessageModel message) {
+  final cardData = message.cardData;
+  final embeddedStreamMeta = _asStringMap(cardData?['streamMeta']);
+  final topLevelStreamMeta = _asStringMap(message.streamMeta);
+  final streamMeta = <String, dynamic>{
+    if (embeddedStreamMeta != null) ...embeddedStreamMeta,
+    if (topLevelStreamMeta != null) ...topLevelStreamMeta,
+  };
+  final cardType = _cardType(message);
+  final entryId = _firstNonEmpty([
+    streamMeta['entryId'],
+    cardData?['cardId'],
+    message.contentId,
+    message.id,
+  ]);
+  final taskId = _firstNonEmpty([
+    streamMeta['parentTaskId'],
+    cardData?['taskId'],
+    cardData?['taskID'],
+    _taskIdFromEntryId(entryId),
+    _taskIdFromEntryId(message.id),
+  ]);
+  if (taskId.isEmpty) {
+    return null;
   }
-  if (value is num) {
-    final asDouble = value.toDouble();
-    if (asDouble.isFinite && asDouble == asDouble.truncateToDouble()) {
-      return value.toInt();
-    }
-  }
-  if (value is String) {
-    return int.tryParse(value.trim()) ?? -1;
-  }
-  return -1;
+
+  final kind = _firstNonEmpty([
+    streamMeta['kind'],
+    _kindForCardType(cardType),
+    _kindFromEntryId(taskId, entryId),
+  ]).toLowerCase();
+  final roundIndex =
+      _asInt(streamMeta['roundIndex']) ??
+      _roundIndexFromEntryId(taskId: taskId, entryId: entryId) ??
+      _defaultRoundIndexFor(cardType: cardType, kind: kind);
+  return AgentRunMessageRef(
+    taskId: taskId,
+    entryId: entryId,
+    kind: kind,
+    cardType: cardType,
+    sequence: _asInt(streamMeta['seq']) ?? -1,
+    roundIndex: roundIndex,
+    isFinal: _asBool(streamMeta['isFinal']),
+    hasExplicitFinalFlag: streamMeta.containsKey('isFinal'),
+    isAssistantText: message.type == 1 && message.user == 2,
+  );
 }
 
 AgentRunTimelineGroup? _buildTimelineGroup(
-  List<ChatMessageModel> messages, {
+  List<ChatMessageModel> candidates, {
   required String taskId,
   required bool isActive,
 }) {
-  final taskMessages = messages
-      .where((message) => agentRunParentTaskId(message) == taskId)
-      .where(_isAgentRunCandidateMessage)
+  // `candidates` is pre-filtered (only candidate messages for this taskId).
+  final taskMessages = _dedupeAgentRunMessages(
+    candidates.toList(growable: false)
+      ..sort((left, right) => _compareNewestFirst(left, right)),
+  );
+  final displayMessages = taskMessages
+      .where(
+        (message) =>
+            !_isInternalToolPayloadMessage(message, taskMessages: taskMessages),
+      )
       .toList(growable: false);
-  if (taskMessages.length < 2) {
+  final removedInternalPayload = displayMessages.length != taskMessages.length;
+  if (displayMessages.isEmpty ||
+      (!isActive &&
+          displayMessages.length < 2 &&
+          !removedInternalPayload &&
+          displayMessages.every(
+            (message) => !_shouldKeepRunLogOnlyGroup(message),
+          ))) {
     return null;
   }
 
+  // During active run: keep only the latest assistant output visible. Earlier
+  // output snapshots stay in the process section so expanded runs read as a
+  // chronological execution transcript instead of "all cards, then all text".
+  if (isActive) {
+    final primaryVisibleMessage = _resolvePrimaryVisibleMessage(
+      displayMessages,
+      isActive: true,
+    );
+    final visibleMessages = primaryVisibleMessage == null
+        ? const <ChatMessageModel>[]
+        : _resolveVisibleMessages(
+            displayMessages,
+            primaryVisibleMessage: primaryVisibleMessage,
+          );
+    final visibleIds = visibleMessages.map((message) => message.id).toSet();
+    final processMessages = displayMessages
+        .where((message) => !visibleIds.contains(message.id))
+        .toList(growable: false);
+    final compactProcessMessages = _resolveProcessMessages(processMessages);
+    if (visibleMessages.isEmpty && compactProcessMessages.isEmpty) {
+      return null;
+    }
+    return AgentRunTimelineGroup(
+      taskId: taskId,
+      visibleMessagesNewestFirst: visibleMessages,
+      processMessagesNewestFirst: compactProcessMessages,
+      isActiveRun: true,
+    );
+  }
+
+  // Completed run: only the final text is visible, everything else collapses.
   final primaryVisibleMessage = _resolvePrimaryVisibleMessage(
-    taskMessages,
-    isActive: isActive,
+    displayMessages,
+    isActive: false,
   );
   if (primaryVisibleMessage == null) {
-    return null;
+    if (!removedInternalPayload) {
+      return null;
+    }
+    final compactProcessMessages = _resolveProcessMessages(displayMessages);
+    if (compactProcessMessages.isEmpty) {
+      return null;
+    }
+    return AgentRunTimelineGroup(
+      taskId: taskId,
+      visibleMessagesNewestFirst: const <ChatMessageModel>[],
+      processMessagesNewestFirst: compactProcessMessages,
+      isActiveRun: false,
+    );
   }
 
   final visibleMessages = _resolveVisibleMessages(
-    taskMessages,
+    displayMessages,
     primaryVisibleMessage: primaryVisibleMessage,
   );
   final visibleIds = visibleMessages.map((message) => message.id).toSet();
-  final processMessages = taskMessages
+  final processMessages = displayMessages
       .where((message) => !visibleIds.contains(message.id))
       .toList(growable: false);
-  if (processMessages.isEmpty) {
+  final compactProcessMessages = _resolveProcessMessages(processMessages);
+  if (compactProcessMessages.isEmpty &&
+      !_shouldKeepRunLogOnlyGroup(primaryVisibleMessage)) {
     return null;
   }
 
   return AgentRunTimelineGroup(
     taskId: taskId,
     visibleMessagesNewestFirst: visibleMessages,
-    processMessagesNewestFirst: processMessages,
+    processMessagesNewestFirst: compactProcessMessages,
+    isActiveRun: false,
   );
+}
+
+List<ChatMessageModel> _resolveProcessMessages(
+  List<ChatMessageModel> processMessages,
+) {
+  final oldestFirst = processMessages.toList(growable: false)
+    ..sort((left, right) => _compareNewestFirst(right, left));
+  final collapsedOldestFirst = <ChatMessageModel>[];
+  ChatMessageModel? pendingThinking;
+
+  for (final message in oldestFirst) {
+    final isThinking = agentRunMessageRef(message)?.isThinkingCard ?? false;
+    if (isThinking) {
+      if (pendingThinking != null &&
+          !_isSameThinkingRound(pendingThinking, message)) {
+        collapsedOldestFirst.add(pendingThinking);
+      }
+      pendingThinking = message;
+      continue;
+    }
+    if (pendingThinking != null) {
+      collapsedOldestFirst.add(pendingThinking);
+      pendingThinking = null;
+    }
+    collapsedOldestFirst.add(message);
+  }
+  if (pendingThinking != null) {
+    collapsedOldestFirst.add(pendingThinking);
+  }
+
+  return collapsedOldestFirst
+    ..sort((left, right) => _compareNewestFirst(left, right));
+}
+
+bool _isSameThinkingRound(ChatMessageModel left, ChatMessageModel right) {
+  final leftRef = agentRunMessageRef(left);
+  final rightRef = agentRunMessageRef(right);
+  if (leftRef == null || rightRef == null) {
+    return false;
+  }
+  return leftRef.taskId == rightRef.taskId &&
+      leftRef.isThinkingCard &&
+      rightRef.isThinkingCard &&
+      leftRef.roundIndex == rightRef.roundIndex;
+}
+
+List<ChatMessageModel> _dedupeAgentRunMessages(
+  List<ChatMessageModel> messages,
+) {
+  final emittedKeys = <String>{};
+  final deduped = <ChatMessageModel>[];
+  for (final message in messages) {
+    final key = _semanticDedupeKey(message);
+    if (key != null && !emittedKeys.add(key)) {
+      continue;
+    }
+    deduped.add(message);
+  }
+  return deduped;
+}
+
+String? _semanticDedupeKey(ChatMessageModel message) {
+  final ref = agentRunMessageRef(message);
+  if (ref == null) {
+    return null;
+  }
+  if (ref.isThinkingCard) {
+    return ref.thinkingDedupeKey;
+  }
+  if (ref.isToolCard) {
+    // Tool card kind changes from 'tool_started' → 'tool_completed' as events
+    // arrive, and adapters may replace entryId once the real toolCallId is
+    // known. Dedupe by normalized tool identity first so a single operation
+    // keeps one folded card across started/progress/completed projections.
+    final operationId = AgentToolCardPolicy.operationIdFromCard(
+      message.cardData,
+      message: message,
+    );
+    final toolId = operationId.isNotEmpty
+        ? operationId
+        : (ref.entryId.isNotEmpty ? ref.entryId : '${ref.sequence}');
+    return '${ref.taskId}#tool#$toolId';
+  }
+  if (ref.isAssistantText || ref.isPermissionCard) {
+    return ref.entryDedupeKey;
+  }
+  return null;
 }
 
 bool _isAgentRunCandidateMessage(ChatMessageModel message) {
   if (message.user == 1) {
     return false;
   }
+  final ref = agentRunMessageRef(message);
+  if (ref == null) {
+    return false;
+  }
   if (message.type == 1) {
-    return message.user == 2;
+    return ref.isAssistantText;
   }
   if (message.type != 2) {
     return false;
   }
-  final type = _cardType(message);
-  return type == 'deep_thinking' ||
-      type == 'agent_tool_summary' ||
-      type == 'permission_section';
+  return ref.isThinkingCard || ref.isToolCard || ref.isPermissionCard;
+}
+
+bool _isInternalToolPayloadMessage(
+  ChatMessageModel message, {
+  required List<ChatMessageModel> taskMessages,
+}) {
+  final ref = agentRunMessageRef(message);
+  if (ref == null || !ref.isAssistantText) {
+    return false;
+  }
+  final hasSiblingToolCard = taskMessages.any(
+    (candidate) => agentRunMessageRef(candidate)?.isToolCard ?? false,
+  );
+  if (!hasSiblingToolCard) {
+    return false;
+  }
+  return isLikelyInternalToolPayloadText((message.text ?? '').trim());
 }
 
 ChatMessageModel? _resolvePrimaryVisibleMessage(
@@ -181,13 +510,25 @@ ChatMessageModel? _resolvePrimaryVisibleMessage(
   required bool isActive,
 }) {
   final aiTextMessages = taskMessages
-      .where((message) => message.type == 1 && message.user == 2)
+      .where((message) => agentRunMessageRef(message)?.isAssistantText ?? false)
       .toList(growable: false);
   if (aiTextMessages.isEmpty) {
     return null;
   }
 
   if (isActive) {
+    final activeTextSnapshots = aiTextMessages
+        .where((message) => agentRunKind(message) == 'text_snapshot')
+        .toList(growable: false);
+    if (activeTextSnapshots.isNotEmpty) {
+      return _newestBySequence(activeTextSnapshots);
+    }
+    final terminalMatches = aiTextMessages
+        .where(_isTerminalVisibleTextMessage)
+        .toList(growable: false);
+    if (terminalMatches.isNotEmpty) {
+      return _newestBySequence(terminalMatches);
+    }
     return null;
   }
 
@@ -211,6 +552,16 @@ ChatMessageModel? _resolvePrimaryVisibleMessage(
   if (cancelledTextMessages.isNotEmpty) {
     return _newestBySequence(cancelledTextMessages);
   }
+
+  final textMessagesWithoutFinalFlag = aiTextMessages
+      .where((message) {
+        final ref = agentRunMessageRef(message);
+        return ref == null || !ref.hasExplicitFinalFlag;
+      })
+      .toList(growable: false);
+  if (textMessagesWithoutFinalFlag.isNotEmpty) {
+    return _newestBySequence(textMessagesWithoutFinalFlag);
+  }
   return null;
 }
 
@@ -225,15 +576,26 @@ bool _isTerminalVisibleTextMessage(ChatMessageModel message) {
       message.isError;
 }
 
+bool _shouldKeepRunLogOnlyGroup(ChatMessageModel message) {
+  final ref = agentRunMessageRef(message);
+  if (ref == null || !ref.isAssistantText) {
+    return false;
+  }
+  if (_runLogIdFromMessage(message).isNotEmpty) {
+    return true;
+  }
+  return _isTerminalVisibleTextMessage(message);
+}
+
 bool _isLegacyTextSnapshotFallbackCandidate(ChatMessageModel message) {
   if (agentRunKind(message) != 'text_snapshot') {
     return false;
   }
-  final streamMeta = message.streamMeta;
-  if (streamMeta == null || !streamMeta.containsKey('isFinal')) {
+  final ref = agentRunMessageRef(message);
+  if (ref == null || !ref.hasExplicitFinalFlag) {
     return true;
   }
-  return streamMeta['isFinal'] == true;
+  return ref.isFinal;
 }
 
 bool _isCancelledTextMessage(ChatMessageModel message) {
@@ -252,7 +614,7 @@ List<ChatMessageModel> _resolveVisibleMessages(
       taskMessages.where(
         (message) =>
             message.id != primaryVisibleMessage.id &&
-            _cardType(message) == 'permission_section',
+            (agentRunMessageRef(message)?.isPermissionCard ?? false),
       ),
     );
   }
@@ -277,4 +639,145 @@ int _compareNewestFirst(ChatMessageModel left, ChatMessageModel right) {
 
 String _cardType(ChatMessageModel message) {
   return (message.cardData?['type'] ?? '').toString().trim();
+}
+
+Map<String, dynamic>? _asStringMap(dynamic value) {
+  if (value is Map<String, dynamic>) {
+    return value;
+  }
+  if (value is Map) {
+    return value.map((key, value) => MapEntry(key.toString(), value));
+  }
+  return null;
+}
+
+String _firstNonEmpty(Iterable<dynamic> values) {
+  for (final value in values) {
+    final normalized = value?.toString().trim() ?? '';
+    if (normalized.isNotEmpty) {
+      return normalized;
+    }
+  }
+  return '';
+}
+
+String? _normalizeTaskId(String taskId) {
+  final normalized = taskId.trim();
+  return normalized.isEmpty ? null : normalized;
+}
+
+String _kindForCardType(String cardType) {
+  return switch (cardType) {
+    'deep_thinking' => 'thinking_snapshot',
+    kAgentToolSummaryCardType => 'tool_completed',
+    'permission_section' => 'permission_required',
+    _ => '',
+  };
+}
+
+String _kindFromEntryId(String taskId, String entryId) {
+  if (entryId == '$taskId-thinking' ||
+      entryId.startsWith('$taskId-thinking-')) {
+    return 'thinking_snapshot';
+  }
+  if (entryId == '$taskId-text' || entryId.startsWith('$taskId-text-')) {
+    return 'text_snapshot';
+  }
+  if (entryId.startsWith('$taskId-tool-')) {
+    return 'tool_completed';
+  }
+  if (entryId == '$taskId-permission') {
+    return 'permission_required';
+  }
+  return '';
+}
+
+String _taskIdFromEntryId(String entryId) {
+  final normalized = entryId.trim();
+  if (normalized.isEmpty) {
+    return '';
+  }
+  final patterns = <RegExp>[
+    RegExp(r'^(.*)-thinking(?:-\d+)?$'),
+    RegExp(r'^(.*)-tool-\d+$'),
+    RegExp(r'^(.*)-text(?:-\d+)?$'),
+    RegExp(r'^(.*)-permission$'),
+  ];
+  for (final pattern in patterns) {
+    final match = pattern.firstMatch(normalized);
+    final taskId = match?.group(1)?.trim() ?? '';
+    if (taskId.isNotEmpty) {
+      return taskId;
+    }
+  }
+  return '';
+}
+
+int? _roundIndexFromEntryId({required String taskId, required String entryId}) {
+  final normalizedEntryId = entryId.trim();
+  if (normalizedEntryId == '$taskId-thinking' ||
+      normalizedEntryId == '$taskId-text') {
+    return 1;
+  }
+  for (final prefix in <String>['$taskId-thinking-', '$taskId-text-']) {
+    if (!normalizedEntryId.startsWith(prefix)) {
+      continue;
+    }
+    return int.tryParse(normalizedEntryId.substring(prefix.length).trim()) ?? 1;
+  }
+  return null;
+}
+
+int _defaultRoundIndexFor({required String cardType, required String kind}) {
+  if (cardType == 'deep_thinking' || kind == 'thinking_snapshot') {
+    return 1;
+  }
+  if (kind == 'text_snapshot') {
+    return 1;
+  }
+  return 0;
+}
+
+int? _asInt(dynamic value) {
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    final asDouble = value.toDouble();
+    if (asDouble.isFinite && asDouble == asDouble.truncateToDouble()) {
+      return value.toInt();
+    }
+  }
+  if (value is String) {
+    return int.tryParse(value.trim());
+  }
+  return null;
+}
+
+bool _asBool(dynamic value) {
+  if (value is bool) {
+    return value;
+  }
+  if (value is String) {
+    return value.trim().toLowerCase() == 'true';
+  }
+  return false;
+}
+
+bool _setEquals(Set<String> left, Set<String> right) {
+  if (left.length != right.length) {
+    return false;
+  }
+  return left.containsAll(right);
+}
+
+String _runLogIdFromMessage(ChatMessageModel message) {
+  final streamMeta = message.streamMeta;
+  return _firstNonEmpty(<Object?>[
+    streamMeta?['runLogId'],
+    streamMeta?['run_log_id'],
+    streamMeta?['runId'],
+    streamMeta?['run_id'],
+    AgentToolCardPolicy.runLogRef(message.cardData, message: message).runLogId,
+  ]);
 }

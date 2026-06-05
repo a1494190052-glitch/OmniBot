@@ -169,7 +169,7 @@ object ModelSceneRegistry {
     },
     "thought": {
       "type": "string",
-      "description": "The agent's reasoning or decision-making process behind choosing the next action. Or decision making process after using wait action"
+      "description": "The agent's reasoning or decision-making process behind choosing the next action."
     },
     "action": {
       "type": "object",
@@ -180,22 +180,23 @@ object ModelSceneRegistry {
           "properties": {
             "name": {"type": "string", "enum": ["click"]},
             "target_description": {"type": "string", "description": "Description of the UI element to click."},
-            "x": {"type": "number", "description": "X coordinate of the click (0-1000)."},
-            "y": {"type": "number", "description": "Y coordinate of the click (0-1000)."}
+            "x": {"type": "number", "description": "Absolute screen-pixel X coordinate of the click."},
+            "y": {"type": "number", "description": "Absolute screen-pixel Y coordinate of the click."}
           },
           "required": ["name", "target_description", "x", "y"]
         },
         {
           "type": "object",
           "properties": {
-            "name": {"type": "string", "enum": ["scroll"]},
-            "target_description": {"type": "string", "description": "Description of the UI element to scroll (if needed)."},
-            "x1": {"type": "number", "description": "Start X coordinate around which to scroll (0-1000)."},
-            "y1": {"type": "number", "description": "Start Y coordinate around which to scroll (0-1000)."},            
-            "x2": {"type": "number", "description": "End X coordinate around which to scroll (0-1000)."},
-            "y2": {"type": "number", "description": "End Y coordinate around which to scroll (0-1000)."}
+            "name": {"type": "string", "enum": ["swipe"]},
+            "target_description": {"type": "string", "description": "Description of the UI element or scrollable region to swipe (if needed)."},
+            "direction": {"type": "string", "enum": ["up", "down", "left", "right"]},
+            "x1": {"type": "number", "description": "Start absolute screen-pixel X coordinate around which to swipe."},
+            "y1": {"type": "number", "description": "Start absolute screen-pixel Y coordinate around which to swipe."},
+            "x2": {"type": "number", "description": "End absolute screen-pixel X coordinate around which to swipe."},
+            "y2": {"type": "number", "description": "End absolute screen-pixel Y coordinate around which to swipe."}
           },
-          "required": ["name", "target_description", "x1", "y1", "x2", "y2"]
+          "required": ["name", "target_description", "direction", "x1", "y1", "x2", "y2"]
         },
         {
           "type": "object",
@@ -216,34 +217,20 @@ object ModelSceneRegistry {
         {
           "type": "object",
           "properties": {
-            "name": {"type": "string", "enum": ["press_home"]}
+            "name": {"type": "string", "enum": ["press_key"]},
+            "key": {"type": "string", "enum": ["back", "home", "enter"]}
           },
-          "required": ["name"]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "name": {"type": "string", "enum": ["press_back"]}
-          },
-          "required": ["name"]
+          "required": ["name", "key"]
         },
         {
           "type": "object",
           "properties": {
             "name": {"type": "string", "enum": ["long_press"]},
             "target_description": {"type": "string", "description": "Description of the UI element to long press."},
-            "x": {"type": "number", "description": "X coordinate of the long press (0-1000)."},
-            "y": {"type": "number", "description": "Y coordinate of the long press (0-1000)."}
+            "x": {"type": "number", "description": "Absolute screen-pixel X coordinate of the long press."},
+            "y": {"type": "number", "description": "Absolute screen-pixel Y coordinate of the long press."}
           },
           "required": ["name", "target_description", "x", "y"]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "name": {"type": "string", "enum": ["wait"]},
-            "duration_ms": {"type": "integer", "description": "Duration to wait in milliseconds."}
-          },
-          "required": ["name", "duration_ms"]
         },
         {
           "type": "object",

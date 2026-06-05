@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../../models/block_models.dart';
-import '../normal_choices_group.dart';
 import '../buttons_group_two.dart';
 import '../bot_status.dart';
 
@@ -9,10 +8,10 @@ class QueryOptionsCard extends StatefulWidget {
   final Function(ButtonModel)? onButtonConsumed;
 
   const QueryOptionsCard({
-    Key? key,
+    super.key,
     required this.block,
     this.onButtonConsumed,
-  }) : super(key: key);
+  });
 
   @override
   State<QueryOptionsCard> createState() => _QueryOptionsCardState();
@@ -34,7 +33,7 @@ class _QueryOptionsCardState extends State<QueryOptionsCard>
       _executing = false;
     });
     _ctrl.reset();
-    print('Query confirmed');
+    debugPrint('Query confirmed');
   }
 
   void onCancel() {
@@ -42,7 +41,7 @@ class _QueryOptionsCardState extends State<QueryOptionsCard>
       _executing = false;
     });
     _ctrl.reset();
-    print('Query cancelled');
+    debugPrint('Query cancelled');
   }
 
   void onButtonPressed(ButtonModel button) {

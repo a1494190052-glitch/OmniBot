@@ -1,28 +1,35 @@
 package cn.com.omnimind.assists.task.vlmserver
 
 import cn.com.omnimind.baselib.llm.AssistantToolCall
+import cn.com.omnimind.baselib.llm.AssistantToolCallFunction
 import cn.com.omnimind.baselib.llm.ChatCompletionMessage
 import cn.com.omnimind.baselib.llm.ChatCompletionRequest
 import cn.com.omnimind.baselib.llm.ChatCompletionStreamOptions
 import cn.com.omnimind.baselib.llm.ModelSceneRegistry
 import cn.com.omnimind.baselib.llm.contentText
+import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
 import cn.com.omnimind.baselib.util.OmniLog
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
-class VLMClient {
-    companion object {
-        private const val TAG = "VLMClient"
+class VLMClient(
+    private val systemPromptBuilder: (sceneId: String) -> String = { sceneId ->
+        PromptTemplate.buildSystemPrompt(sceneId = sceneId)
+    },
+    private val turnPromptBuilder: (context: UIContext, sceneId: String) -> String = { context, sceneId ->
+        PromptTemplate.buildTurnUserPrompt(context, sceneId = sceneId)
     }
-
+) {
     private val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
@@ -31,52 +38,93 @@ class VLMClient {
 
     fun buildUIOperationRequest(
         context: UIContext,
-        screenshot: String,
+        screenshot: String?,
+        markedScreenshot: String? = null,
         conversationState: VLMConversationState,
         model: String = "scene.vlm.operation.primary",
-        retryState: VLMToolCallRetryState? = null
+        retryState: VLMToolCallRetryState? = null,
+        includeMarkedScreenshot: Boolean = false
     ): VLMRequestEnvelope {
-        val systemPrompt = PromptTemplate.buildSystemPrompt(sceneId = model)
-        val currentUserText = PromptTemplate.buildTurnUserPrompt(context, sceneId = model)
+        val sceneId = resolveVlmSceneId(model)
+        val modelOverride = resolveVlmModelOverride(model)
+        val systemPrompt = systemPromptBuilder(sceneId)
+        val currentUserText = turnPromptBuilder(context, sceneId)
         val historyMessages = conversationState.historyMessages()
+        val effectiveMarkedScreenshot = markedScreenshot.takeIf { includeMarkedScreenshot }
         val messages = buildMessages(
             systemPrompt = systemPrompt,
             historyMessages = historyMessages,
             currentUserText = currentUserText,
             screenshot = screenshot,
+            markedScreenshot = effectiveMarkedScreenshot,
             context = context,
             retryState = retryState
         )
+        val imageCount = listOf(screenshot, effectiveMarkedScreenshot).count { !it.isNullOrBlank() }
+        val baseTools = VLMToolDefinitions.tools()
+        val dynamicTools = VLMToolDefinitions.dynamicToolsFromDefinitions(context.dynamicToolDefinitions)
+        val tools = (baseTools + dynamicTools).distinctBy { it.function.name }
+        val dynamicFunctionToolNames = dynamicTools.mapTo(linkedSetOf()) { it.function.name }
 
         OmniLog.i(
             TAG,
-            "buildUIOperationRequest scene=$model historyRounds=${conversationState.roundCount()} historyMessages=${historyMessages.size} totalMessages=${messages.size} currentImages=1 retry=${retryState?.retryIndex ?: 0}"
+            "buildUIOperationRequest scene=$model historyRounds=${conversationState.roundCount()} historyMessages=${historyMessages.size} totalMessages=${messages.size} currentImages=$imageCount visualPolicy=screenshot+compact_indexed_evidence marked=${includeMarkedScreenshot && !markedScreenshot.isNullOrBlank()} retry=${retryState?.retryIndex ?: 0} tools=${tools.size} recalledTools=${dynamicFunctionToolNames.size}"
         )
 
         return VLMRequestEnvelope(
             request = ChatCompletionRequest(
-                model = model,
+                model = sceneId,
+                modelOverride = modelOverride,
                 messages = messages,
-                maxCompletionTokens = 2048,
+                maxCompletionTokens = 1024,
                 temperature = 0.2,
                 stream = true,
                 streamOptions = ChatCompletionStreamOptions(includeUsage = true),
-                tools = VLMToolDefinitions.tools(),
+                tools = tools,
                 toolChoice = JsonPrimitive("required"),
                 parallelToolCalls = false
             ),
-            currentUserText = currentUserText
+            currentUserText = currentUserText,
+            dynamicFunctionToolNames = dynamicFunctionToolNames,
+            toolNames = tools.map { it.function.name },
+            systemPromptChars = systemPrompt.length,
+            currentUserTextChars = currentUserText.length,
         )
     }
 
-    fun parseVLMResponse(response: SceneChatCompletionTurn, modelOrScene: String): VLMResult {
+    fun parseVLMResponse(
+        response: SceneChatCompletionTurn,
+        modelOrScene: String,
+        dynamicFunctionToolNames: Set<String> = emptySet()
+    ): VLMResult {
         return when (response.parser) {
-            ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS -> parseToolActionResponse(response)
+            ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS ->
+                parseToolActionResponse(response, dynamicFunctionToolNames)
             ModelSceneRegistry.ResponseParser.JSON_CONTENT ->
                 VLMResult(false, null, "主 VLM parser 不支持 JSON_CONTENT: $modelOrScene")
             ModelSceneRegistry.ResponseParser.TEXT_CONTENT ->
                 VLMResult(false, null, "主 VLM parser 不支持 TEXT_CONTENT: $modelOrScene")
         }
+    }
+
+    fun resolveVlmSceneId(modelOrScene: String?): String {
+        val normalized = modelOrScene?.trim().orEmpty()
+        return if (isSceneId(normalized)) {
+            normalized
+        } else {
+            "scene.vlm.operation.primary"
+        }
+    }
+
+    fun resolveVlmModelOverride(modelOrScene: String?): String? {
+        val normalized = modelOrScene?.trim().orEmpty()
+        return normalized.takeIf {
+            it.isNotEmpty() && !isSceneId(it)
+        }
+    }
+
+    private fun isSceneId(value: String): Boolean {
+        return value.startsWith("scene.")
     }
 
     fun buildConversationRound(
@@ -90,21 +138,16 @@ class VLMClient {
             toolCalls = assistantTurn.turn.message.toolCalls
         )
         val toolCallId = assistantTurn.turn.message.toolCalls?.firstOrNull()?.id.orEmpty()
+        val success = !(executedStep.result?.startsWith("执行失败") == true)
+        val postAction = VLMPostActionObservation.summarize(executedStep)
         val toolPayload = buildJsonObject {
-            put("success", JsonPrimitive(!(executedStep.result?.startsWith("执行失败") == true)))
-            put("action", JsonPrimitive(executedStep.action.name))
-            put("result", JsonPrimitive(executedStep.result.orEmpty()))
-            if (executedStep.observation.isNotBlank()) {
-                put("observation", JsonPrimitive(executedStep.observation))
-            }
-            if (executedStep.summary.isNotBlank()) {
-                put("summary", JsonPrimitive(executedStep.summary))
-            }
+            put("success", JsonPrimitive(success))
+            put("result", JsonPrimitive(compactToolResult(executedStep, postAction)))
         }.toString()
         return VLMConversationRound(
             userMessage = ChatCompletionMessage(
                 role = "user",
-                content = JsonPrimitive(currentUserText)
+                content = JsonPrimitive(buildCompactHistoryUserMessage(currentUserText, executedStep))
             ),
             assistantMessage = assistantMessage,
             toolMessage = ChatCompletionMessage(
@@ -115,7 +158,114 @@ class VLMClient {
         )
     }
 
-    private fun parseToolActionResponse(response: SceneChatCompletionTurn): VLMResult {
+    private fun compactToolResult(
+        executedStep: UIStep,
+        post: VLMPostActionObservation.Summary?
+    ): String {
+        val parts = buildList {
+            executedStep.result?.trim()?.takeIf { it.isNotEmpty() }?.let { add(it) }
+            executedStep.summary.trim().takeIf { it.isNotEmpty() }?.let { add("summary=$it") }
+            post?.summaryText?.takeIf { it.isNotBlank() }?.let { add(it) }
+            post?.afterVisibleTexts?.takeIf { it.isNotEmpty() }?.let {
+                add("after_visible_texts=${it.take(MAX_TOOL_RESULT_VISIBLE_TEXTS).joinToString(" / ")}")
+            }
+        }
+        return parts.joinToString("; ").ifBlank { "no result details" }.take(MAX_TOOL_RESULT_CHARS)
+    }
+
+    private fun sanitizeModelVisibleJson(value: kotlinx.serialization.json.JsonElement): kotlinx.serialization.json.JsonElement {
+        return when (value) {
+            is JsonObject -> buildJsonObject {
+                value.forEach { (key, child) ->
+                    val normalizedKey = key.trim().lowercase()
+                    if (isRawXmlKey(normalizedKey)) {
+                        put("${key}_chars", JsonPrimitive(rawXmlCharCount(child)))
+                        put("${key}_model_visible", JsonPrimitive(false))
+                    } else {
+                        put(key, sanitizeModelVisibleJson(child))
+                    }
+                }
+            }
+            is JsonArray -> buildJsonArray {
+                value.forEach { add(sanitizeModelVisibleJson(it)) }
+            }
+            is JsonPrimitive -> {
+                val text = value.contentOrNull
+                if (text != null && looksLikeRawXml(text)) {
+                    JsonPrimitive(
+                        "raw_xml_omitted(chars=${text.length}, model_visible=false)"
+                    )
+                } else {
+                    value
+                }
+            }
+        }
+    }
+
+    private fun isRawXmlKey(normalizedKey: String): Boolean {
+        return normalizedKey == "xml" ||
+            normalizedKey == "current_xml" ||
+            normalizedKey == "observation_xml" ||
+            normalizedKey == "before_xml" ||
+            normalizedKey == "after_xml" ||
+            normalizedKey.endsWith("_xml")
+    }
+
+    private fun rawXmlCharCount(value: kotlinx.serialization.json.JsonElement): Int {
+        return (value as? JsonPrimitive)?.contentOrNull?.length ?: value.toString().length
+    }
+
+    private fun looksLikeRawXml(text: String): Boolean {
+        val trimmed = text.trimStart()
+        return trimmed.startsWith("<hierarchy") ||
+            trimmed.startsWith("<node") ||
+            trimmed.contains("<node ")
+    }
+
+    internal fun buildCompactHistoryUserMessage(currentUserText: String, executedStep: UIStep): String {
+        val actionSummary = when (val action = executedStep.action) {
+            is ClickAction -> "click ${action.targetDescription} @(${action.x},${action.y})"
+            is InputTextAction -> "input_text ${action.targetDescription} @(${action.x},${action.y})"
+            is SwipeAction -> "swipe ${action.targetDescription} ${action.direction.orEmpty()} @(${action.x1},${action.y1})->(${action.x2},${action.y2})"
+            is LongPressAction -> "long_press ${action.targetDescription} @(${action.x},${action.y})"
+            is OpenAppAction -> "open_app ${action.packageName}"
+            is PressKeyAction -> "press_key ${action.key}"
+            is GetStateAction -> "get_state ${action.reason.take(MAX_HISTORY_ACTION_CHARS)}"
+            is FunctionRunAction -> "${action.functionId} ${action.arguments.toString().take(MAX_HISTORY_ACTION_CHARS)}"
+            is FinishedAction -> "finished"
+            is RequireUserChoiceAction -> "require_user_choice"
+            is RequireUserConfirmationAction -> "require_user_confirmation"
+            is InfoAction -> "info"
+            is FeedbackAction -> "feedback"
+            is AbortAction -> "abort"
+            is WaitAction -> "wait"
+            is RecordAction -> "record"
+        }.take(MAX_HISTORY_ACTION_CHARS)
+        val pageResult = VLMPostActionObservation.summarize(executedStep)?.summaryText
+            ?.take(MAX_HISTORY_OBSERVATION_CHARS)
+        return buildString {
+            append("Previous turn compact context. ")
+            append("Do not use this as current page evidence; use the latest user message and screenshot for grounding. ")
+            append("Prior action: ")
+            append(actionSummary)
+            executedStep.result?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                append(". Result: ")
+                append(it.take(MAX_HISTORY_RESULT_CHARS))
+            }
+            pageResult?.takeIf { it.isNotBlank() }?.let {
+                append(". Post-action observation: ")
+                append(it)
+            }
+            if (currentUserText.contains("用户任务") || currentUserText.contains("User task")) {
+                append(". The full previous prompt was intentionally compacted to control tokens.")
+            }
+        }
+    }
+
+    private fun parseToolActionResponse(
+        response: SceneChatCompletionTurn,
+        dynamicFunctionToolNames: Set<String>
+    ): VLMResult {
         val content = response.turn.message.contentText()
         val metadata = parseStepMetadata(content, response.turn.reasoning)
         val thinking = buildThinkingContext(
@@ -126,6 +276,35 @@ class VLMClient {
         )
         val toolCalls = response.turn.message.toolCalls.orEmpty()
         if (toolCalls.isEmpty()) {
+            val fallbackToolCall = parseTextToolCall(content, dynamicFunctionToolNames)
+            if (fallbackToolCall != null) {
+                return parseSingleToolCall(
+                    toolCall = fallbackToolCall,
+                    metadata = metadata,
+                    thinking = thinking,
+                    content = content,
+                    reasoning = response.turn.reasoning,
+                    source = "text_tool_call",
+                    dynamicFunctionToolNames = dynamicFunctionToolNames
+                )
+            }
+            if (isExplicitFinishedText(metadata)) {
+                return VLMResult(
+                    success = true,
+                    step = VLMStep(
+                        observation = metadata.observation,
+                        thought = metadata.thought.ifBlank { response.turn.reasoning.ifBlank { content } },
+                        action = FinishedAction(
+                            content = metadata.summary
+                                .ifBlank { metadata.thought }
+                                .ifBlank { content }
+                        ),
+                        summary = metadata.summary
+                    ),
+                    error = null,
+                    thinking = thinking
+                )
+            }
             return VLMResult(
                 success = false,
                 step = null,
@@ -142,9 +321,35 @@ class VLMClient {
             )
         }
 
+        return parseSingleToolCall(
+            toolCall = toolCalls.first(),
+            metadata = metadata,
+            thinking = thinking,
+            content = content,
+            reasoning = response.turn.reasoning,
+            source = "tool_calls",
+            dynamicFunctionToolNames = dynamicFunctionToolNames
+        )
+    }
+
+    private fun parseSingleToolCall(
+        toolCall: AssistantToolCall,
+        metadata: StepMetadataPayload,
+        thinking: VLMThinkingContext,
+        content: String,
+        reasoning: String,
+        source: String,
+        dynamicFunctionToolNames: Set<String>
+    ): VLMResult {
         return try {
-            val action = parseActionFromToolCall(toolCalls.first())
-            val thought = metadata.thought.ifBlank { response.turn.reasoning.ifBlank { content } }
+            val action = parseActionFromToolCall(toolCall, dynamicFunctionToolNames)
+            val thought = metadata.thought.ifBlank { reasoning.ifBlank { content } }
+            if (source != "tool_calls") {
+                OmniLog.w(
+                    TAG,
+                    "Parsed VLM text compatibility $source as ${toolCall.function.name}: ${preview(content)}"
+                )
+            }
             VLMResult(
                 success = true,
                 step = VLMStep(
@@ -160,18 +365,51 @@ class VLMClient {
             VLMResult(
                 success = false,
                 step = null,
-                error = "Failed to parse tool_calls response: ${e.message}",
+                error = "Failed to parse $source response: ${e.message}",
                 thinking = thinking,
                 shouldRetryForToolCall = true
             )
         }
     }
 
+    private fun isExplicitFinishedText(metadata: StepMetadataPayload): Boolean {
+        val combined = listOf(metadata.thought, metadata.summary)
+            .joinToString(separator = "\n")
+            .lowercase()
+        if (combined.isBlank()) return false
+        val hasCompletion = listOf(
+            "completed successfully",
+            "task is complete",
+            "task has been completed",
+            "task completed",
+            "no further actions are needed",
+            "no further action is needed",
+            "任务已完成",
+            "任务完成",
+            "任务已成功",
+            "已经完成",
+            "已成功",
+            "无需继续",
+            "不需要继续",
+        ).any { it in combined }
+        val hasUncertainty = listOf(
+            "not completed",
+            "not complete",
+            "cannot determine",
+            "uncertain",
+            "不确定",
+            "未完成",
+            "没有完成",
+        ).any { it in combined }
+        return hasCompletion && !hasUncertainty
+    }
+
     private fun buildMessages(
         systemPrompt: String,
         historyMessages: List<ChatCompletionMessage>,
         currentUserText: String,
-        screenshot: String,
+        screenshot: String?,
+        markedScreenshot: String?,
         context: UIContext,
         retryState: VLMToolCallRetryState?
     ): List<ChatCompletionMessage> {
@@ -181,7 +419,7 @@ class VLMClient {
             content = JsonPrimitive(systemPrompt)
         )
         messages += historyMessages
-        messages += buildCurrentUserMessage(currentUserText, screenshot)
+        messages += buildCurrentUserMessage(currentUserText, screenshot, markedScreenshot)
 
         if (retryState != null) {
             buildRetryAssistantContent(retryState.thinking)?.let { assistantContent ->
@@ -200,7 +438,8 @@ class VLMClient {
 
     private fun buildCurrentUserMessage(
         currentUserText: String,
-        screenshot: String
+        screenshot: String?,
+        markedScreenshot: String?
     ): ChatCompletionMessage {
         return ChatCompletionMessage(
             role = "user",
@@ -211,7 +450,24 @@ class VLMClient {
                         put("text", JsonPrimitive(currentUserText))
                     }
                 )
-                add(buildImageContent(screenshot))
+                if (!screenshot.isNullOrBlank()) {
+                    add(
+                        buildJsonObject {
+                            put("type", JsonPrimitive("text"))
+                            put("text", JsonPrimitive("Current screenshot."))
+                        }
+                    )
+                    add(buildImageContent(screenshot))
+                }
+                if (!markedScreenshot.isNullOrBlank()) {
+                    add(
+                        buildJsonObject {
+                            put("type", JsonPrimitive("text"))
+                            put("text", JsonPrimitive("Marked screenshot with indexes matching OOB indexed page evidence."))
+                        }
+                    )
+                    add(buildImageContent(markedScreenshot))
+                }
             }
         )
     }
@@ -285,82 +541,510 @@ class VLMClient {
         }
     }
 
-    private fun parseActionFromToolCall(toolCall: AssistantToolCall): UIAction {
-        val toolName = toolCall.function.name
-        val args = parseArguments(toolName, toolCall.function.arguments)
+    private fun parseActionFromToolCall(
+        toolCall: AssistantToolCall,
+        dynamicFunctionToolNames: Set<String>
+    ): UIAction {
+        val rawToolName = toolCall.function.name
+        if (rawToolName in dynamicFunctionToolNames) {
+            return FunctionRunAction(
+                functionId = rawToolName,
+                arguments = parseLooseArguments(toolCall.function.arguments)
+            )
+        }
+        val toolName = OobCanonicalActionSchema.canonicalToolName(rawToolName) ?: rawToolName
+        val args = parseCanonicalArguments(
+            canonicalToolName = toolName,
+            rawArguments = toolCall.function.arguments,
+        )
         return when (toolName) {
-            "click" -> ClickAction(
-                targetDescription = requireString(args, "target_description"),
-                x = requireFloat(args, "x"),
-                y = requireFloat(args, "y")
+            OobCanonicalActionSchema.TOOL_CLICK -> ClickAction(
+                targetDescription = requireString(args, OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION),
+                x = requireFloat(args, OobCanonicalActionSchema.ARG_X),
+                y = requireFloat(args, OobCanonicalActionSchema.ARG_Y),
+                elementIndex = optionalInt(args, OobCanonicalActionSchema.ARG_ELEMENT_INDEX),
+                nodeId = optionalString(args, OobCanonicalActionSchema.ARG_NODE_ID)
             )
-            "type" -> TypeAction(
-                content = requireString(args, "content")
+            OobCanonicalActionSchema.TOOL_INPUT_TEXT -> InputTextAction(
+                targetDescription = requireString(args, OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION),
+                text = requireString(args, OobCanonicalActionSchema.ARG_TEXT),
+                x = requireFloat(args, OobCanonicalActionSchema.ARG_X),
+                y = requireFloat(args, OobCanonicalActionSchema.ARG_Y),
+                elementIndex = optionalInt(args, OobCanonicalActionSchema.ARG_ELEMENT_INDEX),
+                nodeId = optionalString(args, OobCanonicalActionSchema.ARG_NODE_ID)
             )
-            "scroll" -> ScrollAction(
-                targetDescription = requireString(args, "target_description"),
-                x1 = requireFloat(args, "x1"),
-                y1 = requireFloat(args, "y1"),
-                x2 = requireFloat(args, "x2"),
-                y2 = requireFloat(args, "y2"),
-                duration = optionalFloat(args, "duration") ?: 1.5f
+            OobCanonicalActionSchema.TOOL_SWIPE -> SwipeAction(
+                targetDescription = requireString(args, OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION),
+                x1 = requireFloat(args, OobCanonicalActionSchema.ARG_X1),
+                y1 = requireFloat(args, OobCanonicalActionSchema.ARG_Y1),
+                x2 = requireFloat(args, OobCanonicalActionSchema.ARG_X2),
+                y2 = requireFloat(args, OobCanonicalActionSchema.ARG_Y2),
+                durationMs = optionalLong(args, OobCanonicalActionSchema.ARG_DURATION_MS) ?: 1500L,
+                scrollableIndex = optionalInt(args, OobCanonicalActionSchema.ARG_SCROLLABLE_INDEX),
+                direction = optionalString(args, OobCanonicalActionSchema.ARG_DIRECTION)?.lowercase()
             )
-            "long_press" -> LongPressAction(
-                targetDescription = requireString(args, "target_description"),
-                x = requireFloat(args, "x"),
-                y = requireFloat(args, "y")
+            OobCanonicalActionSchema.TOOL_LONG_PRESS -> LongPressAction(
+                targetDescription = requireString(args, OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION),
+                x = requireFloat(args, OobCanonicalActionSchema.ARG_X),
+                y = requireFloat(args, OobCanonicalActionSchema.ARG_Y),
+                elementIndex = optionalInt(args, OobCanonicalActionSchema.ARG_ELEMENT_INDEX),
+                nodeId = optionalString(args, OobCanonicalActionSchema.ARG_NODE_ID)
             )
-            "open_app" -> OpenAppAction(
-                packageName = requireString(args, "package_name")
+            OobCanonicalActionSchema.TOOL_OPEN_APP -> OpenAppAction(
+                packageName = requireString(args, OobCanonicalActionSchema.ARG_PACKAGE_NAME)
             )
-            "press_home" -> PressHomeAction()
-            "press_back" -> PressBackAction()
-            "wait" -> buildWaitAction(args)
-            "hot_key" -> HotKeyAction(
-                key = requireString(args, "key").uppercase()
+            OobCanonicalActionSchema.TOOL_PRESS_KEY -> PressKeyAction(
+                key = requireString(args, OobCanonicalActionSchema.ARG_KEY).lowercase()
             )
-            "finished" -> FinishedAction(
-                content = optionalString(args, "content").orEmpty()
+            OobCanonicalActionSchema.TOOL_WAIT -> WaitAction(
+                timeS = optionalDouble(args, OobCanonicalActionSchema.ARG_TIME_S),
+                durationMs = optionalLong(args, OobCanonicalActionSchema.ARG_DURATION_MS)
             )
-            "info" -> InfoAction(
-                value = requireString(args, "value")
+            OobCanonicalActionSchema.TOOL_GET_STATE -> GetStateAction(
+                reason = optionalString(args, OobCanonicalActionSchema.ARG_REASON).orEmpty()
             )
-            "feedback" -> FeedbackAction(
-                value = requireString(args, "value")
+            OobCanonicalActionSchema.TOOL_CALL_TOOL -> FunctionRunAction(
+                functionId = requireCallToolTarget(args),
+                toolName = optionalString(args, OobCanonicalActionSchema.ARG_TOOL_NAME),
+                arguments = (args[OobCanonicalActionSchema.ARG_ARGUMENTS] as? JsonObject) ?: buildJsonObject {}
             )
-            "abort" -> AbortAction(
-                value = optionalString(args, "value").orEmpty()
+            OobCanonicalActionSchema.TOOL_FINISHED -> FinishedAction(
+                content = optionalString(args, OobCanonicalActionSchema.ARG_CONTENT).orEmpty()
             )
-            "require_user_choice" -> RequireUserChoiceAction(
-                options = requireStringList(args, "options"),
-                prompt = requireString(args, "prompt")
+            OobCanonicalActionSchema.TOOL_INFO -> InfoAction(
+                value = requireString(args, OobCanonicalActionSchema.ARG_VALUE)
             )
-            "require_user_confirmation" -> RequireUserConfirmationAction(
-                prompt = requireString(args, "prompt")
+            OobCanonicalActionSchema.TOOL_FEEDBACK -> FeedbackAction(
+                value = requireString(args, OobCanonicalActionSchema.ARG_VALUE)
+            )
+            OobCanonicalActionSchema.TOOL_ABORT -> AbortAction(
+                value = optionalString(args, OobCanonicalActionSchema.ARG_VALUE).orEmpty()
+            )
+            OobCanonicalActionSchema.TOOL_REQUIRE_USER_CHOICE -> RequireUserChoiceAction(
+                options = requireStringList(args, OobCanonicalActionSchema.ARG_OPTIONS),
+                prompt = requireString(args, OobCanonicalActionSchema.ARG_PROMPT)
+            )
+            OobCanonicalActionSchema.TOOL_REQUIRE_USER_CONFIRMATION -> RequireUserConfirmationAction(
+                prompt = requireString(args, OobCanonicalActionSchema.ARG_PROMPT)
             )
             else -> throw IllegalArgumentException("Unsupported tool call: ${toolCall.function.name}")
         }
     }
 
-    private fun buildWaitAction(args: JsonObject): WaitAction {
-        val durationMs = optionalLong(args, "duration_ms")
-            ?: optionalFloat(args, "duration")?.let { seconds ->
-                (seconds * 1000f).toLong()
-            }
-        return if (durationMs != null) {
-            WaitAction(durationMs = durationMs)
-        } else {
-            throw IllegalArgumentException("Missing or invalid 'duration_ms'")
-        }
+    private fun parseCanonicalArguments(
+        canonicalToolName: String,
+        rawArguments: String
+    ): JsonObject {
+        return parseArguments(canonicalToolName, rawArguments)
     }
 
     private fun parseArguments(toolName: String, rawArguments: String): JsonObject {
         return VLMToolArgumentParser.parse(toolName, rawArguments)
     }
 
+    private fun parseLooseArguments(rawArguments: String): JsonObject {
+        val normalized = rawArguments.trim().ifEmpty { "{}" }
+        val parsed = runCatching { json.parseToJsonElement(normalized) as? JsonObject }.getOrNull()
+        if (parsed != null) return parsed
+        val topLevel = extractTopLevelObject(normalized)
+        if (!topLevel.isNullOrBlank()) {
+            return runCatching { json.parseToJsonElement(topLevel) as? JsonObject }
+                .getOrNull()
+                ?: JsonObject(emptyMap())
+        }
+        return JsonObject(emptyMap())
+    }
+
+    private fun parseTextToolCall(content: String, dynamicFunctionToolNames: Set<String>): AssistantToolCall? {
+        val normalized = content.trim()
+        if (normalized.isEmpty()) return null
+        return parseJsonTextToolCall(normalized, dynamicFunctionToolNames)
+            ?: parseLineTextToolCall(normalized, dynamicFunctionToolNames)
+            ?: parseBareCommandTextToolCall(normalized, dynamicFunctionToolNames)
+            ?: parseFunctionInvocationTextToolCall(normalized, dynamicFunctionToolNames)
+            ?: parseTaggedJsonTextToolCall(normalized, dynamicFunctionToolNames)
+            ?: parseHtmlArgTextToolCall(normalized, dynamicFunctionToolNames)
+    }
+
+    private fun parseJsonTextToolCall(content: String, dynamicFunctionToolNames: Set<String>): AssistantToolCall? {
+        val candidates = buildList {
+            val toolCallBody = TOOL_CALL_TAG_REGEX.find(content)?.groups?.get(1)?.value?.trim()
+            if (!toolCallBody.isNullOrEmpty()) add(toolCallBody)
+            extractTopLevelObject(content)?.let(::add)
+        }
+        candidates.forEach { candidate ->
+            val parsed = runCatching {
+                json.parseToJsonElement(candidate) as? JsonObject
+            }.getOrNull() ?: return@forEach
+            val name = parsed["name"]?.jsonPrimitive?.contentOrNull?.trim()
+                ?: parsed["function"]?.jsonPrimitive?.contentOrNull?.trim()
+                ?: parsed["tool"]?.jsonPrimitive?.contentOrNull?.trim()
+                ?: parsed["tool_name"]?.jsonPrimitive?.contentOrNull?.trim()
+                ?: return@forEach
+            val hasInlineFunctionId = parsed[OobCanonicalActionSchema.ARG_FUNCTION_ID] != null
+            val args = if (hasInlineFunctionId) {
+                buildInlineActionArguments(parsed).toString()
+            } else parsed["arguments"]?.let { arguments ->
+                when (arguments) {
+                    is JsonObject -> arguments.toString()
+                    is JsonPrimitive -> arguments.contentOrNull.orEmpty()
+                    else -> arguments.toString()
+                }
+            } ?: parsed["args"]?.let { arguments ->
+                when (arguments) {
+                    is JsonObject -> arguments.toString()
+                    is JsonPrimitive -> arguments.contentOrNull.orEmpty()
+                    else -> arguments.toString()
+                }
+            } ?: buildInlineActionArguments(parsed).toString()
+            return buildFallbackToolCall(name, args, dynamicFunctionToolNames)
+        }
+        return null
+    }
+
+    private fun parseLineTextToolCall(content: String, dynamicFunctionToolNames: Set<String>): AssistantToolCall? {
+        val match = LINE_TOOL_CALL_REGEX.find(content) ?: return null
+        val name = match.groups[1]?.value?.trim().orEmpty()
+        if (name.isEmpty()) return null
+        val inlineArgumentText = match.groups[2]?.value?.trim().orEmpty()
+        val argumentText = content.substring(match.range.last + 1)
+        val args = normalizeFallbackLineArguments(
+            toolName = name,
+            args = mergeJsonObjects(
+                parseInlineArguments(inlineArgumentText),
+                parseLineArguments(argumentText)
+            ),
+            content = content
+        )
+        return buildFallbackToolCall(name, args.toString(), dynamicFunctionToolNames)
+    }
+
+    private fun parseBareCommandTextToolCall(
+        content: String,
+        dynamicFunctionToolNames: Set<String>
+    ): AssistantToolCall? {
+        content.lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .forEach { line ->
+                val match = BARE_COMMAND_REGEX.matchEntire(line) ?: return@forEach
+                val name = match.groups[1]?.value?.trim().orEmpty()
+                val normalizedName = normalizeToolName(name, dynamicFunctionToolNames) ?: return@forEach
+                val argText = match.groups[2]?.value?.trim().orEmpty()
+                val args = normalizeFallbackLineArguments(
+                    toolName = normalizedName,
+                    args = parseInlineArguments(argText),
+                    content = content
+                )
+                return buildFallbackToolCall(normalizedName, args.toString(), dynamicFunctionToolNames)
+            }
+        return null
+    }
+
+    private fun parseLineArguments(raw: String): JsonObject {
+        val values = linkedMapOf<String, JsonElement>()
+        raw.lineSequence().forEach { line ->
+            val match = LINE_ARGUMENT_REGEX.find(line.trim()) ?: return@forEach
+            val key = match.groups[1]?.value?.trim().orEmpty()
+            val rawValue = match.groups[2]?.value?.trim().orEmpty()
+            if (key.isEmpty()) return@forEach
+            val parsed = parseLineValue(rawValue)
+            if (key == OobCanonicalActionSchema.ARG_ARGUMENTS && parsed is JsonObject) {
+                values[key] = parsed
+            } else {
+                values[key] = parsed
+            }
+        }
+        return JsonObject(values)
+    }
+
+    private fun parseInlineArguments(raw: String): JsonObject {
+        val normalized = raw.trim()
+        if (normalized.isEmpty()) return JsonObject(emptyMap())
+        val values = linkedMapOf<String, JsonElement>()
+        INLINE_ARGUMENT_REGEX.findAll(normalized).forEach { match ->
+            val key = match.groups[1]?.value?.trim().orEmpty()
+            val rawValue = match.groups[2]?.value?.trim().orEmpty()
+            if (key.isNotEmpty()) {
+                values[key] = parseLineValue(rawValue)
+            }
+        }
+        return JsonObject(values)
+    }
+
+    private fun mergeJsonObjects(first: JsonObject, second: JsonObject): JsonObject {
+        if (first.isEmpty()) return second
+        if (second.isEmpty()) return first
+        return JsonObject(first.toMutableMap().apply { putAll(second) })
+    }
+
+    private fun normalizeFallbackLineArguments(
+        toolName: String,
+        args: JsonObject,
+        content: String
+    ): JsonObject {
+        val normalizedTool = normalizeToolName(toolName, emptySet()) ?: toolName
+        if (OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION in args) return args
+        val needsTargetDescription = normalizedTool in setOf(
+            OobCanonicalActionSchema.TOOL_CLICK,
+            OobCanonicalActionSchema.TOOL_LONG_PRESS,
+            OobCanonicalActionSchema.TOOL_INPUT_TEXT,
+            OobCanonicalActionSchema.TOOL_SWIPE,
+        )
+        if (!needsTargetDescription) return args
+
+        val targetDescription = inferFallbackTargetDescription(content)
+        if (targetDescription.isBlank()) return args
+        return JsonObject(
+            args.toMutableMap().apply {
+                put(OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION, JsonPrimitive(targetDescription))
+            }
+        )
+    }
+
+    private fun inferFallbackTargetDescription(content: String): String {
+        val normalized = content.trim()
+        if (normalized.isEmpty()) return ""
+        val parsed = extractTopLevelObject(normalized)
+            ?.let { runCatching { json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
+        val fromMetadata = listOf("summary", "thought", "observation")
+            .asSequence()
+            .mapNotNull { key -> parsed?.get(key)?.jsonPrimitive?.contentOrNull?.trim() }
+            .firstOrNull { it.isNotBlank() }
+        if (!fromMetadata.isNullOrBlank()) return fromMetadata.take(160)
+        return normalized
+            .lineSequence()
+            .firstOrNull { line -> !line.trim().startsWith("tool_call:", ignoreCase = true) }
+            ?.trim()
+            .orEmpty()
+            .take(160)
+    }
+
+    private fun parseLineValue(raw: String): JsonElement {
+        val trimmed = raw.trim().trimEnd(',')
+        if (trimmed.isEmpty()) return JsonPrimitive("")
+        if ((trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+            (trimmed.startsWith("[") && trimmed.endsWith("]")) ||
+            (trimmed.startsWith("\"") && trimmed.endsWith("\""))
+        ) {
+            runCatching { return json.parseToJsonElement(trimmed) }
+        }
+        trimmed.toLongOrNull()?.let { return JsonPrimitive(it) }
+        trimmed.toDoubleOrNull()?.let { return JsonPrimitive(it) }
+        when (trimmed.lowercase()) {
+            "true" -> return JsonPrimitive(true)
+            "false" -> return JsonPrimitive(false)
+        }
+        return JsonPrimitive(trimmed.trim('"', '\''))
+    }
+
+    private fun parseFunctionInvocationTextToolCall(
+        content: String,
+        dynamicFunctionToolNames: Set<String>
+    ): AssistantToolCall? {
+        toolNames(dynamicFunctionToolNames).forEach { toolName ->
+            var searchStart = 0
+            while (searchStart < content.length) {
+                val nameIndex = content.indexOf(toolName, startIndex = searchStart, ignoreCase = false)
+                if (nameIndex < 0) break
+                val before = content.getOrNull(nameIndex - 1)
+                val afterName = content.getOrNull(nameIndex + toolName.length)
+                val isTokenBoundary = (before == null || !before.isLetterOrDigit() && before != '_') &&
+                    (afterName == null || afterName.isWhitespace() || afterName == '(')
+                if (!isTokenBoundary) {
+                    searchStart = nameIndex + toolName.length
+                    continue
+                }
+                val openParen = content.indexOf('(', startIndex = nameIndex + toolName.length)
+                if (openParen < 0) break
+                if (content.substring(nameIndex + toolName.length, openParen).isNotBlank()) {
+                    searchStart = nameIndex + toolName.length
+                    continue
+                }
+                val args = extractBalancedParenthesized(content, openParen)
+                if (!args.isNullOrBlank()) {
+                    return buildFallbackToolCall(toolName, args, dynamicFunctionToolNames)
+                }
+                searchStart = nameIndex + toolName.length
+            }
+        }
+        return null
+    }
+
+    private fun buildInlineActionArguments(parsed: JsonObject): JsonObject {
+        val ignoredKeys = setOf(
+            "name",
+            "function",
+            "tool",
+            "tool_name",
+            "observation",
+            "thought",
+            "summary",
+        )
+        return JsonObject(parsed.filterKeys { it !in ignoredKeys })
+    }
+
+    private fun parseTaggedJsonTextToolCall(content: String, dynamicFunctionToolNames: Set<String>): AssistantToolCall? {
+        val name = Regex("""(?i)<(?:function|tool|name)\s*=\s*name>\s*([^<\s]+)""")
+            .find(content)
+            ?.groups
+            ?.get(1)
+            ?.value
+            ?.trim()
+            ?: return null
+        val args = Regex("""(?is)<(?:function|tool|arguments)\s*=\s*arguments>\s*(.*?)\s*</(?:function|tool|arguments)>""")
+            .find(content)
+            ?.groups
+            ?.get(1)
+            ?.value
+            ?.trim()
+            ?: "{}"
+        return buildFallbackToolCall(name, args, dynamicFunctionToolNames)
+    }
+
+    private fun parseHtmlArgTextToolCall(content: String, dynamicFunctionToolNames: Set<String>): AssistantToolCall? {
+        val closeTagIndex = content.indexOf("</tool_call>", ignoreCase = true)
+        if (closeTagIndex < 0) return null
+        val prefix = content.take(closeTagIndex)
+        val name = toolNames(dynamicFunctionToolNames)
+            .firstOrNull { toolName ->
+                Regex("""(?<![A-Za-z0-9_])${Regex.escape(toolName)}(?![A-Za-z0-9_])""")
+                    .containsMatchIn(prefix)
+            }
+            ?: return null
+        val args = buildJsonObject {
+            ARG_PAIR_REGEX.findAll(content).forEach { match ->
+                val key = match.groups[1]?.value?.trim().orEmpty()
+                val value = match.groups[2]?.value?.trim().orEmpty()
+                if (key.isNotEmpty()) {
+                    put(key, JsonPrimitive(value))
+                }
+            }
+        }
+        return buildFallbackToolCall(name, args.toString(), dynamicFunctionToolNames)
+    }
+
+    private fun buildFallbackToolCall(
+        name: String,
+        arguments: String,
+        dynamicFunctionToolNames: Set<String>
+    ): AssistantToolCall? {
+        val normalizedName = normalizeToolName(name, dynamicFunctionToolNames) ?: return null
+        return AssistantToolCall(
+            id = "text_tool_call",
+            function = AssistantToolCallFunction(
+                name = normalizedName,
+                arguments = arguments.trim().ifEmpty { "{}" }
+            )
+        )
+    }
+
+    private fun normalizeToolName(name: String, dynamicFunctionToolNames: Set<String>): String? {
+        val normalized = name.trim().removePrefix("functions.").removePrefix("function.").trim()
+        if (normalized in dynamicFunctionToolNames) return normalized
+        OobCanonicalActionSchema.canonicalToolName(normalized)?.let { return it }
+        return toolNames(dynamicFunctionToolNames).firstOrNull { it == normalized }
+    }
+
+    private fun toolNames(dynamicFunctionToolNames: Set<String> = emptySet()): Set<String> =
+        OobCanonicalActionSchema.modelVisibleTools.mapTo(linkedSetOf()) { it.name }.apply {
+            remove(OobCanonicalActionSchema.TOOL_GET_STATE)
+            addAll(dynamicFunctionToolNames)
+        }
+
+    private fun extractTopLevelObject(raw: String): String? {
+        val start = raw.indexOf('{')
+        if (start < 0) return null
+        var depth = 0
+        var inString = false
+        var stringQuote = '\u0000'
+        var escaped = false
+
+        for (index in start until raw.length) {
+            val ch = raw[index]
+            if (inString) {
+                if (escaped) {
+                    escaped = false
+                    continue
+                }
+                when (ch) {
+                    '\\' -> escaped = true
+                    stringQuote -> inString = false
+                }
+                continue
+            }
+
+            when (ch) {
+                '"', '\'' -> {
+                    inString = true
+                    stringQuote = ch
+                }
+                '{' -> depth += 1
+                '}' -> {
+                    depth -= 1
+                    if (depth == 0) {
+                        return raw.substring(start, index + 1)
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    private fun extractBalancedParenthesized(raw: String, openParenIndex: Int): String? {
+        if (openParenIndex !in raw.indices || raw[openParenIndex] != '(') return null
+        var depth = 0
+        var inString = false
+        var stringQuote = '\u0000'
+        var escaped = false
+
+        for (index in openParenIndex until raw.length) {
+            val ch = raw[index]
+            if (inString) {
+                if (escaped) {
+                    escaped = false
+                    continue
+                }
+                when (ch) {
+                    '\\' -> escaped = true
+                    stringQuote -> inString = false
+                }
+                continue
+            }
+
+            when (ch) {
+                '"', '\'' -> {
+                    inString = true
+                    stringQuote = ch
+                }
+                '(' -> depth += 1
+                ')' -> {
+                    depth -= 1
+                    if (depth == 0) {
+                        return raw.substring(openParenIndex + 1, index).trim()
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    private fun preview(raw: String, maxLen: Int = 240): String {
+        val normalized = raw.replace(Regex("\\s+"), " ").trim()
+        return if (normalized.length <= maxLen) normalized else normalized.take(maxLen) + "..."
+    }
+
     private fun requireString(obj: JsonObject, key: String): String {
         return obj[key]?.jsonPrimitive?.content?.trim()?.takeIf { it.isNotEmpty() }
             ?: throw IllegalArgumentException("Missing or empty '$key'")
+    }
+
+    private fun requireCallToolTarget(obj: JsonObject): String {
+        return optionalString(obj, OobCanonicalActionSchema.ARG_FUNCTION_ID)
+            ?: optionalString(obj, OobCanonicalActionSchema.ARG_TOOL_NAME)
+            ?: throw IllegalArgumentException(
+                "Missing '${OobCanonicalActionSchema.ARG_FUNCTION_ID}' or '${OobCanonicalActionSchema.ARG_TOOL_NAME}'"
+            )
     }
 
     private fun optionalString(obj: JsonObject, key: String): String? {
@@ -377,8 +1061,17 @@ class VLMClient {
     }
 
     private fun optionalLong(obj: JsonObject, key: String): Long? {
-        return obj[key]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
-            ?: obj[key]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull()?.toLong()
+        val raw = obj[key]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        return raw.toLongOrNull() ?: raw.toDoubleOrNull()?.toLong()
+    }
+
+    private fun optionalDouble(obj: JsonObject, key: String): Double? {
+        return obj[key]?.jsonPrimitive?.contentOrNull?.trim()?.toDoubleOrNull()
+    }
+
+    private fun optionalInt(obj: JsonObject, key: String): Int? {
+        val raw = obj[key]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        return raw.toIntOrNull() ?: raw.toDoubleOrNull()?.toInt()
     }
 
     private fun requireStringList(obj: JsonObject, key: String): List<String> {
@@ -412,5 +1105,24 @@ class VLMClient {
                 }
             )
         }
+    }
+
+    private companion object {
+        private const val TAG = "VLMClient"
+        private const val MAX_HISTORY_ACTION_CHARS = 160
+        private const val MAX_HISTORY_RESULT_CHARS = 220
+        private const val MAX_HISTORY_OBSERVATION_CHARS = 360
+        private const val MAX_TOOL_RESULT_CHARS = 900
+        private const val MAX_TOOL_RESULT_VISIBLE_TEXTS = 12
+        private val TOOL_CALL_TAG_REGEX = Regex("""(?is)<tool_call>\s*(.*?)\s*</tool_call>""")
+        private val ARG_PAIR_REGEX = Regex(
+            """(?is)<arg_key>\s*([^<]+?)\s*</arg_key>\s*<arg_value>\s*(.*?)\s*(?=</arg_value>|</tool_call>|```|$)(?:</arg_value>)?"""
+        )
+        private val LINE_TOOL_CALL_REGEX = Regex("""(?im)^\s*tool_call\s*:\s*([A-Za-z0-9_.-]+)(?:\s+(.+?))?\s*$""")
+        private val BARE_COMMAND_REGEX = Regex("""^([A-Za-z_][A-Za-z0-9_.-]*)(?:\s+(.+))?$""")
+        private val LINE_ARGUMENT_REGEX = Regex("""^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.+?)\s*$""")
+        private val INLINE_ARGUMENT_REGEX = Regex(
+            """([A-Za-z_][A-Za-z0-9_]*)\s*[:=]\s*("[^"]*"|'[^']*'|[^\s,]+)"""
+        )
     }
 }

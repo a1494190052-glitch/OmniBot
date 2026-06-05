@@ -15,10 +15,10 @@ class OverlappingTags extends StatelessWidget {
   final double overlapOffset;
   
   const OverlappingTags({
-    Key? key,
+    super.key,
     required this.tags,
     this.overlapOffset = 30.0,
-  }) : super(key: key);
+  });
   
   @override
   Widget build(BuildContext context) {
@@ -75,10 +75,10 @@ class ClippedOverlappingTags extends StatelessWidget {
   final double overlapOffset;
   
   const ClippedOverlappingTags({
-    Key? key,
+    super.key,
     required this.tags,
     this.overlapOffset = 70.0,
-  }) : super(key: key);
+  });
   
   @override
   Widget build(BuildContext context) {
@@ -103,12 +103,12 @@ class ClippedOverlappingTags extends StatelessWidget {
                   gradient: LinearGradient(
                     colors: [
                       tag.color,
-                      tag.color.withOpacity(0.8),
+                      tag.color.withValues(alpha: 0.8),
                     ],
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: tag.color.withOpacity(0.3),
+                      color: tag.color.withValues(alpha: 0.3),
                       blurRadius: 8,
                       offset: const Offset(2, 2),
                     ),

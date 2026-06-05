@@ -1,0 +1,1092 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:ui/features/task/pages/execution_history/function_library_page.dart';
+import 'package:ui/l10n/generated/app_localizations.dart';
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  const assistCoreChannel = MethodChannel(
+    'cn.com.omnimind.bot/AssistCoreEvent',
+  );
+
+  tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(assistCoreChannel, null);
+  });
+
+  testWidgets(
+    'Reusable Function library groups same semantic assets and opens detail',
+    (tester) async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(assistCoreChannel, (call) async {
+            if (call.method == 'listOobReusableFunctions') {
+              return <String, dynamic>{
+                'success': true,
+                'count': 3,
+                'functions': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'function_id': 'open_settings_a',
+                    'name': '打开 Settings',
+                    'description': '打开 Android 设置',
+                    'card_count': 4,
+                    'step_count': 3,
+                    'parameter_names': <String>['package_name'],
+                    'registered_at': '1700000000000',
+                    'source_run_ids': <String>['run-1'],
+                    'run_stats': <String, dynamic>{
+                      'run_count': 2,
+                      'success_count': 2,
+                      'fail_count': 0,
+                      'last_success': true,
+                      'last_run_at': '1700000009000',
+                    },
+                    'step_summaries': <Map<String, dynamic>>[
+                      <String, dynamic>{
+                        'index': 0,
+                        'title': '打开 Settings',
+                        'kind': 'omniflow_action',
+                        'executor': 'omniflow',
+                        'tool': 'open_app',
+                      },
+                    ],
+                  },
+                  <String, dynamic>{
+                    'function_id': 'debug_40df4acf',
+                    'name': 'Debug VLM RunLog',
+                    'description': '打开 Android 设置',
+                    'card_count': 4,
+                    'step_count': 3,
+                    'parameter_names': <String>['package_name'],
+                    'registered_at': '1700000005000',
+                    'source_run_ids': <String>['run-2'],
+                    'run_stats': <String, dynamic>{
+                      'run_count': 1,
+                      'success_count': 1,
+                      'fail_count': 0,
+                    },
+                    'step_summaries': <Map<String, dynamic>>[
+                      <String, dynamic>{
+                        'index': 0,
+                        'title': '打开 Settings',
+                        'kind': 'omniflow_action',
+                        'executor': 'omniflow',
+                        'tool': 'open_app',
+                      },
+                    ],
+                  },
+                  <String, dynamic>{
+                    'function_id': 'enable_wifi',
+                    'name': '打开 WiFi',
+                    'description': '启用 WiFi',
+                    'card_count': 2,
+                    'step_count': 2,
+                    'parameter_names': <String>[],
+                    'registered_at': '1700000002000',
+                    'source_run_ids': <String>['run-3'],
+                    'run_stats': <String, dynamic>{
+                      'run_count': 4,
+                      'success_count': 4,
+                      'fail_count': 0,
+                      'last_success': true,
+                      'last_run_at': '1700000010000',
+                    },
+                    'step_summaries': <Map<String, dynamic>>[
+                      <String, dynamic>{
+                        'index': 0,
+                        'title': '打开 WiFi',
+                        'kind': 'omniflow_action',
+                        'executor': 'omniflow',
+                        'tool': 'open_app',
+                      },
+                      <String, dynamic>{
+                        'index': 1,
+                        'title': '确认开关',
+                        'kind': 'tool_call',
+                        'executor': 'tool',
+                        'tool': 'click',
+                      },
+                    ],
+                  },
+                ],
+              };
+            }
+            if (call.method == 'getOobReusableFunction') {
+              return <String, dynamic>{
+                'success': true,
+                'function_id': 'open_settings_a',
+                'name': '打开 Settings',
+                'description': '打开 Android 设置',
+                'parameters': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'name': 'package_name',
+                    'type': 'string',
+                    'required': false,
+                    'description': 'Android package name',
+                    'default': 'com.android.settings',
+                  },
+                ],
+                'execution': <String, dynamic>{
+                  'step_count': 1,
+                  'steps': <Map<String, dynamic>>[
+                    <String, dynamic>{
+                      'id': 'step_1',
+                      'index': 0,
+                      'title': '打开 Settings',
+                      'kind': 'omniflow_action',
+                      'executor': 'omniflow',
+                      'tool': 'open_app',
+                    },
+                  ],
+                },
+              };
+            }
+            return null;
+          });
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          locale: Locale('zh'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: FunctionLibraryPage(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('复用指令库'), findsOneWidget);
+      expect(find.text('打开 Settings'), findsOneWidget);
+      expect(find.text('Debug VLM RunLog'), findsNothing);
+      expect(find.text('打开 WiFi'), findsOneWidget);
+      expect(find.text('类型 OmniFlow'), findsNothing);
+      expect(find.text('状态 已注册'), findsNothing);
+      expect(find.text('步骤 3'), findsOneWidget);
+      expect(find.text('参数 1'), findsOneWidget);
+      expect(find.text('RunLogs 2'), findsOneWidget);
+      expect(find.text('执行 3'), findsOneWidget);
+      expect(find.text('成功 3'), findsOneWidget);
+      expect(find.text('执行 4'), findsOneWidget);
+      expect(find.text('成功 4'), findsOneWidget);
+      expect(find.text('上次 成功'), findsNWidgets(2));
+      expect(find.text('变体 2'), findsNothing);
+      expect(find.textContaining('来自 2 条 RunLog'), findsNothing);
+      expect(find.text('package_name'), findsNothing);
+      expect(find.textContaining('1. 打开 Settings'), findsOneWidget);
+      expect(find.textContaining('open_app'), findsNothing);
+      expect(find.textContaining('卡片'), findsNothing);
+      expect(find.textContaining('执行次数'), findsNothing);
+      expect(find.textContaining('创建时间'), findsNothing);
+      expect(find.textContaining('来源'), findsNothing);
+      expect(find.textContaining('run-1'), findsNothing);
+
+      await tester.tap(find.byIcon(Icons.info_outline_rounded).first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('RunLog 保存结果'), findsOneWidget);
+      expect(find.text('类型 OmniFlow'), findsNothing);
+      expect(find.text('状态 已注册'), findsNothing);
+      expect(find.text('package_name'), findsOneWidget);
+      expect(find.text('离线来源'), findsNothing);
+      expect(find.textContaining('由 RunLog 注册'), findsNothing);
+      expect(find.text('动作预览'), findsNothing);
+      expect(find.text('执行步骤 · 1'), findsOneWidget);
+      expect(find.text('参数'), findsOneWidget);
+      expect(find.textContaining('打开 Settings'), findsWidgets);
+      expect(find.textContaining('open_app'), findsWidgets);
+      expect(find.textContaining('OmniFlow'), findsNothing);
+    },
+  );
+
+  testWidgets('Reusable Function detail renders vlm_task as VLM step', (
+    tester,
+  ) async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(assistCoreChannel, (call) async {
+          if (call.method == 'listOobReusableFunctions') {
+            return <String, dynamic>{
+              'success': true,
+              'count': 1,
+              'functions': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'function_id': 'screen_vlm',
+                  'name': '识别屏幕',
+                  'description': 'VLM 直接执行',
+                  'step_count': 1,
+                  'parameter_names': <String>[],
+                  'source_run_ids': <String>['run-vlm-only'],
+                  'step_summaries': <Map<String, dynamic>>[
+                    <String, dynamic>{
+                      'index': 0,
+                      'title': '识别当前屏幕',
+                      'kind': 'agent_replan',
+                      'executor': 'agent',
+                      'tool': 'vlm_task',
+                    },
+                  ],
+                },
+              ],
+            };
+          }
+          if (call.method == 'getOobReusableFunction') {
+            return <String, dynamic>{
+              'success': true,
+              'function_id': 'screen_vlm',
+              'name': '识别屏幕',
+              'description': 'VLM 直接执行',
+              'parameters': <Map<String, dynamic>>[],
+              'execution': <String, dynamic>{
+                'step_count': 1,
+                'steps': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'id': 'step_vlm_1',
+                    'index': 0,
+                    'title': '识别当前屏幕',
+                    'kind': 'agent_replan',
+                    'executor': 'agent',
+                    'tool': 'vlm_task',
+                    'args': <String, dynamic>{'goal': '识别当前屏幕'},
+                    'agent_call': <String, dynamic>{
+                      'original_tool': 'vlm_task',
+                      'reason': 'perception_only_step_without_recorded_actions',
+                    },
+                  },
+                ],
+              },
+            };
+          }
+          return null;
+        });
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        locale: Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: FunctionLibraryPage(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.info_outline_rounded));
+    await tester.pumpAndSettle();
+
+    expect(find.text('执行步骤 · 1'), findsOneWidget);
+    expect(find.text('VLM'), findsOneWidget);
+    expect(find.text('视觉执行 识别当前屏幕'), findsOneWidget);
+    expect(find.textContaining('agent · vlm_task'), findsNothing);
+
+    await tester.ensureVisible(find.text('视觉执行 识别当前屏幕'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('视觉执行 识别当前屏幕'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('VLM 执行记录 · 第 1 步'), findsOneWidget);
+    expect(find.text('VLM 动作'), findsOneWidget);
+  });
+
+  testWidgets('Reusable Function detail opens shared step editor', (
+    tester,
+  ) async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(assistCoreChannel, (call) async {
+          if (call.method == 'listOobReusableFunctions') {
+            return <String, dynamic>{
+              'success': true,
+              'functions': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'function_id': 'search_contact',
+                  'name': '搜索联系人',
+                  'description': '搜索联系人',
+                  'step_count': 1,
+                  'parameter_names': <String>['query'],
+                  'step_summaries': <Map<String, dynamic>>[
+                    <String, dynamic>{
+                      'id': 'step_1',
+                      'index': 0,
+                      'title': '输入文本',
+                      'kind': 'omniflow_action',
+                      'executor': 'omniflow',
+                      'tool': 'input_text',
+                    },
+                  ],
+                },
+              ],
+            };
+          }
+          if (call.method == 'getOobReusableFunction') {
+            return <String, dynamic>{
+              'function_id': 'search_contact',
+              'name': '搜索联系人',
+              'parameters': <String, dynamic>{
+                'type': 'object',
+                'properties': <String, dynamic>{
+                  'query': <String, dynamic>{
+                    'type': 'string',
+                    'default': '妈妈',
+                    'x_oob_bindings': <String>[
+                      r'$.execution.steps[0].args.text',
+                      r'$.actions[0].args.text',
+                    ],
+                  },
+                },
+              },
+              'actions': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'tool': 'input_text',
+                  'args': <String, dynamic>{'text': r'${query}'},
+                  'description': '输入文本',
+                },
+              ],
+              'execution': <String, dynamic>{
+                'step_count': 1,
+                'steps': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'id': 'step_1',
+                    'index': 0,
+                    'title': '输入文本',
+                    'kind': 'omniflow_action',
+                    'executor': 'omniflow',
+                    'tool': 'input_text',
+                    'omniflow_action': 'input_text',
+                    'callable_tool': 'input_text',
+                    'args': <String, dynamic>{'text': '妈妈'},
+                  },
+                ],
+              },
+            };
+          }
+          return null;
+        });
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        locale: Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: FunctionLibraryPage(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.info_outline_rounded));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byIcon(Icons.edit_outlined));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.edit_outlined));
+    await tester.pumpAndSettle();
+
+    final titleField = find.byWidgetPredicate(
+      (widget) => widget is TextField && widget.decoration?.labelText == '步骤标题',
+    );
+    final argsField = find.byWidgetPredicate(
+      (widget) =>
+          widget is TextField && widget.decoration?.labelText == '参数 JSON',
+    );
+    expect(titleField, findsOneWidget);
+    expect(argsField, findsOneWidget);
+    expect(find.text('编辑步骤'), findsOneWidget);
+  });
+
+  testWidgets('Reusable Function detail adds step with structured editor', (
+    tester,
+  ) async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(assistCoreChannel, (call) async {
+          if (call.method == 'listOobReusableFunctions') {
+            return <String, dynamic>{
+              'success': true,
+              'functions': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'function_id': 'open_then_tap',
+                  'name': '打开后点击',
+                  'description': '打开后点击',
+                  'step_count': 1,
+                  'parameter_names': <String>[],
+                  'step_summaries': <Map<String, dynamic>>[
+                    <String, dynamic>{
+                      'id': 'step_1',
+                      'index': 0,
+                      'title': '点击菜单',
+                      'kind': 'omniflow_action',
+                      'executor': 'omniflow',
+                      'tool': 'click',
+                    },
+                  ],
+                },
+              ],
+            };
+          }
+          if (call.method == 'getOobReusableFunction') {
+            return <String, dynamic>{
+              'function_id': 'open_then_tap',
+              'name': '打开后点击',
+              'actions': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'tool': 'click',
+                  'args': <String, dynamic>{'x': 12, 'y': 34},
+                  'description': '点击菜单',
+                },
+              ],
+              'execution': <String, dynamic>{
+                'step_count': 1,
+                'steps': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'id': 'step_1',
+                    'step_id': 'step_1',
+                    'index': 0,
+                    'title': '点击菜单',
+                    'kind': 'omniflow_action',
+                    'executor': 'omniflow',
+                    'tool': 'click',
+                    'omniflow_action': 'click',
+                    'local_action': 'click',
+                    'callable_tool': 'click',
+                    'model_free': true,
+                    'scriptable': true,
+                    'args': <String, dynamic>{'x': 12, 'y': 34},
+                  },
+                ],
+              },
+              'metadata': <String, dynamic>{'step_count': 1},
+            };
+          }
+          return null;
+        });
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        locale: Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: FunctionLibraryPage(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.info_outline_rounded));
+    await tester.pumpAndSettle();
+
+    expect(find.text('RunLog 保存结果'), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.add_circle_outline_rounded));
+    await tester.pumpAndSettle();
+
+    expect(find.text('添加步骤'), findsOneWidget);
+    expect(find.byType(DropdownButtonFormField<String>), findsOneWidget);
+    expect(find.text('target_description'), findsOneWidget);
+    expect(find.text('x'), findsOneWidget);
+    expect(find.text('y'), findsOneWidget);
+  });
+
+  testWidgets('Reusable Function step editor keeps raw coordinates on switch', (
+    tester,
+  ) async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(assistCoreChannel, (call) async {
+          if (call.method == 'listOobReusableFunctions') {
+            return <String, dynamic>{
+              'success': true,
+              'functions': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'function_id': 'tap_with_raw_coordinates',
+                  'name': '点击入口',
+                  'description': '点击入口',
+                  'step_count': 1,
+                  'parameter_names': <String>[],
+                  'step_summaries': <Map<String, dynamic>>[
+                    <String, dynamic>{
+                      'id': 'step_1',
+                      'index': 0,
+                      'title': '点击入口',
+                      'kind': 'omniflow_action',
+                      'executor': 'omniflow',
+                      'tool': 'click',
+                    },
+                  ],
+                },
+              ],
+            };
+          }
+          if (call.method == 'getOobReusableFunction') {
+            return <String, dynamic>{
+              'function_id': 'tap_with_raw_coordinates',
+              'name': '点击入口',
+              'actions': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'tool': 'click',
+                  'args': <String, dynamic>{
+                    'target_description': '入口',
+                    'x': 120,
+                    'y': 640,
+                    'raw_x': 123,
+                    'raw_y': 654,
+                  },
+                  'description': '点击入口',
+                },
+              ],
+              'execution': <String, dynamic>{
+                'step_count': 1,
+                'steps': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'id': 'step_1',
+                    'step_id': 'step_1',
+                    'index': 0,
+                    'title': '点击入口',
+                    'kind': 'omniflow_action',
+                    'executor': 'omniflow',
+                    'tool': 'click',
+                    'args': <String, dynamic>{
+                      'target_description': '入口',
+                      'x': 120,
+                      'y': 640,
+                      'raw_x': 123,
+                      'raw_y': 654,
+                    },
+                  },
+                ],
+              },
+            };
+          }
+          return null;
+        });
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        locale: Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: FunctionLibraryPage(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.info_outline_rounded));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byIcon(Icons.edit_outlined));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.edit_outlined));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('swipe').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('x1'), findsOneWidget);
+    expect(find.text('y1'), findsOneWidget);
+    expect(find.text('x2'), findsOneWidget);
+    expect(find.text('y2'), findsOneWidget);
+
+    final argsField = find.byWidgetPredicate(
+      (widget) =>
+          widget is TextField && widget.decoration?.labelText == '参数 JSON',
+    );
+    final argsController = tester.widget<TextField>(argsField).controller!;
+    expect(argsController.text, contains('"raw_x": 123'));
+    expect(argsController.text, contains('"raw_y": 654'));
+    expect(argsController.text, contains('"x1": 120'));
+    expect(argsController.text, contains('"y1": 640'));
+  });
+
+  testWidgets('Reusable Function detail opens shared step delete confirm', (
+    tester,
+  ) async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(assistCoreChannel, (call) async {
+          if (call.method == 'listOobReusableFunctions') {
+            return <String, dynamic>{
+              'success': true,
+              'functions': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'function_id': 'duplicate_type',
+                  'name': '输入联系人',
+                  'step_count': 2,
+                  'step_summaries': <Map<String, dynamic>>[
+                    <String, dynamic>{
+                      'id': 'step_1',
+                      'index': 0,
+                      'title': '错误输入',
+                      'executor': 'omniflow',
+                      'tool': 'input_text',
+                    },
+                    <String, dynamic>{
+                      'id': 'step_2',
+                      'index': 1,
+                      'title': '有效输入',
+                      'executor': 'omniflow',
+                      'tool': 'input_text',
+                    },
+                  ],
+                },
+              ],
+            };
+          }
+          if (call.method == 'getOobReusableFunction') {
+            return <String, dynamic>{
+              'function_id': 'duplicate_type',
+              'parameters': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'name': 'wrong_text',
+                  'default': 'x',
+                  'bindings': <String>[r'$.execution.steps[0].args.text'],
+                },
+                <String, dynamic>{
+                  'name': 'kept_text',
+                  'default': 'y',
+                  'bindings': <String>[r'$.execution.steps[1].args.text'],
+                },
+              ],
+              'actions': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'tool': 'input_text',
+                  'args': <String, dynamic>{'text': 'x'},
+                },
+                <String, dynamic>{
+                  'tool': 'input_text',
+                  'args': <String, dynamic>{'text': 'y'},
+                },
+              ],
+              'execution': <String, dynamic>{
+                'steps': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'id': 'step_1',
+                    'index': 0,
+                    'title': '错误输入',
+                    'executor': 'omniflow',
+                    'tool': 'input_text',
+                    'args': <String, dynamic>{'text': 'x'},
+                  },
+                  <String, dynamic>{
+                    'id': 'step_2',
+                    'index': 1,
+                    'title': '有效输入',
+                    'executor': 'omniflow',
+                    'tool': 'input_text',
+                    'args': <String, dynamic>{'text': 'y'},
+                  },
+                ],
+              },
+            };
+          }
+          return null;
+        });
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        locale: Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: FunctionLibraryPage(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.info_outline_rounded));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byIcon(Icons.delete_outline).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.delete_outline).first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('删除步骤'), findsOneWidget);
+  });
+
+  testWidgets(
+    'Reusable Function run button invokes local execution and shows running state',
+    (tester) async {
+      final runCompleter = Completer<Map<String, dynamic>>();
+      final methodCalls = <MethodCall>[];
+      var runCalls = 0;
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(assistCoreChannel, (call) async {
+            methodCalls.add(call);
+            if (call.method == 'listOobReusableFunctions') {
+              return <String, dynamic>{
+                'success': true,
+                'count': 1,
+                'functions': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'function_id': 'open_settings',
+                    'name': '打开 Settings',
+                    'description': '打开 Android 设置',
+                    'step_count': 1,
+                    'parameter_names': <String>['package_name'],
+                    'registered_at': '1700000000000',
+                    'step_summaries': <Map<String, dynamic>>[
+                      <String, dynamic>{
+                        'index': 0,
+                        'title': '打开 Settings',
+                        'kind': 'omniflow_action',
+                        'executor': 'omniflow',
+                        'tool': 'open_app',
+                      },
+                    ],
+                  },
+                ],
+              };
+            }
+            if (call.method == 'runOobReusableFunction') {
+              runCalls += 1;
+              return runCompleter.future;
+            }
+            if (call.method == 'getOobReusableFunction') {
+              return <String, dynamic>{
+                'success': true,
+                'function_id': 'open_settings',
+                'parameters': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'name': 'package_name',
+                    'type': 'string',
+                    'required': true,
+                    'default': 'com.android.settings',
+                  },
+                ],
+              };
+            }
+            return null;
+          });
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          locale: Locale('zh'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: FunctionLibraryPage(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('执行'));
+      await tester.pump();
+
+      expect(runCalls, 1);
+      expect(find.text('执行中'), findsOneWidget);
+      expect(find.text('正在执行：打开 Settings'), findsOneWidget);
+      final runCall = methodCalls.singleWhere(
+        (call) => call.method == 'runOobReusableFunction',
+      );
+      expect(
+        Map<String, dynamic>.from(runCall.arguments as Map)['function_id'],
+        'open_settings',
+      );
+      expect(
+        Map<String, dynamic>.from(
+          Map<String, dynamic>.from(runCall.arguments as Map)['arguments']
+              as Map,
+        ),
+        containsPair('package_name', 'com.android.settings'),
+      );
+
+      runCompleter.complete(<String, dynamic>{
+        'success': true,
+        'function_id': 'open_settings',
+        'goal': 'oob_reusable_function_run:open_settings',
+        'timing': <String, dynamic>{
+          'started_at_ms': 1700000000000,
+          'finished_at_ms': 1700000002450,
+          'runner_duration_ms': 2450,
+          'phase_ms': <String, dynamic>{
+            'parse_request_ms': 3,
+            'read_current_package_ms': 4,
+            'read_current_page_ms': 5,
+            'page_match_ms': 6,
+            'rank_functions_ms': 7,
+            'segment_match_ms': 8,
+          },
+        },
+        'execution_status': 'completed_local',
+        'terminal_state': <String, dynamic>{
+          'status': 'completed_local',
+          'execution_status': 'completed_local',
+        },
+        'context': <String, dynamic>{
+          'step_results': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'success': true,
+              'tool': 'open_app',
+              'executor': 'omniflow',
+              'duration_ms': 120,
+              'compile_kind': 'hit',
+              'compile_result': <String, dynamic>{
+                'compile_status': 'hit',
+                'function_id': 'open_settings',
+              },
+            },
+          ],
+        },
+      });
+      await tester.pumpAndSettle();
+
+      expect(find.text('复用指令执行结果'), findsNothing);
+
+      expect(find.text('执行'), findsOneWidget);
+      expect(find.text('正在执行：打开 Settings'), findsNothing);
+    },
+  );
+
+  testWidgets('Reusable Function run asks for missing required arguments', (
+    tester,
+  ) async {
+    final methodCalls = <MethodCall>[];
+
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(assistCoreChannel, (call) async {
+          methodCalls.add(call);
+          if (call.method == 'listOobReusableFunctions') {
+            return <String, dynamic>{
+              'success': true,
+              'count': 1,
+              'functions': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'function_id': 'search_settings',
+                  'name': '搜索设置',
+                  'description': '在设置里搜索',
+                  'step_count': 1,
+                  'parameter_names': <String>['query'],
+                  'registered_at': '1700000000000',
+                  'step_summaries': <Map<String, dynamic>>[
+                    <String, dynamic>{
+                      'index': 0,
+                      'title': '搜索',
+                      'tool': 'input_text',
+                    },
+                  ],
+                },
+              ],
+            };
+          }
+          if (call.method == 'getOobReusableFunction') {
+            return <String, dynamic>{
+              'success': true,
+              'function_id': 'search_settings',
+              'parameters': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'name': 'query',
+                  'type': 'string',
+                  'required': true,
+                  'description': '搜索词',
+                },
+              ],
+            };
+          }
+          if (call.method == 'runOobReusableFunction') {
+            return <String, dynamic>{
+              'success': true,
+              'function_id': 'search_settings',
+              'execution_status': 'completed_local',
+              'terminal_state': <String, dynamic>{
+                'status': 'completed_local',
+                'execution_status': 'completed_local',
+              },
+              'context': <String, dynamic>{
+                'step_results': <Map<String, dynamic>>[],
+              },
+            };
+          }
+          return null;
+        });
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        locale: Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: FunctionLibraryPage(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('执行'));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('填写执行参数'), findsOneWidget);
+    expect(find.text('query'), findsOneWidget);
+    expect(
+      methodCalls.where((call) => call.method == 'runOobReusableFunction'),
+      isEmpty,
+    );
+
+    await tester.enterText(find.byType(TextField), 'wifi');
+    await tester.tap(find.widgetWithText(FilledButton, '执行'));
+    await tester.pumpAndSettle();
+
+    final runCall = methodCalls.singleWhere(
+      (call) => call.method == 'runOobReusableFunction',
+    );
+    final runArgs = Map<String, dynamic>.from(runCall.arguments as Map);
+    expect(runArgs['function_id'], 'search_settings');
+    expect(
+      Map<String, dynamic>.from(runArgs['arguments'] as Map),
+      containsPair('query', 'wifi'),
+    );
+    expect(find.text('复用指令执行结果'), findsNothing);
+  });
+
+  testWidgets('Memory Center reusable Function embed keeps OOB interactions', (
+    tester,
+  ) async {
+    final methodCalls = <MethodCall>[];
+    final runCompleter = Completer<Map<String, dynamic>>();
+    var deleted = false;
+
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(assistCoreChannel, (call) async {
+          methodCalls.add(call);
+          if (call.method == 'listOobReusableFunctions') {
+            return <String, dynamic>{
+              'success': true,
+              'count': deleted ? 0 : 1,
+              'functions': deleted
+                  ? <Map<String, dynamic>>[]
+                  : <Map<String, dynamic>>[
+                      <String, dynamic>{
+                        'function_id': 'open_settings',
+                        'name': '打开 Settings',
+                        'description': '打开 Android 设置',
+                        'step_count': 1,
+                        'parameter_names': <String>['package_name'],
+                        'registered_at': '1700000000000',
+                        'source_run_ids': <String>['run-1'],
+                        'step_summaries': <Map<String, dynamic>>[
+                          <String, dynamic>{
+                            'index': 0,
+                            'title': '打开 Settings',
+                            'kind': 'omniflow_action',
+                            'executor': 'omniflow',
+                            'tool': 'open_app',
+                          },
+                        ],
+                      },
+                    ],
+            };
+          }
+          if (call.method == 'getOobReusableFunction') {
+            return <String, dynamic>{
+              'success': true,
+              'function_id': 'open_settings',
+              'name': '打开 Settings',
+              'description': '打开 Android 设置',
+              'parameters': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'name': 'package_name',
+                  'type': 'string',
+                  'required': false,
+                },
+              ],
+              'execution': <String, dynamic>{
+                'step_count': 1,
+                'steps': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'id': 'step_1',
+                    'index': 0,
+                    'title': '打开 Settings',
+                    'kind': 'omniflow_action',
+                    'executor': 'omniflow',
+                    'tool': 'open_app',
+                  },
+                ],
+              },
+            };
+          }
+          if (call.method == 'runOobReusableFunction') {
+            return runCompleter.future;
+          }
+          if (call.method == 'deleteOobReusableFunction') {
+            deleted = true;
+            return <String, dynamic>{'success': true, 'deleted': true};
+          }
+          return null;
+        });
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        locale: Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(body: FunctionLibraryEmbed()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('打开 Settings'), findsOneWidget);
+    expect(find.text('打开 Android 设置'), findsOneWidget);
+    expect(find.text('类型 OmniFlow'), findsNothing);
+    expect(find.text('状态 已注册'), findsNothing);
+    expect(find.text('步骤 1'), findsOneWidget);
+    expect(find.text('参数 1'), findsOneWidget);
+    expect(find.text('RunLogs 1'), findsOneWidget);
+    expect(find.text('执行'), findsOneWidget);
+    expect(find.byIcon(Icons.info_outline_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.delete_outline_rounded), findsOneWidget);
+
+    await tester.tap(find.text('打开 Settings'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('复用指令详情'), findsNothing);
+    expect(
+      methodCalls.where((call) => call.method == 'getOobReusableFunction'),
+      isEmpty,
+    );
+
+    await tester.tap(find.byIcon(Icons.info_outline_rounded));
+    await tester.pumpAndSettle();
+
+    expect(find.text('RunLog 保存结果'), findsOneWidget);
+    expect(
+      methodCalls.where((call) => call.method == 'getOobReusableFunction'),
+      hasLength(1),
+    );
+
+    Navigator.of(tester.element(find.text('RunLog 保存结果'))).pop();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('执行'));
+    await tester.pump();
+
+    expect(find.text('执行中'), findsOneWidget);
+    expect(find.text('正在执行：打开 Settings'), findsOneWidget);
+    final runCall = methodCalls.singleWhere(
+      (call) => call.method == 'runOobReusableFunction',
+    );
+    expect(
+      Map<String, dynamic>.from(runCall.arguments as Map)['function_id'],
+      'open_settings',
+    );
+
+    runCompleter.complete(<String, dynamic>{
+      'success': true,
+      'function_id': 'open_settings',
+      'execution_status': 'completed_local',
+      'terminal_state': <String, dynamic>{
+        'status': 'completed_local',
+        'execution_status': 'completed_local',
+      },
+      'context': <String, dynamic>{
+        'step_results': <Map<String, dynamic>>[
+          <String, dynamic>{
+            'success': true,
+            'tool': 'open_app',
+            'executor': 'omniflow',
+          },
+        ],
+      },
+    });
+    await tester.pumpAndSettle();
+
+    expect(find.text('复用指令执行结果'), findsNothing);
+
+    await tester.tap(find.byIcon(Icons.delete_outline_rounded));
+    await tester.pumpAndSettle();
+
+    expect(find.text('删除复用指令'), findsOneWidget);
+
+    await tester.tap(find.text('删除'));
+    await tester.pumpAndSettle();
+
+    expect(
+      methodCalls.where((call) => call.method == 'deleteOobReusableFunction'),
+      hasLength(1),
+    );
+    expect(find.text('打开 Settings'), findsNothing);
+    expect(find.text('暂无复用指令'), findsOneWidget);
+  });
+}

@@ -148,8 +148,8 @@ class AssistsUtil {
          * 取消正在运行或等待中的任务，不影响陪伴模式
          * 可在预执行 delay 期间取消任务
          */
-        fun cancelRunningTask(taskId: String? = null) {
-            AssistsCore.cancelPendingTask(taskId)
+        fun cancelRunningTask(taskId: String? = null): Boolean {
+            return AssistsCore.cancelPendingTask(taskId)
         }
 
         /**
@@ -187,7 +187,9 @@ class AssistsUtil {
             onMessagePushListener: OnMessagePushListener,
             needSummary: Boolean = false,
             skipGoHome: Boolean = false,  // 是否跳过回到主页，从当前页面开始执行
-            stepSkillGuidance: String = ""
+            stepSkillGuidance: String = "",
+            taskId: String? = null,
+            disableOmniFlowRecall: Boolean = false
         ) {
 
             if (!AssistsCore.isAccessibilityServiceEnabled()) {
@@ -217,7 +219,9 @@ class AssistsUtil {
                     needSummary,
                     onMessagePushListener,
                     skipGoHome,
-                    stepSkillGuidance
+                    stepSkillGuidance,
+                    taskId,
+                    disableOmniFlowRecall
                 )
             )
         }
@@ -228,6 +232,14 @@ class AssistsUtil {
          */
         fun provideUserInputToVLMTask(userInput: String): Boolean {
             return AssistsCore.provideUserInputToVLMTask(userInput)
+        }
+
+        fun pauseVLMTask(): Boolean {
+            return AssistsCore.pauseVLMTask()
+        }
+
+        fun resumeVLMTask(): Boolean {
+            return AssistsCore.resumeVLMTask()
         }
 
         fun appendVlmExternalMemory(memory: String): Boolean {

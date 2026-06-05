@@ -49,6 +49,60 @@ class AssistsCoreChannel {
                 "createAgentTask" -> {
                     assistsCoreManager!!.createAgentTask( call, result)
                 }
+                "getInternalRunLogs" -> {
+                    assistsCoreManager!!.getInternalRunLogs(call, result)
+                }
+                "getInternalRunLogTimeline" -> {
+                    assistsCoreManager!!.getInternalRunLogTimeline(call, result)
+                }
+                "getAgentToolFeatures" -> {
+                    assistsCoreManager!!.getAgentToolFeatures(call, result)
+                }
+                "setAgentToolFeatures" -> {
+                    assistsCoreManager!!.setAgentToolFeatures(call, result)
+                }
+                "registerOobReusableFunction" -> {
+                    assistsCoreManager!!.registerOobReusableFunction(call, result)
+                }
+                "convertInternalRunLogToOobFunction" -> {
+                    assistsCoreManager!!.convertInternalRunLogToOobFunction(call, result)
+                }
+                "startHumanTrajectoryLearning" -> {
+                    assistsCoreManager!!.startHumanTrajectoryLearning(call, result)
+                }
+                "pauseHumanTrajectoryLearning" -> {
+                    assistsCoreManager!!.pauseHumanTrajectoryLearning(call, result)
+                }
+                "resumeHumanTrajectoryLearning" -> {
+                    assistsCoreManager!!.resumeHumanTrajectoryLearning(call, result)
+                }
+                "getHumanTrajectoryLearningStatus" -> {
+                    assistsCoreManager!!.getHumanTrajectoryLearningStatus(call, result)
+                }
+                "saveCurrentUdegState" -> {
+                    assistsCoreManager!!.saveCurrentUdegState(call, result)
+                }
+                "exportOobUdeg" -> {
+                    assistsCoreManager!!.exportOobUdeg(call, result)
+                }
+                "getOobReusableFunction" -> {
+                    assistsCoreManager!!.getOobReusableFunction(call, result)
+                }
+                "listOobReusableFunctions" -> {
+                    assistsCoreManager!!.listOobReusableFunctions(call, result)
+                }
+                "deleteOobReusableFunction" -> {
+                    assistsCoreManager!!.deleteOobReusableFunction(call, result)
+                }
+                "runOobReusableFunction" -> {
+                    assistsCoreManager!!.runOobReusableFunction(call, result)
+                }
+                "agentRunList" -> {
+                    assistsCoreManager!!.agentRunList(call, result)
+                }
+                "captureWorkbenchAnnotationAttachment" -> {
+                    assistsCoreManager!!.captureWorkbenchAnnotationAttachment(call, result)
+                }
                 "agentSkillList" -> {
                     assistsCoreManager!!.agentSkillList(call, result)
                 }
@@ -207,9 +261,6 @@ class AssistsCoreChannel {
                 "stopAgentToolCall" -> {
                     assistsCoreManager!!.stopAgentToolCall(call, result)
                 }
-                "retryAgentTask" -> {
-                    assistsCoreManager!!.retryAgentTask(call, result)
-                }
                 "isCompanionTaskRunning" -> {
                     assistsCoreManager!!.isCompanionTaskRunning( call, result)
                 }
@@ -219,7 +270,6 @@ class AssistsCoreChannel {
                 "pressHome" -> {
                     assistsCoreManager!!.pressHome(call, result)
                 }
-
                 "getInstalledApplications" -> {
                     assistsCoreManager!!.getInstalledApplications( call, result)
                 }
@@ -268,6 +318,12 @@ class AssistsCoreChannel {
                 "provideUserInputToVLMTask" -> {
                     assistsCoreManager!!.provideUserInputToVLMTask(call, result)
                 }
+                "pauseVLMTask" -> {
+                    assistsCoreManager!!.pauseVLMTask(call, result)
+                }
+                "resumeVLMTask" -> {
+                    assistsCoreManager!!.resumeVLMTask(call, result)
+                }
                 "notifySummarySheetReady" -> {
                     assistsCoreManager!!.notifySummarySheetReady(call, result)
                 }
@@ -309,6 +365,60 @@ class AssistsCoreChannel {
                 }
                 "navigateToMainEngineRoute" -> {
                     assistsCoreManager!!.navigateToMainEngineRoute(call, result)
+                }
+                "workbenchProjectCreate" -> {
+                    assistsCoreManager!!.workbenchProjectCreate(call, result)
+                }
+                "workbenchProjectGet" -> {
+                    assistsCoreManager!!.workbenchProjectGet(call, result)
+                }
+                "workbenchProjectUpdate" -> {
+                    assistsCoreManager!!.workbenchProjectUpdate(call, result)
+                }
+                "workbenchProjectList" -> {
+                    assistsCoreManager!!.workbenchProjectList(call, result)
+                }
+                "workbenchProjectOpen" -> {
+                    assistsCoreManager!!.workbenchProjectOpen(call, result)
+                }
+                "workbenchProjectActivate" -> {
+                    assistsCoreManager!!.workbenchProjectActivate(call, result)
+                }
+                "workbenchProjectActiveGet" -> {
+                    assistsCoreManager!!.workbenchProjectActiveGet(call, result)
+                }
+                "workbenchFrontendContextSet" -> {
+                    assistsCoreManager!!.workbenchFrontendContextSet(call, result)
+                }
+                "workbenchFrontendContextGet" -> {
+                    assistsCoreManager!!.workbenchFrontendContextGet(call, result)
+                }
+                "workbenchProjectDeactivate" -> {
+                    assistsCoreManager!!.workbenchProjectDeactivate(call, result)
+                }
+                "workbenchProjectDelete" -> {
+                    assistsCoreManager!!.workbenchProjectDelete(call, result)
+                }
+                "workbenchProjectExport" -> {
+                    assistsCoreManager!!.workbenchProjectExport(call, result)
+                }
+                "workbenchProjectHotUpdate" -> {
+                    assistsCoreManager!!.workbenchProjectHotUpdate(call, result)
+                }
+                "workbenchProjectIngestAndroid" -> {
+                    assistsCoreManager!!.workbenchProjectIngestAndroid(call, result)
+                }
+                "workbenchProjectIngestOss" -> {
+                    assistsCoreManager!!.workbenchProjectIngestOss(call, result)
+                }
+                "workbenchProjectProgressGet" -> {
+                    assistsCoreManager!!.workbenchProjectProgressGet(call, result)
+                }
+                "workbenchApiList" -> {
+                    assistsCoreManager!!.workbenchApiList(call, result)
+                }
+                "workbenchApiCall" -> {
+                    assistsCoreManager!!.workbenchApiCall(call, result)
                 }
                 "reopenChatBotAfterAuth" -> {
                     assistsCoreManager!!.reopenChatBotAfterAuth(result)

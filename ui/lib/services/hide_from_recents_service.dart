@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:ui/services/storage_service.dart';
 
@@ -21,7 +22,7 @@ class HideFromRecentsService {
 
       return result ?? false;
     } catch (e) {
-      print('设置后台隐藏失败: $e');
+      debugPrint('设置后台隐藏失败: $e');
       return false;
     }
   }

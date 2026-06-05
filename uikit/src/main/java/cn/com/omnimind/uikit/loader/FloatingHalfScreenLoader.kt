@@ -22,6 +22,7 @@ import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.uikit.UIKit
 import cn.com.omnimind.uikit.api.callback.HalfScreenApi
 import cn.com.omnimind.uikit.loader.cat.DraggableBallInstance
+import cn.com.omnimind.uikit.settings.CompanionOverlaySettings
 import cn.com.omnimind.uikit.view.layout.HalfScreenView
 
 
@@ -53,19 +54,27 @@ class FloatingHalfScreenLoader(
         }
 
         fun loadFloatingHalfScreen(path: String) {
+            if (!CompanionOverlaySettings.isEnabled()) {
+                destroyInstance()
+                return
+            }
             getInstance()?.loadFloatingHalfScreen(path)
         }
 
         fun loadFloatingLearnScreen(path: String) {
+            if (!CompanionOverlaySettings.isEnabled()) {
+                destroyInstance()
+                return
+            }
             getInstance()?.loadFloatingLearnScreen(path)
         }
 
         fun destroyInstance() {
-            getInstance()?.removeView()
+            INSTANCE?.removeView()
             INSTANCE = null
         }
         fun isShowing(): Boolean {
-            return getInstance()?.isShowing() ?: false
+            return INSTANCE?.isShowing() ?: false
         }
 
         fun hideForExternalActivity(): Boolean {
@@ -75,8 +84,23 @@ class FloatingHalfScreenLoader(
         fun restoreAfterExternalActivity(): Boolean {
             return getInstance()?.restoreAfterExternalActivity() ?: false
         }
+
+        fun hideForManualRecording(): Boolean {
+            return getInstance()?.hideForManualRecording() ?: false
+        }
+
+        fun restoreAfterManualRecording(): Boolean {
+            return getInstance()?.restoreAfterManualRecording() ?: false
+        }
+
+        fun hideForReplay(): Boolean {
+            return getInstance()?.hideForReplay() ?: false
+        }
+
+        fun restoreAfterReplay(): Boolean {
+            return getInstance()?.restoreAfterReplay() ?: false
+        }
     }
-    private val screenHeight = context.resources.displayMetrics.heightPixels
     private var flutterView: View? = null
 
     private var container: HalfScreenView? = null
@@ -88,8 +112,26 @@ class FloatingHalfScreenLoader(
     private var didHideScreenMaskForExternalActivity: Boolean = false
     private var didHideCancelClickForExternalActivity: Boolean = false
     private var didHideDraggableForExternalActivity: Boolean = false
+    private var isHiddenForManualRecording: Boolean = false
+    private var didHideScreenMaskForManualRecording: Boolean = false
+    private var didHideCancelClickForManualRecording: Boolean = false
+    private var isHiddenForReplay: Boolean = false
+    private var didHideScreenMaskForReplay: Boolean = false
+    private var didHideCancelClickForReplay: Boolean = false
 
     fun isShowing(): Boolean = isAttachedToWindow
+
+    fun setTouchPassThrough(passThrough: Boolean) {
+        val params = windowParams ?: return
+        val view = container ?: return
+        if (!view.isAttachedToWindow) return
+        if (passThrough) {
+            params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        } else {
+            params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        }
+        runCatching { getWindowManager().updateViewLayout(view, params) }
+    }
 
     @SuppressLint("SuspiciousIndentation")
     fun getWindowManager(): WindowManager {
@@ -120,8 +162,7 @@ class FloatingHalfScreenLoader(
                 ).apply {
                     gravity = Gravity.BOTTOM
                 }
-                // 预先设置透明度为0，准备渐变显示
-                alpha = 0f
+                alpha = 1f
                 visibility = View.VISIBLE
             }
             OmniLog.d("HalfScreen", "✅ FlutterView 创建完成")
@@ -210,8 +251,7 @@ class FloatingHalfScreenLoader(
                 ).apply {
                     gravity = Gravity.BOTTOM
                 }
-                // 预先设置 translationY，使视图从屏幕下方开始
-                translationY = screenHeight.toFloat()
+                translationY = 0f
                 visibility = View.VISIBLE
             }
 
@@ -336,6 +376,129 @@ class FloatingHalfScreenLoader(
         }
     }
 
+    fun hideForManualRecording(): Boolean {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            Handler(Looper.getMainLooper()).post { hideForManualRecording() }
+            return false
+        }
+        didHideScreenMaskForManualRecording = ScreenMaskLoader.hideForExternalActivity()
+        didHideCancelClickForManualRecording = CancelClickLoader.hideForExternalActivity()
+        if (!isAttachedToWindow || container == null) {
+            return didHideScreenMaskForManualRecording ||
+                    didHideCancelClickForManualRecording
+        }
+        return try {
+            flutterView?.animate()?.cancel()
+            flutterView?.alpha = 1f
+            getWindowManager().removeView(container)
+            isAttachedToWindow = false
+            isHiddenForManualRecording = true
+            OmniLog.d("FloatingHalfScreenLoader", "Half screen hidden for manual recording")
+            true
+        } catch (e: Exception) {
+            OmniLog.e("FloatingHalfScreenLoader", "hideForManualRecording failed: ${e.message}", e)
+            false
+        }
+    }
+
+    fun restoreAfterManualRecording(): Boolean {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            Handler(Looper.getMainLooper()).post { restoreAfterManualRecording() }
+            return false
+        }
+        var restoredScreenMask = false
+        if (didHideScreenMaskForManualRecording) {
+            restoredScreenMask = ScreenMaskLoader.restoreAfterExternalActivity()
+            didHideScreenMaskForManualRecording = false
+        }
+        var restoredCancelClick = false
+        if (didHideCancelClickForManualRecording) {
+            restoredCancelClick = CancelClickLoader.restoreAfterExternalActivity()
+            didHideCancelClickForManualRecording = false
+        }
+        val view = container ?: return restoredScreenMask || restoredCancelClick
+        val params = windowParams ?: return restoredScreenMask || restoredCancelClick
+        if (isAttachedToWindow || !isHiddenForManualRecording) {
+            return restoredScreenMask || restoredCancelClick
+        }
+        return try {
+            getWindowManager().addView(view, params)
+            flutterView?.visibility = View.VISIBLE
+            flutterView?.alpha = 1f
+            isAttachedToWindow = true
+            isHiddenForManualRecording = false
+            OmniLog.d("FloatingHalfScreenLoader", "Half screen restored after manual recording")
+            true
+        } catch (e: BadTokenException) {
+            OmniLog.e("FloatingHalfScreenLoader", "restoreAfterManualRecording BadTokenException: ${e.message}")
+            restoredScreenMask || restoredCancelClick
+        } catch (e: Exception) {
+            OmniLog.e("FloatingHalfScreenLoader", "restoreAfterManualRecording failed: ${e.message}", e)
+            restoredScreenMask || restoredCancelClick
+        }
+    }
+
+    fun hideForReplay(): Boolean {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            Handler(Looper.getMainLooper()).post { hideForReplay() }
+            return false
+        }
+        didHideScreenMaskForReplay = ScreenMaskLoader.hideForExternalActivity()
+        didHideCancelClickForReplay = CancelClickLoader.hideForExternalActivity()
+        if (!isAttachedToWindow || container == null) {
+            return didHideScreenMaskForReplay || didHideCancelClickForReplay
+        }
+        return try {
+            flutterView?.animate()?.cancel()
+            flutterView?.alpha = 1f
+            getWindowManager().removeView(container)
+            isAttachedToWindow = false
+            isHiddenForReplay = true
+            OmniLog.d("FloatingHalfScreenLoader", "Half screen hidden for replay")
+            true
+        } catch (e: Exception) {
+            OmniLog.e("FloatingHalfScreenLoader", "hideForReplay failed: ${e.message}", e)
+            false
+        }
+    }
+
+    fun restoreAfterReplay(): Boolean {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            Handler(Looper.getMainLooper()).post { restoreAfterReplay() }
+            return false
+        }
+        var restoredScreenMask = false
+        if (didHideScreenMaskForReplay) {
+            restoredScreenMask = ScreenMaskLoader.restoreAfterExternalActivity()
+            didHideScreenMaskForReplay = false
+        }
+        var restoredCancelClick = false
+        if (didHideCancelClickForReplay) {
+            restoredCancelClick = CancelClickLoader.restoreAfterExternalActivity()
+            didHideCancelClickForReplay = false
+        }
+        val view = container ?: return restoredScreenMask || restoredCancelClick
+        val params = windowParams ?: return restoredScreenMask || restoredCancelClick
+        if (isAttachedToWindow || !isHiddenForReplay) {
+            return restoredScreenMask || restoredCancelClick
+        }
+        return try {
+            getWindowManager().addView(view, params)
+            flutterView?.visibility = View.VISIBLE
+            flutterView?.alpha = 1f
+            isAttachedToWindow = true
+            isHiddenForReplay = false
+            OmniLog.d("FloatingHalfScreenLoader", "Half screen restored after replay")
+            true
+        } catch (e: BadTokenException) {
+            OmniLog.e("FloatingHalfScreenLoader", "restoreAfterReplay BadTokenException: ${e.message}")
+            restoredScreenMask || restoredCancelClick
+        } catch (e: Exception) {
+            OmniLog.e("FloatingHalfScreenLoader", "restoreAfterReplay failed: ${e.message}", e)
+            restoredScreenMask || restoredCancelClick
+        }
+    }
+
     fun removeView() {
         if (!isAttachedToWindow) {
             if (isHiddenForExternalActivity) {
@@ -347,6 +510,12 @@ class FloatingHalfScreenLoader(
                 didHideScreenMaskForExternalActivity = false
                 didHideCancelClickForExternalActivity = false
                 didHideDraggableForExternalActivity = false
+                isHiddenForManualRecording = false
+                didHideScreenMaskForManualRecording = false
+                didHideCancelClickForManualRecording = false
+                isHiddenForReplay = false
+                didHideScreenMaskForReplay = false
+                didHideCancelClickForReplay = false
             }
             return
         }
@@ -369,5 +538,11 @@ class FloatingHalfScreenLoader(
         didHideScreenMaskForExternalActivity = false
         didHideCancelClickForExternalActivity = false
         didHideDraggableForExternalActivity = false
+        isHiddenForManualRecording = false
+        didHideScreenMaskForManualRecording = false
+        didHideCancelClickForManualRecording = false
+        isHiddenForReplay = false
+        didHideScreenMaskForReplay = false
+        didHideCancelClickForReplay = false
     }
 }

@@ -13,7 +13,7 @@
     {
       "id": "skill-creator",
       "name": "skill-creator",
-      "description": "Guide for creating and updating effective Omnibot skills. Use when the user wants to add a new skill or improve an existing skill for the built-in Alpine workspace, tool workflows, or reusable domain knowledge.",
+      "description": "Guide for creating and updating effective Omnibot skills. Use when the user wants to add a new skill, create skill, improve skill, update skill, 扩展 skill, 创建 skill, 更新 skill, 写 skill, improve an existing skill for the built-in Alpine workspace, tool workflows, or reusable domain knowledge.",
       "assetPath": "builtin_skills/skill-creator",
       "hasScripts": false,
       "hasReferences": false,
@@ -21,9 +21,109 @@
       "hasEvals": false
     },
     {
+      "id": "oob-prompt-runtime",
+      "name": "oob-prompt-runtime",
+      "description": "Design, implement, or review OOB Prompt Runtime. Use for \"系统提示词\", \"提示词运行时\", \"提示词组装\", \"prompt dump\", \"项目上下文注入\", \"上下文预算\", \"初始输入契约\", \"prompt runtime\", static core, dynamic environment, device state, current app, memory, locale, tool instructions, task prompts, or prompt debugging.",
+      "assetPath": "builtin_skills/oob-prompt-runtime",
+      "hasScripts": false,
+      "hasReferences": true,
+      "hasAssets": false,
+      "hasEvals": false
+    },
+    {
+      "id": "vlm-android-gui",
+      "name": "vlm-android-gui",
+      "description": "Use for OOB VLM Android GUI automation, AndroidWorld phone tasks, vlm_task, OmniFlow replay, reusable Function generation, and RunLog validation.",
+      "assetPath": "builtin_skills/vlm-android-gui",
+      "hasScripts": false,
+      "hasReferences": true,
+      "hasAssets": false,
+      "hasEvals": false
+    },
+    {
+      "id": "omniflow",
+      "name": "omniflow",
+      "description": "OmniFlow reusable Android GUI workflow skill. Use when the user wants to reuse, run, register, repair, enhance, analyze, or debug OOB RunLogs and saved Functions, including update_function, RunLog evidence, replay results, checker design, action cleanup, \"应该点 A 而不是 B\", \"保存为复用指令\", \"增强 function\", and ad/popup optional checkers.",
+      "assetPath": "builtin_skills/omniflow",
+      "hasScripts": false,
+      "hasReferences": true,
+      "hasAssets": false,
+      "hasEvals": false
+    },
+    {
+      "id": "omniflow-checker-maintainer",
+      "name": "omniflow-checker-maintainer",
+      "description": "Implement and maintain OmniFlow runtime checkers for OOB Android GUI replay. Use when the user asks to add, generate, repair, or debug checker code, global checker, hi 升级 checker, upgrade/update popup checker, package/open-app checker, or supported checker_rules that need Kotlin runtime changes.",
+      "assetPath": "builtin_skills/omniflow-checker-maintainer",
+      "hasScripts": false,
+      "hasReferences": false,
+      "hasAssets": false,
+      "hasEvals": false
+    },
+    {
+      "id": "omniflow-function-enhancer",
+      "name": "omniflow-function-enhancer",
+      "description": "Enhance or repair an existing OmniFlow reusable Function created from a RunLog. Use for 增强, update_function, Function 纠错, \"应该点 A 而不是点 B\", runtime parameters, agent_reuse metadata, cleanup/noise annotations, background enhancement status, and explicit enhanced unchanged partial failed reporting.",
+      "assetPath": "builtin_skills/omniflow-function-enhancer",
+      "hasScripts": false,
+      "hasReferences": true,
+      "hasAssets": false,
+      "hasEvals": false
+    },
+    {
+      "id": "oob-function-management",
+      "name": "oob-function-management",
+      "description": "Compatibility entry for OmniFlow Function management. Use for RunLog registration, \"把上一条 runlog 注册了\", \"保存为复用指令\", \"转换轨迹\", update_function, list/get/delete reusable functions, variable-parameter Functions, and function_management profile prompts.",
+      "assetPath": "builtin_skills/oob-function-management",
+      "hasScripts": false,
+      "hasReferences": false,
+      "hasAssets": false,
+      "hasEvals": false
+    },
+    {
+      "id": "oob-project",
+      "name": "oob-project",
+      "description": "OOB Workbench Project 完整生命周期总入口：新建 Project、更新、蒸馏、审查、结构化数据、Project Tool/API、Agent action、轻量 Display、热更新、导出、PROJECT_SOUL/PROJECT_CONTEXT 维护。Use when the user says \"帮我做一个\", \"我想创建一个\", \"新建 Project\", \"build me a\", \"make a [X] tracker/tool/app\", \"改一下界面\", \"加个字段\", \"新增功能\", \"修复\", \"project review\", \"审查 project\", \"总结成我们的 project\", \"蒸馏能力\", \"提取核心设计\", \"生成 soul\", \"把这个 app/项目变成 OOB Project\", \"产品分析\", \"GitHub 仓库分析\", or any intent to create, distill, modify, review, export, or maintain a persistent personal workflow or tool.",
+      "assetPath": "builtin_skills/oob-project",
+      "hasScripts": true,
+      "hasReferences": true,
+      "hasAssets": true,
+      "hasEvals": false
+    },
+    {
+      "id": "apk-inspector-project",
+      "name": "apk-inspector-project",
+      "description": "Forge and maintain OOB APK Inspector workbench workflows. Use when the user asks for APK 快速体检台, APK 体检, APK 静态解析, Android 安装包审计, package/signature/permissions/components/assets/strings/URL/native so inspection, first-run observation, apk diff, or project-owned self-update rules for an APK analysis skill.",
+      "assetPath": "builtin_skills/apk-inspector-project",
+      "hasScripts": false,
+      "hasReferences": true,
+      "hasAssets": false,
+      "hasEvals": false
+    },
+    {
+      "id": "oob-web-research",
+      "name": "oob-web-research",
+      "description": "调研、搜索整理、收集资料、分析竞品、研究市场、小红书调研、GitHub分析、爬取内容、批量收集、信息汇总、web research。Use when the task involves gathering, extracting, or aggregating information from the web — search results, platform pages, repositories, or social content — and storing findings in a Project.",
+      "assetPath": "builtin_skills/oob-web-research",
+      "hasScripts": false,
+      "hasReferences": true,
+      "hasAssets": false,
+      "hasEvals": false
+    },
+    {
+      "id": "hatch-pet",
+      "name": "hatch-pet",
+      "description": "Create or update an Omnibot / Xiaowan custom pet from a concept, reference image, or bare company name. Use when the user wants a selectable pet package, animated 8x9 sprite atlas, brand-discovery-driven mascot, or static fallback pet.",
+      "assetPath": "builtin_skills/hatch-pet",
+      "hasScripts": true,
+      "hasReferences": true,
+      "hasAssets": false,
+      "hasEvals": false
+    },
+    {
       "id": "find-install-skills",
       "name": "find-install-skills",
-      "description": "Find and install relevant Omnibot skills. Use when the user asks \"找个 skill\", \"有没有这个功能的 skill\", \"find a skill for X\", \"is there a skill for X\",\"install a skill for X\", or wants to extend the agent with an installable workflow.",
+      "description": "Find and install relevant Omnibot skills. Use when the user asks \"找个 skill\", \"有没有这个功能的 skill\", \"find a skill for X\", \"is there a skill for X\", \"install skill\", \"安装 skill\", \"技能商店\", or wants to extend the agent with an installable workflow.",
       "assetPath": "builtin_skills/find-install-skills",
       "hasScripts": true,
       "hasReferences": false,

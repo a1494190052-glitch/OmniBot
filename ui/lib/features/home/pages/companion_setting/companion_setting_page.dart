@@ -39,7 +39,7 @@ class _CompanionSettingPageState extends State<CompanionSettingPage> {
           await AssistsMessageService.getInstalledApplicationsWithIconUpdate();
 
       if (installedApps.isEmpty) {
-        print('从原生获取已安装应用列表失败或为空');
+        debugPrint('从原生获取已安装应用列表失败或为空');
         setState(() {
           _isLoading = false;
         });
@@ -74,7 +74,7 @@ class _CompanionSettingPageState extends State<CompanionSettingPage> {
       final blockedApps = await CacheService.getStringList(
         'companion_blocked_apps',
       );
-      print('已禁用的应用列表(黑名单): $blockedApps');
+      debugPrint('已禁用的应用列表(黑名单): $blockedApps');
       loadedAppInfos = loadedAppInfos.map((appInfo) {
         return AppInfo(
           packageName: appInfo.packageName,
@@ -83,7 +83,7 @@ class _CompanionSettingPageState extends State<CompanionSettingPage> {
           isAuthorized: !blockedApps.contains(appInfo.packageName),
         );
       }).toList();
-      print('加载陪伴授权状态完成，应用数: ${loadedAppInfos.length}');
+      debugPrint('加载陪伴授权状态完成，应用数: ${loadedAppInfos.length}');
 
       setState(() {
         _appInfos = loadedAppInfos;
@@ -93,7 +93,7 @@ class _CompanionSettingPageState extends State<CompanionSettingPage> {
       setState(() {
         _isLoading = false;
       });
-      print('加载AppInfo失败: $e');
+      debugPrint('加载AppInfo失败: $e');
       return;
     }
   }
@@ -108,9 +108,9 @@ class _CompanionSettingPageState extends State<CompanionSettingPage> {
           .map((app) => app.packageName)
           .toList();
       await CacheService.setStringList('companion_blocked_apps', blockedApps);
-      print('保存: 已禁用的应用列表(黑名单): $blockedApps');
+      debugPrint('保存: 已禁用的应用列表(黑名单): $blockedApps');
     } catch (e) {
-      print('保存陪伴授权状态失败: $e');
+      debugPrint('保存陪伴授权状态失败: $e');
     }
   }
 

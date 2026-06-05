@@ -5,6 +5,7 @@ import cn.com.omnimind.baselib.i18n.AppLocaleManager
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentCallback
 import cn.com.omnimind.bot.agent.AgentToolExecutionHandle
+import cn.com.omnimind.bot.agent.AgentToolJson
 import cn.com.omnimind.bot.agent.AgentWorkspaceDescriptor
 import cn.com.omnimind.bot.agent.ArtifactAction
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
@@ -59,6 +60,12 @@ class SharedHelper(
         "正在查询已安装应用" to "Querying installed apps",
         "未找到匹配的已安装应用。" to "No matching installed apps found.",
         "查询已安装应用失败" to "Failed to query installed apps",
+        "正在搜索网页" to "Searching the web",
+        "正在抽取搜索结果" to "Extracting search results",
+        "网页搜索失败" to "Web search failed",
+        "网页搜索被页面风控阻断" to "Web search was blocked by page risk controls",
+        "网页搜索完成，未抽取到结构化结果。" to
+            "Web search completed, but no structured results were extracted.",
         "浏览器操作失败" to "Browser action failed",
         "请提供继续执行所需的信息。" to "Please provide the information required to continue.",
         "视觉执行失败" to "Vision task failed",
@@ -193,7 +200,11 @@ class SharedHelper(
         "terminal_execute 缺少 command" to "`terminal_execute` is missing `command`",
         "executionMode 仅支持 termux 或 proot" to
             "`executionMode` only supports `termux` or `proot`",
-        "缺少 command" to "Missing command"
+        "缺少 command" to "Missing command",
+        "复用指令" to "Reusable Function",
+        "正在执行复用指令" to "Running reusable Function",
+        "复用指令执行完成" to "Reusable Function completed",
+        "复用指令执行失败" to "Reusable Function failed"
     )
 
     suspend fun ensureRunActive() {
@@ -278,6 +289,9 @@ class SharedHelper(
         }
         Regex("^找到 (\\d+) 个匹配结果$").matchEntire(text)?.let {
             return "Found ${it.groupValues[1]} matching results."
+        }
+        Regex("^找到 (\\d+) 条网页搜索结果。$").matchEntire(text)?.let {
+            return "Found ${it.groupValues[1]} web search results."
         }
         Regex("^共找到 (\\d+) 个 skill$").matchEntire(text)?.let {
             return "Found ${it.groupValues[1]} skills."
@@ -369,7 +383,7 @@ class SharedHelper(
     }
 
     fun encodeLocalizedPayload(payload: Any?): String {
-        return json.encodeToString(mapToJsonElement(localizePayloadValue(payload)))
+        return json.encodeToString(AgentToolJson.mapToJsonElement(localizePayloadValue(payload)))
     }
 
     private fun localizeMissingPermissions(missing: List<String>): List<String> {
@@ -455,22 +469,6 @@ class SharedHelper(
                 element.doubleOrNull != null -> element.doubleOrNull
                 else -> element.content
             }
-        }
-    }
-
-    fun mapToJsonElement(value: Any?): JsonElement {
-        return when (value) {
-            null -> JsonNull
-            is JsonElement -> value
-            is Map<*, *> -> JsonObject(
-                value.entries.associate { (key, item) ->
-                    key.toString() to mapToJsonElement(item)
-                }
-            )
-            is List<*> -> JsonArray(value.map { mapToJsonElement(it) })
-            is Boolean -> JsonPrimitive(value)
-            is Number -> JsonPrimitive(value)
-            else -> JsonPrimitive(value.toString())
         }
     }
 

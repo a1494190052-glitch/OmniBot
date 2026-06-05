@@ -113,7 +113,7 @@ class _ScrollFadeMaskState extends State<ScrollFadeMask> {
                     end: Alignment.topCenter,
                     colors: <Color>[
                       widget.backgroundColor,
-                      widget.backgroundColor.withOpacity(0.0),
+                      widget.backgroundColor.withValues(alpha: 0.0),
                     ],
                   ),
                 ),

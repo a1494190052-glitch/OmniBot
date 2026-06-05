@@ -55,6 +55,8 @@ class ShowInfoView @JvmOverloads constructor(
     private var innerRelativeLayout: View? = null
     private var bottomContentLayout: View? = null // 包含 contentContainer 的 RelativeLayout
     private var llResumeTextView: TextView? = null // llResume 中的文字
+    private var llTakeOverTextView: TextView? = null
+    private var llStopTextView: TextView? = null
     private var ivResume: ImageView? = null
 
     var delayTask: CoroutineScope = CoroutineScope(Dispatchers.IO)
@@ -82,6 +84,8 @@ class ShowInfoView @JvmOverloads constructor(
         innerRelativeLayout = findViewById(R.id.rlContent)
         // 通过id获取 llResume 中的 TextView（"继续"文字）
         llResumeTextView = findViewById(R.id.llResumeTextView)
+        llTakeOverTextView = findViewById(R.id.llTakeOverTextView)
+        llStopTextView = findViewById(R.id.llStopTextView)
         //收起后展示的继续按钮
         ivResume = findViewById(R.id.ivResume)
 //        ShapeBuilder.roundedRectangle("#F3F4F5".toColorInt(), 30.dpToPxF()).applyTo(ivResume!!)
@@ -141,10 +145,12 @@ class ShowInfoView @JvmOverloads constructor(
         catDialogShowInfoViewParams: WindowManager.LayoutParams,
         windowManager: WindowManager
     ) {
+        applyNormalActionStyle()
         bottomContentLayout?.visibility = VISIBLE
         ivResume?.visibility = GONE
         llResume?.visibility = VISIBLE
         llTakeOver?.visibility = GONE
+        llStop?.visibility = VISIBLE
         if (CatDialogStateData.viewState == CatDialogViewState.USER_INFO) {
             return
         }
@@ -383,10 +389,13 @@ class ShowInfoView @JvmOverloads constructor(
         catDialogShowInfoViewLayoutParams: WindowManager.LayoutParams,
         windowManager: WindowManager,
         isShowTakeOver: Boolean = true,
+        isShowStop: Boolean = true,
     ) {
-        bottomContentLayout?.visibility = VISIBLE
+        applyNormalActionStyle()
+        restoreDoingContentVisibility()
         ivResume?.visibility = GONE
         llResume?.visibility = GONE
+        llStop?.visibility = if (isShowStop) VISIBLE else GONE
         llTakeOver?.visibility = if (isShowTakeOver) {
             VISIBLE
         } else {
@@ -450,6 +459,43 @@ class ShowInfoView @JvmOverloads constructor(
 
     }
 
+    fun learningTask(
+        catDialogShowInfoView: CatDialogShowInfoView,
+        catDialogShowInfoViewLayoutParams: WindowManager.LayoutParams,
+        windowManager: WindowManager,
+        isPaused: Boolean = false,
+    ) {
+        clearAllAminAndDelay()
+        applyLearningActionStyle(isPaused)
+        visibility = VISIBLE
+        layoutParams?.let { params ->
+            params.width = ViewGroup.LayoutParams.MATCH_PARENT
+            params.height = ViewGroup.LayoutParams.MATCH_PARENT
+            layoutParams = params
+        }
+        bottomContentLayout?.visibility = VISIBLE
+        ivResume?.visibility = GONE
+        llResume?.visibility = GONE
+        llTakeOver?.visibility = VISIBLE
+        llStop?.visibility = VISIBLE
+        llTakeOver?.contentDescription = if (isPaused) "继续手动录制" else "暂停手动录制"
+        llStop?.contentDescription = "完成学习"
+        gradientBorderContainer?.cornerRadiusProgress = 0.0f
+        innerRelativeLayout?.setPadding(12.dpToPx(), 12.dpToPx(), 12.dpToPx(), 12.dpToPx())
+        val (endW, endH) = CatDialogStateData.getTaskDoingWH()
+        val (endX, endY) = CatDialogStateData.getDoingTaskXY()
+        catDialogShowInfoView.visibility = VISIBLE
+        catDialogShowInfoViewLayoutParams.width = endW
+        catDialogShowInfoViewLayoutParams.height = endH
+        catDialogShowInfoViewLayoutParams.x = endX
+        catDialogShowInfoViewLayoutParams.y = endY
+        updateOverlayLayoutIfAttached(
+            windowManager,
+            catDialogShowInfoView,
+            catDialogShowInfoViewLayoutParams
+        )
+    }
+
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
@@ -457,11 +503,14 @@ class ShowInfoView @JvmOverloads constructor(
     }
 
     fun setMessage(message: String) {
+        gradientTextView?.visibility = VISIBLE
         gradientTextView?.setText(message)
 
     }
 
     fun setSubMessage(message: String) {
+        executingTextViewContainer?.visibility = VISIBLE
+        executingTextView?.visibility = VISIBLE
         executingTextView?.setText(message)
     }
 
@@ -474,10 +523,12 @@ class ShowInfoView @JvmOverloads constructor(
      * 宽高从 40dp 动画到 80dp
      */
     fun readyDoingTask() {
-        bottomContentLayout?.visibility = GONE
+        applyNormalActionStyle()
+        bottomContentLayout?.visibility = VISIBLE
         ivResume?.visibility = GONE
         llResume?.visibility = GONE
-        llTakeOver?.visibility = VISIBLE
+        llTakeOver?.visibility = GONE
+        llStop?.visibility = VISIBLE
         gradientBorderContainer?.cornerRadiusProgress = 0.0f
         innerRelativeLayout?.setPadding(12.dpToPx(), 12.dpToPx(), 12.dpToPx(), 12.dpToPx())
         visibility = GONE
@@ -488,6 +539,37 @@ class ShowInfoView @JvmOverloads constructor(
         layoutParams.width = startW
         layoutParams.height = startH
         doingAnimatorWithWH(startW, startH, endW, endH)
+    }
+
+    private fun applyNormalActionStyle() {
+        borderColorType = GradientBorderContainerView.BorderColor.BLUE
+        llTakeOver?.setBackgroundResource(R.drawable.bg_vlm_action_takeover)
+        llStop?.setBackgroundResource(R.drawable.bg_vlm_action_complete)
+        llTakeOverTextView?.text = "接管"
+        llTakeOverTextView?.setTextColor("#202f51".toColorInt())
+        llStopTextView?.text = "已完成"
+        llStopTextView?.setTextColor("#16794A".toColorInt())
+    }
+
+    private fun restoreDoingContentVisibility() {
+        visibility = VISIBLE
+        gradientBorderContainer?.visibility = VISIBLE
+        innerRelativeLayout?.visibility = VISIBLE
+        gradientTextView?.visibility = VISIBLE
+        bottomContentLayout?.visibility = VISIBLE
+        executingTextViewContainer?.visibility = VISIBLE
+        executingTextView?.visibility = VISIBLE
+        contentContainer?.visibility = VISIBLE
+    }
+
+    private fun applyLearningActionStyle(isPaused: Boolean = false) {
+        borderColorType = GradientBorderContainerView.BorderColor.PURPLE
+        llTakeOver?.setBackgroundResource(R.drawable.bg_learning_action_cancel)
+        llStop?.setBackgroundResource(R.drawable.bg_learning_action_complete)
+        llTakeOverTextView?.text = if (isPaused) "继续" else "暂停"
+        llTakeOverTextView?.setTextColor("#5F3DC4".toColorInt())
+        llStopTextView?.text = "完成学习"
+        llStopTextView?.setTextColor("#5B21B6".toColorInt())
     }
 
 
@@ -524,4 +606,3 @@ class ShowInfoView @JvmOverloads constructor(
         }
     }
 }
-

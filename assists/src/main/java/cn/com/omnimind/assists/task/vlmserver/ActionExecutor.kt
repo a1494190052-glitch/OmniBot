@@ -13,12 +13,34 @@ import kotlinx.serialization.json.encodeToJsonElement
 
 interface DeviceOperator {
     suspend fun clickCoordinate(x: Float, y: Float): OperationResult
+    suspend fun clickNodeById(nodeId: String, targetDescription: String = ""): OperationResult =
+        OperationResult(false, "组件点击不支持: node_id=$nodeId", null)
     suspend fun longClickCoordinate(x: Float, y: Float, duration: Long = 1000L): OperationResult
+    suspend fun longClickNodeById(
+        nodeId: String,
+        targetDescription: String = "",
+        duration: Long = 1000L,
+    ): OperationResult = OperationResult(false, "组件长按不支持: node_id=$nodeId", null)
     suspend fun inputText(text: String): OperationResult
+    suspend fun inputTextToNodeById(
+        nodeId: String,
+        text: String,
+        targetDescription: String = "",
+    ): OperationResult = OperationResult(false, "组件输入不支持: node_id=$nodeId", null)
     suspend fun pressHotKey(key: String): OperationResult
     suspend fun copyToClipboard(text: String): OperationResult
     suspend fun getClipboard(): String? // 获取剪贴板内容
     suspend fun slideCoordinate(x1: Float, y1: Float, x2: Float, y2: Float, duration: Long): OperationResult
+    suspend fun slideCoordinateWithContext(
+        x1: Float,
+        y1: Float,
+        x2: Float,
+        y2: Float,
+        duration: Long,
+        targetDescription: String,
+    ): OperationResult {
+        return slideCoordinate(x1, y1, x2, y2, duration)
+    }
     suspend fun goHome(): OperationResult
     suspend fun goBack(): OperationResult
     suspend fun launchApplication(packageName: String): OperationResult
@@ -43,8 +65,8 @@ class ActionExecutor(
     }
 
     /**
-     * 将相对坐标(0-1000)转换为绝对像素坐标
-     * 基于截图图片的实际尺寸进行转换
+     * Legacy helper for old relative-coordinate providers. Current OOB tools use
+     * absolute screen-pixel coordinates.
      */
     private fun convertRelativeToAbsolute(relativeValue: Int, imageSize: Int): Float {
         val clamped = relativeValue.coerceIn(0, 1000)
@@ -57,33 +79,63 @@ class ActionExecutor(
      * 注意：只执行动作，不更新上下文
      */
     suspend fun executeAction(
-        vlmStep: VLMStep
+        vlmStep: VLMStep,
+        functionRunContext: VLMFunctionRunContext = VLMFunctionRunContext(),
     ): UIStep {
 
         val actionStart = System.currentTimeMillis()
         ensureActionActive()
         val result = when (val action = vlmStep.action) {
             is ClickAction -> {
-                deviceOperator.clickCoordinate(action.x.toFloat(), action.y.toFloat())
+                deviceOperator.clickCoordinate(action.x, action.y)
             }
 
             is LongPressAction -> {
-                deviceOperator.longClickCoordinate(action.x.toFloat(), action.y.toFloat())
+                deviceOperator.longClickCoordinate(action.x, action.y)
             }
 
-            is TypeAction -> {
-                deviceOperator.inputText(action.content)
+            is InputTextAction -> {
+                val nodeId = action.nodeId?.trim().orEmpty()
+                val nodeInputResult = if (nodeId.isNotEmpty()) {
+                    deviceOperator.inputTextToNodeById(
+                        nodeId = nodeId,
+                        text = action.text,
+                        targetDescription = action.targetDescription
+                    )
+                } else {
+                    null
+                }
+                if (nodeInputResult?.success == true) {
+                    nodeInputResult
+                } else {
+                    val clickResult = deviceOperator.clickCoordinate(action.x, action.y)
+                    if (!clickResult.success) {
+                        clickResult
+                    } else {
+                        ensureActionActive()
+                        kotlinx.coroutines.delay(INPUT_TEXT_FOCUS_DELAY_MS)
+                        val inputResult = deviceOperator.inputText(action.text)
+                        if (inputResult.success) {
+                            OperationResult(
+                                success = true,
+                                message = "点击 ${action.targetDescription} 并输入文本成功",
+                                data = inputResult.data
+                            )
+                        } else {
+                            inputResult
+                        }
+                    }
+                }
             }
 
-            is ScrollAction -> {
-                // VLM 模型返回的 duration 是秒，需要转换为毫秒
-                val durationMs = (action.duration * 1000).toLong()
-                deviceOperator.slideCoordinate(
-                    action.x1.toFloat(),
-                    action.y1.toFloat(),
-                    action.x2.toFloat(),
-                    action.y2.toFloat(),
-                    durationMs
+            is SwipeAction -> {
+                deviceOperator.slideCoordinateWithContext(
+                    action.x1,
+                    action.y1,
+                    action.x2,
+                    action.y2,
+                    action.durationMs,
+                    action.targetDescription
                 )
             }
 
@@ -91,24 +143,37 @@ class ActionExecutor(
                 deviceOperator.launchApplication(action.packageName)
             }
 
-            is PressHomeAction -> {
-                deviceOperator.goHome()
+            is PressKeyAction -> {
+                when (action.key.trim().lowercase()) {
+                    "home" -> deviceOperator.goHome()
+                    "back" -> deviceOperator.goBack()
+                    "enter" -> deviceOperator.pressHotKey("ENTER")
+                    else -> OperationResult(
+                        success = false,
+                        message = "不支持的按键: ${action.key}",
+                        data = null
+                    )
+                }
             }
 
-            is PressBackAction -> {
-                deviceOperator.goBack()
-            }
-
-            is WaitAction -> {
-                val waitMs = action.durationMs ?: action.duration?.times(1000) ?: 1000L
-                kotlinx.coroutines.delay(waitMs)
+            is GetStateAction -> {
                 OperationResult(
                     success = true,
-                    message = "等待${waitMs}ms",
+                    message = action.reason.ifBlank { "已重新获取当前页面状态" },
                     data = null
                 )
             }
 
+            is FunctionRunAction -> {
+                VLMFunctionRunRegistry.run(
+                    VLMFunctionRunRequest(
+                        functionId = action.functionId,
+                        arguments = action.arguments,
+                        taskId = functionRunContext.taskId,
+                        runId = functionRunContext.runId,
+                    )
+                )
+            }
 
             is RecordAction -> {
                 // 特殊处理：记录动作不调用设备，返回成功结果
@@ -167,11 +232,6 @@ class ActionExecutor(
                 )
             }
 
-            is HotKeyAction -> {
-                deviceOperator.pressHotKey(action.key)
-            }
-
-
             else -> {
                 OperationResult(
                     success = false,
@@ -181,14 +241,15 @@ class ActionExecutor(
             }
         }
 
-        val needsPostDelay = when (vlmStep.action) {
+        val needsPostDelay = result.success && when (vlmStep.action) {
             is ClickAction,
+            is InputTextAction,
             is LongPressAction,
-            is ScrollAction,
+            is SwipeAction,
             is OpenAppAction,
-            is PressHomeAction,
-            is PressBackAction,
-            is HotKeyAction -> true
+            is PressKeyAction -> true
+            is GetStateAction -> false
+            is FunctionRunAction -> true
             else -> false
         }
 
@@ -206,12 +267,25 @@ class ActionExecutor(
             observation = vlmStep.observation,
             thought = vlmStep.thought,
             action = vlmStep.action,
-            result = if (result.success) result.message else "执行失败: ${result.message}"
+            result = if (result.success) result.message else "执行失败: ${result.message}",
+            actionResultData = result.data
         )
     }
 
 
-    suspend fun act(vlmStep: VLMStep): UIStep {
-        return executeAction(vlmStep)
+    suspend fun act(
+        vlmStep: VLMStep,
+        functionRunContext: VLMFunctionRunContext = VLMFunctionRunContext(),
+    ): UIStep {
+        return executeAction(vlmStep, functionRunContext)
+    }
+
+    private companion object {
+        private const val INPUT_TEXT_FOCUS_DELAY_MS = 350L
     }
 }
+
+data class VLMFunctionRunContext(
+    val taskId: String = "",
+    val runId: String = "",
+)

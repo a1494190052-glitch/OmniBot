@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:ui/features/home/pages/chat/chat_page_models.dart';
@@ -10,30 +9,68 @@ import 'package:ui/features/home/pages/chat/mixins/agent_stream_handler.dart';
 import 'package:ui/models/agent_stream_event.dart';
 import 'package:ui/models/chat_link_preview.dart';
 import 'package:ui/features/home/pages/chat/utils/deep_thinking_persistence.dart';
-import 'package:ui/l10n/legacy_text_localizer.dart';
+import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/models/chat_message_model.dart';
 import 'package:ui/models/conversation_model.dart';
+import 'package:ui/services/agent_tool_card_projection.dart';
 import 'package:ui/services/agent_stream_reducer.dart';
 import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/services/codex_event_reducer.dart';
 import 'package:ui/services/conversation_history_service.dart';
 import 'package:ui/services/conversation_service.dart';
 import 'package:ui/services/link_preview_service.dart';
+import 'package:ui/services/agent_tool_card_policy.dart';
 import 'package:ui/services/voice_playback_coordinator.dart';
 import 'package:ui/services/agent_stream_meta.dart';
 import 'package:ui/utils/data_parser.dart';
-import 'package:ui/services/codex_diff_parser.dart';
 
 const String kChatRuntimeModeNormal = 'normal';
 const String kChatRuntimeModeOpenClaw = 'openclaw';
 const String kChatRuntimeModeCodex = 'codex';
 const int _kStreamingTextChunkFlushThreshold = 5;
+const Duration _kStreamingTextFlushDelay = Duration(milliseconds: 80);
+final RegExp _markdownFenceLinePattern = RegExp(r'^[ \t]{0,3}(`{3,}|~{3,})');
 
 enum _StreamingTextStreamKind {
   pureChatReply,
   agentReply,
   pureChatThinking,
   agentThinking,
+}
+
+bool _endsInsideMarkdownFence(String text) {
+  var offset = 0;
+  String? fenceMarker;
+  var fenceLength = 0;
+
+  while (offset <= text.length) {
+    final newlineIndex = text.indexOf('\n', offset);
+    final lineEnd = newlineIndex == -1 ? text.length : newlineIndex;
+    var line = text.substring(offset, lineEnd);
+    if (line.endsWith('\r')) {
+      line = line.substring(0, line.length - 1);
+    }
+
+    final match = _markdownFenceLinePattern.firstMatch(line);
+    if (match != null) {
+      final marker = match.group(1)!;
+      final markerChar = marker[0];
+      if (fenceMarker == null) {
+        fenceMarker = markerChar;
+        fenceLength = marker.length;
+      } else if (markerChar == fenceMarker && marker.length >= fenceLength) {
+        fenceMarker = null;
+        fenceLength = 0;
+      }
+    }
+
+    if (newlineIndex == -1) {
+      break;
+    }
+    offset = newlineIndex + 1;
+  }
+
+  return fenceMarker != null;
 }
 
 class _StreamingTextBatchState {
@@ -55,11 +92,14 @@ class _StreamingTextBatchState {
   bool get reachedFlushThreshold =>
       pendingChunkCount >= _kStreamingTextChunkFlushThreshold;
 
-  /// 自上次 flush 以来的新增文本中是否包含换行符。
-  /// 遇到换行时立即 flush，确保 markdown 块级元素（段落、列表等）及时渲染。
-  bool get containsNewlineSinceFlush {
+  /// 自上次 flush 以来的新增文本中是否包含可安全立即刷新的换行。
+  ///
+  /// 普通 Markdown 换行仍会尽快显示；但 fenced code block 内的每一行都触发
+  /// Markdown 重排会让长代码流明显卡顿，所以代码块未闭合时只走批量/定时刷新。
+  bool get containsFlushableNewlineSinceFlush {
     if (latestText.length <= lastFlushedText.length) return false;
-    return latestText.indexOf('\n', lastFlushedText.length) >= 0;
+    if (latestText.indexOf('\n', lastFlushedText.length) < 0) return false;
+    return !_endsInsideMarkdownFence(latestText);
   }
 
   void stage(String nextText) {
@@ -95,9 +135,10 @@ class ChatConversationRuntimeState {
       <String, AgentStreamTaskState>{};
   final Map<String, _StreamingTextBatchState> _streamingTextBatches =
       <String, _StreamingTextBatchState>{};
+  final Map<String, Timer> _streamingTextFlushTimers = <String, Timer>{};
+  final Map<String, Timer> toolEventFlushTimers = <String, Timer>{};
   final Map<String, int> codexEntrySequences = <String, int>{};
   final Map<String, int> codexEntryStartTimes = <String, int>{};
-  final Map<String, int> codexReplayDeltaOffsets = <String, int>{};
   int codexNextEntrySequence = 0;
   bool isAiResponding = false;
   bool isContextCompressing = false;
@@ -155,9 +196,16 @@ class ChatConversationRuntimeState {
   void dispose() {
     agentStreamStates.clear();
     _streamingTextBatches.clear();
+    for (final timer in _streamingTextFlushTimers.values) {
+      timer.cancel();
+    }
+    _streamingTextFlushTimers.clear();
+    for (final timer in toolEventFlushTimers.values) {
+      timer.cancel();
+    }
+    toolEventFlushTimers.clear();
     codexEntrySequences.clear();
     codexEntryStartTimes.clear();
-    codexReplayDeltaOffsets.clear();
     messages.dispose();
   }
 }
@@ -194,7 +242,11 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       ChatConversationRuntimeCoordinator._();
 
   static const int _maxTerminalOutputChars = 64 * 1024;
-  static const int _maxTerminalOutputLines = 600;
+  static const Duration _toolEventFlushDelay = Duration(milliseconds: 80);
+  static const int _maxToolSummaryChars = 240;
+  static const int _maxToolProgressChars = 240;
+  static const int _maxToolPreviewJsonChars = 8 * 1024;
+  static const int _maxToolRawResultJsonChars = 24 * 1024;
   static const Map<String, String> _executionPermissionNameToId =
       <String, String>{
         '无障碍权限': kAccessibilityPermissionId,
@@ -221,8 +273,6 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
   final Set<String> _ephemeralRuntimeKeys = <String>{};
 
   bool _initialized = false;
-
-  bool get _isEnglish => LegacyTextLocalizer.isEnglish;
 
   void ensureInitialized() {
     if (_initialized) return;
@@ -341,30 +391,12 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     ChatIslandDisplayLayer chatIslandDisplayLayer = ChatIslandDisplayLayer.mode,
     String? lastAgentToolType,
     ChatBrowserSessionSnapshot? browserSessionSnapshot,
-    bool preserveLiveStreamingState = false,
   }) {
     final runtime = ensureRuntime(
       conversationId: conversationId,
       mode: mode,
       conversation: conversation,
     );
-    // When the caller is polling a remote codex thread while reducer push
-    // events are still actively streaming into this runtime, we MUST NOT
-    // blow away the push-driven streaming state. Otherwise the chat list
-    // collapses for a single frame between each poll tick — the symptom
-    // the user calls "codex 输出时自动折叠了一下又展开"。
-    //
-    // In that mode we only refresh the visible message list and conversation
-    // metadata; everything else (isAiResponding, currentAiMessages,
-    // currentThinkingMessages, currentDispatchTaskId, …) stays exactly as
-    // the reducer left it.
-    if (preserveLiveStreamingState) {
-      runtime.messages.replaceAllMessages(messages);
-      runtime.conversation = conversation ?? runtime.conversation;
-      _pruneCodexReplayDeltaOffsets(runtime, messages);
-      notifyListeners();
-      return;
-    }
     _flushRuntimeStreamingText(runtime);
     runtime.messages.replaceAllMessages(messages);
     runtime.conversation = conversation ?? runtime.conversation;
@@ -401,33 +433,8 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     runtime._streamingTextBatches.clear();
     runtime.codexEntrySequences.clear();
     runtime.codexEntryStartTimes.clear();
-    _pruneCodexReplayDeltaOffsets(runtime, messages);
     runtime.codexNextEntrySequence = 0;
     notifyListeners();
-  }
-
-  void _pruneCodexReplayDeltaOffsets(
-    ChatConversationRuntimeState runtime,
-    List<ChatMessageModel> messages,
-  ) {
-    if (runtime.codexReplayDeltaOffsets.isEmpty) {
-      return;
-    }
-    final liveEntryIds = <String>{};
-    for (final message in messages) {
-      liveEntryIds.add(message.id);
-      final entryId = message.streamMeta?['entryId']?.toString().trim();
-      if (entryId != null && entryId.isNotEmpty) {
-        liveEntryIds.add(entryId);
-      }
-      final cardId = message.cardData?['cardId']?.toString().trim();
-      if (cardId != null && cardId.isNotEmpty) {
-        liveEntryIds.add(cardId);
-      }
-    }
-    runtime.codexReplayDeltaOffsets.removeWhere(
-      (entryId, _) => !liveEntryIds.contains(entryId),
-    );
   }
 
   void registerTask({
@@ -684,6 +691,10 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     final existingCardData = Map<String, dynamic>.from(
       runtime.messages[index].cardData ?? const {},
     );
+    if ((existingCardData['status'] ?? '').toString() != 'running') {
+      runtime.activeToolCardId = null;
+      return;
+    }
     existingCardData['status'] = 'interrupted';
     existingCardData['success'] = false;
     if (summary != null && summary.trim().isNotEmpty) {
@@ -694,6 +705,104 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     );
     runtime.activeToolCardId = null;
     notifyListeners();
+  }
+
+  bool _finalizeRunningToolCardsForTask(
+    ChatConversationRuntimeState runtime,
+    String taskId, {
+    String status = 'success',
+    String? summary,
+    bool Function(Map<String, dynamic> cardData)? shouldFinalize,
+  }) {
+    final normalizedTaskId = taskId.trim();
+    if (normalizedTaskId.isEmpty) return false;
+
+    var changed = false;
+    final finalizedCardIds = <String>{};
+    final isSuccess = status == 'success';
+    for (var index = 0; index < runtime.messages.length; index++) {
+      final message = runtime.messages[index];
+      final rawCardData = message.cardData;
+      if (rawCardData == null || !AgentToolCardPolicy.isToolCard(rawCardData)) {
+        continue;
+      }
+      final embeddedStreamMeta = AgentToolCardPolicy.asStringMap(
+        rawCardData['streamMeta'],
+      );
+      final cardTaskId = _firstNonEmpty([
+        message.streamMeta?['parentTaskId'],
+        embeddedStreamMeta['parentTaskId'],
+        rawCardData['taskId'],
+      ]);
+      if (cardTaskId != normalizedTaskId) {
+        continue;
+      }
+      final normalizedStatus = AgentToolCardPolicy.normalizeStatus(
+        rawCardData['status'],
+        fallback: '',
+      );
+      if (normalizedStatus != 'running' &&
+          normalizedStatus != 'pending' &&
+          normalizedStatus != 'progress') {
+        continue;
+      }
+      // Terminal and browser tools manage their own streaming lifecycle.
+      final toolType = (rawCardData['toolType'] ?? '').toString();
+      if (toolType == 'terminal' || toolType == 'browser') {
+        continue;
+      }
+      if (shouldFinalize != null && !shouldFinalize(rawCardData)) {
+        continue;
+      }
+
+      final cardData = Map<String, dynamic>.from(rawCardData);
+      cardData['status'] = status;
+      cardData['success'] = isSuccess;
+      final normalizedSummary = summary?.trim() ?? '';
+      if (normalizedSummary.isNotEmpty &&
+          (cardData['summary'] ?? '').toString().trim().isEmpty) {
+        cardData['summary'] = normalizedSummary;
+      }
+      final cardId = _firstNonEmpty([cardData['cardId'], message.id]);
+      if (cardId.isNotEmpty) {
+        finalizedCardIds.add(cardId);
+      }
+      runtime.messages[index] = message.copyWith(
+        content: {'cardData': cardData, 'id': message.id},
+      );
+      changed = true;
+    }
+
+    if (finalizedCardIds.isNotEmpty) {
+      final state = runtime.agentStreamStates[normalizedTaskId];
+      if (state != null) {
+        final activeToolEntryIds = Set<String>.from(state.activeToolEntryIds)
+          ..removeWhere(finalizedCardIds.contains);
+        if (activeToolEntryIds.length != state.activeToolEntryIds.length) {
+          runtime.agentStreamStates[normalizedTaskId] = state.copyWith(
+            activeToolEntryIds: activeToolEntryIds,
+            activeToolFallbackEntryIds: state.activeToolFallbackEntryIds
+                .where(activeToolEntryIds.contains)
+                .toSet(),
+          );
+        }
+        runtime.activeToolCardId = activeToolEntryIds.isEmpty
+            ? null
+            : activeToolEntryIds.last;
+      }
+      if (finalizedCardIds.contains(runtime.activeToolCardId)) {
+        runtime.activeToolCardId = null;
+      }
+    }
+    return changed;
+  }
+
+  String _firstNonEmpty(Iterable<Object?> values) {
+    for (final value in values) {
+      final text = value?.toString().trim() ?? '';
+      if (text.isNotEmpty) return text;
+    }
+    return '';
   }
 
   Future<void> persistRuntimeConversation({
@@ -891,11 +1000,56 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     );
   }
 
+  String _streamingTextFlushTimerKey(
+    ChatConversationRuntimeState runtime,
+    String taskId,
+    _StreamingTextStreamKind kind,
+  ) {
+    return '${_runtimeKey(conversationId: runtime.conversationId, mode: runtime.mode)}:${_streamingTextBatchKey(taskId, kind)}';
+  }
+
+  void _cancelStreamingTextFlushTimer(
+    ChatConversationRuntimeState runtime,
+    String taskId,
+    _StreamingTextStreamKind kind,
+  ) {
+    final key = _streamingTextFlushTimerKey(runtime, taskId, kind);
+    runtime._streamingTextFlushTimers.remove(key)?.cancel();
+  }
+
+  void _scheduleStreamingTextFlush(
+    ChatConversationRuntimeState runtime,
+    String taskId,
+    _StreamingTextStreamKind kind, {
+    bool emitVoiceUpdates = false,
+    bool schedulePersistence = false,
+  }) {
+    final key = _streamingTextFlushTimerKey(runtime, taskId, kind);
+    runtime._streamingTextFlushTimers.remove(key)?.cancel();
+    runtime._streamingTextFlushTimers[key] = Timer(
+      _kStreamingTextFlushDelay,
+      () {
+        runtime._streamingTextFlushTimers.remove(key);
+        final didFlush = _flushStreamingTextBatch(
+          runtime,
+          taskId,
+          kind,
+          emitVoiceUpdates: emitVoiceUpdates,
+          schedulePersistence: schedulePersistence,
+        );
+        if (didFlush) {
+          notifyListeners();
+        }
+      },
+    );
+  }
+
   void _clearStreamingTextBatch(
     ChatConversationRuntimeState runtime,
     String taskId,
     _StreamingTextStreamKind kind,
   ) {
+    _cancelStreamingTextFlushTimer(runtime, taskId, kind);
     runtime._streamingTextBatches.remove(_streamingTextBatchKey(taskId, kind));
   }
 
@@ -903,6 +1057,9 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     ChatConversationRuntimeState runtime,
     String taskId,
   ) {
+    for (final kind in _StreamingTextStreamKind.values) {
+      _cancelStreamingTextFlushTimer(runtime, taskId, kind);
+    }
     runtime._streamingTextBatches.removeWhere(
       (_, batch) => batch.taskId == taskId,
     );
@@ -959,6 +1116,39 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     );
   }
 
+  bool _flushStreamingTextBatch(
+    ChatConversationRuntimeState runtime,
+    String taskId,
+    _StreamingTextStreamKind kind, {
+    bool emitVoiceUpdates = false,
+    bool schedulePersistence = false,
+  }) {
+    return switch (kind) {
+      _StreamingTextStreamKind.pureChatThinking => _flushThinkingBatch(
+        runtime,
+        taskId,
+        kind,
+        schedulePersistence: schedulePersistence,
+      ),
+      _StreamingTextStreamKind.agentThinking => _flushAgentThinkingBatchToCard(
+        runtime,
+        taskId,
+      ),
+      _StreamingTextStreamKind.pureChatReply => _flushPureChatReplyBatch(
+        runtime,
+        taskId,
+        emitVoiceUpdate: emitVoiceUpdates,
+        schedulePersistence: schedulePersistence,
+      ),
+      _StreamingTextStreamKind.agentReply => _flushAgentReplyBatch(
+        runtime,
+        taskId,
+        emitVoiceEvent: emitVoiceUpdates,
+        schedulePersistence: schedulePersistence,
+      ),
+    };
+  }
+
   bool _stageStreamingTextBatch(
     ChatConversationRuntimeState runtime,
     String taskId,
@@ -981,7 +1171,8 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       return state.reachedFlushThreshold;
     }
     state.stage(nextText);
-    return state.reachedFlushThreshold || state.containsNewlineSinceFlush;
+    return state.reachedFlushThreshold ||
+        state.containsFlushableNewlineSinceFlush;
   }
 
   String _visiblePureChatReplyText(
@@ -1153,6 +1344,11 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       return false;
     }
     final visibleText = runtime.currentAiMessages[taskId] ?? batch.latestText;
+    // Pass last-flushed length so the markdown widget only re-parses the new suffix,
+    // giving us both batched rebuilds and incremental markdown rendering.
+    final markdownRenderedLength = batch.lastFlushedText.isNotEmpty
+        ? batch.lastFlushedText.length
+        : null;
     batch.markFlushed();
     return _applyPureChatReplyUpdate(
       runtime,
@@ -1160,6 +1356,7 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       text: visibleText,
       isError: false,
       renderMarkdown: true,
+      markdownRenderedLength: markdownRenderedLength,
       emitVoiceUpdate: emitVoiceUpdate,
       schedulePersistence: schedulePersistence,
     );
@@ -1199,7 +1396,6 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       if (markdownRenderedLength != null) {
         content['markdownRenderedLength'] = markdownRenderedLength;
       }
-      _clearAgentRetryPresentation(content);
       runtime.messages.insert(
         0,
         ChatMessageModel(
@@ -1231,7 +1427,6 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     if (isFinal && decodeTokensPerSecond != null) {
       content['decodeTokensPerSecond'] = decodeTokensPerSecond;
     }
-    _clearAgentRetryPresentation(content);
     runtime.messages[index] = existing.copyWith(
       content: content,
       isError: isError,
@@ -1249,9 +1444,12 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
   bool _flushAgentReplyBatch(
     ChatConversationRuntimeState runtime,
     String taskId, {
+    String? messageId,
     bool isFinal = false,
+    bool isError = false,
     bool emitVoiceEvent = false,
     bool schedulePersistence = false,
+    Map<String, dynamic>? streamMeta,
     double? prefillTokensPerSecond,
     double? decodeTokensPerSecond,
   }) {
@@ -1260,30 +1458,36 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       taskId,
       _StreamingTextStreamKind.agentReply,
     );
-    final messageId =
+    final requestedMessageId = messageId?.trim() ?? '';
+    final resolvedMessageId =
+        (requestedMessageId.isNotEmpty ? requestedMessageId : null) ??
         _resolvePendingAgentTextMessageId(runtime, taskId) ??
         _latestAgentTextMessageId(runtime, taskId) ??
         _nextAgentTextMessageId(runtime, taskId);
     final text =
         batch?.latestText ??
-        _visibleAgentReplyText(runtime, taskId, messageId: messageId);
+        runtime.currentAiMessages[taskId] ??
+        _visibleAgentReplyText(runtime, taskId, messageId: resolvedMessageId);
     final hasPendingFlush = batch?.hasPendingFlush ?? false;
     final hasPerformanceMetrics =
         prefillTokensPerSecond != null || decodeTokensPerSecond != null;
     final hasExistingMessage = runtime.messages.any(
-      (message) => message.id == messageId,
+      (message) => message.id == resolvedMessageId,
     );
     final shouldWrite =
         hasPendingFlush ||
         (text.isNotEmpty && !hasExistingMessage) ||
-        (hasPerformanceMetrics && hasExistingMessage);
+        (hasPerformanceMetrics && hasExistingMessage) ||
+        (isFinal && hasExistingMessage);
     if (shouldWrite) {
       _upsertAgentReplyMessage(
         runtime,
-        messageId,
+        resolvedMessageId,
         text,
         renderMarkdown: true,
         isFinal: isFinal,
+        isError: isError,
+        streamMeta: streamMeta,
         prefillTokensPerSecond: prefillTokensPerSecond,
         decodeTokensPerSecond: decodeTokensPerSecond,
         reasoningContent: runtime.currentThinkingMessages[taskId],
@@ -1297,7 +1501,7 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
         (hasPendingFlush || isFinal)) {
       unawaited(
         VoicePlaybackCoordinator.instance.onAssistantMessageUpdated(
-          messageId: messageId,
+          messageId: resolvedMessageId,
           text: text,
           isFinal: isFinal,
         ),
@@ -1357,6 +1561,61 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     return thinking.isNotEmpty;
   }
 
+  bool _flushAgentThinkingBatchToCard(
+    ChatConversationRuntimeState runtime,
+    String taskId, {
+    String? cardId,
+    Map<String, dynamic>? streamMeta,
+  }) {
+    final batch = _streamingTextBatchFor(
+      runtime,
+      taskId,
+      _StreamingTextStreamKind.agentThinking,
+    );
+    final thinking =
+        runtime.currentThinkingMessages[taskId] ??
+        batch?.latestText ??
+        runtime.deepThinkingContent;
+    if (thinking.trim().isEmpty) {
+      return false;
+    }
+
+    final requestedCardId = cardId?.trim() ?? '';
+    final thinkingCardId =
+        (requestedCardId.isNotEmpty ? requestedCardId : null) ??
+        _resolveThinkingCardId(runtime, taskId);
+    if (thinkingCardId == null || thinkingCardId.trim().isEmpty) {
+      return false;
+    }
+
+    final index = runtime.messages.indexWhere(
+      (message) => message.id == thinkingCardId,
+    );
+    if (index == -1) {
+      return false;
+    }
+    final visibleThinking =
+        (runtime.messages[index].cardData?['thinkingContent'] ?? '').toString();
+    final shouldWrite =
+        (batch?.hasPendingFlush ?? false) || visibleThinking != thinking;
+    if (!shouldWrite) {
+      return false;
+    }
+
+    _updateThinkingCard(
+      runtime,
+      taskId,
+      cardId: thinkingCardId,
+      thinkingContent: thinking,
+      isLoading: true,
+      stage: runtime.currentThinkingStage,
+      streamMeta: streamMeta,
+      lockCompleted: false,
+    );
+    batch?.markFlushed();
+    return true;
+  }
+
   void _handleChatTaskMessage(String taskId, String content, String? type) {
     final binding = _taskBindings[taskId];
     final runtime = _runtimeForTask(taskId);
@@ -1379,6 +1638,10 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     bool isError;
     bool isSummarizing;
     var shouldUpdateAiMessage = false;
+    // Tracks whether any change has been written to runtime.messages this call.
+    // notifyListeners() is only called when didFlush is true, matching the
+    // agent streaming path which guards every notify with didUpdateVisibleMessage.
+    var didFlush = false;
     var didSchedulePersistence = false;
 
     if (isRateLimited) {
@@ -1434,7 +1697,9 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
         fallbackToRawText: false,
       );
       if (thinking.isNotEmpty) {
-        _upsertPureChatThinking(runtime, taskId, thinking);
+        if (_upsertPureChatThinking(runtime, taskId, thinking)) {
+          didFlush = true;
+        }
       }
       final text = extractChatTaskText(content, fallbackToRawText: false);
       if (text.isNotEmpty) {
@@ -1443,7 +1708,9 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
         if (mergedText != previousText && mergedText.isNotEmpty) {
           runtime.currentAiMessages[taskId] = mergedText;
           final visibleText = _visiblePureChatReplyText(runtime, taskId);
-          final shouldFlush = _stageStreamingTextBatch(
+          // Flush immediately on the first message (no visible text yet) so the
+          // loading indicator is dismissed promptly — same logic as agent path.
+          final reachedFlushThreshold = _stageStreamingTextBatch(
             runtime,
             taskId,
             _StreamingTextStreamKind.pureChatReply,
@@ -1453,28 +1720,40 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
                 : visibleText,
             initialFlushedText: visibleText,
           );
+          final shouldFlush =
+              visibleText.trim().isEmpty || reachedFlushThreshold;
           if (shouldFlush) {
-            _flushPureChatReplyBatch(
+            if (_flushPureChatReplyBatch(
               runtime,
               taskId,
               emitVoiceUpdate: true,
               schedulePersistence: true,
-            );
-            didSchedulePersistence = true;
+            )) {
+              didFlush = true;
+              didSchedulePersistence = true;
+            }
           } else {
             final batch = _streamingTextBatchFor(
               runtime,
               taskId,
               _StreamingTextStreamKind.pureChatReply,
             );
-            _applyPureChatReplyUpdate(
+            if (_applyPureChatReplyUpdate(
               runtime,
               taskId,
               text: mergedText,
               isError: false,
               renderMarkdown: true,
               markdownRenderedLength: batch?.lastFlushedText.length,
-            );
+            )) {
+              _scheduleStreamingTextFlush(
+                runtime,
+                taskId,
+                _StreamingTextStreamKind.pureChatReply,
+                emitVoiceUpdates: true,
+                schedulePersistence: true,
+              );
+            }
           }
         }
       }
@@ -1505,10 +1784,15 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
           decodeTokensPerSecond: decodeTokensPerSecond,
           schedulePersistence: true,
         )) {
+      didFlush = true;
       didSchedulePersistence = true;
     }
     runtime.isAiResponding = true;
-    notifyListeners();
+    // Only notify when runtime.messages actually changed — prevents rebuilding
+    // the entire widget tree on every streaming token between batch flushes.
+    if (didFlush) {
+      notifyListeners();
+    }
     if (!didSchedulePersistence &&
         (isRateLimited || isErrorMessage || isSummaryStart)) {
       schedulePersistRuntimeConversation(
@@ -1613,14 +1897,6 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
           completedThinkingCardId: thinkingCardToFinalize,
         );
         return;
-      case AgentStreamEventKind.retrying:
-        _applyAgentRetryingStreamEvent(
-          runtime,
-          binding,
-          event,
-          completedThinkingCardId: thinkingCardToFinalize,
-        );
-        return;
       case AgentStreamEventKind.textSnapshot:
         _applyAgentTextStreamEvent(
           runtime,
@@ -1633,6 +1909,14 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       case AgentStreamEventKind.toolProgress:
       case AgentStreamEventKind.toolCompleted:
         _applyAgentToolStreamEvent(
+          runtime,
+          binding,
+          event,
+          completedThinkingCardId: thinkingCardToFinalize,
+        );
+        return;
+      case AgentStreamEventKind.workbenchProjectCard:
+        _applyAgentUiCardStreamEvent(
           runtime,
           binding,
           event,
@@ -1737,13 +2021,12 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
         event.kind == AgentStreamEventKind.textSnapshot && !event.isFinal
         ? event.taskId
         : null;
-    if (event.kind == AgentStreamEventKind.toolStarted ||
-        event.kind == AgentStreamEventKind.toolProgress) {
-      runtime.activeToolCardId = event.entryId?.trim();
+    // Drive activeToolCardId from reducer's active round (supports ≥1 tools).
+    final activeToolIds = state.activeToolEntryIds;
+    if (activeToolIds.isNotEmpty) {
+      runtime.activeToolCardId = activeToolIds.last;
     } else if (event.kind == AgentStreamEventKind.toolCompleted) {
-      if (runtime.activeToolCardId == event.entryId?.trim()) {
-        runtime.activeToolCardId = null;
-      }
+      runtime.activeToolCardId = null;
     }
   }
 
@@ -1759,38 +2042,149 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     }
 
     runtime.isAiResponding = true;
-    if (event.thinking.isNotEmpty) {
-      runtime.currentThinkingMessages[event.taskId] = event.thinking;
-      runtime.deepThinkingContent = event.thinking;
+    final streamMeta = _streamMetaFromEvent(event);
+    if (event.kind == AgentStreamEventKind.thinkingStarted) {
+      runtime.currentThinkingMessages[event.taskId] = '';
+      runtime.deepThinkingContent = '';
+      // If this is a higher-numbered entry, remove any empty first-round
+      // placeholder ("$taskId-thinking-1") left by createThinkingCard.
+      final basePlaceholder = '${event.taskId}-thinking-1';
+      if (cardId != basePlaceholder) {
+        runtime.messages.removeWhere((msg) {
+          if (msg.id != basePlaceholder) return false;
+          return (msg.cardData?['thinkingContent']?.toString() ?? '')
+              .trim()
+              .isEmpty;
+        });
+      }
+    }
+    final previousThinking =
+        runtime.currentThinkingMessages[event.taskId] ?? '';
+    var nextThinking = previousThinking;
+    final hasThinkingContent = event.thinking.trim().isNotEmpty;
+    if (hasThinkingContent) {
+      nextThinking = mergeAgentTextSnapshot(previousThinking, event.thinking);
+      runtime.currentThinkingMessages[event.taskId] = nextThinking;
+      runtime.deepThinkingContent = nextThinking;
     }
     _finalizeThinkingCard(
       runtime,
       event.taskId,
       cardId: completedThinkingCardId,
     );
-    final streamMeta = _streamMetaFromEvent(event);
+    if (!hasThinkingContent && nextThinking.trim().isEmpty) {
+      if (event.kind == AgentStreamEventKind.thinkingStarted) {
+        final exists = runtime.messages.any((message) => message.id == cardId);
+        if (exists) {
+          _updateThinkingCard(
+            runtime,
+            event.taskId,
+            cardId: cardId,
+            isLoading: true,
+            stage: event.stage <= 0
+                ? ThinkingStage.thinking.value
+                : event.stage,
+            streamMeta: streamMeta,
+            lockCompleted: false,
+          );
+        } else {
+          _createThinkingCard(
+            runtime,
+            event.taskId,
+            cardId: cardId,
+            thinkingContent: '',
+            isLoading: true,
+            stage: event.stage <= 0
+                ? ThinkingStage.thinking.value
+                : event.stage,
+            streamMeta: streamMeta,
+          );
+        }
+        schedulePersistRuntimeConversation(
+          conversationId: binding.conversationId,
+          mode: binding.mode,
+        );
+      }
+      notifyListeners();
+      return;
+    }
     final exists = runtime.messages.any((message) => message.id == cardId);
+    var didUpdateVisibleCard = false;
     if (exists) {
-      _updateThinkingCard(
-        runtime,
-        event.taskId,
-        cardId: cardId,
-        thinkingContent: event.thinking.isNotEmpty ? event.thinking : null,
-        isLoading: true,
-        stage: event.stage <= 0 ? ThinkingStage.thinking.value : event.stage,
-        streamMeta: streamMeta,
-        lockCompleted: false,
-      );
+      if (nextThinking.trim().isEmpty) {
+        _updateThinkingCard(
+          runtime,
+          event.taskId,
+          cardId: cardId,
+          isLoading: true,
+          stage: event.stage <= 0 ? ThinkingStage.thinking.value : event.stage,
+          streamMeta: streamMeta,
+          lockCompleted: false,
+        );
+        didUpdateVisibleCard = true;
+      } else {
+        final visibleThinking = _visibleThinkingText(runtime, event.taskId);
+        final reachedFlushThreshold = _stageStreamingTextBatch(
+          runtime,
+          event.taskId,
+          _StreamingTextStreamKind.agentThinking,
+          nextText: nextThinking,
+          initialLatestText: previousThinking.isNotEmpty
+              ? previousThinking
+              : visibleThinking,
+          initialFlushedText: visibleThinking,
+        );
+        final shouldFlush =
+            visibleThinking.trim().isEmpty || reachedFlushThreshold;
+        if (shouldFlush) {
+          didUpdateVisibleCard = _flushAgentThinkingBatchToCard(
+            runtime,
+            event.taskId,
+            cardId: cardId,
+            streamMeta: streamMeta,
+          );
+        } else {
+          _updateThinkingCard(
+            runtime,
+            event.taskId,
+            cardId: cardId,
+            thinkingContent: nextThinking,
+            isLoading: true,
+            stage: event.stage <= 0
+                ? ThinkingStage.thinking.value
+                : event.stage,
+            streamMeta: streamMeta,
+            lockCompleted: false,
+          );
+          _scheduleStreamingTextFlush(
+            runtime,
+            event.taskId,
+            _StreamingTextStreamKind.agentThinking,
+            schedulePersistence: true,
+          );
+        }
+      }
     } else {
       _createThinkingCard(
         runtime,
         event.taskId,
         cardId: cardId,
-        thinkingContent: event.thinking,
+        thinkingContent: nextThinking,
         isLoading: true,
         stage: event.stage <= 0 ? ThinkingStage.thinking.value : event.stage,
         streamMeta: streamMeta,
       );
+      didUpdateVisibleCard = true;
+      if (nextThinking.trim().isNotEmpty) {
+        _streamingTextBatchFor(
+          runtime,
+          event.taskId,
+          _StreamingTextStreamKind.agentThinking,
+        )?.markFlushed();
+      }
+    }
+    if (!didUpdateVisibleCard) {
+      return;
     }
     notifyListeners();
     schedulePersistRuntimeConversation(
@@ -1812,33 +2206,88 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     }
 
     runtime.isAiResponding = true;
-    runtime.currentAiMessages[event.taskId] = text;
+    final didFinalizeWorkbenchTools = _finalizeRunningToolCardsForTask(
+      runtime,
+      event.taskId,
+    );
+    final previousText = runtime.currentAiMessages[event.taskId] ?? '';
+    final nextText = mergeAgentTextSnapshot(previousText, text);
+    runtime.currentAiMessages[event.taskId] = nextText;
+    _flushAgentThinkingBatchToCard(
+      runtime,
+      event.taskId,
+      cardId: completedThinkingCardId,
+    );
     _finalizeThinkingCard(
       runtime,
       event.taskId,
       cardId: completedThinkingCardId,
     );
-    _upsertAgentReplyMessage(
+    final visibleText = _visibleAgentReplyText(
       runtime,
-      messageId,
-      text,
-      renderMarkdown: true,
-      isFinal: event.isFinal,
-      streamMeta: _streamMetaFromEvent(event),
-      prefillTokensPerSecond: event.prefillTokensPerSecond,
-      decodeTokensPerSecond: event.decodeTokensPerSecond,
-      reasoningContent: event.thinking,
+      event.taskId,
+      messageId: messageId,
     );
+    final reachedFlushThreshold = _stageStreamingTextBatch(
+      runtime,
+      event.taskId,
+      _StreamingTextStreamKind.agentReply,
+      nextText: nextText,
+      initialLatestText: previousText.isNotEmpty ? previousText : visibleText,
+      initialFlushedText: visibleText,
+    );
+    final shouldFlush =
+        visibleText.trim().isEmpty || event.isFinal || reachedFlushThreshold;
+    var didUpdateVisibleMessage = false;
+    if (shouldFlush) {
+      didUpdateVisibleMessage = _flushAgentReplyBatch(
+        runtime,
+        event.taskId,
+        messageId: messageId,
+        isFinal: event.isFinal,
+        emitVoiceEvent: true,
+        streamMeta: _streamMetaFromEvent(event),
+        prefillTokensPerSecond: event.prefillTokensPerSecond,
+        decodeTokensPerSecond: event.decodeTokensPerSecond,
+      );
+    } else {
+      final batch = _streamingTextBatchFor(
+        runtime,
+        event.taskId,
+        _StreamingTextStreamKind.agentReply,
+      );
+      _upsertAgentReplyMessage(
+        runtime,
+        messageId,
+        nextText,
+        renderMarkdown: true,
+        markdownRenderedLength: batch?.lastFlushedText.length,
+        isFinal: event.isFinal,
+        streamMeta: _streamMetaFromEvent(event),
+        prefillTokensPerSecond: event.prefillTokensPerSecond,
+        decodeTokensPerSecond: event.decodeTokensPerSecond,
+      );
+      _scheduleStreamingTextFlush(
+        runtime,
+        event.taskId,
+        _StreamingTextStreamKind.agentReply,
+        emitVoiceUpdates: true,
+        schedulePersistence: true,
+      );
+    }
     if (event.isFinal) {
       _syncMessageLinkPreviews(runtime, messageId);
     }
-    unawaited(
-      VoicePlaybackCoordinator.instance.onAssistantMessageUpdated(
-        messageId: messageId,
-        text: text,
-        isFinal: event.isFinal,
-      ),
-    );
+    if (!didUpdateVisibleMessage) {
+      if (didFinalizeWorkbenchTools) {
+        notifyListeners();
+        schedulePersistRuntimeConversation(
+          conversationId: binding.conversationId,
+          mode: binding.mode,
+        );
+      }
+      return;
+    }
     notifyListeners();
     schedulePersistRuntimeConversation(
       conversationId: binding.conversationId,
@@ -1852,14 +2301,19 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     AgentStreamEvent event, {
     String? completedThinkingCardId,
   }) {
-    final cardId = (event.entryId ?? '').trim();
+    final toolEvent = AgentToolEventData.fromMap(event.raw);
+    final cardId = resolveAgentToolCardId(event, raw: event.raw);
     if (cardId.isEmpty) {
       return;
     }
 
-    final toolEvent = AgentToolEventData.fromMap(event.raw);
     runtime.isAiResponding = true;
     _updateToolLayerState(runtime, toolEvent);
+    _flushAgentThinkingBatchToCard(
+      runtime,
+      event.taskId,
+      cardId: completedThinkingCardId,
+    );
     _finalizeThinkingCard(
       runtime,
       event.taskId,
@@ -1867,98 +2321,30 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     );
     _upsertToolCard(
       runtime: runtime,
-      taskId: event.taskId,
-      cardId: cardId,
-      event: toolEvent,
-      status: event.kind == AgentStreamEventKind.toolCompleted
-          ? _resolveToolStatus(toolEvent)
-          : 'running',
-      summary: toolEvent.summary.isNotEmpty
-          ? toolEvent.summary
-          : (_isEnglish ? 'Calling tool' : '正在调用工具'),
-      progress: toolEvent.progress,
-      resultPreviewJson: toolEvent.resultPreviewJson,
-      rawResultJson: toolEvent.rawResultJson,
-      reasoningContent: event.thinking,
-      streamMeta: _streamMetaFromEvent(event),
+      streamEvent: event,
+      defaultRunningSummary: AppTextLocalizer.choose(
+        en: 'Calling tool',
+        zh: '正在调用工具',
+      ),
+      streamMeta: ensureAgentStreamMessageMeta(
+        _streamMetaFromEvent(event),
+        entryId: cardId,
+      ),
     );
     if (event.kind == AgentStreamEventKind.toolCompleted) {
+      if (toolEvent.toolType == 'workbench' ||
+          toolEvent.toolName.startsWith('workbench_')) {
+        _finalizeRunningToolCardsForTask(runtime, event.taskId);
+      }
       _updateBrowserSessionSnapshot(runtime, toolEvent);
       if (event.browserSnapshot != null) {
         runtime.browserSessionSnapshot = event.browserSnapshot;
       }
     }
-    notifyListeners();
-    schedulePersistRuntimeConversation(
-      conversationId: binding.conversationId,
-      mode: binding.mode,
+    _scheduleToolEventFlush(
+      runtime,
+      immediate: event.kind != AgentStreamEventKind.toolProgress,
     );
-  }
-
-  void _applyAgentRetryingStreamEvent(
-    ChatConversationRuntimeState runtime,
-    _TaskBinding binding,
-    AgentStreamEvent event, {
-    String? completedThinkingCardId,
-  }) {
-    final entryId = (event.entryId ?? '').trim();
-    final retryText = _buildAgentRetryingText(event);
-    final streamMeta = ensureAgentStreamMessageMeta(
-      _streamMetaFromEvent(event),
-      entryId: entryId.isEmpty ? null : entryId,
-      isFinal: false,
-    );
-    final isThinkingCardTarget =
-        entryId.isNotEmpty &&
-        runtime.messages.any((message) => message.id == entryId && message.type == 2);
-    if (!isThinkingCardTarget) {
-      _finalizeThinkingCard(
-        runtime,
-        event.taskId,
-        cardId: completedThinkingCardId,
-      );
-    }
-    if (isThinkingCardTarget) {
-      _updateThinkingCard(
-        runtime,
-        event.taskId,
-        cardId: entryId,
-        thinkingContent: retryText,
-        isLoading: true,
-        stage: 1,
-        streamMeta: streamMeta,
-        lockCompleted: false,
-      );
-    } else {
-      final messageId = entryId.isNotEmpty ? entryId : _nextAgentTextMessageId(runtime, event.taskId);
-      final index = runtime.messages.indexWhere((message) => message.id == messageId);
-      if (index == -1) {
-        final content = <String, dynamic>{'text': '', 'id': messageId};
-        _applyAgentRetryPresentation(content, event, retryText);
-        runtime.messages.insert(
-          0,
-          ChatMessageModel(
-            id: messageId,
-            type: 1,
-            user: 2,
-            content: content,
-            streamMeta: streamMeta,
-          ),
-        );
-      } else {
-        final existing = runtime.messages[index];
-        final content = Map<String, dynamic>.from(existing.content ?? const {});
-        content['id'] = messageId;
-        _applyAgentRetryPresentation(content, event, retryText);
-        runtime.messages[index] = existing.copyWith(
-          content: content,
-          streamMeta: streamMeta ?? existing.streamMeta,
-          isError: false,
-        );
-      }
-    }
-    runtime.isAiResponding = true;
-    notifyListeners();
     schedulePersistRuntimeConversation(
       conversationId: binding.conversationId,
       mode: binding.mode,
@@ -1975,7 +2361,56 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
         ? event.question.trim()
         : event.text.trim();
     final messageId = (event.entryId ?? '').trim();
-    if (messageId.isNotEmpty && text.isNotEmpty) {
+
+    // When the clarify event carries a structured dialog, inject a dialog
+    // card message. The text message is omitted — the card's own message field
+    // is the question.
+    if (event.dialog != null) {
+      final cardId =
+          '${messageId.isNotEmpty ? messageId : event.taskId}-dialog';
+      final cardData = <String, dynamic>{
+        'type': 'user_dialog',
+        'dialogData': {
+          'type': event.dialog!.type,
+          'message': event.dialog!.message,
+          if (event.dialog!.title != null) 'title': event.dialog!.title,
+          if (event.dialog!.confirmLabel != null)
+            'confirmLabel': event.dialog!.confirmLabel,
+          if (event.dialog!.cancelLabel != null)
+            'cancelLabel': event.dialog!.cancelLabel,
+          if (event.dialog!.danger) 'danger': true,
+          if (event.dialog!.choices.isNotEmpty)
+            'choices': event.dialog!.choices
+                .map(
+                  (c) => {
+                    'label': c.label,
+                    'value': c.value,
+                    if (c.hint != null) 'hint': c.hint,
+                  },
+                )
+                .toList(),
+          if (event.dialog!.placeholder != null)
+            'placeholder': event.dialog!.placeholder,
+          if (event.dialog!.inputType != null)
+            'inputType': event.dialog!.inputType,
+        },
+      };
+      final cardIndex = runtime.messages.indexWhere((m) => m.id == cardId);
+      final cardMessage = ChatMessageModel(
+        id: cardId,
+        type: 2,
+        user: 3,
+        content: {'cardData': cardData, 'id': cardId},
+        // Intentionally no streamMeta: user_dialog must be a standalone entry
+        // in the timeline (not absorbed into an agent-run group), so it always
+        // renders at the visual bottom of the chat list.
+      );
+      if (cardIndex == -1) {
+        runtime.messages.insert(0, cardMessage);
+      } else {
+        runtime.messages[cardIndex] = cardMessage;
+      }
+    } else if (messageId.isNotEmpty && text.isNotEmpty) {
       _upsertAgentReplyMessage(
         runtime,
         messageId,
@@ -1986,10 +2421,24 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
         reasoningContent: event.thinking,
       );
     }
+    _flushAgentThinkingBatchToCard(
+      runtime,
+      event.taskId,
+      cardId: completedThinkingCardId,
+    );
     _finalizeThinkingCard(
       runtime,
       event.taskId,
       cardId: completedThinkingCardId,
+    );
+    _finalizeRunningToolCardsForTask(
+      runtime,
+      event.taskId,
+      status: 'interrupted',
+      summary: AppTextLocalizer.choose(
+        en: 'Waiting for more detail',
+        zh: '等待补充信息',
+      ),
     );
     runtime.isAiResponding = false;
     runtime.currentAiMessages.remove(event.taskId);
@@ -2019,11 +2468,27 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     AgentStreamEvent event, {
     String? completedThinkingCardId,
   }) {
+    _flushAgentThinkingBatchToCard(
+      runtime,
+      event.taskId,
+      cardId: completedThinkingCardId,
+    );
+    _flushAgentReplyBatch(
+      runtime,
+      event.taskId,
+      messageId: event.entryId,
+      isFinal: true,
+      emitVoiceEvent: true,
+      streamMeta: _streamMetaFromEvent(event),
+      prefillTokensPerSecond: event.prefillTokensPerSecond,
+      decodeTokensPerSecond: event.decodeTokensPerSecond,
+    );
     _finalizeThinkingCard(
       runtime,
       event.taskId,
       cardId: completedThinkingCardId,
     );
+    _finalizeRunningToolCardsForTask(runtime, event.taskId);
     runtime.isAiResponding = false;
     runtime.currentAiMessages.remove(event.taskId);
     runtime.currentThinkingMessages.remove(event.taskId);
@@ -2054,30 +2519,42 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
   }) {
     final entryId = (event.entryId ?? '').trim();
     final shouldMarkError = event.raw['persistAsError'] == true;
-    final errorText = (event.raw['errorText'] ?? event.errorMessage).toString().trim();
-    if (entryId.isNotEmpty) {
+    if (entryId.isNotEmpty && shouldMarkError) {
       final index = runtime.messages.indexWhere(
         (message) => message.id == entryId,
       );
       if (index != -1) {
-        final existing = runtime.messages[index];
-        final content = Map<String, dynamic>.from(existing.content ?? const {});
-        _applyAgentErrorPresentation(content, event, errorText);
         runtime.messages[index] = runtime.messages[index].copyWith(
-          content: content,
-          isError: shouldMarkError,
-          streamMeta: ensureAgentStreamMessageMeta(
-            _streamMetaFromEvent(event),
-            entryId: entryId,
-            isFinal: true,
-          ),
+          isError: true,
         );
       }
     }
+    _flushAgentThinkingBatchToCard(
+      runtime,
+      event.taskId,
+      cardId: completedThinkingCardId,
+    );
+    _flushAgentReplyBatch(
+      runtime,
+      event.taskId,
+      messageId: entryId,
+      isFinal: true,
+      isError: shouldMarkError,
+      emitVoiceEvent: true,
+      streamMeta: _streamMetaFromEvent(event),
+    );
     _finalizeThinkingCard(
       runtime,
       event.taskId,
       cardId: completedThinkingCardId,
+    );
+    _finalizeRunningToolCardsForTask(
+      runtime,
+      event.taskId,
+      status: 'error',
+      summary: event.errorMessage.trim().isEmpty
+          ? AppTextLocalizer.choose(en: 'Workbench step failed', zh: '工作台步骤失败')
+          : event.errorMessage.trim(),
     );
     runtime.isAiResponding = false;
     runtime.currentAiMessages.remove(event.taskId);
@@ -2120,10 +2597,24 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
         reasoningContent: event.thinking,
       );
     }
+    _flushAgentThinkingBatchToCard(
+      runtime,
+      event.taskId,
+      cardId: completedThinkingCardId,
+    );
     _finalizeThinkingCard(
       runtime,
       event.taskId,
       cardId: completedThinkingCardId,
+    );
+    _finalizeRunningToolCardsForTask(
+      runtime,
+      event.taskId,
+      status: 'interrupted',
+      summary: AppTextLocalizer.choose(
+        en: 'Waiting for permission',
+        zh: '等待权限确认',
+      ),
     );
 
     final executionPermissionIds = event.missingPermissions
@@ -2186,74 +2677,18 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     return buildAgentStreamMetaFromEvent(event);
   }
 
-  String _buildAgentRetryingText(AgentStreamEvent event) {
-    if (event.text.trim().isNotEmpty) {
-      return event.text.trim();
-    }
-    final retryCount = event.retryCount <= 0 ? 1 : event.retryCount;
-    final maxRetries = event.maxRetries <= 0 ? 3 : event.maxRetries;
-    return LegacyTextLocalizer.isEnglish
-        ? 'Connection interrupted. Retrying $retryCount/$maxRetries...'
-        : '连接中断，正在重试 $retryCount/$maxRetries…';
-  }
-
-  void _applyAgentRetryPresentation(
-    Map<String, dynamic> content,
-    AgentStreamEvent event,
-    String retryText,
-  ) {
-    content['agentTaskId'] = event.taskId;
-    content['agentRetrying'] = true;
-    content['agentRetryStatusText'] = retryText;
-    content['agentRetryCount'] = event.retryCount;
-    content['agentMaxRetries'] = event.maxRetries;
-    content['agentRetryDelayMs'] = event.retryDelayMs;
-    content['agentRetryReason'] = event.retryReason;
-    content.remove('agentErrorText');
-    content.remove('agentRetryable');
-  }
-
-  void _applyAgentErrorPresentation(
-    Map<String, dynamic> content,
-    AgentStreamEvent event,
-    String errorText,
-  ) {
-    content['agentTaskId'] = event.taskId;
-    content['agentRetrying'] = false;
-    content['agentRetryStatusText'] = '';
-    content['agentRetryCount'] = event.retryCount;
-    content['agentMaxRetries'] = event.maxRetries;
-    content['agentRetryDelayMs'] = 0;
-    content['agentRetryReason'] = event.retryReason;
-    content['agentRetryable'] = event.retryable;
-    content['agentErrorText'] = errorText;
-  }
-
-  void _clearAgentRetryPresentation(Map<String, dynamic> content) {
-    content.remove('agentRetrying');
-    content.remove('agentRetryStatusText');
-    content.remove('agentRetryCount');
-    content.remove('agentMaxRetries');
-    content.remove('agentRetryDelayMs');
-    content.remove('agentRetryReason');
-    content.remove('agentRetryable');
-    content.remove('agentErrorText');
-  }
-
-  void _upsertPureChatThinking(
+  /// Returns true if thinking content was flushed to the card (caller must notifyListeners).
+  bool _upsertPureChatThinking(
     ChatConversationRuntimeState runtime,
     String taskId,
     String thinking,
   ) {
     final binding = _taskBindings[taskId];
-    if (binding == null) {
-      return;
-    }
+    if (binding == null) return false;
+
     final previous = runtime.currentThinkingMessages[taskId] ?? '';
     final merged = mergeLegacyStreamingText(previous, thinking);
-    if (merged.isEmpty || merged == previous) {
-      return;
-    }
+    if (merged.isEmpty || merged == previous) return false;
 
     runtime.currentThinkingMessages[taskId] = merged;
     if (runtime.thinkingRound == 0) {
@@ -2262,6 +2697,15 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
         conversationId: binding.conversationId,
         mode: binding.mode,
       );
+      _applyThinkingUpdate(
+        runtime,
+        binding,
+        taskId,
+        merged,
+        notifyAfterUpdate: false,
+        schedulePersistence: false,
+      );
+      return true;
     }
     final visibleThinking = _visibleThinkingText(runtime, taskId);
     final shouldFlush = _stageStreamingTextBatch(
@@ -2273,13 +2717,28 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       initialFlushedText: visibleThinking,
     );
     if (shouldFlush) {
-      _flushThinkingBatch(
+      return _flushThinkingBatch(
         runtime,
         taskId,
         _StreamingTextStreamKind.pureChatThinking,
         schedulePersistence: true,
       );
     }
+    _applyThinkingUpdate(
+      runtime,
+      binding,
+      taskId,
+      merged,
+      notifyAfterUpdate: false,
+      schedulePersistence: false,
+    );
+    _scheduleStreamingTextFlush(
+      runtime,
+      taskId,
+      _StreamingTextStreamKind.pureChatThinking,
+      schedulePersistence: true,
+    );
+    return false;
   }
 
   void _applyThinkingUpdate(
@@ -2682,10 +3141,6 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       didUpdate = true;
     }
     if (didUpdate &&
-        !isEphemeralRuntime(
-          conversationId: runtime.conversationId,
-          mode: runtime.mode,
-        ) &&
         nextPreviews.any(
           (item) =>
               ChatLinkPreview.fromJson(item).status !=
@@ -2770,9 +3225,6 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       conversationId: conversationId,
       mode: mode,
     );
-    if (isEphemeralRuntime(conversationId: conversationId, mode: mode)) {
-      return;
-    }
     await ConversationHistoryService.saveConversationMessages(
       conversationId,
       List<ChatMessageModel>.from(runtime.messages),
@@ -2873,6 +3325,19 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
 
     final startTime = DateTime.now().millisecondsSinceEpoch;
     final thinkingCardId = cardId ?? '$taskId-thinking';
+
+    // If creating a card for round 2+ (e.g. "$taskId-thinking-2"), remove any
+    // empty first-round placeholder ("$taskId-thinking-1") left by createThinkingCard.
+    final basePlaceholderId = '$taskId-thinking-1';
+    if (thinkingCardId != basePlaceholderId) {
+      runtime.messages.removeWhere((msg) {
+        if (msg.id != basePlaceholderId) return false;
+        return (msg.cardData?['thinkingContent']?.toString() ?? '')
+            .trim()
+            .isEmpty;
+      });
+    }
+
     final cardData = {
       'type': 'deep_thinking',
       'isLoading': isLoading ?? runtime.isDeepThinking,
@@ -2882,6 +3347,7 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       'cardId': thinkingCardId,
       'startTime': startTime,
       'endTime': null,
+      'isCollapsible': true,
     };
 
     runtime.messages.removeWhere((msg) => msg.id == thinkingCardId);
@@ -2974,10 +3440,10 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
 
   String _contextCompactionLabel(String status) {
     return switch (status) {
-      'compressing' => _isEnglish ? 'Compressing' : '正在压缩',
-      'noop' => _isEnglish ? 'No compaction needed' : '无需压缩',
-      'failed' => _isEnglish ? 'Compaction failed' : '压缩失败',
-      _ => _isEnglish ? 'Compacted' : '已压缩',
+      'compressing' => AppTextLocalizer.choose(en: 'Compressing', zh: '正在压缩'),
+      'noop' => AppTextLocalizer.choose(en: 'No compaction needed', zh: '无需压缩'),
+      'failed' => AppTextLocalizer.choose(en: 'Compaction failed', zh: '压缩失败'),
+      _ => AppTextLocalizer.choose(en: 'Compacted', zh: '已压缩'),
     };
   }
 
@@ -2986,9 +3452,6 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     required String mode,
     required ChatMessageModel message,
   }) {
-    if (isEphemeralRuntime(conversationId: conversationId, mode: mode)) {
-      return;
-    }
     final cardData = message.cardData;
     if (message.type != 2 || cardData?['type'] != 'context_compaction_marker') {
       return;
@@ -3038,6 +3501,8 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     int? endTime = cardData['endTime'] as int?;
     if (newStage == 4 && endTime == null) {
       endTime = DateTime.now().millisecondsSinceEpoch;
+    } else if (newStage != 4 && newStage != 5) {
+      endTime = null;
     }
 
     cardData['thinkingContent'] =
@@ -3070,10 +3535,10 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
             ? reduceResult.previousThinkingEntryId
             : null;
       case AgentStreamEventKind.textSnapshot:
-      case AgentStreamEventKind.retrying:
       case AgentStreamEventKind.toolStarted:
       case AgentStreamEventKind.toolProgress:
       case AgentStreamEventKind.toolCompleted:
+      case AgentStreamEventKind.workbenchProjectCard:
       case AgentStreamEventKind.completed:
       case AgentStreamEventKind.error:
       case AgentStreamEventKind.permissionRequired:
@@ -3110,8 +3575,12 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       return;
     }
 
-    cardData['thinkingContent'] =
-        cardData['thinkingContent'] ?? runtime.deepThinkingContent;
+    final storedContent = (cardData['thinkingContent']?.toString() ?? '')
+        .trim();
+    final runtimeContent = runtime.deepThinkingContent.trim();
+    cardData['thinkingContent'] = storedContent.isNotEmpty
+        ? storedContent
+        : runtimeContent;
     cardData['isLoading'] = false;
     cardData['stage'] = ThinkingStage.complete.value;
     cardData['taskID'] = taskId;
@@ -3126,9 +3595,6 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     required String mode,
     required ChatMessageModel message,
   }) {
-    if (isEphemeralRuntime(conversationId: conversationId, mode: mode)) {
-      return;
-    }
     final cardData = message.cardData;
     if (message.type != 2 || cardData?['type'] != 'deep_thinking') {
       return;
@@ -3176,6 +3642,15 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
           : int.tryParse(currentStageRaw?.toString() ?? '');
       final isLoading = mutableCardData['isLoading'] == true;
       if (!isLoading && currentStage == ThinkingStage.complete.value) {
+        continue;
+      }
+
+      final storedContent =
+          (mutableCardData['thinkingContent']?.toString() ?? '').trim();
+      if (storedContent.isEmpty) {
+        runtime.messages.removeAt(index);
+        index--;
+        touched = true;
         continue;
       }
 
@@ -3262,379 +3737,117 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
 
   void _upsertToolCard({
     required ChatConversationRuntimeState runtime,
-    required String taskId,
-    required String cardId,
-    required AgentToolEventData event,
-    required String status,
-    required String summary,
-    required String progress,
-    required String resultPreviewJson,
-    required String rawResultJson,
-    String? reasoningContent,
+    required AgentStreamEvent streamEvent,
+    required String defaultRunningSummary,
     Map<String, dynamic>? streamMeta,
   }) {
-    final index = runtime.messages.indexWhere((msg) => msg.id == cardId);
-    final existingCardData = index == -1
-        ? const <String, dynamic>{}
-        : Map<String, dynamic>.from(
-            runtime.messages[index].cardData ?? const {},
-          );
-    final existingTerminalOutput = (existingCardData['terminalOutput'] ?? '')
-        .toString();
-    final isFileChangeTool = _isCodexFileChangeTool(event, existingCardData);
-    final effectiveToolType = isFileChangeTool ? 'file' : event.toolType;
-    final terminalOutput = effectiveToolType == 'terminal'
-        ? _resolveTerminalOutput(existing: existingTerminalOutput, event: event)
-        : '';
-    final diffSource = _agentToolDiffSource(
-      event,
-      resultPreviewJson: resultPreviewJson,
-      rawResultJson: rawResultJson,
-      summary: summary,
-      progress: progress,
+    final projection = AgentToolCardProjection.projectStreamEvent(
+      event: streamEvent,
+      messages: runtime.messages,
+      defaultRunningSummary: defaultRunningSummary,
+      streamMeta: streamMeta,
+      maxTerminalOutputChars: _maxTerminalOutputChars,
+      maxSummaryChars: _maxToolSummaryChars,
+      maxProgressChars: _maxToolProgressChars,
+      maxPreviewJsonChars: _maxToolPreviewJsonChars,
+      maxRawResultJsonChars: _maxToolRawResultJsonChars,
     );
-    final diffText = isFileChangeTool
-        ? _resolveAgentFileDiffText(
-            existingCardData: existingCardData,
-            source: diffSource,
-            outputText: terminalOutput,
-            progress: progress,
-            summary: summary,
-          )
-        : '';
-    final diffSummary = diffText.isEmpty ? null : parseCodexDiffText(diffText);
-    final diffPreview = diffSummary == null
-        ? ''
-        : summarizeCodexDiff(diffSummary);
-    final effectiveSummary = isFileChangeTool && diffPreview.isNotEmpty
-        ? diffPreview
-        : summary.isNotEmpty
-        ? summary
-        : (existingCardData['summary'] ?? '').toString();
-    final effectiveProgress = isFileChangeTool && diffPreview.isNotEmpty
-        ? diffPreview
-        : progress.isNotEmpty
-        ? progress
-        : (existingCardData['progress'] ?? '').toString();
-    final filePath = isFileChangeTool
-        ? extractCodexDiffPath(diffSource) ??
-              (diffSummary?.primaryPath.trim().isNotEmpty == true
-                  ? diffSummary!.primaryPath
-                  : null) ??
-              (existingCardData['filePath'] ?? '').toString()
-        : '';
-    final cardData = <String, dynamic>{
-      'type': 'agent_tool_summary',
-      'uiStyle': event.uiStyle.isNotEmpty
-          ? event.uiStyle
-          : (existingCardData['uiStyle'] ?? '').toString(),
-      'taskId': taskId,
-      'toolName': event.toolName,
-      'displayName': event.displayName,
-      'toolTitle': event.toolTitle.isNotEmpty
-          ? event.toolTitle
-          : (existingCardData['toolTitle'] ?? '').toString(),
-      'cardId': event.cardId.isNotEmpty
-          ? event.cardId
-          : (existingCardData['cardId'] ?? cardId).toString(),
-      'toolType': effectiveToolType,
-      'serverName': event.serverName,
-      'status': status,
-      'reasoning_content':
-          _normalizeReasoningContent(reasoningContent) ??
-          (existingCardData['reasoning_content'] ?? '').toString(),
-      'summary': effectiveSummary,
-      'progress': effectiveProgress,
-      'subagentStatusText': event.subagentStatusText.isNotEmpty
-          ? event.subagentStatusText
-          : (existingCardData['subagentStatusText'] ?? '').toString(),
-      'subagentEvents': _mergeSubagentEvents(
-        existingCardData['subagentEvents'],
-        event.subagentEvents,
-      ),
-      'argsJson': event.argsJson.isNotEmpty
-          ? event.argsJson
-          : (existingCardData['argsJson'] ?? '').toString(),
-      'resultPreviewJson': resultPreviewJson.isNotEmpty
-          ? resultPreviewJson
-          : (existingCardData['resultPreviewJson'] ?? '').toString(),
-      'rawResultJson': rawResultJson.isNotEmpty
-          ? rawResultJson
-          : (existingCardData['rawResultJson'] ?? '').toString(),
-      'terminalOutput': terminalOutput,
-      'terminalOutputDelta': event.terminalOutputDelta,
-      'terminalSessionId':
-          event.terminalSessionId ?? existingCardData['terminalSessionId'],
-      'terminalStreamState': event.terminalStreamState.isNotEmpty
-          ? event.terminalStreamState
-          : (existingCardData['terminalStreamState'] ?? '').toString(),
-      'workspaceId': event.workspaceId ?? existingCardData['workspaceId'],
-      'interruptedBy': event.interruptedBy ?? existingCardData['interruptedBy'],
-      'interruptionReason':
-          event.interruptionReason ?? existingCardData['interruptionReason'],
-      'artifacts': event.artifacts.isNotEmpty
-          ? event.artifacts
-          : (existingCardData['artifacts'] ?? const []),
-      'actions': event.actions.isNotEmpty
-          ? event.actions
-          : (existingCardData['actions'] ?? const []),
-      'success': event.success,
-      'showTerminalOutput': effectiveToolType == 'terminal',
-      'showRawResult': event.rawResultJson.isNotEmpty,
-      'showArtifactAction': event.artifacts.isNotEmpty,
-      'showScheduleAction': effectiveToolType == 'schedule',
-      'showAlarmAction': effectiveToolType == 'alarm',
-    };
-    if (isFileChangeTool) {
-      cardData.addAll(<String, dynamic>{
-        'diffText': diffText,
-        'showDiff': diffText.isNotEmpty,
-        'filePath': filePath,
-        'changedFiles': diffSummary?.changedFileCount ?? 0,
-        'additions': diffSummary?.additions ?? 0,
-        'deletions': diffSummary?.deletions ?? 0,
-      });
+    if (projection == null) {
+      return;
     }
 
+    if (projection.isInsert) {
+      runtime.messages.insert(
+        0,
+        ChatMessageModel.cardMessage(
+          projection.cardData,
+          id: projection.cardId,
+          streamMeta: projection.streamMeta,
+        ).copyWith(
+          createAt: DateTime.fromMillisecondsSinceEpoch(
+            streamEvent.createdAtMs,
+          ),
+        ),
+      );
+    } else {
+      runtime.messages[projection.existingIndex] = runtime
+          .messages[projection.existingIndex]
+          .copyWith(
+            id: projection.cardId,
+            content: {'cardData': projection.cardData, 'id': projection.cardId},
+            streamMeta: projection.streamMeta,
+          );
+    }
+  }
+
+  void _applyAgentUiCardStreamEvent(
+    ChatConversationRuntimeState runtime,
+    _TaskBinding binding,
+    AgentStreamEvent event, {
+    String? completedThinkingCardId,
+  }) {
+    final cards = extractAgentStreamUiCards(event);
+    if (cards.isEmpty) {
+      return;
+    }
+    runtime.isAiResponding = true;
+    _flushAgentThinkingBatchToCard(
+      runtime,
+      event.taskId,
+      cardId: completedThinkingCardId,
+    );
+    _finalizeThinkingCard(
+      runtime,
+      event.taskId,
+      cardId: completedThinkingCardId,
+    );
+    for (final card in cards) {
+      _upsertAgentUiCard(runtime: runtime, event: event, card: card);
+    }
+    notifyListeners();
+    schedulePersistRuntimeConversation(
+      conversationId: binding.conversationId,
+      mode: binding.mode,
+    );
+  }
+
+  void _upsertAgentUiCard({
+    required ChatConversationRuntimeState runtime,
+    required AgentStreamEvent event,
+    required AgentStreamUiCard card,
+  }) {
+    final streamMeta = ensureAgentStreamMessageMeta(
+      _streamMetaFromEvent(event),
+      entryId: card.id,
+    );
+    final index = runtime.messages.indexWhere(
+      (message) =>
+          message.id == card.id ||
+          (message.cardData?['cardId'] ?? '').toString().trim() == card.id,
+    );
     if (index == -1) {
       runtime.messages.insert(
         0,
         ChatMessageModel.cardMessage(
-          cardData,
-          id: cardId,
-          streamMeta: ensureAgentStreamMessageMeta(streamMeta, entryId: cardId),
+          card.cardData,
+          id: card.id,
+          streamMeta: streamMeta,
+        ).copyWith(
+          createAt: DateTime.fromMillisecondsSinceEpoch(event.createdAtMs),
         ),
       );
-    } else {
-      runtime.messages[index] = runtime.messages[index].copyWith(
-        content: {'cardData': cardData, 'id': cardId},
-        streamMeta: ensureAgentStreamMessageMeta(
-          streamMeta ?? runtime.messages[index].streamMeta,
-          entryId: cardId,
-        ),
-      );
+      return;
     }
-  }
-
-  List<Map<String, dynamic>> _mergeSubagentEvents(
-    dynamic existingRaw,
-    List<Map<String, dynamic>> incomingEvents,
-  ) {
-    final merged = <Map<String, dynamic>>[];
-    final seen = <String>{};
-
-    void addEvent(Map<dynamic, dynamic> rawEvent) {
-      final event = rawEvent.map<String, dynamic>(
-        (key, value) => MapEntry(key.toString(), value),
-      );
-      final key = _subagentEventIdentity(event);
-      if (!seen.add(key)) {
-        return;
-      }
-      merged.add(event);
-    }
-
-    if (existingRaw is List) {
-      for (final item in existingRaw.whereType<Map>()) {
-        addEvent(item);
-      }
-    }
-    for (final event in incomingEvents) {
-      addEvent(event);
-    }
-    // 折叠流式累积事件: 同一个 subagent (按 subagentId 或 taskIndex 分组)
-    // 的同种流式 kind (thinking / message) 只保留 seq 最大的一条。
-    // Kotlin 端为了实现"实时滚动"效果会每 ~32 字符 emit 一次 thinking 事件,
-    // 每条 seq 都不同,id-based 去重保留不了它们。展开后会显示"每行字数递增"。
-    final folded = _foldStreamingSubagentEvents(merged);
-    folded.sort((left, right) {
-      final leftSeq = _asInt(left['seq']);
-      final rightSeq = _asInt(right['seq']);
-      if (leftSeq != null && rightSeq != null && leftSeq != rightSeq) {
-        return leftSeq.compareTo(rightSeq);
-      }
-      final leftCreatedAt = _asInt(left['createdAt']) ?? 0;
-      final rightCreatedAt = _asInt(right['createdAt']) ?? 0;
-      if (leftCreatedAt != rightCreatedAt) {
-        return leftCreatedAt.compareTo(rightCreatedAt);
-      }
-      return _subagentEventIdentity(
-        left,
-      ).compareTo(_subagentEventIdentity(right));
-    });
-    return folded;
-  }
-
-  static const Set<String> _streamingSubagentKinds = <String>{
-    'thinking',
-    'message',
-  };
-
-  List<Map<String, dynamic>> _foldStreamingSubagentEvents(
-    List<Map<String, dynamic>> events,
-  ) {
-    final latestByGroup = <String, Map<String, dynamic>>{};
-    final result = <Map<String, dynamic>>[];
-    for (final event in events) {
-      final kind = (event['kind'] ?? '').toString();
-      if (!_streamingSubagentKinds.contains(kind)) {
-        result.add(event);
-        continue;
-      }
-      final groupKey = _subagentStreamingGroupKey(event, kind);
-      final existing = latestByGroup[groupKey];
-      if (existing == null) {
-        latestByGroup[groupKey] = event;
-        continue;
-      }
-      final existingSeq = _asInt(existing['seq']) ?? -1;
-      final newSeq = _asInt(event['seq']) ?? -1;
-      if (newSeq >= existingSeq) {
-        latestByGroup[groupKey] = event;
-      }
-    }
-    result.addAll(latestByGroup.values);
-    return result;
-  }
-
-  String _subagentStreamingGroupKey(Map<String, dynamic> event, String kind) {
-    final subagentId = (event['subagentId'] ?? '').toString().trim();
-    if (subagentId.isNotEmpty) {
-      return 'sub:$subagentId|$kind';
-    }
-    final taskIndex = event['taskIndex'];
-    if (taskIndex != null) {
-      return 'task:$taskIndex|$kind';
-    }
-    return 'global|$kind';
-  }
-
-  String _subagentEventIdentity(Map<String, dynamic> event) {
-    final id = (event['id'] ?? '').toString().trim();
-    if (id.isNotEmpty) {
-      return id;
-    }
-    return [
-      event['seq'],
-      event['kind'],
-      event['taskIndex'],
-      event['summary'],
-      event['toolName'],
-    ].map((item) => item?.toString() ?? '').join('|');
-  }
-
-  int? _asInt(dynamic value) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    return int.tryParse((value ?? '').toString());
-  }
-
-  String _resolveTerminalOutput({
-    required String existing,
-    required AgentToolEventData event,
-  }) {
-    if (event.terminalOutput.isNotEmpty) {
-      return _trimTerminalOutput(event.terminalOutput);
-    }
-    if (event.terminalOutputDelta.isNotEmpty) {
-      return _trimTerminalOutput(existing + event.terminalOutputDelta);
-    }
-    return existing;
-  }
-
-  bool _isCodexFileChangeTool(
-    AgentToolEventData event,
-    Map<String, dynamic> existingCardData,
-  ) {
-    final toolType = event.toolType.trim();
-    if (toolType == 'file' ||
-        (existingCardData['toolType'] ?? '').toString().trim() == 'file') {
-      return true;
-    }
-    final toolName = event.toolName.trim();
-    if (toolName == 'codex.file') {
-      return true;
-    }
-    if (_valueHasFileChangeType(event.raw)) {
-      return true;
-    }
-    return _jsonHasFileChangeType(event.argsJson) ||
-        _jsonHasFileChangeType(event.rawResultJson) ||
-        _jsonHasFileChangeType(event.resultPreviewJson);
-  }
-
-  bool _jsonHasFileChangeType(String raw) {
-    final trimmed = raw.trim();
-    if (trimmed.isEmpty) {
-      return false;
-    }
-    try {
-      final decoded = jsonDecode(trimmed);
-      return _valueHasFileChangeType(decoded);
-    } catch (_) {
-      return false;
-    }
-  }
-
-  bool _valueHasFileChangeType(dynamic value) {
-    if (value is Map) {
-      final map = value.map((key, nested) => MapEntry(key.toString(), nested));
-      final type = (map['type'] ?? '').toString();
-      if (type == 'fileChange') {
-        return true;
-      }
-      return map.values.any(_valueHasFileChangeType);
-    }
-    if (value is Iterable) {
-      return value.any(_valueHasFileChangeType);
-    }
-    return false;
-  }
-
-  Map<String, dynamic> _agentToolDiffSource(
-    AgentToolEventData event, {
-    required String resultPreviewJson,
-    required String rawResultJson,
-    required String summary,
-    required String progress,
-  }) {
-    return <String, dynamic>{
-      ...event.raw,
-      'toolName': event.toolName,
-      'toolType': event.toolType,
-      'argsJson': event.argsJson,
-      'resultPreviewJson': resultPreviewJson,
-      'rawResultJson': rawResultJson,
-      'summary': summary,
-      'progress': progress,
-    };
-  }
-
-  String _resolveAgentFileDiffText({
-    required Map<String, dynamic> existingCardData,
-    required Map<String, dynamic> source,
-    required String outputText,
-    required String progress,
-    required String summary,
-  }) {
-    final current = extractCodexDiffText(
-      source,
-      outputText: outputText,
-      progress: progress,
-      summary: summary,
+    final existingCardData = Map<String, dynamic>.from(
+      runtime.messages[index].cardData ?? const <String, dynamic>{},
     );
-    if (current != null && current.trim().isNotEmpty) {
-      return current;
-    }
-    return (existingCardData['diffText'] ?? '').toString().trim();
-  }
-
-  String _resolveToolStatus(AgentToolEventData event) {
-    final normalized = event.status.trim().toLowerCase();
-    if (normalized.isNotEmpty) {
-      return normalized;
-    }
-    return event.success ? 'success' : 'error';
+    runtime.messages[index] = runtime.messages[index].copyWith(
+      content: {
+        'cardData': <String, dynamic>{...existingCardData, ...card.cardData},
+        'id': card.id,
+      },
+      streamMeta: streamMeta,
+    );
   }
 
   void updateChatIslandDisplayLayer({
@@ -3688,38 +3901,24 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     runtime.browserSessionSnapshot = snapshot;
   }
 
-  String _trimTerminalOutput(String value) {
-    if (value.isEmpty) return value;
-
-    var candidate = value;
-    if (candidate.length > _maxTerminalOutputChars) {
-      candidate = candidate.substring(
-        candidate.length - _maxTerminalOutputChars,
-      );
+  void _scheduleToolEventFlush(
+    ChatConversationRuntimeState runtime, {
+    required bool immediate,
+  }) {
+    final key = _runtimeKey(
+      conversationId: runtime.conversationId,
+      mode: runtime.mode,
+    );
+    runtime.toolEventFlushTimers[key]?.cancel();
+    runtime.toolEventFlushTimers.remove(key);
+    if (immediate) {
+      notifyListeners();
+      return;
     }
-
-    final lines = candidate.split('\n');
-    if (lines.length > _maxTerminalOutputLines) {
-      candidate = lines
-          .sublist(lines.length - _maxTerminalOutputLines)
-          .join('\n');
-    }
-
-    final wasTrimmed =
-        candidate.length < value.length ||
-        lines.length > _maxTerminalOutputLines;
-    if (!wasTrimmed) {
-      return candidate;
-    }
-
-    final notice = _isEnglish
-        ? '[Only the most recent terminal output is shown]\n'
-        : '[只显示最近的部分终端输出]\n';
-    final body = candidate.startsWith(notice)
-        ? candidate.substring(notice.length)
-        : candidate;
-    final remaining = _maxTerminalOutputChars - notice.length;
-    return '$notice${body.substring(body.length > remaining ? body.length - remaining : 0)}';
+    runtime.toolEventFlushTimers[key] = Timer(_toolEventFlushDelay, () {
+      runtime.toolEventFlushTimers.remove(key);
+      notifyListeners();
+    });
   }
 
   String? _normalizeReasoningContent(String? value) {
@@ -3741,7 +3940,9 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       if (message.user != 1) continue;
       final text = message.content?['text'] as String? ?? '';
       if (text.isEmpty) continue;
-      buffer.write(_isEnglish ? 'User: $text\n' : '用户: $text\n');
+      buffer.write(
+        AppTextLocalizer.choose(en: 'User: $text\n', zh: '用户: $text\n'),
+      );
     }
     return buffer.toString().trim();
   }

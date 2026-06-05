@@ -7,6 +7,8 @@ import cn.com.omnimind.baselib.llm.ModelSceneRegistry
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import okhttp3.sse.EventSource
 
 // ==================== UI操作动作 ====================
@@ -23,27 +25,43 @@ data class ClickAction(
     @SerialName("target_description")
     val targetDescription: String,
     var x: Float,
-    var y: Float
+    var y: Float,
+    @SerialName("element_index")
+    val elementIndex: Int? = null,
+    @SerialName("node_id")
+    val nodeId: String? = null
 ) : UIAction()
 
 @Serializable
-@SerialName("type")
-data class TypeAction(
-    override val name: String = "type",
-    val content: String
+@SerialName("input_text")
+data class InputTextAction(
+    override val name: String = "input_text",
+    @SerialName("target_description")
+    val targetDescription: String,
+    val text: String,
+    var x: Float,
+    var y: Float,
+    @SerialName("element_index")
+    val elementIndex: Int? = null,
+    @SerialName("node_id")
+    val nodeId: String? = null
 ) : UIAction()
 
 @Serializable
-@SerialName("scroll")
-data class ScrollAction(
-    override val name: String = "scroll",
+@SerialName("swipe")
+data class SwipeAction(
+    override val name: String = "swipe",
     @SerialName("target_description")
     val targetDescription: String,
     var x1: Float,  // 起始点x
     var y1: Float,  // 起始点y
     var x2: Float,  // 结束点x
     var y2: Float,  // 结束点y
-    val duration: Float = 1.5f  // 持续时间（秒），默认1.5秒
+    @SerialName("duration_ms")
+    val durationMs: Long = 1500L,
+    @SerialName("scrollable_index")
+    val scrollableIndex: Int? = null,
+    val direction: String? = null
 ) : UIAction()
 
 @Serializable
@@ -53,7 +71,11 @@ data class LongPressAction(
     @SerialName("target_description")
     val targetDescription: String,
     var x: Float,
-    var y: Float
+    var y: Float,
+    @SerialName("element_index")
+    val elementIndex: Int? = null,
+    @SerialName("node_id")
+    val nodeId: String? = null
 ) : UIAction()
 
 @Serializable
@@ -65,25 +87,38 @@ data class OpenAppAction(
 ) : UIAction()
 
 @Serializable
-@SerialName("press_home")
-data class PressHomeAction(
-    override val name: String = "press_home"
-) : UIAction()
-
-@Serializable
-@SerialName("press_back")
-data class PressBackAction(
-    override val name: String = "press_back"
+@SerialName("press_key")
+data class PressKeyAction(
+    override val name: String = "press_key",
+    val key: String
 ) : UIAction()
 
 @Serializable
 @SerialName("wait")
 data class WaitAction(
     override val name: String = "wait",
+    @SerialName("time_s")
+    val timeS: Double? = null,
     @SerialName("duration_ms")
-    val durationMs: Long? = null,
-    // 某些模型可能返回秒为单位的duration字段，保留以兼容
-    val duration: Long? = null
+    val durationMs: Long? = null
+) : UIAction()
+
+@Serializable
+@SerialName("get_state")
+data class GetStateAction(
+    override val name: String = "get_state",
+    val reason: String = ""
+) : UIAction()
+
+@Serializable
+@SerialName("call_tool")
+data class FunctionRunAction(
+    override val name: String = "call_tool",
+    @SerialName("function_id")
+    val functionId: String,
+    @SerialName("tool_name")
+    val toolName: String? = null,
+    val arguments: JsonObject = buildJsonObject {}
 ) : UIAction()
 
 @Serializable
@@ -136,14 +171,6 @@ data class AbortAction(
     val value: String = ""
 ) : UIAction()
 
-@Serializable
-@SerialName("hot_key")
-data class HotKeyAction(
-    override val name: String = "hot_key",
-    val key: String  // "ENTER", "BACK", "HOME"
-) : UIAction()
-
-
 // ==================== 步骤和上下文 ====================
 
 @Serializable
@@ -152,7 +179,27 @@ data class UIStep(
     val thought: String,
     val action: UIAction,
     val result: String? = null,
-    val summary: String = ""  // 添加summary字段用于历史总结
+    val summary: String = "",  // 添加summary字段用于历史总结
+    @SerialName("observation_xml")
+    val observationXml: String? = null,
+    @SerialName("after_observation_xml")
+    val afterObservationXml: String? = null,
+    @SerialName("package_name")
+    val packageName: String? = null,
+    @SerialName("after_package_name")
+    val afterPackageName: String? = null,
+    @SerialName("action_result_data")
+    val actionResultData: JsonElement? = null,
+    @SerialName("started_at_ms")
+    val startedAtMs: Long? = null,
+    @SerialName("finished_at_ms")
+    val finishedAtMs: Long? = null,
+    @SerialName("token_usage")
+    val tokenUsage: VLMTokenUsage? = null,
+    @SerialName("token_usage_attempts")
+    val tokenUsageAttempts: List<VLMTokenUsage> = emptyList(),
+    @SerialName("page_diagnostics")
+    val pageDiagnostics: Map<String, String> = emptyMap()
 )
 
 @Serializable
@@ -161,6 +208,37 @@ data class VLMStep(
     val thought: String,
     val action: UIAction,
     val summary: String = "",  // 添加summary字段，与UIStep保持一致
+)
+
+@Serializable
+data class VLMTokenUsage(
+    @SerialName("prompt_tokens")
+    val promptTokens: Int? = null,
+    @SerialName("completion_tokens")
+    val completionTokens: Int? = null,
+    @SerialName("total_tokens")
+    val totalTokens: Int? = null,
+    @SerialName("reasoning_tokens")
+    val reasoningTokens: Int? = null,
+    @SerialName("text_tokens")
+    val textTokens: Int? = null,
+    @SerialName("cached_tokens")
+    val cachedTokens: Int? = null,
+    @SerialName("prefill_tokens_per_second")
+    val prefillTokensPerSecond: Double? = null,
+    @SerialName("decode_tokens_per_second")
+    val decodeTokensPerSecond: Double? = null,
+    @SerialName("resolved_model")
+    val resolvedModel: String? = null,
+    val route: String? = null,
+    @SerialName("attempt_index")
+    val attemptIndex: Int? = null,
+    @SerialName("stability_attempt")
+    val stabilityAttempt: Int? = null,
+    @SerialName("tool_retry_index")
+    val toolRetryIndex: Int? = null,
+    @SerialName("attempt_count")
+    val attemptCount: Int? = null
 )
 
 @Serializable
@@ -173,6 +251,22 @@ data class UIContext(
     val stepSkillGuidance: String = "",
     @SerialName("installed_applications")
     val installedApplications: Map<String, String> = emptyMap(),
+    @SerialName("target_package_name")
+    val targetPackageName: String = "",
+    @SerialName("current_package_name")
+    val currentPackageName: String = "",
+    @SerialName("display_width")
+    val displayWidth: Int = 0,
+    @SerialName("display_height")
+    val displayHeight: Int = 0,
+    @SerialName("current_page_summary")
+    val currentPageSummary: String = "",
+    @SerialName("first_step_guidance")
+    val firstStepGuidance: String = "",
+    @SerialName("page_diagnostics")
+    val pageDiagnostics: Map<String, String> = emptyMap(),
+    @SerialName("dynamic_tool_definitions")
+    val dynamicToolDefinitions: List<JsonObject> = emptyList(),
     val trace: List<UIStep> = emptyList(),
     @SerialName("key_memory")
     val keyMemory: List<String> = emptyList(),
@@ -296,14 +390,21 @@ class VLMConversationState(
 
 data class VLMRequestEnvelope(
     val request: cn.com.omnimind.baselib.llm.ChatCompletionRequest,
-    val currentUserText: String
+    val currentUserText: String,
+    val dynamicFunctionToolNames: Set<String> = emptySet(),
+    val toolNames: List<String> = emptyList(),
+    val systemPromptChars: Int = 0,
+    val currentUserTextChars: Int = currentUserText.length,
 )
 
 @Serializable
 data class OperationResult(
     val success: Boolean,
     val message: String,
-    val data: JsonElement? = null
+    val data: JsonElement? = null,
+    val providerRunLogJson: String? = null,
+    val providerRunLogPath: String? = null,
+    val canonicalRunLogPath: String? = null,
 )
 
 @Serializable

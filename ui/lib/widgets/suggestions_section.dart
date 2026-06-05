@@ -7,10 +7,10 @@ class AnimatedSuggestionChip extends StatefulWidget {
   final Duration delay;
 
   const AnimatedSuggestionChip({
-    Key? key,
+    super.key,
     required this.child,
     required this.delay,
-  }) : super(key: key);
+  });
 
   @override
   State<AnimatedSuggestionChip> createState() =>
@@ -61,13 +61,13 @@ class SuggestionsSection extends StatelessWidget {
   final void Function(String)? onSuggestionTapped;
 
   const SuggestionsSection({
-    Key? key,
+    super.key,
     required this.isAnimationComplete,
     required this.isLatestBotMessage,
     this.suggestionTitle,
     this.suggestions,
     this.onSuggestionTapped,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -93,7 +93,7 @@ class SuggestionsSection extends StatelessWidget {
                 child: Text(
                   suggestionTitle!,
                   style: TextStyle(
-                    color: theme.colorScheme.onSurface.withOpacity(0.7),
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
                     fontSize: 14,
                   ),
                 ),

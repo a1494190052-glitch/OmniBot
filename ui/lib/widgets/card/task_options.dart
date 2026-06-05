@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:ui/l10n/legacy_text_localizer.dart';
+import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/widgets/normal_options_card.dart';
 import '../../models/block_models.dart';
 import '../buttons_group_two.dart';
@@ -9,9 +9,9 @@ class TaskOptionsCard extends StatefulWidget {
   final TaskOptionsBlock block;
 
   const TaskOptionsCard({
-    Key? key,
+    super.key,
     required this.block,
-  }) : super(key: key);
+  });
 
   @override
   State<TaskOptionsCard> createState() => _TaskOptionsCardState();
@@ -26,17 +26,13 @@ class _TaskOptionsCardState extends State<TaskOptionsCard>
     super.initState();
   }
 
-  @override
-  void dispose() {
-    super.dispose();
-  }
 
   void onTaskConfirm() {
-    print('Confirmed tasks: ${_selected.map((t) => t.name).toList()}');
+    debugPrint('Confirmed tasks: ${_selected.map((t) => t.name).toList()}');
   }
 
   void onTaskCancel() {
-    print('Task selection cancelled');
+    debugPrint('Task selection cancelled');
   }
 
   void onButtonPressed(ButtonModel button) {
@@ -51,7 +47,7 @@ class _TaskOptionsCardState extends State<TaskOptionsCard>
   }
   
   void onTaskSelectionChanged() {
-    print('Task selection changed');
+    debugPrint('Task selection changed');
   }
 
   @override
@@ -68,7 +64,7 @@ class _TaskOptionsCardState extends State<TaskOptionsCard>
     final b = widget.block;
     return Column(
       children: [
-        BotStatus(status: BotStatusType.hint, hintText: LegacyTextLocalizer.localize('请选择一个任务')),
+        BotStatus(status: BotStatusType.hint, hintText: AppTextLocalizer.text('请选择一个任务')),
         const SizedBox(height: 8),
         Container(
           margin: const EdgeInsets.symmetric(vertical: 8.0),
@@ -82,8 +78,8 @@ class _TaskOptionsCardState extends State<TaskOptionsCard>
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               NormalOptionsCard(
-                title: b.title ?? LegacyTextLocalizer.localize('任务选项'),
-                subtitle: b.taskDesc ?? LegacyTextLocalizer.localize('请选择你想执行的任务'),
+                title: b.title ?? AppTextLocalizer.text('任务选项'),
+                subtitle: b.taskDesc ?? AppTextLocalizer.text('请选择你想执行的任务'),
                 options: b.options.map((t) => t.toOptionItem()).toList(),
                 multiSelect: b.multiSelect,
                 onSelectionChanged: (sel) {
@@ -91,7 +87,7 @@ class _TaskOptionsCardState extends State<TaskOptionsCard>
                       .map((c) => b.options.firstWhere((a) => a.name == c.title))
                       .toList();
                   onTaskSelectionChanged();
-                  print(
+                  debugPrint(
                     'Selected tasks: ${_selected.map((t) => t.name).toList()}'
                   );
                 },

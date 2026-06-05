@@ -1,16 +1,23 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ui';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:ui/l10n/legacy_text_localizer.dart';
+import 'package:ui/l10n/app_text_localizer.dart';
+import 'package:ui/models/conversation_model.dart';
 import 'package:ui/services/assists_core_service.dart';
+import 'package:ui/services/app_state_service.dart';
+import 'package:ui/services/conversation_service.dart';
 import 'package:ui/services/image_prewarm_cache_service.dart';
 import 'package:ui/services/screen_dialog_service.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/constants/openclaw/openclaw_keys.dart';
 import 'package:ui/features/home/pages/common/openclaw_connection_checker.dart';
-import 'package:ui/theme/theme_context.dart';
+import 'package:ui/features/workbench/models/workbench_models.dart';
+import 'package:ui/features/workbench/services/workbench_project_service.dart';
+import 'package:ui/features/workbench/widgets/workbench_annotation_context.dart';
+import 'package:ui/features/workbench/widgets/workbench_annotation_overlay.dart';
+import 'package:ui/features/workbench/widgets/workbench_layout_profile.dart';
 import 'package:ui/utils/data_parser.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/widgets/image/cached_image.dart';
@@ -34,7 +41,6 @@ class _CommandOverlayState extends State<CommandOverlay> {
   final GlobalKey<ChatInputAreaState> _chatInputAreaKey =
       GlobalKey<ChatInputAreaState>();
   final GlobalKey _inputAreaKey = GlobalKey();
-  final List<ChatInputAttachment> _pendingAttachments = <ChatInputAttachment>[];
 
   bool _isPopupVisible = false;
   Map<String, dynamic>? _scheduleInfo;
@@ -46,6 +52,15 @@ class _CommandOverlayState extends State<CommandOverlay> {
   String _openClawUserId = '';
   bool _showSlashCommandPanel = false;
   bool _openClawPanelExpanded = false;
+  bool _isChatSheetVisible = false;
+  bool _conversationPanelExpanded = false;
+  bool _conversationSummariesLoading = false;
+  bool _conversationSummariesLoaded = false;
+  String? _conversationPanelError;
+  List<ConversationModel> _recentConversations = const [];
+  StreamSubscription<Map<String, dynamic>>?
+  _conversationListChangedSubscription;
+  bool _annotationMode = false;
   final TextEditingController _openClawBaseUrlController =
       TextEditingController();
   final TextEditingController _openClawTokenController =
@@ -61,6 +76,16 @@ class _CommandOverlayState extends State<CommandOverlay> {
     _messageController.addListener(_handleSlashCommandInput);
     _onGetScheduleTaskInfo();
     _loadOpenClawConfig();
+    _conversationListChangedSubscription = AssistsMessageService
+        .conversationListChangedStream
+        .listen((_) {
+          if (!mounted) return;
+          if (_conversationPanelExpanded) {
+            unawaited(_loadConversationSummaries(force: true));
+          } else {
+            _conversationSummariesLoaded = false;
+          }
+        });
 
     // 预热 Suggestion 图标到内存缓存
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -124,7 +149,7 @@ class _CommandOverlayState extends State<CommandOverlay> {
 
   Future<void> _setOpenClawEnabled(bool enabled) async {
     if (enabled && _openClawBaseUrl.trim().isEmpty) {
-      AppToast.show(LegacyTextLocalizer.localize('请先使用 /openclaw 配置 OpenClaw'));
+      AppToast.show(AppTextLocalizer.text('请先使用 /openclaw 配置 OpenClaw'));
       _showOpenClawCommandPanel(expand: true);
       return;
     }
@@ -133,6 +158,7 @@ class _CommandOverlayState extends State<CommandOverlay> {
     await StorageService.setBool(kOpenClawEnabledKey, enabled);
   }
 
+  // ignore: unused_element
   Future<void> _showOpenClawConfigDialog() async {
     final result = await showDialog<_OpenClawConfigDraft>(
       context: context,
@@ -167,35 +193,6 @@ class _CommandOverlayState extends State<CommandOverlay> {
   /// 检查 OpenClaw 服务连接状态
   Future<void> _checkOpenClawConnection() async {
     await OpenClawConnectionChecker.checkAndToast(_openClawBaseUrl);
-  }
-
-  Widget _buildOpenClawToggle() {
-    final palette = context.omniPalette;
-    final labelColor = context.isDarkTheme
-        ? palette.textSecondary
-        : const Color(0xFF666666);
-    return Row(
-      children: [
-        Text('OpenClaw', style: TextStyle(fontSize: 12, color: labelColor)),
-        const SizedBox(width: 8),
-        Switch.adaptive(
-          value: _openClawEnabled,
-          onChanged: (value) => _setOpenClawEnabled(value),
-          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        ),
-        const Spacer(),
-        TextButton.icon(
-          onPressed: _showOpenClawConfigDialog,
-          icon: Icon(Icons.settings, size: 16, color: labelColor),
-          label: Text('配置', style: TextStyle(fontSize: 12, color: labelColor)),
-          style: TextButton.styleFrom(
-            visualDensity: VisualDensity.compact,
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            foregroundColor: labelColor,
-          ),
-        ),
-      ],
-    );
   }
 
   void _handleSlashCommandInput() {
@@ -407,44 +404,123 @@ class _CommandOverlayState extends State<CommandOverlay> {
     _openClawBaseUrlController.dispose();
     _openClawTokenController.dispose();
     _openClawUserIdController.dispose();
+    _conversationListChangedSubscription?.cancel();
     super.dispose();
   }
 
   void _onFocusChange() {}
 
-  void _closePage() {
+  Future<void> _dismissFloatingOverlay() async {
     _inputFocusNode.unfocus();
-    ScreenDialogService.closeChatBotDialog();
+    final dismissed = await AppStateService.dismissFloatingOverlay();
+    if (!dismissed) {
+      await ScreenDialogService.closeChatBotDialog();
+    }
+  }
+
+  void _closePage() {
+    unawaited(_dismissFloatingOverlay());
+  }
+
+  Future<void> _toggleConversationPanel() async {
+    final shouldExpand = !_conversationPanelExpanded;
+    setState(() {
+      _conversationPanelExpanded = shouldExpand;
+    });
+    if (shouldExpand) {
+      await _loadConversationSummaries();
+    }
+  }
+
+  Future<void> _loadConversationSummaries({bool force = false}) async {
+    if (_conversationSummariesLoading) return;
+    if (_conversationSummariesLoaded && !force) return;
+    setState(() {
+      _conversationSummariesLoading = true;
+      _conversationPanelError = null;
+    });
+    try {
+      final conversations = await ConversationService.getAllConversations();
+      if (!mounted) return;
+      setState(() {
+        _recentConversations = conversations.take(5).toList(growable: false);
+        _conversationSummariesLoaded = true;
+        _conversationSummariesLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _conversationPanelError = AppTextLocalizer.choose(
+          en: 'Failed to load conversations',
+          zh: '对话加载失败',
+        );
+        _conversationSummariesLoading = false;
+      });
+      debugPrint('加载悬浮窗对话摘要失败: $error');
+    }
+  }
+
+  Future<void> _manageConversation(ConversationModel conversation) async {
+    _inputFocusNode.unfocus();
+    final opened = await AppStateService.navigateBackToChat(
+      conversationId: conversation.id,
+      mode: conversation.mode,
+    );
+    if (!opened) {
+      AppToast.show(
+        AppTextLocalizer.choose(
+          en: 'Failed to open conversation',
+          zh: '无法打开对话',
+        ),
+      );
+    } else {
+      unawaited(AppStateService.dismissFloatingOverlay());
+    }
+  }
+
+  String _conversationTitle(ConversationModel conversation) {
+    final title = conversation.title.trim();
+    if (title.isNotEmpty) return title;
+    return AppTextLocalizer.choose(en: 'New conversation', zh: '新对话');
+  }
+
+  String _conversationSummary(ConversationModel conversation) {
+    final summary = conversation.summary?.trim();
+    if (summary != null && summary.isNotEmpty) return summary;
+    final contextSummary = conversation.contextSummary?.trim();
+    if (contextSummary != null && contextSummary.isNotEmpty) {
+      return contextSummary;
+    }
+    final lastMessage = conversation.lastMessage?.trim();
+    if (lastMessage != null && lastMessage.isNotEmpty) return lastMessage;
+    return AppTextLocalizer.choose(en: 'No summary yet', zh: '暂无摘要');
+  }
+
+  String _conversationMeta(ConversationModel conversation) {
+    final count = AppTextLocalizer.choose(
+      en: '${conversation.messageCount} messages',
+      zh: '${conversation.messageCount} 条消息',
+    );
+    return '${conversation.mode.displayLabel} · ${conversation.timeDisplay} · $count';
   }
 
   Future<void> _sendMessage() async {
     final text = _messageController.text.trim();
-    final hasAttachments = _pendingAttachments.isNotEmpty;
-    if (text.isEmpty && !hasAttachments) return;
+    if (text.isEmpty) return;
 
     final handledSlash = await _tryHandleSlashCommand(text);
     if (handledSlash) return;
 
-    final attachments = _pendingAttachments
-        .map((item) => item.toMap())
-        .toList();
-    if (attachments.isNotEmpty && mounted) {
-      setState(() => _pendingAttachments.clear());
-    }
     _inputFocusNode.unfocus();
     _messageController.clear();
 
-    _showChatSheet(initialMessage: text, initialAttachments: attachments);
+    _showChatSheet(initialMessage: text);
   }
 
-  void _showChatSheet({
-    String? initialMessage,
-    List<Map<String, dynamic>> initialAttachments = const [],
-  }) {
+  void _showChatSheet({String? initialMessage}) {
     _showChatSheetWithScene(
       ChatBotLaunchScene.normal,
       initialMessage: initialMessage,
-      initialAttachments: initialAttachments,
     );
   }
 
@@ -452,8 +528,13 @@ class _CommandOverlayState extends State<CommandOverlay> {
   void _showChatSheetWithScene(
     ChatBotLaunchScene launchScene, {
     String? initialMessage,
+    String? initialDisplayMessage,
     List<Map<String, dynamic>> initialAttachments = const [],
   }) {
+    if (_isChatSheetVisible) return;
+    if (mounted) {
+      setState(() => _isChatSheetVisible = true);
+    }
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -464,12 +545,21 @@ class _CommandOverlayState extends State<CommandOverlay> {
       enableDrag: false,
       builder: (context) => ChatBotSheet(
         initialMessage: initialMessage,
+        initialDisplayMessage: initialDisplayMessage,
         initialAttachments: initialAttachments,
         launchScene: launchScene,
         openClawEnabled: _openClawEnabled,
       ),
     ).then((_) {
-      ScreenDialogService.closeChatBotDialog();
+      if (mounted) {
+        setState(() => _isChatSheetVisible = false);
+        if (_conversationPanelExpanded) {
+          unawaited(_loadConversationSummaries(force: true));
+        } else {
+          _conversationSummariesLoaded = false;
+        }
+      }
+      unawaited(_dismissFloatingOverlay());
     });
   }
 
@@ -488,126 +578,204 @@ class _CommandOverlayState extends State<CommandOverlay> {
     });
   }
 
-  Future<void> _pickAttachments() async {
-    var hiddenForPicker = false;
-    try {
-      hiddenForPicker = await ScreenDialogService.hideForExternalActivity();
-      if (hiddenForPicker) {
-        await Future<void>.delayed(const Duration(milliseconds: 80));
-      }
-      final result = await FilePicker.platform.pickFiles(
-        allowMultiple: true,
-        type: FileType.any,
-      );
-      if (result == null || result.files.isEmpty || !mounted) return;
-
-      setState(() {
-        for (final file in result.files) {
-          final path = file.path;
-          if (path == null || path.isEmpty) continue;
-          final exists = _pendingAttachments.any((item) => item.path == path);
-          if (exists) continue;
-          final displayName = file.name.trim().isNotEmpty
-              ? file.name.trim()
-              : _fileNameFromPath(path);
-          final extension = (file.extension ?? '').toLowerCase();
-          final mimeType = _mimeTypeFromExtension(path, extension: extension);
-          _pendingAttachments.add(
-            ChatInputAttachment(
-              id: '${path}_${DateTime.now().microsecondsSinceEpoch}',
-              name: displayName,
-              path: path,
-              size: file.size > 0 ? file.size : null,
-              mimeType: mimeType,
-              isImage: _isImageFilePath(path, mimeType: mimeType),
-            ),
-          );
-        }
-      });
-    } catch (e) {
-      showToast('添加附件失败：$e', type: ToastType.error);
-    } finally {
-      if (hiddenForPicker) {
-        await Future<void>.delayed(const Duration(milliseconds: 120));
-        await ScreenDialogService.restoreAfterExternalActivity();
-      }
-    }
-  }
-
-  void _removePendingAttachment(String id) {
+  void _toggleAnnotationMode() {
+    _inputFocusNode.unfocus();
+    _hideSlashCommandPanel();
     if (!mounted) return;
     setState(() {
-      _pendingAttachments.removeWhere((item) => item.id == id);
+      _annotationMode = !_annotationMode;
+      if (_annotationMode) {
+        _isPopupVisible = false;
+      }
     });
   }
 
-  String _fileNameFromPath(String path) {
-    final normalized = path.replaceAll('\\', '/');
-    final segments = normalized.split('/');
-    if (segments.isEmpty) return path;
-    return segments.last.isEmpty ? path : segments.last;
+  Future<Map<String, Object?>> _buildFloatingAnnotationContext(
+    WorkbenchAnnotationPayload payload,
+    String prompt,
+  ) async {
+    final themeProfile = buildWorkbenchThemeProfile(context);
+    try {
+      final backend = NativeWorkbenchProjectBackend();
+      final project = await backend.getActiveProject();
+      if (project != null) {
+        final activeFrontendContext = await backend.getActiveFrontendContext();
+        final display = _displayForActiveFrontendContext(
+          project,
+          activeFrontendContext,
+        );
+        return {
+          ...buildWorkbenchAnnotationFrontendContext(
+            themeProfile: themeProfile,
+            project: project,
+            display: display,
+            payload: payload,
+            prompt: prompt,
+            source: 'xiaowan_floating_annotation_canvas',
+          ),
+          if (activeFrontendContext != null)
+            'activeFlutterContext': activeFrontendContext,
+          'screenshotSummary':
+              'VLM should inspect the current screen screenshot together with drawingPaths. The Flutter client does not classify the shape or target UI.',
+        };
+      }
+    } catch (error) {
+      debugPrint('读取激活 Workbench Project 失败: $error');
+    }
+    return {
+      ...payload.toFrontendContext(
+        projectId: '',
+        displayId: 'current-screen',
+        route: 'current_screen',
+        source: 'xiaowan_floating_annotation_canvas',
+        visibleState: {
+          'origin': 'xiaowan_floating_window',
+          'activeProjectAvailable': false,
+          ...themeProfile,
+        },
+      ),
+      ...themeProfile,
+      'screenshotSummary':
+          'VLM should inspect the current screen screenshot together with drawingPaths. The Flutter client does not classify the shape or target UI.',
+    };
   }
 
-  bool _isImageFilePath(String path, {String? mimeType}) {
-    final normalizedMime = mimeType?.trim().toLowerCase();
-    if (normalizedMime != null && normalizedMime.startsWith('image/')) {
-      return true;
+  WorkbenchDisplaySpec _displayForActiveFrontendContext(
+    WorkbenchProject project,
+    Map<String, dynamic>? activeFrontendContext,
+  ) {
+    final contextProjectId = activeFrontendContext?['projectId']
+        ?.toString()
+        .trim();
+    final contextDisplayId = activeFrontendContext?['displayId']
+        ?.toString()
+        .trim();
+    if (contextProjectId == project.projectId &&
+        contextDisplayId != null &&
+        contextDisplayId.isNotEmpty) {
+      for (final display in project.displays) {
+        if (display.id == contextDisplayId) {
+          return display;
+        }
+      }
     }
-    final lowerPath = path.toLowerCase();
-    return lowerPath.endsWith('.png') ||
-        lowerPath.endsWith('.jpg') ||
-        lowerPath.endsWith('.jpeg') ||
-        lowerPath.endsWith('.webp') ||
-        lowerPath.endsWith('.gif') ||
-        lowerPath.endsWith('.bmp') ||
-        lowerPath.endsWith('.heic') ||
-        lowerPath.endsWith('.heif');
+    return project.primaryDisplay;
   }
 
-  String? _mimeTypeFromExtension(String path, {String extension = ''}) {
-    final ext = extension.isNotEmpty
-        ? extension
-        : _fileNameFromPath(path).split('.').last.toLowerCase();
-    switch (ext) {
-      case 'png':
-        return 'image/png';
-      case 'jpg':
-      case 'jpeg':
-        return 'image/jpeg';
-      case 'gif':
-        return 'image/gif';
-      case 'webp':
-        return 'image/webp';
-      case 'bmp':
-        return 'image/bmp';
-      case 'heic':
-        return 'image/heic';
-      case 'heif':
-        return 'image/heif';
-      case 'pdf':
-        return 'application/pdf';
-      case 'txt':
-        return 'text/plain';
-      case 'md':
-        return 'text/markdown';
-      default:
-        return null;
+  String _buildAnnotationAgentMessage(
+    String prompt,
+    Map<String, Object?> frontendContext,
+  ) {
+    const encoder = JsonEncoder.withIndent('  ');
+    final contextJson = encoder.convert(frontendContext);
+    return '''
+$prompt
+
+小万悬浮窗画布上下文如下。已附上“当前屏幕 + 红色笔迹”的合成截图，请用 VLM 直接看图判断用户标注的形状和目标 UI，不要在前端做形状识别。若这是 Workbench Project 前端迭代，请把下面 JSON 原样作为 frontendContext 调用 workbench_project_hot_update。
+
+```json
+$contextJson
+```
+''';
+  }
+
+  List<Map<String, dynamic>> _drawingPathsForNative(
+    WorkbenchAnnotationPayload payload,
+  ) {
+    return payload.strokes
+        .map(
+          (stroke) =>
+              Map<String, dynamic>.from(stroke.toMap(payload.canvasSize)),
+        )
+        .toList(growable: false);
+  }
+
+  Future<Map<String, dynamic>?> _captureAnnotationAttachment(
+    WorkbenchAnnotationPayload payload,
+  ) async {
+    if (payload.canvasSize.width <= 0 || payload.canvasSize.height <= 0) {
+      return null;
     }
+    return AssistsMessageService.captureWorkbenchAnnotationAttachment(
+      canvasWidth: payload.canvasSize.width,
+      canvasHeight: payload.canvasSize.height,
+      drawingPaths: _drawingPathsForNative(payload),
+    );
+  }
+
+  Map<String, Object?> _annotationImageContext(
+    WorkbenchAnnotationPayload payload,
+    Map<String, dynamic> attachment,
+  ) {
+    final width = attachment['width'];
+    final height = attachment['height'];
+    final imageWidth = width is num ? width.toDouble() : 0.0;
+    final imageHeight = height is num ? height.toDouble() : 0.0;
+    return {
+      'attachmentId': attachment['id']?.toString(),
+      'name': attachment['name']?.toString(),
+      'mimeType': attachment['mimeType']?.toString(),
+      'path': attachment['path']?.toString(),
+      'uri': attachment['uri']?.toString(),
+      'width': width,
+      'height': height,
+      'coordinateSpace': 'screenshot_pixels',
+      'canvasToImageScale': {
+        'x': payload.canvasSize.width <= 0
+            ? 1
+            : imageWidth / payload.canvasSize.width,
+        'y': payload.canvasSize.height <= 0
+            ? 1
+            : imageHeight / payload.canvasSize.height,
+      },
+    };
+  }
+
+  Future<bool> _submitAnnotation(
+    WorkbenchAnnotationPayload payload,
+    String prompt,
+  ) async {
+    final baseFrontendContext = await _buildFloatingAnnotationContext(
+      payload,
+      prompt,
+    );
+    final annotationAttachment = await _captureAnnotationAttachment(payload);
+    if (!mounted) return false;
+    final frontendContext = <String, Object?>{
+      ...baseFrontendContext,
+      if (annotationAttachment != null)
+        'annotationImage': _annotationImageContext(
+          payload,
+          annotationAttachment,
+        ),
+      'screenshotSummary': annotationAttachment == null
+          ? 'Screenshot capture failed; VLM should fall back to current screen state and drawingPaths. The Flutter client does not classify the shape or target UI.'
+          : 'An attached image contains the current screen screenshot composited with the user red strokes. VLM should infer shape and target UI from that image plus drawingPaths.',
+    };
+    if (annotationAttachment == null) {
+      AppToast.show(
+        AppTextLocalizer.choose(
+          en: 'Screenshot capture failed; sending red strokes as fallback.',
+          zh: '截图合成失败，先用红线坐标兜底发送。',
+        ),
+      );
+    }
+    if (!mounted) return false;
+    final agentMessage = _buildAnnotationAgentMessage(prompt, frontendContext);
+    setState(() => _annotationMode = false);
+    _showChatSheetWithScene(
+      ChatBotLaunchScene.normal,
+      initialMessage: agentMessage,
+      initialDisplayMessage: prompt,
+      initialAttachments: annotationAttachment == null
+          ? const []
+          : [annotationAttachment],
+    );
+    return true;
   }
 
   Widget _buildSlashCommandPanel() {
     final visible = _showSlashCommandPanel || _openClawPanelExpanded;
-    final palette = context.omniPalette;
-    final isDark = context.isDarkTheme;
-    final panelTextColor = isDark
-        ? palette.textPrimary
-        : const Color(0xFF1F2937);
-    final panelSecondaryTextColor = isDark
-        ? palette.textSecondary
-        : const Color(0xFF6B7280);
-    final panelAccentColor = isDark
-        ? palette.accentPrimary
-        : const Color(0xFF2563EB);
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 180),
       transitionBuilder: (child, animation) {
@@ -629,12 +797,11 @@ class _CommandOverlayState extends State<CommandOverlay> {
               margin: const EdgeInsets.fromLTRB(24, 0, 24, 6),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: isDark ? palette.surfacePrimary : Colors.white,
+                color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
-                border: isDark ? Border.all(color: palette.borderSubtle) : null,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: isDark ? 0.24 : 0.08),
+                    color: Colors.black.withValues(alpha: 0.08),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
@@ -644,12 +811,12 @@ class _CommandOverlayState extends State<CommandOverlay> {
                   ? Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        const Text(
                           'OpenClaw 配置',
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
-                            color: panelTextColor,
+                            color: Color(0xFF1F2937),
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -686,16 +853,16 @@ class _CommandOverlayState extends State<CommandOverlay> {
                       },
                       borderRadius: BorderRadius.circular(10),
                       child: Row(
-                        children: [
-                          Icon(Icons.link, size: 16, color: panelAccentColor),
-                          const SizedBox(width: 8),
+                        children: const [
+                          Icon(Icons.link, size: 16, color: Color(0xFF2563EB)),
+                          SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               'OpenClaw',
                               style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w600,
-                                color: panelTextColor,
+                                color: Color(0xFF1F2937),
                               ),
                             ),
                           ),
@@ -703,13 +870,313 @@ class _CommandOverlayState extends State<CommandOverlay> {
                             '配置',
                             style: TextStyle(
                               fontSize: 12,
-                              color: panelSecondaryTextColor,
+                              color: Color(0xFF6B7280),
                             ),
                           ),
                         ],
                       ),
                     ),
             ),
+    );
+  }
+
+  Widget _buildConversationOverlayPanel() {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final topInset = MediaQuery.of(context).padding.top;
+    final maxPanelWidth = (screenWidth - 32).clamp(280.0, 420.0).toDouble();
+    return Positioned(
+      top: topInset + 12,
+      right: 16,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxPanelWidth),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+            child: Material(
+              color: Colors.transparent,
+              child: AnimatedSize(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
+                alignment: Alignment.topRight,
+                child: _conversationPanelExpanded
+                    ? _buildExpandedConversationPanel(maxPanelWidth)
+                    : _buildCollapsedConversationPanel(),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPanelIconButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onPressed,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: IconButton(
+        visualDensity: VisualDensity.compact,
+        constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+        padding: EdgeInsets.zero,
+        icon: Icon(icon, size: 18, color: Colors.white),
+        onPressed: onPressed,
+      ),
+    );
+  }
+
+  Widget _buildCollapsedConversationPanel() {
+    return Container(
+      padding: const EdgeInsets.only(left: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xCC273142),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.16),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.forum_outlined, size: 16, color: Colors.white),
+          const SizedBox(width: 6),
+          Text(
+            AppTextLocalizer.choose(en: 'Conversations', zh: '对话'),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          _buildPanelIconButton(
+            icon: Icons.expand_more,
+            tooltip: AppTextLocalizer.choose(en: 'Show summary', zh: '展开摘要'),
+            onPressed: () => unawaited(_toggleConversationPanel()),
+          ),
+          _buildPanelIconButton(
+            icon: Icons.close,
+            tooltip: AppTextLocalizer.choose(en: 'Close', zh: '关闭'),
+            onPressed: _closePage,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildExpandedConversationPanel(double width) {
+    return Container(
+      width: width,
+      padding: const EdgeInsets.fromLTRB(14, 10, 10, 12),
+      decoration: BoxDecoration(
+        color: const Color(0xE62A3142),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.forum_outlined, size: 17, color: Colors.white),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  AppTextLocalizer.choose(
+                    en: 'Conversation summaries',
+                    zh: '对话摘要',
+                  ),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              _buildPanelIconButton(
+                icon: Icons.refresh,
+                tooltip: AppTextLocalizer.choose(en: 'Refresh', zh: '刷新'),
+                onPressed: () =>
+                    unawaited(_loadConversationSummaries(force: true)),
+              ),
+              _buildPanelIconButton(
+                icon: Icons.expand_less,
+                tooltip: AppTextLocalizer.choose(en: 'Collapse', zh: '收起'),
+                onPressed: () => setState(() {
+                  _conversationPanelExpanded = false;
+                }),
+              ),
+              _buildPanelIconButton(
+                icon: Icons.close,
+                tooltip: AppTextLocalizer.choose(en: 'Close', zh: '关闭'),
+                onPressed: _closePage,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _buildConversationPanelBody(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildConversationPanelBody() {
+    if (_conversationSummariesLoading) {
+      return const SizedBox(
+        height: 88,
+        child: Center(
+          child: SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: Colors.white,
+            ),
+          ),
+        ),
+      );
+    }
+
+    final error = _conversationPanelError;
+    if (error != null) {
+      return _buildConversationPanelMessage(error);
+    }
+
+    if (_recentConversations.isEmpty) {
+      return _buildConversationPanelMessage(
+        AppTextLocalizer.choose(en: 'No conversations yet', zh: '暂无对话'),
+      );
+    }
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxHeight: 280),
+      child: ListView.separated(
+        padding: EdgeInsets.zero,
+        shrinkWrap: true,
+        physics: const ClampingScrollPhysics(),
+        itemCount: _recentConversations.length,
+        separatorBuilder: (_, _) => const SizedBox(height: 8),
+        itemBuilder: (context, index) {
+          return _buildConversationSummaryItem(_recentConversations[index]);
+        },
+      ),
+    );
+  }
+
+  Widget _buildConversationPanelMessage(String message) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 18),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        message,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: Colors.white.withValues(alpha: 0.82),
+          fontSize: 13,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildConversationSummaryItem(ConversationModel conversation) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => unawaited(_manageConversation(conversation)),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _conversationTitle(conversation),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  conversation.timeDisplay,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.58),
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _conversationSummary(conversation),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.78),
+                fontSize: 12,
+                height: 1.35,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _conversationMeta(conversation),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.52),
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () => unawaited(_manageConversation(conversation)),
+                  icon: const Icon(Icons.open_in_new, size: 14),
+                  label: Text(AppTextLocalizer.choose(en: 'Manage', zh: '管理')),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: const Size(0, 30),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -720,106 +1187,113 @@ class _CommandOverlayState extends State<CommandOverlay> {
     const double inputHeaderOffset = 0;
 
     final showSlashPanel = _showSlashCommandPanel || _openClawPanelExpanded;
+    final annotationToolbarBottom =
+        bottomPadding + _chatInputAreaHeight + inputHeaderOffset + 8;
+    final content = Stack(
+      children: [
+        // 快捷提示气泡 - 随键盘移动
+        Positioned(
+          left: 24,
+          right: 24,
+          bottom: bottomPadding + _chatInputAreaHeight + inputHeaderOffset,
+          child: IgnorePointer(
+            ignoring: showSlashPanel,
+            child: AnimatedOpacity(
+              opacity: showSlashPanel ? 0.0 : 1.0,
+              duration: const Duration(milliseconds: 150),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [],
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: bottomPadding + _chatInputAreaHeight + inputHeaderOffset,
+          child: _buildSlashCommandPanel(),
+        ),
+        if (!_annotationMode && !_isChatSheetVisible)
+          _buildConversationOverlayPanel(),
+        // 底部输入框区域
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: bottomPadding,
+          child: Container(
+            key: _inputAreaKey,
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ChatInputArea(
+                  key: _chatInputAreaKey,
+                  controller: _messageController,
+                  focusNode: _inputFocusNode,
+                  isProcessing: false,
+                  onSendMessage: _sendMessage,
+                  onCancelTask: _onCancelTask,
+                  onPopupVisibilityChanged: _onPopupVisibilityChanged,
+
+                  onInputHeightChanged: _onInputHeightChanged,
+                  openClawEnabled: _openClawEnabled,
+                  onToggleOpenClaw: _setOpenClawEnabled,
+                  onLongPressOpenClaw: () =>
+                      _showOpenClawCommandPanel(expand: true),
+                  annotationEnabled: _annotationMode,
+                  onToggleAnnotation: _toggleAnnotationMode,
+                  useFrostedGlass: true, // command_overlay 使用毛玻璃效果
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_isPopupVisible)
+          Positioned(
+            right: 24,
+            bottom: bottomPadding + 52 + inputHeaderOffset,
+            child:
+                _chatInputAreaKey.currentState?.buildPopupMenu() ??
+                const SizedBox.shrink(),
+          ),
+        if (_scheduleInfo != null &&
+            (_scheduleInfo!['scheduleStatus'] == 'SCHEDULED' ||
+                _scheduleInfo!['scheduleStatus'] == 'FAILED'))
+          Positioned(
+            right: 24,
+            bottom: bottomPadding + 52 + inputHeaderOffset,
+            child: _buildScheduleBubble(),
+          ),
+      ],
+    );
+    final bodyChild = _annotationMode
+        ? WorkbenchAnnotationOverlay(
+            toolbarBottomInset: annotationToolbarBottom,
+            onClose: _toggleAnnotationMode,
+            onSubmit: _submitAnnotation,
+            child: content,
+          )
+        : content;
     return Scaffold(
       backgroundColor: Colors.transparent,
       resizeToAvoidBottomInset: false,
       body: Listener(
-        behavior: HitTestBehavior.translucent,
+        behavior: HitTestBehavior.deferToChild,
         onPointerDown: (event) => _handleOutsideTap(event.position),
-        child: Stack(
-          children: [
-            // 蒙层背景 - 点击关闭页面
-            Positioned.fill(
-              child: GestureDetector(
-                onTap: _closePage,
-                behavior: HitTestBehavior.opaque,
-                child: Container(color: Colors.black.withValues(alpha: 0)),
-              ),
-            ),
-            // 快捷提示气泡 - 随键盘移动
-            Positioned(
-              left: 24,
-              right: 24,
-              bottom: bottomPadding + _chatInputAreaHeight + inputHeaderOffset,
-              child: IgnorePointer(
-                ignoring: showSlashPanel,
-                child: AnimatedOpacity(
-                  opacity: showSlashPanel ? 0.0 : 1.0,
-                  duration: const Duration(milliseconds: 150),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: const [],
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: bottomPadding + _chatInputAreaHeight + inputHeaderOffset,
-              child: _buildSlashCommandPanel(),
-            ),
-            // 底部输入框区域
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: bottomPadding,
-              child: Container(
-                key: _inputAreaKey,
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    ChatInputArea(
-                      key: _chatInputAreaKey,
-                      controller: _messageController,
-                      focusNode: _inputFocusNode,
-                      isProcessing: false,
-                      onSendMessage: _sendMessage,
-                      onCancelTask: _onCancelTask,
-                      onPopupVisibilityChanged: _onPopupVisibilityChanged,
-                      onInputHeightChanged: _onInputHeightChanged,
-                      openClawEnabled: _openClawEnabled,
-                      onToggleOpenClaw: _setOpenClawEnabled,
-                      onLongPressOpenClaw: () =>
-                          _showOpenClawCommandPanel(expand: true),
-                      useLargeComposerStyle: true,
-                      useFrostedGlass: true, // command_overlay 使用毛玻璃效果
-                      useAttachmentPickerForPlus: true,
-                      onPickAttachment: _pickAttachments,
-                      attachments: _pendingAttachments,
-                      onRemoveAttachment: _removePendingAttachment,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            if (_isPopupVisible)
-              Positioned(
-                right: 24,
-                bottom: bottomPadding + 52 + inputHeaderOffset,
-                child:
-                    _chatInputAreaKey.currentState?.buildPopupMenu() ??
-                    const SizedBox.shrink(),
-              ),
-            if (_scheduleInfo != null &&
-                (_scheduleInfo!['scheduleStatus'] == 'SCHEDULED' ||
-                    _scheduleInfo!['scheduleStatus'] == 'FAILED'))
-              Positioned(
-                right: 24,
-                bottom: bottomPadding + 52 + inputHeaderOffset,
-                child: _buildScheduleBubble(),
-              ),
-          ],
-        ),
+        child: bodyChild,
       ),
     );
   }
 
   /// 点击预约气泡后显示预约卡片
   void _showScheduleSheet() {
+    if (_isChatSheetVisible) return;
     final wasFailedOnEnter = _scheduleInfo?['scheduleStatus'] == 'FAILED';
+    if (mounted) {
+      setState(() => _isChatSheetVisible = true);
+    }
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -832,7 +1306,10 @@ class _CommandOverlayState extends State<CommandOverlay> {
         openClawEnabled: _openClawEnabled,
       ),
     ).then((_) {
-      ScreenDialogService.closeChatBotDialog();
+      if (mounted) {
+        setState(() => _isChatSheetVisible = false);
+      }
+      unawaited(_dismissFloatingOverlay());
       if (wasFailedOnEnter) {
         AssistsMessageService.clearScheduleTask();
       }
@@ -841,7 +1318,7 @@ class _CommandOverlayState extends State<CommandOverlay> {
 
   Widget _buildScheduleBubble() {
     final extraJsonStr =
-        safeDecodeMap(_scheduleInfo?['taskParamsJson'])?['extraJson'] ?? '';
+        safeDecodeMap(_scheduleInfo?['taskParamsJson'])['extraJson'] ?? '';
     final extraJson = safeDecodeMap(extraJsonStr);
     final taskIconUrl = extraJson['taskIconUrl'] as String? ?? '';
     final scheduleStatus = _scheduleInfo?['scheduleStatus'] as String? ?? '';

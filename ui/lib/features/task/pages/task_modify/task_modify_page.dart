@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:ui/widgets/card/screenshot_card.dart';
 import 'package:ui/widgets/common_app_bar.dart';
 
 class TaskModifyPage extends StatelessWidget {
@@ -14,7 +13,7 @@ class TaskModifyPage extends StatelessWidget {
   final Map<String, dynamic>? payload;
 
   const TaskModifyPage({
-    Key? key,
+    super.key,
     this.taskId,
     this.type,
     this.title,
@@ -23,7 +22,7 @@ class TaskModifyPage extends StatelessWidget {
     this.content,
     this.imagePath,
     this.payload,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

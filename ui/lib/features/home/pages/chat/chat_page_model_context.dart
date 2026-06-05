@@ -274,7 +274,7 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
 
     final switchedLabel = displayAsMentionChip ? '@$modelId' : modelId;
     showToast(
-      LegacyTextLocalizer.localize('已切换到 $switchedLabel'),
+      AppTextLocalizer.text('已切换到 $switchedLabel'),
       type: ToastType.success,
     );
   }
@@ -305,7 +305,7 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
       });
     }
     showToast(
-      LegacyTextLocalizer.localize(
+      AppTextLocalizer.text(
         normalizedEffort == 'no' ? '已关闭思考' : '已设置思考强度为 $normalizedEffort',
       ),
       type: ToastType.success,
@@ -338,7 +338,7 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
       );
     });
     showToast(
-      LegacyTextLocalizer.localize('已恢复场景默认模型'),
+      AppTextLocalizer.text('已恢复场景默认模型'),
       type: ToastType.success,
     );
     await _syncActiveNormalConversationPromptTokenThreshold();
@@ -448,23 +448,50 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
       return;
     }
     _inputFocusNode.unfocus();
+    final overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox?;
     final anchorBox = anchorContext.findRenderObject() as RenderBox?;
-    final anchorRect = glassPopupAnchorFromContext(anchorContext);
-    if (anchorBox == null || !anchorBox.hasSize || anchorRect == null) {
+    if (overlay == null || anchorBox == null || !anchorBox.hasSize) {
       return;
     }
+    final topLeft = anchorBox.localToGlobal(Offset.zero, ancestor: overlay);
+    final bottomRight = anchorBox.localToGlobal(
+      anchorBox.size.bottomRight(Offset.zero),
+      ancestor: overlay,
+    );
+    final anchorRect = Rect.fromPoints(topLeft, bottomRight);
     final popupWidth = anchorBox.size.width.clamp(160.0, 320.0).toDouble();
     const popupMaxHeight = 360.0;
-    final selected = await showGlassPopup<_ChatModelOverrideSelection>(
+    final position = PopupMenuAnchorPosition.fromAnchorRect(
+      anchorRect: anchorRect,
+      overlaySize: overlay.size,
+      estimatedMenuHeight: popupMaxHeight,
+      reservedBottom: MediaQuery.of(context).viewInsets.bottom,
+    );
+    final palette = context.omniPalette;
+    final selected = await showMenu<_ChatModelOverrideSelection>(
       context: context,
-      anchor: anchorRect,
-      child: _ConversationModelSelectorContent(
-        width: popupWidth,
-        maxHeight: popupMaxHeight,
-        profiles: _modelProviderProfiles,
-        providerModelsByProfileId: _modelOptionsByProfileId,
-        currentSelection: _activeDispatchSceneSelection,
+      color: context.isDarkTheme ? palette.surfacePrimary : Colors.white,
+      elevation: context.isDarkTheme ? 0 : 8,
+      shadowColor: context.isDarkTheme ? palette.shadowColor : null,
+      surfaceTintColor: Colors.transparent,
+      constraints: BoxConstraints(minWidth: popupWidth, maxWidth: popupWidth),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: context.isDarkTheme
+            ? BorderSide(color: palette.borderSubtle)
+            : BorderSide.none,
       ),
+      position: position,
+      items: [
+        _ConversationModelSelectorPopupEntry(
+          width: popupWidth,
+          estimatedHeight: popupMaxHeight,
+          profiles: _modelProviderProfiles,
+          providerModelsByProfileId: _modelOptionsByProfileId,
+          currentSelection: _activeDispatchSceneSelection,
+        ),
+      ],
     );
     if (selected == null) {
       return;
@@ -494,7 +521,9 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
         activeConversationModeValue != ConversationMode.chatOnly) {
       _dispatchSceneModelSelectionSerial++;
       showToast(
-        LegacyTextLocalizer.localize('本地模型仅支持纯聊天模式，请开启新的纯聊天对话后再使用本地模型'),
+        AppTextLocalizer.text(
+          '本地模型仅支持纯聊天模式，请开启新的纯聊天对话后再使用本地模型',
+        ),
         type: ToastType.warning,
       );
       return;
@@ -507,23 +536,25 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
         modelId: modelId,
       );
       await _loadNormalChatModelContext();
-      if (!mounted || selectionSerial != _dispatchSceneModelSelectionSerial) {
+      if (!mounted ||
+          selectionSerial != _dispatchSceneModelSelectionSerial) {
         return;
       }
       if (!isOmniInferLocalModel) {
         showToast(
-          LegacyTextLocalizer.localize('Agent 模型已切换到 $modelId'),
+          AppTextLocalizer.text('Agent 模型已切换到 $modelId'),
           type: ToastType.success,
         );
         return;
       }
 
       final loadingToast = AppToast.loading(
-        LegacyTextLocalizer.localize('模型加载中...'),
+        AppTextLocalizer.text('模型加载中...'),
       );
       try {
         await _waitForLocalModelLoadingStatusFrame();
-        if (!mounted || selectionSerial != _dispatchSceneModelSelectionSerial) {
+        if (!mounted ||
+            selectionSerial != _dispatchSceneModelSelectionSerial) {
           return;
         }
         final result = await localModelFeature.preloadModelIfNeeded(
@@ -538,35 +569,37 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
         if (result['cancelled'] == true) return;
         if (result['success'] == true) {
           showToast(
-            LegacyTextLocalizer.localize('模型加载完成'),
+            AppTextLocalizer.text('模型加载完成'),
             type: ToastType.success,
           );
         } else {
           final error = (result['error'] ?? '').toString().trim();
           showToast(
-            LegacyTextLocalizer.localize(
+            AppTextLocalizer.text(
               error.isEmpty ? '模型加载失败' : '模型加载失败：$error',
             ),
             type: ToastType.error,
           );
         }
       } catch (e) {
-        if (!mounted || selectionSerial != _dispatchSceneModelSelectionSerial) {
+        if (!mounted ||
+            selectionSerial != _dispatchSceneModelSelectionSerial) {
           return;
         }
         showToast(
-          LegacyTextLocalizer.localize('模型加载失败：$e'),
+          AppTextLocalizer.text('模型加载失败：$e'),
           type: ToastType.error,
         );
       } finally {
         loadingToast.dismiss();
       }
     } catch (e) {
-      if (!mounted || selectionSerial != _dispatchSceneModelSelectionSerial) {
+      if (!mounted ||
+          selectionSerial != _dispatchSceneModelSelectionSerial) {
         return;
       }
       showToast(
-        LegacyTextLocalizer.localize('更新 Agent 模型失败：$e'),
+        AppTextLocalizer.text('更新 Agent 模型失败：$e'),
         type: ToastType.error,
       );
     }
@@ -1009,7 +1042,7 @@ class _ChatModelMentionPanelState extends State<_ChatModelMentionPanel> {
                   Padding(
                     padding: EdgeInsets.fromLTRB(12, 4, 12, 8),
                     child: Text(
-                      LegacyTextLocalizer.localize('没有匹配的模型'),
+                      AppTextLocalizer.text('没有匹配的模型'),
                       style: TextStyle(
                         fontSize: 12,
                         color: context.isDarkTheme
@@ -1040,28 +1073,35 @@ class _ChatModelMentionPanelState extends State<_ChatModelMentionPanel> {
   }
 }
 
-class _ConversationModelSelectorContent extends StatefulWidget {
-  const _ConversationModelSelectorContent({
+class _ConversationModelSelectorPopupEntry
+    extends PopupMenuEntry<_ChatModelOverrideSelection> {
+  const _ConversationModelSelectorPopupEntry({
     required this.width,
-    required this.maxHeight,
+    required this.estimatedHeight,
     required this.profiles,
     required this.providerModelsByProfileId,
     required this.currentSelection,
   });
 
   final double width;
-  final double maxHeight;
+  final double estimatedHeight;
   final List<ModelProviderProfileSummary> profiles;
   final Map<String, List<ProviderModelOption>> providerModelsByProfileId;
   final _ChatModelOverrideSelection? currentSelection;
 
   @override
-  State<_ConversationModelSelectorContent> createState() =>
-      _ConversationModelSelectorContentState();
+  double get height => estimatedHeight;
+
+  @override
+  bool represents(_ChatModelOverrideSelection? value) => false;
+
+  @override
+  State<_ConversationModelSelectorPopupEntry> createState() =>
+      _ConversationModelSelectorPopupEntryState();
 }
 
-class _ConversationModelSelectorContentState
-    extends State<_ConversationModelSelectorContent> {
+class _ConversationModelSelectorPopupEntryState
+    extends State<_ConversationModelSelectorPopupEntry> {
   static const Map<String, String> _kBackendDisplayNames = {
     'llama.cpp': 'llama.cpp',
     'omniinfer-mnn': 'MNN',
@@ -1189,15 +1229,9 @@ class _ConversationModelSelectorContentState
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: isDark
-              ? palette.surfaceSecondary.withValues(alpha: 0.58)
-              : Colors.white.withValues(alpha: 0.38),
+          color: isDark ? palette.surfaceSecondary : const Color(0xFFF4F6FA),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isDark
-                ? palette.borderSubtle.withValues(alpha: 0.62)
-                : Colors.white.withValues(alpha: 0.58),
-          ),
+          border: isDark ? Border.all(color: palette.borderSubtle) : null,
         ),
         child: Row(
           children: [
@@ -1222,7 +1256,7 @@ class _ConversationModelSelectorContentState
                   isDense: true,
                   filled: false,
                   fillColor: Colors.transparent,
-                  hintText: LegacyTextLocalizer.localize('搜索模型 ID'),
+                  hintText: AppTextLocalizer.text('搜索模型 ID'),
                   hintStyle: TextStyle(
                     fontSize: 13,
                     color: isDark
@@ -1273,24 +1307,14 @@ class _ConversationModelSelectorContentState
             color: isDark
                 ? (isSelectedProvider
                       ? Color.lerp(
-                          palette.surfaceSecondary.withValues(alpha: 0.62),
+                          palette.surfaceSecondary,
                           palette.accentPrimary,
-                          0.18,
+                          0.08,
                         )!
-                      : palette.surfaceSecondary.withValues(alpha: 0.42))
-                : (isSelectedProvider
-                      ? const Color(0xFF2C7FEB).withValues(alpha: 0.10)
-                      : Colors.white.withValues(alpha: 0.30)),
+                      : palette.surfaceSecondary)
+                : const Color(0xFFF4F6FA),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: isSelectedProvider
-                  ? (isDark
-                        ? palette.accentPrimary.withValues(alpha: 0.26)
-                        : const Color(0xFF2C7FEB).withValues(alpha: 0.18))
-                  : (isDark
-                        ? palette.borderSubtle.withValues(alpha: 0.52)
-                        : Colors.white.withValues(alpha: 0.50)),
-            ),
+            border: isDark ? Border.all(color: palette.borderSubtle) : null,
           ),
           child: Row(
             children: [
@@ -1374,24 +1398,16 @@ class _ConversationModelSelectorContentState
               color: selected
                   ? (isDark
                         ? Color.lerp(
-                            palette.surfaceSecondary.withValues(alpha: 0.64),
+                            palette.surfaceElevated,
                             palette.accentPrimary,
-                            0.22,
+                            0.16,
                           )!
-                        : const Color(0xFF2C7FEB).withValues(alpha: 0.12))
+                        : const Color(0xFFEAF3FF))
                   : (isDark
-                        ? palette.surfaceSecondary.withValues(alpha: 0.34)
-                        : Colors.white.withValues(alpha: 0.26)),
+                        ? palette.surfaceSecondary
+                        : const Color(0xFFF8FAFD)),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: selected
-                    ? (isDark
-                          ? palette.accentPrimary.withValues(alpha: 0.30)
-                          : const Color(0xFF2C7FEB).withValues(alpha: 0.20))
-                    : (isDark
-                          ? palette.borderSubtle.withValues(alpha: 0.48)
-                          : Colors.white.withValues(alpha: 0.42)),
-              ),
+              border: isDark ? Border.all(color: palette.borderSubtle) : null,
             ),
             child: Row(
               children: [
@@ -1502,7 +1518,7 @@ class _ConversationModelSelectorContentState
       return Padding(
         padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
         child: Text(
-          LegacyTextLocalizer.localize('该 Provider 暂无可选模型'),
+          AppTextLocalizer.text('该 Provider 暂无可选模型'),
           style: TextStyle(
             fontSize: 12,
             color: context.isDarkTheme
@@ -1533,7 +1549,7 @@ class _ConversationModelSelectorContentState
     final mediaQuery = MediaQuery.of(context);
     final dynamicMaxHeight =
         (mediaQuery.size.height - mediaQuery.viewInsets.bottom - 96)
-            .clamp(220.0, widget.maxHeight)
+            .clamp(220.0, widget.estimatedHeight)
             .toDouble();
     final configuredProfiles = widget.profiles
         .where((profile) => profile.configured)
@@ -1541,101 +1557,94 @@ class _ConversationModelSelectorContentState
     final visibleProfiles = _visibleProfiles;
     return SizedBox(
       width: widget.width,
-      child: OmniGlassPanel(
-        width: widget.width,
-        borderRadius: BorderRadius.circular(18),
-        child: Material(
-          color: Colors.transparent,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxHeight: dynamicMaxHeight),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildSearchRow(),
-                if (configuredProfiles.isEmpty)
-                  Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text(
-                      LegacyTextLocalizer.localize('请先在模型提供商页配置 Provider'),
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: context.isDarkTheme
-                            ? palette.textTertiary
-                            : const Color(0xFF94A3B8),
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  )
-                else if (visibleProfiles.isEmpty)
-                  Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text(
-                      LegacyTextLocalizer.localize('没有匹配的模型'),
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: context.isDarkTheme
-                            ? palette.textTertiary
-                            : const Color(0xFF94A3B8),
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  )
-                else
-                  Flexible(
-                    child: Scrollbar(
-                      child: ListView.builder(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        itemCount: visibleProfiles.length,
-                        itemBuilder: (context, index) {
-                          final profile = visibleProfiles[index];
-                          final expanded = _isExpanded(profile.id);
-                          final models = _filteredModels(profile.id);
-                          return Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              _buildProfileHeader(profile),
-                              if (expanded)
-                                if (_needsBackendGrouping(profile.id))
-                                  _buildBackendGroupedModels(profile)
-                                else if (models.isEmpty)
-                                  Padding(
-                                    padding: EdgeInsets.fromLTRB(12, 4, 12, 8),
-                                    child: Text(
-                                      LegacyTextLocalizer.localize(
-                                        '该 Provider 暂无可选模型',
-                                      ),
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: context.isDarkTheme
-                                            ? palette.textTertiary
-                                            : const Color(0xFF94A3B8),
-                                      ),
-                                    ),
-                                  )
-                                else
-                                  Column(
-                                    children: models
-                                        .map(
-                                          (item) => _buildModelRow(
-                                            profile: profile,
-                                            model: item,
-                                          ),
-                                        )
-                                        .toList(),
-                                  ),
-                              if (index != visibleProfiles.length - 1)
-                                const SizedBox(height: 6),
-                            ],
-                          );
-                        },
-                      ),
-                    ),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: dynamicMaxHeight),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildSearchRow(),
+            if (configuredProfiles.isEmpty)
+              Padding(
+                padding: EdgeInsets.all(16),
+                child: Text(
+                  AppTextLocalizer.text('请先在模型提供商页配置 Provider'),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: context.isDarkTheme
+                        ? palette.textTertiary
+                        : const Color(0xFF94A3B8),
+                    fontWeight: FontWeight.w500,
                   ),
-              ],
-            ),
-          ),
+                ),
+              )
+            else if (visibleProfiles.isEmpty)
+              Padding(
+                padding: EdgeInsets.all(16),
+                child: Text(
+                  AppTextLocalizer.text('没有匹配的模型'),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: context.isDarkTheme
+                        ? palette.textTertiary
+                        : const Color(0xFF94A3B8),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              )
+            else
+              Flexible(
+                child: Scrollbar(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    itemCount: visibleProfiles.length,
+                    itemBuilder: (context, index) {
+                      final profile = visibleProfiles[index];
+                      final expanded = _isExpanded(profile.id);
+                      final models = _filteredModels(profile.id);
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _buildProfileHeader(profile),
+                          if (expanded)
+                            if (_needsBackendGrouping(profile.id))
+                              _buildBackendGroupedModels(profile)
+                            else if (models.isEmpty)
+                              Padding(
+                                padding: EdgeInsets.fromLTRB(12, 4, 12, 8),
+                                child: Text(
+                                  AppTextLocalizer.text(
+                                    '该 Provider 暂无可选模型',
+                                  ),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: context.isDarkTheme
+                                        ? palette.textTertiary
+                                        : const Color(0xFF94A3B8),
+                                  ),
+                                ),
+                              )
+                            else
+                              Column(
+                                children: models
+                                    .map(
+                                      (item) => _buildModelRow(
+                                        profile: profile,
+                                        model: item,
+                                      ),
+                                    )
+                                    .toList(),
+                              ),
+                          if (index != visibleProfiles.length - 1)
+                            const SizedBox(height: 6),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );

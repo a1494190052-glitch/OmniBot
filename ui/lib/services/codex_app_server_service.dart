@@ -16,10 +16,6 @@ class CodexStatus {
     this.remoteBridgeUrl,
     this.remoteCwd,
     this.remoteConfigured = false,
-    this.remoteTransport,
-    this.remoteDesktopAvailable,
-    this.remoteActiveConnections,
-    this.remoteUptimeMs,
   });
 
   final bool connected;
@@ -33,10 +29,6 @@ class CodexStatus {
   final String? remoteBridgeUrl;
   final String? remoteCwd;
   final bool remoteConfigured;
-  final String? remoteTransport;
-  final bool? remoteDesktopAvailable;
-  final int? remoteActiveConnections;
-  final int? remoteUptimeMs;
 
   bool get canConnect => ready;
 
@@ -54,10 +46,6 @@ class CodexStatus {
       remoteBridgeUrl: _stringOrNull(source['remoteBridgeUrl']),
       remoteCwd: _stringOrNull(source['remoteCwd']),
       remoteConfigured: source['remoteConfigured'] == true,
-      remoteTransport: _stringOrNull(source['remoteTransport']),
-      remoteDesktopAvailable: _boolOrNull(source['remoteDesktopAvailable']),
-      remoteActiveConnections: _intOrNull(source['remoteActiveConnections']),
-      remoteUptimeMs: _intOrNull(source['remoteUptimeMs']),
     );
   }
 
@@ -300,12 +288,10 @@ class CodexAppServerService {
   static Future<Map<String, dynamic>> readThread({
     String? threadId,
     int? conversationId,
-    bool includeTurns = true,
   }) {
     return _invokeMap('thread/read', {
       if (threadId != null) 'threadId': threadId,
       if (conversationId != null) 'conversationId': conversationId,
-      'includeTurns': includeTurns,
     });
   }
 
@@ -317,10 +303,6 @@ class CodexAppServerService {
       'limit': limit,
       if (cursor != null && cursor.trim().isNotEmpty) 'cursor': cursor.trim(),
     });
-  }
-
-  static Future<Map<String, dynamic>> listLoadedThreads() {
-    return _invokeMap('thread/loaded/list');
   }
 
   static Future<Map<String, dynamic>> archiveThread({
@@ -414,7 +396,7 @@ class CodexAppServerService {
   }
 
   static Future<Map<String, dynamic>> listModels() {
-    return _invokeMap('model/list', {'limit': 100});
+    return _invokeMap('model/list');
   }
 
   static Future<Map<String, dynamic>> listCollaborationModes() {
@@ -672,17 +654,6 @@ int? _intOrNull(dynamic value) {
   if (value is int) return value;
   if (value is num) return value.toInt();
   return int.tryParse(value?.toString() ?? '');
-}
-
-bool? _boolOrNull(dynamic value) {
-  if (value is bool) return value;
-  if (value is num) return value.toInt() != 0;
-  final normalized = value?.toString().trim().toLowerCase() ?? '';
-  return switch (normalized) {
-    'true' || '1' || 'yes' => true,
-    'false' || '0' || 'no' => false,
-    _ => null,
-  };
 }
 
 double? _doubleOrNull(dynamic value) {

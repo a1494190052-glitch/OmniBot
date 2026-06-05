@@ -15,6 +15,22 @@ object McpResponseBuilder {
             PromptLocale.EN_US -> en
         }
     }
+
+    private fun permissionLabel(permission: String): String {
+        return when (permission) {
+            "accessibility" -> t("无障碍权限", "Accessibility")
+            "overlay" -> t("悬浮窗权限", "Overlay")
+            else -> permission
+        }
+    }
+
+    private fun permissionLine(state: TaskState): String {
+        val labels = state.missingPermissions
+            .map(::permissionLabel)
+            .filter { it.isNotBlank() }
+        if (labels.isEmpty()) return ""
+        return "${t("需要权限", "Required permissions")}: ${labels.joinToString(t("、", ", "))}"
+    }
     
     fun buildFinishedResponse(state: TaskState): Map<String, Any?> {
         val recentActivity = state.chatMessages.takeLast(5).joinToString("\n") { "- $it" }
@@ -47,11 +63,14 @@ $recentActivity""".trimIndent()
             "summary" to summary,
             "summaryUnavailable" to state.summaryUnavailable,
             "feedback" to state.feedback,
-            "recentActivity" to recentActivityList
+            "recentActivity" to recentActivityList,
+            "executionStatus" to state.compileStatus,
+            "executionRoute" to state.executionRoute
         )
     }
     
     fun buildErrorResponse(state: TaskState): Map<String, Any?> {
+        val permissionText = permissionLine(state).takeIf { it.isNotBlank() }
         return mapOf(
             "content" to listOf(mapOf(
                 "type" to "text",
@@ -59,7 +78,8 @@ $recentActivity""".trimIndent()
 
 ${t("任务 ID", "Task ID")}: ${state.taskId}
 ${t("目标", "Goal")}: ${state.goal}
-${t("错误", "Error")}: ${state.message}""".trimIndent()
+${t("错误", "Error")}: ${state.message}
+${permissionText.orEmpty()}""".trimIndent()
             )),
             "status" to "ERROR",
             "finishedContent" to state.finishedContent,
@@ -67,6 +87,10 @@ ${t("错误", "Error")}: ${state.message}""".trimIndent()
             "summaryUnavailable" to state.summaryUnavailable,
             "feedback" to state.feedback,
             "recentActivity" to state.chatMessages.takeLast(5),
+            "executionStatus" to state.compileStatus,
+            "executionRoute" to state.executionRoute,
+            "errorCode" to state.errorCode,
+            "missingPermissions" to state.missingPermissions,
             "isError" to true
         )
     }
@@ -122,7 +146,9 @@ ${t("错误", "Error")}: ${state.message}""".trimIndent()
             "summary" to state.summaryText,
             "summaryUnavailable" to state.summaryUnavailable,
             "feedback" to state.feedback,
-            "recentActivity" to state.chatMessages.takeLast(5)
+            "recentActivity" to state.chatMessages.takeLast(5),
+            "executionStatus" to state.compileStatus,
+            "executionRoute" to state.executionRoute
         )
     }
     
@@ -152,7 +178,9 @@ ${t("错误", "Error")}: ${state.message}""".trimIndent()
                 )
             )),
             "status" to "USER_PAUSED",
-            "recentActivity" to state.chatMessages.takeLast(5)
+            "recentActivity" to state.chatMessages.takeLast(5),
+            "executionStatus" to state.compileStatus,
+            "executionRoute" to state.executionRoute
         )
     }
 
@@ -199,7 +227,9 @@ ${t("状态", "Status")}: SCREEN_LOCKED
 $actionText""".trimIndent()
             )),
             "status" to "SCREEN_LOCKED",
-            "recentActivity" to state.chatMessages.takeLast(5)
+            "recentActivity" to state.chatMessages.takeLast(5),
+            "executionStatus" to state.compileStatus,
+            "executionRoute" to state.executionRoute
         )
     }
     
@@ -243,7 +273,9 @@ $actionText""".trimIndent()
             "summary" to state?.summaryText,
             "summaryUnavailable" to (state?.summaryUnavailable ?: false),
             "feedback" to state?.feedback,
-            "recentActivity" to (state?.chatMessages?.takeLast(5) ?: emptyList<String>())
+            "recentActivity" to (state?.chatMessages?.takeLast(5) ?: emptyList<String>()),
+            "executionStatus" to state?.compileStatus,
+            "executionRoute" to state?.executionRoute
         )
     }
     
@@ -318,7 +350,9 @@ $actionText""".trimIndent()
             "summary" to state.summaryText,
             "summaryUnavailable" to state.summaryUnavailable,
             "feedback" to state.feedback,
-            "recentActivity" to state.chatMessages.takeLast(5)
+            "recentActivity" to state.chatMessages.takeLast(5),
+            "executionStatus" to state.compileStatus,
+            "executionRoute" to state.executionRoute
         )
     }
     

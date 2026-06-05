@@ -18,9 +18,38 @@ private const val USER_SOURCE = "user"
 private const val INSTALL_STATE_INSTALLED = "installed"
 private const val INSTALL_STATE_REMOVED_BUILTIN = "removed_builtin"
 private const val SKILL_REGISTRY_FILE_NAME = ".skill_registry.json"
+private const val APK_INSPECTOR_PROJECT_SKILL_ID = "apk-inspector-project"
 private const val OFFICIAL_SKILLS_GITHUB_REPOSITORY_URL = "https://github.com/omnimind-ai/OmniBotSkills"
 private const val OFFICIAL_SKILLS_CNB_REPOSITORY_URL = "https://cnb.cool/o.a/OmniBotSkills"
 private const val OFFICIAL_SKILLS_DIRECTORY_NAME = "OmniBotSkills"
+private val PROJECT_RELATED_BUILTIN_SKILL_IDS = setOf(
+    "oob-project",
+    "oob-web-research",
+    APK_INSPECTOR_PROJECT_SKILL_ID
+)
+private val RETIRED_BUILTIN_SKILL_IDS = setOf(
+    "oob-native-" + "workbench",
+    "oob-project-" + "designer",
+    "oob-project-" + "distiller"
+)
+
+internal fun <T> removeRetiredBuiltinSkillInstallations(
+    skillsRoot: File,
+    registry: MutableMap<String, T>
+): Boolean {
+    var changed = false
+    RETIRED_BUILTIN_SKILL_IDS.forEach { skillId ->
+        val targetDir = File(skillsRoot, skillId)
+        if (targetDir.exists()) {
+            targetDir.deleteRecursively()
+            changed = changed || !targetDir.exists()
+        }
+        if (!targetDir.exists() && registry.remove(skillId) != null) {
+            changed = true
+        }
+    }
+    return changed
+}
 
 private data class BuiltinSkillManifest(
     val skills: List<BuiltinSkillAsset> = emptyList()
@@ -120,13 +149,35 @@ private class BuiltinSkillAssetStore(
 
     fun seedMissingBuiltins(registryStore: SkillRegistryStore) {
         val registry = registryStore.read()
-        var changed = false
+        var changed = removeRetiredBuiltins(registry)
+        val projectCapabilityEnabled = isProjectCapabilityEnabled()
         listBuiltins().forEach { builtin ->
             val registryEntry = registry[builtin.id]
             if (registryEntry?.installState == INSTALL_STATE_REMOVED_BUILTIN) {
                 return@forEach
             }
             if (registryEntry?.source == USER_SOURCE) {
+                return@forEach
+            }
+            val targetDir = targetDirFor(builtin)
+            val alreadyInstalled = targetDir.exists() && registry.containsKey(builtin.id)
+            if (alreadyInstalled) {
+                // Re-install if the bundled SKILL.md content has changed since last install.
+                if (!builtinSkillContentUnchanged(builtin, targetDir)) {
+                    installBuiltinInternal(builtin)
+                    changed = true
+                }
+                val current = registry[builtin.id]
+                if (
+                    builtin.id in PROJECT_RELATED_BUILTIN_SKILL_IDS &&
+                    current != null &&
+                    current.source == BUILTIN_SOURCE &&
+                    current.installState == INSTALL_STATE_INSTALLED &&
+                    current.enabled != projectCapabilityEnabled
+                ) {
+                    registry[builtin.id] = current.copy(enabled = projectCapabilityEnabled)
+                    changed = true
+                }
                 return@forEach
             }
             installBuiltinInternal(builtin)
@@ -136,7 +187,7 @@ private class BuiltinSkillAssetStore(
                 return@forEach
             }
             registry[builtin.id] = SkillRegistryEntry(
-                enabled = true,
+                enabled = defaultBuiltinEnabled(builtin.id, projectCapabilityEnabled),
                 source = BUILTIN_SOURCE,
                 installState = INSTALL_STATE_INSTALLED
             )
@@ -147,6 +198,51 @@ private class BuiltinSkillAssetStore(
         }
     }
 
+    private fun removeRetiredBuiltins(
+        registry: MutableMap<String, SkillRegistryEntry>
+    ): Boolean {
+        return removeRetiredBuiltinSkillInstallations(
+            skillsRoot = workspaceManager.skillsRoot(),
+            registry = registry
+        )
+    }
+
+    private fun defaultBuiltinEnabled(
+        skillId: String,
+        projectCapabilityEnabled: Boolean = isProjectCapabilityEnabled()
+    ): Boolean {
+        return skillId !in PROJECT_RELATED_BUILTIN_SKILL_IDS || projectCapabilityEnabled
+    }
+
+    private fun isProjectCapabilityEnabled(): Boolean {
+        val activeProjectFile = File(
+            AgentWorkspaceManager.rootDirectory(context),
+            "projects/active_project.json"
+        )
+        if (!activeProjectFile.exists()) {
+            return false
+        }
+        return runCatching {
+            val payload = gson.fromJson<Map<String, Any?>>(
+                activeProjectFile.readText(),
+                object : TypeToken<Map<String, Any?>>() {}.type
+            ) ?: return false
+            payload["projectCapabilityEnabled"] == true &&
+                payload["projectId"]?.toString()?.trim()?.isNotEmpty() == true
+        }.getOrDefault(false)
+    }
+
+    private fun builtinSkillContentUnchanged(builtin: BuiltinSkillAsset, targetDir: File): Boolean {
+        val assetSkillPath = "${builtin.assetPath}/SKILL.md"
+        val installedSkillFile = File(targetDir, "SKILL.md")
+        if (!installedSkillFile.exists()) return false
+        return runCatching {
+            val assetContent = context.assets.open(assetSkillPath).bufferedReader().use { it.readText() }
+            val installedContent = installedSkillFile.readText()
+            assetContent == installedContent
+        }.getOrElse { false }
+    }
+
     fun installBuiltin(skillId: String, registryStore: SkillRegistryStore) {
         val builtin = findBuiltin(skillId)
             ?: throw IllegalArgumentException("未找到内置 skill：$skillId")
@@ -154,7 +250,7 @@ private class BuiltinSkillAssetStore(
         registryStore.set(
             skillId,
             SkillRegistryEntry(
-                enabled = true,
+                enabled = defaultBuiltinEnabled(skillId),
                 source = BUILTIN_SOURCE,
                 installState = INSTALL_STATE_INSTALLED
             )
@@ -312,6 +408,29 @@ class SkillIndexService(
         return entry.copy(enabled = enabled)
     }
 
+    fun setProjectRelatedBuiltinSkillsEnabled(enabled: Boolean): List<SkillIndexEntry> {
+        seedBuiltinSkillsIfNeeded()
+        val registryStore = registryStore()
+        val registry = registryStore.read()
+        var changed = false
+        PROJECT_RELATED_BUILTIN_SKILL_IDS.forEach { skillId ->
+            val current = registry[skillId] ?: return@forEach
+            if (
+                current.source != BUILTIN_SOURCE ||
+                current.installState != INSTALL_STATE_INSTALLED ||
+                current.enabled == enabled
+            ) {
+                return@forEach
+            }
+            registry[skillId] = current.copy(enabled = enabled)
+            changed = true
+        }
+        if (changed) {
+            registryStore.write(registry)
+        }
+        return listSkillsForManagement().filter { it.id in PROJECT_RELATED_BUILTIN_SKILL_IDS }
+    }
+
     fun deleteSkill(skillId: String): Boolean {
         val entry = listSkillsForManagement().firstOrNull { it.id == skillId && it.installed }
             ?: return false
@@ -341,7 +460,7 @@ class SkillIndexService(
     fun installBuiltinSkill(skillId: String): SkillIndexEntry {
         val builtinStore = builtinStore()
         builtinStore.installBuiltin(skillId, registryStore())
-        return findInstalledSkill(skillId)
+        return findManagedInstalledSkill(skillId, includeDisabled = true)
             ?: throw IllegalStateException("安装内置 skill 后索引失败：$skillId")
     }
 
@@ -599,18 +718,29 @@ class SkillLoader(
         } else {
             emptyList()
         }
+        val resolvedScriptsDir = File(skillDir, "scripts")
+            .takeIf { it.isDirectory }
+            ?.let { workspaceManager.shellPathForAndroid(it) ?: it.absolutePath }
+        val resolvedAssetsDir = File(skillDir, "assets")
+            .takeIf { it.isDirectory }
+            ?.let { workspaceManager.shellPathForAndroid(it) ?: it.absolutePath }
+        val resolvedSkillDir = workspaceManager.shellPathForAndroid(skillDir) ?: skillDir.absolutePath
+
+        // Replace template variables in SKILL.md body so the agent sees real paths,
+        // not placeholder tokens like {skillDir}.
+        val resolvedBody = parsed.body
+            .replace("{skillDir}", resolvedSkillDir)
+            .replace("{scriptsDir}", resolvedScriptsDir ?: resolvedSkillDir)
+            .replace("{assetsDir}", resolvedAssetsDir ?: resolvedSkillDir)
+
         return ResolvedSkillContext(
             skillId = entry.id,
             frontmatter = parsed.frontmatter,
             metadata = entry.metadata,
-            bodyMarkdown = parsed.body,
+            bodyMarkdown = resolvedBody,
             loadedReferences = loadedReferences,
-            scriptsDir = File(skillDir, "scripts")
-                .takeIf { it.isDirectory }
-                ?.let { workspaceManager.shellPathForAndroid(it) ?: it.absolutePath },
-            assetsDir = File(skillDir, "assets")
-                .takeIf { it.isDirectory }
-                ?.let { workspaceManager.shellPathForAndroid(it) ?: it.absolutePath },
+            scriptsDir = resolvedScriptsDir,
+            assetsDir = resolvedAssetsDir,
             triggerReason = triggerReason
         )
     }
@@ -680,6 +810,12 @@ object SkillTriggerMatcher {
         if (normalizedName.isNotBlank() && normalizedMessage.contains(normalizedName)) {
             score += 0.9
         }
+        if (entry.id == APK_INSPECTOR_PROJECT_SKILL_ID) {
+            if (looksLikeApkInspectorProjectRequest(normalizedMessage)) {
+                score += 1.0
+            }
+            return min(score, 1.5)
+        }
         extractCandidatePhrases(entry.description).forEach { phrase ->
             if (phrase.isNotBlank() && normalizedMessage.contains(normalize(phrase))) {
                 score += 0.35
@@ -731,6 +867,79 @@ object SkillTriggerMatcher {
         return hasCreationIntent || hasStructuredPetSpec
     }
 
+    private fun looksLikeApkInspectorProjectRequest(normalizedMessage: String): Boolean {
+        if (listOf(
+                "apk快速体检台",
+                "apkinspector",
+                "apkinspectorproject",
+                "apkhealthcheck",
+                "apk体检台"
+            ).any { normalizedMessage.contains(normalize(it)) }
+        ) {
+            return true
+        }
+
+        val hasApkTarget = listOf(
+            "apk",
+            ".apk",
+            "安卓安装包",
+            "android安装包",
+            "安装包体检",
+            "安装包分析"
+        ).any { normalizedMessage.contains(normalize(it)) }
+
+        val apkSurfaceHits = listOf(
+            "包名",
+            "签名",
+            "manifest",
+            "权限",
+            "组件",
+            "导出组件",
+            "intent",
+            "assets",
+            "strings",
+            "url",
+            "native",
+            "so",
+            "dex"
+        ).count { normalizedMessage.contains(normalize(it)) }
+
+        val hasInspectionIntent = listOf(
+            "体检",
+            "检测",
+            "解析",
+            "分析",
+            "审计",
+            "逆向",
+            "diff",
+            "可疑",
+            "风险",
+            "报告",
+            "首启",
+            "首次启动",
+            "firstrun",
+            "observe",
+            "inspect",
+            "triage"
+        ).any { normalizedMessage.contains(normalize(it)) }
+
+        val hasForgeOrSkillIntent = listOf(
+            "forge",
+            "skill",
+            "自更新",
+            "更新协议",
+            "维护规则",
+            "维护自己的",
+            "项目自带",
+            "projectowned",
+            "project-owned"
+        ).any { normalizedMessage.contains(normalize(it)) }
+
+        return (hasApkTarget && hasInspectionIntent) ||
+            (hasApkTarget && hasForgeOrSkillIntent) ||
+            (apkSurfaceHits >= 3 && (hasInspectionIntent || hasForgeOrSkillIntent))
+    }
+
     private fun extractCandidatePhrases(description: String): List<String> {
         val quoted = Regex("[\"“”'‘’]([^\"“”'‘’]{2,40})[\"“”'‘’]")
             .findAll(description)
@@ -738,8 +947,19 @@ object SkillTriggerMatcher {
             .toList()
         val fallback = description.split(Regex("[,，。;；、\\n]"))
             .map { it.trim() }
-            .filter { it.length in 2..24 }
-        return (quoted + fallback).distinct().take(20)
+            .flatMap { segment ->
+                buildList {
+                    if (segment.length in 2..40) {
+                        add(segment)
+                    }
+                    Regex("[A-Za-z][A-Za-z0-9_-]{2,}|[\\p{IsHan}A-Za-z0-9_-]{2,16}")
+                        .findAll(segment)
+                        .map { it.value.trim() }
+                        .filter { it.length in 2..24 }
+                        .forEach { add(it) }
+                }
+            }
+        return (quoted + fallback).distinct().take(40)
     }
 
     private fun normalize(value: String): String {

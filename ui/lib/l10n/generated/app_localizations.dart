@@ -476,6 +476,24 @@ abstract class AppLocalizations {
   /// **'MCP 开关失败'**
   String get settingsMcpToggleFailed;
 
+  /// No description provided for @settingsOobFunctionAsToolTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'OOB 复用指令接入工具'**
+  String get settingsOobFunctionAsToolTitle;
+
+  /// No description provided for @settingsOobFunctionAsToolSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'开启后 agent 可以直接调用已保存的 OOB 复用指令'**
+  String get settingsOobFunctionAsToolSubtitle;
+
+  /// No description provided for @settingsOobFunctionAsToolToggleFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'OOB 复用指令工具开关失败'**
+  String get settingsOobFunctionAsToolToggleFailed;
+
   /// No description provided for @settingsCopiedAddress.
   ///
   /// In zh, this message translates to:
@@ -824,6 +842,18 @@ abstract class AppLocalizations {
   /// **'正在调用工具'**
   String get chatToolCalling;
 
+  /// No description provided for @chatToolOutputCopied.
+  ///
+  /// In zh, this message translates to:
+  /// **'已复制工具输出'**
+  String get chatToolOutputCopied;
+
+  /// No description provided for @chatViewRunLogTooltip.
+  ///
+  /// In zh, this message translates to:
+  /// **'查看执行记录'**
+  String get chatViewRunLogTooltip;
+
   /// No description provided for @chatFallbackReply.
   ///
   /// In zh, this message translates to:
@@ -962,6 +992,18 @@ abstract class AppLocalizations {
   /// **'左滑对话即可归档'**
   String get chatHistoryArchiveHint;
 
+  /// No description provided for @conversationStatusRunning.
+  ///
+  /// In zh, this message translates to:
+  /// **'执行中'**
+  String get conversationStatusRunning;
+
+  /// No description provided for @conversationStatusCompleted.
+  ///
+  /// In zh, this message translates to:
+  /// **'已完成'**
+  String get conversationStatusCompleted;
+
   /// No description provided for @homeDrawerArchive.
   ///
   /// In zh, this message translates to:
@@ -997,6 +1039,12 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'长期记忆'**
   String get memoryLongTermTitle;
+
+  /// No description provided for @memoryCommandsTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'复用指令'**
+  String get memoryCommandsTitle;
 
   /// No description provided for @memoryNoShortTerm.
   ///
@@ -1147,6 +1195,12 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'长期记忆操作失败：{error}'**
   String memoryLongTermFailed(Object error);
+
+  /// No description provided for @memoryLongTermLoadFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'长期记忆加载失败：{error}'**
+  String memoryLongTermLoadFailed(Object error);
 
   /// No description provided for @memoryNoMemories.
   ///
@@ -3799,6 +3853,4680 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'好好和今天说晚安～'**
   String get homeDrawerLateNightSub2;
+
+  /// No description provided for @omniflowPanelTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'OmniFlow 轨迹面板'**
+  String get omniflowPanelTitle;
+
+  /// No description provided for @omniflowPanelDesc.
+  ///
+  /// In zh, this message translates to:
+  /// **'管理 OmniFlow 复用指令：查看、执行或删除复用指令资产。'**
+  String get omniflowPanelDesc;
+
+  /// No description provided for @omniflowFunctionList.
+  ///
+  /// In zh, this message translates to:
+  /// **'复用指令列表'**
+  String get omniflowFunctionList;
+
+  /// No description provided for @omniflowFunctionSearch.
+  ///
+  /// In zh, this message translates to:
+  /// **'搜索复用指令'**
+  String get omniflowFunctionSearch;
+
+  /// No description provided for @omniflowFunctionSearchHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'按名称、描述等关键字过滤'**
+  String get omniflowFunctionSearchHint;
+
+  /// No description provided for @omniflowSettings.
+  ///
+  /// In zh, this message translates to:
+  /// **'OmniFlow 设置'**
+  String get omniflowSettings;
+
+  /// No description provided for @omniflowSettingsSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'记录高频可复用操作段，加速任务执行'**
+  String get omniflowSettingsSubtitle;
+
+  /// No description provided for @omniflowEnablePreHook.
+  ///
+  /// In zh, this message translates to:
+  /// **'启用 OmniFlow 执行加速'**
+  String get omniflowEnablePreHook;
+
+  /// No description provided for @omniflowAutoStartProvider.
+  ///
+  /// In zh, this message translates to:
+  /// **'OmniFlow 自启动'**
+  String get omniflowAutoStartProvider;
+
+  /// No description provided for @omniflowRefresh.
+  ///
+  /// In zh, this message translates to:
+  /// **'刷新'**
+  String get omniflowRefresh;
+
+  /// No description provided for @omniflowProviderStart.
+  ///
+  /// In zh, this message translates to:
+  /// **'启动'**
+  String get omniflowProviderStart;
+
+  /// No description provided for @omniflowProviderStop.
+  ///
+  /// In zh, this message translates to:
+  /// **'停止'**
+  String get omniflowProviderStop;
+
+  /// No description provided for @omniflowProviderRestart.
+  ///
+  /// In zh, this message translates to:
+  /// **'重启'**
+  String get omniflowProviderRestart;
+
+  /// No description provided for @omniflowSaveConfig.
+  ///
+  /// In zh, this message translates to:
+  /// **'保存'**
+  String get omniflowSaveConfig;
+
+  /// No description provided for @omniflowConfigSaved.
+  ///
+  /// In zh, this message translates to:
+  /// **'OmniFlow 配置已保存'**
+  String get omniflowConfigSaved;
+
+  /// No description provided for @omniflowConfigSaveFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'保存 OmniFlow 配置失败'**
+  String get omniflowConfigSaveFailed;
+
+  /// No description provided for @omniflowConfigLoadFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'加载 OmniFlow 配置失败'**
+  String get omniflowConfigLoadFailed;
+
+  /// No description provided for @omniflowFunctionsLoadFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'加载复用指令列表失败'**
+  String get omniflowFunctionsLoadFailed;
+
+  /// No description provided for @omniflowTempFunctions.
+  ///
+  /// In zh, this message translates to:
+  /// **'临时复用指令'**
+  String get omniflowTempFunctions;
+
+  /// No description provided for @omniflowReadyFunctions.
+  ///
+  /// In zh, this message translates to:
+  /// **'可用复用指令'**
+  String get omniflowReadyFunctions;
+
+  /// No description provided for @omniflowServiceAddressNotConfigured.
+  ///
+  /// In zh, this message translates to:
+  /// **'服务地址未配置'**
+  String get omniflowServiceAddressNotConfigured;
+
+  /// No description provided for @omniflowSkillLibrary.
+  ///
+  /// In zh, this message translates to:
+  /// **'OmniFlow 技能库'**
+  String get omniflowSkillLibrary;
+
+  /// No description provided for @omniflowServiceStatus.
+  ///
+  /// In zh, this message translates to:
+  /// **'服务状态'**
+  String get omniflowServiceStatus;
+
+  /// No description provided for @omniflowServiceStatusRunning.
+  ///
+  /// In zh, this message translates to:
+  /// **'运行中'**
+  String get omniflowServiceStatusRunning;
+
+  /// No description provided for @omniflowServiceStatusStopped.
+  ///
+  /// In zh, this message translates to:
+  /// **'未运行'**
+  String get omniflowServiceStatusStopped;
+
+  /// No description provided for @omniflowServiceAddress.
+  ///
+  /// In zh, this message translates to:
+  /// **'服务地址'**
+  String get omniflowServiceAddress;
+
+  /// No description provided for @omniflowDataDirectory.
+  ///
+  /// In zh, this message translates to:
+  /// **'数据目录'**
+  String get omniflowDataDirectory;
+
+  /// No description provided for @omniflowNotSet.
+  ///
+  /// In zh, this message translates to:
+  /// **'未设置'**
+  String get omniflowNotSet;
+
+  /// No description provided for @omniflowEnableAccelerationDesc.
+  ///
+  /// In zh, this message translates to:
+  /// **'执行任务前优先匹配已学习的技能'**
+  String get omniflowEnableAccelerationDesc;
+
+  /// No description provided for @omniflowAutoStartDesc.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开应用时自动启动技能服务'**
+  String get omniflowAutoStartDesc;
+
+  /// No description provided for @omniflowStarting.
+  ///
+  /// In zh, this message translates to:
+  /// **'启动中...'**
+  String get omniflowStarting;
+
+  /// No description provided for @omniflowRestarting.
+  ///
+  /// In zh, this message translates to:
+  /// **'重启中...'**
+  String get omniflowRestarting;
+
+  /// No description provided for @omniflowStopping.
+  ///
+  /// In zh, this message translates to:
+  /// **'停止中...'**
+  String get omniflowStopping;
+
+  /// No description provided for @omniflowViewSkillLibrary.
+  ///
+  /// In zh, this message translates to:
+  /// **'查看技能库'**
+  String get omniflowViewSkillLibrary;
+
+  /// No description provided for @omniflowViewFunctionLibrary.
+  ///
+  /// In zh, this message translates to:
+  /// **'查看复用指令库'**
+  String get omniflowViewFunctionLibrary;
+
+  /// No description provided for @omniflowClearAllData.
+  ///
+  /// In zh, this message translates to:
+  /// **'清空所有数据'**
+  String get omniflowClearAllData;
+
+  /// No description provided for @omniflowClearAllDataTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'清空所有数据'**
+  String get omniflowClearAllDataTitle;
+
+  /// No description provided for @omniflowClearAllDataConfirm.
+  ///
+  /// In zh, this message translates to:
+  /// **'确认清空所有 OmniFlow 数据？\n\n这将删除：\n• 所有复用指令\n• 所有 Run Logs\n• 所有 Shared Pages\n\n此操作不可恢复！'**
+  String get omniflowClearAllDataConfirm;
+
+  /// No description provided for @omniflowCancel.
+  ///
+  /// In zh, this message translates to:
+  /// **'取消'**
+  String get omniflowCancel;
+
+  /// No description provided for @omniflowClear.
+  ///
+  /// In zh, this message translates to:
+  /// **'清空'**
+  String get omniflowClear;
+
+  /// No description provided for @omniflowClearSuccess.
+  ///
+  /// In zh, this message translates to:
+  /// **'已清空：{functions} 条复用指令，{runLogs} 条 RunLog'**
+  String omniflowClearSuccess(Object functions, Object runLogs);
+
+  /// No description provided for @omniflowClearFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'清空失败'**
+  String get omniflowClearFailed;
+
+  /// No description provided for @omniflowProviderActionSuccess.
+  ///
+  /// In zh, this message translates to:
+  /// **'provider {action} 成功'**
+  String omniflowProviderActionSuccess(Object action);
+
+  /// No description provided for @omniflowProviderActionFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'provider {action} 失败'**
+  String omniflowProviderActionFailed(Object action);
+
+  /// No description provided for @functionLibraryTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'复用指令库'**
+  String get functionLibraryTitle;
+
+  /// No description provided for @functionLibrarySearchHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'搜索复用指令或应用'**
+  String get functionLibrarySearchHint;
+
+  /// No description provided for @functionLibraryEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂无复用指令'**
+  String get functionLibraryEmpty;
+
+  /// No description provided for @functionLibraryEmptyDesc.
+  ///
+  /// In zh, this message translates to:
+  /// **'执行任务后，高频操作会自动沉淀到这里'**
+  String get functionLibraryEmptyDesc;
+
+  /// No description provided for @functionLibrarySteps.
+  ///
+  /// In zh, this message translates to:
+  /// **'步'**
+  String get functionLibrarySteps;
+
+  /// No description provided for @functionLibraryHasParams.
+  ///
+  /// In zh, this message translates to:
+  /// **'有参数'**
+  String get functionLibraryHasParams;
+
+  /// No description provided for @functionLibraryRunCount.
+  ///
+  /// In zh, this message translates to:
+  /// **'执行'**
+  String get functionLibraryRunCount;
+
+  /// No description provided for @functionLibraryId.
+  ///
+  /// In zh, this message translates to:
+  /// **'ID'**
+  String get functionLibraryId;
+
+  /// No description provided for @functionLibraryParams.
+  ///
+  /// In zh, this message translates to:
+  /// **'参数'**
+  String get functionLibraryParams;
+
+  /// No description provided for @functionLibrarySource.
+  ///
+  /// In zh, this message translates to:
+  /// **'来源'**
+  String get functionLibrarySource;
+
+  /// No description provided for @functionLibraryCreatedAt.
+  ///
+  /// In zh, this message translates to:
+  /// **'创建时间'**
+  String get functionLibraryCreatedAt;
+
+  /// No description provided for @functionLibraryEdit.
+  ///
+  /// In zh, this message translates to:
+  /// **'编辑'**
+  String get functionLibraryEdit;
+
+  /// No description provided for @functionLibraryEditTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'编辑复用指令'**
+  String get functionLibraryEditTitle;
+
+  /// No description provided for @functionLibraryEditHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'修改复用指令的描述名称'**
+  String get functionLibraryEditHint;
+
+  /// No description provided for @functionLibraryEditPlaceholder.
+  ///
+  /// In zh, this message translates to:
+  /// **'输入新的描述'**
+  String get functionLibraryEditPlaceholder;
+
+  /// No description provided for @functionLibraryEditSuccess.
+  ///
+  /// In zh, this message translates to:
+  /// **'已更新'**
+  String get functionLibraryEditSuccess;
+
+  /// No description provided for @functionLibraryEditFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'更新失败'**
+  String get functionLibraryEditFailed;
+
+  /// No description provided for @functionLibraryStepEditTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'编辑步骤'**
+  String get functionLibraryStepEditTitle;
+
+  /// No description provided for @functionLibraryStepTitleLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'步骤标题'**
+  String get functionLibraryStepTitleLabel;
+
+  /// No description provided for @functionLibraryStepToolLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'动作工具'**
+  String get functionLibraryStepToolLabel;
+
+  /// No description provided for @functionLibraryStepArgsLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'参数 JSON'**
+  String get functionLibraryStepArgsLabel;
+
+  /// No description provided for @functionLibraryStepToolRequired.
+  ///
+  /// In zh, this message translates to:
+  /// **'动作工具不能为空'**
+  String get functionLibraryStepToolRequired;
+
+  /// No description provided for @functionLibraryStepArgsInvalid.
+  ///
+  /// In zh, this message translates to:
+  /// **'参数必须是有效的 JSON 对象'**
+  String get functionLibraryStepArgsInvalid;
+
+  /// No description provided for @functionLibraryStepArgsObjectRequired.
+  ///
+  /// In zh, this message translates to:
+  /// **'参数必须是 JSON 对象'**
+  String get functionLibraryStepArgsObjectRequired;
+
+  /// No description provided for @functionLibraryStepEditMissing.
+  ///
+  /// In zh, this message translates to:
+  /// **'找不到要修改的步骤'**
+  String get functionLibraryStepEditMissing;
+
+  /// No description provided for @functionLibraryStepSaved.
+  ///
+  /// In zh, this message translates to:
+  /// **'步骤已保存'**
+  String get functionLibraryStepSaved;
+
+  /// No description provided for @functionLibraryStepKeepOne.
+  ///
+  /// In zh, this message translates to:
+  /// **'复用指令至少保留一个步骤'**
+  String get functionLibraryStepKeepOne;
+
+  /// No description provided for @functionLibraryStepDeleteTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'删除步骤'**
+  String get functionLibraryStepDeleteTitle;
+
+  /// No description provided for @functionLibraryStepDeleteConfirm.
+  ///
+  /// In zh, this message translates to:
+  /// **'确定删除「{name}」？保存后该动作不再重放。'**
+  String functionLibraryStepDeleteConfirm(Object name);
+
+  /// No description provided for @functionLibraryStepDeleteMissing.
+  ///
+  /// In zh, this message translates to:
+  /// **'找不到要删除的步骤'**
+  String get functionLibraryStepDeleteMissing;
+
+  /// No description provided for @functionLibraryStepDeleted.
+  ///
+  /// In zh, this message translates to:
+  /// **'步骤已删除'**
+  String get functionLibraryStepDeleted;
+
+  /// No description provided for @functionLibraryStepSaveFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'保存步骤失败'**
+  String get functionLibraryStepSaveFailed;
+
+  /// No description provided for @functionLibraryDelete.
+  ///
+  /// In zh, this message translates to:
+  /// **'删除'**
+  String get functionLibraryDelete;
+
+  /// No description provided for @functionLibraryDeleteTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'删除复用指令'**
+  String get functionLibraryDeleteTitle;
+
+  /// No description provided for @functionLibraryDeleteConfirm.
+  ///
+  /// In zh, this message translates to:
+  /// **'确认删除「{name}」？'**
+  String functionLibraryDeleteConfirm(Object name);
+
+  /// No description provided for @functionLibraryDeleted.
+  ///
+  /// In zh, this message translates to:
+  /// **'已删除'**
+  String get functionLibraryDeleted;
+
+  /// No description provided for @functionLibraryDeleteFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'删除失败'**
+  String get functionLibraryDeleteFailed;
+
+  /// No description provided for @functionLibraryUpload.
+  ///
+  /// In zh, this message translates to:
+  /// **'上传'**
+  String get functionLibraryUpload;
+
+  /// No description provided for @functionLibraryUploadTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'上传到云端'**
+  String get functionLibraryUploadTitle;
+
+  /// No description provided for @functionLibraryUploadSuccess.
+  ///
+  /// In zh, this message translates to:
+  /// **'上传成功'**
+  String get functionLibraryUploadSuccess;
+
+  /// No description provided for @functionLibraryUploadFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'上传失败'**
+  String get functionLibraryUploadFailed;
+
+  /// No description provided for @functionLibraryDownload.
+  ///
+  /// In zh, this message translates to:
+  /// **'从云端下载'**
+  String get functionLibraryDownload;
+
+  /// No description provided for @functionLibraryDownloadTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'从云端下载'**
+  String get functionLibraryDownloadTitle;
+
+  /// No description provided for @functionLibraryDownloadSuccess.
+  ///
+  /// In zh, this message translates to:
+  /// **'下载成功'**
+  String get functionLibraryDownloadSuccess;
+
+  /// No description provided for @functionLibraryDownloadFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'下载失败'**
+  String get functionLibraryDownloadFailed;
+
+  /// No description provided for @functionLibraryCloudUrlHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'输入云端服务地址'**
+  String get functionLibraryCloudUrlHint;
+
+  /// No description provided for @functionLibraryConfirm.
+  ///
+  /// In zh, this message translates to:
+  /// **'确定'**
+  String get functionLibraryConfirm;
+
+  /// No description provided for @functionLibrarySyncStatus.
+  ///
+  /// In zh, this message translates to:
+  /// **'同步状态'**
+  String get functionLibrarySyncStatus;
+
+  /// No description provided for @functionLibrarySynced.
+  ///
+  /// In zh, this message translates to:
+  /// **'已同步'**
+  String get functionLibrarySynced;
+
+  /// No description provided for @functionLibraryLocalOnly.
+  ///
+  /// In zh, this message translates to:
+  /// **'仅本地'**
+  String get functionLibraryLocalOnly;
+
+  /// No description provided for @functionLibraryCloudOnly.
+  ///
+  /// In zh, this message translates to:
+  /// **'仅云端'**
+  String get functionLibraryCloudOnly;
+
+  /// No description provided for @functionLibraryStartNode.
+  ///
+  /// In zh, this message translates to:
+  /// **'起始页面'**
+  String get functionLibraryStartNode;
+
+  /// No description provided for @functionLibraryEndNode.
+  ///
+  /// In zh, this message translates to:
+  /// **'结束页面'**
+  String get functionLibraryEndNode;
+
+  /// No description provided for @functionLibraryLastRun.
+  ///
+  /// In zh, this message translates to:
+  /// **'最近执行'**
+  String get functionLibraryLastRun;
+
+  /// No description provided for @functionLibraryLastRunSuccess.
+  ///
+  /// In zh, this message translates to:
+  /// **'成功'**
+  String get functionLibraryLastRunSuccess;
+
+  /// No description provided for @functionLibraryLastRunFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'失败'**
+  String get functionLibraryLastRunFailed;
+
+  /// No description provided for @functionLibraryLastRunGoal.
+  ///
+  /// In zh, this message translates to:
+  /// **'任务'**
+  String get functionLibraryLastRunGoal;
+
+  /// No description provided for @functionLibraryNoDescription.
+  ///
+  /// In zh, this message translates to:
+  /// **'无描述'**
+  String get functionLibraryNoDescription;
+
+  /// No description provided for @functionLibrarySummaryOnPage.
+  ///
+  /// In zh, this message translates to:
+  /// **'在「{page}」页面'**
+  String functionLibrarySummaryOnPage(Object page);
+
+  /// No description provided for @functionLibrarySummaryFromTo.
+  ///
+  /// In zh, this message translates to:
+  /// **'从「{from}」到「{to}」'**
+  String functionLibrarySummaryFromTo(Object from, Object to);
+
+  /// No description provided for @functionLibrarySummaryFrom.
+  ///
+  /// In zh, this message translates to:
+  /// **'从「{from}」开始'**
+  String functionLibrarySummaryFrom(Object from);
+
+  /// No description provided for @functionLibrarySummaryTo.
+  ///
+  /// In zh, this message translates to:
+  /// **'到达「{to}」'**
+  String functionLibrarySummaryTo(Object to);
+
+  /// No description provided for @functionLibrarySummarySteps.
+  ///
+  /// In zh, this message translates to:
+  /// **'共 {count} 步操作'**
+  String functionLibrarySummarySteps(Object count);
+
+  /// No description provided for @functionLibrarySummaryParams.
+  ///
+  /// In zh, this message translates to:
+  /// **'需要 {count} 个参数'**
+  String functionLibrarySummaryParams(Object count);
+
+  /// No description provided for @functionLibraryTest.
+  ///
+  /// In zh, this message translates to:
+  /// **'测试'**
+  String get functionLibraryTest;
+
+  /// No description provided for @functionLibraryTestNeedParams.
+  ///
+  /// In zh, this message translates to:
+  /// **'需要输入参数：{params}'**
+  String functionLibraryTestNeedParams(Object params);
+
+  /// No description provided for @functionLibraryTestStarted.
+  ///
+  /// In zh, this message translates to:
+  /// **'已发起测试执行'**
+  String get functionLibraryTestStarted;
+
+  /// No description provided for @functionLibraryViewDetails.
+  ///
+  /// In zh, this message translates to:
+  /// **'查看详情'**
+  String get functionLibraryViewDetails;
+
+  /// No description provided for @functionLibraryDetailExecutionSurface.
+  ///
+  /// In zh, this message translates to:
+  /// **'执行面'**
+  String get functionLibraryDetailExecutionSurface;
+
+  /// No description provided for @functionLibraryDetailGraphAnchors.
+  ///
+  /// In zh, this message translates to:
+  /// **'图锚点'**
+  String get functionLibraryDetailGraphAnchors;
+
+  /// No description provided for @functionLibraryDetailRunUsage.
+  ///
+  /// In zh, this message translates to:
+  /// **'运行统计'**
+  String get functionLibraryDetailRunUsage;
+
+  /// No description provided for @functionLibraryDetailLifecycle.
+  ///
+  /// In zh, this message translates to:
+  /// **'生命周期'**
+  String get functionLibraryDetailLifecycle;
+
+  /// No description provided for @functionLibraryDetailExamples.
+  ///
+  /// In zh, this message translates to:
+  /// **'参数示例'**
+  String get functionLibraryDetailExamples;
+
+  /// No description provided for @functionLibraryDetailDerivedFrom.
+  ///
+  /// In zh, this message translates to:
+  /// **'来源复用指令'**
+  String get functionLibraryDetailDerivedFrom;
+
+  /// No description provided for @functionLibraryDetailRuns.
+  ///
+  /// In zh, this message translates to:
+  /// **'执行次数'**
+  String get functionLibraryDetailRuns;
+
+  /// No description provided for @functionLibraryDetailSuccessFail.
+  ///
+  /// In zh, this message translates to:
+  /// **'成功 / 失败'**
+  String get functionLibraryDetailSuccessFail;
+
+  /// No description provided for @functionLibraryDetailUpdatedAt.
+  ///
+  /// In zh, this message translates to:
+  /// **'更新时间'**
+  String get functionLibraryDetailUpdatedAt;
+
+  /// No description provided for @functionLibraryDetailBundleBacking.
+  ///
+  /// In zh, this message translates to:
+  /// **'Bundle 资产'**
+  String get functionLibraryDetailBundleBacking;
+
+  /// No description provided for @functionLibraryDetailActionCount.
+  ///
+  /// In zh, this message translates to:
+  /// **'动作数'**
+  String get functionLibraryDetailActionCount;
+
+  /// No description provided for @functionLibraryDetailActionPreview.
+  ///
+  /// In zh, this message translates to:
+  /// **'动作预览'**
+  String get functionLibraryDetailActionPreview;
+
+  /// No description provided for @functionLibraryDetailNoActionPreview.
+  ///
+  /// In zh, this message translates to:
+  /// **'无动作'**
+  String get functionLibraryDetailNoActionPreview;
+
+  /// No description provided for @functionLibraryDetailStepIndex.
+  ///
+  /// In zh, this message translates to:
+  /// **'步骤 {index}'**
+  String functionLibraryDetailStepIndex(String index);
+
+  /// No description provided for @functionLibraryDetailBundleFunction.
+  ///
+  /// In zh, this message translates to:
+  /// **'Bundle 复用指令'**
+  String get functionLibraryDetailBundleFunction;
+
+  /// No description provided for @functionLibraryDetailInternalBlocks.
+  ///
+  /// In zh, this message translates to:
+  /// **'内部复用指令片段'**
+  String get functionLibraryDetailInternalBlocks;
+
+  /// No description provided for @functionLibraryDetailNoBlocks.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前没有展开的内部复用指令片段'**
+  String get functionLibraryDetailNoBlocks;
+
+  /// No description provided for @functionLibraryDetailNoBundle.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前没有可展示的 bundle 复用指令'**
+  String get functionLibraryDetailNoBundle;
+
+  /// No description provided for @functionLibraryDetailFunctionSchema.
+  ///
+  /// In zh, this message translates to:
+  /// **'复用指令 Schema'**
+  String get functionLibraryDetailFunctionSchema;
+
+  /// No description provided for @executionReuseHit.
+  ///
+  /// In zh, this message translates to:
+  /// **'复用指令'**
+  String get executionReuseHit;
+
+  /// No description provided for @executionReuseHitWithFunction.
+  ///
+  /// In zh, this message translates to:
+  /// **'复用指令 · {functionId}'**
+  String executionReuseHitWithFunction(Object functionId);
+
+  /// No description provided for @executionVlmExecution.
+  ///
+  /// In zh, this message translates to:
+  /// **'VLM 执行'**
+  String get executionVlmExecution;
+
+  /// No description provided for @executionActionOpenApp.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开应用'**
+  String get executionActionOpenApp;
+
+  /// No description provided for @executionActionClick.
+  ///
+  /// In zh, this message translates to:
+  /// **'点击'**
+  String get executionActionClick;
+
+  /// No description provided for @executionActionClickNode.
+  ///
+  /// In zh, this message translates to:
+  /// **'点击元素'**
+  String get executionActionClickNode;
+
+  /// No description provided for @executionActionLongPress.
+  ///
+  /// In zh, this message translates to:
+  /// **'长按'**
+  String get executionActionLongPress;
+
+  /// No description provided for @executionActionInputText.
+  ///
+  /// In zh, this message translates to:
+  /// **'输入文本'**
+  String get executionActionInputText;
+
+  /// No description provided for @executionActionSwipe.
+  ///
+  /// In zh, this message translates to:
+  /// **'滑动'**
+  String get executionActionSwipe;
+
+  /// No description provided for @executionActionScroll.
+  ///
+  /// In zh, this message translates to:
+  /// **'滚动'**
+  String get executionActionScroll;
+
+  /// No description provided for @executionActionPressKey.
+  ///
+  /// In zh, this message translates to:
+  /// **'按键'**
+  String get executionActionPressKey;
+
+  /// No description provided for @executionActionWait.
+  ///
+  /// In zh, this message translates to:
+  /// **'等待'**
+  String get executionActionWait;
+
+  /// No description provided for @executionActionFinished.
+  ///
+  /// In zh, this message translates to:
+  /// **'完成'**
+  String get executionActionFinished;
+
+  /// No description provided for @executionActionCallTool.
+  ///
+  /// In zh, this message translates to:
+  /// **'调用工具'**
+  String get executionActionCallTool;
+
+  /// No description provided for @executionActionDefault.
+  ///
+  /// In zh, this message translates to:
+  /// **'动作'**
+  String get executionActionDefault;
+
+  /// No description provided for @executionStepLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'{count} steps'**
+  String executionStepLabel(Object count);
+
+  /// No description provided for @executionSuccess.
+  ///
+  /// In zh, this message translates to:
+  /// **'成功'**
+  String get executionSuccess;
+
+  /// No description provided for @executionFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'失败'**
+  String get executionFailed;
+
+  /// No description provided for @memorySaveAsSkillTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'保存为复用指令'**
+  String get memorySaveAsSkillTitle;
+
+  /// No description provided for @memorySaveAsSkillContent.
+  ///
+  /// In zh, this message translates to:
+  /// **'是否将这次执行记录保存为复用指令？\n\n保存后可在「复用指令库」中查看和管理。'**
+  String get memorySaveAsSkillContent;
+
+  /// No description provided for @memorySavingProgress.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在保存复用指令...'**
+  String get memorySavingProgress;
+
+  /// No description provided for @memorySaveSuccess.
+  ///
+  /// In zh, this message translates to:
+  /// **'已保存为复用指令：{functionId}'**
+  String memorySaveSuccess(String functionId);
+
+  /// No description provided for @memorySaveSuccessSimple.
+  ///
+  /// In zh, this message translates to:
+  /// **'已保存为复用指令'**
+  String get memorySaveSuccessSimple;
+
+  /// No description provided for @memorySaveSuccessHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'复用指令已保存到本地复用指令库。\n你可以在复用指令库中查看、编辑或升级。'**
+  String get memorySaveSuccessHint;
+
+  /// No description provided for @memoryViewInLibrary.
+  ///
+  /// In zh, this message translates to:
+  /// **'查看复用指令库'**
+  String get memoryViewInLibrary;
+
+  /// No description provided for @memorySaveCannotImport.
+  ///
+  /// In zh, this message translates to:
+  /// **'该执行记录无法保存为复用指令'**
+  String get memorySaveCannotImport;
+
+  /// No description provided for @memorySaveFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'保存复用指令失败'**
+  String get memorySaveFailed;
+
+  /// No description provided for @memorySaveFailedWithMessage.
+  ///
+  /// In zh, this message translates to:
+  /// **'保存复用指令失败：{message}'**
+  String memorySaveFailedWithMessage(String message);
+
+  /// No description provided for @memoryRunIdMissing.
+  ///
+  /// In zh, this message translates to:
+  /// **'执行记录 ID 缺失，无法保存'**
+  String get memoryRunIdMissing;
+
+  /// No description provided for @omniflowAssetSuccess.
+  ///
+  /// In zh, this message translates to:
+  /// **'成功'**
+  String get omniflowAssetSuccess;
+
+  /// No description provided for @omniflowAssetFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'失败'**
+  String get omniflowAssetFailed;
+
+  /// No description provided for @omniflowAssetRunning.
+  ///
+  /// In zh, this message translates to:
+  /// **'运行中'**
+  String get omniflowAssetRunning;
+
+  /// No description provided for @omniflowAssetUnknown.
+  ///
+  /// In zh, this message translates to:
+  /// **'未知'**
+  String get omniflowAssetUnknown;
+
+  /// No description provided for @omniflowAssetReuseHit.
+  ///
+  /// In zh, this message translates to:
+  /// **'复用指令'**
+  String get omniflowAssetReuseHit;
+
+  /// No description provided for @omniflowAssetVlmExecution.
+  ///
+  /// In zh, this message translates to:
+  /// **'VLM 执行'**
+  String get omniflowAssetVlmExecution;
+
+  /// No description provided for @omniflowAssetSteps.
+  ///
+  /// In zh, this message translates to:
+  /// **'{count} 步'**
+  String omniflowAssetSteps(int count);
+
+  /// No description provided for @omniflowAssetId.
+  ///
+  /// In zh, this message translates to:
+  /// **'ID'**
+  String get omniflowAssetId;
+
+  /// No description provided for @omniflowAssetPackage.
+  ///
+  /// In zh, this message translates to:
+  /// **'应用包名'**
+  String get omniflowAssetPackage;
+
+  /// No description provided for @omniflowAssetSourceRuns.
+  ///
+  /// In zh, this message translates to:
+  /// **'来源执行'**
+  String get omniflowAssetSourceRuns;
+
+  /// No description provided for @omniflowAssetLinkedFunction.
+  ///
+  /// In zh, this message translates to:
+  /// **'关联复用指令'**
+  String get omniflowAssetLinkedFunction;
+
+  /// No description provided for @omniflowAssetCopyId.
+  ///
+  /// In zh, this message translates to:
+  /// **'复制 ID'**
+  String get omniflowAssetCopyId;
+
+  /// No description provided for @omniflowAssetEdit.
+  ///
+  /// In zh, this message translates to:
+  /// **'编辑'**
+  String get omniflowAssetEdit;
+
+  /// No description provided for @omniflowAssetMemory.
+  ///
+  /// In zh, this message translates to:
+  /// **'记忆'**
+  String get omniflowAssetMemory;
+
+  /// No description provided for @omniflowAssetReplay.
+  ///
+  /// In zh, this message translates to:
+  /// **'重放'**
+  String get omniflowAssetReplay;
+
+  /// No description provided for @omniflowAssetDelete.
+  ///
+  /// In zh, this message translates to:
+  /// **'删除'**
+  String get omniflowAssetDelete;
+
+  /// No description provided for @omniflowAssetEnrich.
+  ///
+  /// In zh, this message translates to:
+  /// **'升级'**
+  String get omniflowAssetEnrich;
+
+  /// No description provided for @omniflowAssetUpload.
+  ///
+  /// In zh, this message translates to:
+  /// **'上传'**
+  String get omniflowAssetUpload;
+
+  /// No description provided for @omniflowAssetIdCopied.
+  ///
+  /// In zh, this message translates to:
+  /// **'ID 已复制'**
+  String get omniflowAssetIdCopied;
+
+  /// No description provided for @omniflowAssetJsonCopied.
+  ///
+  /// In zh, this message translates to:
+  /// **'JSON 已复制'**
+  String get omniflowAssetJsonCopied;
+
+  /// No description provided for @omniflowAssetFunctionDetail.
+  ///
+  /// In zh, this message translates to:
+  /// **'复用指令详情'**
+  String get omniflowAssetFunctionDetail;
+
+  /// No description provided for @omniflowAssetRunLogDetail.
+  ///
+  /// In zh, this message translates to:
+  /// **'执行记录详情'**
+  String get omniflowAssetRunLogDetail;
+
+  /// No description provided for @omniflowAssetCopyJson.
+  ///
+  /// In zh, this message translates to:
+  /// **'复制 JSON'**
+  String get omniflowAssetCopyJson;
+
+  /// No description provided for @omniflowAssetClose.
+  ///
+  /// In zh, this message translates to:
+  /// **'关闭'**
+  String get omniflowAssetClose;
+
+  /// No description provided for @omniflowAssetStartPage.
+  ///
+  /// In zh, this message translates to:
+  /// **'起始页面'**
+  String get omniflowAssetStartPage;
+
+  /// No description provided for @omniflowAssetEndPage.
+  ///
+  /// In zh, this message translates to:
+  /// **'结束页面'**
+  String get omniflowAssetEndPage;
+
+  /// No description provided for @omniflowAssetCreatedAt.
+  ///
+  /// In zh, this message translates to:
+  /// **'创建时间'**
+  String get omniflowAssetCreatedAt;
+
+  /// No description provided for @omniflowAssetGoal.
+  ///
+  /// In zh, this message translates to:
+  /// **'目标'**
+  String get omniflowAssetGoal;
+
+  /// No description provided for @omniflowAssetStartedAt.
+  ///
+  /// In zh, this message translates to:
+  /// **'开始时间'**
+  String get omniflowAssetStartedAt;
+
+  /// No description provided for @omniflowAssetDoneReason.
+  ///
+  /// In zh, this message translates to:
+  /// **'完成原因'**
+  String get omniflowAssetDoneReason;
+
+  /// No description provided for @omniflowAssetView.
+  ///
+  /// In zh, this message translates to:
+  /// **'查看'**
+  String get omniflowAssetView;
+
+  /// No description provided for @omniflowAssetLoadFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'加载失败'**
+  String get omniflowAssetLoadFailed;
+
+  /// No description provided for @omniflowAssetRunLogNotReady.
+  ///
+  /// In zh, this message translates to:
+  /// **'执行记录尚未落盘'**
+  String get omniflowAssetRunLogNotReady;
+
+  /// No description provided for @omniflowAssetRunLogIndexFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'读取执行记录索引失败'**
+  String get omniflowAssetRunLogIndexFailed;
+
+  /// No description provided for @omniflowAssetReplayTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'重放执行记录'**
+  String get omniflowAssetReplayTitle;
+
+  /// No description provided for @omniflowAssetReplayConfirm.
+  ///
+  /// In zh, this message translates to:
+  /// **'是否确定重放这次执行记录？'**
+  String get omniflowAssetReplayConfirm;
+
+  /// No description provided for @omniflowAssetReplayProgress.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在重放执行记录...'**
+  String get omniflowAssetReplayProgress;
+
+  /// No description provided for @omniflowAssetReplaySuccess.
+  ///
+  /// In zh, this message translates to:
+  /// **'重放成功'**
+  String get omniflowAssetReplaySuccess;
+
+  /// No description provided for @omniflowAssetReplaySuccessWithId.
+  ///
+  /// In zh, this message translates to:
+  /// **'重放成功：{functionId}'**
+  String omniflowAssetReplaySuccessWithId(String functionId);
+
+  /// No description provided for @omniflowAssetReplayFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'重放失败'**
+  String get omniflowAssetReplayFailed;
+
+  /// No description provided for @omniflowAssetReplayFailedWithMessage.
+  ///
+  /// In zh, this message translates to:
+  /// **'重放失败：{message}'**
+  String omniflowAssetReplayFailedWithMessage(String message);
+
+  /// No description provided for @omniflowAssetCancel.
+  ///
+  /// In zh, this message translates to:
+  /// **'取消'**
+  String get omniflowAssetCancel;
+
+  /// No description provided for @omniflowAssetConfirm.
+  ///
+  /// In zh, this message translates to:
+  /// **'确定'**
+  String get omniflowAssetConfirm;
+
+  /// No description provided for @omniflowAssetCopySuccess.
+  ///
+  /// In zh, this message translates to:
+  /// **'{label} 已复制'**
+  String omniflowAssetCopySuccess(String label);
+
+  /// No description provided for @omniflowAssetCopyFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'{label} 复制失败'**
+  String omniflowAssetCopyFailed(String label);
+
+  /// No description provided for @omniflowAssetEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'{label} 为空'**
+  String omniflowAssetEmpty(String label);
+
+  /// No description provided for @omniflowAssetNoSteps.
+  ///
+  /// In zh, this message translates to:
+  /// **'没有可展示的步骤'**
+  String get omniflowAssetNoSteps;
+
+  /// No description provided for @functionLibraryEnrich.
+  ///
+  /// In zh, this message translates to:
+  /// **'升级'**
+  String get functionLibraryEnrich;
+
+  /// No description provided for @functionLibraryEnrichTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'升级复用指令'**
+  String get functionLibraryEnrichTitle;
+
+  /// No description provided for @functionLibraryEnrichConfirm.
+  ///
+  /// In zh, this message translates to:
+  /// **'使用 AI 补齐此复用指令的语义信息？\n\n将自动生成：描述、参数槽位、前置/后置条件等。'**
+  String get functionLibraryEnrichConfirm;
+
+  /// No description provided for @functionLibraryEnrichProgress.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在升级复用指令...'**
+  String get functionLibraryEnrichProgress;
+
+  /// No description provided for @functionLibraryEnrichSuccess.
+  ///
+  /// In zh, this message translates to:
+  /// **'复用指令升级成功'**
+  String get functionLibraryEnrichSuccess;
+
+  /// No description provided for @functionLibraryEnrichFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'升级失败'**
+  String get functionLibraryEnrichFailed;
+
+  /// No description provided for @functionLibraryEnrichFailedWithMessage.
+  ///
+  /// In zh, this message translates to:
+  /// **'升级失败：{message}'**
+  String functionLibraryEnrichFailedWithMessage(String message);
+
+  /// No description provided for @functionLibrarySplit.
+  ///
+  /// In zh, this message translates to:
+  /// **'拆分'**
+  String get functionLibrarySplit;
+
+  /// No description provided for @functionLibrarySplitTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'拆分复用指令'**
+  String get functionLibrarySplitTitle;
+
+  /// No description provided for @functionLibrarySplitConfirm.
+  ///
+  /// In zh, this message translates to:
+  /// **'使用 AI 将此复用指令拆分为多个更小的指令？'**
+  String get functionLibrarySplitConfirm;
+
+  /// No description provided for @functionLibrarySplitProgress.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在拆分复用指令...'**
+  String get functionLibrarySplitProgress;
+
+  /// No description provided for @functionLibrarySplitSuccess.
+  ///
+  /// In zh, this message translates to:
+  /// **'复用指令拆分成功，生成了 {count} 个新指令'**
+  String functionLibrarySplitSuccess(int count);
+
+  /// No description provided for @functionLibrarySplitFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'拆分失败'**
+  String get functionLibrarySplitFailed;
+
+  /// No description provided for @actionTypeOpenApp.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开应用'**
+  String get actionTypeOpenApp;
+
+  /// No description provided for @actionTypeClick.
+  ///
+  /// In zh, this message translates to:
+  /// **'点击'**
+  String get actionTypeClick;
+
+  /// No description provided for @actionTypeClickNode.
+  ///
+  /// In zh, this message translates to:
+  /// **'点击节点'**
+  String get actionTypeClickNode;
+
+  /// No description provided for @actionTypeLongPress.
+  ///
+  /// In zh, this message translates to:
+  /// **'长按'**
+  String get actionTypeLongPress;
+
+  /// No description provided for @actionTypeInputText.
+  ///
+  /// In zh, this message translates to:
+  /// **'输入文本'**
+  String get actionTypeInputText;
+
+  /// No description provided for @actionTypeSwipe.
+  ///
+  /// In zh, this message translates to:
+  /// **'滑动'**
+  String get actionTypeSwipe;
+
+  /// No description provided for @actionTypePressKey.
+  ///
+  /// In zh, this message translates to:
+  /// **'按键'**
+  String get actionTypePressKey;
+
+  /// No description provided for @actionTypeWait.
+  ///
+  /// In zh, this message translates to:
+  /// **'等待'**
+  String get actionTypeWait;
+
+  /// No description provided for @actionTypeFinished.
+  ///
+  /// In zh, this message translates to:
+  /// **'结束'**
+  String get actionTypeFinished;
+
+  /// No description provided for @actionTypeCallTool.
+  ///
+  /// In zh, this message translates to:
+  /// **'调用工具'**
+  String get actionTypeCallTool;
+
+  /// No description provided for @actionTypeDefault.
+  ///
+  /// In zh, this message translates to:
+  /// **'动作'**
+  String get actionTypeDefault;
+
+  /// No description provided for @omniflowProviderUpdate.
+  ///
+  /// In zh, this message translates to:
+  /// **'Provider 更新'**
+  String get omniflowProviderUpdate;
+
+  /// No description provided for @omniflowConnectionMode.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前连接'**
+  String get omniflowConnectionMode;
+
+  /// No description provided for @omniflowConnectionModeBridge.
+  ///
+  /// In zh, this message translates to:
+  /// **'Bridge 连接'**
+  String get omniflowConnectionModeBridge;
+
+  /// No description provided for @omniflowConnectionModeEmbedded.
+  ///
+  /// In zh, this message translates to:
+  /// **'本地内置'**
+  String get omniflowConnectionModeEmbedded;
+
+  /// No description provided for @omniflowProviderVersion.
+  ///
+  /// In zh, this message translates to:
+  /// **'Provider 版本'**
+  String get omniflowProviderVersion;
+
+  /// No description provided for @omniflowProviderPort.
+  ///
+  /// In zh, this message translates to:
+  /// **'Provider 端口'**
+  String get omniflowProviderPort;
+
+  /// No description provided for @omniflowProviderStore.
+  ///
+  /// In zh, this message translates to:
+  /// **'Provider Store'**
+  String get omniflowProviderStore;
+
+  /// No description provided for @omniflowCurrentVersion.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前版本'**
+  String get omniflowCurrentVersion;
+
+  /// No description provided for @omniflowLatestVersion.
+  ///
+  /// In zh, this message translates to:
+  /// **'最新版本'**
+  String get omniflowLatestVersion;
+
+  /// No description provided for @omniflowUpdateAvailable.
+  ///
+  /// In zh, this message translates to:
+  /// **'有新版本可用'**
+  String get omniflowUpdateAvailable;
+
+  /// No description provided for @omniflowUpdateNotSupported.
+  ///
+  /// In zh, this message translates to:
+  /// **'有新版本，但主机 Provider 不支持自动更新（请手动 git pull）'**
+  String get omniflowUpdateNotSupported;
+
+  /// No description provided for @omniflowStartProviderFirst.
+  ///
+  /// In zh, this message translates to:
+  /// **'请先启动 Provider 后再检查更新'**
+  String get omniflowStartProviderFirst;
+
+  /// No description provided for @omniflowCheckUpdate.
+  ///
+  /// In zh, this message translates to:
+  /// **'检查更新'**
+  String get omniflowCheckUpdate;
+
+  /// No description provided for @omniflowCheckingUpdate.
+  ///
+  /// In zh, this message translates to:
+  /// **'检查中...'**
+  String get omniflowCheckingUpdate;
+
+  /// No description provided for @omniflowApplyUpdate.
+  ///
+  /// In zh, this message translates to:
+  /// **'立即更新'**
+  String get omniflowApplyUpdate;
+
+  /// No description provided for @omniflowApplyingUpdate.
+  ///
+  /// In zh, this message translates to:
+  /// **'更新中...'**
+  String get omniflowApplyingUpdate;
+
+  /// No description provided for @omniflowCheckUpdateFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'检查更新失败'**
+  String get omniflowCheckUpdateFailed;
+
+  /// No description provided for @omniflowNewVersionFound.
+  ///
+  /// In zh, this message translates to:
+  /// **'发现新版本: {version}'**
+  String omniflowNewVersionFound(String version);
+
+  /// No description provided for @omniflowPackageNotInstalled.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前设备未安装'**
+  String get omniflowPackageNotInstalled;
+
+  /// No description provided for @omniflowAlreadyLatest.
+  ///
+  /// In zh, this message translates to:
+  /// **'已是最新版本'**
+  String get omniflowAlreadyLatest;
+
+  /// No description provided for @omniflowUpdateSuccess.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前设备已更新到 {version}'**
+  String omniflowUpdateSuccess(String version);
+
+  /// No description provided for @omniflowUpdateBridgeModeHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前连接仍是 Bridge；这次只更新了设备里的 OmniFlow 包。'**
+  String get omniflowUpdateBridgeModeHint;
+
+  /// No description provided for @omniflowUpdateRestartRequired.
+  ///
+  /// In zh, this message translates to:
+  /// **'设备包已更新；请手动重启本地内置 Provider 后生效。'**
+  String get omniflowUpdateRestartRequired;
+
+  /// No description provided for @omniflowUpdateFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'更新失败'**
+  String get omniflowUpdateFailed;
+
+  /// No description provided for @executionRouteMemorized.
+  ///
+  /// In zh, this message translates to:
+  /// **'⚡ 已记忆'**
+  String get executionRouteMemorized;
+
+  /// No description provided for @executionRouteAiPlanning.
+  ///
+  /// In zh, this message translates to:
+  /// **'🤔 AI规划'**
+  String get executionRouteAiPlanning;
+
+  /// No description provided for @runLogTimelineTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'执行步骤'**
+  String get runLogTimelineTitle;
+
+  /// No description provided for @runLogTimelineViewSteps.
+  ///
+  /// In zh, this message translates to:
+  /// **'查看步骤'**
+  String get runLogTimelineViewSteps;
+
+  /// No description provided for @runLogTimelineStepCount.
+  ///
+  /// In zh, this message translates to:
+  /// **'{count} 步'**
+  String runLogTimelineStepCount(int count);
+
+  /// No description provided for @runLogTimelineLoadFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'加载步骤失败'**
+  String get runLogTimelineLoadFailed;
+
+  /// No description provided for @runLogTimelineEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂无步骤数据'**
+  String get runLogTimelineEmpty;
+
+  /// No description provided for @runLogTimelineUnknown.
+  ///
+  /// In zh, this message translates to:
+  /// **'未知'**
+  String get runLogTimelineUnknown;
+
+  /// No description provided for @chatInputCommandTooltip.
+  ///
+  /// In zh, this message translates to:
+  /// **'命令'**
+  String get chatInputCommandTooltip;
+
+  /// No description provided for @chatInputTrajectoryTooltip.
+  ///
+  /// In zh, this message translates to:
+  /// **'轨迹'**
+  String get chatInputTrajectoryTooltip;
+
+  /// No description provided for @chatInputViewTrajectories.
+  ///
+  /// In zh, this message translates to:
+  /// **'已有轨迹'**
+  String get chatInputViewTrajectories;
+
+  /// No description provided for @chatInputViewTrajectoriesTooltip.
+  ///
+  /// In zh, this message translates to:
+  /// **'查看已有轨迹'**
+  String get chatInputViewTrajectoriesTooltip;
+
+  /// No description provided for @chatInputViewCurrentTrajectory.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前轨迹'**
+  String get chatInputViewCurrentTrajectory;
+
+  /// No description provided for @chatInputViewCurrentTrajectoryTooltip.
+  ///
+  /// In zh, this message translates to:
+  /// **'查看上一条轨迹'**
+  String get chatInputViewCurrentTrajectoryTooltip;
+
+  /// No description provided for @chatInputRecordTrajectory.
+  ///
+  /// In zh, this message translates to:
+  /// **'录制轨迹'**
+  String get chatInputRecordTrajectory;
+
+  /// No description provided for @chatInputRecordTrajectoryTooltip.
+  ///
+  /// In zh, this message translates to:
+  /// **'开始录制一条轨迹'**
+  String get chatInputRecordTrajectoryTooltip;
+
+  /// No description provided for @workbenchTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'工作台'**
+  String get workbenchTitle;
+
+  /// No description provided for @workbenchWorkspaceTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'工作区'**
+  String get workbenchWorkspaceTitle;
+
+  /// No description provided for @workbenchWorkspaceOpenWorkbench.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开工作台'**
+  String get workbenchWorkspaceOpenWorkbench;
+
+  /// No description provided for @workbenchWorkspaceOpenProjectConsole.
+  ///
+  /// In zh, this message translates to:
+  /// **'进入管理'**
+  String get workbenchWorkspaceOpenProjectConsole;
+
+  /// No description provided for @workbenchWorkspaceWorkMode.
+  ///
+  /// In zh, this message translates to:
+  /// **'文件'**
+  String get workbenchWorkspaceWorkMode;
+
+  /// No description provided for @workbenchWorkspaceProjectMode.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目'**
+  String get workbenchWorkspaceProjectMode;
+
+  /// No description provided for @workbenchWorkspaceProjectFrontendsTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目窗口'**
+  String get workbenchWorkspaceProjectFrontendsTitle;
+
+  /// No description provided for @workbenchWorkspaceProjectFrontendsSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'开启项目模式后，这里像子窗口一样直接承载当前激活项目的 OOB 原生前端。'**
+  String get workbenchWorkspaceProjectFrontendsSubtitle;
+
+  /// No description provided for @workbenchWorkspaceProjectFrontendsEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂无项目前端。回到对话里描述需求后，Agent 会通过工作台创建可显示的项目。'**
+  String get workbenchWorkspaceProjectFrontendsEmpty;
+
+  /// No description provided for @workbenchWorkspaceProjectOpenFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开项目前端失败'**
+  String get workbenchWorkspaceProjectOpenFailed;
+
+  /// No description provided for @workbenchWorkspaceProjectUnsupportedDisplay.
+  ///
+  /// In zh, this message translates to:
+  /// **'这个显示页暂不支持内嵌窗口显示，请用右上角打开为完整页面。'**
+  String get workbenchWorkspaceProjectUnsupportedDisplay;
+
+  /// No description provided for @workbenchWorkspaceGuideTooltip.
+  ///
+  /// In zh, this message translates to:
+  /// **'查看项目工作台说明'**
+  String get workbenchWorkspaceGuideTooltip;
+
+  /// No description provided for @workbenchWorkspaceGuideClose.
+  ///
+  /// In zh, this message translates to:
+  /// **'关闭说明'**
+  String get workbenchWorkspaceGuideClose;
+
+  /// No description provided for @workbenchWorkspaceGuideTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目工作台怎么工作'**
+  String get workbenchWorkspaceGuideTitle;
+
+  /// No description provided for @workbenchWorkspaceGuideIntro.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目模式不是新的聊天页，而是 OOB 里用来承载 vibe project 的原生工作台。它把生成前端、项目工具、工作区文件、Skill 和持久化数据连成一个可继续编辑的单位。'**
+  String get workbenchWorkspaceGuideIntro;
+
+  /// No description provided for @workbenchWorkspaceGuideFlowTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'交互链路'**
+  String get workbenchWorkspaceGuideFlowTitle;
+
+  /// No description provided for @workbenchWorkspaceGuideFlowPrompt.
+  ///
+  /// In zh, this message translates to:
+  /// **'提示词 + Skill 拆解需求'**
+  String get workbenchWorkspaceGuideFlowPrompt;
+
+  /// No description provided for @workbenchWorkspaceGuideFlowProject.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目注册表记录容器'**
+  String get workbenchWorkspaceGuideFlowProject;
+
+  /// No description provided for @workbenchWorkspaceGuideFlowApi.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目工具注册业务能力'**
+  String get workbenchWorkspaceGuideFlowApi;
+
+  /// No description provided for @workbenchWorkspaceGuideFlowDisplay.
+  ///
+  /// In zh, this message translates to:
+  /// **'Flutter 显示页展示业务前端'**
+  String get workbenchWorkspaceGuideFlowDisplay;
+
+  /// No description provided for @workbenchWorkspaceGuideFlowPersist.
+  ///
+  /// In zh, this message translates to:
+  /// **'data/ + logs/ 持久化 AI 与 UI 调用'**
+  String get workbenchWorkspaceGuideFlowPersist;
+
+  /// No description provided for @workbenchWorkspaceGuideProjectTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目绑定什么'**
+  String get workbenchWorkspaceGuideProjectTitle;
+
+  /// No description provided for @workbenchWorkspaceGuideProjectBody.
+  ///
+  /// In zh, this message translates to:
+  /// **'一个项目会绑定目标、Skill、工作区文件、显示页列表、项目工具、数据和日志。它不是 MCP 工具列表，也不是随手生成的 HTML。'**
+  String get workbenchWorkspaceGuideProjectBody;
+
+  /// No description provided for @workbenchWorkspaceGuideFrontendTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'前端怎么显示'**
+  String get workbenchWorkspaceGuideFrontendTitle;
+
+  /// No description provided for @workbenchWorkspaceGuideFrontendBody.
+  ///
+  /// In zh, this message translates to:
+  /// **'生成前端是 OOB 原生 Flutter 显示页。工作区切到项目后，不再显示大型管理列表，而是像浏览器子窗口一样直接承载当前激活项目的首页；一个项目可以有多个显示页，可用小菜单切换。'**
+  String get workbenchWorkspaceGuideFrontendBody;
+
+  /// No description provided for @workbenchWorkspaceGuideBackendTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'后端怎么被调用'**
+  String get workbenchWorkspaceGuideBackendTitle;
+
+  /// No description provided for @workbenchWorkspaceGuideBackendBody.
+  ///
+  /// In zh, this message translates to:
+  /// **'后端能力注册为项目工具，例如 todo.add、todo.finish。AI 层和前端按钮都调用同一条 workbenchApiCall(projectId, toolId, inputs)，项目创建、导出、删除等控制接口不会混进业务工具。'**
+  String get workbenchWorkspaceGuideBackendBody;
+
+  /// No description provided for @workbenchWorkspaceGuideDataTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'数据怎么流'**
+  String get workbenchWorkspaceGuideDataTitle;
+
+  /// No description provided for @workbenchWorkspaceGuideDataBody.
+  ///
+  /// In zh, this message translates to:
+  /// **'调用会经过 Flutter -> MethodChannel -> OOB native executor，然后写入项目的 data/ 和 logs/。前端刷新、AI 调用统计和重启后的状态都来自这份持久化数据。'**
+  String get workbenchWorkspaceGuideDataBody;
+
+  /// No description provided for @workbenchWorkspaceGuideVibeTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'怎么继续改'**
+  String get workbenchWorkspaceGuideVibeTitle;
+
+  /// No description provided for @workbenchWorkspaceGuideVibeBody.
+  ///
+  /// In zh, this message translates to:
+  /// **'要继续 vibe coding，回到首页大输入框说需求。工作台 Skill 会判断是创建新项目、扩充项目工具、调整显示页，还是对当前项目做热更新。'**
+  String get workbenchWorkspaceGuideVibeBody;
+
+  /// No description provided for @workbenchWorkspaceGuideExtendTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'扩充后端工具'**
+  String get workbenchWorkspaceGuideExtendTitle;
+
+  /// No description provided for @workbenchWorkspaceGuideExtendBody.
+  ///
+  /// In zh, this message translates to:
+  /// **'新增能力时先定义 toolId、输入输出 schema、executorKind、持久化文件和前端触发位置，再通过工作台接口注册项目工具；不要手写 registry 文件。'**
+  String get workbenchWorkspaceGuideExtendBody;
+
+  /// No description provided for @workbenchWorkspaceProjectApiStats.
+  ///
+  /// In zh, this message translates to:
+  /// **'{apiCount} 个工具 · 已执行 {executionCount} 次'**
+  String workbenchWorkspaceProjectApiStats(int apiCount, int executionCount);
+
+  /// No description provided for @workbenchSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'一个 OOB 原生项目示例，用来验证项目工具注册、状态持久化和工作台内显示。'**
+  String get workbenchSubtitle;
+
+  /// No description provided for @workbenchVibeSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'提示词生成的原生前端、项目工具和工作区文件在 OOB 内保持关联。'**
+  String get workbenchVibeSubtitle;
+
+  /// No description provided for @workbenchProjectDisplay.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目显示'**
+  String get workbenchProjectDisplay;
+
+  /// No description provided for @workbenchProjectSection.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目'**
+  String get workbenchProjectSection;
+
+  /// No description provided for @workbenchProjectIdLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目 ID'**
+  String get workbenchProjectIdLabel;
+
+  /// No description provided for @workbenchRouteLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'页面路径'**
+  String get workbenchRouteLabel;
+
+  /// No description provided for @workbenchSpacePathLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'Space 路径'**
+  String get workbenchSpacePathLabel;
+
+  /// No description provided for @workbenchPageIdsLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'页面'**
+  String get workbenchPageIdsLabel;
+
+  /// No description provided for @workbenchDevelopmentMode.
+  ///
+  /// In zh, this message translates to:
+  /// **'开发模式'**
+  String get workbenchDevelopmentMode;
+
+  /// No description provided for @workbenchProjectRegistryPath.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目注册表'**
+  String get workbenchProjectRegistryPath;
+
+  /// No description provided for @workbenchApiRegistryPath.
+  ///
+  /// In zh, this message translates to:
+  /// **'工具注册表'**
+  String get workbenchApiRegistryPath;
+
+  /// No description provided for @workbenchProjectFilePath.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目文件'**
+  String get workbenchProjectFilePath;
+
+  /// No description provided for @workbenchDataFilePath.
+  ///
+  /// In zh, this message translates to:
+  /// **'数据文件'**
+  String get workbenchDataFilePath;
+
+  /// No description provided for @workbenchLogFilePath.
+  ///
+  /// In zh, this message translates to:
+  /// **'工具日志'**
+  String get workbenchLogFilePath;
+
+  /// No description provided for @workbenchBackendTools.
+  ///
+  /// In zh, this message translates to:
+  /// **'后端工具'**
+  String get workbenchBackendTools;
+
+  /// No description provided for @workbenchFrontendBinding.
+  ///
+  /// In zh, this message translates to:
+  /// **'前后端绑定'**
+  String get workbenchFrontendBinding;
+
+  /// No description provided for @workbenchCallApi.
+  ///
+  /// In zh, this message translates to:
+  /// **'调用工具'**
+  String get workbenchCallApi;
+
+  /// No description provided for @workbenchGeneratedFrontend.
+  ///
+  /// In zh, this message translates to:
+  /// **'生成的前端'**
+  String get workbenchGeneratedFrontend;
+
+  /// No description provided for @workbenchGeneratedFrontendSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开提示词生成页面应该挂载的 OOB 原生预览容器。它和 AI 层共用同一组项目工具与持久化数据。'**
+  String get workbenchGeneratedFrontendSubtitle;
+
+  /// No description provided for @workbenchOpenGeneratedFrontend.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开生成前端'**
+  String get workbenchOpenGeneratedFrontend;
+
+  /// No description provided for @workbenchPreviewClose.
+  ///
+  /// In zh, this message translates to:
+  /// **'关闭预览'**
+  String get workbenchPreviewClose;
+
+  /// No description provided for @workbenchToolList.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目工具'**
+  String get workbenchToolList;
+
+  /// No description provided for @workbenchProjectControlSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'这里只展示已注册的业务工具。项目创建和打开仍属于 OOB 工作台控制面。'**
+  String get workbenchProjectControlSubtitle;
+
+  /// No description provided for @workbenchOpenWorkspace.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开工作区'**
+  String get workbenchOpenWorkspace;
+
+  /// No description provided for @workbenchApiEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂无工具'**
+  String get workbenchApiEmpty;
+
+  /// No description provided for @workbenchToolListDefaultTodo.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目工具点击了同一个后端'**
+  String get workbenchToolListDefaultTodo;
+
+  /// No description provided for @workbenchToolExecutionCount.
+  ///
+  /// In zh, this message translates to:
+  /// **'已执行 {count} 次'**
+  String workbenchToolExecutionCount(int count);
+
+  /// No description provided for @workbenchProjectDefaultEntity.
+  ///
+  /// In zh, this message translates to:
+  /// **'条目'**
+  String get workbenchProjectDefaultEntity;
+
+  /// No description provided for @workbenchProjectCreateTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'新增 {entity}'**
+  String workbenchProjectCreateTitle(String entity);
+
+  /// No description provided for @workbenchProjectInputHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'输入 {entity} 名称'**
+  String workbenchProjectInputHint(String entity);
+
+  /// No description provided for @workbenchProjectItemsTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'{entity} 列表'**
+  String workbenchProjectItemsTitle(String entity);
+
+  /// No description provided for @workbenchProjectEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂无 {entity}'**
+  String workbenchProjectEmpty(String entity);
+
+  /// No description provided for @workbenchProjectActiveItems.
+  ///
+  /// In zh, this message translates to:
+  /// **'进行中'**
+  String get workbenchProjectActiveItems;
+
+  /// No description provided for @workbenchProjectArchivedItems.
+  ///
+  /// In zh, this message translates to:
+  /// **'已归档'**
+  String get workbenchProjectArchivedItems;
+
+  /// No description provided for @workbenchProjectEditAction.
+  ///
+  /// In zh, this message translates to:
+  /// **'编辑'**
+  String get workbenchProjectEditAction;
+
+  /// No description provided for @workbenchProjectEditTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'编辑条目'**
+  String get workbenchProjectEditTitle;
+
+  /// No description provided for @workbenchProjectArchiveAction.
+  ///
+  /// In zh, this message translates to:
+  /// **'归档'**
+  String get workbenchProjectArchiveAction;
+
+  /// No description provided for @workbenchProjectMissingCreateApi.
+  ///
+  /// In zh, this message translates to:
+  /// **'这个项目没有可用的新增工具'**
+  String get workbenchProjectMissingCreateApi;
+
+  /// No description provided for @workbenchProjectMissingUpdateApi.
+  ///
+  /// In zh, this message translates to:
+  /// **'这个项目没有可用的编辑工具'**
+  String get workbenchProjectMissingUpdateApi;
+
+  /// No description provided for @workbenchProjectMissingArchiveApi.
+  ///
+  /// In zh, this message translates to:
+  /// **'这个项目没有可用的归档工具'**
+  String get workbenchProjectMissingArchiveApi;
+
+  /// No description provided for @workbenchProjectInputRequired.
+  ///
+  /// In zh, this message translates to:
+  /// **'请先输入 {entity}'**
+  String workbenchProjectInputRequired(String entity);
+
+  /// No description provided for @workbenchProjectItemCreated.
+  ///
+  /// In zh, this message translates to:
+  /// **'{entity} 已新增'**
+  String workbenchProjectItemCreated(String entity);
+
+  /// No description provided for @workbenchProjectItemUpdated.
+  ///
+  /// In zh, this message translates to:
+  /// **'{entity} 已保存'**
+  String workbenchProjectItemUpdated(String entity);
+
+  /// No description provided for @workbenchProjectItemArchived.
+  ///
+  /// In zh, this message translates to:
+  /// **'{entity} 已归档'**
+  String workbenchProjectItemArchived(String entity);
+
+  /// No description provided for @workbenchLoadFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'加载失败'**
+  String get workbenchLoadFailed;
+
+  /// No description provided for @workbenchUnknownTool.
+  ///
+  /// In zh, this message translates to:
+  /// **'工作台工具执行失败'**
+  String get workbenchUnknownTool;
+
+  /// No description provided for @workbenchStatusOpen.
+  ///
+  /// In zh, this message translates to:
+  /// **'等待处理'**
+  String get workbenchStatusOpen;
+
+  /// No description provided for @workbenchStatusFinished.
+  ///
+  /// In zh, this message translates to:
+  /// **'已归档'**
+  String get workbenchStatusFinished;
+
+  /// No description provided for @workbenchAssistantName.
+  ///
+  /// In zh, this message translates to:
+  /// **'小万'**
+  String get workbenchAssistantName;
+
+  /// No description provided for @workbenchAssistantTooltip.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开小万'**
+  String get workbenchAssistantTooltip;
+
+  /// No description provided for @workbenchAssistantPromptHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'说出你想实时调整的地方'**
+  String get workbenchAssistantPromptHint;
+
+  /// No description provided for @workbenchAssistantSend.
+  ///
+  /// In zh, this message translates to:
+  /// **'热更新当前项目'**
+  String get workbenchAssistantSend;
+
+  /// No description provided for @workbenchAssistantApplied.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目已热更新'**
+  String get workbenchAssistantApplied;
+
+  /// No description provided for @workbenchAssistantPromptRequired.
+  ///
+  /// In zh, this message translates to:
+  /// **'请先输入要调整的内容'**
+  String get workbenchAssistantPromptRequired;
+
+  /// No description provided for @workbenchAssistantNoProject.
+  ///
+  /// In zh, this message translates to:
+  /// **'请先选择一个项目'**
+  String get workbenchAssistantNoProject;
+
+  /// No description provided for @workbenchAssistantHotUpdateFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目热更新失败'**
+  String get workbenchAssistantHotUpdateFailed;
+
+  /// No description provided for @workbenchProjectModeTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目'**
+  String get workbenchProjectModeTitle;
+
+  /// No description provided for @workbenchFlutterDisplay.
+  ///
+  /// In zh, this message translates to:
+  /// **'Flutter 显示页'**
+  String get workbenchFlutterDisplay;
+
+  /// No description provided for @workbenchFlutterEvalTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'Flutter 运行页'**
+  String get workbenchFlutterEvalTitle;
+
+  /// No description provided for @workbenchFlutterEvalNoSource.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前项目还没有可运行的 Flutter 源码。请在 frontend/flutter/lib/main.dart 定义 OobProjectWidget。'**
+  String get workbenchFlutterEvalNoSource;
+
+  /// No description provided for @workbenchFlutterEvalRuntimeFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'Flutter 源码暂不可运行，请回到输入框让小万修复这个页面。'**
+  String get workbenchFlutterEvalRuntimeFailed;
+
+  /// No description provided for @workbenchProjectSwitcher.
+  ///
+  /// In zh, this message translates to:
+  /// **'切换项目'**
+  String get workbenchProjectSwitcher;
+
+  /// No description provided for @workbenchProjectGenerateTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目容器'**
+  String get workbenchProjectGenerateTitle;
+
+  /// No description provided for @workbenchProjectGenerateSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'这里只选择和打开项目容器。创建、编辑和热更新继续回到首页大输入框，由当前激活的项目 toolbox 承接。'**
+  String get workbenchProjectGenerateSubtitle;
+
+  /// No description provided for @workbenchProjectPromptHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'回到首页输入项目需求'**
+  String get workbenchProjectPromptHint;
+
+  /// No description provided for @workbenchProjectDefaultPrompt.
+  ///
+  /// In zh, this message translates to:
+  /// **'我想创建一个简单的 todolist 管理系统，要求可以增加 todo，归档 todo'**
+  String get workbenchProjectDefaultPrompt;
+
+  /// No description provided for @workbenchProjectGenerateButton.
+  ///
+  /// In zh, this message translates to:
+  /// **'回到首页继续'**
+  String get workbenchProjectGenerateButton;
+
+  /// No description provided for @workbenchInputProjectTooltip.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开项目工作台'**
+  String get workbenchInputProjectTooltip;
+
+  /// No description provided for @workbenchGeneratedTodoProjectName.
+  ///
+  /// In zh, this message translates to:
+  /// **'Todo List 工作台'**
+  String get workbenchGeneratedTodoProjectName;
+
+  /// No description provided for @workbenchPromptSeedAddTodo.
+  ///
+  /// In zh, this message translates to:
+  /// **'验证可以增加 todo'**
+  String get workbenchPromptSeedAddTodo;
+
+  /// No description provided for @workbenchPromptSeedArchiveTodo.
+  ///
+  /// In zh, this message translates to:
+  /// **'验证可以归档 todo'**
+  String get workbenchPromptSeedArchiveTodo;
+
+  /// No description provided for @workbenchProjectPlanTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'拆分计划'**
+  String get workbenchProjectPlanTitle;
+
+  /// No description provided for @workbenchProjectPlanProject.
+  ///
+  /// In zh, this message translates to:
+  /// **'创建项目注册和可编辑工作区'**
+  String get workbenchProjectPlanProject;
+
+  /// No description provided for @workbenchProjectPlanFrontend.
+  ///
+  /// In zh, this message translates to:
+  /// **'生成 OOB 原生 Flutter 前端'**
+  String get workbenchProjectPlanFrontend;
+
+  /// No description provided for @workbenchProjectPlanApi.
+  ///
+  /// In zh, this message translates to:
+  /// **'注册 AI/UI 共用项目工具'**
+  String get workbenchProjectPlanApi;
+
+  /// No description provided for @workbenchProjectPlanData.
+  ///
+  /// In zh, this message translates to:
+  /// **'写入持久化数据和工具日志'**
+  String get workbenchProjectPlanData;
+
+  /// No description provided for @workbenchUseMode.
+  ///
+  /// In zh, this message translates to:
+  /// **'使用模式'**
+  String get workbenchUseMode;
+
+  /// No description provided for @workbenchDebugMode.
+  ///
+  /// In zh, this message translates to:
+  /// **'Debug 模式'**
+  String get workbenchDebugMode;
+
+  /// No description provided for @workbenchDisplaysTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'页面'**
+  String get workbenchDisplaysTitle;
+
+  /// No description provided for @workbenchDisplayCount.
+  ///
+  /// In zh, this message translates to:
+  /// **'{count} 个前端'**
+  String workbenchDisplayCount(int count);
+
+  /// No description provided for @workbenchUnnamedDisplay.
+  ///
+  /// In zh, this message translates to:
+  /// **'未命名前端'**
+  String get workbenchUnnamedDisplay;
+
+  /// No description provided for @workbenchOpenDisplay.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开这个前端'**
+  String get workbenchOpenDisplay;
+
+  /// No description provided for @workbenchDebugDisplay.
+  ///
+  /// In zh, this message translates to:
+  /// **'调试这个前端'**
+  String get workbenchDebugDisplay;
+
+  /// No description provided for @workbenchProjectCurrentTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目使用台'**
+  String get workbenchProjectCurrentTitle;
+
+  /// No description provided for @workbenchProjectCurrentSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'默认打开前端会回到首页；调试打开会回到工作台。热更新通过首页大输入框和当前激活项目完成。'**
+  String get workbenchProjectCurrentSubtitle;
+
+  /// No description provided for @workbenchProjectModeCreateTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'Vibe 项目入口'**
+  String get workbenchProjectModeCreateTitle;
+
+  /// No description provided for @workbenchProjectModeSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'这里只显示项目和当前激活项。'**
+  String get workbenchProjectModeSubtitle;
+
+  /// No description provided for @workbenchProjectActiveTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前项目'**
+  String get workbenchProjectActiveTitle;
+
+  /// No description provided for @workbenchProjectActiveEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'尚未激活项目'**
+  String get workbenchProjectActiveEmpty;
+
+  /// No description provided for @workbenchProjectListTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目'**
+  String get workbenchProjectListTitle;
+
+  /// No description provided for @workbenchProjectDetailTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目'**
+  String get workbenchProjectDetailTitle;
+
+  /// No description provided for @workbenchProjectModeCreateButton.
+  ///
+  /// In zh, this message translates to:
+  /// **'去首页创建'**
+  String get workbenchProjectModeCreateButton;
+
+  /// No description provided for @workbenchProjectCreateFromHome.
+  ///
+  /// In zh, this message translates to:
+  /// **'回到首页输入框，直接说创建项目或描述你想做的页面。'**
+  String get workbenchProjectCreateFromHome;
+
+  /// No description provided for @workbenchProjectModeProjectsTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前工具'**
+  String get workbenchProjectModeProjectsTitle;
+
+  /// No description provided for @workbenchProjectApiForProject.
+  ///
+  /// In zh, this message translates to:
+  /// **'工具'**
+  String get workbenchProjectApiForProject;
+
+  /// No description provided for @workbenchProjectModeOpen.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开项目'**
+  String get workbenchProjectModeOpen;
+
+  /// No description provided for @workbenchProjectModeEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂无工作台项目'**
+  String get workbenchProjectModeEmpty;
+
+  /// No description provided for @workbenchProjectModeLoadFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目模式加载失败'**
+  String get workbenchProjectModeLoadFailed;
+
+  /// No description provided for @workbenchProjectPromptRequired.
+  ///
+  /// In zh, this message translates to:
+  /// **'请先输入项目需求'**
+  String get workbenchProjectPromptRequired;
+
+  /// No description provided for @workbenchProjectGenerated.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目已生成'**
+  String get workbenchProjectGenerated;
+
+  /// No description provided for @workbenchDeleteProject.
+  ///
+  /// In zh, this message translates to:
+  /// **'删除项目'**
+  String get workbenchDeleteProject;
+
+  /// No description provided for @workbenchDeleteProjectTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'删除项目'**
+  String get workbenchDeleteProjectTitle;
+
+  /// No description provided for @workbenchDeleteProjectMessage.
+  ///
+  /// In zh, this message translates to:
+  /// **'确定删除 {projectId}？它会移除项目注册、业务工具注册和工作区项目文件。'**
+  String workbenchDeleteProjectMessage(String projectId);
+
+  /// No description provided for @workbenchDeleteProjectCancel.
+  ///
+  /// In zh, this message translates to:
+  /// **'取消'**
+  String get workbenchDeleteProjectCancel;
+
+  /// No description provided for @workbenchDeleteProjectConfirm.
+  ///
+  /// In zh, this message translates to:
+  /// **'删除'**
+  String get workbenchDeleteProjectConfirm;
+
+  /// No description provided for @workbenchDeleteProjectFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目删除失败'**
+  String get workbenchDeleteProjectFailed;
+
+  /// No description provided for @workbenchProjectDeleted.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目已删除'**
+  String get workbenchProjectDeleted;
+
+  /// No description provided for @workbenchProjectIdRequired.
+  ///
+  /// In zh, this message translates to:
+  /// **'请输入项目 ID'**
+  String get workbenchProjectIdRequired;
+
+  /// No description provided for @workbenchProjectCreated.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目已创建'**
+  String get workbenchProjectCreated;
+
+  /// No description provided for @workbenchProjectInfoTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目信息'**
+  String get workbenchProjectInfoTitle;
+
+  /// No description provided for @workbenchProjectInfoDisplayTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'显示入口'**
+  String get workbenchProjectInfoDisplayTitle;
+
+  /// No description provided for @workbenchProjectInfoSourceTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'源码规格'**
+  String get workbenchProjectInfoSourceTitle;
+
+  /// No description provided for @workbenchProjectInfoSourceValue.
+  ///
+  /// In zh, this message translates to:
+  /// **'README.md / frontend/page_spec.json / backend/api_spec.json'**
+  String get workbenchProjectInfoSourceValue;
+
+  /// No description provided for @workbenchProjectInfoRuntimeTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'运行态'**
+  String get workbenchProjectInfoRuntimeTitle;
+
+  /// No description provided for @workbenchProjectInfoRuntimeValue.
+  ///
+  /// In zh, this message translates to:
+  /// **'data/todos.json / logs/api_calls.jsonl'**
+  String get workbenchProjectInfoRuntimeValue;
+
+  /// No description provided for @workbenchDebugToolsTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'调试工具'**
+  String get workbenchDebugToolsTitle;
+
+  /// No description provided for @workbenchDebugHotUpdate.
+  ///
+  /// In zh, this message translates to:
+  /// **'悬浮小万实时修改当前项目'**
+  String get workbenchDebugHotUpdate;
+
+  /// No description provided for @workbenchDebugHotUpdateHomeInput.
+  ///
+  /// In zh, this message translates to:
+  /// **'回到首页大输入框描述修改，Agent 会带着当前项目 toolbox 执行热更新'**
+  String get workbenchDebugHotUpdateHomeInput;
+
+  /// No description provided for @workbenchDebugFloatingXiaowan.
+  ///
+  /// In zh, this message translates to:
+  /// **'悬浮小万可以带上当前前端上下文，选择页面信息后调用 workbench_project_hot_update 迭代这个项目。'**
+  String get workbenchDebugFloatingXiaowan;
+
+  /// No description provided for @workbenchDebugVlmInput.
+  ///
+  /// In zh, this message translates to:
+  /// **'VLM 输入也可以附带当前显示页、可见状态、选中控件或截图摘要，作为 frontendContext 交给项目 Skill。'**
+  String get workbenchDebugVlmInput;
+
+  /// No description provided for @workbenchDebugContextProject.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目 {projectId}'**
+  String workbenchDebugContextProject(String projectId);
+
+  /// No description provided for @workbenchDebugContextDisplay.
+  ///
+  /// In zh, this message translates to:
+  /// **'显示页 {displayId}'**
+  String workbenchDebugContextDisplay(String displayId);
+
+  /// No description provided for @workbenchDebugContextRoute.
+  ///
+  /// In zh, this message translates to:
+  /// **'页面路径 {route}'**
+  String workbenchDebugContextRoute(String route);
+
+  /// No description provided for @workbenchDebugVlmTest.
+  ///
+  /// In zh, this message translates to:
+  /// **'根据 VLM 模拟人类操作测试'**
+  String get workbenchDebugVlmTest;
+
+  /// No description provided for @workbenchDebugComingSoon.
+  ///
+  /// In zh, this message translates to:
+  /// **'待接入'**
+  String get workbenchDebugComingSoon;
+
+  /// No description provided for @workbenchAnnotationTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'标注画布'**
+  String get workbenchAnnotationTitle;
+
+  /// No description provided for @workbenchAnnotationDrawMode.
+  ///
+  /// In zh, this message translates to:
+  /// **'画笔'**
+  String get workbenchAnnotationDrawMode;
+
+  /// No description provided for @workbenchAnnotationBrowseMode.
+  ///
+  /// In zh, this message translates to:
+  /// **'浏览页面'**
+  String get workbenchAnnotationBrowseMode;
+
+  /// No description provided for @workbenchAnnotationUndo.
+  ///
+  /// In zh, this message translates to:
+  /// **'撤销'**
+  String get workbenchAnnotationUndo;
+
+  /// No description provided for @workbenchAnnotationClear.
+  ///
+  /// In zh, this message translates to:
+  /// **'清空'**
+  String get workbenchAnnotationClear;
+
+  /// No description provided for @workbenchAnnotationApply.
+  ///
+  /// In zh, this message translates to:
+  /// **'应用标注'**
+  String get workbenchAnnotationApply;
+
+  /// No description provided for @workbenchAnnotationApplying.
+  ///
+  /// In zh, this message translates to:
+  /// **'应用中'**
+  String get workbenchAnnotationApplying;
+
+  /// No description provided for @workbenchAnnotationPromptHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'补充修改说明，例如：把这里改成主按钮'**
+  String get workbenchAnnotationPromptHint;
+
+  /// No description provided for @workbenchAnnotationNoStrokes.
+  ///
+  /// In zh, this message translates to:
+  /// **'先在页面上画出要修改的区域'**
+  String get workbenchAnnotationNoStrokes;
+
+  /// No description provided for @workbenchAnnotationNoShape.
+  ///
+  /// In zh, this message translates to:
+  /// **'未标注'**
+  String get workbenchAnnotationNoShape;
+
+  /// No description provided for @workbenchAnnotationShapeCount.
+  ///
+  /// In zh, this message translates to:
+  /// **'已标注 {count} 笔'**
+  String workbenchAnnotationShapeCount(int count);
+
+  /// No description provided for @workbenchAnnotationDefaultPrompt.
+  ///
+  /// In zh, this message translates to:
+  /// **'根据画布标注调整当前项目前端。'**
+  String get workbenchAnnotationDefaultPrompt;
+
+  /// No description provided for @workbenchAnnotationHotUpdateSuccess.
+  ///
+  /// In zh, this message translates to:
+  /// **'已把标注应用到项目'**
+  String get workbenchAnnotationHotUpdateSuccess;
+
+  /// No description provided for @workbenchAnnotationHotUpdateFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'标注热更新失败'**
+  String get workbenchAnnotationHotUpdateFailed;
+
+  /// No description provided for @workbenchExportProjectPackage.
+  ///
+  /// In zh, this message translates to:
+  /// **'导出分发包'**
+  String get workbenchExportProjectPackage;
+
+  /// No description provided for @workbenchProjectExportFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目导出失败'**
+  String get workbenchProjectExportFailed;
+
+  /// No description provided for @workbenchProjectExported.
+  ///
+  /// In zh, this message translates to:
+  /// **'已导出 {packageName}'**
+  String workbenchProjectExported(String packageName);
+
+  /// No description provided for @workbenchProjectExportPath.
+  ///
+  /// In zh, this message translates to:
+  /// **'导出位置：{path}'**
+  String workbenchProjectExportPath(String path);
+
+  /// No description provided for @workbenchAndroidAssetsTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'应用'**
+  String get workbenchAndroidAssetsTitle;
+
+  /// No description provided for @workbenchAndroidSourceHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'输入 APK 或 Android 项目路径，例如 /workspace/apps/demo.apk'**
+  String get workbenchAndroidSourceHint;
+
+  /// No description provided for @workbenchAndroidIngestButton.
+  ///
+  /// In zh, this message translates to:
+  /// **'导入到当前项目'**
+  String get workbenchAndroidIngestButton;
+
+  /// No description provided for @workbenchAndroidSourceRequired.
+  ///
+  /// In zh, this message translates to:
+  /// **'请输入 Android 应用或项目路径'**
+  String get workbenchAndroidSourceRequired;
+
+  /// No description provided for @workbenchAndroidIngestFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'Android 资产导入失败'**
+  String get workbenchAndroidIngestFailed;
+
+  /// No description provided for @workbenchAndroidIngested.
+  ///
+  /// In zh, this message translates to:
+  /// **'已导入 {name}'**
+  String workbenchAndroidIngested(String name);
+
+  /// No description provided for @workbenchAndroidAssetsEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂无导入的 Android 应用或项目'**
+  String get workbenchAndroidAssetsEmpty;
+
+  /// No description provided for @workbenchProjectActivateFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目激活失败'**
+  String get workbenchProjectActivateFailed;
+
+  /// No description provided for @workbenchProjectActivated.
+  ///
+  /// In zh, this message translates to:
+  /// **'已激活 {projectName}'**
+  String workbenchProjectActivated(String projectName);
+
+  /// No description provided for @workbenchProjectDeactivateFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目取消激活失败'**
+  String get workbenchProjectDeactivateFailed;
+
+  /// No description provided for @workbenchProjectDeactivated.
+  ///
+  /// In zh, this message translates to:
+  /// **'已取消激活项目'**
+  String get workbenchProjectDeactivated;
+
+  /// No description provided for @workbenchActivateProject.
+  ///
+  /// In zh, this message translates to:
+  /// **'激活项目'**
+  String get workbenchActivateProject;
+
+  /// No description provided for @workbenchDeactivateProject.
+  ///
+  /// In zh, this message translates to:
+  /// **'取消激活'**
+  String get workbenchDeactivateProject;
+
+  /// No description provided for @workbenchEditProjectLabels.
+  ///
+  /// In zh, this message translates to:
+  /// **'编辑名称'**
+  String get workbenchEditProjectLabels;
+
+  /// No description provided for @workbenchProjectNameLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'名称'**
+  String get workbenchProjectNameLabel;
+
+  /// No description provided for @workbenchProjectShortNameLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'简写'**
+  String get workbenchProjectShortNameLabel;
+
+  /// No description provided for @workbenchSaveProjectLabels.
+  ///
+  /// In zh, this message translates to:
+  /// **'保存'**
+  String get workbenchSaveProjectLabels;
+
+  /// No description provided for @workbenchProjectNameRequired.
+  ///
+  /// In zh, this message translates to:
+  /// **'请输入名称'**
+  String get workbenchProjectNameRequired;
+
+  /// No description provided for @workbenchProjectLabelsUpdated.
+  ///
+  /// In zh, this message translates to:
+  /// **'已保存'**
+  String get workbenchProjectLabelsUpdated;
+
+  /// No description provided for @workbenchProjectLabelsUpdateFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'保存失败'**
+  String get workbenchProjectLabelsUpdateFailed;
+
+  /// No description provided for @workbenchProjectMoreActions.
+  ///
+  /// In zh, this message translates to:
+  /// **'更多操作'**
+  String get workbenchProjectMoreActions;
+
+  /// No description provided for @workbenchActiveProject.
+  ///
+  /// In zh, this message translates to:
+  /// **'已激活'**
+  String get workbenchActiveProject;
+
+  /// No description provided for @workbenchInactiveProject.
+  ///
+  /// In zh, this message translates to:
+  /// **'未激活'**
+  String get workbenchInactiveProject;
+
+  /// No description provided for @workbenchContinueInHome.
+  ///
+  /// In zh, this message translates to:
+  /// **'激活项目'**
+  String get workbenchContinueInHome;
+
+  /// No description provided for @workbenchProjectHelpTooltip.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目工作台说明'**
+  String get workbenchProjectHelpTooltip;
+
+  /// No description provided for @workbenchProjectHelpTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目工作台'**
+  String get workbenchProjectHelpTitle;
+
+  /// No description provided for @workbenchProjectHelpHomeInput.
+  ///
+  /// In zh, this message translates to:
+  /// **'创建、编辑和热更新都在首页大输入框里完成。'**
+  String get workbenchProjectHelpHomeInput;
+
+  /// No description provided for @workbenchProjectHelpSelect.
+  ///
+  /// In zh, this message translates to:
+  /// **'这里选择一个项目，把它激活为 Agent 当前工作环境。'**
+  String get workbenchProjectHelpSelect;
+
+  /// No description provided for @workbenchProjectHelpDisplays.
+  ///
+  /// In zh, this message translates to:
+  /// **'每个项目可以有多个 Flutter 前端显示页，从这里打开容器。'**
+  String get workbenchProjectHelpDisplays;
+
+  /// No description provided for @workbenchProjectHelpApis.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目工具是当前项目的业务 toolbox，和 MCP tools 分开管理。'**
+  String get workbenchProjectHelpApis;
+
+  /// No description provided for @workbenchActiveProjectChip.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目：{projectName}'**
+  String workbenchActiveProjectChip(String projectName);
+
+  /// No description provided for @workbenchProjectSummaryGeneric.
+  ///
+  /// In zh, this message translates to:
+  /// **'管理 {entityName} 记录，并保留状态和快捷操作。'**
+  String workbenchProjectSummaryGeneric(String entityName);
+
+  /// No description provided for @workbenchAndroidAssetCount.
+  ///
+  /// In zh, this message translates to:
+  /// **'{count} 个 Android 资产'**
+  String workbenchAndroidAssetCount(int count);
+
+  /// No description provided for @workbenchProjectItemCount.
+  ///
+  /// In zh, this message translates to:
+  /// **'{activeCount} 条进行中 / {archivedCount} 条归档'**
+  String workbenchProjectItemCount(int activeCount, int archivedCount);
+
+  /// No description provided for @workbenchApiCount.
+  ///
+  /// In zh, this message translates to:
+  /// **'{count} 个工具'**
+  String workbenchApiCount(int count);
+
+  /// No description provided for @workbenchPhilosophyBadge.
+  ///
+  /// In zh, this message translates to:
+  /// **'了解工作台'**
+  String get workbenchPhilosophyBadge;
+
+  /// No description provided for @workbenchPhilosophyClose.
+  ///
+  /// In zh, this message translates to:
+  /// **'关闭'**
+  String get workbenchPhilosophyClose;
+
+  /// No description provided for @workbenchPhilosophyTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'AI 产品展示工作台'**
+  String get workbenchPhilosophyTitle;
+
+  /// No description provided for @workbenchPhilosophyTagline.
+  ///
+  /// In zh, this message translates to:
+  /// **'让 AI 的结果立刻变成可看、可点、可继续修改的界面'**
+  String get workbenchPhilosophyTagline;
+
+  /// No description provided for @workbenchPhilosophySubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'Workbench 不是模板生成器，而是 AI 产品的展示与运行层。Agent 产出的报告、数据、状态和操作会落到 Project 中，通过 HTML、Markdown 或 Flutter 显示，并通过 Project API 连接手机能力与持久化数据。'**
+  String get workbenchPhilosophySubtitle;
+
+  /// No description provided for @workbenchPhilosophyPillarsTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前核心闭环'**
+  String get workbenchPhilosophyPillarsTitle;
+
+  /// No description provided for @workbenchPhilosophyComposable.
+  ///
+  /// In zh, this message translates to:
+  /// **'显示层'**
+  String get workbenchPhilosophyComposable;
+
+  /// No description provided for @workbenchPhilosophyComposableDesc.
+  ///
+  /// In zh, this message translates to:
+  /// **'HTML / Markdown / Flutter 都是 Project Display，用来承载 AI 输出'**
+  String get workbenchPhilosophyComposableDesc;
+
+  /// No description provided for @workbenchPhilosophyAIDriven.
+  ///
+  /// In zh, this message translates to:
+  /// **'交互层'**
+  String get workbenchPhilosophyAIDriven;
+
+  /// No description provided for @workbenchPhilosophyAIDrivenDesc.
+  ///
+  /// In zh, this message translates to:
+  /// **'用户点击、填写、选择后，通过 Project API 触发下一步 Agent 或工具'**
+  String get workbenchPhilosophyAIDrivenDesc;
+
+  /// No description provided for @workbenchPhilosophyMobileNative.
+  ///
+  /// In zh, this message translates to:
+  /// **'能力层'**
+  String get workbenchPhilosophyMobileNative;
+
+  /// No description provided for @workbenchPhilosophyMobileNativeDesc.
+  ///
+  /// In zh, this message translates to:
+  /// **'需要操控手机、读屏、文件、脚本时，再走 OOB 原生能力'**
+  String get workbenchPhilosophyMobileNativeDesc;
+
+  /// No description provided for @workbenchPhilosophyStrengthsTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'三件事'**
+  String get workbenchPhilosophyStrengthsTitle;
+
+  /// No description provided for @workbenchPhilosophyBackendTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'Project API'**
+  String get workbenchPhilosophyBackendTitle;
+
+  /// No description provided for @workbenchPhilosophyBackendDesc.
+  ///
+  /// In zh, this message translates to:
+  /// **'白名单工具、持久化数据、运行日志和手机能力统一挂到 Project 上'**
+  String get workbenchPhilosophyBackendDesc;
+
+  /// No description provided for @workbenchPhilosophyFrontendTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'Display'**
+  String get workbenchPhilosophyFrontendTitle;
+
+  /// No description provided for @workbenchPhilosophyFrontendDesc.
+  ///
+  /// In zh, this message translates to:
+  /// **'普通交互 UI 默认 HTML；报告用 Markdown / HTML；Flutter 保留为容器和受限补充'**
+  String get workbenchPhilosophyFrontendDesc;
+
+  /// No description provided for @workbenchPhilosophyRuntimeTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'Hot update'**
+  String get workbenchPhilosophyRuntimeTitle;
+
+  /// No description provided for @workbenchPhilosophyRuntimeDesc.
+  ///
+  /// In zh, this message translates to:
+  /// **'用户一句话或一次选区标注后，AI 只改必要的前端文件或 API，右侧立即刷新'**
+  String get workbenchPhilosophyRuntimeDesc;
+
+  /// No description provided for @workbenchPhilosophyHowToTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'使用方式'**
+  String get workbenchPhilosophyHowToTitle;
+
+  /// No description provided for @workbenchPhilosophyStep1Label.
+  ///
+  /// In zh, this message translates to:
+  /// **'生成'**
+  String get workbenchPhilosophyStep1Label;
+
+  /// No description provided for @workbenchPhilosophyStep1Desc.
+  ///
+  /// In zh, this message translates to:
+  /// **'Agent 创建 Project，写入 API 与显示文件'**
+  String get workbenchPhilosophyStep1Desc;
+
+  /// No description provided for @workbenchPhilosophyStep2Label.
+  ///
+  /// In zh, this message translates to:
+  /// **'查看'**
+  String get workbenchPhilosophyStep2Label;
+
+  /// No description provided for @workbenchPhilosophyStep2Desc.
+  ///
+  /// In zh, this message translates to:
+  /// **'右侧 Workspace 直接预览 HTML / Markdown / Flutter'**
+  String get workbenchPhilosophyStep2Desc;
+
+  /// No description provided for @workbenchPhilosophyStep3Label.
+  ///
+  /// In zh, this message translates to:
+  /// **'修改'**
+  String get workbenchPhilosophyStep3Label;
+
+  /// No description provided for @workbenchPhilosophyStep3Desc.
+  ///
+  /// In zh, this message translates to:
+  /// **'用悬浮输入或标注提出修改，Project 热更新'**
+  String get workbenchPhilosophyStep3Desc;
+
+  /// No description provided for @workbenchPhilosophyActivateHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'激活项目后，右侧 Workspace 显示它的 Display；继续输入或标注会作为上下文传给 hot update。'**
+  String get workbenchPhilosophyActivateHint;
+
+  /// No description provided for @sourceTextf9dfa89402.
+  ///
+  /// In zh, this message translates to:
+  /// **'小万悬浮窗'**
+  String get sourceTextf9dfa89402;
+
+  /// No description provided for @sourceTextea6631ac86.
+  ///
+  /// In zh, this message translates to:
+  /// **'关闭后不再显示桌面悬浮球、半屏输入层和运行胶囊'**
+  String get sourceTextea6631ac86;
+
+  /// No description provided for @sourceText60d33fd58f.
+  ///
+  /// In zh, this message translates to:
+  /// **'小万悬浮窗已开启'**
+  String get sourceText60d33fd58f;
+
+  /// No description provided for @sourceText9803e0f8d8.
+  ///
+  /// In zh, this message translates to:
+  /// **'小万悬浮窗已关闭'**
+  String get sourceText9803e0f8d8;
+
+  /// No description provided for @sourceText8ed5fe74f6.
+  ///
+  /// In zh, this message translates to:
+  /// **'设置悬浮窗失败'**
+  String get sourceText8ed5fe74f6;
+
+  /// No description provided for @sourceText2a4a4de806.
+  ///
+  /// In zh, this message translates to:
+  /// **'手动'**
+  String get sourceText2a4a4de806;
+
+  /// No description provided for @sourceText76c9741888.
+  ///
+  /// In zh, this message translates to:
+  /// **'Shizuku 权限'**
+  String get sourceText76c9741888;
+
+  /// No description provided for @sourceText5e04ad1c9a.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在调用内嵌 Alpine 终端执行命令'**
+  String get sourceText5e04ad1c9a;
+
+  /// No description provided for @sourceTextc0b7ed8600.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在执行内嵌 Alpine 终端命令'**
+  String get sourceTextc0b7ed8600;
+
+  /// No description provided for @sourceText60cf09e22d.
+  ///
+  /// In zh, this message translates to:
+  /// **'终端输出更新中'**
+  String get sourceText60cf09e22d;
+
+  /// No description provided for @sourceText140c80c696.
+  ///
+  /// In zh, this message translates to:
+  /// **'🎉Hi，我是小万，我会做很多事，让我展示给你下！'**
+  String get sourceText140c80c696;
+
+  /// No description provided for @sourceText82347f1be8.
+  ///
+  /// In zh, this message translates to:
+  /// **'Hi，我是小万'**
+  String get sourceText82347f1be8;
+
+  /// No description provided for @sourceText5167632783.
+  ///
+  /// In zh, this message translates to:
+  /// **'你的 AI 助手，随时准备就绪'**
+  String get sourceText5167632783;
+
+  /// No description provided for @sourceText63a921a287.
+  ///
+  /// In zh, this message translates to:
+  /// **'无需网络，完全免费'**
+  String get sourceText63a921a287;
+
+  /// No description provided for @sourceText112e197134.
+  ///
+  /// In zh, this message translates to:
+  /// **'数据完全留在设备上，不会发送到任何服务器。对话内容、个人偏好等敏感信息始终由你掌控。'**
+  String get sourceText112e197134;
+
+  /// No description provided for @sourceText8de8b69cc9.
+  ///
+  /// In zh, this message translates to:
+  /// **'无需网络连接即可运行 AI 助手。无论在飞机上、地铁里还是偏远地区，随时随地可用。'**
+  String get sourceText8de8b69cc9;
+
+  /// No description provided for @sourceTexteac537b43e.
+  ///
+  /// In zh, this message translates to:
+  /// **'无需 API 费用或订阅。模型下载后可无限次使用，没有任何隐藏费用。'**
+  String get sourceTexteac537b43e;
+
+  /// No description provided for @sourceTexte8b806ace2.
+  ///
+  /// In zh, this message translates to:
+  /// **'端侧模型较小，回复质量不如云端模型，暂不支持复杂 Agent 任务，适合日常对话与问答。'**
+  String get sourceTexte8b806ace2;
+
+  /// No description provided for @sourceText7e1cc2fc3f.
+  ///
+  /// In zh, this message translates to:
+  /// **'换一换'**
+  String get sourceText7e1cc2fc3f;
+
+  /// No description provided for @sourceText63e272f624.
+  ///
+  /// In zh, this message translates to:
+  /// **'小万正在思考...'**
+  String get sourceText63e272f624;
+
+  /// No description provided for @sourceTextd9f594509d.
+  ///
+  /// In zh, this message translates to:
+  /// **'总结中'**
+  String get sourceTextd9f594509d;
+
+  /// No description provided for @sourceText9384e034e5.
+  ///
+  /// In zh, this message translates to:
+  /// **'总结如下'**
+  String get sourceText9384e034e5;
+
+  /// No description provided for @sourceText3e44b2a933.
+  ///
+  /// In zh, this message translates to:
+  /// **'全选'**
+  String get sourceText3e44b2a933;
+
+  /// No description provided for @sourceText4edd1d0087.
+  ///
+  /// In zh, this message translates to:
+  /// **'复制'**
+  String get sourceText4edd1d0087;
+
+  /// No description provided for @sourceTextb56d9ac6c5.
+  ///
+  /// In zh, this message translates to:
+  /// **'确认'**
+  String get sourceTextb56d9ac6c5;
+
+  /// No description provided for @sourceTextf526c89937.
+  ///
+  /// In zh, this message translates to:
+  /// **'确定'**
+  String get sourceTextf526c89937;
+
+  /// No description provided for @sourceText4d0b3bb4e9.
+  ///
+  /// In zh, this message translates to:
+  /// **'请稍候...'**
+  String get sourceText4d0b3bb4e9;
+
+  /// No description provided for @sourceTextee5037d25d.
+  ///
+  /// In zh, this message translates to:
+  /// **'保存并发送'**
+  String get sourceTextee5037d25d;
+
+  /// No description provided for @sourceTextbe15d6f28c.
+  ///
+  /// In zh, this message translates to:
+  /// **'未设置模型'**
+  String get sourceTextbe15d6f28c;
+
+  /// No description provided for @sourceText01047404ef.
+  ///
+  /// In zh, this message translates to:
+  /// **'发现新版本'**
+  String get sourceText01047404ef;
+
+  /// No description provided for @sourceText1722589489.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开终端'**
+  String get sourceText1722589489;
+
+  /// No description provided for @sourceText649fc10b46.
+  ///
+  /// In zh, this message translates to:
+  /// **'管理终端环境变量'**
+  String get sourceText649fc10b46;
+
+  /// No description provided for @sourceTextd8f03e50ea.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开当前会话浏览器'**
+  String get sourceTextd8f03e50ea;
+
+  /// No description provided for @sourceTextc1c986937d.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前会话还没有可用的浏览器会话'**
+  String get sourceTextc1c986937d;
+
+  /// No description provided for @sourceText31b7c8d175.
+  ///
+  /// In zh, this message translates to:
+  /// **'纯聊天'**
+  String get sourceText31b7c8d175;
+
+  /// No description provided for @sourceText7cda072d45.
+  ///
+  /// In zh, this message translates to:
+  /// **'普通'**
+  String get sourceText7cda072d45;
+
+  /// No description provided for @sourceText17e83cc25e.
+  ///
+  /// In zh, this message translates to:
+  /// **'今天'**
+  String get sourceText17e83cc25e;
+
+  /// No description provided for @sourceText59c4fcb09e.
+  ///
+  /// In zh, this message translates to:
+  /// **'昨天'**
+  String get sourceText59c4fcb09e;
+
+  /// No description provided for @sourceText1f425b6bf0.
+  ///
+  /// In zh, this message translates to:
+  /// **'执行中'**
+  String get sourceText1f425b6bf0;
+
+  /// No description provided for @sourceText6c189aad4d.
+  ///
+  /// In zh, this message translates to:
+  /// **'执行成功'**
+  String get sourceText6c189aad4d;
+
+  /// No description provided for @sourceText9746cfc7d2.
+  ///
+  /// In zh, this message translates to:
+  /// **'执行失败'**
+  String get sourceText9746cfc7d2;
+
+  /// No description provided for @sourceTextd0de773436.
+  ///
+  /// In zh, this message translates to:
+  /// **'等待执行'**
+  String get sourceTextd0de773436;
+
+  /// No description provided for @sourceText2029839d84.
+  ///
+  /// In zh, this message translates to:
+  /// **'总结'**
+  String get sourceText2029839d84;
+
+  /// No description provided for @sourceText6c2b60f0ee.
+  ///
+  /// In zh, this message translates to:
+  /// **'识图'**
+  String get sourceText6c2b60f0ee;
+
+  /// No description provided for @sourceTexte9649f84f9.
+  ///
+  /// In zh, this message translates to:
+  /// **'未知类型'**
+  String get sourceTexte9649f84f9;
+
+  /// No description provided for @sourceText756eae0324.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在回复...'**
+  String get sourceText756eae0324;
+
+  /// No description provided for @sourceText292eea5849.
+  ///
+  /// In zh, this message translates to:
+  /// **'永不'**
+  String get sourceText292eea5849;
+
+  /// No description provided for @sourceText08d65bdbc3.
+  ///
+  /// In zh, this message translates to:
+  /// **'每日'**
+  String get sourceText08d65bdbc3;
+
+  /// No description provided for @sourceTexta93b55d8bf.
+  ///
+  /// In zh, this message translates to:
+  /// **'每周'**
+  String get sourceTexta93b55d8bf;
+
+  /// No description provided for @sourceText24aedc3608.
+  ///
+  /// In zh, this message translates to:
+  /// **'每月'**
+  String get sourceText24aedc3608;
+
+  /// No description provided for @sourceText4a9ee561f9.
+  ///
+  /// In zh, this message translates to:
+  /// **'每年'**
+  String get sourceText4a9ee561f9;
+
+  /// No description provided for @sourceText89b4aa6364.
+  ///
+  /// In zh, this message translates to:
+  /// **'时间'**
+  String get sourceText89b4aa6364;
+
+  /// No description provided for @sourceTextb6fed9af83.
+  ///
+  /// In zh, this message translates to:
+  /// **'日期'**
+  String get sourceTextb6fed9af83;
+
+  /// No description provided for @sourceText6e708ba759.
+  ///
+  /// In zh, this message translates to:
+  /// **'重复'**
+  String get sourceText6e708ba759;
+
+  /// No description provided for @sourceTextc1cb3fc29f.
+  ///
+  /// In zh, this message translates to:
+  /// **'任务选项'**
+  String get sourceTextc1cb3fc29f;
+
+  /// No description provided for @sourceText39797f7a92.
+  ///
+  /// In zh, this message translates to:
+  /// **'请选择一个任务'**
+  String get sourceText39797f7a92;
+
+  /// No description provided for @sourceTexte03304491a.
+  ///
+  /// In zh, this message translates to:
+  /// **'请选择你想执行的任务'**
+  String get sourceTexte03304491a;
+
+  /// No description provided for @sourceTextb4a7ea5533.
+  ///
+  /// In zh, this message translates to:
+  /// **'请选择一个应用程序'**
+  String get sourceTextb4a7ea5533;
+
+  /// No description provided for @sourceText1354374f76.
+  ///
+  /// In zh, this message translates to:
+  /// **'已过期'**
+  String get sourceText1354374f76;
+
+  /// No description provided for @sourceText36d2d01f31.
+  ///
+  /// In zh, this message translates to:
+  /// **'即将执行'**
+  String get sourceText36d2d01f31;
+
+  /// No description provided for @sourceText13794e1f43.
+  ///
+  /// In zh, this message translates to:
+  /// **'好，我来帮你完成'**
+  String get sourceText13794e1f43;
+
+  /// No description provided for @sourceTextbaa298fbe1.
+  ///
+  /// In zh, this message translates to:
+  /// **'用户操作'**
+  String get sourceTextbaa298fbe1;
+
+  /// No description provided for @sourceText86e8d12a79.
+  ///
+  /// In zh, this message translates to:
+  /// **'删除成功'**
+  String get sourceText86e8d12a79;
+
+  /// No description provided for @sourceText9abb465039.
+  ///
+  /// In zh, this message translates to:
+  /// **'修改失败'**
+  String get sourceText9abb465039;
+
+  /// No description provided for @sourceTextf8913eb433.
+  ///
+  /// In zh, this message translates to:
+  /// **'修改成功'**
+  String get sourceTextf8913eb433;
+
+  /// No description provided for @sourceText65fdeb927b.
+  ///
+  /// In zh, this message translates to:
+  /// **'桌面'**
+  String get sourceText65fdeb927b;
+
+  /// No description provided for @sourceText322eceb785.
+  ///
+  /// In zh, this message translates to:
+  /// **'内存中'**
+  String get sourceText322eceb785;
+
+  /// No description provided for @sourceTextf90d5c751e.
+  ///
+  /// In zh, this message translates to:
+  /// **'云内存中'**
+  String get sourceTextf90d5c751e;
+
+  /// No description provided for @sourceText7e68eb622d.
+  ///
+  /// In zh, this message translates to:
+  /// **'保存成功'**
+  String get sourceText7e68eb622d;
+
+  /// No description provided for @sourceText6a6b660ba8.
+  ///
+  /// In zh, this message translates to:
+  /// **'编辑你的消息'**
+  String get sourceText6a6b660ba8;
+
+  /// No description provided for @sourceTextfcbd093292.
+  ///
+  /// In zh, this message translates to:
+  /// **'创建'**
+  String get sourceTextfcbd093292;
+
+  /// No description provided for @sourceText8200c3d50b.
+  ///
+  /// In zh, this message translates to:
+  /// **'未命名对话'**
+  String get sourceText8200c3d50b;
+
+  /// No description provided for @sourceText229127ec8d.
+  ///
+  /// In zh, this message translates to:
+  /// **'折叠全部日期'**
+  String get sourceText229127ec8d;
+
+  /// No description provided for @sourceTextbc51af6ffc.
+  ///
+  /// In zh, this message translates to:
+  /// **'展开全部日期'**
+  String get sourceTextbc51af6ffc;
+
+  /// No description provided for @sourceText72be511e05.
+  ///
+  /// In zh, this message translates to:
+  /// **'最近执行'**
+  String get sourceText72be511e05;
+
+  /// No description provided for @sourceText818a1f7be3.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂无总结内容'**
+  String get sourceText818a1f7be3;
+
+  /// No description provided for @sourceTextc76c74e809.
+  ///
+  /// In zh, this message translates to:
+  /// **'检查更新失败'**
+  String get sourceTextc76c74e809;
+
+  /// No description provided for @sourceTextae4535ef13.
+  ///
+  /// In zh, this message translates to:
+  /// **'已是最新版'**
+  String get sourceTextae4535ef13;
+
+  /// No description provided for @sourceText00f512b5e8.
+  ///
+  /// In zh, this message translates to:
+  /// **'检查 GitHub Release 获取最新版本'**
+  String get sourceText00f512b5e8;
+
+  /// No description provided for @sourceText9afc832d99.
+  ///
+  /// In zh, this message translates to:
+  /// **'查看新版本'**
+  String get sourceText9afc832d99;
+
+  /// No description provided for @sourceTexta6df38586d.
+  ///
+  /// In zh, this message translates to:
+  /// **'检查更新'**
+  String get sourceTexta6df38586d;
+
+  /// No description provided for @sourceText8ff0439ff9.
+  ///
+  /// In zh, this message translates to:
+  /// **'已关闭思考'**
+  String get sourceText8ff0439ff9;
+
+  /// No description provided for @sourceTextd9d4d4e7dd.
+  ///
+  /// In zh, this message translates to:
+  /// **'请求日志'**
+  String get sourceTextd9d4d4e7dd;
+
+  /// No description provided for @sourceTexta8ce402665.
+  ///
+  /// In zh, this message translates to:
+  /// **'运行日志'**
+  String get sourceTexta8ce402665;
+
+  /// No description provided for @sourceText4c685c0454.
+  ///
+  /// In zh, this message translates to:
+  /// **'使用手册'**
+  String get sourceText4c685c0454;
+
+  /// No description provided for @sourceText5060421d15.
+  ///
+  /// In zh, this message translates to:
+  /// **'概览'**
+  String get sourceText5060421d15;
+
+  /// No description provided for @sourceText9f14a3f4dd.
+  ///
+  /// In zh, this message translates to:
+  /// **'最近记录'**
+  String get sourceText9f14a3f4dd;
+
+  /// No description provided for @sourceTextb01090a29c.
+  ///
+  /// In zh, this message translates to:
+  /// **'最近 10 条 AI 请求，按时间倒序展示。'**
+  String get sourceTextb01090a29c;
+
+  /// No description provided for @sourceTextc740eb5be5.
+  ///
+  /// In zh, this message translates to:
+  /// **'点击条目展开查看请求与响应正文。'**
+  String get sourceTextc740eb5be5;
+
+  /// No description provided for @sourceTextcb80eb03ea.
+  ///
+  /// In zh, this message translates to:
+  /// **'最近 200 条错误和崩溃日志，按时间倒序展示。'**
+  String get sourceTextcb80eb03ea;
+
+  /// No description provided for @sourceText8334b58cfa.
+  ///
+  /// In zh, this message translates to:
+  /// **'含堆栈的条目可展开查看。'**
+  String get sourceText8334b58cfa;
+
+  /// No description provided for @sourceTextfe12b789bf.
+  ///
+  /// In zh, this message translates to:
+  /// **'导出运行日志'**
+  String get sourceTextfe12b789bf;
+
+  /// No description provided for @sourceText88f6dbf1a3.
+  ///
+  /// In zh, this message translates to:
+  /// **'已复制全部运行日志'**
+  String get sourceText88f6dbf1a3;
+
+  /// No description provided for @sourceText8b06115d35.
+  ///
+  /// In zh, this message translates to:
+  /// **'导出运行日志失败'**
+  String get sourceText8b06115d35;
+
+  /// No description provided for @sourceTextd6c8084d07.
+  ///
+  /// In zh, this message translates to:
+  /// **'崩溃'**
+  String get sourceTextd6c8084d07;
+
+  /// No description provided for @sourceText367ff5ddd2.
+  ///
+  /// In zh, this message translates to:
+  /// **'总数'**
+  String get sourceText367ff5ddd2;
+
+  /// No description provided for @sourceText71bd34d484.
+  ///
+  /// In zh, this message translates to:
+  /// **'最近一条'**
+  String get sourceText71bd34d484;
+
+  /// No description provided for @sourceText41654e0268.
+  ///
+  /// In zh, this message translates to:
+  /// **'基础信息'**
+  String get sourceText41654e0268;
+
+  /// No description provided for @sourceText7364999103.
+  ///
+  /// In zh, this message translates to:
+  /// **'载荷'**
+  String get sourceText7364999103;
+
+  /// No description provided for @sourceTextd70d425039.
+  ///
+  /// In zh, this message translates to:
+  /// **'保存中...'**
+  String get sourceTextd70d425039;
+
+  /// No description provided for @sourceTextdbb4430dc0.
+  ///
+  /// In zh, this message translates to:
+  /// **'未选择文件'**
+  String get sourceTextdbb4430dc0;
+
+  /// No description provided for @sourceText1e620e20a1.
+  ///
+  /// In zh, this message translates to:
+  /// **'远程地址'**
+  String get sourceText1e620e20a1;
+
+  /// No description provided for @sourceTextdde21b2cec.
+  ///
+  /// In zh, this message translates to:
+  /// **'后台运行权限'**
+  String get sourceTextdde21b2cec;
+
+  /// No description provided for @sourceText135f1636e4.
+  ///
+  /// In zh, this message translates to:
+  /// **'应用列表读取'**
+  String get sourceText135f1636e4;
+
+  /// No description provided for @sourceTextf80103fee9.
+  ///
+  /// In zh, this message translates to:
+  /// **'无障碍辅助权限'**
+  String get sourceTextf80103fee9;
+
+  /// No description provided for @sourceTextd78cde076b.
+  ///
+  /// In zh, this message translates to:
+  /// **'已开启'**
+  String get sourceTextd78cde076b;
+
+  /// No description provided for @sourceText13ec170881.
+  ///
+  /// In zh, this message translates to:
+  /// **'去开启'**
+  String get sourceText13ec170881;
+
+  /// No description provided for @sourceText291952a2ab.
+  ///
+  /// In zh, this message translates to:
+  /// **'清除缓存'**
+  String get sourceText291952a2ab;
+
+  /// No description provided for @sourceText3d0c8b9d9f.
+  ///
+  /// In zh, this message translates to:
+  /// **'小万可以在陪伴时更了解您的喜好'**
+  String get sourceText3d0c8b9d9f;
+
+  /// No description provided for @sourceText86890292b6.
+  ///
+  /// In zh, this message translates to:
+  /// **'小万可在屏幕中实时活动，随时给予陪伴'**
+  String get sourceText86890292b6;
+
+  /// No description provided for @sourceTexta86909c7ea.
+  ///
+  /// In zh, this message translates to:
+  /// **'小万可以知道能帮你做什么事情'**
+  String get sourceTexta86909c7ea;
+
+  /// No description provided for @sourceText56735a4ab7.
+  ///
+  /// In zh, this message translates to:
+  /// **'小万执行任务时，需要给予我操作的权限'**
+  String get sourceText56735a4ab7;
+
+  /// No description provided for @sourceText99ad612dd1.
+  ///
+  /// In zh, this message translates to:
+  /// **'设置权限'**
+  String get sourceText99ad612dd1;
+
+  /// No description provided for @sourceTextaef926661d.
+  ///
+  /// In zh, this message translates to:
+  /// **'请放心，这些权限你随时可以收回'**
+  String get sourceTextaef926661d;
+
+  /// No description provided for @sourceText02a75489b2.
+  ///
+  /// In zh, this message translates to:
+  /// **'查看并配置无障碍、悬浮窗、Shizuku 等权限'**
+  String get sourceText02a75489b2;
+
+  /// No description provided for @sourceText75b40989f3.
+  ///
+  /// In zh, this message translates to:
+  /// **'权限检查中...'**
+  String get sourceText75b40989f3;
+
+  /// No description provided for @sourceText2599599947.
+  ///
+  /// In zh, this message translates to:
+  /// **'继续任务'**
+  String get sourceText2599599947;
+
+  /// No description provided for @sourceText14411ce362.
+  ///
+  /// In zh, this message translates to:
+  /// **'继续任务仅要求'**
+  String get sourceText14411ce362;
+
+  /// No description provided for @sourceTextf739c7d4a8.
+  ///
+  /// In zh, this message translates to:
+  /// **'Termux 终端能力'**
+  String get sourceTextf739c7d4a8;
+
+  /// No description provided for @sourceText98bd36febc.
+  ///
+  /// In zh, this message translates to:
+  /// **'可选，允许 Agent 通过 Termux 执行终端命令'**
+  String get sourceText98bd36febc;
+
+  /// No description provided for @sourceText53e32830a5.
+  ///
+  /// In zh, this message translates to:
+  /// **'可选'**
+  String get sourceText53e32830a5;
+
+  /// No description provided for @sourceTexte5d269502c.
+  ///
+  /// In zh, this message translates to:
+  /// **'让小万带你执行一次任务吧！'**
+  String get sourceTexte5d269502c;
+
+  /// No description provided for @sourceText1aca95f544.
+  ///
+  /// In zh, this message translates to:
+  /// **'其中 Termux 终端能力为可选项，未开启也不影响基础自动化'**
+  String get sourceText1aca95f544;
+
+  /// No description provided for @sourceText3bf179d8d0.
+  ///
+  /// In zh, this message translates to:
+  /// **'未绑定'**
+  String get sourceText3bf179d8d0;
+
+  /// No description provided for @sourceText2a30881946.
+  ///
+  /// In zh, this message translates to:
+  /// **'清除绑定'**
+  String get sourceText2a30881946;
+
+  /// No description provided for @sourceTexta191935bc6.
+  ///
+  /// In zh, this message translates to:
+  /// **'恢复默认'**
+  String get sourceTexta191935bc6;
+
+  /// No description provided for @sourceText8988c04935.
+  ///
+  /// In zh, this message translates to:
+  /// **'点击右侧按钮后，可按 Provider 搜索、折叠并选择模型；Voice 的音色与自动播放可通过调节按钮展开。'**
+  String get sourceText8988c04935;
+
+  /// No description provided for @sourceText2415f124bd.
+  ///
+  /// In zh, this message translates to:
+  /// **'AI 响应完成后自动播放'**
+  String get sourceText2415f124bd;
+
+  /// No description provided for @sourceTextc4301894a2.
+  ///
+  /// In zh, this message translates to:
+  /// **'音色'**
+  String get sourceTextc4301894a2;
+
+  /// No description provided for @sourceTextc0ae8ba446.
+  ///
+  /// In zh, this message translates to:
+  /// **'例如：default_zh / mimo_default / default_en'**
+  String get sourceTextc0ae8ba446;
+
+  /// No description provided for @sourceTexta4ce420c69.
+  ///
+  /// In zh, this message translates to:
+  /// **'风格'**
+  String get sourceTexta4ce420c69;
+
+  /// No description provided for @sourceText6614801dcd.
+  ///
+  /// In zh, this message translates to:
+  /// **'自定义补充'**
+  String get sourceText6614801dcd;
+
+  /// No description provided for @sourceText558a2f3fd0.
+  ///
+  /// In zh, this message translates to:
+  /// **'唱歌模式下不支持附加风格'**
+  String get sourceText558a2f3fd0;
+
+  /// No description provided for @sourceTextfa12d9ef1b.
+  ///
+  /// In zh, this message translates to:
+  /// **'例如：更温柔、节奏慢一点、偏播客感'**
+  String get sourceTextfa12d9ef1b;
+
+  /// No description provided for @sourceText2601f9e3cb.
+  ///
+  /// In zh, this message translates to:
+  /// **'收起语音设置'**
+  String get sourceText2601f9e3cb;
+
+  /// No description provided for @sourceTextbc2c7387f0.
+  ///
+  /// In zh, this message translates to:
+  /// **'展开语音设置'**
+  String get sourceTextbc2c7387f0;
+
+  /// No description provided for @sourceText6a7d5cd91d.
+  ///
+  /// In zh, this message translates to:
+  /// **'没有匹配的模型'**
+  String get sourceText6a7d5cd91d;
+
+  /// No description provided for @sourceText7b0de927a6.
+  ///
+  /// In zh, this message translates to:
+  /// **'搜索模型 ID'**
+  String get sourceText7b0de927a6;
+
+  /// No description provided for @sourceTexte5463e3a94.
+  ///
+  /// In zh, this message translates to:
+  /// **'请先在模型提供商页配置 Provider'**
+  String get sourceTexte5463e3a94;
+
+  /// No description provided for @sourceText13c9595745.
+  ///
+  /// In zh, this message translates to:
+  /// **'该 Provider 暂无可选模型'**
+  String get sourceText13c9595745;
+
+  /// No description provided for @sourceText90bfe72640.
+  ///
+  /// In zh, this message translates to:
+  /// **'已进入仅聊天模式'**
+  String get sourceText90bfe72640;
+
+  /// No description provided for @sourceText9c1153036d.
+  ///
+  /// In zh, this message translates to:
+  /// **'已退出仅聊天模式'**
+  String get sourceText9c1153036d;
+
+  /// No description provided for @sourceTextd1a19c24c7.
+  ///
+  /// In zh, this message translates to:
+  /// **'搜索技能名称或描述'**
+  String get sourceTextd1a19c24c7;
+
+  /// No description provided for @sourceTextd636ae3e01.
+  ///
+  /// In zh, this message translates to:
+  /// **'未找到匹配的技能'**
+  String get sourceTextd636ae3e01;
+
+  /// No description provided for @sourceTexte4d8c16cd2.
+  ///
+  /// In zh, this message translates to:
+  /// **'流式'**
+  String get sourceTexte4d8c16cd2;
+
+  /// No description provided for @sourceText36e8d9631f.
+  ///
+  /// In zh, this message translates to:
+  /// **'非流式'**
+  String get sourceText36e8d9631f;
+
+  /// No description provided for @sourceText0e84ef42ae.
+  ///
+  /// In zh, this message translates to:
+  /// **'请求地址'**
+  String get sourceText0e84ef42ae;
+
+  /// No description provided for @sourceText4d150364fe.
+  ///
+  /// In zh, this message translates to:
+  /// **'请求方法'**
+  String get sourceText4d150364fe;
+
+  /// No description provided for @sourceTexta38a81c9d5.
+  ///
+  /// In zh, this message translates to:
+  /// **'错误信息'**
+  String get sourceTexta38a81c9d5;
+
+  /// No description provided for @sourceText0228e74add.
+  ///
+  /// In zh, this message translates to:
+  /// **'请求 JSON'**
+  String get sourceText0228e74add;
+
+  /// No description provided for @sourceText9f062a0dac.
+  ///
+  /// In zh, this message translates to:
+  /// **'响应 JSON'**
+  String get sourceText9f062a0dac;
+
+  /// No description provided for @sourceTexte2d53a6d3a.
+  ///
+  /// In zh, this message translates to:
+  /// **'重试'**
+  String get sourceTexte2d53a6d3a;
+
+  /// No description provided for @sourceText661b2db84d.
+  ///
+  /// In zh, this message translates to:
+  /// **'加载请求日志失败'**
+  String get sourceText661b2db84d;
+
+  /// No description provided for @sourceTextfa604c3dba.
+  ///
+  /// In zh, this message translates to:
+  /// **'最近还没有 AI 请求日志'**
+  String get sourceTextfa604c3dba;
+
+  /// No description provided for @sourceTexta22889b61d.
+  ///
+  /// In zh, this message translates to:
+  /// **'加载运行日志失败'**
+  String get sourceTexta22889b61d;
+
+  /// No description provided for @sourceText71a159aa14.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂无运行日志'**
+  String get sourceText71a159aa14;
+
+  /// No description provided for @sourceText7b15e5e8e7.
+  ///
+  /// In zh, this message translates to:
+  /// **'清除'**
+  String get sourceText7b15e5e8e7;
+
+  /// No description provided for @sourceTextfb57d700b9.
+  ///
+  /// In zh, this message translates to:
+  /// **'AI 请求'**
+  String get sourceTextfb57d700b9;
+
+  /// No description provided for @sourceText7a42fe12dc.
+  ///
+  /// In zh, this message translates to:
+  /// **'次对话'**
+  String get sourceText7a42fe12dc;
+
+  /// No description provided for @sourceTextadf4707731.
+  ///
+  /// In zh, this message translates to:
+  /// **'天连续'**
+  String get sourceTextadf4707731;
+
+  /// No description provided for @sourceText0fe8227aa4.
+  ///
+  /// In zh, this message translates to:
+  /// **'无对话'**
+  String get sourceText0fe8227aa4;
+
+  /// No description provided for @sourceText7a54a1229e.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂无 Token 消耗数据'**
+  String get sourceText7a54a1229e;
+
+  /// No description provided for @sourceTexte8666c377c.
+  ///
+  /// In zh, this message translates to:
+  /// **'本地'**
+  String get sourceTexte8666c377c;
+
+  /// No description provided for @sourceText565481c9be.
+  ///
+  /// In zh, this message translates to:
+  /// **'云端'**
+  String get sourceText565481c9be;
+
+  /// No description provided for @sourceText54c727b452.
+  ///
+  /// In zh, this message translates to:
+  /// **'无消耗'**
+  String get sourceText54c727b452;
+
+  /// No description provided for @sourceText7fe4999970.
+  ///
+  /// In zh, this message translates to:
+  /// **'长期记忆未就绪'**
+  String get sourceText7fe4999970;
+
+  /// No description provided for @sourceTextb87a8a83f5.
+  ///
+  /// In zh, this message translates to:
+  /// **'完成记忆初始化后，这里会展示跨会话沉淀的偏好与事实。'**
+  String get sourceTextb87a8a83f5;
+
+  /// No description provided for @sourceTextb92a2068aa.
+  ///
+  /// In zh, this message translates to:
+  /// **'长期记忆暂时不可用'**
+  String get sourceTextb92a2068aa;
+
+  /// No description provided for @sourceTextd3a2b13fc2.
+  ///
+  /// In zh, this message translates to:
+  /// **'长期记忆还是空的'**
+  String get sourceTextd3a2b13fc2;
+
+  /// No description provided for @sourceTexte8c59faf6d.
+  ///
+  /// In zh, this message translates to:
+  /// **'当 Agent 主动写入长期偏好后，这里会逐渐丰富起来。'**
+  String get sourceTexte8c59faf6d;
+
+  /// No description provided for @sourceText495c0debaf.
+  ///
+  /// In zh, this message translates to:
+  /// **'新增长期记忆'**
+  String get sourceText495c0debaf;
+
+  /// No description provided for @sourceText4398777297.
+  ///
+  /// In zh, this message translates to:
+  /// **'刷新长期记忆'**
+  String get sourceText4398777297;
+
+  /// No description provided for @sourceText9e636642d6.
+  ///
+  /// In zh, this message translates to:
+  /// **'刚刚'**
+  String get sourceText9e636642d6;
+
+  /// No description provided for @sourceTextedab852efe.
+  ///
+  /// In zh, this message translates to:
+  /// **'思考完成'**
+  String get sourceTextedab852efe;
+
+  /// No description provided for @sourceText774d85ae0a.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在思考'**
+  String get sourceText774d85ae0a;
+
+  /// No description provided for @sourceTexte4b6477e6e.
+  ///
+  /// In zh, this message translates to:
+  /// **'用时'**
+  String get sourceTexte4b6477e6e;
+
+  /// No description provided for @sourceText15fc7643c5.
+  ///
+  /// In zh, this message translates to:
+  /// **'准备执行任务...'**
+  String get sourceText15fc7643c5;
+
+  /// No description provided for @sourceTextd258a63cad.
+  ///
+  /// In zh, this message translates to:
+  /// **'取消任务'**
+  String get sourceTextd258a63cad;
+
+  /// No description provided for @sourceText6df9b76521.
+  ///
+  /// In zh, this message translates to:
+  /// **'任务已取消'**
+  String get sourceText6df9b76521;
+
+  /// No description provided for @sourceText038d05ca8c.
+  ///
+  /// In zh, this message translates to:
+  /// **'停止工具'**
+  String get sourceText038d05ca8c;
+
+  /// No description provided for @sourceText4078ac16b6.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在停止工具'**
+  String get sourceText4078ac16b6;
+
+  /// No description provided for @sourceTextcb1115d8c1.
+  ///
+  /// In zh, this message translates to:
+  /// **'停止工具调用失败，请稍后重试'**
+  String get sourceTextcb1115d8c1;
+
+  /// No description provided for @sourceTexteac987a597.
+  ///
+  /// In zh, this message translates to:
+  /// **'无法打开 Agent 管理面板'**
+  String get sourceTexteac987a597;
+
+  /// No description provided for @sourceTexte3f4d6bd9d.
+  ///
+  /// In zh, this message translates to:
+  /// **'关闭悬浮球失败'**
+  String get sourceTexte3f4d6bd9d;
+
+  /// No description provided for @sourceTextf6d7e0312c.
+  ///
+  /// In zh, this message translates to:
+  /// **'悬浮球已关闭，可在设置里重新开启'**
+  String get sourceTextf6d7e0312c;
+
+  /// No description provided for @sourceText066af21f55.
+  ///
+  /// In zh, this message translates to:
+  /// **'点开'**
+  String get sourceText066af21f55;
+
+  /// No description provided for @sourceText15197efe93.
+  ///
+  /// In zh, this message translates to:
+  /// **'隐藏悬浮球'**
+  String get sourceText15197efe93;
+
+  /// No description provided for @sourceText5d5815647c.
+  ///
+  /// In zh, this message translates to:
+  /// **'收起'**
+  String get sourceText5d5815647c;
+
+  /// No description provided for @sourceText151eeabaf6.
+  ///
+  /// In zh, this message translates to:
+  /// **'停止失败'**
+  String get sourceText151eeabaf6;
+
+  /// No description provided for @sourceText6ef1200428.
+  ///
+  /// In zh, this message translates to:
+  /// **'运行中的 Agent'**
+  String get sourceText6ef1200428;
+
+  /// No description provided for @sourceText5bd8f4879e.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前没有后端任务'**
+  String get sourceText5bd8f4879e;
+
+  /// No description provided for @sourceTextfaeb185030.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前没有任何 Agent'**
+  String get sourceTextfaeb185030;
+
+  /// No description provided for @sourceText68685fc5c4.
+  ///
+  /// In zh, this message translates to:
+  /// **'停止全部'**
+  String get sourceText68685fc5c4;
+
+  /// No description provided for @sourceTextf0b2cef7b0.
+  ///
+  /// In zh, this message translates to:
+  /// **'没有正在执行的 Agent 后端任务'**
+  String get sourceTextf0b2cef7b0;
+
+  /// No description provided for @sourceText65fc81e161.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开'**
+  String get sourceText65fc81e161;
+
+  /// No description provided for @sourceText645fc8d22d.
+  ///
+  /// In zh, this message translates to:
+  /// **'停止这个 Agent'**
+  String get sourceText645fc8d22d;
+
+  /// No description provided for @sourceText5e59efab1e.
+  ///
+  /// In zh, this message translates to:
+  /// **'Agent 后端空闲。轻点打开管理面板。'**
+  String get sourceText5e59efab1e;
+
+  /// No description provided for @sourceText0b961ab4d9.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在整理方案'**
+  String get sourceText0b961ab4d9;
+
+  /// No description provided for @sourceText91796bb70a.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在输出'**
+  String get sourceText91796bb70a;
+
+  /// No description provided for @sourceText33fe6867a2.
+  ///
+  /// In zh, this message translates to:
+  /// **'开始调用工具'**
+  String get sourceText33fe6867a2;
+
+  /// No description provided for @sourceText76a18aa532.
+  ///
+  /// In zh, this message translates to:
+  /// **'工具执行中'**
+  String get sourceText76a18aa532;
+
+  /// No description provided for @sourceTextd333e5691f.
+  ///
+  /// In zh, this message translates to:
+  /// **'工具完成'**
+  String get sourceTextd333e5691f;
+
+  /// No description provided for @sourceTextcc1f7be0b2.
+  ///
+  /// In zh, this message translates to:
+  /// **'等待权限确认'**
+  String get sourceTextcc1f7be0b2;
+
+  /// No description provided for @sourceTextf7d01365f2.
+  ///
+  /// In zh, this message translates to:
+  /// **'等待补充信息'**
+  String get sourceTextf7d01365f2;
+
+  /// No description provided for @sourceText9617084ded.
+  ///
+  /// In zh, this message translates to:
+  /// **'运行出错'**
+  String get sourceText9617084ded;
+
+  /// No description provided for @sourceText832451d2f4.
+  ///
+  /// In zh, this message translates to:
+  /// **'即将完成'**
+  String get sourceText832451d2f4;
+
+  /// No description provided for @sourceTextc6dc0ad888.
+  ///
+  /// In zh, this message translates to:
+  /// **'Agent 后端任务'**
+  String get sourceTextc6dc0ad888;
+
+  /// No description provided for @sourceTextbdde1def59.
+  ///
+  /// In zh, this message translates to:
+  /// **'等待模型响应'**
+  String get sourceTextbdde1def59;
+
+  /// No description provided for @sourceText3d4d1075e7.
+  ///
+  /// In zh, this message translates to:
+  /// **'工具调用'**
+  String get sourceText3d4d1075e7;
+
+  /// No description provided for @sourceTextff06c243d7.
+  ///
+  /// In zh, this message translates to:
+  /// **'超时'**
+  String get sourceTextff06c243d7;
+
+  /// No description provided for @sourceText44e681a374.
+  ///
+  /// In zh, this message translates to:
+  /// **'中断'**
+  String get sourceText44e681a374;
+
+  /// No description provided for @sourceText71757f8d79.
+  ///
+  /// In zh, this message translates to:
+  /// **'浏览中'**
+  String get sourceText71757f8d79;
+
+  /// No description provided for @sourceTextda3d2d1482.
+  ///
+  /// In zh, this message translates to:
+  /// **'响应中'**
+  String get sourceTextda3d2d1482;
+
+  /// No description provided for @sourceTextfcb979ef0b.
+  ///
+  /// In zh, this message translates to:
+  /// **'处理中'**
+  String get sourceTextfcb979ef0b;
+
+  /// No description provided for @sourceText7f55a26d7d.
+  ///
+  /// In zh, this message translates to:
+  /// **'终端'**
+  String get sourceText7f55a26d7d;
+
+  /// No description provided for @sourceText88d650dd4f.
+  ///
+  /// In zh, this message translates to:
+  /// **'浏览器'**
+  String get sourceText88d650dd4f;
+
+  /// No description provided for @sourceText81944e48a3.
+  ///
+  /// In zh, this message translates to:
+  /// **'提醒'**
+  String get sourceText81944e48a3;
+
+  /// No description provided for @sourceText2ecbc11608.
+  ///
+  /// In zh, this message translates to:
+  /// **'日历'**
+  String get sourceText2ecbc11608;
+
+  /// No description provided for @sourceText2a8ce33ff0.
+  ///
+  /// In zh, this message translates to:
+  /// **'子任务'**
+  String get sourceText2a8ce33ff0;
+
+  /// No description provided for @sourceTexta72ef18d9a.
+  ///
+  /// In zh, this message translates to:
+  /// **'工具'**
+  String get sourceTexta72ef18d9a;
+
+  /// No description provided for @sourceText15ec50fe7d.
+  ///
+  /// In zh, this message translates to:
+  /// **'[更早记录已省略]'**
+  String get sourceText15ec50fe7d;
+
+  /// No description provided for @sourceTexta5dda12242.
+  ///
+  /// In zh, this message translates to:
+  /// **'等待龙虾烹饪'**
+  String get sourceTexta5dda12242;
+
+  /// No description provided for @sourceText70c53b8ac3.
+  ///
+  /// In zh, this message translates to:
+  /// **'配置你的 AI 助手'**
+  String get sourceText70c53b8ac3;
+
+  /// No description provided for @sourceTextf7f58b95a7.
+  ///
+  /// In zh, this message translates to:
+  /// **'选择一种方式开始使用小万'**
+  String get sourceTextf7f58b95a7;
+
+  /// No description provided for @sourceText1670225703.
+  ///
+  /// In zh, this message translates to:
+  /// **'云 AI 服务'**
+  String get sourceText1670225703;
+
+  /// No description provided for @sourceText90f71a54c8.
+  ///
+  /// In zh, this message translates to:
+  /// **'连接 OpenAI、Anthropic 或兼容的 API 服务'**
+  String get sourceText90f71a54c8;
+
+  /// No description provided for @sourceTextb0253cd034.
+  ///
+  /// In zh, this message translates to:
+  /// **'本地模型'**
+  String get sourceTextb0253cd034;
+
+  /// No description provided for @sourceText10691e242c.
+  ///
+  /// In zh, this message translates to:
+  /// **'在设备上运行本地 AI，离线可用，隐私安全'**
+  String get sourceText10691e242c;
+
+  /// No description provided for @sourceText1fc1afc5c5.
+  ///
+  /// In zh, this message translates to:
+  /// **'继续'**
+  String get sourceText1fc1afc5c5;
+
+  /// No description provided for @sourceText184913c0f3.
+  ///
+  /// In zh, this message translates to:
+  /// **'跳过，稍后在设置中配置'**
+  String get sourceText184913c0f3;
+
+  /// No description provided for @sourceText1e797c0dac.
+  ///
+  /// In zh, this message translates to:
+  /// **'云 AI 服务配置'**
+  String get sourceText1e797c0dac;
+
+  /// No description provided for @sourceText79973caeef.
+  ///
+  /// In zh, this message translates to:
+  /// **'配置云端 AI 服务商，使用更强大的模型能力'**
+  String get sourceText79973caeef;
+
+  /// No description provided for @sourceText993df7d096.
+  ///
+  /// In zh, this message translates to:
+  /// **'协议类型'**
+  String get sourceText993df7d096;
+
+  /// No description provided for @sourceText530aafb12a.
+  ///
+  /// In zh, this message translates to:
+  /// **'例如：我的 OpenAI'**
+  String get sourceText530aafb12a;
+
+  /// No description provided for @sourceText10b7d8eccc.
+  ///
+  /// In zh, this message translates to:
+  /// **'测试连接'**
+  String get sourceText10b7d8eccc;
+
+  /// No description provided for @sourceTexteb06635875.
+  ///
+  /// In zh, this message translates to:
+  /// **'连接成功'**
+  String get sourceTexteb06635875;
+
+  /// No description provided for @sourceText523e40a074.
+  ///
+  /// In zh, this message translates to:
+  /// **'发现'**
+  String get sourceText523e40a074;
+
+  /// No description provided for @sourceText674373aef1.
+  ///
+  /// In zh, this message translates to:
+  /// **'个模型'**
+  String get sourceText674373aef1;
+
+  /// No description provided for @sourceText2c056f182f.
+  ///
+  /// In zh, this message translates to:
+  /// **'连接失败'**
+  String get sourceText2c056f182f;
+
+  /// No description provided for @sourceTextd15ae9ad81.
+  ///
+  /// In zh, this message translates to:
+  /// **'在设备上运行本地 AI'**
+  String get sourceTextd15ae9ad81;
+
+  /// No description provided for @sourceText4bbe706f8d.
+  ///
+  /// In zh, this message translates to:
+  /// **'优势'**
+  String get sourceText4bbe706f8d;
+
+  /// No description provided for @sourceText37dea6b39e.
+  ///
+  /// In zh, this message translates to:
+  /// **'隐私安全'**
+  String get sourceText37dea6b39e;
+
+  /// No description provided for @sourceText6bcfca9d58.
+  ///
+  /// In zh, this message translates to:
+  /// **'数据完全留在设备上，不会发送到任何服务器'**
+  String get sourceText6bcfca9d58;
+
+  /// No description provided for @sourceText270d12d95b.
+  ///
+  /// In zh, this message translates to:
+  /// **'离线可用'**
+  String get sourceText270d12d95b;
+
+  /// No description provided for @sourceText97fcfbb5dd.
+  ///
+  /// In zh, this message translates to:
+  /// **'无需网络连接，随时随地使用 AI 助手'**
+  String get sourceText97fcfbb5dd;
+
+  /// No description provided for @sourceTextdd70b93ad6.
+  ///
+  /// In zh, this message translates to:
+  /// **'完全免费'**
+  String get sourceTextdd70b93ad6;
+
+  /// No description provided for @sourceText5d4061aac5.
+  ///
+  /// In zh, this message translates to:
+  /// **'无需 API 费用或订阅，没有使用限制'**
+  String get sourceText5d4061aac5;
+
+  /// No description provided for @sourceText498c2879b0.
+  ///
+  /// In zh, this message translates to:
+  /// **'局限性'**
+  String get sourceText498c2879b0;
+
+  /// No description provided for @sourceTexta597376852.
+  ///
+  /// In zh, this message translates to:
+  /// **'性能受限'**
+  String get sourceTexta597376852;
+
+  /// No description provided for @sourceTextb4d10c670a.
+  ///
+  /// In zh, this message translates to:
+  /// **'端侧模型较小，能力有限，回复质量不如云端模型'**
+  String get sourceTextb4d10c670a;
+
+  /// No description provided for @sourceText390d11af9b.
+  ///
+  /// In zh, this message translates to:
+  /// **'任务受限'**
+  String get sourceText390d11af9b;
+
+  /// No description provided for @sourceText7b5c99ecb8.
+  ///
+  /// In zh, this message translates to:
+  /// **'目前无法处理复杂的 Agent 任务，适合简单对话和问答'**
+  String get sourceText7b5c99ecb8;
+
+  /// No description provided for @sourceTextea0ef2ae72.
+  ///
+  /// In zh, this message translates to:
+  /// **'下一步'**
+  String get sourceTextea0ef2ae72;
+
+  /// No description provided for @sourceText68e23d8fac.
+  ///
+  /// In zh, this message translates to:
+  /// **'下载本地模型'**
+  String get sourceText68e23d8fac;
+
+  /// No description provided for @sourceText405be21f38.
+  ///
+  /// In zh, this message translates to:
+  /// **'推荐模型'**
+  String get sourceText405be21f38;
+
+  /// No description provided for @sourceTextf430f6d1d1.
+  ///
+  /// In zh, this message translates to:
+  /// **'根据你的设备推荐的轻量模型，适合日常对话'**
+  String get sourceTextf430f6d1d1;
+
+  /// No description provided for @sourceText1b58744dff.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在加载模型信息...'**
+  String get sourceText1b58744dff;
+
+  /// No description provided for @sourceText3f9550508b.
+  ///
+  /// In zh, this message translates to:
+  /// **'继续下载'**
+  String get sourceText3f9550508b;
+
+  /// No description provided for @sourceText4bbcf94739.
+  ///
+  /// In zh, this message translates to:
+  /// **'下载完成'**
+  String get sourceText4bbcf94739;
+
+  /// No description provided for @sourceText33246f6a5e.
+  ///
+  /// In zh, this message translates to:
+  /// **'完成'**
+  String get sourceText33246f6a5e;
+
+  /// No description provided for @sourceText11d0241540.
+  ///
+  /// In zh, this message translates to:
+  /// **'返回'**
+  String get sourceText11d0241540;
+
+  /// No description provided for @sourceText85d011402f.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂时无法获取推荐模型'**
+  String get sourceText85d011402f;
+
+  /// No description provided for @sourceText1b2fe43b5e.
+  ///
+  /// In zh, this message translates to:
+  /// **'请检查网络连接，或稍后在设置中手动下载'**
+  String get sourceText1b2fe43b5e;
+
+  /// No description provided for @sourceText2bc19ec67e.
+  ///
+  /// In zh, this message translates to:
+  /// **'开始体验'**
+  String get sourceText2bc19ec67e;
+
+  /// No description provided for @sourceTextc55627eba1.
+  ///
+  /// In zh, this message translates to:
+  /// **'API Key（可选）'**
+  String get sourceTextc55627eba1;
+
+  /// No description provided for @sourceText90988df4ff.
+  ///
+  /// In zh, this message translates to:
+  /// **'浏览模型市场'**
+  String get sourceText90988df4ff;
+
+  /// No description provided for @sourceText62b46f24ae.
+  ///
+  /// In zh, this message translates to:
+  /// **'推荐'**
+  String get sourceText62b46f24ae;
+
+  /// No description provided for @sourceTextc59773a6a4.
+  ///
+  /// In zh, this message translates to:
+  /// **'选择方式'**
+  String get sourceTextc59773a6a4;
+
+  /// No description provided for @sourceTextb62ed716e3.
+  ///
+  /// In zh, this message translates to:
+  /// **'特性'**
+  String get sourceTextb62ed716e3;
 }
 
 class _AppLocalizationsDelegate

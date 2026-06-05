@@ -4,6 +4,7 @@ import cn.com.omnimind.assists.util.TimeUtil
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
 import cn.com.omnimind.baselib.i18n.PromptLocale
 import cn.com.omnimind.baselib.llm.ModelSceneRegistry
+import java.util.Locale
 
 /**
  * 主 VLM prompt 构造器：
@@ -69,18 +70,7 @@ object PromptTemplate {
         } else {
             sceneId
         }
-        val summaryHistory = if (context.runningSummary.isNotEmpty()) {
-            context.runningSummary
-        } else if (context.trace.isNotEmpty()) {
-            context.trace.last().summary
-        } else {
-            t(locale, "暂无历史操作", "No prior execution history yet")
-        }
-        val installedApps = if (context.installedApplications.isNotEmpty()) {
-            context.installedApplications.values.joinToString(", ")
-        } else {
-            t(locale, "暂无数据", "No data")
-        }
+        val installedApps = renderFocusedInstalledApps(context, locale)
         val completedMilestones = if (context.completedMilestones.isNotEmpty()) {
             context.completedMilestones.joinToString(
                 separator = if (locale == PromptLocale.ZH_CN) "、" else ", "
@@ -118,8 +108,8 @@ object PromptTemplate {
             appendLine(
                 t(
                     locale,
-                    "以下是当前这一轮的动态上下文，请结合当前截图选择下一步动作。",
-                    "Below is the dynamic context for the current turn. Use it together with the current screenshot to choose the next action."
+                    "以下是当前这一轮的动态上下文，请结合当前截图和 OOB indexed page evidence 选择下一步动作。原始 XML 只供系统内部使用，不会作为模型上下文提供。",
+                    "Below is the dynamic context for the current turn. Use it together with the current screenshot and OOB indexed page evidence to choose the next action. Raw XML is internal-only and is not provided as model context."
                 )
             )
             appendLine("${t(locale, "场景", "Scene")}: $resolvedSceneId")
@@ -132,36 +122,245 @@ object PromptTemplate {
             if (priorityEventSection.isNotBlank()) {
                 appendLine(priorityEventSection)
             }
-            appendLine("${t(locale, "当前状态", "Current state")}: ${context.currentState.ifEmpty { t(locale, "未知", "Unknown") }}")
-            appendLine("${t(locale, "建议下一步", "Suggested next step")}: ${context.nextStepHint.ifEmpty { t(locale, "无", "None") }}")
+            renderPageExplanationBlock(context, locale).takeIf { it.isNotBlank() }?.let {
+                appendLine(it)
+            }
+            appendLine(renderRecentResultsBlock(context, locale))
             appendLine("${t(locale, "已完成里程碑", "Completed milestones")}: $completedMilestones")
             appendLine("${t(locale, "关键记忆", "Key memory")}: $keyMemory")
-            appendLine("${t(locale, "历史总结", "History summary")}: $summaryHistory")
-            appendLine("${t(locale, "已安装应用", "Installed apps")}: $installedApps")
+            appendLine("${t(locale, "相关已安装应用", "Relevant installed apps")}: $installedApps")
+            renderCoordinateSystemBlock(context, locale).takeIf { it.isNotBlank() }?.let {
+                appendLine(it)
+            }
             appendLine()
-            appendLine("${t(locale, "输出要求", "Output requirements")}:")
+            appendLine(renderUnifiedActionSchema(context, locale))
+            appendLine()
+            appendLine("${t(locale, "本轮提醒", "Turn reminder")}:")
             appendLine(
                 t(
                     locale,
-                    "1. 直接从 tools 列表中选择下一步动作，每轮只调用一个工具。",
-                    "1. Pick the next action directly from the tools list, and call exactly one tool per turn."
+                    "遵守统一 action schema：每轮恰好一个原生 tool_call。优先把 OOB indexed page evidence 当成可执行菜单：目标出现在 #index 中时，click/input_text/long_press 必须填写 element_index；swipe 目标出现在 Sindex 中时必须填写 scrollable_index。不要凭截图估坐标，除非 evidence 没有目标。",
+                    "Follow the unified action schema: exactly one native tool_call per turn. Treat OOB indexed page evidence as the executable menu first: when the target appears as #index, click/input_text/long_press must include element_index; when a swipe target appears as Sindex, include scrollable_index. Do not estimate coordinates from the screenshot unless the target is missing from evidence."
                 )
             )
             appendLine(
                 t(
                     locale,
-                    "2. click/long_press 只填 x、y；scroll 只填 x1、y1、x2、y2；每个坐标字段都必须是单个数值。",
-                    "2. For click and long_press, only fill x and y. For scroll, only fill x1, y1, x2, and y2. Every coordinate field must be a single numeric scalar."
+                    "不要输出文本动作、Markdown、旧格式 action/swipe/coordinate/coordinate2，或任何不在 tools[] 里的工具名。",
+                    "Do not output text actions, Markdown, legacy action/swipe/coordinate/coordinate2 formats, or tool names that are not in tools[]."
                 )
             )
             appendLine(
                 t(
                     locale,
-                    "3. assistant.content 只写 observation/thought/summary 元信息；只有真正完成任务时才调用 finished。",
-                    "3. assistant.content may only contain observation / thought / summary metadata. Call finished only when the task is truly complete."
+                    "完成判断：只有当前页面已经显示用户目标的最终状态，或上一轮工具结果明确完成了不可见系统动作，才调用 finished。还需要打开页面、选择项目、输入内容、保存、发送、确认、等待结果，或只是看到了目标入口，都不算完成；不确定时继续执行下一步，系统会在每轮自动刷新页面状态。",
+                    "Completion rule: call finished only when the current page already shows the user's final target state, or the previous tool result explicitly completed an invisible system action. If any page opening, item selection, typing, saving, sending, confirmation, result wait, or visible target entry remains, the task is not complete; when uncertain, continue with the next action. The system refreshes page state automatically each turn."
+                )
+            )
+            appendLine(
+                t(
+                    locale,
+                    "如果截图是黑屏/空白，但 indexed evidence 或 visible_texts 包含当前页面和目标控件，请把这些压缩证据视为当前页面证据并继续选择统一 schema 中的工具；不要输出刷新状态、等待或空操作。",
+                    "If the screenshot is black/blank but indexed evidence or visible_texts contains the current page and target control, treat that compact evidence as current-page evidence and continue with a tool from the unified schema; do not output refresh-state, wait, or no-op actions."
                 )
             )
         }.trim()
+    }
+
+    private fun renderCoordinateSystemBlock(context: UIContext, locale: PromptLocale): String {
+        val width = context.displayWidth
+        val height = context.displayHeight
+        if (width <= 0 || height <= 0) return ""
+        return t(
+            locale,
+            "坐标系统：所有 x/y/x1/y1/x2/y2 必须使用当前屏幕绝对像素，范围 x=0..${width - 1}, y=0..${height - 1}；不要输出 0-1000 归一化坐标。",
+            "Coordinate system: all x/y/x1/y1/x2/y2 values must be absolute screen pixels for the current display, range x=0..${width - 1}, y=0..${height - 1}; do not output 0-1000 normalized coordinates."
+        )
+    }
+
+    private fun renderPageExplanationBlock(context: UIContext, locale: PromptLocale): String {
+        val pageContext = listOf(context.currentPageSummary, context.firstStepGuidance)
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .joinToString("\n")
+            .take(MAX_PAGE_EXPLANATION_CHARS)
+            .trim()
+        if (pageContext.isBlank()) return ""
+        return buildString {
+            appendLine(t(locale, "【页面解释】", "[Page Explanation]"))
+            append(pageContext)
+        }.trim()
+    }
+
+    private fun renderUnifiedActionSchema(context: UIContext, locale: PromptLocale): String {
+        return buildString {
+            appendLine(t(locale, "统一 action schema:", "Unified action schema:"))
+            appendLine(VLMToolDefinitions.renderCompactActionSchemaGuide(locale))
+        }.trim()
+    }
+
+    private fun renderRecentResultsBlock(context: UIContext, locale: PromptLocale): String {
+        val recent = context.trace.takeLast(MAX_RECENT_RESULT_STEPS)
+        return buildString {
+            appendLine()
+            appendLine(t(locale, "【最近结果】", "[Recent Results]"))
+            if (recent.isEmpty() && context.runningSummary.isBlank()) {
+                append(t(locale, "暂无；这是本任务的起始阶段。", "None yet; this is the beginning of the task."))
+                return@buildString
+            }
+            if (context.runningSummary.isNotBlank()) {
+                appendLine("${t(locale, "历史总结", "History summary")}: ${compactLine(context.runningSummary, 420)}")
+            }
+            recent.forEachIndexed { offset, step ->
+                val number = context.trace.size - recent.size + offset + 1
+                appendLine("- #$number ${actionSummary(step.action)} | success=${stepSucceeded(step)} | result=${stepResultForModel(step, locale)}")
+            }
+        }.trim()
+    }
+
+    private fun actionSummary(action: UIAction): String {
+        return when (action) {
+            is ClickAction -> "click ${compactLine(action.targetDescription, 80)}"
+            is InputTextAction -> "input_text ${compactLine(action.targetDescription, 60)} text=${compactLine(action.text, 80)}"
+            is SwipeAction -> "swipe ${compactLine(action.targetDescription, 80)} ${action.direction.orEmpty()}"
+            is LongPressAction -> "long_press ${compactLine(action.targetDescription, 80)}"
+            is OpenAppAction -> "open_app ${action.packageName}"
+            is PressKeyAction -> "press_key ${action.key}"
+            is FunctionRunAction -> "function ${action.functionId}"
+            is FinishedAction -> "finished"
+            is RequireUserChoiceAction -> "require_user_choice"
+            is RequireUserConfirmationAction -> "require_user_confirmation"
+            is RecordAction -> "record"
+            is InfoAction -> "info"
+            is FeedbackAction -> "feedback"
+            is AbortAction -> "abort"
+            is WaitAction -> "wait"
+            is GetStateAction -> "get_state"
+        }.trim()
+    }
+
+    private fun stepSucceeded(step: UIStep): Boolean {
+        val result = step.result?.trim().orEmpty()
+        return result.isEmpty() ||
+            (!result.startsWith("执行失败") && !result.startsWith("failed", ignoreCase = true))
+    }
+
+    private fun stepResultForModel(step: UIStep, locale: PromptLocale): String {
+        val result = step.result?.trim().orEmpty()
+        if (result.isNotEmpty()) return compactLine(result, MAX_RECENT_RESULT_CHARS)
+        val summary = step.summary.trim()
+        if (summary.isNotEmpty()) return compactLine(summary, MAX_RECENT_RESULT_CHARS)
+        return t(locale, "已发送动作；等待最新页面观察。", "Action was dispatched; use the latest page observe.")
+    }
+
+    private fun compactLine(value: String, maxLen: Int = 240): String {
+        val normalized = value
+            .replace("\r\n", "\n")
+            .lineSequence()
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .joinToString(" ")
+        return if (normalized.length <= maxLen) normalized else normalized.take(maxLen) + "..."
+    }
+
+    private fun renderFocusedInstalledApps(context: UIContext, locale: PromptLocale): String {
+        if (context.installedApplications.isEmpty()) {
+            return t(locale, "暂无数据", "No data")
+        }
+
+        val ranked = focusedInstalledAppEntries(context)
+        if (ranked.isEmpty()) {
+            return t(
+                locale,
+                "未找到与任务直接相关的候选；如需打开 App，请只使用已知 targetPackage 或先观察确认。",
+                "No directly relevant candidate found. If opening an app is required, use only the known targetPackage or observe first."
+            )
+        }
+
+        val rendered = ranked.joinToString("\n") { (packageName, appName) ->
+            "- $packageName -> $appName"
+        }
+        val hiddenCount = (context.installedApplications.size - ranked.size).coerceAtLeast(0)
+        val note = if (hiddenCount > 0) {
+            "\n" + t(
+                locale,
+                "注：这里只展示聚焦候选；不要猜未展示 package。",
+                "Note: only focused candidates are shown; do not guess hidden package names."
+            )
+        } else {
+            ""
+        }
+        return rendered + note
+    }
+
+    internal fun focusedInstalledAppEntries(context: UIContext): List<Map.Entry<String, String>> {
+        if (context.installedApplications.isEmpty()) return emptyList()
+        val targetPackage = context.targetPackageName.trim()
+        val currentPackage = context.currentPackageName.trim()
+        val queryTerms = appQueryTerms(context)
+
+        data class ScoredApp(
+            val entry: Map.Entry<String, String>,
+            val score: Int,
+            val originalIndex: Int
+        )
+
+        return context.installedApplications.entries
+            .mapIndexedNotNull { index, entry ->
+                val packageName = entry.key.trim()
+                val appName = entry.value.trim()
+                if (packageName.isBlank()) return@mapIndexedNotNull null
+                val packageLower = packageName.lowercase(Locale.ROOT)
+                val appLower = appName.lowercase(Locale.ROOT)
+                val packageTail = packageLower.substringAfterLast('.')
+
+                var score = 0
+                if (targetPackage.isNotBlank() && packageName.equals(targetPackage, ignoreCase = true)) score += 1000
+                if (currentPackage.isNotBlank() && packageName.equals(currentPackage, ignoreCase = true)) score += 800
+                queryTerms.forEach { term ->
+                    when {
+                        term.length <= 1 -> Unit
+                        appLower == term -> score += 120
+                        packageTail == term -> score += 110
+                        packageLower.endsWith(".$term") -> score += 90
+                        appLower.contains(term) -> score += 60
+                        packageLower.contains(term) -> score += 35
+                    }
+                }
+                if (score <= 0) return@mapIndexedNotNull null
+                ScoredApp(entry, score, index)
+            }
+            .sortedWith(
+                compareByDescending<ScoredApp> { it.score }
+                    .thenBy { it.originalIndex }
+            )
+            .map { it.entry }
+            .take(MAX_FOCUSED_INSTALLED_APPS)
+    }
+
+    private fun appQueryTerms(context: UIContext): Set<String> {
+        val raw = listOf(
+            context.overallTask,
+            context.currentStepGoal,
+            context.stepSkillGuidance,
+            context.currentState,
+            context.nextStepHint,
+            context.targetPackageName,
+            context.currentPackageName,
+        ).joinToString(" ")
+
+        val terms = linkedSetOf<String>()
+        Regex("""[\p{L}\p{N}._-]+""").findAll(raw.lowercase(Locale.ROOT)).forEach { match ->
+            val token = match.value.trim('.', '_', '-')
+            if (token.length < 2) return@forEach
+            if (token in APP_QUERY_STOP_WORDS) return@forEach
+            terms += token
+            token.split('.', '_', '-')
+                .map { it.trim() }
+                .filter { it.length >= 2 && it !in APP_QUERY_STOP_WORDS }
+                .forEach { terms += it }
+        }
+        return terms.take(MAX_APP_QUERY_TERMS).toSet()
     }
 
     fun buildToolCallRetryPrompt(context: UIContext, retryState: VLMToolCallRetryState): String {
@@ -196,8 +395,15 @@ object PromptTemplate {
             appendLine(
                 t(
                     locale,
-                    "不要只输出 observation/thought/summary JSON，不要在 assistant.content 中写动作参数，也不要提前宣布任务完成。",
-                    "Do not output only observation/thought/summary JSON, do not put action arguments in assistant.content, and do not announce completion prematurely."
+                    "必须改用原生 tool_calls，且工具名必须来自本轮 tools[]；不要用文本 JSON 表达动作。",
+                    "Switch to native tool_calls, and the tool name must come from this turn's tools[]; do not express actions as text JSON."
+                )
+            )
+            appendLine(
+                t(
+                    locale,
+                    "不要只输出 observation/thought/summary JSON，不要提前宣布任务完成。",
+                    "Do not output only observation/thought/summary JSON and do not announce completion prematurely."
                 )
             )
             appendLine(
@@ -210,8 +416,8 @@ object PromptTemplate {
             appendLine(
                 t(
                     locale,
-                    "若你判断下一步是点击、输入、滑动、返回、等待或结束，请直接使用对应工具。",
-                    "If the next step should be tap, type, scroll, go back, wait, or finish, call the matching tool directly."
+                    "若你判断下一步是点击、输入、滑动、返回或结束，请直接使用对应工具；不要使用停留、延时或空操作类动作，稳定停留由系统内部处理。",
+                    "If the next step should be tap, type, swipe, press_key, or finish, call the matching tool directly. Do not use idle, delay, or no-op actions; stable settling is handled internally."
                 )
             )
             appendLine(
@@ -252,4 +458,38 @@ object PromptTemplate {
         val normalized = text.replace("\r\n", "\n").trim()
         return if (normalized.length <= maxLen) normalized else normalized.take(maxLen) + "..."
     }
+
+    private const val MAX_FOCUSED_INSTALLED_APPS = 12
+    private const val MAX_APP_QUERY_TERMS = 24
+    private const val MAX_PAGE_EXPLANATION_CHARS = 2_200
+    private const val MAX_RECENT_RESULT_STEPS = 4
+    private const val MAX_RECENT_RESULT_CHARS = 260
+    private val APP_QUERY_STOP_WORDS = setOf(
+        "the",
+        "and",
+        "for",
+        "with",
+        "from",
+        "into",
+        "then",
+        "after",
+        "open",
+        "start",
+        "stop",
+        "page",
+        "screen",
+        "task",
+        "app",
+        "application",
+        "android",
+        "com",
+        "设置",
+        "打开",
+        "应用",
+        "页面",
+        "任务",
+        "当前",
+        "然后",
+        "完成",
+    )
 }

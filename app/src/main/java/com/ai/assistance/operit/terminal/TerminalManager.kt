@@ -11,9 +11,7 @@ import com.ai.assistance.operit.terminal.data.TerminalSessionData
 import com.ai.assistance.operit.terminal.data.TerminalState
 import com.ai.assistance.operit.terminal.provider.type.HiddenExecResult
 import com.ai.assistance.operit.terminal.provider.type.TerminalType
-import com.rk.libcommons.OmnibotTerminalEnvironment
 import com.rk.libcommons.ShellArgv
-import com.rk.libcommons.ShellAssetWriter
 import com.rk.libcommons.localBinDir
 import com.rk.libcommons.localLibDir
 import com.rk.settings.Settings
@@ -349,8 +347,7 @@ class TerminalManager private constructor(
         return buildAlpineProcess(
             executorKey = executorKey,
             command = command,
-            redirectErrorStream = true,
-            extraEnvironment = mapOf("OMNIBOT_HEADLESS" to "1")
+            redirectErrorStream = true
         )
     }
 
@@ -413,9 +410,6 @@ class TerminalManager private constructor(
         if (File(context.applicationInfo.nativeLibraryDir).resolve("libproot-loader.so").exists()) {
             env["PROOT_LOADER"] = "${context.applicationInfo.nativeLibraryDir}/libproot-loader.so"
         }
-        env.putAll(OmnibotTerminalEnvironment.buildTerminalEnvironment(context))
-        env.remove("PROOT_NO_SECCOMP")
-        env.remove("SECCOMP")
         if (Settings.seccomp) {
             env["SECCOMP"] = "1"
         }
@@ -424,10 +418,17 @@ class TerminalManager private constructor(
 
     private fun ensureShellScripts(): File {
         val initHost = localBinDir().resolve("init-host")
-        ShellAssetWriter.writeExecutableShellAsset(context, "init-host.sh", initHost)
+        initHost.parentFile?.mkdirs()
+        context.assets.open("init-host.sh").use { input ->
+            initHost.outputStream().use { output -> input.copyTo(output) }
+        }
+        initHost.setExecutable(true, false)
 
         val init = localBinDir().resolve("init")
-        ShellAssetWriter.writeExecutableShellAsset(context, "init.sh", init)
+        context.assets.open("init.sh").use { input ->
+            init.outputStream().use { output -> input.copyTo(output) }
+        }
+        init.setExecutable(true, false)
         return initHost
     }
 

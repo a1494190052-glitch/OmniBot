@@ -62,11 +62,7 @@ class CodexAppServerManager private constructor(
             "remoteEnabled" to runtime.remoteConfig.enabled,
             "remoteBridgeUrl" to runtime.remoteConfig.bridgeUrl,
             "remoteCwd" to runtime.remoteConfig.cwd,
-            "remoteConfigured" to runtime.remoteConfig.isConfigured,
-            "remoteTransport" to probe.details["appServerTransport"],
-            "remoteDesktopAvailable" to probe.details["desktopAppServerAvailable"],
-            "remoteActiveConnections" to probe.details["activeConnections"],
-            "remoteUptimeMs" to probe.details["uptimeMs"]
+            "remoteConfigured" to runtime.remoteConfig.isConfigured
         )
     }
 
@@ -133,15 +129,10 @@ class CodexAppServerManager private constructor(
             "thread/resume" -> requestWithResolvedThread("thread/resume", args)
             "thread/read" -> requestWithResolvedThread("thread/read", args)
             "thread/list" -> listThreads(args)
-            "thread/loaded/list" -> requestWrappedList("thread/loaded/list", args, "threads")
             "thread/archive" -> archiveThread(args, archived = true)
             "thread/unarchive" -> archiveThread(args, archived = false)
             "thread/name/set" -> setThreadName(args)
-            "model/list" -> requestWrappedList(
-                "model/list",
-                args.ifEmpty { mapOf("limit" to 100) },
-                "models"
-            )
+            "model/list" -> requestWrappedList("model/list", args, "models")
             "collaborationMode/list" -> requestWrappedList(
                 "collaborationMode/list",
                 args,
@@ -225,27 +216,13 @@ class CodexAppServerManager private constructor(
         args: Map<String, Any?>
     ): Map<String, Any?> {
         val threadId = resolveThreadId(args)
-        val params = linkedMapOf<String, Any?>("threadId" to threadId)
-        if (method == "thread/read") {
-            args["includeTurns"]?.let { params["includeTurns"] = it }
-        }
-        val response = request(method, params) as Map<String, Any?>
+        val response = request(method, mapOf("threadId" to threadId)) as Map<String, Any?>
         if (shouldSyncLocalThreadBindings() && (method == "thread/read" || method == "thread/resume")) {
             syncThreadListResponse(response)
         }
-        if (method == "thread/read" || method == "thread/resume") {
-            syncActiveTurnSnapshot(threadId, response)
-        }
-        val activeTurnId = activeTurnsByThreadId[threadId]
         return response.withLocalIds(
             threadId = threadId,
-            conversationId = localConversationIdForThread(threadId),
-            turnId = activeTurnId,
-            active = if (method == "thread/read" || method == "thread/resume") {
-                activeTurnId != null
-            } else {
-                null
-            }
+            conversationId = localConversationIdForThread(threadId)
         )
     }
 
@@ -668,18 +645,6 @@ class CodexAppServerManager private constructor(
         return bindingRepository.getBindingByThreadId(threadId)?.conversationId
     }
 
-    private fun syncActiveTurnSnapshot(threadId: String, response: Map<String, Any?>) {
-        val active = codexThreadActivity(response)
-        val activeTurnId = extractActiveTurnId(response)
-        if (active == true && !activeTurnId.isNullOrBlank()) {
-            activeTurnsByThreadId[threadId] = activeTurnId
-            return
-        }
-        if (active == false) {
-            activeTurnsByThreadId.remove(threadId)
-        }
-    }
-
     private suspend fun request(method: String, params: Any?): Any {
         val response = ensureConnectedSession().sendRequest(method, params)
         val error = response["error"]
@@ -699,74 +664,20 @@ class CodexAppServerManager private constructor(
     }
 
     private suspend fun handleServerMessage(message: Map<String, Any?>) {
-        val method = extractCodexServerMethod(message)
-        val explicitParams = extractCodexServerParams(message)
-        val params = if (explicitParams.isNotEmpty()) {
-            explicitParams
-        } else {
-            syntheticCodexServerParams(message, method)
-        }
+        val method = message["method"]?.toString()?.trim().orEmpty()
+        val params = message.mapValue("params")
         val threadId = extractThreadId(message)
-        val turnId = extractTurnId(message) ?: extractActiveTurnId(message)
-        // Diagnostic: log every server-side method that reaches Kotlin so the
-        // user can verify via `adb logcat -s CodexAppServerManager:V` whether
-        // commandExecution / rawResponseItem events actually arrive over the
-        // bridge. If item/started events for commandExecution are missing
-        // here but present in `codex app-server` stdout, the bridge is
-        // dropping them; if present here but missing on Flutter side, the
-        // EventChannel pipe is the problem.
-        val diagItemType = (message["params"] as? Map<*, *>)
-            ?.get("item")?.let { it as? Map<*, *> }
-            ?.get("type")?.toString()
-            ?: (params["item"] as? Map<*, *>)?.get("type")?.toString()
-        Log.d(
-            "CodexAppServerManager",
-            "<- method=$method itemType=$diagItemType threadId=$threadId turnId=$turnId"
-        )
-        val protocolEventType = if (method == "codex/event") {
-            codexProtocolEventType(params)
-        } else {
-            ""
-        }
-        if (!threadId.isNullOrBlank() && !turnId.isNullOrBlank() &&
-            (method == "turn/started" ||
-                protocolEventType == "task_started" ||
-                protocolEventType == "turn_started")) {
+        val turnId = extractTurnId(message)
+        if (!threadId.isNullOrBlank() && !turnId.isNullOrBlank() && method == "turn/started") {
             activeTurnsByThreadId[threadId] = turnId
             TaskRuntimeSettings.onTaskStarted(appContext)
         }
-        if (!threadId.isNullOrBlank() && method == "thread/status/changed") {
-            val active = codexThreadActivity(message)
-            if (active == true && !turnId.isNullOrBlank()) {
-                activeTurnsByThreadId[threadId] = turnId
-            } else if (active == false) {
-                activeTurnsByThreadId.remove(threadId)
-            }
-        }
-        if (!threadId.isNullOrBlank() &&
-            (method == "turn/completed" ||
-                protocolEventType == "task_complete" ||
-                protocolEventType == "turn_complete" ||
-                protocolEventType == "turn_aborted")) {
-            activeTurnsByThreadId.remove(threadId)
-        }
-        if (!threadId.isNullOrBlank() &&
-            (method == "error" || method == "turn/failed") &&
-            params["willRetry"] != true) {
-            // codex app-server emits top-level `error` notifications when a
-            // turn fails terminally (no follow-up turn/completed will come).
-            // Clear the active turn so subsequent thread/read responses
-            // surface active=false to the Flutter side.
-            activeTurnsByThreadId.remove(threadId)
-        }
-        if (!threadId.isNullOrBlank() && method == "thread/closed") {
+        if (!threadId.isNullOrBlank() && method == "turn/completed") {
             activeTurnsByThreadId.remove(threadId)
         }
 
         val localConversationId = syncMessage(method, message, params, threadId)
-        if (method == "turn/completed" ||
-            protocolEventType == "task_complete" ||
-            protocolEventType == "turn_complete") {
+        if (method == "turn/completed") {
             TaskRuntimeSettings.onTaskFinished(appContext)
             TaskRuntimeSettings.notifyTaskFinished(
                 context = appContext,
@@ -899,8 +810,7 @@ class CodexAppServerManager private constructor(
         return CodexProbe(
             ready = probe.ready,
             version = probe.version,
-            error = probe.error,
-            details = probe.details
+            error = probe.error
         )
     }
 
@@ -970,8 +880,7 @@ class CodexAppServerManager private constructor(
     private data class CodexProbe(
         val ready: Boolean,
         val version: String?,
-        val error: String?,
-        val details: Map<String, Any?> = emptyMap()
+        val error: String?
     )
 
     companion object {
@@ -1005,11 +914,10 @@ private data class CodexThreadListEntry(
     val archived: Boolean?
 )
 
-internal fun Map<String, Any?>.withLocalIds(
+private fun Map<String, Any?>.withLocalIds(
     threadId: String?,
     conversationId: Long?,
-    turnId: String? = null,
-    active: Boolean? = null
+    turnId: String? = null
 ): Map<String, Any?> {
     val result = LinkedHashMap(this)
     if (!threadId.isNullOrBlank()) {
@@ -1020,12 +928,6 @@ internal fun Map<String, Any?>.withLocalIds(
     }
     if (!turnId.isNullOrBlank()) {
         result["turnId"] = turnId
-        if (active == true) {
-            result["activeTurnId"] = turnId
-        }
-    }
-    if (active != null) {
-        result["active"] = active
     }
     return result
 }
@@ -1069,62 +971,8 @@ internal fun addCodexOptionalRunParams(
 ) {
     args["model"]?.let { params["model"] = it }
     args["effort"]?.let { params["effort"] = it }
-    resolveCodexCollaborationMode(args)?.let { params["collaborationMode"] = it }
+    args["collaborationMode"]?.let { params["collaborationMode"] = it }
     args["serviceTier"]?.let { params["serviceTier"] = it }
-}
-
-internal fun resolveCodexCollaborationMode(args: Map<String, Any?>): Map<String, Any?>? {
-    val rawMode = args["collaborationMode"] ?: return null
-    val source = rawMode.asStringMap()
-    val mode = when {
-        source != null -> {
-            source.stringValue("mode")
-                ?: source.stringValue("value")
-                ?: source.stringValue("name")
-        }
-        rawMode is String -> rawMode.trim()
-        else -> rawMode.toString().trim()
-    }?.normalizeCodexCollaborationModeKind() ?: return null
-
-    val sourceSettings = source?.mapValue("settings").orEmpty()
-    val model = sourceSettings.stringValue("model")
-        ?: source?.stringValue("model")
-        ?: args.stringValue("model")
-        ?: return null
-    val reasoningEffort = sourceSettings.stringValue("reasoning_effort")
-        ?: sourceSettings.stringValue("reasoningEffort")
-        ?: source?.stringValue("reasoning_effort")
-        ?: source?.stringValue("reasoningEffort")
-        ?: args.stringValue("effort")
-    val developerInstructions = sourceSettings.stringValue("developer_instructions")
-        ?: sourceSettings.stringValue("developerInstructions")
-        ?: source?.stringValue("developer_instructions")
-        ?: source?.stringValue("developerInstructions")
-
-    val settings = linkedMapOf<String, Any?>("model" to model)
-    reasoningEffort?.let { settings["reasoning_effort"] = it }
-    developerInstructions?.let { settings["developer_instructions"] = it }
-    return linkedMapOf(
-        "mode" to mode,
-        "settings" to settings
-    )
-}
-
-private fun Any?.asStringMap(): Map<String, Any?>? {
-    val raw = this as? Map<*, *> ?: return null
-    return raw.entries.associate { (key, value) -> key.toString() to value }
-}
-
-private fun String.normalizeCodexCollaborationModeKind(): String? {
-    val normalized = trim().lowercase()
-    if (normalized.isEmpty()) {
-        return null
-    }
-    return when {
-        normalized == "plan" || normalized.contains("plan") -> "plan"
-        normalized == "default" -> "default"
-        else -> normalized
-    }
 }
 
 private fun buildCodexLocalConfigPayload(
@@ -1263,177 +1111,11 @@ private fun Map<String, Any?>.mapValue(key: String): Map<String, Any?> {
     return raw.entries.associate { (entryKey, value) -> entryKey.toString() to value }
 }
 
-private val CODEX_ENVELOPE_KEYS = listOf(
-    "message",
-    "payload",
-    "data",
-    "event",
-    "notification",
-    "params",
-    "result",
-    "_meta",
-    "msg"
-)
-
-private fun extractCodexServerMethod(value: Any?, depth: Int = 0): String {
-    val map = value as? Map<*, *> ?: return ""
-    if (depth > 6) {
-        return ""
-    }
-    val direct = normalizeCodexServerMethod(map["method"]?.toString()?.trim())
-    if (direct.isNotBlank()) {
-        return direct
-    }
-    for (key in CODEX_ENVELOPE_KEYS) {
-        val nested = extractCodexServerMethod(map[key], depth + 1)
-        if (nested.isNotBlank()) {
-            return nested
-        }
-    }
-    val rawType = map["type"]?.toString()?.trim()
-    if (codexServerTypeLooksLikeMethod(rawType)) {
-        return normalizeCodexServerMethod(rawType)
-    }
-    return ""
-}
-
-private fun codexServerTypeLooksLikeMethod(rawType: String?): Boolean {
-    val type = rawType?.trim().orEmpty()
-    if (type.isBlank()) {
-        return false
-    }
-    val normalized = normalizeCodexServerMethod(type)
-    return normalized.contains("/") ||
-        normalized == "error" ||
-        type in CODEX_THREAD_ITEM_TYPES
-}
-
-private fun extractCodexServerParams(value: Any?, depth: Int = 0): Map<String, Any?> {
-    val map = value as? Map<*, *> ?: return emptyMap()
-    if (depth > 6) {
-        return emptyMap()
-    }
-    val direct = map["params"] as? Map<*, *>
-    if (direct != null) {
-        val nested = extractCodexServerParams(direct, depth + 1)
-        if (nested.isNotEmpty()) {
-            return topLevelCodexIds(map) + nested
-        }
-        val normalized = direct.entries.associate { (entryKey, nestedValue) ->
-            entryKey.toString() to nestedValue
-        }
-        if (normalized.isNotEmpty()) {
-            return topLevelCodexIds(map) + normalized
-        }
-    }
-    for (key in CODEX_ENVELOPE_KEYS) {
-        if (key == "params") {
-            continue
-        }
-        val nested = extractCodexServerParams(map[key], depth + 1)
-        if (nested.isNotEmpty()) {
-            return topLevelCodexIds(map) + nested
-        }
-    }
-    return emptyMap()
-}
-
-private fun topLevelCodexIds(map: Map<*, *>): Map<String, Any?> {
-    val ids = linkedMapOf<String, Any?>()
-    val meta = map["_meta"] as? Map<*, *>
-    if (meta != null) {
-        for (key in listOf("threadId", "thread_id")) {
-            if (meta.containsKey(key)) {
-                ids[key] = meta[key]
-            }
-        }
-    }
-    for (key in listOf("threadId", "thread_id", "turnId", "turn_id", "itemId", "item_id")) {
-        if (map.containsKey(key)) {
-            ids[key] = map[key]
-        }
-    }
-    return ids
-}
-
-private fun normalizeCodexServerMethod(rawMethod: String?): String {
-    val method = rawMethod?.trim().orEmpty()
-    if (method.isEmpty()) {
-        return ""
-    }
-    return when (method) {
-        "thread.started" -> "thread/started"
-        "turn.started" -> "turn/started"
-        "turn.completed" -> "turn/completed"
-        "turn.failed" -> "turn/failed"
-        "item.started" -> "item/started"
-        "item.updated" -> "item/updated"
-        "item.completed" -> "item/completed"
-        else -> method
-            .replace("/agent_message/", "/agentMessage/")
-            .replace("/command_execution/", "/commandExecution/")
-            .replace("/file_change/", "/fileChange/")
-            .replace("/mcp_tool_call/", "/mcpToolCall/")
-    }
-}
-
-private fun syntheticCodexServerParams(
-    message: Map<String, Any?>,
-    method: String
-): Map<String, Any?> {
-    if (method.isBlank()) {
-        return emptyMap()
-    }
-    val payload = linkedMapOf<String, Any?>()
-    message.forEach { (key, value) ->
-        if (key != "method" && key != "type" && key != "params") {
-            payload[key] = value
-        }
-    }
-    return payload
-}
-
-private fun codexProtocolEventType(value: Any?): String {
-    val msg = codexProtocolMsg(value) ?: return ""
-    return msg["type"]?.toString()?.trim()?.lowercase()
-        ?.replace(Regex("[^a-z0-9]+"), "_")
-        .orEmpty()
-}
-
-private fun codexProtocolMsg(value: Any?, depth: Int = 0): Map<*, *>? {
-    val map = value as? Map<*, *> ?: return null
-    if (depth > 6) {
-        return null
-    }
-    val direct = map["msg"] as? Map<*, *>
-    if (direct != null) {
-        return direct
-    }
-    for (key in CODEX_ENVELOPE_KEYS) {
-        val nested = codexProtocolMsg(map[key], depth + 1)
-        if (nested != null) {
-            return nested
-        }
-    }
-    return null
-}
-
 private fun extractThreadId(value: Any?): String? {
     return extractStringRecursive(
         value = value,
         keys = setOf("threadId", "thread_id"),
-        nestedObjectKeys = setOf(
-            "thread",
-            "message",
-            "payload",
-            "data",
-            "event",
-            "notification",
-            "params",
-            "result",
-            "_meta",
-            "msg"
-        )
+        nestedObjectKeys = setOf("thread")
     )
 }
 
@@ -1441,18 +1123,7 @@ private fun extractTurnId(value: Any?): String? {
     val fromTurn = extractStringRecursive(
         value = value,
         keys = setOf("turnId", "turn_id"),
-        nestedObjectKeys = setOf(
-            "turn",
-            "message",
-            "payload",
-            "data",
-            "event",
-            "notification",
-            "params",
-            "result",
-            "_meta",
-            "msg"
-        )
+        nestedObjectKeys = setOf("turn")
     )
     if (!fromTurn.isNullOrBlank()) {
         return fromTurn
@@ -1460,128 +1131,6 @@ private fun extractTurnId(value: Any?): String? {
     val map = value as? Map<*, *> ?: return null
     val turn = map["turn"] as? Map<*, *> ?: return null
     return turn["id"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
-}
-
-private fun extractActiveTurnId(value: Any?): String? {
-    val direct = extractStringRecursive(
-        value = value,
-        keys = setOf(
-            "turnId",
-            "turn_id",
-            "activeTurnId",
-            "active_turn_id",
-            "currentTurnId",
-            "current_turn_id"
-        ),
-        nestedObjectKeys = setOf(
-            "thread",
-            "turn",
-            "status",
-            "message",
-            "payload",
-            "data",
-            "event",
-            "notification",
-            "params",
-            "result",
-            "_meta",
-            "msg"
-        )
-    )
-    if (!direct.isNullOrBlank()) {
-        return direct
-    }
-    val root = value as? Map<*, *> ?: return null
-    val thread = root["thread"] as? Map<*, *>
-    val turns = (thread?.get("turns") as? List<*>) ?: (root["turns"] as? List<*>) ?: return null
-    for (index in turns.indices.reversed()) {
-        val turn = turns[index] as? Map<*, *> ?: continue
-        val active = codexActivityFromValue(turn["status"] ?: turn["state"])
-        if (active == true) {
-            return turn["id"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
-        }
-    }
-    return null
-}
-
-private fun codexThreadActivity(value: Any?): Boolean? {
-    val root = value as? Map<*, *> ?: return null
-    val thread = root["thread"] as? Map<*, *>
-    var inactiveCandidate: Boolean? = null
-    val candidates = listOf(
-        root["active"],
-        root["isActive"],
-        root["is_active"],
-        root["status"],
-        root["state"],
-        root["turnStatus"],
-        root["turn_status"],
-        thread?.get("active"),
-        thread?.get("isActive"),
-        thread?.get("is_active"),
-        thread?.get("status"),
-        thread?.get("state"),
-        thread?.get("turnStatus"),
-        thread?.get("turn_status")
-    )
-    for (candidate in candidates) {
-        val active = codexActivityFromValue(candidate)
-        if (active == true) {
-            return true
-        }
-        if (active == false) {
-            inactiveCandidate = false
-        }
-    }
-    for (key in CODEX_ENVELOPE_KEYS) {
-        val nested = root[key] as? Map<*, *> ?: continue
-        val nestedActivity = codexThreadActivity(nested)
-        if (nestedActivity == true) {
-            return true
-        }
-        if (nestedActivity == false) {
-            inactiveCandidate = false
-        }
-    }
-    val turns = (thread?.get("turns") as? List<*>) ?: (root["turns"] as? List<*>)
-    if (turns != null) {
-        for (index in turns.indices.reversed()) {
-            val turn = turns[index] as? Map<*, *> ?: continue
-            val active = codexActivityFromValue(turn["status"] ?: turn["state"])
-            if (active != null) {
-                return active
-            }
-        }
-    }
-    return inactiveCandidate
-}
-
-private fun codexActivityFromValue(value: Any?): Boolean? {
-    if (value is Boolean) {
-        return value
-    }
-    val text = codexStatusText(value)?.lowercase()
-        ?.replace(Regex("[^a-z0-9]+"), "")
-        ?: return null
-    return when (text) {
-        "running", "active", "busy", "inprogress", "inflight", "executing" -> true
-        "idle", "closed", "completed", "complete", "notloaded", "systemerror",
-        "failed", "cancelled", "canceled", "interrupted" -> false
-        else -> null
-    }
-}
-
-private fun codexStatusText(value: Any?): String? {
-    return when (value) {
-        null -> null
-        is String -> value.trim().takeIf { it.isNotEmpty() }
-        is Number, is Boolean -> value.toString()
-        is Map<*, *> -> {
-            listOf("type", "status", "state", "value", "name")
-                .firstNotNullOfOrNull { key -> codexStatusText(value[key]) }
-        }
-        else -> null
-    }
 }
 
 private fun extractThreadTitle(value: Any?): String? {
@@ -1631,11 +1180,9 @@ private fun extractStringRecursive(
     }
     for (nestedKey in nestedObjectKeys) {
         val nested = map[nestedKey] as? Map<*, *>
-        if (nestedKey == "thread" || nestedKey == "turn") {
-            val id = nested?.get("id")?.toString()?.trim()?.takeIf { it.isNotEmpty() }
-            if (id != null) {
-                return id
-            }
+        val id = nested?.get("id")?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+        if (id != null) {
+            return id
         }
         val recursive = extractStringRecursive(nested, keys, nestedObjectKeys)
         if (recursive != null) {
@@ -1766,15 +1313,6 @@ internal fun resolveCodexReviewTarget(value: Any?): Map<String, Any?> {
 
 private val THREAD_ITEM_COLLECTION_KEYS = setOf(
     "items",
-    "inputItems",
-    "input_items",
-    "outputItems",
-    "output_items",
-    "responseItems",
-    "response_items",
-    "rawItems",
-    "raw_items",
-    "events",
     "messages",
     "turns"
 )
@@ -1801,41 +1339,12 @@ private val THREAD_SUMMARY_KEYS = setOf(
 
 private val CODEX_THREAD_ITEM_TYPES = setOf(
     "agentMessage",
-    "agent_message",
     "reasoning",
     "commandExecution",
-    "command_execution",
-    "local_shell_call",
-    "commandExec",
-    "processExecution",
     "fileChange",
-    "file_change",
     "tool",
     "mcpToolCall",
-    "mcp_tool_call",
-    "dynamicToolCall",
-    "dynamic_tool_call",
-    "function_call",
-    "function_call_output",
-    "custom_tool_call",
-    "custom_tool_call_output",
-    "tool_search_call",
-    "tool_search_output",
-    "webSearch",
-    "web_search",
-    "web_search_call",
-    "imageView",
-    "image_view",
-    "imageGeneration",
-    "image_generation",
-    "image_generation_call",
-    "collabAgentToolCall",
-    "collab_agent_tool_call",
-    "collabToolCall",
-    "collab_tool_call",
     "userMessage",
-    "user_message",
-    "todo_list",
     "plan",
     "serverRequest"
 )

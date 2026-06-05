@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:ui/models/conversation_model.dart';
 import 'package:ui/theme/app_theme_mode.dart';
 
 /// 应用状态服务 - 处理与Android应用状态相关的通信
@@ -58,6 +59,22 @@ class AppStateService {
     }
   }
 
+  static Future<bool> navigateBackToChat({
+    int? conversationId,
+    ConversationMode? mode,
+  }) async {
+    try {
+      final result = await _channel.invokeMethod('navigateBackToChat', {
+        if (conversationId != null) 'conversationId': conversationId,
+        if (mode != null) 'mode': mode.storageValue,
+      });
+      return result == true;
+    } catch (e) {
+      debugPrint('⚠️ Failed to navigate back to chat: $e');
+      return false;
+    }
+  }
+
   static Future<String> getSharedOpenMode() async {
     try {
       final result = await _channel.invokeMethod<String>('getSharedOpenMode');
@@ -103,6 +120,7 @@ class AppStateService {
     };
   }
 
+
   static Future<bool> applyLanguagePreference() async {
     try {
       final result = await _channel.invokeMethod<dynamic>(
@@ -123,6 +141,43 @@ class AppStateService {
       return result == true;
     } catch (e) {
       debugPrint('⚠️ Failed to apply theme mode on native side: $e');
+      return false;
+    }
+  }
+
+  static Future<bool?> getFloatingOverlayEnabled() async {
+    try {
+      final result = await _channel.invokeMethod<dynamic>(
+        'getFloatingOverlayEnabled',
+      );
+      return result == true;
+    } catch (e) {
+      debugPrint('⚠️ Failed to read floating overlay setting: $e');
+      return null;
+    }
+  }
+
+  static Future<bool> setFloatingOverlayEnabled(bool enabled) async {
+    try {
+      final result = await _channel.invokeMethod<dynamic>(
+        'setFloatingOverlayEnabled',
+        {'enabled': enabled},
+      );
+      return result == true;
+    } catch (e) {
+      debugPrint('⚠️ Failed to update floating overlay setting: $e');
+      return false;
+    }
+  }
+
+  static Future<bool> dismissFloatingOverlay() async {
+    try {
+      final result = await _channel.invokeMethod<dynamic>(
+        'dismissFloatingOverlay',
+      );
+      return result == true;
+    } catch (e) {
+      debugPrint('⚠️ Failed to dismiss floating overlay: $e');
       return false;
     }
   }

@@ -7,16 +7,46 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
-fun prop(name: String): String = (project.findProperty(name) as String?)?.trim()
-    ?: System.getenv(name)?.trim()
-    ?: ""
-
-fun buildConfigString(value: String): String {
-    val escaped = value
-        .replace("\\", "\\\\")
-        .replace("\"", "\\\"")
-    return "\"$escaped\""
+fun prop(name: String, defaultValue: String = ""): String {
+    val fromProject = (project.findProperty(name) as String?)?.trim().orEmpty()
+    if (fromProject.isNotEmpty()) {
+        return fromProject
+    }
+    val fromEnv = System.getenv(name)?.trim().orEmpty()
+    if (fromEnv.isNotEmpty()) {
+        return fromEnv
+    }
+    return defaultValue
 }
+
+fun propFlag(name: String, defaultValue: Boolean = false): Boolean {
+    val value = prop(name).lowercase()
+    if (value.isBlank()) {
+        return defaultValue
+    }
+    return value in setOf("1", "true", "yes", "on")
+}
+
+fun envValue(name: String): String = System.getenv(name)?.trim().orEmpty()
+
+fun quotedBuildConfigString(value: String): String =
+    "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
+fun buildConfigString(value: String): String = quotedBuildConfigString(value)
+
+val defaultModelProviderBaseUrl = prop(
+    "OMNIBOT_DEFAULT_MODEL_PROVIDER_BASE_URL",
+    prop("OMNIMIND_API_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+)
+val defaultModelProviderApiKeyEnv = prop("OMNIMIND_API_KEY_ENV", "DASHSCOPE_API_KEY")
+val defaultModelProviderApiKey = prop(
+    "OMNIBOT_DEFAULT_MODEL_PROVIDER_API_KEY",
+    envValue(defaultModelProviderApiKeyEnv).ifEmpty { envValue("OMNIMIND_API_KEY") }
+)
+val defaultModelProviderModelId = prop(
+    "OMNIBOT_DEFAULT_MODEL_PROVIDER_MODEL_ID",
+    prop("OMNIMIND_MODEL", prop("OPENAI_MODEL", "qwen-vl-max-latest"))
+)
 
 val omnibotImageBaseUrl = prop("OMNIBOT_IMAGE_BASE_URL")
     .ifBlank { "https://cloud.omnimind.com.cn" }
@@ -27,10 +57,18 @@ val omnibotImageApiKey = prop("OMNIBOT_IMAGE_API_KEY")
 val flutterWebBuildDir = rootProject.file("ui/build/web")
 val flutterWebAssetsRootDir = layout.buildDirectory.dir("generated/omnibot_assets").get().asFile
 val flutterWebAssetsDir = File(flutterWebAssetsRootDir, "flutter_web")
+val flutterWebBundleMode = prop("OOB_FLUTTER_WEB_MODE", "auto").lowercase()
+require(flutterWebBundleMode in setOf("auto", "include", "skip")) {
+    "OOB_FLUTTER_WEB_MODE must be one of: auto, include, skip"
+}
+val skipFlutterWebBundle = propFlag("OOB_SKIP_FLUTTER_WEB") || flutterWebBundleMode == "skip"
+val includeFlutterWebInDebugAssets = !skipFlutterWebBundle && flutterWebBundleMode == "include"
+val includeFlutterWebInReleaseAssets = !skipFlutterWebBundle && flutterWebBundleMode in setOf("auto", "include")
 
 val buildFlutterWebBundle by tasks.registering(Exec::class) {
     group = "flutter web"
     description = "Build the dedicated web chat Flutter bundle."
+    enabled = !skipFlutterWebBundle
     workingDir = rootProject.file("ui")
     val flutterCmd = if (org.gradle.internal.os.OperatingSystem.current().isWindows) "flutter.bat" else "flutter"
     commandLine(
@@ -56,6 +94,7 @@ val buildFlutterWebBundle by tasks.registering(Exec::class) {
 val syncFlutterWebBundle by tasks.registering(Copy::class) {
     group = "flutter web"
     description = "Copy Flutter Web build output into Android assets."
+    enabled = !skipFlutterWebBundle
     dependsOn(buildFlutterWebBundle)
     from(flutterWebBuildDir)
     into(flutterWebAssetsDir)
@@ -85,10 +124,25 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.5.3.10"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField(
+            "String",
+            "DEFAULT_MODEL_PROVIDER_BASE_URL",
+            quotedBuildConfigString(defaultModelProviderBaseUrl)
+        )
+        buildConfigField(
+            "String",
+            "DEFAULT_MODEL_PROVIDER_API_KEY",
+            quotedBuildConfigString(defaultModelProviderApiKey)
+        )
+        buildConfigField(
+            "String",
+            "DEFAULT_MODEL_PROVIDER_MODEL_ID",
+            quotedBuildConfigString(defaultModelProviderModelId)
+        )
         buildConfigField("String", "IMAGE_BASE_URL", buildConfigString(omnibotImageBaseUrl))
         buildConfigField("String", "IMAGE_MODEL", buildConfigString(omnibotImageModel))
         buildConfigField("String", "IMAGE_API_KEY", buildConfigString(omnibotImageApiKey))
-
 
         ndk {
             abiFilters.addAll(listOf("arm64-v8a"))
@@ -195,7 +249,17 @@ android {
 
     sourceSets {
         getByName("main") {
-            assets.srcDirs("src/main/assets", "../skills", flutterWebAssetsRootDir)
+            assets.srcDirs("src/main/assets", "../skills")
+        }
+        if (includeFlutterWebInDebugAssets) {
+            getByName("debug") {
+                assets.srcDirs(flutterWebAssetsRootDir)
+            }
+        }
+        if (includeFlutterWebInReleaseAssets) {
+            getByName("release") {
+                assets.srcDirs(flutterWebAssetsRootDir)
+            }
         }
         getByName("omniinfer") {
             assets.srcDirs("src/omniinfer/assets")
@@ -216,8 +280,14 @@ kotlin {
     }
 }
 
-tasks.named("preBuild").configure {
-    dependsOn(syncFlutterWebBundle)
+if (!skipFlutterWebBundle) {
+    tasks.matching { task ->
+        task.name.startsWith("merge") &&
+            task.name.endsWith("Assets") &&
+            (flutterWebBundleMode == "include" || task.name.contains("Release"))
+    }.configureEach {
+        dependsOn(syncFlutterWebBundle)
+    }
 }
 dependencies {
     implementation(project(":flutter"))
@@ -260,6 +330,10 @@ dependencies {
     implementation(libs.ktor.serialization.kotlinx.json)
     implementation(libs.ktor.server.call.logging)
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation("org.json:json:20180813")
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.espresso.core)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest )
 }

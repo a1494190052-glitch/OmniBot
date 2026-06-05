@@ -6,7 +6,9 @@ import cn.com.omnimind.bot.agent.AgentCallback
 import cn.com.omnimind.bot.agent.AgentExecutionEnvironment
 import cn.com.omnimind.bot.agent.AgentToolExecutionHandle
 import cn.com.omnimind.bot.agent.AgentToolRegistry
+import cn.com.omnimind.bot.agent.ChoiceOption
 import cn.com.omnimind.bot.agent.ToolExecutionResult
+import cn.com.omnimind.bot.agent.UserDialog
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -24,12 +26,16 @@ class SystemToolHandler(
         "schedule_task_create", "schedule_task_list", "schedule_task_update", "schedule_task_delete",
         "alarm_reminder_create", "alarm_reminder_list", "alarm_reminder_delete",
         "calendar_list", "calendar_event_create", "calendar_event_list", "calendar_event_update", "calendar_event_delete",
-        "music_playback_control"
+        "music_playback_control",
+        "notification_send",
+        "user_dialog"
     )
 
-    private val alarmToolService = AgentAlarmToolService(helper.context)
-    private val calendarToolService = AgentCalendarToolService(helper.context)
-    private val musicToolService = AgentMusicToolService(helper.context, workspaceManager)
+    private val alarmToolService by lazy { AgentAlarmToolService(helper.context) }
+    private val calendarToolService by lazy { AgentCalendarToolService(helper.context) }
+    private val musicToolService by lazy {
+        AgentMusicToolService(helper.context, workspaceManager)
+    }
 
     override suspend fun execute(
         toolCall: cn.com.omnimind.baselib.llm.AssistantToolCall,
@@ -48,6 +54,8 @@ class SystemToolHandler(
             in setOf("calendar_list", "calendar_event_create", "calendar_event_list", "calendar_event_update", "calendar_event_delete") ->
                 executeCalendarTool(toolName, args, callback)
             "music_playback_control" -> executeMusicTool(args, env.workspaceDescriptor, callback)
+            "notification_send" -> executeNotificationSend(args)
+            "user_dialog" -> executeUserDialog(args, callback)
             else -> ToolExecutionResult.Error(toolName, "Unknown system tool")
         }
     }
@@ -166,8 +174,11 @@ class SystemToolHandler(
                 "alarm_reminder_delete" -> {
                     helper.reportToolProgress(callback, toolName, "正在删除提醒闹钟")
                     val alarmId = args["alarmId"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
-                    if (alarmId.isBlank()) { throw IllegalArgumentException("alarmId 不能为空") }
-                    val payload = alarmToolService.deleteExactReminder(alarmId)
+                    val payload = if (alarmId.isBlank()) {
+                        alarmToolService.deleteAllExactReminders()
+                    } else {
+                        alarmToolService.deleteExactReminder(alarmId)
+                    }
                     val payloadJson = helper.encodeLocalizedPayload(payload)
                     ToolExecutionResult.ContextResult(
                         toolName = toolName,
@@ -338,5 +349,90 @@ class SystemToolHandler(
             )
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) { ToolExecutionResult.Error(toolName, helper.localized(e.message ?: "Music tool failed")) }
+    }
+
+    private suspend fun executeUserDialog(
+        args: JsonObject,
+        callback: AgentCallback
+    ): ToolExecutionResult {
+        val type = args["type"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        val message = args["message"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        if (type !in setOf("confirm", "choices", "input")) {
+            return ToolExecutionResult.Error("user_dialog", "type 必须是 confirm、choices 或 input")
+        }
+        if (message.isBlank()) {
+            return ToolExecutionResult.Error("user_dialog", "message 不能为空")
+        }
+        val choices = (args["choices"] as? JsonArray)?.mapNotNull { el ->
+            val obj = el as? JsonObject ?: return@mapNotNull null
+            val label = obj["label"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            val value = obj["value"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            if (label.isBlank() || value.isBlank()) return@mapNotNull null
+            ChoiceOption(
+                label = label,
+                value = value,
+                hint = obj["hint"]?.jsonPrimitive?.contentOrNull?.trim()
+            )
+        }
+        val dialog = UserDialog(
+            type = type,
+            message = message,
+            title = args["title"]?.jsonPrimitive?.contentOrNull?.trim(),
+            confirmLabel = args["confirmLabel"]?.jsonPrimitive?.contentOrNull?.trim(),
+            cancelLabel = args["cancelLabel"]?.jsonPrimitive?.contentOrNull?.trim(),
+            danger = args["danger"]?.jsonPrimitive?.booleanOrNull ?: false,
+            choices = choices?.takeIf { it.isNotEmpty() },
+            placeholder = args["placeholder"]?.jsonPrimitive?.contentOrNull?.trim(),
+            inputType = args["inputType"]?.jsonPrimitive?.contentOrNull?.trim()
+        )
+        callback.onClarifyRequired(
+            question = message,
+            missingFields = null,
+            dialog = dialog
+        )
+        return ToolExecutionResult.Clarify(
+            question = message,
+            missingFields = null,
+            dialog = dialog
+        )
+    }
+
+    private suspend fun executeNotificationSend(args: JsonObject): ToolExecutionResult {
+        return try {
+            val title = args["title"]?.jsonPrimitive?.contentOrNull?.trim() ?: "OOB 通知"
+            val body = args["body"]?.jsonPrimitive?.contentOrNull?.trim() ?: ""
+            val channelId = args["channel"]?.jsonPrimitive?.contentOrNull?.trim() ?: "oob_agent_notify"
+            if (body.isEmpty()) return ToolExecutionResult.Error("notification_send", "body 不能为空")
+
+            val ctx = helper.context
+            val notificationManager = ctx.getSystemService(android.app.NotificationManager::class.java)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                if (notificationManager.getNotificationChannel(channelId) == null) {
+                    val channel = android.app.NotificationChannel(
+                        channelId, "OOB Agent 通知", android.app.NotificationManager.IMPORTANCE_DEFAULT
+                    )
+                    notificationManager.createNotificationChannel(channel)
+                }
+            }
+            val notification = androidx.core.app.NotificationCompat.Builder(ctx, channelId)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setStyle(androidx.core.app.NotificationCompat.BigTextStyle().bigText(body))
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
+                .setAutoCancel(true)
+                .build()
+            val id = (System.currentTimeMillis() % Int.MAX_VALUE).toInt()
+            androidx.core.app.NotificationManagerCompat.from(ctx).notify(id, notification)
+            ToolExecutionResult.ContextResult(
+                toolName = "notification_send",
+                summaryText = "已发送通知：$title",
+                previewJson = """{"title":"$title","body":"${body.take(100)}","success":true}""",
+                rawResultJson = """{"title":"$title","body":"${body.take(100)}","success":true}""",
+                success = true
+            )
+        } catch (e: Exception) {
+            ToolExecutionResult.Error("notification_send", e.message ?: "通知发送失败")
+        }
     }
 }

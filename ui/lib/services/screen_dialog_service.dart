@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 typedef TitleCallback = void Function(String title);
@@ -22,19 +23,19 @@ class ScreenDialogService {
       switch (call.method) {
         case 'onTitle':
           final String title = call.arguments ?? '';
-          print(title);
+          debugPrint(title);
           _onTitleCallback?.call(title);
           break;
         case 'onContent':
           final String content = call.arguments ?? '';
-          print(content);
+          debugPrint(content);
           _onContentCallback?.call(content);
           break;
         default:
-          print('Unhandled method: ${call.method}');
+          debugPrint('Unhandled method: ${call.method}');
       }
     } catch (e) {
-      print('Failed to handle method call: $e');
+      debugPrint('Failed to handle method call: $e');
     }
   }
 
@@ -53,7 +54,7 @@ class ScreenDialogService {
   }
 
   static void clearCallbacks() {
-    print('ScreenDialogService.clearCallbacks()');
+    debugPrint('ScreenDialogService.clearCallbacks()');
     _onTitleCallback = null;
     _onContentCallback = null;
     _onBeforeCloseChatBotDialog = null;
@@ -65,7 +66,7 @@ class ScreenDialogService {
       var result = await _channel.invokeMethod('closeDialog');
       return result == "Success";
     } on PlatformException catch (e) {
-      print('Failed to close dialog: ${e.message}');
+      debugPrint('Failed to close dialog: ${e.message}');
       return false;
     }
   }
@@ -79,7 +80,7 @@ class ScreenDialogService {
       var result = await _channel.invokeMethod('closeChatBotDialog');
       return result == "Success";
     } on PlatformException catch (e) {
-      print('Failed to close chat bot dialog: ${e.message}');
+      debugPrint('Failed to close chat bot dialog: ${e.message}');
       return false;
     }
   }
@@ -89,7 +90,7 @@ class ScreenDialogService {
       final result = await _channel.invokeMethod('hideForExternalActivity');
       return result == true;
     } on PlatformException catch (e) {
-      print('Failed to hide dialog for external activity: ${e.message}');
+      debugPrint('Failed to hide dialog for external activity: ${e.message}');
       return false;
     }
   }
@@ -101,7 +102,29 @@ class ScreenDialogService {
       );
       return result == true;
     } on PlatformException catch (e) {
-      print('Failed to restore dialog after external activity: ${e.message}');
+      debugPrint('Failed to restore dialog after external activity: ${e.message}');
+      return false;
+    }
+  }
+
+  static Future<bool> hideForManualRecording() async {
+    try {
+      final result = await _channel.invokeMethod('hideForManualRecording');
+      return result == true;
+    } on PlatformException catch (e) {
+      debugPrint('Failed to hide dialog for manual recording: ${e.message}');
+      return false;
+    }
+  }
+
+  static Future<bool> restoreAfterManualRecording() async {
+    try {
+      final result = await _channel.invokeMethod(
+        'restoreAfterManualRecording',
+      );
+      return result == true;
+    } on PlatformException catch (e) {
+      debugPrint('Failed to restore dialog after manual recording: ${e.message}');
       return false;
     }
   }

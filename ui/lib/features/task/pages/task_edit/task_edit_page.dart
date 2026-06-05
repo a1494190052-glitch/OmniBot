@@ -12,9 +12,9 @@ class TaskEditPage extends StatefulWidget {
   final String taskId;
   
   const TaskEditPage({
-    Key? key,
+    super.key,
     required this.taskId,
-  }) : super(key: key);
+  });
 
   @override
   State<TaskEditPage> createState() => _TaskEditPageState();
@@ -69,7 +69,7 @@ class _TaskEditPageState extends State<TaskEditPage> with WidgetsBindingObserver
   }
 
   void initFailed() {
-    print(_errorMessage);
+    debugPrint(_errorMessage);
     Fluttertoast.showToast(msg: '任务数据加载失败');
     Navigator.of(context).pop();
   }
@@ -111,7 +111,7 @@ class _TaskEditPageState extends State<TaskEditPage> with WidgetsBindingObserver
       updatedAt: DateTime.now(),
     );
 
-    print("try save task: id=${newTask.id}, title=${newTask.title}, date=${newTask.date}, time=${newTask.time}, repeat=${newTask.repeatOption}");
+    debugPrint("try save task: id=${newTask.id}, title=${newTask.title}, date=${newTask.date}, time=${newTask.time}, repeat=${newTask.repeatOption}");
 
     try {
       setState(() {
@@ -132,6 +132,7 @@ class _TaskEditPageState extends State<TaskEditPage> with WidgetsBindingObserver
       taskTime = task.time;
       repeatOption = task.repeatOption;
 
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('任务保存成功'),
@@ -157,7 +158,7 @@ class _TaskEditPageState extends State<TaskEditPage> with WidgetsBindingObserver
   }
 
   void saveFailed() {
-    print(_errorMessage);
+    debugPrint(_errorMessage);
     Fluttertoast.showToast(msg: '任务数据保存失败');
   }
 

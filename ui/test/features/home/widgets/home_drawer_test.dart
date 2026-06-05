@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/features/home/state/habitual_hand_controller.dart';
 import 'package:ui/features/home/widgets/conversation_slidable.dart';
 import 'package:ui/features/home/widgets/home_drawer.dart';
@@ -203,6 +205,93 @@ void main() {
     expect(selectedTarget, isNotNull);
     expect(selectedTarget!.conversationId, 42);
     expect(selectedTarget!.mode, ConversationMode.openclaw);
+  });
+
+  testWidgets('renders running and completed indicators in conversation list', (
+    tester,
+  ) async {
+    nativeConversations = <Map<String, Object?>>[
+      <String, Object?>{
+        'id': 51,
+        'title': '正在执行的会话',
+        'mode': ConversationMode.normal.storageValue,
+        'summary': null,
+        'status': 0,
+        'lastMessage': 'running',
+        'messageCount': 1,
+        'createdAt': 1,
+        'updatedAt': 3,
+      },
+      <String, Object?>{
+        'id': 52,
+        'title': '已完成的会话',
+        'mode': ConversationMode.normal.storageValue,
+        'summary': null,
+        'status': 1,
+        'lastMessage': 'done',
+        'messageCount': 1,
+        'createdAt': 1,
+        'updatedAt': 2,
+      },
+    ];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DefaultAssetBundle(
+          bundle: _SvgTestAssetBundle(),
+          child: _buildProviderScope(
+            child: const Scaffold(
+              body: SizedBox(width: 360, height: 720, child: HomeDrawer()),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('conversation-status-running')), findsOne);
+    expect(
+      find.byKey(const ValueKey('conversation-status-completed')),
+      findsOne,
+    );
+  });
+
+  testWidgets('project shortcut opens project management page', (tester) async {
+    final router = GoRouter(
+      navigatorKey: GoRouterManager.rootNavigatorKey,
+      initialLocation: '/drawer',
+      routes: [
+        GoRoute(
+          path: '/drawer',
+          builder: (context, state) => DefaultAssetBundle(
+            bundle: _SvgTestAssetBundle(),
+            child: _buildProviderScope(
+              child: const Scaffold(
+                body: SizedBox(width: 360, height: 720, child: HomeDrawer()),
+              ),
+            ),
+          ),
+        ),
+        GoRoute(
+          path: '/home/chat',
+          builder: (context, state) => const Scaffold(body: Text('chat route')),
+        ),
+        GoRoute(
+          path: '/workbench/projects',
+          builder: (context, state) =>
+              const Scaffold(body: Text('project management route')),
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('项目'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('project management route'), findsOneWidget);
+    expect(find.text('chat route'), findsNothing);
   });
 
   testWidgets('shows scheduled and pinned sections before regular history', (
@@ -496,11 +585,11 @@ void main() {
     final scheduledTopBefore = tester.getTopLeft(find.text('定时任务')).dy;
     final pinnedTopBefore = tester.getTopLeft(find.text('置顶会话')).dy;
     final historyDateLeft = tester.getTopLeft(find.text(historyDateLabel)).dx;
+    final conversationTitleLeft = tester.getTopLeft(find.text('普通会话 0')).dx;
 
     expect(tester.getTopLeft(find.text('定时任务')).dx, historyDateLeft);
     expect(tester.getTopLeft(find.text('置顶会话')).dx, historyDateLeft);
-    expect(tester.getTopLeft(find.text('重点对话')).dx, historyDateLeft);
-    expect(tester.getTopLeft(find.text('普通会话 0')).dx, historyDateLeft);
+    expect(tester.getTopLeft(find.text('重点对话')).dx, conversationTitleLeft);
 
     await tester.drag(find.text('普通会话 0'), const Offset(0, -320));
     await tester.pumpAndSettle();
@@ -783,9 +872,10 @@ void main() {
     expect(find.text('重点对话').hitTestable(), findsOneWidget);
     expect(find.text('普通会话').hitTestable(), findsOneWidget);
 
-    final parentTitleRect = tester.getRect(find.text('主会话'));
-    await tester.tapAt(
-      Offset(parentTitleRect.left - 14, parentTitleRect.center.dy),
+    await tester.tap(
+      find.byKey(
+        const ValueKey<String>('home-drawer-scheduled-parent-toggle-normal:1'),
+      ),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('定时任务'));
