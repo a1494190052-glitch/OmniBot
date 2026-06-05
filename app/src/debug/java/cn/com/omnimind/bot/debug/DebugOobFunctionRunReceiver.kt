@@ -19,6 +19,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.UUID
 
 class DebugOobFunctionRunReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
@@ -32,13 +33,7 @@ class DebugOobFunctionRunReceiver : BroadcastReceiver() {
         scope.launch {
             val result = runCatching {
                 waitForReplayPage(appContext)
-                OobOmniFlowToolkitService(appContext).runFunction(
-                    mapOf(
-                        "function_id" to functionId,
-                        "goal" to goal,
-                        "arguments" to emptyMap<String, Any?>(),
-                    )
-                )
+                runFunctionWithRunLogFallback(appContext, functionId, goal)
             }.getOrElse { error ->
                 linkedMapOf<String, Any?>(
                     "success" to false,
@@ -53,6 +48,77 @@ class DebugOobFunctionRunReceiver : BroadcastReceiver() {
             OmniLog.i(TAG, json)
         }
     }
+
+    private suspend fun runFunctionWithRunLogFallback(
+        context: Context,
+        functionId: String,
+        goal: String,
+    ): Map<String, Any?> {
+        val service = OobOmniFlowToolkitService(context)
+        val initial = service.runFunction(functionRunArgs(functionId, goal))
+        if (!isFunctionNotFound(initial)) return initial
+
+        val runId = runIdFromDebugFunctionId(functionId)
+            ?: return initial + linkedMapOf(
+                "auto_register_attempted" to false,
+                "auto_register_unavailable_reason" to "function_id_is_not_debug_run_id",
+            )
+
+        val convert = service.convertRunLog(
+            linkedMapOf(
+                "run_id" to runId,
+                "register" to true,
+                "function_id" to functionId,
+                "name" to "Debug VLM RunLog",
+                "description" to goal,
+            )
+        )
+        if (convert["success"] != true) {
+            return initial + linkedMapOf(
+                "auto_register_attempted" to true,
+                "auto_register_success" to false,
+                "auto_register" to summarizeConvert(convert),
+            )
+        }
+
+        return service.runFunction(functionRunArgs(functionId, goal)) + linkedMapOf(
+            "auto_register_attempted" to true,
+            "auto_register_success" to true,
+            "auto_register" to summarizeConvert(convert),
+        )
+    }
+
+    private fun functionRunArgs(functionId: String, goal: String): Map<String, Any?> =
+        linkedMapOf(
+            "function_id" to functionId,
+            "goal" to goal,
+            "arguments" to emptyMap<String, Any?>(),
+        )
+
+    private fun isFunctionNotFound(result: Map<String, Any?>): Boolean =
+        result["error_code"] == "OOB_FUNCTION_NOT_FOUND" ||
+            (result["guard"] as? Map<*, *>)?.get("error_code") == "OOB_FUNCTION_NOT_FOUND"
+
+    private fun runIdFromDebugFunctionId(functionId: String): String? {
+        val candidate = functionId.trim()
+            .removePrefix("debug_")
+            .replace('_', '-')
+        return runCatching { UUID.fromString(candidate).toString() }.getOrNull()
+    }
+
+    private fun summarizeConvert(convert: Map<String, Any?>): Map<String, Any?> =
+        linkedMapOf(
+            "success" to convert["success"],
+            "registered" to convert["registered"],
+            "function_id" to convert["function_id"],
+            "created_function_id" to convert["created_function_id"],
+            "already_exists" to convert["already_exists"],
+            "card_count" to convert["card_count"],
+            "compiled_step_count" to convert["compiled_step_count"],
+            "error_code" to convert["error_code"],
+            "error_message" to convert["error_message"],
+            "summary" to convert["summary"],
+        ).filterValues { it != null }
 
     private suspend fun waitForAccessibility() {
         repeat(50) {

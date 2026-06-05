@@ -193,6 +193,8 @@ class OobVlmTaskClient:
         ]
         if args.warm_memory:
             broadcast_args += ["--es", "stepSkillGuidanceBase64", encode_text(args.warm_memory)]
+        if args.skill_id:
+            broadcast_args += ["--es", "skillId", args.skill_id]
         if args.profile_id:
             broadcast_args += ["--es", "profileId", args.profile_id]
         if args.model_id:
@@ -350,6 +352,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--register", action="store_true", help="Convert/register a successful run.")
     parser.add_argument("--parse-only", "--dry-run", action="store_true", help="Call VLM and parse one tool without executing.")
     parser.add_argument("--warm-memory", "--step-skill-guidance", dest="warm_memory", default="")
+    parser.add_argument("--skill-id", default="")
     parser.add_argument("--profile-id", default="")
     parser.add_argument("--model-id", "--model", dest="model_id", default="")
     parser.add_argument("--disable-omniflow-recall", action="store_true")

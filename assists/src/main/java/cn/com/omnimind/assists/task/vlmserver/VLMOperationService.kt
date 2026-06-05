@@ -458,6 +458,22 @@ class VLMOperationService(
                     summaryScreenshotList = summaryScreenshotList
                 )
             }
+            VLMGoalCompletionHeuristic.match(goal, step)?.let { match ->
+                val completionStep = VLMGoalCompletionHeuristic.buildFinishedStep(step, match)
+                context = updateContext(completionStep, context)
+                executionTrace.add(completionStep)
+                onStepCompleted(stepIndex + 1, completionStep, true, null)
+                return TaskExecutionReport(
+                    success = true,
+                    goal = goal,
+                    totalSteps = executionTrace.size,
+                    executionTrace = executionTrace,
+                    finalContext = context,
+                    error = null,
+                    summaryScreenshotList = summaryScreenshotList,
+                    doneReason = "goal_page_matched"
+                )
+            }
             if (step.action is InfoAction) {
                 try {
                     //接管需要将任务执行时间清空
