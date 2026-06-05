@@ -183,6 +183,7 @@ object VLMToolDefinitions {
             OobCanonicalActionSchema.TOOL_INPUT_TEXT -> normalizePointArguments(normalized)
             OobCanonicalActionSchema.TOOL_SWIPE -> normalizeScrollArguments(normalized)
         }
+        normalizeEnumArguments(toolName, normalized)
         return JsonObject(normalized)
     }
 
@@ -276,6 +277,27 @@ object VLMToolDefinitions {
             }
         }
 
+    }
+
+    private fun normalizeEnumArguments(
+        toolName: String,
+        arguments: MutableMap<String, JsonElement>
+    ) {
+        val properties = propertiesFor(toolName)
+        if (properties.isEmpty()) return
+        arguments.entries.toList().forEach { (field, value) ->
+            val raw = (value as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
+            if (raw.isEmpty()) return@forEach
+            val enumValues = (properties[field]?.get("enum") as? JsonArray).orEmpty()
+            if (enumValues.isEmpty()) return@forEach
+            val canonical = enumValues
+                .mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotEmpty) }
+                .firstOrNull { it.equals(raw, ignoreCase = true) }
+                ?: return@forEach
+            if (canonical != raw) {
+                arguments[field] = JsonPrimitive(canonical)
+            }
+        }
     }
 
     private fun hasCompleteScrollCoordinates(arguments: Map<String, JsonElement>): Boolean {

@@ -523,6 +523,58 @@ class VLMClientRequestTest {
     }
 
     @Test
+    fun `text fallback tool parser normalizes uppercase press key enum value`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "qwen-vl-plus",
+                turn = ChatCompletionTurn(
+                    finishReason = "stop",
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        content = JsonPrimitive(
+                            """{"name":"press_key","arguments":{"key":"Home"}}"""
+                        )
+                    )
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary"
+        )
+
+        assertTrue(result.error.orEmpty(), result.success)
+        val action = requireNotNull(result.step).action as PressKeyAction
+        assertEquals("home", action.key)
+    }
+
+    @Test
+    fun `text fallback tool parser normalizes uppercase swipe direction enum value`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "qwen-vl-plus",
+                turn = ChatCompletionTurn(
+                    finishReason = "stop",
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        content = JsonPrimitive(
+                            """{"name":"swipe","arguments":{"target_description":"app drawer","direction":"Down","x1":500,"y1":860,"x2":500,"y2":220}}"""
+                        )
+                    )
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary"
+        )
+
+        assertTrue(result.error.orEmpty(), result.success)
+        val action = requireNotNull(result.step).action as SwipeAction
+        assertEquals("down", action.direction)
+    }
+
+    @Test
     fun `text fallback tool parser supports androidworld tool call wrapper`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(
