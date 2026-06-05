@@ -1,9 +1,9 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:ui/features/home/pages/authorize/authorize_page_args.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
+import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/models/agent_stream_event.dart';
 import 'package:ui/models/chat_message_model.dart';
 import 'package:ui/services/agent_tool_card_projection.dart';
@@ -11,7 +11,6 @@ import 'package:ui/services/agent_stream_reducer.dart';
 import 'package:ui/services/agent_stream_meta.dart';
 import 'package:ui/services/agent_tool_card_policy.dart';
 import 'package:ui/services/assists_core_service.dart';
-import 'package:ui/services/codex_diff_parser.dart';
 import 'package:ui/services/voice_playback_coordinator.dart';
 
 enum ThinkingStage {
@@ -372,7 +371,9 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
           lockCompleted: false,
         );
       } else {
-        final messageId = entryId.isNotEmpty ? entryId : _nextAgentTextMessageId(event.taskId);
+        final messageId = entryId.isNotEmpty
+            ? entryId
+            : _nextAgentTextMessageId(event.taskId);
         final index = messages.indexWhere((msg) => msg.id == messageId);
         if (index == -1) {
           final content = <String, dynamic>{'text': '', 'id': messageId};
@@ -518,7 +519,9 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
   }) {
     final entryId = (event.entryId ?? '').trim();
     final shouldMarkError = event.raw['persistAsError'] == true;
-    final errorText = (event.raw['errorText'] ?? event.errorMessage).toString().trim();
+    final errorText = (event.raw['errorText'] ?? event.errorMessage)
+        .toString()
+        .trim();
     setState(() {
       currentThinkingStage = ThinkingStage.complete.value;
       isDeepThinking = false;

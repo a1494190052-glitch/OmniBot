@@ -5,6 +5,8 @@ import 'package:ui/features/home/pages/chat/services/chat_conversation_runtime_c
 import 'package:ui/models/chat_message_model.dart';
 import 'package:ui/services/agent_stream_meta.dart';
 import 'package:ui/services/agent_tool_card_policy.dart';
+import 'package:ui/services/codex_diff_parser.dart';
+import 'package:ui/services/codex_tool_call_parser.dart';
 
 class CodexReduceResult {
   const CodexReduceResult({
@@ -3394,4 +3396,18 @@ String _accountSummary(Map<String, dynamic> params) {
     if (type != null && type != 'chatgpt') type,
   ];
   return parts.isEmpty ? _safeJson(params) : parts.join(' / ');
+}
+
+String _trimTerminalOutput(String value) {
+  const maxChars = 64 * 1024;
+  const maxLines = 600;
+  var text = value;
+  if (text.length > maxChars) {
+    text = text.substring(text.length - maxChars);
+  }
+  final lines = text.split('\n');
+  if (lines.length > maxLines) {
+    text = lines.sublist(lines.length - maxLines).join('\n');
+  }
+  return text;
 }

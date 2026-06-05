@@ -2621,7 +2621,7 @@ class _UserMessageQuickMenuContent extends StatelessWidget {
                 context,
                 icon: Icons.content_copy_rounded,
                 label: AppTextLocalizer.choose(en: 'Copy', zh: '复制'),
-                onTap: () => _select(_UserMessageQuickAction.copy),
+                onTap: () => _select(context, _UserMessageQuickAction.copy),
               ),
               if (showEditAction) ...[
                 Divider(height: 1, thickness: 1, color: dividerColor),
@@ -2629,7 +2629,7 @@ class _UserMessageQuickMenuContent extends StatelessWidget {
                   context,
                   icon: Icons.edit_outlined,
                   label: AppTextLocalizer.choose(en: 'Edit', zh: '编辑'),
-                  onTap: () => _select(_UserMessageQuickAction.edit),
+                  onTap: () => _select(context, _UserMessageQuickAction.edit),
                 ),
               ],
               if (showRetryAction) ...[
@@ -2638,7 +2638,7 @@ class _UserMessageQuickMenuContent extends StatelessWidget {
                   context,
                   icon: Icons.refresh_rounded,
                   label: AppTextLocalizer.choose(en: 'Retry', zh: '重试这条消息'),
-                  onTap: () => _select(_UserMessageQuickAction.retry),
+                  onTap: () => _select(context, _UserMessageQuickAction.retry),
                 ),
               ],
             ],

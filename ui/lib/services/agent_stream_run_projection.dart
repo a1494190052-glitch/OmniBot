@@ -48,6 +48,7 @@ class AgentStreamRunProjection {
     return switch (kind) {
       AgentStreamEventKind.thinkingStarted ||
       AgentStreamEventKind.thinkingSnapshot ||
+      AgentStreamEventKind.retrying ||
       AgentStreamEventKind.textSnapshot ||
       AgentStreamEventKind.toolStarted ||
       AgentStreamEventKind.toolProgress ||

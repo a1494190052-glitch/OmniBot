@@ -43,6 +43,16 @@ data class StreamingToolCallSnapshot(
     val arguments: String
 )
 
+class AgentStreamRequestException(
+    val statusCode: Int?,
+    val reason: String,
+    val responseBody: String?
+) : RuntimeException(
+    "chat completion stream request failed${
+        statusCode?.let { "($it)" }.orEmpty()
+    }: $reason"
+)
+
 class HttpAgentLlmClient(
     private val scope: CoroutineScope,
     private val modelOverride: AgentModelOverride? = null,
@@ -180,7 +190,7 @@ class HttpAgentLlmClient(
                 onToolCallUpdate,
                 forceHttp1 = false
             )
-        } catch (e: StreamRequestFailure) {
+        } catch (e: AgentStreamRequestException) {
             if (isHttp2ProtocolError(e)) {
                 OmniLog.w(tag, "HTTP/2 stream PROTOCOL_ERROR, retrying with HTTP/1.1")
                 doStreamTurnOnce(
@@ -252,6 +262,7 @@ class HttpAgentLlmClient(
         val reasoningLock = Any()
         var lastContent = ""
         var eventSource: EventSource? = null
+        var streamIdleWatchdog: Job? = null
         // Structural events (tool lifecycle, completion, errors) must preserve
         // ordering → kept in an unbounded queue.
         // High-frequency content/toolPreview updates are conflated: only the

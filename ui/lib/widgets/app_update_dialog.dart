@@ -12,6 +12,7 @@ Future<void> showAppUpdateDialog(
 ) async {
   final hasDirectInstall = status.canInstall;
   final locale = Localizations.localeOf(context);
+  final palette = context.omniPalette;
   String text(String value) => AppTextLocalizer.text(value, locale: locale);
   String choose({required String zh, required String en}) {
     return AppTextLocalizer.choose(zh: zh, en: en, locale: locale);
@@ -24,7 +25,9 @@ Future<void> showAppUpdateDialog(
     confirmText: hasDirectInstall
         ? choose(zh: '立即更新', en: 'Update now')
         : choose(zh: '前往 Release', en: 'Go to Release'),
-    confirmButtonColor: AppColors.buttonPrimary,
+    confirmButtonColor: context.isDarkTheme
+        ? Color.lerp(palette.accentPrimary, palette.pageBackground, 0.42)!
+        : palette.accentPrimary,
     content: _AppUpdateDialogContent(status: status),
     barrierDismissible: true,
     glassStyle: true,
@@ -88,6 +91,14 @@ class _AppUpdateDialogContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final locale = Localizations.localeOf(context);
+    final palette = context.omniPalette;
+    final isDark = context.isDarkTheme;
+    final notesSurfaceColor = isDark
+        ? palette.surfaceSecondary.withValues(alpha: 0.82)
+        : const Color(0xFFF6F8FA);
+    final notesBorderColor = isDark
+        ? palette.borderSubtle.withValues(alpha: 0.72)
+        : const Color(0xFFE6EDF5);
     String choose({required String zh, required String en}) {
       return AppTextLocalizer.choose(zh: zh, en: en, locale: locale);
     }
@@ -120,7 +131,7 @@ class _AppUpdateDialogContent extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             choose(zh: '更新说明', en: 'Release notes'),
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
               color: palette.textPrimary,

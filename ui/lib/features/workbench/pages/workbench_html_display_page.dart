@@ -1692,6 +1692,10 @@ class _HtmlFloatingPromptStatus {
         message.isEmpty ? t('正在整理修改方案', 'Preparing the edit') : message,
         Icons.psychology_alt_outlined,
       ),
+      AgentStreamEventKind.retrying => _HtmlFloatingPromptStatus.active(
+        message.isEmpty ? t('正在重试', 'Retrying') : message,
+        Icons.refresh_rounded,
+      ),
       AgentStreamEventKind.textSnapshot => _HtmlFloatingPromptStatus.active(
         message.isEmpty ? t('正在输出修改说明', 'Writing update notes') : message,
         Icons.notes_rounded,

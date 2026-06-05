@@ -14,6 +14,7 @@ import 'package:url_launcher/url_launcher_string.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
 import '../../../../models/conversation_model.dart';
 import '../../../../models/conversation_thread_target.dart';
+import '../../../../models/chat_startup_behavior.dart';
 import '../../../../models/chat_link_preview.dart';
 import '../../../../models/chat_message_model.dart';
 import '../../../../services/agent_stream_meta.dart';

@@ -889,6 +889,7 @@ class _WebChatHomeState extends State<_WebChatHome> {
       switch (event.kind) {
         case AgentStreamEventKind.thinkingStarted:
         case AgentStreamEventKind.thinkingSnapshot:
+        case AgentStreamEventKind.retrying:
           _upsertWebThinkingCard(event);
           didChange = true;
           break;

@@ -5,6 +5,7 @@ import 'package:ui/theme/app_colors.dart';
 import 'package:ui/theme/omni_theme_palette.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
+import 'package:ui/l10n/legacy_text_localizer.dart';
 
 // ---------------------------------------------------------------------------
 //  Weekly token bucket
@@ -264,14 +265,43 @@ class _ActivityDashboardCardState extends State<ActivityDashboardCard>
     return Color(c[level.clamp(0, 4)]);
   }
 
-  // -- token colors --
-  Color _localColor(bool d) => d ? const Color(0xFF5E8A5A) : const Color(0xFF7FA878);
-  Color _cloudColor(bool d) => d ? const Color(0xFF2178BD) : const Color(0xFF3B8FD4);
-  Color _localPillBg(bool d) => d ? const Color(0xFF2A3B28) : const Color(0xFFE8F2E6);
-  Color _localPillText(bool d) => d ? const Color(0xFF98D492) : const Color(0xFF3D7A35);
-  Color _cloudPillBg(bool d) => d ? const Color(0xFF1A3A5C) : const Color(0xFFE8F2FC);
-  Color _cloudPillText(bool d) => d ? const Color(0xFF3B9FE8) : const Color(0xFF2C7FEB);
-  Color _cachedColor(bool d) => d ? const Color(0xFFB8860B) : const Color(0xFFD4A017);
+  static const List<Color> _modelLightColors = [
+    Color(0xFF2C7FEB),
+    Color(0xFF16A085),
+    Color(0xFF8B5CF6),
+    Color(0xFFF97316),
+    Color(0xFFE11D48),
+    Color(0xFF0891B2),
+    Color(0xFF65A30D),
+    Color(0xFFDB2777),
+    Color(0xFF475569),
+    Color(0xFFB45309),
+  ];
+
+  static const List<Color> _modelDarkColors = [
+    Color(0xFF7BBCE6),
+    Color(0xFF5DD6B3),
+    Color(0xFFC4B5FD),
+    Color(0xFFFBBF24),
+    Color(0xFFFB7185),
+    Color(0xFF67E8F9),
+    Color(0xFFA3E635),
+    Color(0xFFF0ABFC),
+    Color(0xFFCBD5E1),
+    Color(0xFFFDBA74),
+  ];
+
+  Color _modelColor(String modelId, bool isDark) {
+    final colors = isDark ? _modelDarkColors : _modelLightColors;
+    final hash = modelId.codeUnits.fold<int>(
+      0,
+      (value, codeUnit) => (value * 31 + codeUnit) & 0x7fffffff,
+    );
+    return colors[hash % colors.length];
+  }
+
+  Color _cachedColor(bool d) =>
+      d ? const Color(0xFFB8860B) : const Color(0xFFD4A017);
 
   // -----------------------------------------------------------------------
   //  Build
@@ -752,38 +782,7 @@ class _ActivityDashboardCardState extends State<ActivityDashboardCard>
                                 : const SizedBox.shrink(),
                           ),
                         ),
-                      ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: SizedBox(
-                  height: gridHeight,
-                  child: Wrap(
-                    direction: Axis.vertical,
-                    spacing: cellGap,
-                    runSpacing: cellGap,
-                    children: List.generate(totalWeeks * 7, (index) {
-                      final week = index ~/ 7;
-                      final dayOfWeek = index % 7;
-                      final cellDate = startDate.add(Duration(days: week * 7 + dayOfWeek));
-                      if (cellDate.isAfter(today)) return SizedBox(width: cellSize, height: cellSize);
-                      final count = _activityMap[_dateKey(cellDate)] ?? 0;
-                      return Tooltip(
-                        message: count > 0
-                            ? AppTextLocalizer.text(
-                                '$count 次对话 · ${cellDate.month}/${cellDate.day}',
-                              )
-                            : AppTextLocalizer.text(
-                                '无对话 · ${cellDate.month}/${cellDate.day}',
-                              ),
-                        preferBelow: false,
-                        verticalOffset: 12,
-                        decoration: BoxDecoration(color: isDark ? const Color(0xFF2D3032) : const Color(0xFF353E53), borderRadius: BorderRadius.circular(6)),
-                        textStyle: const TextStyle(fontSize: 11, color: Colors.white),
-                        child: Container(width: cellSize, height: cellSize, decoration: BoxDecoration(color: _cellColor(_intensityLevel(count), isDark), borderRadius: BorderRadius.circular(2.5))),
-                      );
-                    }),
+                    ],
                   ),
                 ),
                 Expanded(
@@ -848,10 +847,36 @@ class _ActivityDashboardCardState extends State<ActivityDashboardCard>
 
   String _monthName(int m) {
     final names = AppTextLocalizer.chooseList(
-      en: ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
-        'Oct', 'Nov', 'Dec'],
-      zh: ['', '1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月',
-        '10月', '11月', '12月'],
+      en: [
+        '',
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
+      ],
+      zh: [
+        '',
+        '1月',
+        '2月',
+        '3月',
+        '4月',
+        '5月',
+        '6月',
+        '7月',
+        '8月',
+        '9月',
+        '10月',
+        '11月',
+        '12月',
+      ],
     );
     return names[m];
   }
@@ -895,31 +920,7 @@ class _ActivityDashboardCardState extends State<ActivityDashboardCard>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Local/Cloud proportion pills
-        Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            if (_totalLocal > 0)
-              _buildPropPill(
-                AppTextLocalizer.text(
-                  '本地 ${_percentOf(_totalLocal, _totalTokens)}%',
-                ),
-                _localPillBg(isDark),
-                _localPillText(isDark),
-                _localColor(isDark),
-              ),
-            if (_totalLocal > 0 && _totalCloud > 0) const SizedBox(width: 6),
-            if (_totalCloud > 0)
-              _buildPropPill(
-                AppTextLocalizer.text(
-                  '云端 ${_percentOf(_totalCloud, _totalTokens)}%',
-                ),
-                _cloudPillBg(isDark),
-                _cloudPillText(isDark),
-                _cloudColor(isDark),
-              ),
-          ],
-        ),
+        _buildModelLegendStrip(isDark, palette),
         const SizedBox(height: 10),
         _buildStackedBars(isDark, palette),
       ],
@@ -1021,36 +1022,88 @@ class _ActivityDashboardCardState extends State<ActivityDashboardCard>
                     : 8.0)
                 .clamp(4.0, 14.0);
 
-      return SizedBox(
-        height: barAreaHeight,
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: List.generate(_weeklyData.length, (index) {
-            final week = _weeklyData[index];
-            final totalH = maxWeekTotal > 0 ? (week.totalTokens / maxWeekTotal) * barAreaHeight : 0.0;
-            final localH = week.totalTokens > 0 ? totalH * (week.localTokens / week.totalTokens) : 0.0;
-            final cloudH = totalH - localH;
-            return Padding(
-              padding: EdgeInsets.only(right: index < _weeklyData.length - 1 ? barGap : 0),
-              child: Tooltip(
-                message: week.totalTokens > 0
-                    ? AppTextLocalizer.text(
-                        '本地 ${_formatTokenCount(week.localTokens)} · 云端 ${_formatTokenCount(week.cloudTokens)} · 缓存 ${_formatTokenCount(week.cachedTokens)}',
-                      )
-                    : AppTextLocalizer.text('无消耗'),
-                preferBelow: false, verticalOffset: 12,
-                decoration: BoxDecoration(color: isDark ? const Color(0xFF2D3032) : const Color(0xFF353E53), borderRadius: BorderRadius.circular(6)),
-                textStyle: const TextStyle(fontSize: 11, color: Colors.white),
-                child: SizedBox(
-                  width: barWidth,
-                  height: barAreaHeight,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      if (cloudH > 0) Container(width: barWidth, height: cloudH.clamp(0, barAreaHeight), decoration: BoxDecoration(color: _cloudColor(isDark), borderRadius: BorderRadius.only(topLeft: const Radius.circular(2), topRight: const Radius.circular(2)))),
-                      if (localH > 0) Container(width: barWidth, height: localH.clamp(0, barAreaHeight), decoration: BoxDecoration(color: _localColor(isDark), borderRadius: cloudH > 0 ? BorderRadius.zero : const BorderRadius.only(topLeft: Radius.circular(2), topRight: Radius.circular(2)))),
-                      if (week.totalTokens == 0) Container(width: barWidth, height: 2, decoration: BoxDecoration(color: palette.surfaceElevated, borderRadius: BorderRadius.circular(1))),
-                    ],
+        return SizedBox(
+          height: barAreaHeight,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: List.generate(_weeklyData.length, (index) {
+              final week = _weeklyData[index];
+              final totalH = maxWeekTotal > 0
+                  ? (week.totalTokens / maxWeekTotal) * barAreaHeight
+                  : 0.0;
+              final modelIds = _orderedModelsForWeek(week);
+              return Padding(
+                padding: EdgeInsets.only(
+                  right: index < _weeklyData.length - 1 ? barGap : 0,
+                ),
+                child: Tooltip(
+                  triggerMode: TooltipTriggerMode.tap,
+                  enableFeedback: false,
+                  message: week.totalTokens > 0
+                      ? _buildWeekTooltip(week, modelIds)
+                      : LegacyTextLocalizer.localize('无消耗'),
+                  preferBelow: false,
+                  verticalOffset: 12,
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? const Color(0xFF2D3032)
+                        : const Color(0xFF353E53),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  textStyle: const TextStyle(fontSize: 11, color: Colors.white),
+                  child: SizedBox(
+                    width: barWidth,
+                    height: barAreaHeight,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: week.totalTokens == 0
+                          ? [
+                              Container(
+                                width: barWidth,
+                                height: 2,
+                                decoration: BoxDecoration(
+                                  color: palette.surfaceElevated,
+                                  borderRadius: BorderRadius.circular(1),
+                                ),
+                              ),
+                            ]
+                          : List.generate(modelIds.length, (segmentIndex) {
+                              final modelId = modelIds[segmentIndex];
+                              final tokens = week.modelTokens[modelId] ?? 0;
+                              final rawHeight =
+                                  totalH * tokens / week.totalTokens;
+                              final minHeight = totalH >= modelIds.length * 1.4
+                                  ? 1.4
+                                  : 0.6;
+                              final segmentHeight = rawHeight
+                                  .clamp(minHeight, barAreaHeight)
+                                  .toDouble();
+                              final isTop = segmentIndex == 0;
+                              final isBottom =
+                                  segmentIndex == modelIds.length - 1;
+                              return Container(
+                                width: barWidth,
+                                height: segmentHeight,
+                                decoration: BoxDecoration(
+                                  color: _modelColor(modelId, isDark),
+                                  borderRadius: BorderRadius.only(
+                                    topLeft: isTop
+                                        ? const Radius.circular(2.5)
+                                        : Radius.zero,
+                                    topRight: isTop
+                                        ? const Radius.circular(2.5)
+                                        : Radius.zero,
+                                    bottomLeft: isBottom
+                                        ? const Radius.circular(1.5)
+                                        : Radius.zero,
+                                    bottomRight: isBottom
+                                        ? const Radius.circular(1.5)
+                                        : Radius.zero,
+                                  ),
+                                ),
+                              );
+                            }),
+                    ),
                   ),
                 ),
               );

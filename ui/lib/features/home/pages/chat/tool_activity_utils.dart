@@ -3,8 +3,10 @@ import 'dart:ui';
 import 'package:ui/features/home/pages/chat/utils/agent_run_timeline.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/terminal_output_utils.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
+import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/models/chat_message_model.dart';
 import 'package:ui/services/agent_tool_card_policy.dart' as tool_policy;
+import 'package:ui/services/codex_diff_parser.dart';
 
 const String kAgentToolSummaryCardType = tool_policy.kAgentToolSummaryCardType;
 const String kAgentToolTitleField = 'toolTitle';
@@ -847,6 +849,15 @@ String _compactToolText(String value, {required int maxChars}) {
     return normalized;
   }
   return '${normalized.substring(0, maxChars - 1).trimRight()}…';
+}
+
+int _asNonNegativeInt(dynamic value) {
+  final parsed = value is int
+      ? value
+      : value is num
+      ? value.toInt()
+      : int.tryParse(value?.toString() ?? '') ?? 0;
+  return parsed < 0 ? 0 : parsed;
 }
 
 String _prettifyToolName(String raw) {

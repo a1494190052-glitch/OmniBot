@@ -747,6 +747,10 @@ class _AgentRunEventSummary {
         label: message.isEmpty ? _t('正在整理方案') : message,
         icon: Icons.psychology_alt_outlined,
       ),
+      AgentStreamEventKind.retrying => _AgentRunEventSummary(
+        label: message.isEmpty ? _t('正在重试') : message,
+        icon: Icons.refresh_rounded,
+      ),
       AgentStreamEventKind.textSnapshot => _AgentRunEventSummary(
         label: message.isEmpty ? _t('正在输出') : message,
         icon: Icons.notes_rounded,

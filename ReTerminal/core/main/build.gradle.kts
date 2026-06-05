@@ -20,8 +20,8 @@ val gitCommitDate: Provider<String> =
     providers.exec { commandLine("git", "show", "-s", "--format=%cI", "HEAD") }.standardOutput.asText.map { it.trim() }
 
 val termuxPackageBaseUrl = "https://packages-cf.termux.dev/apt/termux-main"
-val prootDebUrl = "$termuxPackageBaseUrl/pool/main/p/proot/proot_5.1.107.74_aarch64.deb"
-val prootDebChecksum = "6e3b76e2b3d16922e57ae69e771e708ab7ea84ec9d241f268a2046ab417ff0a7"
+val prootDebUrl = "$termuxPackageBaseUrl/pool/main/p/proot/proot_5.1.107.76_aarch64.deb"
+val prootDebChecksum = "390891fe974985e06fa42693cbbc82742d7c5d681eb7534cd5e0497f2836cd9f"
 val libtallocDebUrl = "$termuxPackageBaseUrl/pool/main/libt/libtalloc/libtalloc_2.4.3_aarch64.deb"
 val libtallocDebChecksum = "ac81ad623d74c209718b9f3acb2dd702cc8a88c431e820d212229910b4db29da"
 val alpineMiniRootfsUrl =
@@ -256,6 +256,12 @@ val prepareEmbeddedTerminalRuntime by tasks.registering {
 
 tasks.matching { task ->
     task.name.startsWith("merge") && task.name.endsWith("Assets")
+}.configureEach {
+    dependsOn(prepareEmbeddedTerminalRuntime)
+}
+
+tasks.matching { task ->
+    task.name.startsWith("merge") && task.name.endsWith("JniLibFolders")
 }.configureEach {
     dependsOn(prepareEmbeddedTerminalRuntime)
 }

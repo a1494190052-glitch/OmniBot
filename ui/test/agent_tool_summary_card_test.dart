@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/features/home/pages/chat/tool_activity_utils.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_summary_card.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_transcript.dart';

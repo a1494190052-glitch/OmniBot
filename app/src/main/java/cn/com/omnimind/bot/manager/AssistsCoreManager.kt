@@ -6632,7 +6632,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 )
 
                 conversationId?.let { normalizedConversationId ->
-                    if (userMessage.isNotBlank() || attachments.isNotEmpty()) {
+                    if (userMessage.isNotBlank() || historyAttachments.isNotEmpty()) {
                         bridge.persistConversationMutation("upsert user message") {
                             repository.upsertUserMessage(
                                 conversationId = normalizedConversationId,

@@ -1,14 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/features/home/pages/chat/tool_activity_utils.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_transcript.dart';
 import 'package:ui/features/task/pages/execution_history/run_log_timeline_page.dart';
 import 'package:ui/services/agent_tool_card_policy.dart';
 import 'package:ui/services/app_background_service.dart';
-import 'package:ui/services/codex_diff_parser.dart';
-import 'package:ui/services/codex_tool_call_parser.dart';
 import 'package:ui/theme/theme_context.dart';
 
 class AgentToolSummaryCard extends StatelessWidget {
@@ -101,7 +98,7 @@ class AgentToolSummaryCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: cardBackgroundColor,
                   borderRadius: BorderRadius.circular(_compactRadius),
-                  border: Border.all(color: cardBorderColor),
+                  border: cardBorder,
                 ),
                 child: InkWell(
                   onTap: () {

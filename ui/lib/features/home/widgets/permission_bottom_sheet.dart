@@ -220,11 +220,7 @@ class _PermissionBottomSheetState extends State<PermissionBottomSheet>
                           ),
                           child: Center(
                             child: Text(
-                              Localizations.localeOf(context).languageCode ==
-                                          'en' &&
-                                      widget.buttonText == '开启陪伴'
-                                  ? 'Enable Companion'
-                                  : widget.buttonText,
+                              displayButtonText,
                               style: TextStyle(
                                 color: isDark
                                     ? palette.textPrimary
@@ -234,20 +230,7 @@ class _PermissionBottomSheetState extends State<PermissionBottomSheet>
                                 fontWeight: FontWeight.w600,
                                 height: 1.5,
                               ),
-                        borderRadius: BorderRadius.circular(8),
-                        border: isDark
-                            ? Border.all(color: palette.borderSubtle)
-                            : null,
-                      ),
-                      child: Center(
-                        child: Text(
-                          displayButtonText,
-                          style: TextStyle(
-                            color: isDark ? palette.textPrimary : Colors.white,
-                            fontSize: 16,
-                            fontFamily: 'PingFang SC',
-                            fontWeight: FontWeight.w600,
-                            height: 1.5,
+                            ),
                           ),
                         ),
                       ),

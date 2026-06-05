@@ -5,12 +5,13 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:ui/features/home/pages/chat/tool_activity_utils.dart';
-import 'package:ui/features/home/pages/command_overlay/widgets/cards/codex_diff_viewer.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/terminal_output_utils.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
+import 'package:ui/services/chat_detail_sheet_preferences.dart';
 import 'package:ui/services/agent_tool_card_policy.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/ui.dart';
+import 'package:ui/widgets/omni_glass.dart';
 
 const BorderRadius _kTranscriptSurfaceRadius = BorderRadius.all(
   Radius.circular(8),
@@ -734,7 +735,7 @@ class _AgentToolDetailSheetFrameState
     }
     final delta = details.primaryDelta ?? details.delta.dy;
     setState(() {
-      final current = _heightFactor ?? _initialHeightFactor(context);
+      final current = _heightFactor ?? _resolveStoredHeightFactor(context);
       _heightFactor = (current - delta / availableHeight).clamp(
         _minHeightFactor,
         _maxHeightFactor,
@@ -769,7 +770,7 @@ class _AgentToolDetailSheetFrameState
           mediaQuery.padding.top -
           mediaQuery.viewInsets.bottom,
     );
-    final heightFactor = _heightFactor ?? _initialHeightFactor(context);
+    final heightFactor = _heightFactor ?? _resolveStoredHeightFactor(context);
     final palette = context.omniPalette;
     const borderRadius = BorderRadius.vertical(top: Radius.circular(20));
 
@@ -806,6 +807,7 @@ class _AgentToolDetailSheetFrameState
                       behavior: HitTestBehavior.opaque,
                       onVerticalDragUpdate: (details) =>
                           _handleDragUpdate(details, availableHeight),
+                      onVerticalDragEnd: (_) => _persistHeightFactor(),
                       child: SizedBox(
                         height: 22,
                         width: double.infinity,
@@ -832,14 +834,7 @@ class _AgentToolDetailSheetFrameState
                     ),
                   ],
                 ),
-                Expanded(
-                  child: _AgentToolDetailContent(
-                    cardData: widget.cardData,
-                    headerPadding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
-                    scrollPadding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -847,15 +842,15 @@ class _AgentToolDetailSheetFrameState
     );
   }
 
-  double _resolveStoredHeightFactor(double viewportHeight) {
+  double _resolveStoredHeightFactor(BuildContext context) {
     try {
       return ChatDetailSheetPreferences.resolveHeightFactor(
-        fallback: _initialHeightFactor(viewportHeight),
+        fallback: _initialHeightFactor(context),
         min: _minHeightFactor,
         max: _maxHeightFactor,
       );
     } catch (_) {
-      return _initialHeightFactor(viewportHeight);
+      return _initialHeightFactor(context);
     }
   }
 }

@@ -197,6 +197,24 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
         _buildCodexRunSettingsButton(compact: false),
         const SizedBox(width: 4),
       ],
+      if (widget.onToggleAnnotation != null) ...[
+        SizedBox(
+          width: 28,
+          height: 28,
+          child: _buildAnnotationButton(iconSize: 20),
+        ),
+        const SizedBox(width: 4),
+      ],
+      if (widget.onViewTrajectoriesTap != null ||
+          widget.onViewCurrentTrajectoryTap != null ||
+          widget.onManualRecordingTap != null) ...[
+        SizedBox(
+          width: 28,
+          height: 28,
+          child: _buildManualRecordingButton(iconSize: 20),
+        ),
+        const SizedBox(width: 4),
+      ],
       if (_shouldShowCodexPermissionSelector) ...[
         SizedBox(
           width: 28,
@@ -243,44 +261,6 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
               ),
             ),
           ),
-          const SizedBox(width: 4),
-        ],
-        if (widget.onToggleAnnotation != null) ...[
-          SizedBox(
-            width: 28,
-            height: 28,
-            child: _buildAnnotationButton(iconSize: 20),
-          ),
-          const SizedBox(width: 4),
-        ],
-        if (widget.onViewTrajectoriesTap != null ||
-            widget.onViewCurrentTrajectoryTap != null ||
-            widget.onManualRecordingTap != null) ...[
-          SizedBox(
-            width: 28,
-            height: 28,
-            child: _buildManualRecordingButton(iconSize: 20),
-          ),
-          const SizedBox(width: 4),
-        ],
-        if (_shouldShowCodexPermissionSelector) ...[
-          SizedBox(
-            width: 28,
-            height: 28,
-            child: _buildCodexPermissionButton(iconSize: 20),
-          ),
-          const SizedBox(width: 4),
-        ],
-        SizedBox(
-          width: 28,
-          height: 28,
-          child: _buildTerminalButton(iconSize: 22),
-        ),
-        const SizedBox(width: 6),
-        SizedBox(
-          width: 28,
-          height: 28,
-          child: _buildLargeSendOrStopButton(hasPayload: hasPayload),
         ),
       ],
     );
@@ -788,6 +768,203 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
       widget.codexPermissionMode != null &&
       widget.onCodexPermissionModeChanged != null;
 
+  bool get _shouldShowCodexRunSettingsSelector =>
+      widget.codexRunSettings != null &&
+      widget.onCodexRunSettingsChanged != null;
+
+  Widget _buildCodexRunSettingsButton({required bool compact}) {
+    final settings = widget.codexRunSettings!;
+    final palette = context.omniPalette;
+    final modelId = settings.modelId.trim();
+    final effort = settings.reasoningEffort.trim();
+    final english = Localizations.localeOf(context).languageCode == 'en';
+    final displayModel = modelId.isEmpty
+        ? (settings.isLoadingModels
+              ? (english ? 'Loading' : '加载中')
+              : (english ? 'Model' : '模型'))
+        : _shortCodexModelLabel(modelId);
+    final displayEffort = effort.isEmpty
+        ? ''
+        : _codexReasoningEffortLabel(effort, compact: true);
+    final displayText = displayEffort.isEmpty
+        ? displayModel
+        : '$displayModel · $displayEffort';
+    final selectedColor = palette.accentPrimary;
+    final menuTextColor = context.isDarkTheme
+        ? palette.textPrimary
+        : const Color(0xFF26364D);
+    final buttonKey = _codexRunSettingsButtonKey;
+
+    Future<void> openMenu() async {
+      final currentContext = buttonKey.currentContext;
+      if (currentContext == null) {
+        return;
+      }
+      final anchor = glassPopupAnchorFromContext(currentContext);
+      if (anchor == null) {
+        return;
+      }
+      final opened = widget.onCodexRunSettingsOpened;
+      if (opened != null) {
+        unawaited(Future<void>.sync(opened));
+      }
+      final modelOptions = _codexRunSettingsOptions(
+        current: modelId,
+        options: settings.modelOptions,
+      );
+      final effortOptions = _codexRunSettingsOptions(
+        current: effort,
+        options: settings.reasoningEffortOptions.isEmpty
+            ? _kDefaultCodexReasoningEfforts
+            : settings.reasoningEffortOptions,
+      );
+      final disabledModelLabel = settings.isLoadingModels
+          ? (english ? 'Loading...' : '正在获取模型...')
+          : (settings.modelListError?.trim().isNotEmpty ?? false)
+          ? (english ? 'Load failed' : '模型获取失败')
+          : (english ? 'No models available' : '未获取到可用模型');
+      final action = await showGlassPopup<_CodexRunSettingsMenuAction>(
+        context: context,
+        anchor: anchor,
+        child: _CodexRunSettingsGlassMenuContent(
+          width: 220,
+          modelHeader: english ? 'Model' : '模型',
+          reasoningHeader: english ? 'Reasoning' : '推理强度',
+          modelOptions: modelOptions,
+          disabledModelLabel: disabledModelLabel,
+          effortOptions: [
+            for (final option in effortOptions)
+              _CodexRunSettingsOptionData(
+                value: option,
+                label: _codexReasoningEffortLabel(option),
+              ),
+          ],
+          selectedModelId: modelId,
+          selectedEffort: effort,
+          selectedColor: selectedColor,
+          textColor: menuTextColor,
+        ),
+      );
+      if (action == null) return;
+      final changed = widget.onCodexRunSettingsChanged;
+      if (changed == null) return;
+      unawaited(
+        Future<void>.sync(() {
+          if (action.kind == _CodexRunSettingsMenuKind.model) {
+            return changed(modelId: action.value);
+          }
+          return changed(reasoningEffort: action.value);
+        }),
+      );
+    }
+
+    return SizedBox(
+      key: buttonKey,
+      width: compact ? 92 : 118,
+      height: compact ? 24 : 28,
+      child: Tooltip(
+        message: [
+          if (modelId.isNotEmpty) modelId,
+          if (effort.isNotEmpty) _codexReasoningEffortLabel(effort),
+        ].join(' · '),
+        waitDuration: const Duration(milliseconds: 400),
+        child: InkWell(
+          key: const ValueKey('chat-input-codex-run-settings-button'),
+          borderRadius: BorderRadius.circular(8),
+          onTap: openMenu,
+          child: AnimatedContainer(
+            duration: _buttonAnimationDuration,
+            curve: _buttonAnimationCurve,
+            height: compact ? 24 : 28,
+            padding: EdgeInsets.only(
+              left: compact ? 4 : 6,
+              right: compact ? 2 : 4,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Expanded(
+                  child: Text(
+                    displayText,
+                    textAlign: TextAlign.right,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: selectedColor,
+                      fontSize: compact ? 11 : 12,
+                      height: 1.1,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 2),
+                Icon(
+                  Icons.expand_more_rounded,
+                  size: compact ? 14 : 16,
+                  color: selectedColor,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _codexReasoningEffortLabel(String effort, {bool compact = false}) {
+    final normalized = effort.trim().toLowerCase();
+    final english = Localizations.localeOf(context).languageCode == 'en';
+    return switch (normalized) {
+      'none' || 'no' => english ? 'No reasoning' : (compact ? '无' : '无推理'),
+      'minimal' || 'min' => english ? 'Minimal' : '极低',
+      'low' => english ? 'Low' : '低',
+      'medium' || 'med' => english ? 'Medium' : '中',
+      'high' => english ? 'High' : '高',
+      'xhigh' ||
+      'extra_high' ||
+      'extra-high' ||
+      'very_high' ||
+      'very-high' => english ? 'XHigh' : '超高',
+      _ => effort.trim().isEmpty ? (english ? 'Reasoning' : '推理') : effort,
+    };
+  }
+
+  String _shortCodexModelLabel(String modelId) {
+    final normalized = modelId.trim();
+    if (normalized.length <= 22) {
+      return normalized;
+    }
+    final parts = normalized.split(RegExp(r'[-_/]'));
+    if (parts.length >= 3) {
+      final compact = parts.take(4).join('-');
+      if (compact.length <= 22) {
+        return compact;
+      }
+    }
+    return '${normalized.substring(0, 19)}...';
+  }
+
+  List<String> _codexRunSettingsOptions({
+    required String current,
+    required List<String> options,
+  }) {
+    final seen = <String>{};
+    final result = <String>[];
+    void add(String value) {
+      final normalized = value.trim();
+      if (normalized.isEmpty || !seen.add(normalized)) {
+        return;
+      }
+      result.add(normalized);
+    }
+
+    add(current);
+    for (final option in options) {
+      add(option);
+    }
+    return result;
+  }
+
   Widget _buildAnnotationButton({required double iconSize}) {
     final palette = context.omniPalette;
     final selected = widget.annotationEnabled;
@@ -1231,7 +1408,6 @@ class _CodexPermissionOptionData {
   final String label;
   final String iconAsset;
 }
-
 
 class _CodexPermissionGlassMenuContent extends StatefulWidget {
   const _CodexPermissionGlassMenuContent({

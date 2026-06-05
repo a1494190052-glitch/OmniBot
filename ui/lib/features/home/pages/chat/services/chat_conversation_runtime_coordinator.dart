@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:ui/features/home/pages/chat/chat_page_models.dart';
@@ -11,6 +10,7 @@ import 'package:ui/models/agent_stream_event.dart';
 import 'package:ui/models/chat_link_preview.dart';
 import 'package:ui/features/home/pages/chat/utils/deep_thinking_persistence.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
+import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/models/chat_message_model.dart';
 import 'package:ui/models/conversation_model.dart';
 import 'package:ui/services/agent_tool_card_projection.dart';
@@ -24,7 +24,6 @@ import 'package:ui/services/agent_tool_card_policy.dart';
 import 'package:ui/services/voice_playback_coordinator.dart';
 import 'package:ui/services/agent_stream_meta.dart';
 import 'package:ui/utils/data_parser.dart';
-import 'package:ui/services/codex_diff_parser.dart';
 
 const String kChatRuntimeModeNormal = 'normal';
 const String kChatRuntimeModeOpenClaw = 'openclaw';
@@ -2423,7 +2422,9 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     );
     final isThinkingCardTarget =
         entryId.isNotEmpty &&
-        runtime.messages.any((message) => message.id == entryId && message.type == 2);
+        runtime.messages.any(
+          (message) => message.id == entryId && message.type == 2,
+        );
     if (!isThinkingCardTarget) {
       _finalizeThinkingCard(
         runtime,
@@ -2443,8 +2444,12 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
         lockCompleted: false,
       );
     } else {
-      final messageId = entryId.isNotEmpty ? entryId : _nextAgentTextMessageId(runtime, event.taskId);
-      final index = runtime.messages.indexWhere((message) => message.id == messageId);
+      final messageId = entryId.isNotEmpty
+          ? entryId
+          : _nextAgentTextMessageId(runtime, event.taskId);
+      final index = runtime.messages.indexWhere(
+        (message) => message.id == messageId,
+      );
       if (index == -1) {
         final content = <String, dynamic>{'text': '', 'id': messageId};
         _applyAgentRetryPresentation(content, event, retryText);
@@ -2646,7 +2651,9 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
   }) {
     final entryId = (event.entryId ?? '').trim();
     final shouldMarkError = event.raw['persistAsError'] == true;
-    final errorText = (event.raw['errorText'] ?? event.errorMessage).toString().trim();
+    final errorText = (event.raw['errorText'] ?? event.errorMessage)
+        .toString()
+        .trim();
     if (entryId.isNotEmpty) {
       final index = runtime.messages.indexWhere(
         (message) => message.id == entryId,
@@ -2812,6 +2819,60 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
 
   Map<String, dynamic> _streamMetaFromEvent(AgentStreamEvent event) {
     return buildAgentStreamMetaFromEvent(event);
+  }
+
+  String _buildAgentRetryingText(AgentStreamEvent event) {
+    if (event.text.trim().isNotEmpty) {
+      return event.text.trim();
+    }
+    final retryCount = event.retryCount <= 0 ? 1 : event.retryCount;
+    final maxRetries = event.maxRetries <= 0 ? 3 : event.maxRetries;
+    return LegacyTextLocalizer.isEnglish
+        ? 'Connection interrupted. Retrying $retryCount/$maxRetries...'
+        : '连接中断，正在重试 $retryCount/$maxRetries…';
+  }
+
+  void _applyAgentRetryPresentation(
+    Map<String, dynamic> content,
+    AgentStreamEvent event,
+    String retryText,
+  ) {
+    content['agentTaskId'] = event.taskId;
+    content['agentRetrying'] = true;
+    content['agentRetryStatusText'] = retryText;
+    content['agentRetryCount'] = event.retryCount;
+    content['agentMaxRetries'] = event.maxRetries;
+    content['agentRetryDelayMs'] = event.retryDelayMs;
+    content['agentRetryReason'] = event.retryReason;
+    content.remove('agentErrorText');
+    content.remove('agentRetryable');
+  }
+
+  void _applyAgentErrorPresentation(
+    Map<String, dynamic> content,
+    AgentStreamEvent event,
+    String errorText,
+  ) {
+    content['agentTaskId'] = event.taskId;
+    content['agentRetrying'] = false;
+    content['agentRetryStatusText'] = '';
+    content['agentRetryCount'] = event.retryCount;
+    content['agentMaxRetries'] = event.maxRetries;
+    content['agentRetryDelayMs'] = 0;
+    content['agentRetryReason'] = event.retryReason;
+    content['agentRetryable'] = event.retryable;
+    content['agentErrorText'] = errorText;
+  }
+
+  void _clearAgentRetryPresentation(Map<String, dynamic> content) {
+    content.remove('agentRetrying');
+    content.remove('agentRetryStatusText');
+    content.remove('agentRetryCount');
+    content.remove('agentMaxRetries');
+    content.remove('agentRetryDelayMs');
+    content.remove('agentRetryReason');
+    content.remove('agentRetryable');
+    content.remove('agentErrorText');
   }
 
   /// Returns true if thinking content was flushed to the card (caller must notifyListeners).

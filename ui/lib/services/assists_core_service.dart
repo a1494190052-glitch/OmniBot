@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:ui/models/agent_stream_event.dart';
 import 'package:ui/services/agent_schedule_bridge_service.dart';
 import 'package:ui/services/app_state_service.dart';
+import 'package:ui/services/codex_tool_call_parser.dart';
 import 'package:ui/services/model_provider_config_service.dart';
 
 // 卡片推送
@@ -1726,33 +1727,44 @@ class AgentToolEventData {
       ),
     );
     final itemType = _asNonEmptyString(raw['type']);
-    final normalized = normalizeCodexToolCall(
-      raw,
-      itemType: itemType,
-      fallbackToolType: _asNonEmptyString(raw['toolType']) ?? 'builtin',
-      fallbackTitle:
-          _asNonEmptyString(raw['toolTitle']) ??
-          _asNonEmptyString(raw['displayName']),
-      fallbackStatus: _asNonEmptyString(raw['status']) ?? '',
-    );
-    final explicitStatus = codexToolStatusIsExplicit(raw);
     final isCodexTool = itemType != null && isCodexToolItemType(itemType);
+    final normalized = isCodexTool
+        ? normalizeCodexToolCall(
+            raw,
+            itemType: itemType,
+            fallbackToolType: _asNonEmptyString(raw['toolType']) ?? 'builtin',
+            fallbackTitle:
+                _asNonEmptyString(raw['toolTitle']) ??
+                _asNonEmptyString(raw['displayName']),
+            fallbackStatus: _asNonEmptyString(raw['status']) ?? '',
+          )
+        : null;
     return AgentToolEventData(
       taskId: (raw['taskId'] ?? '').toString(),
       cardId: (raw['cardId'] ?? '').toString(),
       toolCallId: (raw['toolCallId'] ?? raw['tool_call_id'] ?? '').toString(),
-      toolName: (raw['toolName'] ?? '').toString(),
-      displayName: (raw['displayName'] ?? raw['toolName'] ?? '').toString(),
-      toolTitle: (raw['toolTitle'] ?? '').toString(),
-      toolType: (raw['toolType'] ?? 'builtin').toString(),
-      serverName: raw['serverName']?.toString(),
-      status: (raw['status'] ?? '').toString(),
-      argsJson: (raw['argsJson'] ?? raw['args'] ?? '').toString(),
-      progress: (raw['progress'] ?? '').toString(),
-      summary: (raw['summary'] ?? '').toString(),
-      resultPreviewJson: (raw['resultPreviewJson'] ?? '').toString(),
-      rawResultJson: (raw['rawResultJson'] ?? '').toString(),
-      terminalOutput: (raw['terminalOutput'] ?? '').toString(),
+      toolName: normalized?.toolName ?? (raw['toolName'] ?? '').toString(),
+      displayName:
+          normalized?.displayName ??
+          (raw['displayName'] ?? raw['toolName'] ?? '').toString(),
+      toolTitle: normalized?.toolTitle ?? (raw['toolTitle'] ?? '').toString(),
+      toolType:
+          normalized?.toolType ?? (raw['toolType'] ?? 'builtin').toString(),
+      serverName: normalized?.serverName ?? raw['serverName']?.toString(),
+      status: normalized?.status ?? (raw['status'] ?? '').toString(),
+      argsJson:
+          normalized?.argsJson ??
+          (raw['argsJson'] ?? raw['args'] ?? '').toString(),
+      progress: normalized?.progress ?? (raw['progress'] ?? '').toString(),
+      summary: normalized?.summary ?? (raw['summary'] ?? '').toString(),
+      resultPreviewJson:
+          normalized?.resultPreviewJson ??
+          (raw['resultPreviewJson'] ?? '').toString(),
+      rawResultJson:
+          normalized?.rawResultJson ?? (raw['rawResultJson'] ?? '').toString(),
+      terminalOutput:
+          normalized?.terminalOutput ??
+          (raw['terminalOutput'] ?? '').toString(),
       terminalOutputDelta: (raw['terminalOutputDelta'] ?? '').toString(),
       terminalSessionId: raw['terminalSessionId']?.toString(),
       terminalStreamState: (raw['terminalStreamState'] ?? '').toString(),
