@@ -9,7 +9,7 @@ import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import cn.com.omnimind.bot.runlog.RunLogReplayStepCompiler
 
 /**
- * Single-pass compiler from RunLog cards → OmniflowFunction IR.
+ * Single-pass compiler from RunLog cards to the stored OmniflowFunction model.
  * Replaces the 5-stage Map→Map pipeline (Compiler + Parameterizer +
  * SchemaBuilder + SpecBuilder + PatchAppliers).
  */
@@ -44,7 +44,7 @@ object OmniflowCompiler {
             .flatMap { p -> p.bindings.map { b -> (b.stepIndex to b.argPath) to p.id } }
             .toMap()
 
-        // Phase 3: translate Map steps → OmniflowStep IR
+        // Phase 3: translate Map steps to OmniflowStep.
         val steps = rawSteps.mapIndexed { index, step ->
             stepFromMap(step, index, bindingMap)
         }

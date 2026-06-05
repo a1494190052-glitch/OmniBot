@@ -8,7 +8,7 @@ import com.google.gson.reflect.TypeToken
 import org.json.JSONArray
 
 /**
- * Stores and retrieves OmniflowFunction IR instances.
+ * Stores and retrieves OmniflowFunction instances.
  * Uses a separate key namespace from the legacy OobReusableFunctionStore.
  */
 object OmniflowFunctionStore {

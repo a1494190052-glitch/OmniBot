@@ -3990,7 +3990,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 this.workspaceFunctionStore = workspaceFunctionStore
             }
 
-            // Prefer new IR execution path when the function was compiled to IR.
+            // Prefer the typed Function path when the saved Function was compiled.
             val irFunction = OmniflowFunctionStore.get(context, functionId)
                 ?.materialize(callArguments.mapValues { it.value?.toString() ?: "" })
 

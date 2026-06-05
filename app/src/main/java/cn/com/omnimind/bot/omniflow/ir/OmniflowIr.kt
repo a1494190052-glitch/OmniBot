@@ -101,7 +101,7 @@ data class AgentCallContext(
 )
 
 // ---------------------------------------------------------------------------
-// Step — the single IR unit. Everything is a tool call.
+// Step — the single execution unit. Everything is a tool call.
 // ---------------------------------------------------------------------------
 
 data class OmniflowStep(

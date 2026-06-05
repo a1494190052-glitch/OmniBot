@@ -547,6 +547,18 @@ class VLMOperationService(
                     error = "任务终止: ${(step.action as AbortAction).value}"
                 )
             }
+            if (VLMFunctionRunCompletionPolicy.shouldFinishAfterSuccessfulFunction(step)) {
+                return TaskExecutionReport(
+                    success = true,
+                    goal = goal,
+                    totalSteps = stepIndex + 1,
+                    executionTrace = executionTrace,
+                    finalContext = context,
+                    error = null,
+                    summaryScreenshotList = summaryScreenshotList,
+                    doneReason = "call_tool_completed"
+                )
+            }
             stepIndex++
         }
 
@@ -917,7 +929,7 @@ class VLMOperationService(
                 // normalizeOpenAppAction 需要判断模型类型
                 processedStep = normalizeOpenAppAction(processedStep, _context, model)
                 VLMPreferredCallToolPolicy.preferredNoArgFunctionId(_context)?.let { functionId ->
-                    if (VLMPreferredCallToolPolicy.shouldRewrite(processedStep.action)) {
+                    if (VLMPreferredCallToolPolicy.shouldRewrite(processedStep.action, _context, functionId)) {
                         val originalAction = processedStep.action.name
                         processedStep = VLMPreferredCallToolPolicy.rewriteStep(processedStep, functionId)
                         _context = _context.copy(
