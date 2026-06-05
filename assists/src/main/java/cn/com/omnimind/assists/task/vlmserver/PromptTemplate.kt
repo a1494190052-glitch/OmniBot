@@ -129,6 +129,9 @@ object PromptTemplate {
             appendLine("${t(locale, "已完成里程碑", "Completed milestones")}: $completedMilestones")
             appendLine("${t(locale, "关键记忆", "Key memory")}: $keyMemory")
             appendLine("${t(locale, "相关已安装应用", "Relevant installed apps")}: $installedApps")
+            renderCoordinateSystemBlock(context, locale).takeIf { it.isNotBlank() }?.let {
+                appendLine(it)
+            }
             appendLine()
             appendLine(renderUnifiedActionSchema(context, locale))
             appendLine()
@@ -155,6 +158,17 @@ object PromptTemplate {
                 )
             )
         }.trim()
+    }
+
+    private fun renderCoordinateSystemBlock(context: UIContext, locale: PromptLocale): String {
+        val width = context.displayWidth
+        val height = context.displayHeight
+        if (width <= 0 || height <= 0) return ""
+        return t(
+            locale,
+            "坐标系统：所有 x/y/x1/y1/x2/y2 必须使用当前屏幕绝对像素，范围 x=0..${width - 1}, y=0..${height - 1}；不要输出 0-1000 归一化坐标。",
+            "Coordinate system: all x/y/x1/y1/x2/y2 values must be absolute screen pixels for the current display, range x=0..${width - 1}, y=0..${height - 1}; do not output 0-1000 normalized coordinates."
+        )
     }
 
     private fun renderPageExplanationBlock(context: UIContext, locale: PromptLocale): String {

@@ -667,7 +667,9 @@ class VLMOperationService(
                     currentPageSummary = "",
                     firstStepGuidance = "",
                     pageDiagnostics = emptyMap(),
-                    dynamicToolDefinitions = emptyList()
+                    dynamicToolDefinitions = emptyList(),
+                    displayWidth = pageSnapshot.displayWidth,
+                    displayHeight = pageSnapshot.displayHeight
                 )
                 _context = _context.copy(pageDiagnostics = phaseDiagnostics())
                 val firstStepStartedAt = System.currentTimeMillis()
@@ -1367,6 +1369,7 @@ class VLMOperationService(
         fun coordType(value: Float, displaySize: Int): String {
             return when {
                 value <= 1f -> "ratio_0-1"
+                value <= 1000f && displaySize > 1000 -> "normalized_0-1000"
                 value <= displaySize -> "absolute_pixel"
                 else -> "pixel_overflow"
             }
@@ -1375,6 +1378,7 @@ class VLMOperationService(
         fun toScreenCoord(value: Float, maxSize: Int): Int {
             val mapped = when {
                 value <= 1f -> (value.toDouble() * maxSize).roundToInt()
+                value <= 1000f && maxSize > 1000 -> (value.toDouble() / 1000.0 * maxSize).roundToInt()
                 else -> value.roundToInt()
             }
             return mapped.coerceIn(0, maxSize)

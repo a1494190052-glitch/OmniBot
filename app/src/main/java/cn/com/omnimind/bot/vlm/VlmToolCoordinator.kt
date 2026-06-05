@@ -405,6 +405,8 @@ object VlmToolCoordinator {
             stepSkillGuidance = request.stepSkillGuidance,
             targetPackageName = request.packageName.orEmpty(),
             currentPackageName = snapshot.packageName.orEmpty(),
+            displayWidth = snapshot.displayWidth,
+            displayHeight = snapshot.displayHeight,
             maxSteps = resolveMaxSteps(request.maxSteps),
             stepsUsed = 0,
         )
@@ -439,7 +441,9 @@ object VlmToolCoordinator {
             currentPageSummary = "",
             firstStepGuidance = "",
             pageDiagnostics = emptyMap(),
-            dynamicToolDefinitions = emptyList()
+            dynamicToolDefinitions = emptyList(),
+            displayWidth = snapshot.displayWidth,
+            displayHeight = snapshot.displayHeight
         )
         workingContext = timed("first_step_optimizer_ms") {
             VLMFirstStepOptimizer.enrichContext(

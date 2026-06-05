@@ -271,7 +271,7 @@
     .day {
       background: #ffffff;
       padding: 20px;
-      min-height: 250px;
+      min-height: 150px;
     }
 
     .date {
@@ -376,9 +376,9 @@
     <div class="wrap hero">
       <div>
         <p class="eyebrow">OmniBot 三天核心功能进展</p>
-        <h1>这三天集中把“会录、会存、会召回、会执行”做得更闭环。</h1>
+        <h1>Online、Offline 和交互链路都往前走了一步。</h1>
         <p class="lead">
-          口径只看功能和使用效果：这三天有几项从 0 到 1 的能力进入链路，包括 MCP 抓状态、VLM 调 Function、Function 结果进 RunLog、可取消 VLM 任务和 typed OmniFlow IR。
+          简单说：Online VLM 负责实时决策，Offline Function 负责沉淀能力，中间的交互链路负责召回、执行和留证。
         </p>
       </div>
       <div class="hero-metrics" aria-label="核心进展摘要">
@@ -388,11 +388,11 @@
         </div>
         <div class="metric">
           <span>核心链路</span>
-          <strong>学习录制 -> RunLog -> Function -> 召回执行</strong>
+          <strong>Online -> Offline -> 交互闭环</strong>
         </div>
         <div class="metric">
           <span>主要对象</span>
-          <strong>OOB / OmniFlow / VLM / 手动录制</strong>
+          <strong>VLM / Function / RunLog / OmniFlow</strong>
         </div>
       </div>
     </div>
@@ -400,200 +400,100 @@
 
   <main class="wrap">
     <section class="panel">
-      <h2>一句话结论</h2>
+      <h2>总体结论</h2>
       <div class="summary">
         <div class="statement">
-          这三天不只是优化体验，而是把几块原来缺失的能力补进了闭环：抓状态、调 Function、记结果、可取消、结构化表达。
+          这三天的核心不是单点功能堆叠，而是把 Online VLM 和 Offline Function 接起来。
         </div>
         <p>
-          本轮最核心的变化是：Function 从“已有流程资产”变成 Agent/VLM 可以在任务里直接使用的工具；执行结果不再只停留在内部返回，而是进入 RunLog；OmniFlow 也开始从松散 Map 管线切到 typed IR。
+          Online 侧能更好地理解当前任务并调用工具；Offline 侧能沉淀可复用 Function；交互侧把召回、执行、结果记录串成闭环。
         </p>
       </div>
-      <div class="system-map">
-        <div class="step">
-          <b>01</b>
-          <strong>用户操作</strong>
-          <p>用户在真实 App 里点击、输入、滑动，系统记录操作轨迹。</p>
-        </div>
-        <div class="step">
-          <b>02</b>
-          <strong>RunLog 留证</strong>
-          <p>每一步动作、页面状态和函数执行结果进入运行历史。</p>
-        </div>
-        <div class="step">
-          <b>03</b>
-          <strong>沉淀 Function</strong>
-          <p>可复用流程被保存为 Function，而不是一次性命令。</p>
-        </div>
-        <div class="step">
-          <b>04</b>
-          <strong>Agent/VLM 召回</strong>
-          <p>执行新任务时，模型能看到本地已有 Function 候选。</p>
-        </div>
-        <div class="step">
-          <b>05</b>
-          <strong>回放与修复</strong>
-          <p>失败时保留上下文，后续可以定位、更新和继续优化。</p>
-        </div>
-      </div>
     </section>
 
     <section class="panel">
-      <h2>从 0 到 1 的核心功能</h2>
+      <h2>Online：VLM 执行升级</h2>
       <div class="feature-grid">
         <article class="feature">
-          <span class="tag teal">MCP 状态抓取</span>
-          <h3>新增 get_state：外部 Agent 可以抓当前屏幕状态</h3>
+          <span class="tag blue">核心变化</span>
+          <h3>从单步动作，到可调用 Function</h3>
           <p>
-            这不是单纯优化。之前外部工具链缺少统一的当前页面状态入口，这次新增 MCP get_state capture tool，让调试、回放和外部 Agent 能拿到当前屏幕上下文。
+            Online VLM 不只输出点击、输入、滑动，也可以看到本地 Function 候选，并选择调用已保存的 Function。
           </p>
         </article>
         <article class="feature">
-          <span class="tag blue">VLM 调 Function</span>
-          <h3>VLM 任务里可以把本地 Function 当工具用</h3>
+          <span class="tag teal">统一输出 Schema</span>
+          <h3>工具调用格式收敛</h3>
           <p>
-            Function 召回进入 Agent/VLM 默认上下文，并统一动态 function tools。使用上从“VLM 只输出点击/输入/滑动”推进到“VLM 可以选择运行已保存 Function”。
-          </p>
-        </article>
-        <article class="feature">
-          <span class="tag amber">RunLog 结果</span>
-          <h3>Function 执行结果开始进入运行历史</h3>
-          <p>
-            VLM function 调用结果写入 RunLog。用户和开发者不只知道任务结束了，还能在时间线里看到 function 是否执行、返回了什么、失败在哪里。
-          </p>
-        </article>
-        <article class="feature">
-          <span class="tag rose">任务控制</span>
-          <h3>新增可取消的 OOB VLM 任务入口</h3>
-          <p>
-            新增 debug receiver 和脚本能力，长时间运行的 OOB VLM 任务可以从命令侧取消。以前这类任务更偏一次性启动，现在有了明确的停止控制。
-          </p>
-        </article>
-        <article class="feature">
-          <span class="tag green">OmniFlow</span>
-          <h3>新增 typed OmniFlow IR</h3>
-          <p>
-            引入 typed step representation 替代松散 Map pipeline。它是后续 Function 编辑、回放、参数绑定和自动修复的结构化基础。
-          </p>
-        </article>
-        <article class="feature">
-          <span class="tag teal">Function 一等入口</span>
-          <h3>功能库替代命令库口径</h3>
-          <p>
-            UI 和工具口径从 command 收敛到 Function，功能库、Function 卡片和执行结果页统一表达“可复用能力”，不是临时命令列表。
+            统一 VLM action schema 和动态 function tools，同时补了文本 tool call fallback，降低 online 模型输出格式波动的影响。
           </p>
         </article>
       </div>
     </section>
 
     <section class="panel">
-      <h2>稳定性和使用体验改进</h2>
+      <h2>Offline：能力沉淀升级</h2>
       <div class="feature-grid">
         <article class="feature">
-          <span class="tag teal">学习模式</span>
-          <h3>手动录制减少漏记和误记</h3>
+          <span class="tag green">Function</span>
+          <h3>学习结果继续沉淀为 Function</h3>
           <p>
-            录制动作改成增量保存，并过滤悬浮层包名，减少录制中断丢数据、误把 overlay 当目标 App 的问题。当前还在补文本输入无触摸锚点时的记录能力。
+            手动录制动作增量保存，并过滤 overlay 包名，让离线沉淀出来的 Function 来源更干净。
           </p>
         </article>
         <article class="feature">
-          <span class="tag amber">执行回放</span>
-          <h3>Function 执行链路收敛</h3>
+          <span class="tag amber">OmniFlow</span>
+          <h3>流程结构开始收敛</h3>
           <p>
-            统一 call_tool / call_function，抽出 GoTo 导航逻辑，并减少 ScreenMask 这类执行遮挡，让回放路径更直接，问题定位更明确。
+            引入 typed OmniFlow IR，并收敛 update pipeline，为后续 Function 编辑、回放和修复打基础。
           </p>
         </article>
       </div>
     </section>
 
     <section class="panel">
-      <h2>三天节奏</h2>
-      <div class="days">
-        <article class="day">
-          <div class="date">周三 2026-06-03</div>
-          <h3>打通 Function 召回和 VLM 调用</h3>
-          <ul>
-            <li>统一 OOB function 术语和 replay 流程。</li>
-            <li>把 Function 召回接进 Agent/VLM 默认上下文。</li>
-            <li>统一 VLM action schema 和动态 function tools。</li>
-            <li>让 function 结果进入 runlog，便于复盘。</li>
-          </ul>
-        </article>
-        <article class="day">
-          <div class="date">周四 2026-06-04</div>
-          <h3>提升录制和召回稳定性</h3>
-          <ul>
-            <li>手动录制动作增量保存，降低中断丢失风险。</li>
-            <li>录制卡片忽略 overlay 包名，减少目标识别污染。</li>
-            <li>优化 VLM function recall 缓存门禁，减少过期建议。</li>
-            <li>增强录制脚本和 debug receiver。</li>
-          </ul>
-        </article>
-        <article class="day">
-          <div class="date">周五 2026-06-05</div>
-          <h3>收敛回放管线和 UI 展示</h3>
-          <ul>
-            <li>整合 OOB function replay 改进。</li>
-            <li>统一 call_tool / call_function，抽出 GoToNavigator。</li>
-            <li>引入 typed OmniFlow IR，收敛更新管线。</li>
-            <li>整理 function library 和 runlog timeline。</li>
-          </ul>
-        </article>
-      </div>
-    </section>
-
-    <section class="panel">
-      <h2>从使用上看，用户会感受到什么</h2>
+      <h2>交互：Online 和 Offline 接起来</h2>
       <div class="impact-list">
         <div class="impact">
-          <div class="label">学习一次</div>
-          <p><strong>学习结果进入 Function 体系。</strong> 录制过程不再只依赖最后一次完整落盘，异常中断时丢失风险更低。</p>
+          <div class="label">召回</div>
+          <p><strong>Offline Function 进入 Online VLM 默认上下文。</strong> VLM 执行任务时可以看到本地已有能力。</p>
         </div>
         <div class="impact">
-          <div class="label">执行任务</div>
-          <p><strong>Agent/VLM 可以直接调用已有 Function。</strong> 已学习流程会进入默认候选，任务执行从单步操作扩展到可复用流程调用。</p>
+          <div class="label">执行</div>
+          <p><strong>call_tool / call_function 统一。</strong> 单步工具和 Function 调用走更一致的执行路径。</p>
         </div>
         <div class="impact">
-          <div class="label">看执行历史</div>
-          <p><strong>Function 调用结果进入 RunLog。</strong> 时间线里能看到函数执行、失败步骤和页面状态，复盘不再只靠猜。</p>
+          <div class="label">留证</div>
+          <p><strong>Function 调用结果写回 RunLog。</strong> Online 执行过什么、结果是什么，可以在运行历史里看。</p>
         </div>
         <div class="impact">
-          <div class="label">修失败流程</div>
-          <p><strong>OmniFlow 有了结构化 IR 基础。</strong> 后续自动修复、参数绑定和流程增强可以基于明确 step 类型推进。</p>
+          <div class="label">调试</div>
+          <p><strong>新增 get_state 和可取消 VLM 任务。</strong> 当前状态能抓取，长任务也能中止。</p>
         </div>
       </div>
     </section>
 
     <section class="panel">
-      <h2>本轮修掉或缓解的问题</h2>
-      <div class="bug-grid">
-        <div class="bug">
-          <strong>Function 执行分发错误</strong>
-          <p>修复 OOB function run dispatch，避免工具调用路径不一致导致执行失败。</p>
-        </div>
-        <div class="bug">
-          <strong>VLM tool call 解析不稳</strong>
-          <p>补了文本形式 tool call 的 fallback，降低模型输出格式波动带来的失败。</p>
-        </div>
-        <div class="bug">
-          <strong>录制动作丢失</strong>
-          <p>动作增量持久化后，录制中断、脚本停止时更不容易全部丢失。</p>
-        </div>
-        <div class="bug">
-          <strong>overlay 污染录制目标</strong>
-          <p>录制卡片忽略 overlay 包，避免学习结果指向悬浮层而不是目标 App。</p>
-        </div>
-        <div class="bug">
-          <strong>召回缓存不够谨慎</strong>
-          <p>优化 VLM function recall cache gate，减少拿到过期或不匹配 Function。</p>
-        </div>
-        <div class="bug">
-          <strong>执行遮挡和跳转耦合</strong>
-          <p>去掉部分 ScreenMask 干扰，并把 GoTo 导航拆出来，降低回放跑偏和遮挡影响。</p>
-        </div>
+      <h2>三天对应关系</h2>
+      <div class="days">
+        <article class="day">
+          <div class="date">周三</div>
+          <h3>Online</h3>
+          <p>统一 VLM action schema，接入 Function tools，补 tool call fallback。</p>
+        </article>
+        <article class="day">
+          <div class="date">周四</div>
+          <h3>Offline</h3>
+          <p>录制增量保存，过滤 overlay 包，优化 Function recall 缓存门禁。</p>
+        </article>
+        <article class="day">
+          <div class="date">周五</div>
+          <h3>交互</h3>
+          <p>统一 Function 执行路径，结果进入 RunLog，引入 typed OmniFlow IR。</p>
+        </article>
       </div>
       <p class="foot">
-        数据来源：本地 2026-06-03、2026-06-04、2026-06-05 提交记录；另包含当前工作区中手动录制文本输入策略的未提交进展。
+        数据来源：本地 2026-06-03、2026-06-04、2026-06-05 提交记录。
       </p>
     </section>
   </main>

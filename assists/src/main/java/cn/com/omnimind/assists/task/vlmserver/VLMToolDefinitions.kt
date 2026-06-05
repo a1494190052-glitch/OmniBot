@@ -129,8 +129,8 @@ object VLMToolDefinitions {
             append(
                 t(
                     locale,
-                    "注意：每个 tool call 的 JSON 参数必须是严格合法的 object；如果本轮 tools[] 里出现额外已保存流程 tool，直接按该 tool 的参数 schema 填写业务参数。把 OOB indexed page evidence 作为主要 grounding：click/input_text/long_press 优先填写 element_index，scroll 优先填写 scrollable_index。坐标必须分别写入 x / y / x1 / y1 / x2 / y2 字段，不要写成 \"x\": 827, 76 这类非法格式，坐标只作为兜底。不要返回停留、延时或空操作类动作；页面停留和稳定检测由系统内部处理。",
-                    "Important: every tool call JSON argument value must be a strict object. If this turn's tools[] contains additional saved workflow tools, fill their business parameters directly according to that tool's schema. Use OOB indexed page evidence as the primary grounding: for click/input_text/long_press prefer element_index, and for scroll prefer scrollable_index. Coordinates must be written into x / y / x1 / y1 / x2 / y2 as separate scalar fields; do not emit invalid forms such as \"x\": 827, 76. Coordinates are fallback only. Do not return idle, delay, or no-op actions; page settling and stability detection are handled internally."
+                    "注意：每个 tool call 的 JSON 参数必须是严格合法的 object；如果本轮 tools[] 里出现额外已保存流程 tool，直接按该 tool 的参数 schema 填写业务参数。把 OOB indexed page evidence 作为主要 grounding：click/input_text/long_press 优先填写 element_index，scroll 优先填写 scrollable_index。坐标必须是屏幕绝对像素，不是 0-1000 归一化坐标；分别写入 x / y / x1 / y1 / x2 / y2 字段，不要写成 \"x\": 827, 76 这类非法格式，坐标只作为兜底。不要返回停留、延时或空操作类动作；页面停留和稳定检测由系统内部处理。",
+                    "Important: every tool call JSON argument value must be a strict object. If this turn's tools[] contains additional saved workflow tools, fill their business parameters directly according to that tool's schema. Use OOB indexed page evidence as the primary grounding: for click/input_text/long_press prefer element_index, and for scroll prefer scrollable_index. Coordinates must be absolute screen pixels, not 0-1000 normalized coordinates; write them into x / y / x1 / y1 / x2 / y2 as separate scalar fields; do not emit invalid forms such as \"x\": 827, 76. Coordinates are fallback only. Do not return idle, delay, or no-op actions; page settling and stability detection are handled internally."
                 )
             )
         }
@@ -146,8 +146,8 @@ object VLMToolDefinitions {
             append(
                 t(
                     locale,
-                    "统一格式：只能使用原生 tool_call。click/input_text/long_press 优先 element_index；scroll 优先 scrollable_index；坐标只用 x/y 或 x1/y1/x2/y2 单个数值；不要使用旧 action/swipe/coordinate/coordinate2。",
-                    "Unified format: native tool_call only. Prefer element_index for click/input_text/long_press and scrollable_index for scroll. Coordinates may only use scalar x/y or x1/y1/x2/y2. Do not use legacy action/swipe/coordinate/coordinate2."
+                    "统一格式：只能使用原生 tool_call。click/input_text/long_press 优先 element_index；scroll 优先 scrollable_index；坐标是屏幕绝对像素，不是 0-1000，只用 x/y 或 x1/y1/x2/y2 单个数值；不要使用旧 action/swipe/coordinate/coordinate2。",
+                    "Unified format: native tool_call only. Prefer element_index for click/input_text/long_press and scrollable_index for scroll. Coordinates are absolute screen pixels, not 0-1000; only use scalar x/y or x1/y1/x2/y2. Do not use legacy action/swipe/coordinate/coordinate2."
                 )
             )
         }.take(MAX_COMPACT_ACTION_SCHEMA_CHARS)

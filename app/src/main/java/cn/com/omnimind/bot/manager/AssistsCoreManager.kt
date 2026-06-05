@@ -3960,10 +3960,13 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             val runPayload = providedLocalReplayResult ?: runCatching {
                 withContext(Dispatchers.Default) {
                     if (irFunction != null) {
-                        runner.runIrFunction(
+                        runner.runFunction(
                             fn = irFunction,
                             allowAgentFallback = false,
                             allowToolDelegationWithoutRouter = false,
+                            frontendRunId = firstNonBlankString(args["frontend_run_id"], args["frontendRunId"]),
+                            frontendTaskId = firstNonBlankString(args["taskId"], args["task_id"]),
+                            frontendParent = "oob_direct_replay",
                         )
                     } else {
                         runner.runMaterializedFunction(
@@ -3971,7 +3974,10 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                             spec = spec,
                             materializedSpec = materializedSpec!!,
                             allowAgentFallback = false,
-                            allowToolDelegationWithoutRouter = false
+                            allowToolDelegationWithoutRouter = false,
+                            frontendRunId = firstNonBlankString(args["frontend_run_id"], args["frontendRunId"]),
+                            frontendTaskId = firstNonBlankString(args["taskId"], args["task_id"]),
+                            frontendParent = "oob_direct_replay",
                         )
                     }
                 }

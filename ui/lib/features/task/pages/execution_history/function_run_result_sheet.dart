@@ -440,8 +440,14 @@ class _StepResultTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
+    final skipped = step['skipped'] == true;
     final success = step['success'] != false;
-    final color = success ? _successColor(context) : _errorColor(context);
+    final modelFree = step['model_free'] == true;
+    final color = skipped
+        ? palette.textTertiary
+        : success
+            ? _successColor(context)
+            : _errorColor(context);
     final title = _firstNonBlank([
       step['summary'],
       step['title'],
@@ -458,6 +464,8 @@ class _StepResultTile extends StatelessWidget {
     final meta = [
       _firstNonBlank([step['executor']]),
       _firstNonBlank([step['tool']]),
+      if (skipped) _text(context, '跳过', 'Skipped'),
+      if (!skipped && modelFree) _text(context, '本地执行', 'Local'),
       if (step['needs_agent'] == true)
         _text(context, '需要 Agent', 'Needs agent'),
       if (step['blocked_executor'] != null)
@@ -542,9 +550,11 @@ class _StepResultTile extends StatelessWidget {
             actionBuilder!(context, index, step) ?? const SizedBox.shrink()
           else if (showStatusIcon)
             Icon(
-              success
-                  ? Icons.check_circle_outline_rounded
-                  : Icons.error_outline_rounded,
+              skipped
+                  ? Icons.remove_circle_outline_rounded
+                  : success
+                      ? Icons.check_circle_outline_rounded
+                      : Icons.error_outline_rounded,
               size: 16,
               color: color,
             ),

@@ -256,6 +256,10 @@ data class UIContext(
     val targetPackageName: String = "",
     @SerialName("current_package_name")
     val currentPackageName: String = "",
+    @SerialName("display_width")
+    val displayWidth: Int = 0,
+    @SerialName("display_height")
+    val displayHeight: Int = 0,
     @SerialName("current_page_summary")
     val currentPageSummary: String = "",
     @SerialName("first_step_guidance")
