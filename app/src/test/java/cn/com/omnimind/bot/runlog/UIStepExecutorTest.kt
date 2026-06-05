@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.abs
 
-class OmniflowStepExecutorTest {
+class UIStepExecutorTest {
     @Test
     fun `detects explicit omniflow steps`() {
         val step = mapOf(
@@ -17,8 +17,8 @@ class OmniflowStepExecutorTest {
             "args" to mapOf("x" to 10, "y" to 20),
         )
 
-        assertTrue(OmniflowStepExecutor.isOmniflowStep(step))
-        assertEquals("click", OmniflowStepExecutor.actionNameForStep(step))
+        assertTrue(UIStepExecutor.isUIStep(step))
+        assertEquals("click", UIStepExecutor.actionNameForStep(step))
     }
 
     @Test
@@ -29,8 +29,8 @@ class OmniflowStepExecutorTest {
             "args" to mapOf("key" to "back"),
         )
 
-        assertTrue(OmniflowStepExecutor.isOmniflowStep(step))
-        assertEquals("press_key", OmniflowStepExecutor.actionNameForStep(step))
+        assertTrue(UIStepExecutor.isUIStep(step))
+        assertEquals("press_key", UIStepExecutor.actionNameForStep(step))
     }
 
     @Test
@@ -41,41 +41,41 @@ class OmniflowStepExecutorTest {
             "args" to emptyMap<String, Any?>(),
         )
 
-        assertFalse(OmniflowStepExecutor.isOmniflowStep(step))
+        assertFalse(UIStepExecutor.isUIStep(step))
     }
 
     @Test
     fun `does not normalize legacy action aliases`() {
         assertEquals(
             "tap",
-            OmniflowStepExecutor.actionNameForStep(
+            UIStepExecutor.actionNameForStep(
                 mapOf("model_free" to true, "tool" to "tap")
             )
         )
         assertFalse(
-            OmniflowStepExecutor.isOmniflowStep(
+            UIStepExecutor.isUIStep(
                 mapOf("model_free" to true, "tool" to "tap")
             )
         )
         assertEquals(
             "type_text",
-            OmniflowStepExecutor.actionNameForStep(
+            UIStepExecutor.actionNameForStep(
                 mapOf("model_free" to true, "tool" to "type_text")
             )
         )
         assertFalse(
-            OmniflowStepExecutor.isOmniflowStep(
+            UIStepExecutor.isUIStep(
                 mapOf("model_free" to true, "tool" to "type_text")
             )
         )
         assertEquals(
             "done",
-            OmniflowStepExecutor.actionNameForStep(
+            UIStepExecutor.actionNameForStep(
                 mapOf("model_free" to true, "tool" to "done")
             )
         )
         assertFalse(
-            OmniflowStepExecutor.isOmniflowStep(
+            UIStepExecutor.isUIStep(
                 mapOf("model_free" to true, "tool" to "done")
             )
         )
@@ -89,29 +89,29 @@ class OmniflowStepExecutorTest {
             "args" to mapOf("text" to "hello"),
         )
 
-        assertTrue(OmniflowStepExecutor.isOmniflowStep(step))
-        assertEquals("input_text", OmniflowStepExecutor.actionNameForStep(step))
+        assertTrue(UIStepExecutor.isUIStep(step))
+        assertEquals("input_text", UIStepExecutor.actionNameForStep(step))
     }
 
     @Test
     fun `identifies local replay actions that require accessibility`() {
         assertTrue(
-            OmniflowStepExecutor.requiresAccessibility(
+            UIStepExecutor.requiresAccessibility(
                 mapOf("executor" to "omniflow", "tool" to "click")
             )
         )
         assertTrue(
-            OmniflowStepExecutor.requiresAccessibility(
+            UIStepExecutor.requiresAccessibility(
                 mapOf("executor" to "omniflow", "tool" to "swipe")
             )
         )
         assertFalse(
-            OmniflowStepExecutor.requiresAccessibility(
+            UIStepExecutor.requiresAccessibility(
                 mapOf("executor" to "omniflow", "tool" to "open_app")
             )
         )
         assertFalse(
-            OmniflowStepExecutor.requiresAccessibility(
+            UIStepExecutor.requiresAccessibility(
                 mapOf("executor" to "omniflow", "tool" to "finished")
             )
         )
@@ -125,15 +125,15 @@ class OmniflowStepExecutorTest {
             "args" to mapOf("content" to "hello"),
         )
 
-        assertFalse(OmniflowStepExecutor.isOmniflowStep(step))
-        assertEquals("type", OmniflowStepExecutor.actionNameForStep(step))
+        assertFalse(UIStepExecutor.isUIStep(step))
+        assertEquals("type", UIStepExecutor.actionNameForStep(step))
     }
 
     @Test
     fun `execute derives coordinate remap from action and source context`() = runBlocking {
         val backend = FakeBackend(beforeXml = SOURCE_XML, afterXml = AFTER_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -176,7 +176,7 @@ class OmniflowStepExecutorTest {
     fun `action transfer reuses the replay state captured for checker`() = runBlocking {
         val backend = FakeBackend(beforeXml = SOURCE_XML, afterXml = AFTER_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -192,9 +192,8 @@ class OmniflowStepExecutorTest {
 
             assertEquals(true, result["success"])
             assertEquals("action_transfer", result["replay_mode"])
-            assertTrue(backend.currentXmlReadCount >= 2)
-            val settle = result["step_settle"] as? Map<*, *> ?: error("missing settle")
-            assertEquals("screen_changed", settle["reason"])
+            assertEquals(1, backend.currentXmlReadCount)
+            assertFalse(result.containsKey("step_settle"))
         }
     }
 
@@ -202,7 +201,7 @@ class OmniflowStepExecutorTest {
     fun `checker control action refreshes replay state before transfer`() = runBlocking {
         val backend = FakeBackend(beforeXml = AD_OVERLAY_XML, afterXml = SOURCE_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -231,7 +230,7 @@ class OmniflowStepExecutorTest {
             currentPackage = "com.android.settings",
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -269,7 +268,7 @@ class OmniflowStepExecutorTest {
             currentPackage = "com.google.android.permissioncontroller",
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -303,7 +302,7 @@ class OmniflowStepExecutorTest {
             currentPackage = "com.android.settings",
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -347,7 +346,7 @@ class OmniflowStepExecutorTest {
             currentPackage = "com.google.android.settings.intelligence",
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -388,7 +387,7 @@ class OmniflowStepExecutorTest {
             missingXmlReadsAfterAction = 2,
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "open_app",
@@ -423,7 +422,7 @@ class OmniflowStepExecutorTest {
             currentActivity = "com.android.settings/.Settings",
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "open_app",
@@ -443,7 +442,7 @@ class OmniflowStepExecutorTest {
     fun `open app runs resolver checker after launch`() = runBlocking {
         val backend = FakeBackend(beforeXml = SOURCE_XML, afterXml = RESOLVER_DIALOG_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "open_app",
@@ -475,7 +474,7 @@ class OmniflowStepExecutorTest {
             currentPackage = "com.example.hi",
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "open_app",
@@ -504,7 +503,7 @@ class OmniflowStepExecutorTest {
     fun `execute opens app with canonical package name only`() = runBlocking {
         val backend = FakeBackend(beforeXml = SOURCE_XML, afterXml = AFTER_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "open_app",
@@ -527,7 +526,7 @@ class OmniflowStepExecutorTest {
             missingXmlReadsBeforeAction = 2,
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "swipe",
@@ -559,7 +558,7 @@ class OmniflowStepExecutorTest {
             postActionPackages = listOf("com.google.android.deskclock", "com.google.android.deskclock"),
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -591,7 +590,7 @@ class OmniflowStepExecutorTest {
             postActionPackages = listOf("com.google.android.gms", "com.google.android.gms"),
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -625,7 +624,7 @@ class OmniflowStepExecutorTest {
             currentPackage = "com.android.settings",
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -659,7 +658,7 @@ class OmniflowStepExecutorTest {
             currentPackage = "com.google.android.settings.intelligence",
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -689,7 +688,7 @@ class OmniflowStepExecutorTest {
     fun `input text uses target metadata instead of focused node fallback`() = runBlocking {
         val backend = FakeBackend(beforeXml = INPUT_FORM_XML, afterXml = INPUT_FORM_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "input_text",
@@ -721,7 +720,7 @@ class OmniflowStepExecutorTest {
     fun `action transfer preserves webview relative hotspot`() = runBlocking {
         val backend = FakeBackend(beforeXml = WEBVIEW_CURRENT_XML, afterXml = WEBVIEW_CURRENT_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -747,7 +746,7 @@ class OmniflowStepExecutorTest {
     fun `coordinate remap miss falls back to recorded action coordinates`() = runBlocking {
         val backend = FakeBackend(beforeXml = EMPTY_PAGE_XML, afterXml = EMPTY_PAGE_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -773,7 +772,7 @@ class OmniflowStepExecutorTest {
     fun `omniflow loop dismisses blocking overlay before recorded click`() = runBlocking {
         val backend = FakeBackend(beforeXml = AD_OVERLAY_XML, afterXml = SOURCE_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -801,7 +800,7 @@ class OmniflowStepExecutorTest {
     fun `global checker skips splash ad before recorded click`() = runBlocking {
         val backend = FakeBackend(beforeXml = SKIP_AD_XML, afterXml = SOURCE_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -833,10 +832,10 @@ class OmniflowStepExecutorTest {
     fun `page guard skips splash ad without recorded step`() = runBlocking {
         val backend = FakeBackend(beforeXml = SKIP_AD_XML, afterXml = SOURCE_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.runPageGuardOnce(
+            val result = UIStepExecutor.runPageGuardOnce(
                 execute = true,
                 source = "test",
-                checkerBudget = OmniflowStepExecutor.CheckerTriggerBudget(),
+                checkerBudget = UIStepExecutor.CheckerTriggerBudget(),
             )
 
             assertEquals("oob.page_guard.v1", result["schema_version"])
@@ -854,20 +853,20 @@ class OmniflowStepExecutorTest {
     @Test
     fun `shared checker budget suppresses repeated global checker triggers`() = runBlocking {
         val backend = FakeBackend(beforeXml = SKIP_AD_XML, afterXml = SKIP_AD_XML)
-        val checkerBudget = OmniflowStepExecutor.CheckerTriggerBudget()
+        val checkerBudget = UIStepExecutor.CheckerTriggerBudget()
         val step = mapOf(
             "executor" to "omniflow",
             "tool" to "click",
             "args" to mapOf("x" to 120, "y" to 240),
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val first = OmniflowStepExecutor.execute(
+            val first = UIStepExecutor.execute(
                 step = step,
                 stepId = "step_skip_ad_once",
                 stepTitle = "click behind splash ad",
                 checkerBudget = checkerBudget,
             )
-            val second = OmniflowStepExecutor.execute(
+            val second = UIStepExecutor.execute(
                 step = step,
                 stepId = "step_skip_ad_budget_exhausted",
                 stepTitle = "click behind splash ad again",
@@ -892,7 +891,7 @@ class OmniflowStepExecutorTest {
     fun `global checker confirms resolver always open before recorded click`() = runBlocking {
         val backend = FakeBackend(beforeXml = RESOLVER_DIALOG_XML, afterXml = SOURCE_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -928,7 +927,7 @@ class OmniflowStepExecutorTest {
             currentPackage = "com.vivo.appfilter",
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -964,7 +963,7 @@ class OmniflowStepExecutorTest {
             currentPackage = "com.google.android.permissioncontroller",
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -999,7 +998,7 @@ class OmniflowStepExecutorTest {
             postActionXmls = listOf(RESOLVER_DIALOG_XML, SOURCE_XML, SOURCE_XML),
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -1034,7 +1033,7 @@ class OmniflowStepExecutorTest {
     fun `global checker does not replace recorded resolver dialog step`() = runBlocking {
         val backend = FakeBackend(beforeXml = RESOLVER_DIALOG_DISABLED_ALWAYS_XML, afterXml = RESOLVER_DIALOG_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -1059,7 +1058,7 @@ class OmniflowStepExecutorTest {
     fun `global checker does not wrap explicit skip ad action`() = runBlocking {
         val backend = FakeBackend(beforeXml = SKIP_AD_XML, afterXml = SOURCE_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -1085,7 +1084,7 @@ class OmniflowStepExecutorTest {
     fun `omniflow loop hides keyboard before covered recorded click`() = runBlocking {
         val backend = FakeBackend(beforeXml = KEYBOARD_XML, afterXml = KEYBOARD_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.execute(
+            val result = UIStepExecutor.execute(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",

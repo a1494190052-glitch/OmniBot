@@ -15,7 +15,7 @@ import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 
-object OmniflowStepExecutor {
+object UIStepExecutor {
     data class StepArgsResult(
         val args: Any?,
         val meta: Map<String, Any?> = emptyMap(),
@@ -160,7 +160,7 @@ object OmniflowStepExecutor {
         )
     }
 
-    fun isOmniflowStep(step: Map<String, Any?>): Boolean {
+    fun isUIStep(step: Map<String, Any?>): Boolean {
         val executor = step["executor"]?.toString()?.trim()?.lowercase().orEmpty()
         val modelFree = step["model_free"] == true ||
             step["modelFree"] == true ||
@@ -177,7 +177,7 @@ object OmniflowStepExecutor {
         OobActionCodec.mapArg(rawArgs)
 
     fun requiresAccessibility(step: Map<String, Any?>): Boolean =
-        isOmniflowStep(step) && actionRequiresAccessibility(actionNameForStep(step))
+        isUIStep(step) && actionRequiresAccessibility(actionNameForStep(step))
 
     fun actionRequiresAccessibility(action: String): Boolean {
         val normalized = OobActionCodec.canonicalActionForName(action)

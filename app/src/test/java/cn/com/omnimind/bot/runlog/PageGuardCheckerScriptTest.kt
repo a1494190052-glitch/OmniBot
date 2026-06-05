@@ -23,10 +23,10 @@ class PageGuardCheckerScriptTest {
         )
 
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = OmniflowStepExecutor.runPageGuardOnce(
+            val result = UIStepExecutor.runPageGuardOnce(
                 execute = execute,
                 source = "page_guard_checker_script",
-                checkerBudget = OmniflowStepExecutor.CheckerTriggerBudget(),
+                checkerBudget = UIStepExecutor.CheckerTriggerBudget(),
             ) + mapOf(
                 "fake_click_count" to backend.clickPoints.size,
                 "fake_click_points" to backend.clickPoints.map { point ->

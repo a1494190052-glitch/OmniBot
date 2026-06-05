@@ -18,7 +18,7 @@ import kotlinx.serialization.json.JsonObject
  * ToolHandler implementation for all omniflow primitive actions
  * (click, swipe, input_text, open_app, press_key, finished).
  *
- * Replaces the 300-line dispatch when-block in OmniflowStepExecutor.
+ * Replaces the 300-line dispatch when-block in UIStepExecutor.
  * Registered in AgentToolRegistry at startup.
  */
 class OmniflowActionHandler(

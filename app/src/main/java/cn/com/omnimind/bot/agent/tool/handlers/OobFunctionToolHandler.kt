@@ -3,11 +3,11 @@ package cn.com.omnimind.bot.agent.tool.handlers
 import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
-import cn.com.omnimind.bot.omniflow.ir.OmniflowFunction
-import cn.com.omnimind.bot.omniflow.ir.OmniflowFunctionStore
-import cn.com.omnimind.bot.omniflow.ir.OmniflowStep
-import cn.com.omnimind.bot.omniflow.ir.ParameterValue
-import cn.com.omnimind.bot.omniflow.ir.resolveArgPath
+import cn.com.omnimind.bot.omniflow.language.OmniflowFunction
+import cn.com.omnimind.bot.omniflow.language.OmniflowFunctionStore
+import cn.com.omnimind.bot.omniflow.language.UIStep
+import cn.com.omnimind.bot.omniflow.language.ParameterValue
+import cn.com.omnimind.bot.omniflow.language.resolveArgPath
 import cn.com.omnimind.bot.agent.AgentToolJson.mapToJsonElement
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
 import cn.com.omnimind.bot.omniflow.OobFunctionArgumentBindingValidator
@@ -15,7 +15,7 @@ import cn.com.omnimind.bot.runlog.OmniflowCheckerRule
 import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
 import cn.com.omnimind.bot.runlog.OobActionCodec
 import cn.com.omnimind.bot.runlog.OobUdegNodeStore
-import cn.com.omnimind.bot.runlog.OmniflowStepExecutor
+import cn.com.omnimind.bot.runlog.UIStepExecutor
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import kotlinx.serialization.json.JsonObject
 import java.util.concurrent.atomic.AtomicLong
@@ -66,7 +66,7 @@ class OobFunctionToolHandler(
         val steps = materializedSteps(materializedSpec)
         return steps.isNotEmpty() && steps.all { step ->
             isSkippedStep(step) ||
-                OmniflowStepExecutor.isOmniflowStep(step) ||
+                UIStepExecutor.isUIStep(step) ||
                 isOmniflowExecutionStep(step)
         }
     }
@@ -382,7 +382,7 @@ class OobFunctionToolHandler(
         // Checker rules from the Function spec (metadata.checker_rules).
         // These are layered on top of the global built-in rules inside the executor.
         val functionCheckerRules = OmniflowCheckerRule.fromSpec(spec)
-        val checkerBudget = OmniflowStepExecutor.CheckerTriggerBudget()
+        val checkerBudget = UIStepExecutor.CheckerTriggerBudget()
 
         val stepLoopStartedAt = System.nanoTime()
         timing.recordSinceStart("pre_step_loop_ms", stepLoopStartedAt)
@@ -463,9 +463,9 @@ class OobFunctionToolHandler(
                     )
                 }
 
-                OmniflowStepExecutor.isOmniflowStep(step) -> {
+                UIStepExecutor.isUIStep(step) -> {
                     try {
-                        OmniflowStepExecutor.execute(
+                        UIStepExecutor.execute(
                             step = step,
                             stepId = stepId,
                             stepTitle = stepTitle,
@@ -475,14 +475,14 @@ class OobFunctionToolHandler(
                     } catch (e: kotlinx.coroutines.CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        val executionError = e as? OmniflowStepExecutor.ExecutionException
+                        val executionError = e as? UIStepExecutor.ExecutionException
                         val failReason = e.message ?: "omniflow step failed"
                         val recovery = agentFallbackController.refetchCurrentPageForFailedStep(failReason)
                         if (allowAgentFallback) {
                             modelRequired = true
                             runResultBuilder.agentFallbackStep(
                                 stepId = stepId,
-                                tool = OmniflowStepExecutor.actionNameForStep(step),
+                                tool = UIStepExecutor.actionNameForStep(step),
                                 prompt = agentFallbackController.prompt(step, stepTitle, recovery),
                                 summary = "Omniflow step requires VLM continuation: $stepTitle",
                                 extras = mapOf(
@@ -495,7 +495,7 @@ class OobFunctionToolHandler(
                         } else {
                             runResultBuilder.failureStep(
                                 stepId = stepId,
-                                tool = OmniflowStepExecutor.actionNameForStep(step),
+                                tool = UIStepExecutor.actionNameForStep(step),
                                 executor = RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
                                 summary = failReason,
                                 errorCode = executionError?.errorCode ?: "OOB_OMNIFLOW_STEP_FAILED",
@@ -543,7 +543,7 @@ class OobFunctionToolHandler(
                 putIfAbsent("started_at_ms", stepStartedAtMs)
                 putIfAbsent("finished_at_ms", stepFinishedAtMs)
                 putIfAbsent("duration_ms", (stepFinishedAtMs - stepStartedAtMs).coerceAtLeast(0))
-                if (OmniflowStepExecutor.actionNameForStep(step) == "input_text") {
+                if (UIStepExecutor.actionNameForStep(step) == "input_text") {
                     argumentSourcesByStepIndex[index]?.let { source ->
                         put("argument_source", source["argument_source"])
                         put("argument_binding", source)
@@ -960,7 +960,7 @@ class OobFunctionToolHandler(
                     "action" to r.action, "enabled" to r.enabled, "params" to r.params)
             )
         }
-        val checkerBudget = OmniflowStepExecutor.CheckerTriggerBudget()
+        val checkerBudget = UIStepExecutor.CheckerTriggerBudget()
 
         fun buildResult(finishedAtMs: Long = System.currentTimeMillis()): LinkedHashMap<String, Any?> =
             LinkedHashMap<String, Any?>().apply {
@@ -1056,7 +1056,7 @@ class OobFunctionToolHandler(
                             )
                         }
                     }
-                    // Omniflow primitive action: dispatch via OmniflowStepExecutor
+                    // Omniflow primitive action: dispatch via UIStepExecutor
                     RunLogReplayPolicy.omniflowActions.contains(step.toolName) -> {
                         val syntheticStep = linkedMapOf<String, Any?>(
                             "id" to step.id,
@@ -1067,7 +1067,7 @@ class OobFunctionToolHandler(
                             "source_context" to step.sourceContext,
                         )
                         try {
-                            OmniflowStepExecutor.execute(
+                            UIStepExecutor.execute(
                                 step = syntheticStep,
                                 stepId = step.id,
                                 stepTitle = step.title,
@@ -1266,7 +1266,7 @@ class OobFunctionToolHandler(
     }
 
     private fun isSkippedStep(step: Map<String, Any?>, callableTool: String = step["tool"]?.toString().orEmpty()): Boolean {
-        val names = listOf(callableTool, OmniflowStepExecutor.actionNameForStep(step))
+        val names = listOf(callableTool, UIStepExecutor.actionNameForStep(step))
         return names.any { it.isNotBlank() && RunLogReplayPolicy.shouldSkipTool(it) }
     }
 

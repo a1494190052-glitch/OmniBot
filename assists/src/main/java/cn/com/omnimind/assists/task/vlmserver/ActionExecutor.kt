@@ -79,7 +79,7 @@ class ActionExecutor(
      * 注意：只执行动作，不更新上下文
      */
     suspend fun executeAction(
-        vlmStep: VLMStep,
+        vlmStep: UIStep,
         functionRunContext: VLMFunctionRunContext = VLMFunctionRunContext(),
     ): UIStep {
 
@@ -274,7 +274,7 @@ class ActionExecutor(
 
 
     suspend fun act(
-        vlmStep: VLMStep,
+        vlmStep: UIStep,
         functionRunContext: VLMFunctionRunContext = VLMFunctionRunContext(),
     ): UIStep {
         return executeAction(vlmStep, functionRunContext)

@@ -2,7 +2,7 @@ package cn.com.omnimind.bot.agent.tool.handlers
 
 import cn.com.omnimind.bot.agent.AgentToolJson.mapToJsonElement
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
-import cn.com.omnimind.bot.runlog.OmniflowStepExecutor
+import cn.com.omnimind.bot.runlog.UIStepExecutor
 
 /**
  * Builds legacy recovery context for replay failures. The replay handler
@@ -19,7 +19,7 @@ class OobFunctionAgentFallbackController {
             ?.get("args")?.let { (it as? Map<*, *>)?.get("prompt")?.toString() }
             ?: (step["fallback"] as? Map<*, *>)?.get("prompt")?.toString()
             ?: stepTitle
-        val args = OmniflowStepExecutor.normalizeArgsMap(step["args"])
+        val args = UIStepExecutor.normalizeArgsMap(step["args"])
         val argsText = if (args.isNotEmpty()) {
             "\n\n当前已物化参数：${mapToJsonElement(args)}"
         } else {
@@ -30,7 +30,7 @@ class OobFunctionAgentFallbackController {
 
     suspend fun refetchCurrentPageForFailedStep(reason: String): Map<String, Any?> =
         runCatching {
-            OmniflowStepExecutor.currentPageSnapshotForRecovery(reason)
+            UIStepExecutor.currentPageSnapshotForRecovery(reason)
         }.getOrElse { error ->
             linkedMapOf(
                 "refetched_current_page" to false,

@@ -291,7 +291,7 @@ class VLMClient(
             if (isExplicitFinishedText(metadata)) {
                 return VLMResult(
                     success = true,
-                    step = VLMStep(
+                    step = UIStep(
                         observation = metadata.observation,
                         thought = metadata.thought.ifBlank { response.turn.reasoning.ifBlank { content } },
                         action = FinishedAction(
@@ -352,7 +352,7 @@ class VLMClient(
             }
             VLMResult(
                 success = true,
-                step = VLMStep(
+                step = UIStep(
                     observation = metadata.observation,
                     thought = thought,
                     action = action,

@@ -79,12 +79,12 @@ class OmniFlowMcpClient:
         names = {str(tool.get("name", "")).strip() for tool in self.list_tools()}
         return {
             "omniflow.recall",
-            "omniflow.call_function",
+            "omniflow.call_tool",
             "omniflow.ingest_run_log",
             "omniflow.explore_replay",
         }.issubset(names)
 
-    def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
+    def call_mcp_tool(self, name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
         return self.rpc("tools/call", {"name": name, "arguments": arguments or {}})
 
     def read_resource(self, uri: str, limit: int = 50) -> dict[str, Any]:
@@ -113,7 +113,7 @@ class OmniFlowMcpClient:
         }
         if max_xml_chars is not None:
             payload["max_xml_chars"] = max_xml_chars
-        return self.call_tool("get_state", payload)
+        return self.call_mcp_tool("get_state", payload)
 
     def recall(
         self,
@@ -123,7 +123,7 @@ class OmniFlowMcpClient:
         current_node_id: str = "",
         k: int = 8,
     ) -> dict[str, Any]:
-        return self.call_tool(
+        return self.call_mcp_tool(
             "omniflow.recall",
             {
                 "goal": goal,
@@ -133,15 +133,15 @@ class OmniFlowMcpClient:
             },
         )
 
-    def call_function(
+    def call_tool(
         self,
         function_id: str,
         arguments: dict[str, Any] | None = None,
         *,
         goal: str = "",
     ) -> dict[str, Any]:
-        return self.call_tool(
-            "omniflow.call_function",
+        return self.call_mcp_tool(
+            "omniflow.call_tool",
             {
                 "function_id": function_id,
                 "arguments": arguments or {},
@@ -161,7 +161,7 @@ class OmniFlowMcpClient:
             payload["run_id"] = run_id
         if run_log is not None:
             payload["run_log"] = run_log
-        return self.call_tool("omniflow.ingest_run_log", payload)
+        return self.call_mcp_tool("omniflow.ingest_run_log", payload)
 
     def explore_replay(
         self,
@@ -194,23 +194,23 @@ class OmniFlowMcpClient:
             payload["stop_text"] = stop_text
         if function_id:
             payload["function_id"] = function_id
-        return self.call_tool("omniflow.explore_replay", payload)
+        return self.call_mcp_tool("omniflow.explore_replay", payload)
 
     def list_functions(self, limit: int = 100) -> dict[str, Any]:
-        return self.call_tool("oob_function_list", {"limit": limit})
+        return self.call_mcp_tool("oob_function_list", {"limit": limit})
 
     def get_function(self, function_id: str) -> dict[str, Any]:
-        return self.call_tool("oob_function_get", {"functionId": function_id})
+        return self.call_mcp_tool("oob_function_get", {"functionId": function_id})
 
     def register_function(self, function_spec: dict[str, Any]) -> dict[str, Any]:
-        return self.call_tool("oob_function_register", {"functionSpec": function_spec})
+        return self.call_mcp_tool("oob_function_register", {"functionSpec": function_spec})
 
     def guard_check(
         self,
         function_id: str,
         arguments: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        return self.call_tool(
+        return self.call_mcp_tool(
             "oob_function_guard_check",
             {"functionId": function_id, "arguments": arguments or {}},
         )
@@ -242,13 +242,13 @@ class OmniFlowMcpClient:
             payload["fallback_session_id"] = fallback_session_id
         if fallback_attempt is not None:
             payload["fallback_attempt"] = fallback_attempt
-        return self.call_tool("oob_function_run", payload)
+        return self.call_mcp_tool("oob_function_run", payload)
 
     def list_run_logs(self, limit: int = 50) -> dict[str, Any]:
-        return self.call_tool("oob_run_log_list", {"limit": limit})
+        return self.call_mcp_tool("oob_run_log_list", {"limit": limit})
 
     def get_run_log(self, run_id: str) -> dict[str, Any]:
-        return self.call_tool("oob_run_log_get", {"runId": run_id})
+        return self.call_mcp_tool("oob_run_log_get", {"runId": run_id})
 
     def convert_run_log(
         self,
@@ -266,4 +266,4 @@ class OmniFlowMcpClient:
             payload["name"] = name
         if description:
             payload["description"] = description
-        return self.call_tool("oob_run_log_convert", payload)
+        return self.call_mcp_tool("oob_run_log_convert", payload)

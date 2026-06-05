@@ -57,7 +57,7 @@ class VLMPreferredCallToolPolicyTest {
 
     @Test
     fun `rewrites primitive action to call tool`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "Settings",
             thought = "Click Bluetooth row",
             action = ClickAction(targetDescription = "Connected devices", x = 10f, y = 20f),

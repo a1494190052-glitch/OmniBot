@@ -8,7 +8,7 @@ import org.junit.Test
 class VLMActionPostProcessorTest {
     @Test
     fun `first step does not force open app when foreground package differs`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "launcher",
             thought = "tap current page",
             action = ClickAction(targetDescription = "Settings", x = 100f, y = 100f)
@@ -33,7 +33,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `first step redirects unrelated click to visible goal target`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "settings home",
             thought = "tap first row",
             action = ClickAction(targetDescription = "Network & internet", x = 320f, y = 606f)
@@ -62,7 +62,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `does not redirect when click is already inside visible goal target`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "settings home",
             thought = "tap display",
             action = ClickAction(targetDescription = "Display", x = 360f, y = 923f)
@@ -86,7 +86,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `uses current form field intent instead of whole task when correcting click target`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "contact editor",
             thought = "The next step is to enter the last name 'Smith' in the 'Last name' field.",
             action = ClickAction(targetDescription = "First name EditText", x = 356f, y = 659.5f),
@@ -116,7 +116,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `redirects click on already satisfied form value to remaining selection field`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "contact editor",
             thought = "Phone number is present; now set the phone label to Work.",
             action = ClickAction(
@@ -150,7 +150,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `redirects input text away from stale focused value to remaining selection field`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "contact editor",
             thought = "Set the phone label to Work.",
             action = InputTextAction(
@@ -185,7 +185,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `flips horizontal slider scroll toward minimum endpoint`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "brightness slider",
             thought = "scroll left to minimum",
             action = SwipeAction(
@@ -221,7 +221,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `converts slider endpoint click into drag`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "brightness slider",
             thought = "set maximum brightness",
             action = ClickAction(
@@ -254,7 +254,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `does not treat settings display row as brightness slider`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "settings list",
             thought = "click Display to access brightness settings",
             action = ClickAction(
@@ -282,7 +282,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `converts numeric keypad type into first digit click`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "clock timer keypad",
             thought = "enter timer value",
             action = TypeAction(content = "130")
@@ -312,7 +312,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `keeps type when editable field is focused`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "focused edit field",
             thought = "enter text",
             action = TypeAction(content = "130")
@@ -334,7 +334,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `redirects type to matching form selection row when editable focus is stale`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "contact editor with phone field focused",
             thought = "The phone number is already entered. Open the Mobile Phone label selector so the label can be changed to Work.",
             action = TypeAction(content = "Work"),
@@ -364,7 +364,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `redirects type to matching editable field when focus is stale`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "contact editor with first name already focused",
             thought = "The next step is to enter the last name Smith in the Last name field.",
             action = TypeAction(content = "Smith"),
@@ -395,7 +395,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `keeps type when focused form field matches narrative intent`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "contact editor with phone field focused",
             thought = "Enter the phone number in the Phone field.",
             action = TypeAction(content = "415-555-0130")
@@ -420,7 +420,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `does not convert brightness level row click before slider dialog is open`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "display settings",
             thought = "click Brightness level to open adjustment dialog",
             action = ClickAction(
@@ -448,7 +448,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `does not convert brightness level row horizontal scroll before slider dialog is open`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "display settings",
             thought = "adjust the brightness level option to access the slider",
             action = SwipeAction(
@@ -479,7 +479,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `converts repeated settings scroll into visible display row click for brightness task`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "settings list",
             thought = "scroll down to find brightness",
             action = SwipeAction(
@@ -518,7 +518,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `does not convert ordered apps scroll into unrelated display click`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "settings home",
             thought = "scroll to find Apps",
             action = SwipeAction(
@@ -551,7 +551,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `does not convert display scroll into unrelated apps click when display is absent`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "settings home",
             thought = "scroll to find Display",
             action = SwipeAction(
@@ -584,7 +584,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `does not apply settings domain scroll correction by default`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "settings home",
             thought = "open Apps",
             action = ClickAction(
@@ -614,7 +614,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `converts repeated ordered apps scroll into settings search click when row is absent`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "settings home",
             thought = "scroll to find Apps",
             action = SwipeAction(
@@ -649,7 +649,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `redirects search input click to matching visible search result`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "search results",
             thought = "open the System result",
             action = ClickAction(
@@ -682,7 +682,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `converts ordered apps scroll only into pending apps click when visible`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "settings home",
             thought = "scroll to find Apps",
             action = SwipeAction(
@@ -717,7 +717,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `does not convert explicit scroll task into visible target click`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "settings list",
             thought = "scroll down",
             action = SwipeAction(
@@ -748,7 +748,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `converts generic settings page click into search scroll when target is not visible`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "settings home",
             thought = "click the settings page",
             action = ClickAction(
@@ -779,7 +779,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `does not apply settings subpage back correction by default`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "internet settings",
             thought = "enable bluetooth",
             action = ClickAction(
@@ -808,7 +808,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `does not apply wifi toggle retargeting by default`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "wifi list",
             thought = "turn off wifi",
             action = ClickAction(
@@ -840,7 +840,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `does not convert get state into settings toggle click by default`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "bluetooth settings",
             thought = "蓝牙可能仍在开启，刷新状态",
             action = GetStateAction(
@@ -867,7 +867,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `state pending marker keeps ordered settings task on wifi domain`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "settings home",
             thought = "continue with bluetooth",
             action = ClickAction(
@@ -900,7 +900,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `uses only generic visible target matching when settings domain correction is disabled`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "settings home",
             thought = "continue with the next part of the task",
             action = ClickAction(
@@ -932,7 +932,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `does not back out of stale settings domain by default`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "network preferences",
             thought = "tap the visible row",
             action = ClickAction(
@@ -962,7 +962,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `does not advance ordered settings task before first domain mutation`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "settings home",
             thought = "open network settings first",
             action = ClickAction(
@@ -997,7 +997,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `does not retarget settings subpage toggle by default`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "internet settings",
             thought = "turn off wifi",
             action = ClickAction(
@@ -1028,7 +1028,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `redirects nested ordered settings click before later sibling`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "default apps list",
             thought = "open the Phone app settings",
             action = ClickAction(
@@ -1061,7 +1061,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `keeps ordered target click from later visible goal correction`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "default apps list",
             thought = "open the Browser app settings",
             action = ClickAction(
@@ -1092,7 +1092,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `does not treat narrative mention as ordered target completion`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "default apps list",
             thought = "open the Phone app settings",
             action = ClickAction(
@@ -1127,7 +1127,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `does not rewrite finished into pending ordered target click`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "default apps list",
             thought = "all done",
             action = FinishedAction(content = "Done")
@@ -1153,7 +1153,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `types pending ordered target instead of clicking unrelated focused search result`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "Settings search results show a recent System result.",
             thought = "click System",
             action = ClickAction(
@@ -1185,7 +1185,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `aborts repeated system not responding wait loop`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "Omnibot isn't responding dialog with Close app and Wait.",
             thought = "wait for the app",
             action = ClickAction(
@@ -1224,7 +1224,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `does not rewrite finished into back when pending ordered target is not visible`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "phone detail page",
             thought = "phone page is visible",
             action = FinishedAction(content = "The Phone app page is visible.")
@@ -1250,7 +1250,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `allows finished when completed milestones prove linear ordered targets`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "The On-screen keyboard page is visible.",
             thought = "the requested keyboard page is verified",
             action = FinishedAction(content = "The On-screen keyboard page is visible.")
@@ -1282,7 +1282,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `does not rewrite finished based on later milestone backtracking`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "phone detail page",
             thought = "phone page is visible",
             action = FinishedAction(content = "The Phone app page is visible.")
@@ -1309,7 +1309,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `allows finished when observation satisfies pending verify target`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "The Display page is visible with Brightness level and Dark theme options shown.",
             thought = "the requested page is verified",
             summary = "Display settings page is confirmed open with Brightness level and Dark theme visible.",
@@ -1336,7 +1336,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `does not treat platform qualifier in app launch as pending ordered target`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "The Display page is visible with Brightness level and Dark theme options shown.",
             thought = "the requested page is verified",
             summary = "Display settings page is confirmed open.",
@@ -1371,7 +1371,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `allows finished when repeated terms appear in pending verify target`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "The Network & internet page is visible with options like Internet, SIMs, and others.",
             thought = "the network page is verified",
             summary = "Network & internet page verified with Internet and SIMs options visible.",
@@ -1398,7 +1398,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `allows finished when child target implies searched settings parent`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "Default apps list shows Browser app and Phone app rows.",
             thought = "the requested Default apps page is verified",
             summary = "Default apps page verified with Browser app and Phone app rows visible.",
@@ -1425,7 +1425,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `does not treat pronoun open it as pending ordered target`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "The About phone page shows Android version 13.",
             thought = "Android version is visible, so the verification target is satisfied.",
             summary = "Verified Android version 13 on the About phone page.",
@@ -1452,7 +1452,7 @@ class VLMActionPostProcessorTest {
 
     @Test
     fun `allows finished after every ordered target was clicked in order`() {
-        val step = VLMStep(
+        val step = UIStep(
             observation = "phone detail page",
             thought = "phone page is visible",
             action = FinishedAction(content = "The Phone app page is visible.")

@@ -55,7 +55,7 @@ import cn.com.omnimind.baselib.llm.SceneVoiceConfig
 import cn.com.omnimind.baselib.llm.SceneVoiceConfigStore
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
-import cn.com.omnimind.bot.omniflow.ir.OmniflowFunctionStore
+import cn.com.omnimind.bot.omniflow.language.OmniflowFunctionStore
 import cn.com.omnimind.baselib.util.APPPackageUtil
 import cn.com.omnimind.baselib.util.ImageQuality
 import cn.com.omnimind.baselib.util.OmniLog

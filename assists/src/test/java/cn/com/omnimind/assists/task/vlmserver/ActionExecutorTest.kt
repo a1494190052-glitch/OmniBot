@@ -20,7 +20,7 @@ class ActionExecutorTest {
 
         try {
             val result = executor.executeAction(
-                VLMStep(
+                UIStep(
                     observation = "",
                     thought = "tap settings row",
                     action = ClickAction(
@@ -51,7 +51,7 @@ class ActionExecutorTest {
 
         try {
             val result = executor.executeAction(
-                VLMStep(
+                UIStep(
                     observation = "",
                     thought = "type first name",
                     action = InputTextAction(
@@ -85,7 +85,7 @@ class ActionExecutorTest {
 
         try {
             val result = executor.executeAction(
-                VLMStep(
+                UIStep(
                     observation = "",
                     thought = "type phone",
                     action = InputTextAction(
@@ -129,7 +129,7 @@ class ActionExecutorTest {
 
         try {
             val result = executor.executeAction(
-                VLMStep(
+                UIStep(
                     observation = "",
                     thought = "reuse known flow",
                     action = FunctionRunAction(functionId = "order_takeout")

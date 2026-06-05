@@ -7,7 +7,7 @@ import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
  * Static replay classification shared by RunLog conversion and local replay.
  *
  * This is not a dispatcher or service layer. Keep execution in
- * [OmniflowStepExecutor], Function storage in
+ * [UIStepExecutor], Function storage in
  * [cn.com.omnimind.bot.omniflow.OobFunctionRepository], and tool
  * routing in OobFunctionToolHandler. Canonical action parsing lives in
  * [OobActionCodec]; this policy only owns non-action tool categories.

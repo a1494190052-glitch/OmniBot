@@ -5,7 +5,7 @@ import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.intArg
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.listArg
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
-import cn.com.omnimind.bot.runlog.OmniflowStepExecutor
+import cn.com.omnimind.bot.runlog.UIStepExecutor
 import cn.com.omnimind.bot.runlog.OobActionCodec
 import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
@@ -183,7 +183,7 @@ class OobFunctionRunPolicy(
                 reason = "$action requires user confirmation"
                 requiresRoot = action.contains("root") || action.contains("shizuku")
             }
-            OmniflowStepExecutor.isOmniflowStep(step) -> {
+            UIStepExecutor.isUIStep(step) -> {
                 decision = DECISION_ALLOW
                 risk = RISK_LOW
                 reason = "$action is a deterministic local replay action"

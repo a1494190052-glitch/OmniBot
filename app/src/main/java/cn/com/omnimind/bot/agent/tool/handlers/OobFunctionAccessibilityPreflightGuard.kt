@@ -1,7 +1,7 @@
 package cn.com.omnimind.bot.agent.tool.handlers
 
 import cn.com.omnimind.bot.runlog.OmniflowActionRuntime
-import cn.com.omnimind.bot.runlog.OmniflowStepExecutor
+import cn.com.omnimind.bot.runlog.UIStepExecutor
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 
 /**
@@ -19,13 +19,13 @@ class OobFunctionAccessibilityPreflightGuard(
         steps: List<Map<String, Any?>>,
     ): Map<String, Any?>? {
         val indexedStep = steps.withIndex().firstOrNull { (_, step) ->
-            !isSkippedStep(step) && OmniflowStepExecutor.requiresAccessibility(step)
+            !isSkippedStep(step) && UIStepExecutor.requiresAccessibility(step)
         } ?: return null
         if (OmniflowActionRuntime.backend.isReady()) return null
 
         val step = indexedStep.value
         val stepId = step["id"]?.toString() ?: "step_${indexedStep.index + 1}"
-        val action = OmniflowStepExecutor.actionNameForStep(step)
+        val action = UIStepExecutor.actionNameForStep(step)
         val message = "请先开启无障碍权限，复用指令才能执行点击、滑动和输入。"
         return runResultBuilder.failedRun(
             functionId = functionId,
@@ -61,7 +61,7 @@ class OobFunctionAccessibilityPreflightGuard(
 
     private fun isSkippedStep(step: Map<String, Any?>): Boolean {
         val tool = step["tool"]?.toString()?.trim().orEmpty()
-        return listOf(tool, OmniflowStepExecutor.actionNameForStep(step))
+        return listOf(tool, UIStepExecutor.actionNameForStep(step))
             .any { it.isNotBlank() && RunLogReplayPolicy.shouldSkipTool(it) }
     }
 }

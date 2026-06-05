@@ -1231,7 +1231,7 @@ def build_method_record(args: argparse.Namespace) -> dict[str, Any]:
             ],
             "runlog_replay": [
                 "Generate native OmniFlow reusable Functions from successful VLM RunLogs.",
-                "Replay concrete actions through OobRunLogReplayService and OmniflowStepExecutor.",
+                "Replay concrete actions through OobRunLogReplayService and UIStepExecutor.",
                 "Use recorded post-action page similarity as compatibility gate rather than proof of task success.",
             ],
             "recall": [

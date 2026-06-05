@@ -33,7 +33,7 @@ class OobSkillReplayTest {
         }
     }
 
-    private fun isOmniflowStep(step: Map<String, Any?>): Boolean {
+    private fun isUIStep(step: Map<String, Any?>): Boolean {
         val executor = step["executor"]?.toString()?.trim()?.lowercase().orEmpty()
         val modelFree = step["model_free"] == true
         val action = firstNonBlank(step["omniflow_action"], step["tool"], step["callable_tool"])
@@ -44,7 +44,7 @@ class OobSkillReplayTest {
 
     private fun canRunFullyWithOmniflow(spec: Map<String, Any?>): Boolean {
         val steps = materializedSteps(spec)
-        return steps.isNotEmpty() && steps.all { isOmniflowStep(it) }
+        return steps.isNotEmpty() && steps.all { isUIStep(it) }
     }
 
     private fun requiresAgentPlanning(step: Map<String, Any?>): Boolean {

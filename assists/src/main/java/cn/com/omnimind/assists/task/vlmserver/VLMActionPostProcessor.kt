@@ -15,13 +15,13 @@ import kotlin.math.roundToInt
  */
 object VLMActionPostProcessor {
     data class Result(
-        val step: VLMStep,
+        val step: UIStep,
         val applied: Boolean = false,
         val reason: String = ""
     )
 
     fun correct(
-        step: VLMStep,
+        step: UIStep,
         context: UIContext,
         currentXml: String?,
         currentPackageName: String?,
@@ -137,7 +137,7 @@ object VLMActionPostProcessor {
     }
 
     private fun correctOrderedGoalClickTarget(
-        step: VLMStep,
+        step: UIStep,
         context: UIContext,
         page: PageModel
     ): Result? {
@@ -163,7 +163,7 @@ object VLMActionPostProcessor {
     }
 
     private fun correctRepeatedSystemAnrWait(
-        step: VLMStep,
+        step: UIStep,
         context: UIContext,
         page: PageModel
     ): Result? {
@@ -190,7 +190,7 @@ object VLMActionPostProcessor {
     }
 
     private fun correctOrderedGoalSearchInput(
-        step: VLMStep,
+        step: UIStep,
         context: UIContext,
         page: PageModel
     ): Result? {
@@ -218,7 +218,7 @@ object VLMActionPostProcessor {
     }
 
     private fun isOrderedGoalClickSatisfied(
-        step: VLMStep,
+        step: UIStep,
         context: UIContext,
         page: PageModel
     ): Boolean {
@@ -233,7 +233,7 @@ object VLMActionPostProcessor {
     }
 
     private fun correctTypeToNumericKeypadClick(
-        step: VLMStep,
+        step: UIStep,
         page: PageModel
     ): Result? {
         val action = step.action as? InputTextAction ?: return null
@@ -257,7 +257,7 @@ object VLMActionPostProcessor {
     }
 
     private fun correctTextInputToNarrativeFormFieldTarget(
-        step: VLMStep,
+        step: UIStep,
         context: UIContext,
         page: PageModel
     ): Result? {
@@ -313,7 +313,7 @@ object VLMActionPostProcessor {
     }
 
     private fun correctPendingFormGoalClickTarget(
-        step: VLMStep,
+        step: UIStep,
         context: UIContext,
         page: PageModel
     ): Result? {
@@ -339,7 +339,7 @@ object VLMActionPostProcessor {
     }
 
     private fun correctMissingSettingsTopLevelTarget(
-        step: VLMStep,
+        step: UIStep,
         context: UIContext,
         currentPackageName: String,
         page: PageModel
@@ -360,7 +360,7 @@ object VLMActionPostProcessor {
     }
 
     private fun correctPendingSettingsTopLevelTarget(
-        step: VLMStep,
+        step: UIStep,
         context: UIContext,
         currentPackageName: String,
         page: PageModel
@@ -381,7 +381,7 @@ object VLMActionPostProcessor {
     }
 
     private fun correctWrongSettingsTopLevelTarget(
-        step: VLMStep,
+        step: UIStep,
         context: UIContext,
         currentPackageName: String,
         page: PageModel,
@@ -422,7 +422,7 @@ object VLMActionPostProcessor {
     }
 
     private fun correctSettingsToggleTarget(
-        step: VLMStep,
+        step: UIStep,
         context: UIContext,
         currentPackageName: String,
         page: PageModel,
@@ -455,7 +455,7 @@ object VLMActionPostProcessor {
     }
 
     private fun correctGetStateToSettingsToggleTarget(
-        step: VLMStep,
+        step: UIStep,
         context: UIContext,
         currentPackageName: String,
         page: PageModel,
@@ -487,7 +487,7 @@ object VLMActionPostProcessor {
     }
 
     private fun correctFirstClickToVisibleGoal(
-        step: VLMStep,
+        step: UIStep,
         context: UIContext,
         page: PageModel
     ): Result? {
@@ -513,7 +513,7 @@ object VLMActionPostProcessor {
     }
 
     private fun correctGenericClickToSearchScroll(
-        step: VLMStep,
+        step: UIStep,
         context: UIContext,
         page: PageModel,
         displayWidth: Int,
@@ -550,7 +550,7 @@ object VLMActionPostProcessor {
     }
 
     private fun correctVisibleGoalBeforeScroll(
-        step: VLMStep,
+        step: UIStep,
         context: UIContext,
         page: PageModel
     ): Result? {
@@ -592,7 +592,7 @@ object VLMActionPostProcessor {
     }
 
     private fun correctSliderEndpointAction(
-        step: VLMStep,
+        step: UIStep,
         context: UIContext,
         page: PageModel,
         displayWidth: Int,
@@ -713,7 +713,7 @@ object VLMActionPostProcessor {
         return dy >= 32f && dy >= dx * 1.2f
     }
 
-    private fun corrected(step: VLMStep, action: UIAction, reason: String, extraSummary: String = ""): Result {
+    private fun corrected(step: UIStep, action: UIAction, reason: String, extraSummary: String = ""): Result {
         val summary = buildString {
             append(step.summary)
             if (isNotBlank()) append(' ')
@@ -767,7 +767,7 @@ object VLMActionPostProcessor {
 
     private fun PageModel.bestNarrativeFormFieldTarget(
         context: UIContext,
-        step: VLMStep
+        step: UIStep
     ): PageNode? {
         val segments = narrativeTargetSegments(context, step)
         if (segments.isEmpty()) return null
@@ -1347,7 +1347,7 @@ object VLMActionPostProcessor {
             .trim()
             .take(MAX_FORM_GOAL_VALUE_CHARS)
 
-    private fun narrativeTargetSegments(context: UIContext, step: VLMStep): List<NarrativeSegment> {
+    private fun narrativeTargetSegments(context: UIContext, step: UIStep): List<NarrativeSegment> {
         val overall = normalizeText(context.overallTask)
         return buildList {
             val currentGoal = normalizeText(context.currentStepGoal)
@@ -1512,7 +1512,7 @@ object VLMActionPostProcessor {
         return terms.any { it in SETTINGS_TOP_LEVEL_TARGET_TERMS }
     }
 
-    private fun visibleGoal(context: UIContext, step: VLMStep, page: PageModel): VisibleGoal {
+    private fun visibleGoal(context: UIContext, step: UIStep, page: PageModel): VisibleGoal {
         if (ENABLE_APP_SPECIFIC_SETTINGS_CORRECTIONS) {
             val progress = settingsProgress(context)
             val pendingDomain = progress?.pendingDomain
@@ -1878,7 +1878,7 @@ object VLMActionPostProcessor {
         return SYSTEM_ANR_TERMS.any { term -> normalized.contains(term) }
     }
 
-    private fun stepIntentText(step: VLMStep): String =
+    private fun stepIntentText(step: UIStep): String =
         listOf(actionSemanticText(step.action), step.thought, step.summary).joinToString(" ")
 
     private fun actionSemanticText(action: UIAction): String =

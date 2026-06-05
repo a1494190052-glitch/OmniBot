@@ -4,7 +4,7 @@ import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.listArg
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
 import cn.com.omnimind.bot.runlog.OmniflowCheckerRule
-import cn.com.omnimind.bot.runlog.OmniflowStepExecutor
+import cn.com.omnimind.bot.runlog.UIStepExecutor
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
 import kotlinx.coroutines.CancellationException
@@ -23,7 +23,7 @@ class OobFunctionGraphStepRunner(
         stepTitle: String,
         callableTool: String,
         checkerRules: List<OmniflowCheckerRule> = emptyList(),
-        checkerBudget: OmniflowStepExecutor.CheckerTriggerBudget = OmniflowStepExecutor.CheckerTriggerBudget(),
+        checkerBudget: UIStepExecutor.CheckerTriggerBudget = UIStepExecutor.CheckerTriggerBudget(),
     ): Map<String, Any?> {
         val path = resolveGraphPath(step, callableTool)
         if (path.isEmpty()) {
@@ -42,7 +42,7 @@ class OobFunctionGraphStepRunner(
                 ?: "$stepTitle path ${index + 1}"
             val startedAtMs = System.currentTimeMillis()
             val result = try {
-                OmniflowStepExecutor.execute(
+                UIStepExecutor.execute(
                     step = primitiveStep,
                     stepId = pathStepId,
                     stepTitle = pathTitle,
@@ -54,7 +54,7 @@ class OobFunctionGraphStepRunner(
             } catch (e: Exception) {
                 failureStepResult(
                     stepId = pathStepId,
-                    tool = OmniflowStepExecutor.actionNameForStep(primitiveStep),
+                    tool = UIStepExecutor.actionNameForStep(primitiveStep),
                     executor = RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
                     summary = e.message ?: "UTG path action failed",
                     errorCode = "OOB_UTG_ACTION_FAILED",
@@ -123,7 +123,7 @@ class OobFunctionGraphStepRunner(
         }
         return rawPath.mapNotNull { raw ->
             val edge = mapArg(raw)
-            edgeToOmniflowStep(edge)
+            edgeToUIStep(edge)
         }
     }
 
@@ -155,7 +155,7 @@ class OobFunctionGraphStepRunner(
         return if (targetIndex >= 0) edges.take(targetIndex + 1) else emptyList()
     }
 
-    private fun edgeToOmniflowStep(edge: Map<String, Any?>): Map<String, Any?>? {
+    private fun edgeToUIStep(edge: Map<String, Any?>): Map<String, Any?>? {
         val action = firstNonBlank(edge["tool"], edge["type"], edge["action"])
         val localAction = RunLogReplayPolicy.omniflowActionForToolName(action) ?: return null
         val edgeArgs = linkedMapOf<String, Any?>()

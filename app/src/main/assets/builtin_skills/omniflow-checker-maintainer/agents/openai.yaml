@@ -1,4 +1,4 @@
 interface:
   display_name: "OmniFlow Checker Maintainer"
   short_description: "Implement deterministic Android replay checkers"
-  default_prompt: "Use $omniflow-checker-maintainer to add or repair an OmniFlow runtime checker. Update OmniflowCheckerRule, OmniflowStepExecutor, checker patch normalization, contracts, and focused tests."
+  default_prompt: "Use $omniflow-checker-maintainer to add or repair an OmniFlow runtime checker. Update OmniflowCheckerRule, UIStepExecutor, checker patch normalization, contracts, and focused tests."

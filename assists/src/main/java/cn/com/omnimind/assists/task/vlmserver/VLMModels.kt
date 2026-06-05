@@ -203,14 +203,6 @@ data class UIStep(
 )
 
 @Serializable
-data class VLMStep(
-    val observation: String,
-    val thought: String,
-    val action: UIAction,
-    val summary: String = "",  // 添加summary字段，与UIStep保持一致
-)
-
-@Serializable
 data class VLMTokenUsage(
     @SerialName("prompt_tokens")
     val promptTokens: Int? = null,
@@ -410,7 +402,7 @@ data class OperationResult(
 @Serializable
 data class VLMResult(
     val success: Boolean,
-    val step: VLMStep? = null,
+    val step: UIStep? = null,
     val error: String? = null,
     val thinking: VLMThinkingContext? = null,
     val shouldRetryForToolCall: Boolean = false

@@ -4,7 +4,7 @@ import cn.com.omnimind.baselib.util.OmniLog
 
 data class VLMActionPipelineRequest(
     val context: UIContext,
-    val step: VLMStep,
+    val step: UIStep,
     val currentXml: String?,
     val currentPackageName: String?,
     val displayWidth: Int,
@@ -14,7 +14,7 @@ data class VLMActionPipelineRequest(
 )
 
 data class VLMActionPipelineResult(
-    val step: VLMStep,
+    val step: UIStep,
     val diagnostics: Map<String, String> = emptyMap(),
     val currentXml: String? = null,
     val currentPackageName: String? = null,

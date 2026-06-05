@@ -3,7 +3,7 @@ package cn.com.omnimind.bot.agent.tool.handlers
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
 import cn.com.omnimind.bot.runlog.OobActionCodec
 import cn.com.omnimind.bot.runlog.OobUdegNodeStore
-import cn.com.omnimind.bot.runlog.OmniflowStepExecutor
+import cn.com.omnimind.bot.runlog.UIStepExecutor
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 
 /**
@@ -40,7 +40,7 @@ class OobFunctionGoToNavigator(
             packageName = firstSource.packageName,
         )
         if (targetNodeId.isBlank() || !udegStore.hasNode(targetNodeId)) return Result()
-        val current = OmniflowStepExecutor.currentPageSnapshotForRecovery("function_start_check")
+        val current = UIStepExecutor.currentPageSnapshotForRecovery("function_start_check")
         val currentXml = OobActionCodec.firstNonBlank(current["observation_xml"])
         val currentPackage = OobActionCodec.firstNonBlank(
             current["effective_package"],
@@ -106,7 +106,7 @@ class OobFunctionGoToNavigator(
             }
         }
 
-        val afterGoTo = OmniflowStepExecutor.currentPageSnapshotForRecovery("after_go_to_function")
+        val afterGoTo = UIStepExecutor.currentPageSnapshotForRecovery("after_go_to_function")
         val afterXml = OobActionCodec.firstNonBlank(afterGoTo["observation_xml"])
         val afterPackage = OobActionCodec.firstNonBlank(afterGoTo["effective_package"], afterGoTo["package_name"])
         if (!udegStore.pageMatchesNode(afterXml, afterPackage, targetNodeId)) {
@@ -140,7 +140,7 @@ class OobFunctionGoToNavigator(
         ): Map<String, Any?> {
             val firstStep = activeSteps.firstOrNull().orEmpty()
             val stepId = firstStep["id"]?.toString().orEmpty().ifBlank { "step_1" }
-            val action = OmniflowStepExecutor.actionNameForStep(firstStep).ifBlank {
+            val action = UIStepExecutor.actionNameForStep(firstStep).ifBlank {
                 firstStep["tool"]?.toString().orEmpty().ifBlank { "unknown" }
             }
             val progress = linkedMapOf<String, Any?>(
@@ -175,7 +175,7 @@ class OobFunctionGoToNavigator(
 
     private fun firstExecutableSource(activeSteps: List<Map<String, Any?>>): FunctionSourcePage? {
         activeSteps.forEach { step ->
-            val action = OmniflowStepExecutor.actionNameForStep(step)
+            val action = UIStepExecutor.actionNameForStep(step)
             if (action !in OobActionCodec.executableActions ||
                 action == OobActionCodec.ACTION_OPEN_APP ||
                 action == OobActionCodec.ACTION_FINISHED

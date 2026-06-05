@@ -81,11 +81,11 @@ def main(argv: list[str] | None = None) -> int:
     recall.add_argument("--current-node-id", default="")
     recall.add_argument("-k", type=int, default=8)
 
-    call_function = sub.add_parser("mcp-call-function", help="Call one Function through the canonical OmniFlow tool")
-    _add_mcp_args(call_function)
-    call_function.add_argument("function_id")
-    call_function.add_argument("--args-json", type=_json_object, default={})
-    call_function.add_argument("--goal", default="")
+    call_tool = sub.add_parser("mcp-call-tool", help="Call one Function through the canonical OmniFlow call_tool")
+    _add_mcp_args(call_tool)
+    call_tool.add_argument("function_id")
+    call_tool.add_argument("--args-json", type=_json_object, default={})
+    call_tool.add_argument("--goal", default="")
 
     ingest_runlog = sub.add_parser("mcp-ingest-runlog", help="Ingest a RunLog through the canonical OmniFlow tool")
     _add_mcp_args(ingest_runlog)
@@ -208,10 +208,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    if args.cmd == "mcp-call-function":
+    if args.cmd == "mcp-call-tool":
         print(
             json.dumps(
-                _mcp_client(args).call_function(
+                _mcp_client(args).call_tool(
                     args.function_id,
                     args.args_json,
                     goal=args.goal,

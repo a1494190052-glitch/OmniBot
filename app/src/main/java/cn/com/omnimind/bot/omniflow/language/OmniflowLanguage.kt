@@ -1,4 +1,4 @@
-package cn.com.omnimind.bot.omniflow.ir
+package cn.com.omnimind.bot.omniflow.language
 
 import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
 
@@ -80,7 +80,7 @@ data class FunctionParameter(
 // Checker rule (typed wrapper — mirrors OmniflowCheckerRule)
 // ---------------------------------------------------------------------------
 
-data class OmniflowStepCheckerRule(
+data class UIStepCheckerRule(
     val id: String,
     val phase: String,
     val condition: String,
@@ -104,7 +104,7 @@ data class AgentCallContext(
 // Step — the single execution unit. Everything is a tool call.
 // ---------------------------------------------------------------------------
 
-data class OmniflowStep(
+data class UIStep(
     val id: String,
     val title: String,
     val toolName: String,
@@ -112,7 +112,7 @@ data class OmniflowStep(
     /** True for observation-only steps (get_state, status_update, wait…) — skip during replay. */
     val skip: Boolean = false,
     val sourceContext: Map<String, Any?>? = null,
-    val checkerRules: List<OmniflowStepCheckerRule> = emptyList(),
+    val checkerRules: List<UIStepCheckerRule> = emptyList(),
     /** Non-null when this step was recorded from a model agent_call, not a direct user action. */
     val agentCallContext: AgentCallContext? = null,
 ) {
@@ -134,7 +134,7 @@ data class FunctionRegistryStats(
 
 data class FunctionMetadata(
     val packageConstraint: String? = null,
-    val checkerRules: List<OmniflowStepCheckerRule> = emptyList(),
+    val checkerRules: List<UIStepCheckerRule> = emptyList(),
     /** UDEG node ID for the function's starting page — used by OobFunctionGoToNavigator. */
     val sourceNodeId: String? = null,
     val sourceRunId: String? = null,
@@ -150,10 +150,10 @@ data class OmniflowFunction(
     val name: String,
     val description: String = "",
     val parameters: List<FunctionParameter> = emptyList(),
-    val steps: List<OmniflowStep>,
+    val steps: List<UIStep>,
     val metadata: FunctionMetadata = FunctionMetadata(),
 ) {
-    val executableSteps: List<OmniflowStep> get() = steps.filter { !it.skip }
+    val executableSteps: List<UIStep> get() = steps.filter { !it.skip }
 
     fun materialize(args: Map<String, String>): OmniflowFunction {
         val bindings = resolveParameterBindings(args)

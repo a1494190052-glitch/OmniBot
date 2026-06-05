@@ -22,7 +22,7 @@ ranked candidate list that the agent can select from.
 
 ```json
 {
-  "name": "omniflow.call_function",
+  "name": "omniflow.call_tool",
   "arguments": {
     "function_id": "settings_click_path_demo",
     "arguments": {},
@@ -54,7 +54,7 @@ Expected result: the host registers or updates a reusable Function and returns
 
 ```json
 {
-  "name": "omniflow.call_function",
+  "name": "omniflow.call_tool",
   "arguments": {
     "function_id": "install_sample_apk_demo",
     "arguments": {},

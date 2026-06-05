@@ -14,7 +14,7 @@ interface VLMActionController {
 }
 
 data class VLMActionControllerRequest(
-    val step: VLMStep,
+    val step: UIStep,
     val context: UIContext,
     val currentXml: String?,
     val currentPackageName: String?,
@@ -24,7 +24,7 @@ data class VLMActionControllerRequest(
 )
 
 data class VLMActionControllerDecision(
-    val step: VLMStep,
+    val step: UIStep,
     val reason: String,
     val summary: String = ""
 )

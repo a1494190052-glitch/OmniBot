@@ -19,7 +19,7 @@ class OmniFlowAgentKitTest(unittest.TestCase):
             package["activation_tools"],
             [
                 "omniflow.recall",
-                "omniflow.call_function",
+                "omniflow.call_tool",
                 "omniflow.ingest_run_log",
                 "omniflow.explore_replay",
                 "oob_function_list",
@@ -59,7 +59,7 @@ class OmniFlowAgentKitTest(unittest.TestCase):
                 super().__init__("http://127.0.0.1/mcp")
                 self.calls = []
 
-            def call_tool(self, name, arguments=None):
+            def call_mcp_tool(self, name, arguments=None):
                 self.calls.append((name, arguments or {}))
                 return {"success": True}
 
@@ -86,7 +86,7 @@ class OmniFlowAgentKitTest(unittest.TestCase):
                 super().__init__("http://127.0.0.1/mcp")
                 self.calls = []
 
-            def call_tool(self, name, arguments=None):
+            def call_mcp_tool(self, name, arguments=None):
                 self.calls.append((name, arguments or {}))
                 return {"success": True}
 
@@ -108,6 +108,25 @@ class OmniFlowAgentKitTest(unittest.TestCase):
         self.assertTrue(client.calls[0][1]["include_marked_screenshot"])
         self.assertEqual(client.calls[0][1]["image_quality"], "low")
         self.assertEqual(client.calls[0][1]["max_xml_chars"], 512)
+
+    def test_mcp_client_call_tool_uses_canonical_tool(self):
+        class CapturingClient(OmniFlowMcpClient):
+            def __init__(self):
+                super().__init__("http://127.0.0.1/mcp")
+                self.calls = []
+
+            def call_mcp_tool(self, name, arguments=None):
+                self.calls.append((name, arguments or {}))
+                return {"success": True}
+
+        client = CapturingClient()
+        result = client.call_tool("settings_click_path_demo", {"query": "wifi"}, goal="open wifi")
+
+        self.assertTrue(result["success"])
+        self.assertEqual(client.calls[0][0], "omniflow.call_tool")
+        self.assertEqual(client.calls[0][1]["function_id"], "settings_click_path_demo")
+        self.assertEqual(client.calls[0][1]["arguments"], {"query": "wifi"})
+        self.assertEqual(client.calls[0][1]["goal"], "open wifi")
 
     def test_assets_fallback_without_repo_docs(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -147,7 +166,7 @@ class OmniFlowAgentKitTest(unittest.TestCase):
 
         stdout = StringIO()
         with redirect_stdout(stdout):
-            code = main(["mcp-call-function", "settings_click_path_demo", *base_args])
+            code = main(["mcp-call-tool", "settings_click_path_demo", *base_args])
         self.assertEqual(code, 0)
         called = json.loads(stdout.getvalue())
         self.assertTrue(called["success"])

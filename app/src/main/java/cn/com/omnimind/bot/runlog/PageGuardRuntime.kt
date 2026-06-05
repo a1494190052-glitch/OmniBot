@@ -30,7 +30,7 @@ object PageGuardRuntime {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val installed = AtomicBoolean(false)
     private val running = AtomicBoolean(false)
-    private val checkerBudget = OmniflowStepExecutor.CheckerTriggerBudget()
+    private val checkerBudget = UIStepExecutor.CheckerTriggerBudget()
 
     @Volatile
     private var lastRequestedAtMs: Long = 0L
@@ -89,7 +89,7 @@ object PageGuardRuntime {
         if (!running.compareAndSet(false, true)) return
         try {
             if (!isActive()) return
-            val result = OmniflowStepExecutor.runPageGuardOnce(
+            val result = UIStepExecutor.runPageGuardOnce(
                 execute = true,
                 source = "floating_xiaowan:$source",
                 checkerBudget = checkerBudget,

@@ -10,10 +10,10 @@ import cn.com.omnimind.assists.task.vlmserver.UIAction
 import cn.com.omnimind.assists.task.vlmserver.VLMActionPipeline
 import cn.com.omnimind.assists.task.vlmserver.VLMActionPipelineRequest
 import cn.com.omnimind.assists.task.vlmserver.VLMActionPipelineResult
-import cn.com.omnimind.assists.task.vlmserver.VLMStep
+import cn.com.omnimind.assists.task.vlmserver.UIStep
 import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
 import cn.com.omnimind.bot.runlog.OobActionCodec
-import cn.com.omnimind.bot.runlog.OmniflowStepExecutor
+import cn.com.omnimind.bot.runlog.UIStepExecutor
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 
 class OobVlmActionPipeline : VLMActionPipeline {
@@ -26,7 +26,7 @@ class OobVlmActionPipeline : VLMActionPipeline {
             )
         )
         val startedAtMs = System.currentTimeMillis()
-        val preflight = OmniflowStepExecutor.preflight(
+        val preflight = UIStepExecutor.preflight(
             step = replayStep,
             respectFixedReplayPolicy = false,
         )
@@ -168,7 +168,7 @@ class OobVlmActionPipeline : VLMActionPipeline {
     private fun buildDiagnostics(
         actionName: String,
         startedAtMs: Long,
-        preflight: OmniflowStepExecutor.PreflightResult,
+        preflight: UIStepExecutor.PreflightResult,
     ): Map<String, String> {
         val timing = preflight.timing
         val phaseMs = OobActionCodec.mapArg(timing["phase_ms"])

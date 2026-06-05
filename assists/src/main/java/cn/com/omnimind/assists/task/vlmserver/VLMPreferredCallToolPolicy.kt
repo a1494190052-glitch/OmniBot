@@ -48,7 +48,7 @@ object VLMPreferredCallToolPolicy {
     fun shouldRewrite(action: UIAction, context: UIContext, functionId: String): Boolean =
         shouldRewrite(action) && !hasSuccessfulFunctionCall(context, functionId)
 
-    fun rewriteStep(step: VLMStep, functionId: String): VLMStep {
+    fun rewriteStep(step: UIStep, functionId: String): UIStep {
         val originalAction = step.action.name
         if (!shouldRewrite(step.action)) return step
         return step.copy(

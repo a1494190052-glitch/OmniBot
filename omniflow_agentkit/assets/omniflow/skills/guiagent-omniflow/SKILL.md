@@ -48,7 +48,7 @@ Keep the boundary simple: recall is UDEG page match plus node-attached
 capability candidates, not global Function search; registration is
 `RunLog -> compile -> Function store -> UDEG node attachment`, not a harness;
 enhancement never changes executable replay structure; replay must surface as a
-real `call_function` / reusable Function card; if replay needs live perception,
+real `call_tool` / reusable Function card; if replay needs live perception,
 return `fallback=true` / `needs_agent` and let the caller explicitly continue
 with bounded VLM.
 

@@ -48,7 +48,7 @@ tools = client.list_tools()
 if client.has_canonical_omniflow():
     recalled = client.recall("open Android Settings")
     function_id = recalled["hit"]["function_id"]
-    result = client.call_function(function_id, {})
+    result = client.call_tool(function_id, {})
     explored = client.explore_replay(
         "open network settings",
         package_name="com.android.settings",
@@ -89,7 +89,7 @@ python -m omniflow_agentkit pack
 python -m omniflow_agentkit prompt "Run the safest saved Function"
 python -m omniflow_agentkit probe-repo /tmp/mobilegpt
 python -m omniflow_agentkit mcp-recall "open Android Settings" --mcp-url http://127.0.0.1:8765/mcp
-python -m omniflow_agentkit mcp-call-function settings_click_path_demo --mcp-url http://127.0.0.1:8765/mcp
+python -m omniflow_agentkit mcp-call-tool settings_click_path_demo --mcp-url http://127.0.0.1:8765/mcp
 python -m omniflow_agentkit mcp-ingest-runlog runlog_install_demo --mcp-url http://127.0.0.1:8765/mcp
 python -m omniflow_agentkit mcp-explore-replay "open network settings" --mcp-url http://127.0.0.1:8765/mcp --package-name com.android.settings --stop-text Network --no-replay
 python -m omniflow_agentkit mcp-list-functions --mcp-url http://127.0.0.1:8765/mcp

@@ -1,4 +1,4 @@
-package cn.com.omnimind.bot.omniflow.ir
+package cn.com.omnimind.bot.omniflow.language
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -60,7 +60,7 @@ class OmniflowFunctionMaterializeTest {
                 ),
             ),
             steps = listOf(
-                OmniflowStep(
+                UIStep(
                     id = "step_4",
                     title = "人工输入文本",
                     toolName = "input_text",

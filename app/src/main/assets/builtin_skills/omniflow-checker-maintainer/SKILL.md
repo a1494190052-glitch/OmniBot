@@ -35,7 +35,7 @@ clear it.
 2. Add the supported pair and default phase there. Global rules belong in
    `GLOBAL_PRE_TRANSFER`, `GLOBAL_PRE_ACTION`, or `GLOBAL_POST_ACTION`.
 3. Implement XML-only detection and action execution in
-   `app/src/main/java/cn/com/omnimind/bot/runlog/OmniflowStepExecutor.kt`.
+   `app/src/main/java/cn/com/omnimind/bot/runlog/UIStepExecutor.kt`.
 4. If agents may generate the checker through `update_function`, update
    `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionCheckerPatchService.kt`.
 5. Keep checker actions local and deterministic. Do not add model calls,
@@ -80,7 +80,7 @@ Add focused tests for every new checker:
 
 - `OmniflowCheckerRuleTest`: aliases, default action, default phase, supported
   pair.
-- `OmniflowStepExecutorTest`: XML fixture that should trigger and one that
+- `UIStepExecutorTest`: XML fixture that should trigger and one that
   should not trigger when risk is high.
 - `OobOmniFlowLoopAcceptanceTest`: `update_function` normalization when agents
   can author the checker rule.

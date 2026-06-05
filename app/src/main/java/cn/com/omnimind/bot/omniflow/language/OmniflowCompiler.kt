@@ -1,4 +1,4 @@
-package cn.com.omnimind.bot.omniflow.ir
+package cn.com.omnimind.bot.omniflow.language
 
 import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
 import cn.com.omnimind.bot.runlog.OobActionCodec
@@ -44,7 +44,7 @@ object OmniflowCompiler {
             .flatMap { p -> p.bindings.map { b -> (b.stepIndex to b.argPath) to p.id } }
             .toMap()
 
-        // Phase 3: translate Map steps to OmniflowStep.
+        // Phase 3: translate Map steps to UIStep.
         val steps = rawSteps.mapIndexed { index, step ->
             stepFromMap(step, index, bindingMap)
         }
@@ -89,7 +89,7 @@ object OmniflowCompiler {
         return fn.copy(steps = steps)
     }
 
-    fun insertStep(fn: OmniflowFunction, index: Int, step: OmniflowStep): OmniflowFunction {
+    fun insertStep(fn: OmniflowFunction, index: Int, step: UIStep): OmniflowFunction {
         val steps = fn.steps.toMutableList()
         steps.add(index.coerceIn(0, steps.size), step)
         return fn.copy(steps = steps)
@@ -109,7 +109,7 @@ object OmniflowCompiler {
     fun updateParameters(fn: OmniflowFunction, parameters: List<FunctionParameter>): OmniflowFunction =
         fn.copy(parameters = parameters)
 
-    fun applyCheckerRules(fn: OmniflowFunction, rules: List<OmniflowStepCheckerRule>): OmniflowFunction =
+    fun applyCheckerRules(fn: OmniflowFunction, rules: List<UIStepCheckerRule>): OmniflowFunction =
         fn.copy(metadata = fn.metadata.copy(checkerRules = rules))
 
     // -----------------------------------------------------------------------
@@ -160,14 +160,14 @@ object OmniflowCompiler {
     }
 
     // -----------------------------------------------------------------------
-    // Step translation: Map → OmniflowStep
+    // Step translation: Map → UIStep
     // -----------------------------------------------------------------------
 
     private fun stepFromMap(
         step: Map<String, Any?>,
         index: Int,
         bindingMap: Map<Pair<Int, String>, String>,
-    ): OmniflowStep {
+    ): UIStep {
         val toolName = firstNonBlank(step["tool"]).ifBlank { "unknown" }
         val kind = step["kind"]?.toString().orEmpty()
         val rawArgs = mapArg(step["args"])
@@ -191,7 +191,7 @@ object OmniflowCompiler {
 
         val sourceCtx = mapArg(step["source_context"]).takeIf { it.isNotEmpty() }
 
-        return OmniflowStep(
+        return UIStep(
             id = firstNonBlank(step["id"]).ifBlank { "step_${index + 1}" },
             title = firstNonBlank(step["title"]).ifBlank { toolName },
             toolName = toolName,

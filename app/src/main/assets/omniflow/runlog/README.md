@@ -126,11 +126,11 @@ record. Do not read only the snapshot when correctness matters.
 - Agent/MCP Function facade: `app/src/main/java/cn/com/omnimind/bot/runlog/OobOmniFlowToolkitService.kt`
 - Local UTG explorer: `app/src/main/java/cn/com/omnimind/bot/runlog/OobOmniFlowExplorer.kt`
 - Local action runtime backend: `app/src/main/java/cn/com/omnimind/bot/runlog/OmniflowActionBackend.kt`
-- Local action step executor: `app/src/main/java/cn/com/omnimind/bot/runlog/OmniflowStepExecutor.kt`
+- Local action step executor: `app/src/main/java/cn/com/omnimind/bot/runlog/UIStepExecutor.kt`
   It executes canonical actions and should branch through `OobActionCodec`
   constants/action families rather than local action string lists.
 - Local checker rules: `app/src/main/java/cn/com/omnimind/bot/runlog/OmniflowCheckerRule.kt`
-  Checker detection/execution lives in `OmniflowStepExecutor`; the
+  Checker detection/execution lives in `UIStepExecutor`; the
   `omniflow-checker-maintainer` skill is only the agent maintenance checklist.
 - Page/package inference helper: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogPagePackageInference.kt`
 - Function backend ownership: `app/src/main/assets/omniflow/function/README.md`
@@ -229,7 +229,7 @@ Do not hard replay `browser_use` or `web_search`; their outputs are live context
   `OobFunctionCallTiming`, schema/parameterization helpers, explorer utilities,
   UDEG scalar readers, and cleanup services should call it instead of adding private
   `mapArg`/`listArg`/`firstNonBlank`/`intArg`/`longArg`/`boolArg` copies when
-  behavior is equivalent. Execution code such as `OmniflowStepExecutor` should
+  behavior is equivalent. Execution code such as `UIStepExecutor` should
   follow the same rule for generic argument coercion. Prefer direct calls or
   member imports from `OobActionCodec`; do not add one-line local forwarding helpers. In
   particular, schema projection and Function parameterization should not carry
@@ -383,7 +383,7 @@ dart analyze lib/features/task/run_log/run_log_reusable_function_converter.dart 
 
 ```bash
 ./gradlew :app:testDevelopStandardDebugUnitTest --tests cn.com.omnimind.bot.runlog.InternalRunLogStoreTest
-./gradlew :app:testDevelopStandardDebugUnitTest --tests cn.com.omnimind.bot.runlog.OmniflowStepExecutorTest
+./gradlew :app:testDevelopStandardDebugUnitTest --tests cn.com.omnimind.bot.runlog.UIStepExecutorTest
 ./gradlew :app:testDevelopStandardDebugUnitTest --tests cn.com.omnimind.bot.workbench.OobSkillReplayTest
 ```
 

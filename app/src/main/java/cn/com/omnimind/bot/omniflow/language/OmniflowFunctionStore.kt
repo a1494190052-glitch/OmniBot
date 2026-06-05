@@ -1,4 +1,4 @@
-package cn.com.omnimind.bot.omniflow.ir
+package cn.com.omnimind.bot.omniflow.language
 
 import android.content.Context
 import cn.com.omnimind.baselib.util.OmniLog
@@ -13,9 +13,9 @@ import org.json.JSONArray
  */
 object OmniflowFunctionStore {
     private const val TAG = "OmniflowFunctionStore"
-    private const val PREFS_NAME = "omniflow_functions_ir"
-    private const val INDEX_KEY = "omniflow_ir_index_v1"
-    private const val FN_PREFIX = "omniflow_ir_fn:"
+    private const val PREFS_NAME = "omniflow_functions_language"
+    private const val INDEX_KEY = "omniflow_language_index_v1"
+    private const val FN_PREFIX = "omniflow_language_fn:"
 
     private val gson = GsonBuilder().disableHtmlEscaping().create()
     private val mapType = object : TypeToken<Map<String, Any?>>() {}.type
@@ -180,7 +180,7 @@ object OmniflowFunctionStore {
             val checkerRules = listOf_(sm, "checker_rules").mapNotNull { cr ->
                 val rm = (cr as? Map<*, *>)?.entries?.associate { it.key.toString() to it.value }
                     ?: return@mapNotNull null
-                OmniflowStepCheckerRule(
+                UIStepCheckerRule(
                     id = str(rm, "id"), phase = str(rm, "phase"),
                     condition = str(rm, "condition"), action = str(rm, "action"),
                     enabled = rm["enabled"] as? Boolean ?: true,
@@ -196,7 +196,7 @@ object OmniflowFunctionStore {
                     fallback = mapOf_(am, "fallback"),
                 )
             }
-            OmniflowStep(
+            UIStep(
                 id = str(sm, "id"),
                 title = str(sm, "title"),
                 toolName = str(sm, "tool_name"),
@@ -223,7 +223,7 @@ object OmniflowFunctionStore {
                 checkerRules = (listOf_(meta, "checker_rules")).mapNotNull { cr ->
                     val rm = (cr as? Map<*, *>)?.entries?.associate { it.key.toString() to it.value }
                         ?: return@mapNotNull null
-                    OmniflowStepCheckerRule(
+                    UIStepCheckerRule(
                         id = str(rm, "id"), phase = str(rm, "phase"),
                         condition = str(rm, "condition"), action = str(rm, "action"),
                         enabled = rm["enabled"] as? Boolean ?: true,

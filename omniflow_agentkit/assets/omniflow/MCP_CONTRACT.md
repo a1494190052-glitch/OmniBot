@@ -7,7 +7,7 @@ path:
 
 ```text
 omniflow.recall
-omniflow.call_function
+omniflow.call_tool
 omniflow.ingest_run_log
 omniflow.explore_replay
 ```
@@ -41,7 +41,7 @@ Canonical OmniFlow mode is available when the tool list contains:
 
 ```text
 omniflow.recall
-omniflow.call_function
+omniflow.call_tool
 omniflow.ingest_run_log
 omniflow.explore_replay
 ```
@@ -108,7 +108,7 @@ recall
 miss
 ```
 
-### `omniflow.call_function`
+### `omniflow.call_tool`
 
 Executes one agent-selected Function segment with explicit arguments. This call
 is a composable step in the caller's plan, not a guarantee that the entire user
@@ -291,7 +291,7 @@ calling it with `functionId` and `run_id` returns `analysis_context` plus an
 1. Call `tools/list`.
 2. If canonical tools are present, call `omniflow.recall`.
 3. Select a Function returned by recall.
-4. Call `omniflow.call_function` with explicit arguments.
+4. Call `omniflow.call_tool` with explicit arguments.
 5. If a successful RunLog should become reusable, call
    `omniflow.ingest_run_log`.
 6. If recall misses and the user wants OOB to discover a local path, call

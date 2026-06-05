@@ -1100,7 +1100,7 @@ class VLMOperationService(
                 onStepStarted(stepIndex, runningStep)
                 val actionDispatchStartedAt = System.currentTimeMillis()
                 val executedStep = actionExecutor.act(
-                    VLMStep(
+                    UIStep(
                         observation = processedStep.observation,
                         thought = processedStep.thought,
                         action = processedStep.action,
@@ -1400,7 +1400,7 @@ class VLMOperationService(
         }
     }
 
-    private fun updateActionWithCoordinates(step: VLMStep, position: List<Float>): VLMStep {
+    private fun updateActionWithCoordinates(step: UIStep, position: List<Float>): UIStep {
         val encodedWidth = deviceOperator.getLastScreenshotWidth().coerceAtLeast(1)
         val encodedHeight = deviceOperator.getLastScreenshotHeight().coerceAtLeast(1)
         val displayWidth = deviceOperator.getDisplayWidth().coerceAtLeast(encodedWidth)
@@ -1536,11 +1536,11 @@ class VLMOperationService(
     }
 
     private fun groundIndexedActionTarget(
-        step: VLMStep,
+        step: UIStep,
         currentXml: String?,
         displayWidth: Int,
         displayHeight: Int
-    ): VLMStep {
+    ): UIStep {
         return when (val action = step.action) {
             is ClickAction -> {
                 val target = resolveIndexedElementTarget(
@@ -1717,7 +1717,7 @@ class VLMOperationService(
     /**
      * 将 open_app 动作中的应用名/别名映射为真实包名
      */
-    private fun normalizeOpenAppAction(step: VLMStep, context: UIContext, model: String): VLMStep {
+    private fun normalizeOpenAppAction(step: UIStep, context: UIContext, model: String): UIStep {
         val action = step.action
         if (action !is OpenAppAction) return step
 

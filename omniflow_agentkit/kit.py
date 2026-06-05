@@ -25,10 +25,11 @@ class OmniFlowAgentKit:
 
     @property
     def omniflow_dir(self) -> Path:
-        repo_docs = self.root / "docs" / "omniflow"
-        if repo_docs.is_dir():
-            return repo_docs
-        return Path(__file__).resolve().parent / "assets" / "omniflow"
+        package_assets = Path(__file__).resolve().parent / "assets" / "omniflow"
+        for candidate in (self.root / "docs" / "omniflow", package_assets):
+            if (candidate / "skills" / "guiagent-omniflow" / "SKILL.md").is_file():
+                return candidate
+        return package_assets
 
     def read_text(self, relative_path: str) -> str:
         path = self.omniflow_dir / relative_path
@@ -68,7 +69,7 @@ class OmniFlowAgentKit:
             "sample_function": self.sample_function(),
             "activation_tools": [
                 "omniflow.recall",
-                "omniflow.call_function",
+                "omniflow.call_tool",
                 "omniflow.ingest_run_log",
                 "omniflow.explore_replay",
                 "oob_function_list",

@@ -357,7 +357,7 @@ When adding or migrating a generic agent tool name:
 - merge call-level timing into runner timing without changing run results
 - keep timing payload shape outside the public tool facade
 
-`OmniflowActionBackend`, `OmniflowCheckerRule`, and `OmniflowStepExecutor` own
+`OmniflowActionBackend`, `OmniflowCheckerRule`, and `UIStepExecutor` own
 primitive local action execution:
 
 - dispatch canonical local UI actions to the accessibility-backed runtime
@@ -521,7 +521,7 @@ Agent/MCP tool surface
               -> OobFunctionEntryPackageGuard # pre-replay app restoration
               -> OobFunctionAccessibilityPreflightGuard # permission preflight
               -> OobFunctionGraphStepRunner # graph/UTG path lowering
-              -> OmniflowStepExecutor # primitive local UI action execution
+              -> UIStepExecutor # primitive local UI action execution
                   -> OmniflowActionBackend # accessibility-backed action runtime
                   -> OmniflowCheckerRule # global/function/node checker metadata
       -> OobRunLogReplayService      # RunLog -> Function conversion
@@ -589,7 +589,7 @@ Keep these pieces separate:
 - `RunLogReplayStepNoiseNormalizer`: repeated input and redundant compiled-step
   cleanup after card-to-step conversion
 - `OobFunctionRunner`: Function loading, materialization, and execution timing
-- `OobFunctionToolHandler` and `OmniflowStepExecutor`: runtime step execution
+- `OobFunctionToolHandler` and `UIStepExecutor`: runtime step execution
 - `OobFunctionFrontendSessionController`: top-level replay overlay lifecycle
   and stop signal handling
 - `OobFunctionAgentFallbackController`: failed-step recovery snapshots,
@@ -616,7 +616,7 @@ Keep these pieces separate:
 - `OobFunctionGraphStepRunner`: graph/UTG path selection and primitive action
   lowering inside runtime replay
 - `OmniflowActionBackend`, `OmniflowCheckerRule`, and
-  `OmniflowStepExecutor`: primitive local action dispatch, checker evaluation,
+  `UIStepExecutor`: primitive local action dispatch, checker evaluation,
   coordinate remapping, and recovery snapshots
 - `McpToolDefinitions` and `McpToolExecutors`: external MCP schema and argument
   alias adapter before dispatch into the Function/tool facade
@@ -630,7 +630,7 @@ Keep these pieces separate:
 - builtin skill prompts: agent instructions, not executable policy
 - `omniflow-checker-maintainer`: agent-facing checklist for implementing
   runtime checker code, contracts, and tests; executable checker policy still
-  belongs to `OmniflowCheckerRule` and `OmniflowStepExecutor`
+  belongs to `OmniflowCheckerRule` and `UIStepExecutor`
 
 Merging these would make it harder to tell whether a change affects storage,
 conversion, execution, or agent patching.
@@ -778,7 +778,7 @@ change:
 - `McpRoutes.mapArg` and `McpRoutes.listArg` support legacy/debug HTTP route
   request parsing, including nullable maps and comma-separated string lists.
   They are not Function payload helpers.
-- `OmniflowStepExecutor.firstNonBlank` and `OobPageVectorSet.firstNonBlank`
+- `UIStepExecutor.firstNonBlank` and `OobPageVectorSet.firstNonBlank`
   are low-risk local helpers in runtime/vector internals; merge them only when
   touching the surrounding code for another reason.
 - `OobReusableFunctionStore` lives in `baselib` and cannot depend on app-layer
