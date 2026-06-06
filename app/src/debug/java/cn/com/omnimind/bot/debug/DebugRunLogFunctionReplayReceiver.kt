@@ -35,6 +35,7 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
             ?: false
         val rawRunLog = intent.decodeBase64Extra("runLogBase64")
             ?.let(::decodeRunLog)
+            ?: intent.readRunLogPath(appContext)
             ?: emptyMap()
 
         scope.launch {
@@ -64,14 +65,38 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                 } else {
                     service.convertRunLog(convertArgs)
                 }
+                val inlineFunctionSpec = if (rawRunLog.isNotEmpty()) {
+                    ((convert["result"] as? Map<*, *>)?.get("function_spec") as? Map<*, *>)
+                        ?.mapKeys { it.key?.toString().orEmpty() }
+                        ?: (convert["function_spec"] as? Map<*, *>)?.mapKeys { it.key?.toString().orEmpty() }
+                } else {
+                    null
+                }
+                val inlineRegistration = if (
+                    shouldRun &&
+                    rawRunLog.isNotEmpty() &&
+                    convert["success"] == true &&
+                    inlineFunctionSpec != null
+                ) {
+                    service.registerFunction(linkedMapOf("function_spec" to inlineFunctionSpec))
+                } else {
+                    null
+                }
                 val createdFunctionId = convert["function_id"]?.toString()
                     ?: convert["created_function_id"]?.toString()
+                    ?: inlineRegistration?.get("function_id")?.toString()
+                    ?: inlineRegistration?.get("created_function_id")?.toString()
                     ?: ""
                 val convertResult = (convert["result"] as? Map<*, *>)
                     ?.mapKeys { it.key?.toString().orEmpty() }
                     ?: emptyMap<String, Any?>()
                 val functionSpec = convert["function_spec"] ?: convertResult["function_spec"]
-                val replay = if (shouldRun && convert["success"] == true && createdFunctionId.isNotBlank()) {
+                val replay = if (
+                    shouldRun &&
+                    convert["success"] == true &&
+                    inlineRegistration?.get("success") != false &&
+                    createdFunctionId.isNotBlank()
+                ) {
                     service.runFunction(
                         linkedMapOf(
                             "function_id" to createdFunctionId,
@@ -93,6 +118,7 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                     "function_id" to createdFunctionId,
                     "agent_visible" to agentVisible,
                     "convert" to convert,
+                    "inline_registration" to inlineRegistration,
                     "function_spec" to functionSpec,
                     "replay" to replay,
                     "run_requested" to shouldRun,
@@ -128,6 +154,26 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
             String(Base64.decode(raw, Base64.DEFAULT), Charsets.UTF_8).trim()
                 .takeIf { it.isNotEmpty() }
         }.getOrNull()
+    }
+
+    private fun Intent?.readRunLogPath(context: Context): Map<String, Any?>? {
+        val rawPath = this?.getStringExtra("runLogPath")
+            ?: this?.getStringExtra("run_log_path")
+            ?: return null
+        val path = rawPath.trim().takeIf { it.isNotEmpty() } ?: return null
+        return runCatching {
+            val baseDir = context.filesDir.canonicalFile
+            val file = File(path).let { candidate ->
+                if (candidate.isAbsolute) candidate else File(baseDir, path)
+            }.canonicalFile
+            require(file.path.startsWith(baseDir.path + File.separator)) {
+                "RunLog path must be inside app files directory"
+            }
+            decodeRunLog(file.readText())
+        }.getOrElse { error ->
+            OmniLog.e(TAG, "read runlog path failed: ${error.message}", error)
+            emptyMap()
+        }
     }
 
     private fun Intent?.booleanExtra(name: String): Boolean? =

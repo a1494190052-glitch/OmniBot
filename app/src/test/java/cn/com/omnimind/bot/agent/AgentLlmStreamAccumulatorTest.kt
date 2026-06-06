@@ -2,7 +2,6 @@ package cn.com.omnimind.bot.agent
 
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -16,87 +15,101 @@ class AgentLlmStreamAccumulatorTest {
     }
 
     @Test
-    fun qwenInlineFunctionMarkupBuildsToolCallsAndSuppressesAssistantText() {
-        val accumulator = AgentLlmStreamAccumulator(json)
-
-        val done = accumulator.consume(
-            """
-            <tool_call>
-            <function=workbench_project_delete>
-            <parameter=tool_title> 删除项目 expense-tracker </parameter>
-            <parameter=projectId> expense-tracker </parameter>
-            </function>
-            </tool_call>
-            <tool_call>
-            <function=workbench_project_delete>
-            <parameter=tool_title> 删除项目 fitness-planner </parameter>
-            <parameter=projectId> fitness-planner </parameter>
-            </function>
-            </tool_call>
-            """.trimIndent()
+    fun `treats leading text before closing think tag as reasoning for local models`() {
+        val accumulator = AgentLlmStreamAccumulator(
+            json = json,
+            preferInlineThinkTags = true
         )
 
-        assertFalse(done)
+        accumulator.consume("""{"choices":[{"delta":{"content":"先思考第一步"}}]}""")
+        accumulator.consume("""{"choices":[{"delta":{"content":"再思考第二步</think>最后回答"}}]}""")
+
         val turn = accumulator.buildTurn()
-        assertEquals("", turn.message.contentText())
-        val toolCalls = turn.message.toolCalls.orEmpty()
-        assertEquals(2, toolCalls.size)
-        assertEquals("workbench_project_delete", toolCalls[0].function.name)
-        assertTrue(toolCalls[0].function.arguments.contains("expense-tracker"))
-        assertEquals("workbench_project_delete", toolCalls[1].function.name)
-        assertTrue(toolCalls[1].function.arguments.contains("fitness-planner"))
+
+        assertEquals("先思考第一步再思考第二步", turn.reasoning)
+        assertEquals("最后回答", turn.message.contentText())
     }
 
     @Test
-    fun pseudoToolMarkupWithoutParametersRemainsAssistantText() {
-        val accumulator = AgentLlmStreamAccumulator(json)
-        val raw = "<tool_call><function=name>terminal_execute</function></tool_call>"
+    fun `flushes pending text as normal content when no think tag appears`() {
+        val accumulator = AgentLlmStreamAccumulator(
+            json = json,
+            preferInlineThinkTags = true
+        )
 
-        accumulator.consume(raw)
+        accumulator.consume("""{"choices":[{"delta":{"content":"普通回答"}}]}""")
 
         val turn = accumulator.buildTurn()
-        assertEquals(raw, turn.message.contentText())
-        assertTrue(turn.message.toolCalls.orEmpty().isEmpty())
+
+        assertEquals("", turn.reasoning)
+        assertEquals("普通回答", turn.message.contentText())
     }
 
     @Test
-    fun jsonInlineToolCallBuildsToolCallsAndSuppressesAssistantText() {
-        val accumulator = AgentLlmStreamAccumulator(json)
+    fun `handles closing think tag split across chunks`() {
+        val accumulator = AgentLlmStreamAccumulator(
+            json = json,
+            preferInlineThinkTags = true
+        )
 
+        accumulator.consume("""{"choices":[{"delta":{"content":"先思考</th"}}]}""")
+        accumulator.consume("""{"choices":[{"delta":{"content":"ink>最终回答"}}]}""")
+
+        val turn = accumulator.buildTurn()
+
+        assertEquals("先思考", turn.reasoning)
+        assertEquals("最终回答", turn.message.contentText())
+    }
+
+    @Test
+    fun `handles opening think tag split across chunks`() {
+        val accumulator = AgentLlmStreamAccumulator(
+            json = json,
+            preferInlineThinkTags = true
+        )
+
+        accumulator.consume("""{"choices":[{"delta":{"content":"先展示前言<th"}}]}""")
+        accumulator.consume("""{"choices":[{"delta":{"content":"ink>深度思考</think>最后回答"}}]}""")
+
+        val turn = accumulator.buildTurn()
+
+        assertEquals("深度思考", turn.reasoning)
+        assertEquals("先展示前言最后回答", turn.message.contentText())
+    }
+
+    @Test
+    fun `reads tokens per second from usage performance payload`() {
+        val accumulator = AgentLlmStreamAccumulator(json = json)
+
+        accumulator.consume("""{"choices":[{"delta":{"content":"已完成。"}}]}""")
         accumulator.consume(
             """
-            <tool_call>
-            {"toolName":"web_search","arguments":{"query":"todo app features","limit":3}}
-            </tool_call>
+            {"id":"chatcmpl-test","object":"chat.completion.chunk","choices":[],"usage":{"prompt_tokens":15,"completion_tokens":100,"total_tokens":115,"performance":{"prefill_tokens_per_second":36.6,"decode_tokens_per_second":12.4}}}
             """.trimIndent()
         )
 
         val turn = accumulator.buildTurn()
 
-        assertEquals("", turn.message.contentText())
-        val toolCalls = turn.message.toolCalls.orEmpty()
-        assertEquals(1, toolCalls.size)
-        assertEquals("web_search", toolCalls[0].function.name)
-        assertTrue(toolCalls[0].function.arguments.contains("todo app features"))
-        assertTrue(toolCalls[0].function.arguments.contains("\"limit\":3"))
+        assertNotNull(turn.usage)
+        assertEquals(36.6, turn.usage?.prefillTokensPerSecond ?: 0.0, 0.0)
+        assertEquals(12.4, turn.usage?.decodeTokensPerSecond ?: 0.0, 0.0)
     }
 
     @Test
-    fun jsonToolResultPayloadFallsBackToSummaryInsteadOfLeakingProtocolText() {
-        val accumulator = AgentLlmStreamAccumulator(json)
+    fun `can retain reasoning content on assistant message for deepseek tool rounds`() {
+        val accumulator = AgentLlmStreamAccumulator(
+            json = json,
+            includeReasoningInAssistantMessage = true
+        )
 
         accumulator.consume(
-            """
-            <tool_call>
-            {"toolName":"web_search","status":"success","success":true,"summary":"找到 5 条网页搜索结果。","previewJson":"{}"}
-            </tool_call>
-            """.trimIndent()
+            """{"choices":[{"delta":{"reasoning_content":"需要查工具","content":"","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"get_time","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}"""
         )
 
         val turn = accumulator.buildTurn()
 
-        assertEquals("找到 5 条网页搜索结果。", turn.message.contentText())
-        assertTrue(turn.message.toolCalls.orEmpty().isEmpty())
+        assertEquals("需要查工具", turn.reasoning)
+        assertEquals("需要查工具", turn.message.reasoningContent)
     }
 
     @Test
@@ -202,35 +215,5 @@ class AgentLlmStreamAccumulatorTest {
 
         assertEquals("", turn.reasoning)
         assertEquals("normal answer", turn.message.contentText())
-    }
-
-    @Test
-    fun `route-gated leading buffer still parses inline tool markup`() {
-        val accumulator = AgentLlmStreamAccumulator(
-            json = json,
-            preferInlineThinkTags = false,
-            bufferLeadingTextUntilInlineThinkTag = true
-        )
-
-        accumulator.consume(
-            """
-            <tool_call>
-            <function=web_search>
-            <parameter=query>OmniFlow RunLog</parameter>
-            <parameter=limit>3</parameter>
-            </function>
-            </tool_call>
-            """.trimIndent()
-        )
-
-        val turn = accumulator.buildTurn()
-        val toolCalls = turn.message.toolCalls.orEmpty()
-
-        assertEquals("", turn.reasoning)
-        assertEquals("", turn.message.contentText())
-        assertEquals(1, toolCalls.size)
-        assertEquals("web_search", toolCalls[0].function.name)
-        assertTrue(toolCalls[0].function.arguments.contains("OmniFlow RunLog"))
-        assertTrue(toolCalls[0].function.arguments.contains("\"limit\":3"))
     }
 }

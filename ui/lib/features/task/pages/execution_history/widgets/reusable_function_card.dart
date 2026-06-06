@@ -56,6 +56,7 @@ class ReusableFunctionCard extends StatelessWidget {
     required this.failCount,
     required this.isRunning,
     required this.onRun,
+    this.onRunLogsTap,
     this.agentVisible,
     this.lastRunSuccess,
     this.hasAgentSteps,
@@ -77,6 +78,7 @@ class ReusableFunctionCard extends StatelessWidget {
   final bool? hasAgentSteps;
   final bool isRunning;
   final VoidCallback? onRun;
+  final VoidCallback? onRunLogsTap;
   final bool isBusy;
   final List<ReusableFunctionCardAction> actions;
 
@@ -122,13 +124,13 @@ class ReusableFunctionCard extends StatelessWidget {
                       children: [
                         Text(
                           displayTitle,
-                          maxLines: 1,
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
                             color: palette.textPrimary,
-                            height: 1.35,
+                            height: 1.24,
                             letterSpacing: 0,
                           ),
                         ),
@@ -210,6 +212,13 @@ class ReusableFunctionCard extends StatelessWidget {
                     _MetricPill(
                       label: 'RunLogs',
                       value: sourceRunCount.toString(),
+                      onTap: onRunLogsTap,
+                      color: onRunLogsTap == null
+                          ? null
+                          : palette.accentPrimary,
+                      backgroundColor: onRunLogsTap == null
+                          ? null
+                          : palette.accentPrimary.withValues(alpha: 0.10),
                     ),
                   _MetricPill(
                     label: _text(context, '执行', 'Runs'),
@@ -321,17 +330,19 @@ class _MetricPill extends StatelessWidget {
     required this.value,
     this.color,
     this.backgroundColor,
+    this.onTap,
   });
 
   final String label;
   final String value;
   final Color? color;
   final Color? backgroundColor;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
-    return Container(
+    final content = Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color:
@@ -351,6 +362,16 @@ class _MetricPill extends StatelessWidget {
           color: color ?? palette.textSecondary,
           letterSpacing: 0,
         ),
+      ),
+    );
+    final handler = onTap;
+    if (handler == null) return content;
+    return Tooltip(
+      message: _text(context, '查看执行记录', 'View Run Logs'),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: handler,
+        child: content,
       ),
     );
   }

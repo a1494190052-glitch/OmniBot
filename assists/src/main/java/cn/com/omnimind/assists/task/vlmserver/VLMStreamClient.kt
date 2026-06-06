@@ -71,6 +71,7 @@ class HttpVLMStreamClient(
                     OmniLog.w(tag, "retry scene stream variant=${variant.name} model=${request.model}")
                 }
                 return streamTurnOnce(
+                    variantName = variant.name,
                     request = variant.request,
                     onReasoningUpdate = onReasoningUpdate
                 )
@@ -89,6 +90,7 @@ class HttpVLMStreamClient(
     }
 
     private suspend fun streamTurnOnce(
+        variantName: String,
         request: ChatCompletionRequest,
         onReasoningUpdate: (suspend (String) -> Unit)?
     ): SceneChatCompletionTurn {
@@ -176,7 +178,11 @@ class HttpVLMStreamClient(
                     parser = resolvedHandle.parser,
                     route = resolvedHandle.route,
                     resolvedModel = resolvedHandle.resolvedModel,
-                    turn = accumulator.buildTurn()
+                    turn = accumulator.buildTurn(),
+                    requestVariant = variantName,
+                    requestHadTools = request.tools.isNotEmpty(),
+                    requestToolChoice = request.toolChoice?.toString(),
+                    requestParallelToolCalls = request.parallelToolCalls
                 )
             }.onSuccess { turn ->
                 streamDone.complete(turn)

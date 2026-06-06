@@ -235,8 +235,8 @@ class ManualRecordingPolicyTest {
         assertFalse(source.contains("fallbackImeTop(displayHeight)"))
         assertTrue(source.contains("scheduleImeRelockLocked()"))
         assertFalse(source.contains("awaitImeVisible"))
-        assertTrue(source.contains("private fun isKeyboardSubmitGestureLocked(gesture: ManualOverlayTouchGesture): Boolean"))
-        assertTrue(source.contains("HumanTrajectoryLearningSession.prepareImeSubmitRecording()"))
+        assertFalse(source.contains("private fun isKeyboardSubmitGestureLocked(gesture: ManualOverlayTouchGesture): Boolean"))
+        assertFalse(source.contains("HumanTrajectoryLearningSession.prepareImeSubmitRecording()"))
         assertFalse(source.contains("HumanTrajectoryLearningSession.recordImeSubmitGesture(gesture)"))
         assertTrue(recorderSource.contains("TEXT_INPUT_ANCHOR_ACTIVE_TTL_MS"))
         assertFalse(recorderSource.contains("if (target == null && !beforeXml.isNullOrBlank())"))
@@ -276,12 +276,22 @@ class ManualRecordingPolicyTest {
         assertFalse(recorderSource.contains("foregroundAppVisibleBottomFromFilteredXml("))
         assertFalse(recorderSource.contains("IME_FILTERED_APP_TOP_MAX_RATIO"))
         assertTrue(recorderSource.contains("fun prepareImeSubmitRecording(): Boolean"))
+        assertTrue(recorderSource.contains("fun recordImeSubmitGesture(gesture: ManualOverlayTouchGesture): Boolean"))
         assertTrue(recorderSource.contains("focused_xml_ime_submit"))
-        assertFalse(recorderSource.contains("fun recordImeSubmitGesture(gesture: ManualOverlayTouchGesture): Boolean"))
-        assertFalse(recorderSource.contains("actionName = \"press_key\""))
-        assertFalse(recorderSource.contains("\"recording_backend\" to IME_SUBMIT_BACKEND"))
-        assertFalse(recorderSource.contains("private const val IME_SUBMIT_BACKEND = \"ime_submit\""))
-        assertFalse(recorderSource.contains("\"event_type\" to \"IME_SUBMIT_KEY\""))
+        assertTrue(recorderSource.contains("appendImeSubmitGesture(gesture, beforeXml)"))
+        assertTrue(recorderSource.contains("suspend fun recordManualInputText(text: String): Boolean"))
+        assertTrue(recorderSource.contains("suspend fun recordManualPressKey(key: String): Boolean"))
+        assertTrue(recorderSource.contains("AccessibilityController.inputTextToBestNode("))
+        assertTrue(recorderSource.contains("AccessibilityController.pressImeEnterToBestNode("))
+        assertTrue(recorderSource.contains("manualControlEventContextFor("))
+        assertTrue(recorderSource.contains("\"recording_backend\" to MANUAL_CONTROL_BACKEND"))
+        assertTrue(recorderSource.contains("private const val MANUAL_CONTROL_BACKEND = \"manual_control\""))
+        assertTrue(recorderSource.contains("actionName = OobCanonicalActionSchema.TOOL_PRESS_KEY"))
+        assertTrue(recorderSource.contains("\"key\" to \"enter\""))
+        assertTrue(recorderSource.contains("\"recording_backend\" to IME_SUBMIT_BACKEND"))
+        assertTrue(recorderSource.contains("private const val IME_SUBMIT_BACKEND = \"ime_submit\""))
+        assertTrue(recorderSource.contains("\"event_type\" to IME_SUBMIT_EVENT_TYPE"))
+        assertTrue(recorderSource.contains("private const val IME_SUBMIT_EVENT_TYPE = \"IME_SUBMIT_KEY\""))
     }
 
     @Test
@@ -337,6 +347,11 @@ class ManualRecordingPolicyTest {
         assertFalse(controlSource.contains("manual_recording_capture_action"))
         assertFalse(controlSource.contains("handleCaptureClick"))
         assertFalse(controlSource.contains("text = \"截图\""))
+        assertTrue(controlSource.contains("manual_recording_manual_action"))
+        assertTrue(controlSource.contains("showManualActionDialog(context)"))
+        assertTrue(controlSource.contains("HumanTrajectoryLearningSession.recordManualInputText(text)"))
+        assertTrue(controlSource.contains("HumanTrajectoryLearningSession.recordManualPressKey(key)"))
+        assertTrue(controlSource.contains("ManualTouchRecordLoader.hide()"))
         assertTrue(controlSource.contains("manual_recording_cancel_action"))
         assertTrue(controlSource.contains("fun cancelRecording(message: String = \"人工轨迹学习已取消\")"))
         assertTrue(controlSource.contains("HumanTrajectoryLearningSession.cancelActive(message)"))
@@ -344,7 +359,7 @@ class ManualRecordingPolicyTest {
         assertTrue(controlSource.contains("visibility = if (state == State.PREPARING) View.GONE else View.VISIBLE"))
         assertTrue(controlSource.contains("contentDescription = \"完成并保存手动录制\""))
         assertTrue(controlSource.contains("text = \"录制\""))
-        assertTrue(controlSource.contains("keepControlsAboveTouchRecorderOnce()"))
+        assertTrue(controlSource.contains("keepControlsAboveTouchRecorder()"))
         val catStepSource = readSource(
             "uikit/src/main/java/cn/com/omnimind/uikit/api/callbackimpl/CatStepLayoutApiImpl.kt"
         )
@@ -415,8 +430,13 @@ class ManualRecordingPolicyTest {
         val catStepSource = readSource(
             "uikit/src/main/java/cn/com/omnimind/uikit/api/callbackimpl/CatStepLayoutApiImpl.kt"
         )
+        val screenMaskSource = readSource(
+            "uikit/src/main/java/cn/com/omnimind/uikit/loader/ScreenMaskLoader.kt"
+        )
 
-        assertTrue(taskEventSource.contains("ScreenMaskLoader.loadLockScreenMask()"))
+        assertFalse(taskEventSource.contains("ScreenMaskLoader.loadLockScreenMask()"))
+        assertFalse(screenMaskSource.contains("WindowFlag.SCREEN_LOCK_FLAG"))
+        assertTrue(screenMaskSource.contains("WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE"))
         assertTrue(taskEventSource.contains("forceOnTop = true"))
         assertTrue(draggableSource.contains("forceOnTop: Boolean = false"))
         assertTrue(draggableSource.contains("windowManager.removeViewImmediate(view)"))

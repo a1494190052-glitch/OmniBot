@@ -18,38 +18,9 @@ private const val USER_SOURCE = "user"
 private const val INSTALL_STATE_INSTALLED = "installed"
 private const val INSTALL_STATE_REMOVED_BUILTIN = "removed_builtin"
 private const val SKILL_REGISTRY_FILE_NAME = ".skill_registry.json"
-private const val APK_INSPECTOR_PROJECT_SKILL_ID = "apk-inspector-project"
 private const val OFFICIAL_SKILLS_GITHUB_REPOSITORY_URL = "https://github.com/omnimind-ai/OmniBotSkills"
 private const val OFFICIAL_SKILLS_CNB_REPOSITORY_URL = "https://cnb.cool/o.a/OmniBotSkills"
 private const val OFFICIAL_SKILLS_DIRECTORY_NAME = "OmniBotSkills"
-private val PROJECT_RELATED_BUILTIN_SKILL_IDS = setOf(
-    "oob-project",
-    "oob-web-research",
-    APK_INSPECTOR_PROJECT_SKILL_ID
-)
-private val RETIRED_BUILTIN_SKILL_IDS = setOf(
-    "oob-native-" + "workbench",
-    "oob-project-" + "designer",
-    "oob-project-" + "distiller"
-)
-
-internal fun <T> removeRetiredBuiltinSkillInstallations(
-    skillsRoot: File,
-    registry: MutableMap<String, T>
-): Boolean {
-    var changed = false
-    RETIRED_BUILTIN_SKILL_IDS.forEach { skillId ->
-        val targetDir = File(skillsRoot, skillId)
-        if (targetDir.exists()) {
-            targetDir.deleteRecursively()
-            changed = changed || !targetDir.exists()
-        }
-        if (!targetDir.exists() && registry.remove(skillId) != null) {
-            changed = true
-        }
-    }
-    return changed
-}
 
 private data class BuiltinSkillManifest(
     val skills: List<BuiltinSkillAsset> = emptyList()
@@ -149,8 +120,7 @@ private class BuiltinSkillAssetStore(
 
     fun seedMissingBuiltins(registryStore: SkillRegistryStore) {
         val registry = registryStore.read()
-        var changed = removeRetiredBuiltins(registry)
-        val projectCapabilityEnabled = isProjectCapabilityEnabled()
+        var changed = false
         listBuiltins().forEach { builtin ->
             val registryEntry = registry[builtin.id]
             if (registryEntry?.installState == INSTALL_STATE_REMOVED_BUILTIN) {
@@ -167,17 +137,6 @@ private class BuiltinSkillAssetStore(
                     installBuiltinInternal(builtin)
                     changed = true
                 }
-                val current = registry[builtin.id]
-                if (
-                    builtin.id in PROJECT_RELATED_BUILTIN_SKILL_IDS &&
-                    current != null &&
-                    current.source == BUILTIN_SOURCE &&
-                    current.installState == INSTALL_STATE_INSTALLED &&
-                    current.enabled != projectCapabilityEnabled
-                ) {
-                    registry[builtin.id] = current.copy(enabled = projectCapabilityEnabled)
-                    changed = true
-                }
                 return@forEach
             }
             installBuiltinInternal(builtin)
@@ -187,7 +146,7 @@ private class BuiltinSkillAssetStore(
                 return@forEach
             }
             registry[builtin.id] = SkillRegistryEntry(
-                enabled = defaultBuiltinEnabled(builtin.id, projectCapabilityEnabled),
+                enabled = true,
                 source = BUILTIN_SOURCE,
                 installState = INSTALL_STATE_INSTALLED
             )
@@ -196,40 +155,6 @@ private class BuiltinSkillAssetStore(
         if (changed) {
             registryStore.write(registry)
         }
-    }
-
-    private fun removeRetiredBuiltins(
-        registry: MutableMap<String, SkillRegistryEntry>
-    ): Boolean {
-        return removeRetiredBuiltinSkillInstallations(
-            skillsRoot = workspaceManager.skillsRoot(),
-            registry = registry
-        )
-    }
-
-    private fun defaultBuiltinEnabled(
-        skillId: String,
-        projectCapabilityEnabled: Boolean = isProjectCapabilityEnabled()
-    ): Boolean {
-        return skillId !in PROJECT_RELATED_BUILTIN_SKILL_IDS || projectCapabilityEnabled
-    }
-
-    private fun isProjectCapabilityEnabled(): Boolean {
-        val activeProjectFile = File(
-            AgentWorkspaceManager.rootDirectory(context),
-            "projects/active_project.json"
-        )
-        if (!activeProjectFile.exists()) {
-            return false
-        }
-        return runCatching {
-            val payload = gson.fromJson<Map<String, Any?>>(
-                activeProjectFile.readText(),
-                object : TypeToken<Map<String, Any?>>() {}.type
-            ) ?: return false
-            payload["projectCapabilityEnabled"] == true &&
-                payload["projectId"]?.toString()?.trim()?.isNotEmpty() == true
-        }.getOrDefault(false)
     }
 
     private fun builtinSkillContentUnchanged(builtin: BuiltinSkillAsset, targetDir: File): Boolean {
@@ -250,7 +175,7 @@ private class BuiltinSkillAssetStore(
         registryStore.set(
             skillId,
             SkillRegistryEntry(
-                enabled = defaultBuiltinEnabled(skillId),
+                enabled = true,
                 source = BUILTIN_SOURCE,
                 installState = INSTALL_STATE_INSTALLED
             )
@@ -406,29 +331,6 @@ class SkillIndexService(
             )
         )
         return entry.copy(enabled = enabled)
-    }
-
-    fun setProjectRelatedBuiltinSkillsEnabled(enabled: Boolean): List<SkillIndexEntry> {
-        seedBuiltinSkillsIfNeeded()
-        val registryStore = registryStore()
-        val registry = registryStore.read()
-        var changed = false
-        PROJECT_RELATED_BUILTIN_SKILL_IDS.forEach { skillId ->
-            val current = registry[skillId] ?: return@forEach
-            if (
-                current.source != BUILTIN_SOURCE ||
-                current.installState != INSTALL_STATE_INSTALLED ||
-                current.enabled == enabled
-            ) {
-                return@forEach
-            }
-            registry[skillId] = current.copy(enabled = enabled)
-            changed = true
-        }
-        if (changed) {
-            registryStore.write(registry)
-        }
-        return listSkillsForManagement().filter { it.id in PROJECT_RELATED_BUILTIN_SKILL_IDS }
     }
 
     fun deleteSkill(skillId: String): Boolean {
@@ -810,12 +712,6 @@ object SkillTriggerMatcher {
         if (normalizedName.isNotBlank() && normalizedMessage.contains(normalizedName)) {
             score += 0.9
         }
-        if (entry.id == APK_INSPECTOR_PROJECT_SKILL_ID) {
-            if (looksLikeApkInspectorProjectRequest(normalizedMessage)) {
-                score += 1.0
-            }
-            return min(score, 1.5)
-        }
         extractCandidatePhrases(entry.description).forEach { phrase ->
             if (phrase.isNotBlank() && normalizedMessage.contains(normalize(phrase))) {
                 score += 0.35
@@ -865,79 +761,6 @@ object SkillTriggerMatcher {
             "主要颜色"
         ).count { normalizedMessage.contains(normalize(it)) } >= 2
         return hasCreationIntent || hasStructuredPetSpec
-    }
-
-    private fun looksLikeApkInspectorProjectRequest(normalizedMessage: String): Boolean {
-        if (listOf(
-                "apk快速体检台",
-                "apkinspector",
-                "apkinspectorproject",
-                "apkhealthcheck",
-                "apk体检台"
-            ).any { normalizedMessage.contains(normalize(it)) }
-        ) {
-            return true
-        }
-
-        val hasApkTarget = listOf(
-            "apk",
-            ".apk",
-            "安卓安装包",
-            "android安装包",
-            "安装包体检",
-            "安装包分析"
-        ).any { normalizedMessage.contains(normalize(it)) }
-
-        val apkSurfaceHits = listOf(
-            "包名",
-            "签名",
-            "manifest",
-            "权限",
-            "组件",
-            "导出组件",
-            "intent",
-            "assets",
-            "strings",
-            "url",
-            "native",
-            "so",
-            "dex"
-        ).count { normalizedMessage.contains(normalize(it)) }
-
-        val hasInspectionIntent = listOf(
-            "体检",
-            "检测",
-            "解析",
-            "分析",
-            "审计",
-            "逆向",
-            "diff",
-            "可疑",
-            "风险",
-            "报告",
-            "首启",
-            "首次启动",
-            "firstrun",
-            "observe",
-            "inspect",
-            "triage"
-        ).any { normalizedMessage.contains(normalize(it)) }
-
-        val hasForgeOrSkillIntent = listOf(
-            "forge",
-            "skill",
-            "自更新",
-            "更新协议",
-            "维护规则",
-            "维护自己的",
-            "项目自带",
-            "projectowned",
-            "project-owned"
-        ).any { normalizedMessage.contains(normalize(it)) }
-
-        return (hasApkTarget && hasInspectionIntent) ||
-            (hasApkTarget && hasForgeOrSkillIntent) ||
-            (apkSurfaceHits >= 3 && (hasInspectionIntent || hasForgeOrSkillIntent))
     }
 
     private fun extractCandidatePhrases(description: String): List<String> {

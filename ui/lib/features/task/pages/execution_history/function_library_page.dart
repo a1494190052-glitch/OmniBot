@@ -12,6 +12,7 @@ import 'package:ui/theme/app_colors.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/widgets/common_app_bar.dart';
+import 'package:ui/widgets/oob_function_run_progress_card.dart';
 
 class FunctionLibraryPage extends StatefulWidget {
   const FunctionLibraryPage({super.key});
@@ -32,7 +33,7 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
   String? _error;
   final Set<String> _deletingIds = {};
   final Set<String> _runningIds = {};
-  final Set<String> _registeringIds = {};
+  final Set<String> _openingRunLogIds = {};
   final Map<String, OobFunctionRunProgressEvent> _runProgressBySignature = {};
   StreamSubscription<OobFunctionRunProgressEvent>? _runProgressSubscription;
   bool _isLearning = false;
@@ -260,58 +261,35 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
     }
   }
 
-  Future<void> _registerForAgent(_FunctionGroup group) async {
-    if (_registeringIds.contains(group.signature)) return;
-    setState(() => _registeringIds.add(group.signature));
-    try {
-      final target = group.agentHiddenPrimary;
-      final spec = await AssistsMessageService.getOobReusableFunction(
-        target.functionId,
-      );
-      if (!mounted || spec == null) return;
-      final result = await AssistsMessageService.registerOobReusableFunction(
-        functionSpec: _functionJsonForAgentVisibility(spec, agentVisible: true),
-      );
-      if (!mounted) return;
-      if (result.success) {
-        showToast(_text(context, '已注册给 Agent', 'Registered for Agent'));
-        await _load();
-      } else {
-        showToast(
-          result.errorMessage ?? _text(context, '注册失败', 'Register failed'),
-          type: ToastType.error,
-        );
-      }
-    } catch (e) {
-      if (!mounted) return;
-      showToast(e.toString(), type: ToastType.error);
-    } finally {
-      if (mounted) setState(() => _registeringIds.remove(group.signature));
-    }
-  }
-
   Future<void> _openDetails(_FunctionGroup group) async {
     if (!mounted) return;
     await _showFunctionSpecDetails(context, group: group, onClosed: _load);
   }
 
-  String get _runningFunctionLabel {
-    if (_runningIds.isEmpty) return '';
-    for (final group in _functions) {
-      if (_runningIds.contains(group.signature)) return group.displayName;
-    }
-    return '';
+  Future<void> _openRunLogs(_FunctionGroup group) async {
+    await _openRunLogsForGroup(
+      context: context,
+      group: group,
+      isOpening: () => _openingRunLogIds.contains(group.signature),
+      setOpening: (value) {
+        if (!mounted) return;
+        setState(() {
+          if (value) {
+            _openingRunLogIds.add(group.signature);
+          } else {
+            _openingRunLogIds.remove(group.signature);
+          }
+        });
+      },
+    );
   }
 
-  OobFunctionRunProgressEvent? get _runningFunctionProgress {
-    if (_runningIds.isEmpty) return null;
-    for (final group in _functions) {
-      if (_runningIds.contains(group.signature)) {
-        return _runProgressBySignature[group.signature];
-      }
-    }
-    return null;
-  }
+  OobFunctionRunProgressEvent? get _runningFunctionProgressEvent =>
+      _runningProgressEventFor(
+        groups: _functions,
+        runningIds: _runningIds,
+        progressBySignature: _runProgressBySignature,
+      );
 
   void _handleRunProgressEvent(OobFunctionRunProgressEvent event) {
     if (!mounted || event.functionId.isEmpty) return;
@@ -418,26 +396,20 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
             group: group,
             isDeleting: _deletingIds.contains(group.signature),
             isRunning: _runningIds.contains(group.signature),
-            isRegistering: _registeringIds.contains(group.signature),
+            isOpeningRunLog: _openingRunLogIds.contains(group.signature),
             onRun: () => _run(group),
             onDelete: () => _delete(group),
-            onRegisterForAgent: () => _registerForAgent(group),
             onOpenDetails: () => _openDetails(group),
+            onOpenRunLogs: () => _openRunLogs(group),
           );
         },
       ),
     );
-    final runningLabel = _runningFunctionLabel;
-    if (runningLabel.isEmpty) return list;
+    final runningEvent = _runningFunctionProgressEvent;
+    if (runningEvent == null) return list;
     return Column(
       children: [
-        _RunningFunctionBanner(
-          label: runningLabel,
-          progressText: _runProgressTextForEvent(
-            context,
-            _runningFunctionProgress,
-          ),
-        ),
+        _FunctionLibraryProgressSlot(event: runningEvent),
         Expanded(child: list),
       ],
     );
@@ -465,7 +437,7 @@ class _FunctionLibraryEmbedState extends State<FunctionLibraryEmbed>
   String? _error;
   final Set<String> _deletingIds = {};
   final Set<String> _runningIds = {};
-  final Set<String> _registeringIds = {};
+  final Set<String> _openingRunLogIds = {};
   final Map<String, OobFunctionRunProgressEvent> _runProgressBySignature = {};
   StreamSubscription<OobFunctionRunProgressEvent>? _runProgressSubscription;
   bool _isLearning = false;
@@ -685,39 +657,27 @@ class _FunctionLibraryEmbedState extends State<FunctionLibraryEmbed>
     }
   }
 
-  Future<void> _registerForAgent(_FunctionGroup group) async {
-    if (_registeringIds.contains(group.signature)) return;
-    setState(() => _registeringIds.add(group.signature));
-    try {
-      final target = group.agentHiddenPrimary;
-      final spec = await AssistsMessageService.getOobReusableFunction(
-        target.functionId,
-      );
-      if (!mounted || spec == null) return;
-      final result = await AssistsMessageService.registerOobReusableFunction(
-        functionSpec: _functionJsonForAgentVisibility(spec, agentVisible: true),
-      );
-      if (!mounted) return;
-      if (result.success) {
-        showToast(_text(context, '已注册给 Agent', 'Registered for Agent'));
-        await _load();
-      } else {
-        showToast(
-          result.errorMessage ?? _text(context, '注册失败', 'Register failed'),
-          type: ToastType.error,
-        );
-      }
-    } catch (e) {
-      if (!mounted) return;
-      showToast(e.toString(), type: ToastType.error);
-    } finally {
-      if (mounted) setState(() => _registeringIds.remove(group.signature));
-    }
-  }
-
   Future<void> _openDetails(_FunctionGroup group) async {
     if (!mounted) return;
     await _showFunctionSpecDetails(context, group: group, onClosed: _load);
+  }
+
+  Future<void> _openRunLogs(_FunctionGroup group) async {
+    await _openRunLogsForGroup(
+      context: context,
+      group: group,
+      isOpening: () => _openingRunLogIds.contains(group.signature),
+      setOpening: (value) {
+        if (!mounted) return;
+        setState(() {
+          if (value) {
+            _openingRunLogIds.add(group.signature);
+          } else {
+            _openingRunLogIds.remove(group.signature);
+          }
+        });
+      },
+    );
   }
 
   Future<void> _startLearning() async {
@@ -731,23 +691,12 @@ class _FunctionLibraryEmbedState extends State<FunctionLibraryEmbed>
     );
   }
 
-  String get _runningFunctionLabel {
-    if (_runningIds.isEmpty) return '';
-    for (final group in _functions) {
-      if (_runningIds.contains(group.signature)) return group.displayName;
-    }
-    return '';
-  }
-
-  OobFunctionRunProgressEvent? get _runningFunctionProgress {
-    if (_runningIds.isEmpty) return null;
-    for (final group in _functions) {
-      if (_runningIds.contains(group.signature)) {
-        return _runProgressBySignature[group.signature];
-      }
-    }
-    return null;
-  }
+  OobFunctionRunProgressEvent? get _runningFunctionProgressEvent =>
+      _runningProgressEventFor(
+        groups: _functions,
+        runningIds: _runningIds,
+        progressBySignature: _runProgressBySignature,
+      );
 
   void _handleRunProgressEvent(OobFunctionRunProgressEvent event) {
     if (!mounted || event.functionId.isEmpty) return;
@@ -819,50 +768,37 @@ class _FunctionLibraryEmbedState extends State<FunctionLibraryEmbed>
             group: group,
             isDeleting: _deletingIds.contains(group.signature),
             isRunning: _runningIds.contains(group.signature),
-            isRegistering: _registeringIds.contains(group.signature),
+            isOpeningRunLog: _openingRunLogIds.contains(group.signature),
             onRun: () => _run(group),
             onDelete: () => _delete(group),
-            onRegisterForAgent: () => _registerForAgent(group),
             onOpenDetails: () => _openDetails(group),
+            onOpenRunLogs: () => _openRunLogs(group),
           );
         },
       ),
     );
-    final runningLabel = _runningFunctionLabel;
-    if (runningLabel.isEmpty) return list;
+    final runningEvent = _runningFunctionProgressEvent;
+    if (runningEvent == null) return list;
     return Column(
       children: [
-        _RunningFunctionBanner(
-          label: runningLabel,
-          progressText: _runProgressTextForEvent(
-            context,
-            _runningFunctionProgress,
-          ),
-        ),
+        _FunctionLibraryProgressSlot(event: runningEvent),
         Expanded(child: list),
       ],
     );
   }
 }
 
-class _RunningFunctionBanner extends StatelessWidget {
-  const _RunningFunctionBanner({
-    required this.label,
-    required this.progressText,
-  });
+class _FunctionLibraryProgressSlot extends StatelessWidget {
+  const _FunctionLibraryProgressSlot({required this.event});
 
-  final String label;
-  final String progressText;
+  final OobFunctionRunProgressEvent event;
 
   @override
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
-    final title = label.trim().isEmpty
-        ? _text(context, '正在执行复用指令', 'Running Reusable Function')
-        : _text(context, '正在执行：$label', 'Running: $label');
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
       decoration: BoxDecoration(
         color: palette.accentPrimary.withValues(alpha: 0.10),
         border: Border(
@@ -871,83 +807,65 @@ class _RunningFunctionBanner extends StatelessWidget {
           ),
         ),
       ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 16,
-            height: 16,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: palette.accentPrimary,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: palette.textPrimary,
-                    letterSpacing: 0,
-                  ),
-                ),
-                if (progressText.isNotEmpty) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    progressText,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: palette.textSecondary,
-                      letterSpacing: 0,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
+      child: OobFunctionRunProgressCard(
+        event: event,
+        maxWidth: double.infinity,
       ),
     );
   }
 }
 
-String _runProgressTextForEvent(
-  BuildContext context,
-  OobFunctionRunProgressEvent? event,
-) {
-  if (event == null) return '';
-  final currentStepNumber = event.displayStepNumber;
-  final stepCount = event.stepCount;
-  if (currentStepNumber != null && currentStepNumber > 0) {
-    final value = stepCount > 0
-        ? '$currentStepNumber/$stepCount'
-        : '$currentStepNumber';
-    final message = event.message.trim();
-    final messageWithoutPrefix = message
-        .replaceFirst(RegExp(r'^第\s*\d+\s*/\s*\d+\s*步\s*'), '')
-        .trim();
-    if (messageWithoutPrefix.isNotEmpty) {
-      return _text(
-        context,
-        '第 $value 步 · $messageWithoutPrefix',
-        'Step $value · $messageWithoutPrefix',
-      );
-    }
-    if (message.isNotEmpty && !message.contains(value)) {
-      return _text(context, '第 $value 步 · $message', 'Step $value · $message');
-    }
-    return _text(context, '第 $value 步', 'Step $value');
+OobFunctionRunProgressEvent? _runningProgressEventFor({
+  required List<_FunctionGroup> groups,
+  required Set<String> runningIds,
+  required Map<String, OobFunctionRunProgressEvent> progressBySignature,
+}) {
+  if (runningIds.isEmpty) return null;
+  for (final group in groups) {
+    if (!runningIds.contains(group.signature)) continue;
+    return progressBySignature[group.signature] ??
+        _fallbackRunningProgressEvent(group);
   }
-  return event.message.trim();
+  return null;
+}
+
+OobFunctionRunProgressEvent _fallbackRunningProgressEvent(
+  _FunctionGroup group,
+) {
+  final function = group.primary;
+  final stepCount = function.stepCount > 0
+      ? function.stepCount
+      : function.stepSummaries.length;
+  final label = group.displayName.trim().isNotEmpty
+      ? group.displayName.trim()
+      : function.displayName;
+  final message = AppTextLocalizer.choose(
+    zh: '准备执行复用指令',
+    en: 'Preparing reusable function',
+  );
+  final raw = <String, dynamic>{
+    'status': 'started',
+    'function_id': function.functionId,
+    'functionId': function.functionId,
+    'label': label,
+    'message': message,
+    if (stepCount > 0) 'step_count': stepCount,
+    if (stepCount > 0) 'stepCount': stepCount,
+  };
+  return OobFunctionRunProgressEvent(
+    status: 'started',
+    runId: '',
+    taskId: '',
+    functionId: function.functionId,
+    label: label,
+    message: message,
+    stepCount: stepCount,
+    currentStepIndex: null,
+    currentStepNumber: null,
+    embeddedInVlmTask: false,
+    timestampMs: 0,
+    rawJson: raw,
+  );
 }
 
 class _FunctionCard extends StatelessWidget {
@@ -955,21 +873,21 @@ class _FunctionCard extends StatelessWidget {
     required this.group,
     required this.isDeleting,
     required this.isRunning,
-    required this.isRegistering,
+    required this.isOpeningRunLog,
     required this.onRun,
     required this.onDelete,
-    required this.onRegisterForAgent,
     required this.onOpenDetails,
+    required this.onOpenRunLogs,
   });
 
   final _FunctionGroup group;
   final bool isDeleting;
   final bool isRunning;
-  final bool isRegistering;
+  final bool isOpeningRunLog;
   final VoidCallback onRun;
   final VoidCallback onDelete;
-  final VoidCallback onRegisterForAgent;
   final VoidCallback onOpenDetails;
+  final VoidCallback onOpenRunLogs;
 
   @override
   Widget build(BuildContext context) {
@@ -1000,16 +918,9 @@ class _FunctionCard extends StatelessWidget {
       hasAgentSteps: group.primary.hasAgentSteps,
       isRunning: isRunning,
       onRun: onRun,
-      isBusy: isDeleting || isRegistering,
+      onRunLogsTap: group.runLogIds.isEmpty ? null : onOpenRunLogs,
+      isBusy: isDeleting || isOpeningRunLog,
       actions: [
-        if (!group.isAgentVisible)
-          ReusableFunctionCardAction(
-            icon: Icons.person_add_alt_1_rounded,
-            color: Colors.green.shade700,
-            backgroundColor: Colors.green.withValues(alpha: 0.10),
-            tooltip: _text(context, '注册给 Agent', 'Register for Agent'),
-            onTap: onRegisterForAgent,
-          ),
         ReusableFunctionCardAction(
           icon: Icons.info_outline_rounded,
           color: palette.textSecondary,
@@ -1133,6 +1044,389 @@ Future<void> _showFunctionSpecDetails(
   } catch (error) {
     if (context.mounted) showToast(error.toString(), type: ToastType.error);
   }
+}
+
+Future<void> _openRunLogsForGroup({
+  required BuildContext context,
+  required _FunctionGroup group,
+  required bool Function() isOpening,
+  required ValueChanged<bool> setOpening,
+}) async {
+  if (isOpening()) return;
+  setOpening(true);
+  List<_FunctionRunLogEntry> entries = const [];
+  try {
+    entries = await _loadFunctionRunLogEntries(group);
+    if (!context.mounted) return;
+    if (entries.isEmpty) {
+      showToast(
+        _text(context, '暂无可查看的执行记录', 'No RunLogs available'),
+        type: ToastType.error,
+      );
+    }
+  } catch (error) {
+    if (context.mounted) showToast(error.toString(), type: ToastType.error);
+  } finally {
+    if (context.mounted) setOpening(false);
+  }
+  if (entries.isEmpty || !context.mounted) return;
+  final selected = await showModalBottomSheet<_FunctionRunLogEntry>(
+    context: context,
+    useRootNavigator: true,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    barrierColor: Colors.black.withValues(alpha: 0.28),
+    builder: (_) =>
+        _FunctionRunLogPickerSheet(title: group.displayName, entries: entries),
+  );
+  if (selected == null || !context.mounted) return;
+  await showRunLogTimelineSheet(
+    context,
+    runId: selected.runId,
+    title: _functionRunLogTitle(context, selected),
+  );
+}
+
+Future<List<_FunctionRunLogEntry>> _loadFunctionRunLogEntries(
+  _FunctionGroup group,
+) async {
+  final ids = group.runLogIds.toList(growable: true);
+  if (ids.isEmpty && group.hasLastRun) {
+    final lastRun =
+        await AssistsMessageService.getOobReusableFunctionLastRunLog(
+          group.lastRunFunctionId,
+        );
+    final lastRunId = lastRun.runId.trim();
+    if (lastRunId.isNotEmpty) ids.add(lastRunId);
+  }
+  if (ids.isEmpty) return const [];
+
+  final limit = (ids.length * 4).clamp(50, 500).toInt();
+  final runsById = <String, UtgRunLogSummary>{};
+  try {
+    final snapshot = await AssistsMessageService.getInternalRunLogs(
+      limit: limit,
+    );
+    for (final run in snapshot.runs) {
+      final id = run.runId.trim();
+      if (id.isNotEmpty) runsById[id] = run;
+    }
+  } catch (_) {
+    // Source RunLog ids are still usable even when summary lookup is absent.
+  }
+  return ids
+      .where((id) => id.trim().isNotEmpty)
+      .map((id) => _FunctionRunLogEntry(id.trim(), runsById[id.trim()]))
+      .toList(growable: false);
+}
+
+class _FunctionRunLogEntry {
+  const _FunctionRunLogEntry(this.runId, this.run);
+
+  final String runId;
+  final UtgRunLogSummary? run;
+}
+
+class _FunctionRunLogPickerSheet extends StatelessWidget {
+  const _FunctionRunLogPickerSheet({
+    required this.title,
+    required this.entries,
+  });
+
+  final String title;
+  final List<_FunctionRunLogEntry> entries;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    final maxHeight = MediaQuery.sizeOf(context).height * 0.72;
+    return SafeArea(
+      top: false,
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: maxHeight),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: palette.surfacePrimary,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(18),
+              ),
+              border: Border(top: BorderSide(color: palette.borderSubtle)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.16),
+                  blurRadius: 22,
+                  offset: const Offset(0, -8),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 16, 10, 10),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              title.trim().isEmpty
+                                  ? _text(context, '执行记录', 'Run Logs')
+                                  : title.trim(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: palette.textPrimary,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                height: 1.2,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _text(
+                                context,
+                                '执行记录 · ${entries.length}',
+                                'Run Logs · ${entries.length}',
+                              ),
+                              style: TextStyle(
+                                color: palette.textSecondary,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: _text(context, '关闭', 'Close'),
+                        icon: const Icon(Icons.close_rounded),
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                    ],
+                  ),
+                ),
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
+                    itemCount: entries.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final entry = entries[index];
+                      return _FunctionRunLogTile(
+                        entry: entry,
+                        onTap: () => Navigator.of(context).pop(entry),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FunctionRunLogTile extends StatelessWidget {
+  const _FunctionRunLogTile({required this.entry, required this.onTap});
+
+  final _FunctionRunLogEntry entry;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    final status = _functionRunLogStatus(context, entry);
+    final meta = _functionRunLogMeta(context, entry);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onTap,
+        child: Ink(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: context.isDarkTheme
+                ? palette.surfaceSecondary
+                : palette.pageBackground,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: palette.borderSubtle),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: status.color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(status.icon, size: 17, color: status.color),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _functionRunLogTitle(context, entry),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: palette.textPrimary,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        height: 1.25,
+                      ),
+                    ),
+                    if (meta.isNotEmpty) ...[
+                      const SizedBox(height: 5),
+                      Text(
+                        meta,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: palette.textSecondary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 5),
+                    Text(
+                      entry.runId,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: palette.textTertiary,
+                        fontSize: 11,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: palette.textTertiary,
+                size: 20,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FunctionRunLogStatus {
+  const _FunctionRunLogStatus({
+    required this.icon,
+    required this.color,
+    required this.label,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String label;
+}
+
+String _functionRunLogTitle(BuildContext context, _FunctionRunLogEntry entry) {
+  final run = entry.run;
+  final title = _firstNonBlankValue([
+    run?.goal,
+    run?.operationDescription,
+    run?.executionSummary,
+    run?.selectorLabel,
+  ]);
+  if (title.isNotEmpty) return title;
+  final id = entry.runId.trim();
+  if (id.length > 14) return 'RunLog ${id.substring(0, 14)}';
+  return id.isEmpty ? _text(context, '执行记录', 'Run Log') : 'RunLog $id';
+}
+
+String _functionRunLogMeta(BuildContext context, _FunctionRunLogEntry entry) {
+  final run = entry.run;
+  if (run == null) {
+    return _text(context, '点击查看该次结果', 'Tap to view this result');
+  }
+  final status = _functionRunLogStatus(context, entry).label;
+  final parts = <String>[
+    status,
+    if (run.stepCount > 0)
+      _text(context, '${run.stepCount} 步', '${run.stepCount} steps'),
+    _functionRunLogTimeLabel(run),
+  ].where((value) => value.trim().isNotEmpty).toList(growable: false);
+  return parts.join(' · ');
+}
+
+String _functionRunLogTimeLabel(UtgRunLogSummary run) {
+  final millis = run.startedAtMs ?? run.finishedAtMs;
+  DateTime? time;
+  if (millis != null && millis > 0) {
+    time = DateTime.fromMillisecondsSinceEpoch(millis).toLocal();
+  } else {
+    time = DateTime.tryParse(
+      _firstNonBlankValue([run.startedAt, run.finishedAt]),
+    )?.toLocal();
+  }
+  if (time == null) return '';
+  String two(int value) => value.toString().padLeft(2, '0');
+  return '${time.year}/${two(time.month)}/${two(time.day)} ${two(time.hour)}:${two(time.minute)}';
+}
+
+_FunctionRunLogStatus _functionRunLogStatus(
+  BuildContext context,
+  _FunctionRunLogEntry entry,
+) {
+  final run = entry.run;
+  if (run == null) {
+    return _FunctionRunLogStatus(
+      icon: Icons.receipt_long_outlined,
+      color: context.omniPalette.textTertiary,
+      label: _text(context, '执行记录', 'Run Log'),
+    );
+  }
+  final rawStatus = run.runStatus.trim().toLowerCase();
+  if (!run.runFinished ||
+      rawStatus == 'running' ||
+      rawStatus == 'in_progress') {
+    return _FunctionRunLogStatus(
+      icon: Icons.timelapse_rounded,
+      color: context.isDarkTheme
+          ? const Color(0xFFFFD166)
+          : const Color(0xFFE6A700),
+      label: _text(context, '运行中', 'Running'),
+    );
+  }
+  final success = run.runSuccess ?? run.success;
+  if (success) {
+    return _FunctionRunLogStatus(
+      icon: Icons.check_circle_outline_rounded,
+      color: context.isDarkTheme
+          ? const Color(0xFF63D98A)
+          : const Color(0xFF19A974),
+      label: _text(context, '已完成', 'Done'),
+    );
+  }
+  return _FunctionRunLogStatus(
+    icon: Icons.error_outline_rounded,
+    color: context.isDarkTheme
+        ? const Color(0xFFFF7A7A)
+        : const Color(0xFFE14C4C),
+    label: _text(context, '失败', 'Failed'),
+  );
 }
 
 Map<String, dynamic> _functionSpecJsonFromDetail(
@@ -1353,6 +1647,7 @@ class _FunctionSummary {
     required this.successCount,
     required this.failCount,
     required this.lastRunAt,
+    required this.lastRunId,
     required this.lastRunSuccess,
     required this.sourceRunIds,
     required this.stepSummaries,
@@ -1389,6 +1684,14 @@ class _FunctionSummary {
                   map['last_run_at'] ??
                   '')
               .toString(),
+      lastRunId: _firstNonBlankValue([
+        lastRun['run_id'],
+        lastRun['runId'],
+        runStats['last_run_id'],
+        runStats['lastRunId'],
+        map['last_run_id'],
+        map['lastRunId'],
+      ]),
       lastRunSuccess: _asNullableBool(
         lastRun['success'] ?? runStats['last_success'] ?? map['last_success'],
       ),
@@ -1430,6 +1733,7 @@ class _FunctionSummary {
   final int successCount;
   final int failCount;
   final String lastRunAt;
+  final String lastRunId;
   final bool? lastRunSuccess;
   final List<String> sourceRunIds;
   final List<_StepSummary> stepSummaries;
@@ -1612,9 +1916,6 @@ class _FunctionGroup {
 
   bool get isAgentVisible => items.any((item) => item.agentVisible);
 
-  _FunctionSummary get agentHiddenPrimary =>
-      items.firstWhere((item) => !item.agentVisible, orElse: () => primary);
-
   int get variantCount => items.length;
 
   int get runCount => items.fold<int>(0, (sum, item) => sum + item.runCount);
@@ -1623,6 +1924,49 @@ class _FunctionGroup {
       items.fold<int>(0, (sum, item) => sum + item.successCount);
 
   int get failCount => items.fold<int>(0, (sum, item) => sum + item.failCount);
+
+  _FunctionSummary? get latestRunFunction {
+    _FunctionSummary? latest;
+    DateTime? latestTime;
+    for (final item in items) {
+      final hasLastRun =
+          item.lastRunId.trim().isNotEmpty ||
+          item.lastRunAt.trim().isNotEmpty ||
+          item.lastRunSuccess != null;
+      if (!hasLastRun) continue;
+      final time = _parseTimestamp(item.lastRunAt);
+      if (latest == null) {
+        latest = item;
+        latestTime = time;
+        continue;
+      }
+      if (time != null && (latestTime == null || time.isAfter(latestTime))) {
+        latest = item;
+        latestTime = time;
+      }
+    }
+    return latest;
+  }
+
+  bool get hasLastRun => runCount > 0 || latestRunFunction != null;
+
+  String get lastRunId => latestRunFunction?.lastRunId.trim() ?? '';
+
+  String get lastRunFunctionId =>
+      latestRunFunction?.functionId.trim().isNotEmpty == true
+      ? latestRunFunction!.functionId.trim()
+      : primary.functionId;
+
+  List<String> get runLogIds {
+    final ids = <String>{};
+    for (final id in sourceRunIds) {
+      final normalized = id.trim();
+      if (normalized.isNotEmpty) ids.add(normalized);
+    }
+    final latestId = lastRunId.trim();
+    if (ids.isEmpty && latestId.isNotEmpty) ids.add(latestId);
+    return ids.toList(growable: false);
+  }
 
   bool? get lastRunSuccess {
     _FunctionSummary? latest;
@@ -2063,32 +2407,6 @@ bool? _asNullableBool(dynamic value) {
     }
   }
   return null;
-}
-
-Map<String, dynamic> _functionJsonForAgentVisibility(
-  Map<String, dynamic> rawJson, {
-  required bool agentVisible,
-}) {
-  final decoded = jsonDecode(jsonEncode(rawJson));
-  final cloned = decoded is Map
-      ? Map<String, dynamic>.from(
-          decoded.map((key, value) => MapEntry(key.toString(), value)),
-        )
-      : <String, dynamic>{};
-  cloned['agent_visible'] = agentVisible;
-  cloned['visibility'] = agentVisible ? 'agent_reusable' : 'manual_function';
-  final rawMetadata = cloned['metadata'];
-  final metadata = rawMetadata is Map
-      ? Map<String, dynamic>.from(
-          rawMetadata.map((key, value) => MapEntry(key.toString(), value)),
-        )
-      : <String, dynamic>{};
-  cloned['metadata'] = <String, dynamic>{
-    ...metadata,
-    'agent_visible': agentVisible,
-    'visibility': agentVisible ? 'agent_reusable' : 'manual_function',
-  };
-  return cloned;
 }
 
 DateTime? _parseTimestamp(String raw) {

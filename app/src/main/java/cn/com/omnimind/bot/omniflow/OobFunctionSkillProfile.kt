@@ -242,7 +242,7 @@ object OobFunctionSkillProfile {
         putJsonObject("function") {
             put("name", OobFunctionToolNames.FUNCTION_LIST)
             put("displayName", "列出复用指令")
-            put("toolType", "workbench")
+            put("toolType", "oob_function")
             put("description", "列出本机已注册的 OOB 复用指令。用于查看可选 Function 候选；不会执行任何手机操作。")
             putJsonObject("parameters") {
                 put("type", "object")
@@ -261,7 +261,7 @@ object OobFunctionSkillProfile {
         putJsonObject("function") {
             put("name", OobFunctionToolNames.FUNCTION_GET)
             put("displayName", "查看复用指令")
-            put("toolType", "workbench")
+            put("toolType", "oob_function")
             put("description", "读取一个 OOB 复用指令的结构化 Function spec，用于确认步骤、参数和来源。不会执行手机操作。")
             putJsonObject("parameters") {
                 put("type", "object")
@@ -281,7 +281,7 @@ object OobFunctionSkillProfile {
         putJsonObject("function") {
             put("name", OobFunctionToolNames.FUNCTION_REGISTER)
             put("displayName", "注册复用指令")
-            put("toolType", "workbench")
+            put("toolType", "oob_function")
             put("description", "注册或更新一个 OOB 复用指令。优先使用轻量字段 function_id/name/description/steps；只有已有完整底层结构时才传 function_spec。")
             putJsonObject("parameters") {
                 put("type", "object")
@@ -307,7 +307,7 @@ object OobFunctionSkillProfile {
         putJsonObject("function") {
             put("name", OobFunctionToolNames.FUNCTION_UPDATE)
             put("displayName", "更新复用指令")
-            put("toolType", "workbench")
+            put("toolType", "oob_function")
             put("description", "根据结构化 patch、用户纠错指令或 RunLog 证据分析更新一个已保存的 OOB Function。传 run_id 且不传 analysis/patch 时只返回 agent 分析上下文；不会执行手机操作。")
             putJsonObject("parameters") {
                 put("type", "object")
@@ -347,7 +347,7 @@ object OobFunctionSkillProfile {
         putJsonObject("function") {
             put("name", OobFunctionToolNames.FUNCTION_GUARD_CHECK)
             put("displayName", "检查复用指令")
-            put("toolType", "workbench")
+            put("toolType", "oob_function")
             put("description", "执行前检查一个 OOB 复用指令的参数和运行风险。不会执行手机操作。")
             putJsonObject("parameters") {
                 put("type", "object")
@@ -365,7 +365,7 @@ object OobFunctionSkillProfile {
         putJsonObject("function") {
             put("name", OobFunctionToolNames.FUNCTION_DELETE)
             put("displayName", "删除复用指令")
-            put("toolType", "workbench")
+            put("toolType", "oob_function")
             put("description", "删除一个 OOB 复用指令。")
             putJsonObject("parameters") {
                 put("type", "object")
@@ -382,7 +382,7 @@ object OobFunctionSkillProfile {
         putJsonObject("function") {
             put("name", OobFunctionToolNames.FUNCTION_CLEAR)
             put("displayName", "清空复用指令")
-            put("toolType", "workbench")
+            put("toolType", "oob_function")
             put("description", "清空所有 OOB 复用指令。只有用户明确要求清空全部时使用，必须传 confirm=true。")
             putJsonObject("parameters") {
                 put("type", "object")
@@ -398,7 +398,7 @@ object OobFunctionSkillProfile {
         putJsonObject("function") {
             put("name", OobFunctionToolNames.RUN_LOG_LIST)
             put("displayName", "列出 RunLog")
-            put("toolType", "workbench")
+            put("toolType", "oob_function")
             put("description", "列出 OOB 内部最近的 RunLogs，用于选择可固化或检查的历史执行。")
             putJsonObject("parameters") {
                 put("type", "object")
@@ -412,7 +412,7 @@ object OobFunctionSkillProfile {
         putJsonObject("function") {
             put("name", OobFunctionToolNames.RUN_LOG_GET)
             put("displayName", "查看 RunLog")
-            put("toolType", "workbench")
+            put("toolType", "oob_function")
             put("description", "读取一个 OOB 内部 RunLog 时间线。只在需要检查具体历史执行时使用。")
             putJsonObject("parameters") {
                 put("type", "object")
@@ -429,7 +429,7 @@ object OobFunctionSkillProfile {
         putJsonObject("function") {
             put("name", OobFunctionToolNames.RUN_LOG_CONVERT)
             put("displayName", "转换 RunLog")
-            put("toolType", "workbench")
+            put("toolType", "oob_function")
             put("description", "把成功完成的 RunLog 转换为 oob.reusable_function.v1。register=true 默认保存为 agent 不可见的人工 Function；只有显式 agent_visible=true 才发布为可复用指令候选。")
             putJsonObject("parameters") {
                 put("type", "object")

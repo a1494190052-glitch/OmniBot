@@ -552,7 +552,8 @@ class VLMClient(
                 arguments = parseLooseArguments(toolCall.function.arguments)
             )
         }
-        val toolName = OobCanonicalActionSchema.canonicalToolName(rawToolName) ?: rawToolName
+        val toolName = OobCanonicalActionSchema.canonicalToolName(rawToolName)
+            ?: if (rawToolName.equals("scroll", ignoreCase = true)) OobCanonicalActionSchema.TOOL_SWIPE else rawToolName
         val args = parseCanonicalArguments(
             canonicalToolName = toolName,
             rawArguments = toolCall.function.arguments,
@@ -659,6 +660,7 @@ class VLMClient(
         val normalized = content.trim()
         if (normalized.isEmpty()) return null
         return parseJsonTextToolCall(normalized, dynamicFunctionToolNames)
+            ?: parseCompactQwenTextToolCall(normalized, dynamicFunctionToolNames)
             ?: parseLineTextToolCall(normalized, dynamicFunctionToolNames)
             ?: parseBareCommandTextToolCall(normalized, dynamicFunctionToolNames)
             ?: parseFunctionInvocationTextToolCall(normalized, dynamicFunctionToolNames)
@@ -670,6 +672,8 @@ class VLMClient(
         val candidates = buildList {
             val toolCallBody = TOOL_CALL_TAG_REGEX.find(content)?.groups?.get(1)?.value?.trim()
             if (!toolCallBody.isNullOrEmpty()) add(toolCallBody)
+            val lineToolCallBody = LINE_TOOL_CALL_JSON_REGEX.find(content)?.groups?.get(1)?.value?.trim()
+            if (!lineToolCallBody.isNullOrEmpty()) add(lineToolCallBody)
             extractTopLevelObject(content)?.let(::add)
         }
         candidates.forEach { candidate ->
@@ -681,8 +685,103 @@ class VLMClient(
                 val args = textToolArguments(toolObject)
                 return buildFallbackToolCall(name, args, dynamicFunctionToolNames)
             }
+            val embeddedText = stringValue(parsed["text"]) ?: stringValue(parsed["content"])
+            if (!embeddedText.isNullOrBlank() && embeddedText != content) {
+                parseTextToolCall(embeddedText, dynamicFunctionToolNames)?.let { return it }
+            }
         }
         return null
+    }
+
+    private fun parseCompactQwenTextToolCall(
+        content: String,
+        dynamicFunctionToolNames: Set<String>
+    ): AssistantToolCall? {
+        val marker = Regex("""(?i)(tool_call|tool_title)\s*:""").find(content) ?: return null
+        val markerName = marker.groups[1]?.value.orEmpty()
+        val tail = compactQwenToolTail(content, marker, markerName)
+        if (tail.isBlank()) return null
+        val knownNames = toolNames(dynamicFunctionToolNames)
+            .flatMap { name ->
+                if (name == OobCanonicalActionSchema.TOOL_SWIPE) listOf(name, "scroll") else listOf(name)
+            }
+            .sortedByDescending { it.length }
+        val rawName = knownNames.firstOrNull { name ->
+            tail.startsWith(name, ignoreCase = true)
+        } ?: return null
+        val normalizedName = normalizeToolName(rawName, dynamicFunctionToolNames) ?: return null
+        val rawArgs = tail.substring(rawName.length).trim()
+        if (rawArgs.isBlank()) return buildFallbackToolCall(normalizedName, "{}", dynamicFunctionToolNames)
+        if (rawArgs.startsWith("(")) {
+            val openParenIndex = tail.indexOf('(', startIndex = rawName.length)
+            if (openParenIndex >= 0 && tail.substring(rawName.length, openParenIndex).isBlank()) {
+                val invocationArgs = extractBalancedParenthesized(tail, openParenIndex)
+                if (invocationArgs != null) {
+                    return buildFallbackToolCall(normalizedName, invocationArgs, dynamicFunctionToolNames)
+                }
+            }
+        }
+        val args = normalizeFallbackLineArguments(
+            toolName = normalizedName,
+            args = if (rawArgs.startsWith("{")) {
+                parseLooseArguments(rawArgs)
+            } else {
+                parseCompactAdjacentArguments(rawArgs)
+            },
+            content = content
+        )
+        return buildFallbackToolCall(normalizedName, args.toString(), dynamicFunctionToolNames)
+    }
+
+    private fun compactQwenToolTail(content: String, marker: MatchResult, markerName: String): String {
+        val tail = content.substring(marker.range.last + 1).trimStart()
+        if (!markerName.equals("tool_title", ignoreCase = true)) return tail
+
+        return tail
+            .replace("\\r\\n", "\n")
+            .replace("\\n", "\n")
+            .replace("\\r", "\n")
+            .lineSequence()
+            .drop(1)
+            .joinToString("\n")
+            .trimStart()
+    }
+
+    private fun parseCompactAdjacentArguments(raw: String): JsonObject {
+        val keys = listOf(
+            OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION,
+            OobCanonicalActionSchema.ARG_ELEMENT_INDEX,
+            OobCanonicalActionSchema.ARG_NODE_ID,
+            OobCanonicalActionSchema.ARG_NODE_RESOURCE_ID,
+            OobCanonicalActionSchema.ARG_SCROLLABLE_INDEX,
+            OobCanonicalActionSchema.ARG_DURATION_MS,
+            OobCanonicalActionSchema.ARG_PACKAGE_NAME,
+            OobCanonicalActionSchema.ARG_DIRECTION,
+            OobCanonicalActionSchema.ARG_DISTANCE,
+            OobCanonicalActionSchema.ARG_TEXT,
+            OobCanonicalActionSchema.ARG_TIME_S,
+            OobCanonicalActionSchema.ARG_REASON,
+            OobCanonicalActionSchema.ARG_KEY,
+            OobCanonicalActionSchema.ARG_X1,
+            OobCanonicalActionSchema.ARG_Y1,
+            OobCanonicalActionSchema.ARG_X2,
+            OobCanonicalActionSchema.ARG_Y2,
+            OobCanonicalActionSchema.ARG_X,
+            OobCanonicalActionSchema.ARG_Y,
+        )
+        val keyPattern = keys.joinToString("|") { Regex.escape(it) }
+        val pairRegex = Regex(
+            """(?is)($keyPattern)\s*[:=]\s*(.*?)(?=($keyPattern)\s*[:=]|$)"""
+        )
+        val values = linkedMapOf<String, JsonElement>()
+        pairRegex.findAll(raw).forEach { match ->
+            val key = match.groups[1]?.value?.trim().orEmpty()
+            val value = match.groups[2]?.value?.trim().orEmpty()
+            if (key.isNotBlank()) {
+                values[key] = parseLineValue(value)
+            }
+        }
+        return JsonObject(values)
     }
 
     private fun textToolCallObjects(parsed: JsonObject): List<JsonObject> = buildList {
@@ -735,10 +834,15 @@ class VLMClient(
         if (name.isEmpty()) return null
         val inlineArgumentText = match.groups[2]?.value?.trim().orEmpty()
         val argumentText = content.substring(match.range.last + 1)
+        val inlineArguments = if (inlineArgumentText.startsWith("{")) {
+            parseLooseArguments(inlineArgumentText)
+        } else {
+            parseInlineArguments(inlineArgumentText)
+        }
         val args = normalizeFallbackLineArguments(
             toolName = name,
             args = mergeJsonObjects(
-                parseInlineArguments(inlineArgumentText),
+                inlineArguments,
                 parseLineArguments(argumentText)
             ),
             content = content
@@ -758,9 +862,14 @@ class VLMClient(
                 val name = match.groups[1]?.value?.trim().orEmpty()
                 val normalizedName = normalizeToolName(name, dynamicFunctionToolNames) ?: return@forEach
                 val argText = match.groups[2]?.value?.trim().orEmpty()
+                val parsedArgs = if (argText.startsWith("{")) {
+                    parseLooseArguments(argText)
+                } else {
+                    parseInlineArguments(argText)
+                }
                 val args = normalizeFallbackLineArguments(
                     toolName = normalizedName,
-                    args = parseInlineArguments(argText),
+                    args = parsedArgs,
                     content = content
                 )
                 return buildFallbackToolCall(normalizedName, args.toString(), dynamicFunctionToolNames)
@@ -841,7 +950,11 @@ class VLMClient(
         if (!fromMetadata.isNullOrBlank()) return fromMetadata.take(160)
         return normalized
             .lineSequence()
-            .firstOrNull { line -> !line.trim().startsWith("tool_call:", ignoreCase = true) }
+            .firstOrNull { line ->
+                val trimmed = line.trim()
+                !trimmed.startsWith("tool_call:", ignoreCase = true) &&
+                    !trimmed.startsWith("tool_title:", ignoreCase = true)
+            }
             ?.trim()
             .orEmpty()
             .take(160)
@@ -973,6 +1086,7 @@ class VLMClient(
     private fun normalizeToolName(name: String, dynamicFunctionToolNames: Set<String>): String? {
         val normalized = name.trim().removePrefix("functions.").removePrefix("function.").trim()
         if (normalized in dynamicFunctionToolNames) return normalized
+        if (normalized.equals("scroll", ignoreCase = true)) return OobCanonicalActionSchema.TOOL_SWIPE
         OobCanonicalActionSchema.canonicalToolName(normalized)?.let { return it }
         return toolNames(dynamicFunctionToolNames).firstOrNull { it == normalized }
     }
@@ -1150,7 +1264,8 @@ class VLMClient(
             """(?is)<arg_key>\s*([^<]+?)\s*</arg_key>\s*<arg_value>\s*(.*?)\s*(?=</arg_value>|</tool_call>|```|$)(?:</arg_value>)?"""
         )
         private val LINE_TOOL_CALL_REGEX = Regex("""(?im)^\s*tool_call\s*:\s*([A-Za-z0-9_.-]+)(?:\s+(.+?))?\s*$""")
-        private val BARE_COMMAND_REGEX = Regex("""^([A-Za-z_][A-Za-z0-9_.-]*)(?:\s+(.+))?$""")
+        private val LINE_TOOL_CALL_JSON_REGEX = Regex("""(?is)tool_call\s*:\s*(\{.*\})""")
+        private val BARE_COMMAND_REGEX = Regex("""^([A-Za-z_][A-Za-z0-9_.-]*):?(?:\s+(.+))?$""")
         private val LINE_ARGUMENT_REGEX = Regex("""^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.+?)\s*$""")
         private val INLINE_ARGUMENT_REGEX = Regex(
             """([A-Za-z_][A-Za-z0-9_]*)\s*[:=]\s*("[^"]*"|'[^']*'|[^\s,]+)"""

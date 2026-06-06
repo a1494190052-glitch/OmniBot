@@ -21,7 +21,7 @@ import kotlin.math.roundToInt
  *
  * The VLM receives one current screenshot plus this compact Accessibility-tree
  * view by default. The indexed evidence gives stable labels, flags, and
- * absolute screen-pixel centers so the model can choose element_index /
+ * 0..1000 relative centers so the model can choose element_index /
  * scrollable_index without requiring a second marked screenshot.
  */
 object VLMIndexedPageContext {
@@ -83,12 +83,12 @@ object VLMIndexedPageContext {
         }
 
         return buildString {
-            appendLine("OOB indexed page evidence (compact live page summary; coordinates are absolute screen pixels):")
+            appendLine("OOB indexed page evidence (compact live page summary; coordinates are 0..1000 relative):")
             candidates.forEachIndexed { index, node ->
                 append("#").append(index)
                     .append(" action=").append(node.actionHint())
-                    .append(" center=(").append(absCoord(node.bounds.centerX, screen.left, screen.right))
-                    .append(",").append(absCoord(node.bounds.centerY, screen.top, screen.bottom)).append(")")
+                    .append(" center=(").append(norm(node.bounds.centerX, screen.left, screen.width))
+                    .append(",").append(norm(node.bounds.centerY, screen.top, screen.height)).append(")")
                     .append(" flags=").append(node.flags())
                     .append(" role=").append(node.semanticRole())
                     .append(" label=\"").append(node.displayLabel.take(MAX_LABEL_CHARS)).append("\"")
@@ -97,9 +97,9 @@ object VLMIndexedPageContext {
             }
             if (focusedEditable != null) {
                 append("Focused editable: center=(")
-                    .append(absCoord(focusedEditable.bounds.centerX, screen.left, screen.right))
+                    .append(norm(focusedEditable.bounds.centerX, screen.left, screen.width))
                     .append(",")
-                    .append(absCoord(focusedEditable.bounds.centerY, screen.top, screen.bottom))
+                    .append(norm(focusedEditable.bounds.centerY, screen.top, screen.height))
                     .append(") label=\"")
                     .append(focusedEditable.displayLabel.take(MAX_LABEL_CHARS))
                     .appendLine("\"")
@@ -108,8 +108,8 @@ object VLMIndexedPageContext {
                 appendLine("Form anchors:")
                 formFields.forEachIndexed { index, node ->
                     append("F").append(index)
-                        .append(" center=(").append(absCoord(node.bounds.centerX, screen.left, screen.right))
-                        .append(",").append(absCoord(node.bounds.centerY, screen.top, screen.bottom)).append(")")
+                        .append(" center=(").append(norm(node.bounds.centerX, screen.left, screen.width))
+                        .append(",").append(norm(node.bounds.centerY, screen.top, screen.height)).append(")")
                         .append(" role=").append(node.formRole())
                         .append(" action=").append(node.actionHint())
                         .append(" label=\"").append(node.formLabel.take(MAX_LABEL_CHARS)).append("\"")
@@ -122,9 +122,9 @@ object VLMIndexedPageContext {
             if (scrollables.isNotEmpty()) {
                 appendLine("Scrollable regions:")
                 scrollables.forEachIndexed { index, node ->
-                    val x = absCoord(node.bounds.centerX, screen.left, screen.right)
-                    val y1 = absCoord(node.bounds.bottom - node.bounds.height * 0.14f, screen.top, screen.bottom)
-                    val y2 = absCoord(node.bounds.top + node.bounds.height * 0.22f, screen.top, screen.bottom)
+                    val x = norm(node.bounds.centerX, screen.left, screen.width)
+                    val y1 = norm(node.bounds.bottom - node.bounds.height * 0.14f, screen.top, screen.height)
+                    val y2 = norm(node.bounds.top + node.bounds.height * 0.22f, screen.top, screen.height)
                     append("S").append(index)
                         .append(" action=swipe")
                         .append(" vertical_down=(").append(x).append(",").append(y1)
@@ -150,9 +150,9 @@ object VLMIndexedPageContext {
             buildString {
                 append("#").append(index)
                     .append(" center=(")
-                    .append(absCoord(node.bounds.centerX, screen.left, screen.right))
+                    .append(norm(node.bounds.centerX, screen.left, screen.width))
                     .append(",")
-                    .append(absCoord(node.bounds.centerY, screen.top, screen.bottom))
+                    .append(norm(node.bounds.centerY, screen.top, screen.height))
                     .append(")")
                     .append(" action=").append(node.actionHint())
                     .append(" flags=").append(node.flags())
@@ -573,9 +573,6 @@ object VLMIndexedPageContext {
         (((value - origin) / size.coerceAtLeast(1f)) * 1000f)
             .roundToInt()
             .coerceIn(0, 1000)
-
-    private fun absCoord(value: Float, minValue: Float, maxValue: Float): Int =
-        value.roundToInt().coerceIn(minValue.roundToInt(), maxValue.roundToInt())
 
     private fun isOverlayLabel(value: String): Boolean {
         val normalized = value.lowercase().replace(" ", "")

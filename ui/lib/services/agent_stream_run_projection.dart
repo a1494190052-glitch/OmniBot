@@ -52,8 +52,7 @@ class AgentStreamRunProjection {
       AgentStreamEventKind.textSnapshot ||
       AgentStreamEventKind.toolStarted ||
       AgentStreamEventKind.toolProgress ||
-      AgentStreamEventKind.toolCompleted ||
-      AgentStreamEventKind.workbenchProjectCard => true,
+      AgentStreamEventKind.toolCompleted => true,
       AgentStreamEventKind.completed ||
       AgentStreamEventKind.error ||
       AgentStreamEventKind.clarifyRequired ||

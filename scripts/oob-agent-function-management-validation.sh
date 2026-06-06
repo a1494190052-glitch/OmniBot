@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Validate that OOB Function management works through the real Agent tool path:
-# AgentToolRegistry -> AgentToolRouter -> WorkbenchToolHandler -> OmniFlow run.
+# AgentToolRegistry -> AgentToolRouter -> OobFunctionToolHandler -> OmniFlow run.
 set -euo pipefail
 
 DEVICE_SERIAL="${OOB_DEVICE:-emulator-5556}"

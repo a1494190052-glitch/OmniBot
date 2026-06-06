@@ -134,7 +134,7 @@ record. Do not read only the snapshot when correctness matters.
   `omniflow-checker-maintainer` skill is only the agent maintenance checklist.
 - Page/package inference helper: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogPagePackageInference.kt`
 - Function backend ownership: `app/src/main/assets/omniflow/function/README.md`
-- Workspace Function save: `app/src/main/java/cn/com/omnimind/bot/workbench/WorkspaceFunctionStore.kt`
+- Workspace Function save: `app/src/main/java/cn/com/omnimind/bot/omniflow/WorkspaceFunctionStore.kt`
 - Flutter timeline: `ui/lib/features/task/pages/execution_history/run_log_timeline_page.dart`
 - Flutter reusable Function card: `ui/lib/features/task/pages/execution_history/widgets/reusable_function_card.dart`
 - Flutter converter: `ui/lib/features/task/run_log/run_log_reusable_function_converter.dart`
@@ -192,7 +192,7 @@ always goes through `call_tool(function_id, arguments)`.
   `call_tool` with `function_id` also use this executor and are dispatched by
   `OobFunctionToolHandler`.
 - `executor=tool`: direct tool call only when a live `AgentToolRouter` exists and the tool output is not live data needed by later steps.
-- `executor=agent`: live planning or perception. Use for VLM-only cards, `browser_use`, `web_search`, memory lookup, RunLog lookup, and workbench list/query tools.
+- `executor=agent`: live planning or perception. Use for VLM-only cards, `browser_use`, `web_search`, memory lookup, and RunLog lookup.
 
 Do not hard replay `browser_use` or `web_search`; their outputs are live context and can be stale.
 
@@ -391,7 +391,6 @@ dart analyze lib/features/task/run_log/run_log_reusable_function_converter.dart 
 ```bash
 ./gradlew :app:testDevelopStandardDebugUnitTest --tests cn.com.omnimind.bot.runlog.InternalRunLogStoreTest
 ./gradlew :app:testDevelopStandardDebugUnitTest --tests cn.com.omnimind.bot.runlog.UIStepExecutorTest
-./gradlew :app:testDevelopStandardDebugUnitTest --tests cn.com.omnimind.bot.workbench.OobSkillReplayTest
 ```
 
 Add tests for new tool classes before changing executor policy.

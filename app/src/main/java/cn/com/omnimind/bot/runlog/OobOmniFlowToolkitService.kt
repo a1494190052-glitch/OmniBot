@@ -17,7 +17,7 @@ import cn.com.omnimind.bot.runlog.OobActionCodec.firstNonBlank
 import cn.com.omnimind.bot.runlog.OobActionCodec.intArg
 import cn.com.omnimind.bot.runlog.OobActionCodec.listArg
 import cn.com.omnimind.bot.runlog.OobActionCodec.mapArg
-import cn.com.omnimind.bot.workbench.WorkspaceFunctionStore
+import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
 
 /**
  * OOB-native implementation of the public OmniFlow agent toolkit surface.
@@ -506,6 +506,12 @@ class OobOmniFlowToolkitService(
             runner = runPayload["runner"]?.toString(),
             stepCount = intArg(runPayload["step_count"], defaultValue = 0),
             errorMessage = runPayload["error_message"]?.toString()
+        )
+        OobFunctionRunLogRecorder.record(
+            context = context,
+            functionId = functionId,
+            functionSpec = functionRepository.get(functionId) ?: emptyMap(),
+            runPayload = runPayload,
         )
         val stepResults = listArg(runPayload["step_results"])
         val timing = mapArg(runPayload["timing"])

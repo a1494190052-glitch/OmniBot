@@ -160,7 +160,8 @@ class OmniCaptureAction(
             "com.google.android.inputmethod.latin", // Google输入法
             "com.samsung.android.app.clipboardedge", // Samsung边缘面板
             "com.android.quickstep",           // 最近任务
-            "com.vivo.upslide"                 // vivo 手势栏/侧滑栏/上滑控制层
+            "com.vivo.upslide",                // vivo 手势栏/侧滑栏/上滑控制层
+            "com.vivo.systemuiplugin"          // vivo SmartIsland/系统插件层
         )
 
         // 屏蔽特定类名

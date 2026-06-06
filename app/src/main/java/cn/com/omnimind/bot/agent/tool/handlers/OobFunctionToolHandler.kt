@@ -45,8 +45,8 @@ class OobFunctionToolHandler(
 
     internal var router: cn.com.omnimind.bot.agent.AgentToolExecutor? = null
 
-    /** Workspace-backed function store; injected by WorkbenchProjectStore on init. */
-    var workspaceFunctionStore: cn.com.omnimind.bot.workbench.WorkspaceFunctionStore? = null
+    /** Workspace-backed function store; injected by the OmniFlow function layer on init. */
+    var workspaceFunctionStore: cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore? = null
 
     override fun canHandle(toolName: String): Boolean =
         RunLogReplayPolicy.isOmniflowToolCallTool(toolName) ||
@@ -352,6 +352,10 @@ class OobFunctionToolHandler(
             frontendParent = frontendParent,
         )
         var frontendFinished = false
+        val replayStopRequested = {
+            frontendSession?.isStopRequested() == true ||
+                toolHandle?.isManualStopRequested() == true
+        }
         var frontendFinishMessage = helper.localized("任务已完成")
         var frontendCloseAfterMs = FRONTEND_TERMINAL_POPUP_VISIBLE_MS
         val stepResults = mutableListOf<Map<String, Any?>>()
@@ -460,6 +464,7 @@ class OobFunctionToolHandler(
                         callableTool = omniflowExecutionTool,
                         checkerRules = functionCheckerRules,
                         checkerBudget = checkerBudget,
+                        stopRequested = replayStopRequested,
                     )
                 }
 
@@ -471,6 +476,7 @@ class OobFunctionToolHandler(
                             stepTitle = stepTitle,
                             checkerRules = functionCheckerRules,
                             checkerBudget = checkerBudget,
+                            stopRequested = replayStopRequested,
                         )
                     } catch (e: kotlinx.coroutines.CancellationException) {
                         throw e
@@ -619,6 +625,40 @@ class OobFunctionToolHandler(
             frontendFinished = true
             return resultPayload
         } catch (e: kotlinx.coroutines.CancellationException) {
+            if (frontendSession?.isStopRequested() == true || toolHandle?.isManualStopRequested() == true) {
+                frontendFinishMessage = helper.localized("任务已停止")
+                frontendCloseAfterMs = FRONTEND_TERMINAL_POPUP_VISIBLE_MS
+                if (currentStepIndex >= 0 && stepResults.none { it["index"] == currentStepIndex }) {
+                    val stoppedAtMs = System.currentTimeMillis()
+                    stepResults += LinkedHashMap<String, Any?>().apply {
+                        putAll(
+                            runResultBuilder.failureStep(
+                                stepId = currentStepId.ifBlank { "step_${currentStepIndex + 1}" },
+                                tool = currentStepTool.ifBlank { "?" },
+                                executor = currentStepExecutor.ifBlank { RunLogReplayPolicy.EXECUTOR_OMNIFLOW },
+                                summary = frontendFinishMessage,
+                                errorCode = "OOB_FUNCTION_STOPPED",
+                            )
+                        )
+                        put("index", currentStepIndex)
+                        put("started_at_ms", currentStepStartedAtMs.takeIf { it > 0L } ?: stoppedAtMs)
+                        put("finished_at_ms", stoppedAtMs)
+                        put(
+                            "duration_ms",
+                            (stoppedAtMs - (currentStepStartedAtMs.takeIf { it > 0L } ?: stoppedAtMs))
+                                .coerceAtLeast(0)
+                        )
+                    }
+                }
+                failureReason = frontendFinishMessage
+                val resultPayload = buildResult().toMutableMap()
+                resultPayload["error_code"] = "OOB_FUNCTION_STOPPED"
+                resultPayload["error_message"] = frontendFinishMessage
+                resultPayload["timing"] = timing.finish()
+                frontendSession?.finish(frontendFinishMessage, closeAfterMs = frontendCloseAfterMs)
+                frontendFinished = true
+                return resultPayload
+            }
             frontendFinishMessage = helper.localized("任务已停止")
             frontendCloseAfterMs = FRONTEND_TERMINAL_POPUP_VISIBLE_MS
             throw e
@@ -899,6 +939,10 @@ class OobFunctionToolHandler(
             frontendParent = frontendParent,
         )
         var frontendFinished = false
+        val replayStopRequested = {
+            frontendSession?.isStopRequested() == true ||
+                toolHandle?.isManualStopRequested() == true
+        }
         var frontendFinishMessage = helper.localized("任务已完成")
         var frontendCloseAfterMs = FRONTEND_TERMINAL_POPUP_VISIBLE_MS
         val activeCallStack = if (fn.id.isNotBlank()) callStack + fn.id else callStack
@@ -1079,6 +1123,7 @@ class OobFunctionToolHandler(
                                     )
                                 },
                                 checkerBudget = checkerBudget,
+                                stopRequested = replayStopRequested,
                             )
                         } catch (e: kotlinx.coroutines.CancellationException) {
                             throw e
@@ -1198,6 +1243,39 @@ class OobFunctionToolHandler(
             frontendFinished = true
             return resultPayload
         } catch (e: kotlinx.coroutines.CancellationException) {
+            if (frontendSession?.isStopRequested() == true || toolHandle?.isManualStopRequested() == true) {
+                frontendFinishMessage = helper.localized("任务已停止")
+                frontendCloseAfterMs = FRONTEND_TERMINAL_POPUP_VISIBLE_MS
+                if (currentStepIndex >= 0 && stepResults.none { it["index"] == currentStepIndex }) {
+                    val stoppedAtMs = System.currentTimeMillis()
+                    stepResults += LinkedHashMap<String, Any?>().apply {
+                        putAll(
+                            runResultBuilder.failureStep(
+                                stepId = currentStepId.ifBlank { "step_${currentStepIndex + 1}" },
+                                tool = currentStepTool.ifBlank { "?" },
+                                executor = RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
+                                summary = frontendFinishMessage,
+                                errorCode = "OOB_FUNCTION_STOPPED",
+                            )
+                        )
+                        put("index", currentStepIndex)
+                        put("started_at_ms", currentStepStartedAtMs.takeIf { it > 0L } ?: stoppedAtMs)
+                        put("finished_at_ms", stoppedAtMs)
+                        put(
+                            "duration_ms",
+                            (stoppedAtMs - (currentStepStartedAtMs.takeIf { it > 0L } ?: stoppedAtMs))
+                                .coerceAtLeast(0)
+                        )
+                    }
+                }
+                failureReason = frontendFinishMessage
+                val resultPayload = buildResult()
+                resultPayload["error_code"] = "OOB_FUNCTION_STOPPED"
+                resultPayload["error_message"] = frontendFinishMessage
+                frontendSession?.finish(frontendFinishMessage, closeAfterMs = frontendCloseAfterMs)
+                frontendFinished = true
+                return resultPayload
+            }
             frontendFinishMessage = helper.localized("任务已停止")
             frontendCloseAfterMs = FRONTEND_TERMINAL_POPUP_VISIBLE_MS
             throw e

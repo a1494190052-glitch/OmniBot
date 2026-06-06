@@ -553,6 +553,15 @@ class ShowInfoView @JvmOverloads constructor(
 
     private fun restoreDoingContentVisibility() {
         visibility = VISIBLE
+        layoutParams?.let { params ->
+            if (params.width != ViewGroup.LayoutParams.MATCH_PARENT ||
+                params.height != ViewGroup.LayoutParams.MATCH_PARENT
+            ) {
+                params.width = ViewGroup.LayoutParams.MATCH_PARENT
+                params.height = ViewGroup.LayoutParams.MATCH_PARENT
+                layoutParams = params
+            }
+        }
         gradientBorderContainer?.visibility = VISIBLE
         innerRelativeLayout?.visibility = VISIBLE
         gradientTextView?.visibility = VISIBLE

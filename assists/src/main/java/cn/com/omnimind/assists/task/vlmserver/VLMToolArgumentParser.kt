@@ -70,9 +70,10 @@ object VLMToolArgumentParser {
         rawArguments: String,
         repaired: Boolean
     ): JsonObject {
+        val stripped = stripVlmMetadataArguments(parsed)
         val normalizedFromParsed = VLMToolDefinitions.coerceArguments(
             toolName,
-            VLMToolDefinitions.normalizeArguments(toolName, parsed)
+            VLMToolDefinitions.normalizeArguments(toolName, stripped)
         )
         val validatedFromParsed = runCatching {
             VLMToolDefinitions.validateArguments(toolName, normalizedFromParsed)
@@ -90,9 +91,10 @@ object VLMToolArgumentParser {
 
         val repairedFromRaw = repairUsingSchema(toolName, normalizeRawArguments(rawArguments))
         if (repairedFromRaw != null) {
+            val strippedRawRepair = stripVlmMetadataArguments(repairedFromRaw)
             val normalizedFromRawRepair = VLMToolDefinitions.coerceArguments(
                 toolName,
-                VLMToolDefinitions.normalizeArguments(toolName, repairedFromRaw)
+                VLMToolDefinitions.normalizeArguments(toolName, strippedRawRepair)
             )
             VLMToolDefinitions.validateArguments(toolName, normalizedFromRawRepair)
             OmniLog.w(
@@ -104,6 +106,15 @@ object VLMToolArgumentParser {
 
         VLMToolDefinitions.validateArguments(toolName, normalizedFromParsed)
         return normalizedFromParsed
+    }
+
+    private fun stripVlmMetadataArguments(arguments: JsonObject): JsonObject {
+        if (arguments.isEmpty()) return arguments
+        val stripped = arguments.filterKeys { key ->
+            !key.equals("tool_title", ignoreCase = true) &&
+                !key.equals("toolTitle", ignoreCase = true)
+        }
+        return if (stripped.size == arguments.size) arguments else JsonObject(stripped)
     }
 
     private fun parseObject(candidate: String): JsonObject {

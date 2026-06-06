@@ -311,7 +311,11 @@ data class SceneChatCompletionTurn(
     val parser: ModelSceneRegistry.ResponseParser,
     val route: String? = null,
     val resolvedModel: String,
-    val turn: ChatCompletionTurn
+    val turn: ChatCompletionTurn,
+    val requestVariant: String? = null,
+    val requestHadTools: Boolean? = null,
+    val requestToolChoice: String? = null,
+    val requestParallelToolCalls: Boolean? = null
 )
 
 @Serializable

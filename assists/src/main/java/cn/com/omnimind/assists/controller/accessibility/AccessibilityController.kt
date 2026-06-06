@@ -141,18 +141,26 @@ class AccessibilityController() {
             nodeResourceId: String = "",
         ) {
             checkAccessibilityPermissions()
-            val node = withTimeout(INPUT_TARGET_LOOKUP_TIMEOUT_MS) {
-                findEditableInputCandidate(
-                    targetDescription = targetDescription,
-                    nodeResourceId = nodeResourceId,
-                    x = x,
-                    y = y,
-                )
-            } ?: throw NoFocusedNodeException(
-                "No editable input target found: " +
+            if (x != null && y != null) {
+                val node = findInputTextNodeAtCoordinate(x, y)
+                    ?: throw NoFocusedNodeException(
+                        "No input text target found at mapped coordinate: x=${x.toInt()} y=${y.toInt()}"
+                    )
+                inputTextIntoNode(node, text, focusBeforeInput = true)
+                return
+            }
+            waitForFocusedInputTextCandidate()?.let { focusedNode ->
+                runCatching {
+                    inputTextIntoNode(focusedNode, text, focusBeforeInput = false)
+                    return
+                }.onFailure { error ->
+                    OmniLog.d(TAG, "input text to focused node failed, fallback to input lookup: ${error.message}")
+                }
+            }
+            throw NoFocusedNodeException(
+                "No focused input text target found and no mapped coordinate was provided: " +
                     targetDescription.ifBlank { nodeResourceId.ifBlank { "x=$x y=$y" } }
             )
-            inputTextIntoNode(node, text)
         }
 
         suspend fun pressHotKey(key: String) {
@@ -169,6 +177,35 @@ class AccessibilityController() {
                 "HOME" -> goHome()
                 else -> throw IllegalArgumentException("Unsupported hot key: $key")
             }
+        }
+
+        suspend fun pressImeEnterToBestNode(
+            targetDescription: String = "",
+            x: Float? = null,
+            y: Float? = null,
+            nodeResourceId: String = "",
+        ) {
+            checkAccessibilityPermissions()
+            val node = withTimeout(INPUT_TARGET_LOOKUP_TIMEOUT_MS) {
+                findEditableInputCandidate(
+                    targetDescription = targetDescription,
+                    nodeResourceId = nodeResourceId,
+                    x = x,
+                    y = y,
+                )
+            } ?: throw NoFocusedNodeException(
+                "No editable input target found for IME enter: " +
+                    targetDescription.ifBlank { nodeResourceId.ifBlank { "x=$x y=$y" } }
+            )
+            if (!node.isFocused) {
+                runCatching {
+                    node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+                }.onFailure { error ->
+                    OmniLog.d(TAG, "focus editable node before IME enter failed: ${error.message}")
+                }
+            }
+            actionController?.performImeEnter(node)
+                ?: throw IllegalStateException("Accessibility action controller is not ready")
         }
 
         // 剪贴板回调
@@ -315,9 +352,9 @@ class AccessibilityController() {
                     ?: throw IllegalArgumentException("Node with ID '$nodeId' not found.")
                 val editableNode = findActionableAncestor(
                     node = node.info,
-                    supportsAction = { it.isEnabled && it.isEditable }
+                    supportsAction = { it.isEnabled && it.isTextInputLike() }
                 ) ?: throw IllegalStateException(
-                    "Node '$nodeId' is not editable: ${targetDescription.ifBlank { nodeSemanticLabel(node.info) }}"
+                    "Node '$nodeId' is not an input text target: ${targetDescription.ifBlank { nodeSemanticLabel(node.info) }}"
                 )
                 actionController?.inputText(editableNode, text)
                     ?: throw IllegalStateException("Accessibility action controller is not ready")
@@ -612,19 +649,67 @@ class AccessibilityController() {
                 ?.node
         }
 
+        private fun findInputTextNodeAtCoordinate(x: Float, y: Float): AccessibilityNodeInfo? {
+            val px = x.toInt()
+            val py = y.toInt()
+            val nodes = captureAction?.getNodeMap()?.values.orEmpty()
+            val inputNode = nodes
+                .asSequence()
+                .mapNotNull { node ->
+                    if (!node.show || !node.info.isEnabled) return@mapNotNull null
+                    val textNode = findActionableAncestor(
+                        node = node.info,
+                        supportsAction = { it.isEnabled && it.isTextInputLike() }
+                    ) ?: return@mapNotNull null
+                    val bounds = textNode.boundsInScreenOrNull() ?: node.bounds
+                    if (bounds.isEmpty || !bounds.contains(px, py)) return@mapNotNull null
+                    CoordinateInputCandidate(
+                        node = textNode,
+                        area = bounds.width().coerceAtLeast(1) * bounds.height().coerceAtLeast(1)
+                    )
+                }
+                .minByOrNull { it.area }
+                ?.node
+            if (inputNode != null) return inputNode
+
+            return nodes
+                .asSequence()
+                .mapNotNull { node ->
+                    if (!node.show || !node.info.isEnabled) return@mapNotNull null
+                    val bounds = node.info.boundsInScreenOrNull() ?: node.bounds
+                    if (bounds.isEmpty || !bounds.contains(px, py)) return@mapNotNull null
+                    CoordinateInputCandidate(
+                        node = node.info,
+                        area = bounds.width().coerceAtLeast(1) * bounds.height().coerceAtLeast(1)
+                    )
+                }
+                .minByOrNull { it.area }
+                ?.node
+        }
+
         private fun inputTextIntoNode(
             node: AccessibilityNodeInfo,
-            text: String
+            text: String,
+            focusBeforeInput: Boolean = false,
         ) {
-            if (!node.isFocused) {
+            if (focusBeforeInput && !node.isFocused) {
                 runCatching {
                     node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
                 }.onFailure { error ->
-                    OmniLog.d(TAG, "focus editable node before input failed: ${error.message}")
+                    OmniLog.d(TAG, "focus input node before input failed: ${error.message}")
                 }
             }
             actionController?.inputText(node, text)
                 ?: throw IllegalStateException("Accessibility action controller is not ready")
+        }
+
+        private suspend fun waitForFocusedInputTextCandidate(): AccessibilityNodeInfo? {
+            val startedAtMs = System.currentTimeMillis()
+            while (System.currentTimeMillis() - startedAtMs <= INPUT_FOCUSED_TARGET_LOOKUP_MS) {
+                findFocusedInputTextCandidate()?.let { return it }
+                delay(INPUT_TARGET_RETRY_INTERVAL_MS)
+            }
+            return findFocusedInputTextCandidate()
         }
 
         private fun findEditableInputCandidate(
@@ -636,13 +721,11 @@ class AccessibilityController() {
             val terms = semanticTerms(targetDescription)
             val resourceText = nodeResourceId.trim().lowercase()
             val resourceTail = resourceText.substringAfterLast('/').substringAfterLast(':')
-            val hasSelector = targetDescription.isNotBlank() || resourceText.isNotBlank() ||
-                (x != null && y != null)
             return captureAction?.getNodeMap()?.values.orEmpty()
                 .mapNotNull { node ->
                     val editableNode = findActionableAncestor(
                         node = node.info,
-                        supportsAction = { it.isEnabled && it.isEditable }
+                        supportsAction = { it.isEnabled && it.isTextInputLike() }
                     ) ?: return@mapNotNull null
                     val bounds = editableNode.boundsInScreenOrNull() ?: node.bounds
                     if (bounds.isEmpty) return@mapNotNull null
@@ -681,15 +764,13 @@ class AccessibilityController() {
                         x != null && y != null -> (240f - distance * 0.08f).coerceAtLeast(0f)
                         else -> 0f
                     }
+                    val inputScore = inputTextLikelihoodScore(editableNode)
                     val focusScore = if (editableNode.isFocused) 120f else 0f
                     val areaPenalty = (bounds.width() * bounds.height()).toFloat() / 100000f
                     EditableInputCandidate(
                         node = editableNode,
-                        score = coordinateScore + termScore + resourceScore + focusScore - areaPenalty
+                        score = coordinateScore + termScore + resourceScore + inputScore + focusScore - areaPenalty
                     )
-                }
-                .filter { candidate ->
-                    candidate.score >= if (hasSelector) MIN_INPUT_TARGET_SCORE else 0f
                 }
                 .maxByOrNull { it.score }
                 ?.node
@@ -763,9 +844,54 @@ class AccessibilityController() {
                 .filter { !it.isNullOrBlank() }
                 .joinToString(" ")
 
+        private fun findFocusedInputTextCandidate(): AccessibilityNodeInfo? =
+            captureAction?.getNodeMap()?.values.orEmpty()
+                .asSequence()
+                .map { it.info }
+                .filter { it.isFocused && it.isEnabled && it.isTextInputLike() }
+                .sortedWith(
+                    compareByDescending<AccessibilityNodeInfo> { it.supportsSetTextAction() }
+                        .thenByDescending { it.isEditable }
+                        .thenByDescending { runCatching { it.inputType }.getOrDefault(0) != 0 }
+                )
+                .firstOrNull()
+
+        private fun AccessibilityNodeInfo.isTextInputLike(): Boolean {
+            if (!isEnabled) return false
+            if (isEditable || supportsSetTextAction()) return true
+            val className = this.className?.toString().orEmpty().lowercase()
+            if (INPUT_TEXT_CLASS_TERMS.any { className.contains(it) }) return true
+            return runCatching { inputType }.getOrDefault(0) != 0
+        }
+
+        private fun inputTextLikelihoodScore(node: AccessibilityNodeInfo): Float {
+            var score = 0f
+            if (node.isEditable) score += 700f
+            if (node.supportsSetTextAction()) score += 900f
+            val className = node.className?.toString().orEmpty().lowercase()
+            if (INPUT_TEXT_CLASS_TERMS.any { className.contains(it) }) score += 360f
+            if (runCatching { node.inputType }.getOrDefault(0) != 0) score += 220f
+            if (node.isFocusable) score += 80f
+            return score
+        }
+
+        private fun AccessibilityNodeInfo.supportsSetTextAction(): Boolean {
+            val actionListHasSetText = runCatching {
+                actionList.any { it.id == AccessibilityNodeInfo.ACTION_SET_TEXT }
+            }.getOrDefault(false)
+            if (actionListHasSetText) return true
+            @Suppress("DEPRECATION")
+            return (actions and AccessibilityNodeInfo.ACTION_SET_TEXT) != 0
+        }
+
         private data class EditableInputCandidate(
             val node: AccessibilityNodeInfo,
             val score: Float
+        )
+
+        private data class CoordinateInputCandidate(
+            val node: AccessibilityNodeInfo,
+            val area: Int
         )
 
         private fun semanticTerms(value: String): Set<String> =
@@ -1168,7 +1294,15 @@ class AccessibilityController() {
         private const val MAX_SAFE_COORDINATE_NODE_CLICK_AREA_PX = 300_000
         private const val MIN_INPUT_TARGET_SCORE = 80f
         private const val INPUT_TARGET_LOOKUP_TIMEOUT_MS = 3000L
-        private const val INPUT_FOCUS_SETTLE_MS = 500L
+        private const val INPUT_FOCUSED_TARGET_LOOKUP_MS = 1200L
+        private const val INPUT_TARGET_RETRY_INTERVAL_MS = 80L
+        private val INPUT_TEXT_CLASS_TERMS = setOf(
+            "edittext",
+            "textfield",
+            "textinput",
+            "autocomplete",
+            "searchview"
+        )
         private val UNSAFE_COORDINATE_NODE_CLICK_CLASSES = setOf(
             "webview",
             "recyclerview",

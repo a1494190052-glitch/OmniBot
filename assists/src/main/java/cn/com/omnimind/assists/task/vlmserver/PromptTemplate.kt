@@ -173,8 +173,8 @@ object PromptTemplate {
         if (width <= 0 || height <= 0) return ""
         return t(
             locale,
-            "坐标系统：所有 x/y/x1/y1/x2/y2 必须使用当前屏幕绝对像素，范围 x=0..${width - 1}, y=0..${height - 1}；不要输出 0-1000 归一化坐标。",
-            "Coordinate system: all x/y/x1/y1/x2/y2 values must be absolute screen pixels for the current display, range x=0..${width - 1}, y=0..${height - 1}; do not output 0-1000 normalized coordinates."
+            "坐标系统：如果必须使用坐标兜底，所有 x/y/x1/y1/x2/y2 都输出 0..1000 相对坐标，其中 x=0 是屏幕左侧、x=1000 是右侧、y=0 是顶部、y=1000 是底部。系统会在执行前把相对坐标解码为当前屏幕绝对像素。本地记录和执行结果始终保存绝对像素。",
+            "Coordinate system: when coordinate fallback is necessary, output all x/y/x1/y1/x2/y2 as 0..1000 relative coordinates: x=0 is the left edge, x=1000 is the right edge, y=0 is the top edge, and y=1000 is the bottom edge. The system decodes relative coordinates to current-screen absolute pixels before execution. Local records and execution results always store absolute pixels."
         )
     }
 

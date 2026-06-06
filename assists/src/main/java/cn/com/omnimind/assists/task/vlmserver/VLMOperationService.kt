@@ -1304,6 +1304,11 @@ class VLMOperationService(
         sceneTurn?.let { turn ->
             diagnostics["vlm_response_route"] = turn.route.orEmpty()
             diagnostics["vlm_response_resolved_model"] = turn.resolvedModel
+            diagnostics["vlm_stream_request_variant"] = turn.requestVariant.orEmpty()
+            diagnostics["vlm_stream_request_had_tools"] = turn.requestHadTools?.toString().orEmpty()
+            diagnostics["vlm_stream_request_tool_choice"] = turn.requestToolChoice.orEmpty()
+            diagnostics["vlm_stream_request_parallel_tool_calls"] =
+                turn.requestParallelToolCalls?.toString().orEmpty()
             diagnostics["vlm_response_finish_reason"] = turn.turn.finishReason.orEmpty()
             diagnostics["vlm_response_tool_call_count"] =
                 (turn.turn.message.toolCalls?.size ?: 0).toString()
@@ -1406,61 +1411,23 @@ class VLMOperationService(
         val displayWidth = deviceOperator.getDisplayWidth().coerceAtLeast(encodedWidth)
         val displayHeight = deviceOperator.getDisplayHeight().coerceAtLeast(encodedHeight)
 
-        fun coordType(value: Float, displaySize: Int): String {
-            return when {
-                value <= 1f -> "ratio_0-1"
-                value <= 1000f && displaySize > 1000 -> "normalized_0-1000"
-                value <= displaySize -> "absolute_pixel"
-                else -> "pixel_overflow"
-            }
-        }
-
-        fun toScreenCoord(value: Float, maxSize: Int): Int {
-            val mapped = when {
-                value <= 1f -> (value.toDouble() * maxSize).roundToInt()
-                value <= 1000f && maxSize > 1000 -> (value.toDouble() / 1000.0 * maxSize).roundToInt()
-                else -> value.roundToInt()
-            }
-            return mapped.coerceIn(0, maxSize)
-        }
-
         val updatedAction = when (val action = step.action) {
             is ClickAction -> {
-                val absoluteX = toScreenCoord(position[0], displayWidth)
-                val absoluteY = toScreenCoord(position[1], displayHeight)
+                val absoluteX = decodeVlmRelativeCoordinate(position[0], displayWidth)
+                val absoluteY = decodeVlmRelativeCoordinate(position[1], displayHeight)
                 OmniLog.d(
                     Tag,
-                    "Coord mapping(click): raw=(${position[0]}, ${position[1]}) type=(${
-                        coordType(
-                            position[0],
-                            displayWidth
-                        )
-                    }, ${
-                        coordType(
-                            position[1],
-                            displayHeight
-                        )
-                    }), encoded=${encodedWidth}x${encodedHeight}, mapped=(${absoluteX}, ${absoluteY}), display=${displayWidth}x${displayHeight}"
+                    "Coord decode(click): raw_relative_0_1000=(${position[0]}, ${position[1]}), encoded=${encodedWidth}x${encodedHeight}, mapped_screen_absolute=(${absoluteX}, ${absoluteY}), display=${displayWidth}x${displayHeight}"
                 )
                 action.copy(x = absoluteX.toFloat(), y = absoluteY.toFloat())
             }
 
             is InputTextAction -> {
-                val absoluteX = toScreenCoord(position[0], displayWidth)
-                val absoluteY = toScreenCoord(position[1], displayHeight)
+                val absoluteX = decodeVlmRelativeCoordinate(position[0], displayWidth)
+                val absoluteY = decodeVlmRelativeCoordinate(position[1], displayHeight)
                 OmniLog.d(
                     Tag,
-                    "Coord mapping(input_text): raw=(${position[0]}, ${position[1]}) type=(${
-                        coordType(
-                            position[0],
-                            displayWidth
-                        )
-                    }, ${
-                        coordType(
-                            position[1],
-                            displayHeight
-                        )
-                    }), encoded=${encodedWidth}x${encodedHeight}, mapped=(${absoluteX}, ${absoluteY}), display=${displayWidth}x${displayHeight}"
+                    "Coord decode(input_text): raw_relative_0_1000=(${position[0]}, ${position[1]}), encoded=${encodedWidth}x${encodedHeight}, mapped_screen_absolute=(${absoluteX}, ${absoluteY}), display=${displayWidth}x${displayHeight}"
                 )
                 action.copy(x = absoluteX.toFloat(), y = absoluteY.toFloat())
             }
@@ -1470,10 +1437,10 @@ class VLMOperationService(
                 val rawY1 = position.getOrNull(1) ?: 0f
                 val rawX2 = position.getOrNull(2) ?: 0f
                 val rawY2 = position.getOrNull(3) ?: 0f
-                val absoluteX1 = toScreenCoord(rawX1, displayWidth)
-                val absoluteY1 = toScreenCoord(rawY1, displayHeight)
-                val absoluteX2 = toScreenCoord(rawX2, displayWidth)
-                val absoluteY2 = toScreenCoord(rawY2, displayHeight)
+                val absoluteX1 = decodeVlmRelativeCoordinate(rawX1, displayWidth)
+                val absoluteY1 = decodeVlmRelativeCoordinate(rawY1, displayHeight)
+                val absoluteX2 = decodeVlmRelativeCoordinate(rawX2, displayWidth)
+                val absoluteY2 = decodeVlmRelativeCoordinate(rawY2, displayHeight)
                 val safeScroll = sanitizeScrollGestureCoordinates(
                     x1 = absoluteX1,
                     y1 = absoluteY1,
@@ -1484,22 +1451,7 @@ class VLMOperationService(
                 )
                 OmniLog.d(
                     Tag,
-                    "Coord mapping(swipe): raw=($rawX1, $rawY1, $rawX2, $rawY2) type=(${
-                        coordType(
-                            rawX1,
-                            displayWidth
-                        )
-                    }, ${coordType(rawY1, displayHeight)}, ${
-                        coordType(
-                            rawX2,
-                            displayWidth
-                        )
-                    }, ${
-                        coordType(
-                            rawY2,
-                            displayHeight
-                        )
-                    }), encoded=${encodedWidth}x${encodedHeight}, mapped=($absoluteX1, $absoluteY1, $absoluteX2, $absoluteY2), safe=(${safeScroll.x1}, ${safeScroll.y1}, ${safeScroll.x2}, ${safeScroll.y2}, adjusted=${safeScroll.adjusted}), display=${displayWidth}x${displayHeight}"
+                    "Coord decode(swipe): raw_relative_0_1000=($rawX1, $rawY1, $rawX2, $rawY2), encoded=${encodedWidth}x${encodedHeight}, mapped_screen_absolute=($absoluteX1, $absoluteY1, $absoluteX2, $absoluteY2), safe=(${safeScroll.x1}, ${safeScroll.y1}, ${safeScroll.x2}, ${safeScroll.y2}, adjusted=${safeScroll.adjusted}), display=${displayWidth}x${displayHeight}"
                 )
                 action.copy(
                     x1 = safeScroll.x1.toFloat(),
@@ -1510,21 +1462,11 @@ class VLMOperationService(
             }
 
             is LongPressAction -> {
-                val absoluteX = toScreenCoord(position[0], displayWidth)
-                val absoluteY = toScreenCoord(position[1], displayHeight)
+                val absoluteX = decodeVlmRelativeCoordinate(position[0], displayWidth)
+                val absoluteY = decodeVlmRelativeCoordinate(position[1], displayHeight)
                 OmniLog.d(
                     Tag,
-                    "Coord mapping(long_press): raw=(${position[0]}, ${position[1]}) type=(${
-                        coordType(
-                            position[0],
-                            displayWidth
-                        )
-                    }, ${
-                        coordType(
-                            position[1],
-                            displayHeight
-                        )
-                    }), encoded=${encodedWidth}x${encodedHeight}, mapped=(${absoluteX}, ${absoluteY}), display=${displayWidth}x${displayHeight}"
+                    "Coord decode(long_press): raw_relative_0_1000=(${position[0]}, ${position[1]}), encoded=${encodedWidth}x${encodedHeight}, mapped_screen_absolute=(${absoluteX}, ${absoluteY}), display=${displayWidth}x${displayHeight}"
                 )
                 action.copy(x = absoluteX.toFloat(), y = absoluteY.toFloat())
             }
@@ -1533,6 +1475,12 @@ class VLMOperationService(
         }
 
         return step.copy(action = updatedAction)
+    }
+
+    private fun decodeVlmRelativeCoordinate(value: Float, displaySize: Int): Int {
+        val clamped = value.coerceIn(0f, VLM_RELATIVE_COORDINATE_MAX)
+        return (clamped.toDouble() / VLM_RELATIVE_COORDINATE_MAX * displaySize).roundToInt()
+            .coerceIn(0, displaySize)
     }
 
     private fun groundIndexedActionTarget(
@@ -2101,6 +2049,7 @@ private const val MAX_GET_STATE_ACTIONABLES = 18
 private const val MAX_GET_STATE_LABEL_CHARS = 80
 private const val MAX_GET_STATE_RESULT_CHARS = 2200
 private const val DEFAULT_VLM_MAX_STEPS = 12
+private const val VLM_RELATIVE_COORDINATE_MAX = 1000f
 private val PACKAGE_ATTR_PATTERN = Regex("""\bpackage\s*=\s*["']([^"']+)["']""")
 private val RESOURCE_ID_PACKAGE_PATTERN =
     Regex("""\bresource-id\s*=\s*["']([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+):id/[^"']*["']""")

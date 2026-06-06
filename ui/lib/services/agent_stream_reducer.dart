@@ -234,14 +234,6 @@ class AgentStreamReducer {
         }
         browserSnapshot = event.browserSnapshot ?? browserSnapshot;
         break;
-      case AgentStreamEventKind.workbenchProjectCard:
-        // Display-injection event only. The workbench tool calls that produced
-        // this card have already gone through toolStarted/toolCompleted and
-        // activeToolEntryIds is already empty. Don't change phase here or the
-        // overlay capsule will show phase=tool with zero active tools.
-        clearActiveThinkingEntryId = true;
-        activeThinkingEntryId = null;
-        break;
       case AgentStreamEventKind.completed:
         phase = AgentStreamPhase.completed;
         thinkingStage = 4;

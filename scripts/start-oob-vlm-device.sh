@@ -447,7 +447,7 @@ wait_for_accessibility() {
       log "accessibility_not_ready"
       local emitted_error=0
       if has_ui_automation "$dump"; then
-        startup_error "ui_automation_present" "UiAutomation is active on this device; stop Mobilerun/Appium/AndroidWorld ownership or reboot the emulator, then rerun this script."
+        startup_error "ui_automation_present" "UiAutomation is active on this device; stop the conflicting runner or reboot the emulator, then rerun this script."
         emitted_error=1
       fi
       if grep -q 'Bound services:{}' <<<"$dump"; then

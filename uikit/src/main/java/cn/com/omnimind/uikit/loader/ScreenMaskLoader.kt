@@ -38,23 +38,23 @@ class ScreenMaskLoader(override val context: Service) :
         }
 
         fun gone() {
-            getInstance()?.load(WindowFlag.SCREEN_UNLOCK_FLAG)
-            getInstance()?.view?.visibility = View.GONE
+            INSTANCE?.destroy()
+            INSTANCE = null
         }
 
         fun visiable() {
-            getInstance()?.toLoad()
+            gone()
         }
 
         fun loadLockScreenMask() {
-            getInstance()?.loadLockScreenMask()
+            gone()
         }
 
         fun loadGoneViewScreenMask() {
-            getInstance()?.loadGoneViewScreenMask()
+            gone()
         }
         fun loadLockScreenMask(x: Int, y: Int) {
-            getInstance()?.loadLockScreenMask(x,y)
+            gone()
         }
 
         fun destroyInstance() {
@@ -72,8 +72,6 @@ class ScreenMaskLoader(override val context: Service) :
     }
 
     private var hiddenForExternalActivity = false
-    private var externalActivityLockFlag = WindowFlag.SCREEN_UNLOCK_FLAG
-    private var externalActivityVisibility = View.GONE
 
     override fun getParams(flagsValue: Int): WindowManager.LayoutParams {
         return WindowManager.LayoutParams().apply {
@@ -85,12 +83,12 @@ class ScreenMaskLoader(override val context: Service) :
             }
             val screenSize = Point()
             getWindowManager().defaultDisplay.getRealSize(screenSize)
-            flags = flagsValue
+            flags = flagsValue or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
             format = PixelFormat.TRANSLUCENT // 透明背景（可选，根据蒙层样式调整）
             width = WindowManager.LayoutParams.MATCH_PARENT
             height = screenSize.y
             gravity = Gravity.TOP or Gravity.START
-            alpha = 0.8f
+            alpha = 0f
 
 
         }
@@ -98,26 +96,28 @@ class ScreenMaskLoader(override val context: Service) :
 
 
     fun loadLockScreenMask() {
-        lockFlag = WindowFlag.SCREEN_LOCK_FLAG
-        visibility = View.VISIBLE
-        toLoad()
+        removeMask()
     }
 
     fun loadLockScreenMask(x: Int, y: Int) {
-        loadLockScreenMask()
-        view.startCircleAnimation(x, y)
+        removeMask()
     }
 
     fun loadGoneViewScreenMask() {
-        lockFlag = WindowFlag.SCREEN_UNLOCK_FLAG
-        visibility = View.GONE
-        view.visibility = View.VISIBLE
-        toLoad()
+        removeMask()
     }
 
     fun toLoad() {
-        load(lockFlag)
-        view.visibility = visibility
+        removeMask()
+    }
+
+    private fun removeMask() {
+        lockFlag = WindowFlag.SCREEN_UNLOCK_FLAG
+        visibility = View.GONE
+        view.visibility = View.GONE
+        if (isAttachedToWindow) {
+            destroy()
+        }
     }
 
     fun hideForExternalActivity(): Boolean {
@@ -128,13 +128,11 @@ class ScreenMaskLoader(override val context: Service) :
             return false
         }
 
-        externalActivityLockFlag = lockFlag
-        externalActivityVisibility = visibility
         lockFlag = WindowFlag.SCREEN_UNLOCK_FLAG
         visibility = View.GONE
 
         return try {
-            toLoad()
+            removeMask()
             hiddenForExternalActivity = true
             OmniLog.d(TAG, "Screen mask hidden for external activity")
             true
@@ -149,11 +147,11 @@ class ScreenMaskLoader(override val context: Service) :
             return false
         }
 
-        lockFlag = externalActivityLockFlag
-        visibility = externalActivityVisibility
+        lockFlag = WindowFlag.SCREEN_UNLOCK_FLAG
+        visibility = View.GONE
 
         return try {
-            toLoad()
+            removeMask()
             hiddenForExternalActivity = false
             OmniLog.d(TAG, "Screen mask restored after external activity")
             true

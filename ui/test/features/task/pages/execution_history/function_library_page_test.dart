@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ui/features/task/pages/execution_history/function_library_page.dart';
+import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/l10n/generated/app_localizations.dart';
 import 'package:ui/services/assists_core_service.dart';
 
@@ -15,10 +16,12 @@ void main() {
   );
 
   setUp(() {
+    AppTextLocalizer.setResolvedLocale(const Locale('zh'));
     AssistsMessageService.initialize();
   });
 
   tearDown(() {
+    AppTextLocalizer.clearResolvedLocale();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, null);
   });
@@ -205,6 +208,132 @@ void main() {
     },
   );
 
+  testWidgets('Reusable Function card opens all linked RunLogs', (
+    tester,
+  ) async {
+    final methodCalls = <MethodCall>[];
+
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(assistCoreChannel, (call) async {
+          methodCalls.add(call);
+          if (call.method == 'listOobReusableFunctions') {
+            return <String, dynamic>{
+              'success': true,
+              'count': 1,
+              'functions': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'function_id': 'open_settings',
+                  'name': '打开 Settings',
+                  'description': '打开 Android 设置',
+                  'step_count': 1,
+                  'parameter_names': <String>[],
+                  'registered_at': '1700000000000',
+                  'source_run_ids': <String>['run-a', 'run-b'],
+                  'run_stats': <String, dynamic>{
+                    'run_count': 1,
+                    'success_count': 1,
+                    'fail_count': 0,
+                    'last_success': true,
+                    'last_run_at': '1700000001000',
+                    'last_run': <String, dynamic>{
+                      'run_id': 'summary-run-id',
+                      'success': true,
+                      'created_at': '1700000001000',
+                    },
+                  },
+                  'step_summaries': <Map<String, dynamic>>[
+                    <String, dynamic>{
+                      'index': 0,
+                      'title': '打开 Settings',
+                      'kind': 'omniflow_action',
+                      'executor': 'omniflow',
+                      'tool': 'open_app',
+                    },
+                  ],
+                },
+              ],
+            };
+          }
+          if (call.method == 'getInternalRunLogs') {
+            return <String, dynamic>{
+              'success': true,
+              'count': 2,
+              'runs': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'run_id': 'run-a',
+                  'goal': '第一次打开 Settings',
+                  'run_finished': true,
+                  'run_success': true,
+                  'step_count': 1,
+                  'started_at_ms': 1700000001000,
+                },
+                <String, dynamic>{
+                  'run_id': 'run-b',
+                  'goal': '第二次打开 Settings',
+                  'run_finished': true,
+                  'run_success': true,
+                  'step_count': 2,
+                  'started_at_ms': 1700000002000,
+                },
+              ],
+            };
+          }
+          if (call.method == 'getInternalRunLogTimeline') {
+            final args = Map<String, dynamic>.from(call.arguments as Map);
+            expect(args['run_id'], 'run-b');
+            return <String, dynamic>{
+              'success': true,
+              'run_id': 'run-b',
+              'run_finished': true,
+              'run_success': true,
+              'cards': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'id': 'card-1',
+                  'tool_name': 'open_app',
+                  'summary': '第二次打开 Settings',
+                  'success': true,
+                },
+              ],
+            };
+          }
+          return null;
+        });
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        locale: Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: FunctionLibraryPage(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('RunLogs 2'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('执行记录 · 2'), findsOneWidget);
+    expect(find.text('第一次打开 Settings'), findsOneWidget);
+    expect(find.text('第二次打开 Settings'), findsOneWidget);
+
+    await tester.tap(find.text('第二次打开 Settings'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('执行步骤'), findsOneWidget);
+    expect(find.textContaining('第二次打开 Settings'), findsWidgets);
+    expect(
+      methodCalls.where((call) => call.method == 'getInternalRunLogs'),
+      hasLength(1),
+    );
+    expect(
+      methodCalls.where((call) => call.method == 'getInternalRunLogTimeline'),
+      hasLength(1),
+    );
+    expect(
+      methodCalls.where((call) => call.method == 'getOobReusableFunction'),
+      isEmpty,
+    );
+  });
   testWidgets('Reusable Function detail renders vlm_task as VLM step', (
     tester,
   ) async {
@@ -350,8 +479,9 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(find.text('正在执行：搜索设置'), findsOneWidget);
-    expect(find.text('第 2/4 步 · 点击蓝牙'), findsOneWidget);
+    expect(find.text('复用指令执行中'), findsOneWidget);
+    expect(find.text('第 2/4 步'), findsOneWidget);
+    expect(find.text('点击蓝牙'), findsOneWidget);
 
     AssistsMessageService.debugDispatchOobFunctionRunProgressForTest(
       <String, dynamic>{
@@ -364,8 +494,9 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(find.text('正在执行：搜索设置'), findsNothing);
-    expect(find.text('第 2/4 步 · 点击蓝牙'), findsNothing);
+    expect(find.text('复用指令执行中'), findsNothing);
+    expect(find.text('第 2/4 步'), findsNothing);
+    expect(find.text('点击蓝牙'), findsNothing);
   });
 
   testWidgets('Reusable Function detail opens shared step editor', (
@@ -841,7 +972,8 @@ void main() {
 
       expect(runCalls, 1);
       expect(find.text('执行中'), findsOneWidget);
-      expect(find.text('正在执行：打开 Settings'), findsOneWidget);
+      expect(find.text('复用指令执行中'), findsOneWidget);
+      expect(find.text('准备执行复用指令'), findsOneWidget);
       final runCall = methodCalls.singleWhere(
         (call) => call.method == 'runOobReusableFunction',
       );
@@ -900,7 +1032,7 @@ void main() {
       expect(find.text('复用指令执行结果'), findsNothing);
 
       expect(find.text('执行'), findsOneWidget);
-      expect(find.text('正在执行：打开 Settings'), findsNothing);
+      expect(find.text('复用指令执行中'), findsNothing);
     },
   );
 
@@ -1124,7 +1256,8 @@ void main() {
     await tester.pump();
 
     expect(find.text('执行中'), findsOneWidget);
-    expect(find.text('正在执行：打开 Settings'), findsOneWidget);
+    expect(find.text('复用指令执行中'), findsOneWidget);
+    expect(find.text('准备执行复用指令'), findsOneWidget);
     final runCall = methodCalls.singleWhere(
       (call) => call.method == 'runOobReusableFunction',
     );

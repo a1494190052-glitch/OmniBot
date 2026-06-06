@@ -46,6 +46,11 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     AppUpdateService.statusNotifier.addListener(_handleAppUpdateStatusChanged);
     _appUpdateStatus = AppUpdateService.statusNotifier.value;
     unawaited(AppUpdateService.initialize());
+    AssistsMessageService.oobFunctionRunProgressNotifier.addListener(
+      _handleOobFunctionRunProgressStatusChanged,
+    );
+    _oobFunctionRunProgressStatus =
+        AssistsMessageService.oobFunctionRunProgressNotifier.value;
     _conversationListChangedSubscription = AssistsMessageService
         .conversationListChangedStream
         .listen((_) {
@@ -59,6 +64,9 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     _browserSessionSnapshotChangedSubscription = AssistsMessageService
         .browserSessionSnapshotChangedStream
         .listen(_handleBrowserSessionSnapshotChanged);
+    _oobFunctionRunProgressSubscription = AssistsMessageService
+        .oobFunctionRunProgressStream
+        .listen(_handleOobFunctionRunProgressEvent);
     _codexEventSubscription = CodexAppServerService.events.listen(
       _handleCodexAppServerEvent,
     );
@@ -649,6 +657,7 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     _conversationListChangedSubscription?.cancel();
     _conversationMessagesChangedSubscription?.cancel();
     _browserSessionSnapshotChangedSubscription?.cancel();
+    _oobFunctionRunProgressSubscription?.cancel();
     if (_subscribedRoute != null) {
       GoRouterManager.routeObserver.unsubscribe(this);
       _subscribedRoute = null;
@@ -659,6 +668,9 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     );
     AppUpdateService.statusNotifier.removeListener(
       _handleAppUpdateStatusChanged,
+    );
+    AssistsMessageService.oobFunctionRunProgressNotifier.removeListener(
+      _handleOobFunctionRunProgressStatusChanged,
     );
     _messageController.removeListener(_handleMessageControllerChanged);
     _messageController.removeListener(_handleSlashCommandInput);
@@ -791,6 +803,15 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
   }
 
   @override
+  void _handleOobFunctionRunProgressStatusChanged() {
+    if (!mounted) return;
+    setState(() {
+      _oobFunctionRunProgressStatus =
+          AssistsMessageService.oobFunctionRunProgressNotifier.value;
+    });
+  }
+
+  @override
   double _popupMenuBottomOffset() {
     final renderObject = _inputAreaKey.currentContext?.findRenderObject();
     if (renderObject is! RenderBox || !renderObject.hasSize) {
@@ -805,6 +826,13 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     final status = _appUpdateStatus;
     if (status == null || !status.hasUpdate || !mounted) return;
     await showAppUpdateDialog(context, status);
+  }
+
+  @override
+  Future<void> _handleOobFunctionRunProgressTap() async {
+    final event = _oobFunctionRunProgressStatus;
+    if (event == null || !mounted) return;
+    await showOobFunctionRunProgressDialog(context, event);
   }
 
   @override

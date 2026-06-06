@@ -8,7 +8,6 @@ enum AgentStreamEventKind {
   toolStarted('tool_started'),
   toolProgress('tool_progress'),
   toolCompleted('tool_completed'),
-  workbenchProjectCard('workbench_project_card'),
   completed('completed'),
   error('error'),
   permissionRequired('permission_required'),

@@ -11,7 +11,6 @@ import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.mcp.RemoteMcpDiscoveredServer
 import cn.com.omnimind.bot.mcp.RemoteMcpToolDescriptor
 import cn.com.omnimind.bot.omniflow.OobFunctionSkillProfile
-import cn.com.omnimind.bot.workbench.WorkbenchProjectStore
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -50,11 +49,6 @@ class AgentToolRegistry(
         val shizukuStatus = runCatching { ShizukuCapabilityManager.get(context).getStatus() }
             .onFailure { OmniLog.w(tag, "resolve shizuku status failed: ${it.message}") }
             .getOrNull()
-        val projectCapabilityEnabled = runCatching {
-            WorkbenchProjectStore(context).isProjectCapabilityEnabled()
-        }.onFailure {
-            OmniLog.w(tag, "resolve project capability failed: ${it.message}")
-        }.getOrDefault(false)
         val runtimeDefinitions = mutableListOf<JsonObject>()
         runtimeDefinitions.addAll(AgentToolDefinitions.staticTools(locale))
         if (shizukuStatus?.isGranted() == true) {
@@ -119,12 +113,8 @@ class AgentToolRegistry(
 
         runtimeDefinitions.addAll(dynamicDefinitions)
 
-        val projectFilteredDefinitions = filterProjectToolDefinitionsForCapability(
-            definitions = runtimeDefinitions,
-            projectCapabilityEnabled = projectCapabilityEnabled
-        )
         val conversationFilteredDefinitions = AgentConversationModePolicy
-            .filterToolDefinitionsForConversationMode(projectFilteredDefinitions, conversationMode)
+            .filterToolDefinitionsForConversationMode(runtimeDefinitions, conversationMode)
         val explicitAllowedToolNames = toolExposurePolicy.normalizedAllowedTools()
         val allowedToolNames = toolExposurePolicy.effectiveAllowedTools()
         val includeOobFunctionToolsForProfile = explicitAllowedToolNames.isNullOrEmpty() &&
@@ -179,7 +169,6 @@ class AgentToolRegistry(
                 "conversationMode=$conversationMode " +
                 "tool_profile=${toolExposurePolicy.profile.orEmpty()} " +
                 "tool_allowlist_size=${allowedToolNames?.size ?: 0} " +
-                "project_capability=$projectCapabilityEnabled " +
                 "subagent_present=${"subagent_dispatch" in runtimeDescriptors.keys} " +
                 "memory_load_present=${"memory_load" in runtimeDescriptors.keys} " +
                 "names=[${runtimeDescriptors.keys.joinToString(",")}]"
@@ -218,27 +207,6 @@ class AgentToolRegistry(
                         )
                     )
         }
-    }
-
-    private fun filterProjectToolDefinitionsForCapability(
-        definitions: List<JsonObject>,
-        projectCapabilityEnabled: Boolean
-    ): List<JsonObject> {
-        if (projectCapabilityEnabled) {
-            return definitions
-        }
-        return definitions.filterNot(::isProjectToolDefinition)
-    }
-
-    private fun isProjectToolDefinition(definition: JsonObject): Boolean {
-        val toolName = (definition["function"] as? JsonObject)
-            ?.get("name")
-            ?.jsonPrimitive
-            ?.contentOrNull
-            ?.trim()
-            .orEmpty()
-        return toolName.startsWith("workbench_project_") ||
-            toolName.startsWith("workbench_api_")
     }
 
     override fun runtimeDescriptor(toolName: String): RuntimeToolDescriptor {

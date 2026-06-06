@@ -272,7 +272,7 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
         return linkedMapOf<String, Any?>(
             "success" to success,
             "source" to "debug_agent_tool_registry_router_function_management",
-            "agent_path" to "AgentToolRegistry -> AgentToolRouter -> WorkbenchToolHandler",
+            "agent_path" to "AgentToolRegistry -> AgentToolRouter -> OobFunctionToolHandler",
             "function_id" to functionId,
             "target_package" to targetPackage,
             "run_requested" to shouldRun,

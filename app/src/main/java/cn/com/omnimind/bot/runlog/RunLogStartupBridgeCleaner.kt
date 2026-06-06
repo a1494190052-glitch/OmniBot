@@ -311,7 +311,9 @@ internal object RunLogStartupBridgeCleaner {
 
     private fun isManualRecordingCard(card: Map<String, Any?>): Boolean {
         return firstNonBlank(card["compile_kind"], card["compileKind"]) == "manual_recording" ||
-            firstNonBlank(card["source"], asMap(card["header"])["source"]) == "human_takeover"
+            firstNonBlank(card["source"], asMap(card["header"])["source"]) == "human_takeover" ||
+            firstNonBlank(card["source"]) == "androidworld_scripted_collection" ||
+            firstNonBlank(card["compile_kind"], card["compileKind"]) == "androidworld_verified_scripted_collection"
     }
 
     private fun replayActionForCard(card: Map<String, Any?>): String? {

@@ -152,7 +152,7 @@ helper with mixed semantics.
 RunLog lifecycle:
 
 - define `oob_function_*`, `update_function`, `oob_run_log_*`, and `call_tool`
-  names used by the native skill profile, Workbench tool handler, and MCP OOB
+  names used by the native skill profile, OOB Function handler, and MCP OOB
   Function schema
 - keep replay-step executor/tool taxonomy in `RunLogReplayPolicy`
 - never own tool descriptions, schemas, execution, recall, update, or replay
@@ -716,7 +716,7 @@ Use these owner rules when removing duplicated helper code:
   Compatibility replay types such as `wait` and `external_tool` also belong
   there when Function compilation or schema projection needs to preserve them.
   Replay-only data-flow names such as `oob_agent_run`, `omniflow.recall`,
-  `omniflow.ingest_run_log`, and `workbench_api_list` should be named there when
+  and `omniflow.ingest_run_log` should be named there when
   RunLog conversion or guard policy classifies them.
   UDEG edge-kind field names and diagnostic counter keys are graph-storage
   vocabulary and should remain with `OobUdegNodeStore`.
@@ -803,6 +803,5 @@ After backend Function changes, run focused tests:
   --tests 'cn.com.omnimind.bot.runlog.RunLogReusableFunctionCompilerTest' \
   --tests 'cn.com.omnimind.bot.runlog.OobOmniFlowLoopAcceptanceTest' \
   --tests 'cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandlerOmniFlowExecutionTest' \
-  --tests 'cn.com.omnimind.bot.agent.tool.handlers.WorkbenchToolHandlerOobFunctionToolsTest' \
   --tests 'cn.com.omnimind.bot.runlog.InternalRunLogStoreTest'
 ```

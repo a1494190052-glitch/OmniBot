@@ -129,20 +129,16 @@ class OmniAction(
     ) {
         OmniLog.v(TAG, "fun inputText")
 
-        if (node.isEditable) {
-            val arguments =
-                Bundle().apply {
-                    putCharSequence(
-                        AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
-                        text,
-                    )
-                }
-
-            if (!node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)) {
-                throw RuntimeException("Perform input text on node failed")
+        val arguments =
+            Bundle().apply {
+                putCharSequence(
+                    AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                    text,
+                )
             }
-        } else {
-            throw RuntimeException("Node is not editable")
+
+        if (!node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)) {
+            throw RuntimeException("Perform input text on node failed")
         }
     }
 

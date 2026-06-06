@@ -1971,14 +1971,6 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
           completedThinkingCardId: thinkingCardToFinalize,
         );
         return;
-      case AgentStreamEventKind.workbenchProjectCard:
-        _applyAgentUiCardStreamEvent(
-          runtime,
-          binding,
-          event,
-          completedThinkingCardId: thinkingCardToFinalize,
-        );
-        return;
       case AgentStreamEventKind.clarifyRequired:
         _applyAgentClarifyStreamEvent(
           runtime,
@@ -2262,7 +2254,7 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     }
 
     runtime.isAiResponding = true;
-    final didFinalizeWorkbenchTools = _finalizeRunningToolCardsForTask(
+    final didFinalizeRunningTools = _finalizeRunningToolCardsForTask(
       runtime,
       event.taskId,
     );
@@ -2335,7 +2327,7 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       _syncMessageLinkPreviews(runtime, messageId);
     }
     if (!didUpdateVisibleMessage) {
-      if (didFinalizeWorkbenchTools) {
+      if (didFinalizeRunningTools) {
         notifyListeners();
         schedulePersistRuntimeConversation(
           conversationId: binding.conversationId,
@@ -2388,10 +2380,6 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       ),
     );
     if (event.kind == AgentStreamEventKind.toolCompleted) {
-      if (toolEvent.toolType == 'workbench' ||
-          toolEvent.toolName.startsWith('workbench_')) {
-        _finalizeRunningToolCardsForTask(runtime, event.taskId);
-      }
       _updateBrowserSessionSnapshot(runtime, toolEvent);
       if (event.browserSnapshot != null) {
         runtime.browserSessionSnapshot = event.browserSnapshot;
@@ -2697,7 +2685,7 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       event.taskId,
       status: 'error',
       summary: event.errorMessage.trim().isEmpty
-          ? AppTextLocalizer.choose(en: 'Workbench step failed', zh: '工作台步骤失败')
+          ? AppTextLocalizer.choose(en: 'Tool step failed', zh: '工具步骤失败')
           : event.errorMessage.trim(),
     );
     runtime.isAiResponding = false;
@@ -3737,7 +3725,6 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       case AgentStreamEventKind.toolStarted:
       case AgentStreamEventKind.toolProgress:
       case AgentStreamEventKind.toolCompleted:
-      case AgentStreamEventKind.workbenchProjectCard:
       case AgentStreamEventKind.completed:
       case AgentStreamEventKind.error:
       case AgentStreamEventKind.permissionRequired:

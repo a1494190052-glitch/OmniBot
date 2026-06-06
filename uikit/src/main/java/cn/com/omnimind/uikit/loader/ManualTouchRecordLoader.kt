@@ -48,8 +48,6 @@ object ManualTouchRecordLoader {
     private const val IME_RELIABLE_TOP_MIN_RATIO = 0.25f
     private const val IME_RELIABLE_TOP_MAX_RATIO = 0.92f
     private const val IME_ESTIMATED_TOP_RATIO = 0.58f
-    private const val IME_SUBMIT_MIN_X_RATIO = 0.72f
-    private const val IME_SUBMIT_MIN_KEYBOARD_Y_RATIO = 0.55f
     private const val IME_OPEN_EXPECTED_TTL_MS = 1_500L
     private const val GESTURE_PROCESS_BASE_TIMEOUT_MS = 2_500L
     private const val GESTURE_PROCESS_MAX_EXTRA_DURATION_MS = 2_500L
@@ -196,6 +194,9 @@ object ManualTouchRecordLoader {
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 touchFlag
+            // Android 12+ can drop pass-through touches below an untrusted app
+            // overlay when the overlay window alpha is still opaque.
+            alpha = if (touchable) 1f else 0f
             format = PixelFormat.TRANSLUCENT
             val displaySize = realDisplaySize(context)
             width = displaySize.x
@@ -374,15 +375,7 @@ object ManualTouchRecordLoader {
                 isKeyboardBlackBoxGestureLocked(gesture)
             }
         }
-        val keyboardSubmitGesture = withContext(Dispatchers.Main) {
-            synchronized(this@ManualTouchRecordLoader) {
-                keyboardBlackBoxGesture && isKeyboardSubmitGestureLocked(gesture)
-            }
-        }
         if (keyboardBlackBoxGesture) {
-            if (keyboardSubmitGesture) {
-                HumanTrajectoryLearningSession.prepareImeSubmitRecording()
-            }
             withContext(Dispatchers.Main) {
                 synchronized(this@ManualTouchRecordLoader) {
                     rememberImeOpenExpectedLocked()
@@ -490,17 +483,6 @@ object ManualTouchRecordLoader {
             else -> gesture.startY
         }
         return gestureY >= keyboardTop
-    }
-
-    private fun isKeyboardSubmitGestureLocked(gesture: ManualOverlayTouchGesture): Boolean {
-        if (gesture.actionName != "click") return false
-        val displaySize = currentDisplaySize()
-        if (displaySize.x <= 0 || displaySize.y <= 0) return false
-        val keyboardTop = keyboardTopForGestureLocked(displaySize.y) ?: return false
-        val keyboardHeight = (displaySize.y - keyboardTop).coerceAtLeast(1)
-        val minSubmitX = displaySize.x * IME_SUBMIT_MIN_X_RATIO
-        val minSubmitY = keyboardTop + keyboardHeight * IME_SUBMIT_MIN_KEYBOARD_Y_RATIO
-        return gesture.startX >= minSubmitX && gesture.startY >= minSubmitY
     }
 
     private fun keyboardTopForGestureLocked(displayHeight: Int): Int? {

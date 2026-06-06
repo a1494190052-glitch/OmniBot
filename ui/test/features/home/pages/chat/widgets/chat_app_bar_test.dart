@@ -997,6 +997,65 @@ void main() {
     expect(codexTapCount, 1);
   });
 
+  testWidgets('shows replay progress indicator next to update shortcut', (
+    tester,
+  ) async {
+    var replayTapCount = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DefaultAssetBundle(
+          bundle: _SvgTestAssetBundle(),
+          child: Scaffold(
+            body: ChatAppBar(
+              onMenuTap: () {},
+              onCompanionTap: () {},
+              activeMode: ChatSurfaceMode.normal,
+              onModeChanged: (_) {},
+              activeModelId: 'gpt-5.4',
+              displayLayer: ChatIslandDisplayLayer.model,
+              onDisplayLayerChanged: (_) {},
+              onTerminalEnvironmentTap: (_) {},
+              onTerminalTap: () {},
+              onBrowserTap: () {},
+              showAppUpdateIndicator: true,
+              onAppUpdateTap: () {},
+              showReplayProgressIndicator: true,
+              replayProgressTooltip: '复用指令执行中：打开蓝牙设置（2/4）',
+              isReplayProgressRunning: true,
+              onReplayProgressTap: () {
+                replayTapCount += 1;
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final update = find.byKey(const ValueKey('chat-app-update-button'));
+    final replay = find.byKey(
+      const ValueKey('chat-app-replay-progress-button'),
+    );
+    final modeMenu = find.byKey(
+      const ValueKey('chat-app-bar-pure-chat-button'),
+    );
+
+    expect(update, findsOneWidget);
+    expect(replay, findsOneWidget);
+    expect(
+      tester.getRect(update).right,
+      lessThanOrEqualTo(tester.getRect(replay).left),
+    );
+    expect(
+      tester.getRect(replay).right,
+      lessThanOrEqualTo(tester.getRect(modeMenu).left),
+    );
+
+    await tester.tap(replay);
+    await tester.pump();
+
+    expect(replayTapCount, 1);
+  });
+
   testWidgets('hides update indicator when no update is available', (
     tester,
   ) async {

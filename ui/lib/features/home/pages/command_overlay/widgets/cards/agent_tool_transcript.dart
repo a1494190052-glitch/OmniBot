@@ -1005,7 +1005,7 @@ IconData _iconForToolKind(AgentToolActivityKind kind) {
     AgentToolActivityKind.vlm => Icons.visibility_rounded,
     AgentToolActivityKind.terminal => Icons.terminal_rounded,
     AgentToolActivityKind.workspace => Icons.folder_open_rounded,
-    AgentToolActivityKind.workbench => Icons.dashboard_customize_rounded,
+    AgentToolActivityKind.omniflow => Icons.dashboard_customize_rounded,
     AgentToolActivityKind.mcp => Icons.extension_rounded,
     AgentToolActivityKind.generic => Icons.build_rounded,
   };

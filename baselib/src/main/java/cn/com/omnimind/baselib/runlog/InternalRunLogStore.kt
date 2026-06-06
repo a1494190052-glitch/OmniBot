@@ -54,11 +54,12 @@ object InternalRunLogStore {
         goal: String,
         source: String,
         toolName: String = "",
-        operationDescription: String = goal
+        operationDescription: String = goal,
+        startedAtMs: Long = System.currentTimeMillis()
     ) {
         val normalizedRunId = runId.trim()
         if (normalizedRunId.isEmpty()) return
-        val now = System.currentTimeMillis()
+        val now = startedAtMs.takeIf { it > 0L } ?: System.currentTimeMillis()
         val existing = readRunLocked(context, normalizedRunId)
         val record = (existing ?: InternalRunLogRecord(
             runId = normalizedRunId,
@@ -253,19 +254,20 @@ object InternalRunLogStore {
         success: Boolean,
         doneReason: String,
         errorMessage: String? = null,
-        saveSnapshot: Boolean = true
+        saveSnapshot: Boolean = true,
+        finishedAtMs: Long = System.currentTimeMillis()
     ) {
         val normalizedRunId = runId.trim()
         if (normalizedRunId.isEmpty()) return
         val record = readRunLocked(context, normalizedRunId)
             ?: InternalRunLogRecord(runId = normalizedRunId)
-        val finishedAtMs = System.currentTimeMillis()
+        val normalizedFinishedAtMs = finishedAtMs.takeIf { it > 0L } ?: System.currentTimeMillis()
         val eventSeq = appendRunEventLocked(
             context = context,
             runId = normalizedRunId,
             eventType = "run_finished",
             payload = linkedMapOf(
-                "finished_at_ms" to finishedAtMs,
+                "finished_at_ms" to normalizedFinishedAtMs,
                 "success" to success,
                 "done_reason" to doneReason,
                 "error_message" to errorMessage.orEmpty()
@@ -275,7 +277,7 @@ object InternalRunLogStore {
             saveRunLocked(
                 context,
                 record.copy(
-                    finishedAtMs = finishedAtMs,
+                    finishedAtMs = normalizedFinishedAtMs,
                     success = success,
                     doneReason = doneReason,
                     errorMessage = errorMessage.orEmpty(),

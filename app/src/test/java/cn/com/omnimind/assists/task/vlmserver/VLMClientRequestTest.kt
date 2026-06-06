@@ -34,8 +34,8 @@ class VLMClientRequestTest {
     fun `raw VLM model id keeps primary tool-action scene and uses model override`() {
         val client = VLMClient()
 
-        assertEquals("scene.vlm.operation.primary", client.resolveVlmSceneId("androidworld-vlm-model"))
-        assertEquals("androidworld-vlm-model", client.resolveVlmModelOverride("androidworld-vlm-model"))
+        assertEquals("scene.vlm.operation.primary", client.resolveVlmSceneId("guiagent-vlm-model"))
+        assertEquals("guiagent-vlm-model", client.resolveVlmModelOverride("guiagent-vlm-model"))
     }
 
     @Test
@@ -50,7 +50,7 @@ class VLMClientRequestTest {
     fun `model override is transport metadata and not serialized to provider payload`() {
         val request = cn.com.omnimind.baselib.llm.ChatCompletionRequest(
             model = "scene.vlm.operation.primary",
-            modelOverride = "androidworld-vlm-model",
+            modelOverride = "guiagent-vlm-model",
             messages = emptyList()
         )
         val encoded = json.encodeToString(request)
@@ -364,6 +364,75 @@ class VLMClientRequestTest {
     }
 
     @Test
+    fun `openai tool action parser maps scroll tool call alias to swipe`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "qwen-vl-max",
+                turn = ChatCompletionTurn(
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        toolCalls = listOf(
+                            AssistantToolCall(
+                                id = "call_1",
+                                function = AssistantToolCallFunction(
+                                    name = "scroll",
+                                    arguments = """{"target_description":"Settings list","direction":"down","x1":500,"y1":860,"x2":500,"y2":220}"""
+                                )
+                            )
+                        )
+                    )
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary"
+        )
+
+        assertTrue(result.error.orEmpty(), result.success)
+        val action = requireNotNull(result.step).action as SwipeAction
+        assertEquals("Settings list", action.targetDescription)
+        assertEquals("down", action.direction)
+        assertEquals(500f, action.x1, 0.01f)
+        assertEquals(860f, action.y1, 0.01f)
+        assertEquals(500f, action.x2, 0.01f)
+        assertEquals(220f, action.y2, 0.01f)
+    }
+
+    @Test
+    fun `openai tool action parser strips qwen tool title metadata arguments`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "qwen-vl-max",
+                turn = ChatCompletionTurn(
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        toolCalls = listOf(
+                            AssistantToolCall(
+                                id = "call_1",
+                                function = AssistantToolCallFunction(
+                                    name = "click",
+                                    arguments = """{"tool_title":"继续 VLM 任务执行","toolTitle":"legacy title","target_description":"Settings","x":480,"y":702}"""
+                                )
+                            )
+                        )
+                    )
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary"
+        )
+
+        assertTrue(result.error.orEmpty(), result.success)
+        val action = requireNotNull(result.step).action as ClickAction
+        assertEquals("Settings", action.targetDescription)
+        assertEquals(480f, action.x, 0.01f)
+        assertEquals(702f, action.y, 0.01f)
+    }
+
+    @Test
     fun `openai tool action parser supports call tool function invocation`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(
@@ -575,7 +644,7 @@ class VLMClientRequestTest {
     }
 
     @Test
-    fun `text fallback tool parser supports androidworld tool call wrapper`() {
+    fun `text fallback tool parser supports generic tool call wrapper`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(
             SceneChatCompletionTurn(
@@ -645,7 +714,33 @@ class VLMClientRequestTest {
     }
 
     @Test
-    fun `text fallback tool parser normalizes androidworld action field`() {
+    fun `text fallback parser skips qwen tool title marker before function invocation`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "qwen-vl-max",
+                turn = ChatCompletionTurn(
+                    finishReason = "stop",
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        content = JsonPrimitive(
+                            """{"text":"tool_title: 继续 VLM 任务执行\n\nopen_app(package_name=\"com.android.settings\")","status":"success"}"""
+                        )
+                    )
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary"
+        )
+
+        assertTrue(result.error.orEmpty(), result.success)
+        val action = requireNotNull(result.step).action as OpenAppAction
+        assertEquals("com.android.settings", action.packageName)
+    }
+
+    @Test
+    fun `text fallback tool parser normalizes generic action field`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(
             SceneChatCompletionTurn(
@@ -806,6 +901,123 @@ class VLMClientRequestTest {
         assertEquals(208f, action.x, 0.01f)
         assertEquals(451f, action.y, 0.01f)
         assertTrue(action.targetDescription.contains("Network"))
+    }
+
+    @Test
+    fun `text fallback tool parser supports compact qwen adjacent tool call arguments`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "qwen-vl-max",
+                turn = ChatCompletionTurn(
+                    finishReason = "stop",
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        content = JsonPrimitive(
+                            """{"observation":"Home screen.","thought":"Need to find Clock.","summary":"Need to open Clock."}tool_call:scrolltarget_description:"scrolldowntorevealmoreapps"x1:500y1:860x2:500y2:220"""
+                        )
+                    )
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary"
+        )
+
+        assertTrue(result.error.orEmpty(), result.success)
+        val action = requireNotNull(result.step).action as SwipeAction
+        assertEquals("scrolldowntorevealmoreapps", action.targetDescription)
+        assertEquals(500f, action.x1, 0.01f)
+        assertEquals(860f, action.y1, 0.01f)
+        assertEquals(500f, action.x2, 0.01f)
+        assertEquals(220f, action.y2, 0.01f)
+    }
+
+    @Test
+    fun `text fallback tool parser supports qwen named tool with json arguments`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "qwen-vl-max",
+                turn = ChatCompletionTurn(
+                    finishReason = "stop",
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        content = JsonPrimitive(
+                            """
+                            {"observation":"Need home.","thought":"Go home.","summary":"Open from launcher."}
+                            tool_call: press_key {"key": "home"}
+                            """.trimIndent()
+                        )
+                    )
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary"
+        )
+
+        assertTrue(result.error.orEmpty(), result.success)
+        val action = requireNotNull(result.step).action as PressKeyAction
+        assertEquals("home", action.key)
+    }
+
+    @Test
+    fun `text fallback tool parser supports qwen json object after tool call marker`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "qwen-vl-max",
+                turn = ChatCompletionTurn(
+                    finishReason = "stop",
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        content = JsonPrimitive(
+                            """
+                            {"observation":"Need Settings.","thought":"Use recalled function.","summary":"Call reusable function."}
+                            tool_call: {"name": "call_tool", "arguments": {"function_id": "oob_cmd_vlm_task_582f9485", "arguments": {}}}
+                            """.trimIndent()
+                        )
+                    )
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary"
+        )
+
+        assertTrue(result.error.orEmpty(), result.success)
+        val action = requireNotNull(result.step).action as FunctionRunAction
+        assertEquals("oob_cmd_vlm_task_582f9485", action.functionId)
+    }
+
+    @Test
+    fun `text fallback tool parser supports bare colon command with json arguments`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "qwen-vl-max",
+                turn = ChatCompletionTurn(
+                    finishReason = "stop",
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        content = JsonPrimitive(
+                            """
+                            {"observation":"Calendar is not visible.","thought":"Open Simple Calendar.","summary":"Starting calendar task."}
+                            open_app: {"package_name": "com.simplemobiletools.calendar"}
+                            """.trimIndent()
+                        )
+                    )
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary"
+        )
+
+        assertTrue(result.error.orEmpty(), result.success)
+        val action = requireNotNull(result.step).action as OpenAppAction
+        assertEquals("com.simplemobiletools.calendar", action.packageName)
     }
 
     @Test

@@ -296,17 +296,11 @@ NOTES:
         "name" to "agent_run",
         "description" to """Submit a prompt into the normal in-app ${brandName()} Agent runtime.
 
-Use this when you need OOB itself to create or modify Workbench Projects, call internal Agent tools, or run a toolvox-style validation without relying on visual typing into the Flutter Home input.
-
-This is not a Workbench debug shortcut:
-- It starts the same Agent task path used by WebChat/Home.
-- The Agent must call Workbench tools such as workbench_project_create and workbench_api_call by itself.
-- Workbench control tools are still not exposed as Project Tools.
+Use this when you need OOB itself to run a normal Agent task, call internal Agent tools, or validate a workflow without relying on visual typing into the Flutter Home input.
 
 BEHAVIOR:
 - Returns once the Agent run is accepted.
-- Use WebChat events, task logs, or Project runtime files to verify completion.
-- Do not claim Project creation succeeded until workspace/projects/<project-id>/project.json exists on the device.
+- Use WebChat events, task logs, or returned artifacts to verify completion.
 """.trimIndent(),
         "inputSchema" to mapOf(
             "type" to "object",
@@ -567,64 +561,6 @@ BEHAVIOR:
         )
     )
 
-    val oobProjectCreateTool = mapOf(
-        "name" to "oob_project_create",
-        "description" to """Create or reuse an OOB Workbench Project.
-
-This is the MCP control entry for Project creation. It writes the normal Workbench runtime files under /workspace/projects/<project-id>/ and registers Project Tools. It does not add Workbench control tools to the Project Toolbox.
-""".trimIndent(),
-        "inputSchema" to mapOf(
-            "type" to "object",
-            "properties" to mapOf(
-                "projectId" to mapOf("type" to "string", "description" to "Stable Project id. Example: oob-workbench-v01-research-summary"),
-                "name" to mapOf("type" to "string", "description" to "Human-readable Project name."),
-                "prompt" to mapOf("type" to "string", "description" to "Original creation prompt preserved in Project files."),
-                "entityName" to mapOf("type" to "string", "description" to "Optional Project entity name for the default Project Display."),
-                "initialItems" to mapOf("type" to "array", "description" to "Optional initial Project data written to data/items.json."),
-                "apis" to mapOf("type" to "array", "description" to "Optional Project Tool contracts. Each item may include apiId or toolId, displayName, description, inputSchema, outputSchema, and run."),
-                "htmlFiles" to mapOf("type" to "array", "description" to "Optional HTML/CSS/JS files under frontend/html/. This is the default frontend path. Include index.html for html_webview Displays. Use for reports, interactive UI, charts, dashboards, forms, and rich layouts. Prefer a single page with hash routing; multiple local HTML files may link to each other with relative URLs such as detail.html?id=1#summary, but only as Project-local page replacement with no browser back stack or external navigation. Default to the app-injected Workbench Display layout profile: viewport width=device-width, one column, compact first viewport, targeting the measured viewportWidthDp/viewportHeightDp instead of hard-coded phone dimensions. Portrait reports should use a phone-width article layout with the executive summary in the first measured viewport; use viewport width=1280 only for explicit wide reports or slide decks."),
-                "markdownFiles" to mapOf("type" to "array", "description" to "Optional specialized Markdown files under frontend/markdown/. Not the default UI path. Include index.md for markdown Displays only when the user explicitly asks for Markdown, editable documents, plain-text long-form output, or when the current Project is already a Markdown Display."),
-                "flutterFiles" to mapOf("type" to "array", "description" to "Optional Flutter files under frontend/flutter/ for the limited flutter_eval renderer. Expose an OobProjectWidget(dynamic _, {super.key}) Widget entry; do not include void main(), runApp(), normal app entry code, or third-party packages.")
-            )
-        )
-    )
-
-    val oobProjectActivateTool = mapOf(
-        "name" to "oob_project_activate",
-        "description" to "Activate one OOB Project so its Project Tools are mounted as the current MCP Toolbox.",
-        "inputSchema" to mapOf(
-            "type" to "object",
-            "properties" to mapOf(
-                "projectId" to mapOf("type" to "string", "description" to "Project id to activate.")
-            ),
-            "required" to listOf("projectId")
-        )
-    )
-
-    val oobProjectOpenTool = mapOf(
-        "name" to "oob_project_open",
-        "description" to "Open a Project's native OOB Flutter Display route on the device.",
-        "inputSchema" to mapOf(
-            "type" to "object",
-            "properties" to mapOf(
-                "projectId" to mapOf("type" to "string", "description" to "Project id to open.")
-            ),
-            "required" to listOf("projectId")
-        )
-    )
-
-    val oobProjectProgressGetTool = mapOf(
-        "name" to "oob_project_progress_get",
-        "description" to "Read recent Project creation/import progress rows from the Workbench progress log.",
-        "inputSchema" to mapOf(
-            "type" to "object",
-            "properties" to mapOf(
-                "projectId" to mapOf("type" to "string", "description" to "Optional Project id. Defaults to active/latest context when supported."),
-                "limit" to mapOf("type" to "integer", "description" to "Maximum rows to return. Defaults to 50.")
-            )
-        )
-    )
-
     val fixedTools
         get() = listOf(
             vlmTaskTool,
@@ -646,11 +582,7 @@ This is the MCP control entry for Project creation. It writes the normal Workben
             oobFunctionClearTool,
             oobRunLogListTool,
             oobRunLogGetTool,
-            oobRunLogConvertTool,
-            oobProjectCreateTool,
-            oobProjectActivateTool,
-            oobProjectOpenTool,
-            oobProjectProgressGetTool
+            oobRunLogConvertTool
         )
 
     val fixedToolNames: Set<String>

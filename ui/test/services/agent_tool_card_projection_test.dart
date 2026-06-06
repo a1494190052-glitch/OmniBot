@@ -262,7 +262,7 @@ void main() {
     expect(card['status'], 'success');
     expect(
       AgentToolCardPolicy.activityKindFor(card),
-      AgentToolActivityKind.workbench,
+      AgentToolActivityKind.omniflow,
     );
   });
 

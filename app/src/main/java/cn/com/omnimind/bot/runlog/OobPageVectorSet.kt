@@ -13,7 +13,7 @@ import kotlin.math.sqrt
 /**
  * Local, model-free PageVectorSet encoder for OOB-native UDEG recall.
  *
- * This mirrors OmniFlow's paper-facing representation at the shape level:
+ * This mirrors OmniFlow's portable page representation at the shape level:
  * 64-d element vectors are pooled into eight page slices and normalized into a
  * 512-d page recall vector. The serialized shared payload stores hashes and
  * vectors, not raw XML/text.

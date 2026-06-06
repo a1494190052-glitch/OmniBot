@@ -41,11 +41,6 @@ extension _HomeDrawerActions on HomeDrawerState {
     GoRouterManager.push(route);
   }
 
-  void _openProjectManagementPage() {
-    _maybeCloseDrawer();
-    GoRouterManager.push('/workbench/projects');
-  }
-
   void _openNewConversation() {
     // `subagent` 模式是"计划任务执行体"的内部语义,从 HomeDrawer 加号按钮新建的对话
     // 永远不应继承它(否则 subagent_dispatch / schedule_* / alarm_* / calendar_*

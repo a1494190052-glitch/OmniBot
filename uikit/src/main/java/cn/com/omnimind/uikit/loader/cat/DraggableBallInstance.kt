@@ -185,6 +185,37 @@ object DraggableBallInstance {
         }
     }
 
+    private fun applyBaseOverlayTouchability(
+        instance: DraggableBallLoader,
+        isTouchable: Boolean,
+    ) {
+        val flags = if (isTouchable) {
+            WindowFlag.SCREEN_LOCK_FLAG
+        } else {
+            WindowFlag.SCREEN_UNLOCK_FLAG
+        }
+
+        if (instance.catViewLayoutParams.flags != flags) {
+            instance.catViewLayoutParams.flags = flags
+            runCatching {
+                instance.updateViewLayoutIfAttached(instance.catView, instance.catViewLayoutParams)
+            }.onFailure {
+                OmniLog.w(TAG, "setDoing catView touchability update failed: ${it.message}")
+            }
+        }
+        if (instance.catDialogLayoutViewLayoutParams.flags != flags) {
+            instance.catDialogLayoutViewLayoutParams.flags = flags
+            runCatching {
+                instance.updateViewLayoutIfAttached(
+                    instance.catDialogLayoutView,
+                    instance.catDialogLayoutViewLayoutParams
+                )
+            }.onFailure {
+                OmniLog.w(TAG, "setDoing dialog touchability update failed: ${it.message}")
+            }
+        }
+    }
+
     /**
      * 收起小猫
      */
@@ -228,26 +259,41 @@ object DraggableBallInstance {
     fun doingTask(
         message: String,
         subMessage: String,
-        forceOnTop: Boolean = false
+        forceOnTop: Boolean = false,
+        isTouchable: Boolean = true,
     ) {
         resetTaskCompletionHintState()
         val instance = getLoadedInstance() ?: return
         CancelClickLoader.cancelIntercepting()
         instance.catView.setViewState(DraggableViewState.DOING_TASK)
         instance.collapseMenu()
+        val windowFlag = if (isTouchable) {
+            WindowFlag.SCREEN_LOCK_FLAG
+        } else {
+            WindowFlag.SCREEN_UNLOCK_FLAG
+        }
+        applyBaseOverlayTouchability(instance, isTouchable)
         val shouldResetLayout = CatDialogStateData.viewState == CatDialogViewState.EMPTY ||
+            instance.catDialogShowInfoViewParams.flags != windowFlag ||
             !instance.catDialogShowInfoView.isAttachedToWindow
+        val (x, y) = CatDialogStateData.getDoingTaskXY()
+        val (w, h) = CatDialogStateData.getTaskDoingWH()
+        val shouldCorrectDoingLayout =
+            instance.catDialogShowInfoViewParams.x != x ||
+                instance.catDialogShowInfoViewParams.y != y ||
+                instance.catDialogShowInfoViewParams.width != w ||
+                instance.catDialogShowInfoViewParams.height != h
         if (shouldResetLayout) {
-            instance.catDialogShowInfoViewParams = instance.getParams(WindowFlag.SCREEN_LOCK_FLAG)
-            val (x, y) = CatDialogStateData.getDoingTaskXY()
-            val (w, h) = CatDialogStateData.getTaskDoingWH()
+            instance.catDialogShowInfoViewParams = instance.getParams(windowFlag)
+        }
+        if (shouldResetLayout || shouldCorrectDoingLayout) {
             instance.catDialogShowInfoViewParams.y = y
             instance.catDialogShowInfoViewParams.x = x
             instance.catDialogShowInfoViewParams.width = w
             instance.catDialogShowInfoViewParams.height = h
             instance.catDialogShowInfoView.visibility = View.VISIBLE
         }
-        if (shouldResetLayout || forceOnTop) {
+        if (shouldResetLayout || shouldCorrectDoingLayout || forceOnTop) {
             if (!ensureShowInfoViewAttachedOrUpdated(
                     instance = instance,
                     caller = "doingTask",
@@ -289,20 +335,28 @@ object DraggableBallInstance {
         } else {
             WindowFlag.SCREEN_UNLOCK_FLAG
         }
+        applyBaseOverlayTouchability(instance, isTouchable)
         val shouldResetLayout = CatDialogStateData.viewState == CatDialogViewState.EMPTY ||
             instance.catDialogShowInfoViewParams.flags != windowFlag ||
             !instance.catDialogShowInfoView.isAttachedToWindow
+        val (x, y) = CatDialogStateData.getDoingTaskXY()
+        val (w, h) = CatDialogStateData.getTaskDoingWH()
+        val shouldCorrectDoingLayout =
+            instance.catDialogShowInfoViewParams.x != x ||
+                instance.catDialogShowInfoViewParams.y != y ||
+                instance.catDialogShowInfoViewParams.width != w ||
+                instance.catDialogShowInfoViewParams.height != h
         if (shouldResetLayout) {
             instance.catDialogShowInfoViewParams = instance.getParams(windowFlag)
-            val (x, y) = CatDialogStateData.getDoingTaskXY()
-            val (w, h) = CatDialogStateData.getTaskDoingWH()
+        }
+        if (shouldResetLayout || shouldCorrectDoingLayout) {
             instance.catDialogShowInfoViewParams.y = y
             instance.catDialogShowInfoViewParams.x = x
             instance.catDialogShowInfoViewParams.width = w
             instance.catDialogShowInfoViewParams.height = h
             instance.catDialogShowInfoView.visibility = View.VISIBLE
         }
-        if (shouldResetLayout || forceOnTop) {
+        if (shouldResetLayout || shouldCorrectDoingLayout || forceOnTop) {
             if (!ensureShowInfoViewAttachedOrUpdated(
                     instance = instance,
                     caller = "setDoing",
@@ -505,6 +559,7 @@ object DraggableBallInstance {
         val catDialogShowInfoView = instance.catDialogShowInfoView
         val windowManager = instance.getWindowManager()
         catDialogShowInfoView.cancelAnimations()
+        applyBaseOverlayTouchability(instance, isTouchable = true)
         instance.catView.setViewState(DraggableViewState.MESSAGE)
         instance.catDialogLayoutView.finishDoingTask(message)
         catDialogShowInfoView.finishDoingTask()

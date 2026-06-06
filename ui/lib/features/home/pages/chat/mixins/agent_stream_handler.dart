@@ -199,12 +199,6 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
           completedThinkingCardId: thinkingCardToFinalize,
         );
         return;
-      case AgentStreamEventKind.workbenchProjectCard:
-        _applyAgentUiCardStreamEvent(
-          event,
-          completedThinkingCardId: thinkingCardToFinalize,
-        );
-        return;
       case AgentStreamEventKind.clarifyRequired:
         _applyAgentClarifyStreamEvent(
           event,
@@ -428,11 +422,6 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
           entryId: cardId,
         ),
       );
-      if (event.kind == AgentStreamEventKind.toolCompleted &&
-          (toolEvent.toolType == 'workbench' ||
-              toolEvent.toolName.startsWith('workbench_'))) {
-        _finalizeRunningToolCardsForTask(taskId);
-      }
     });
     _persistAgentConversationSafely(
       immediate: event.kind == AgentStreamEventKind.toolCompleted,
@@ -531,8 +520,8 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
         status: 'error',
         summary: event.errorMessage.trim().isEmpty
             ? AppTextLocalizer.choose(
-                en: 'Workbench step failed',
-                zh: '工作台步骤失败',
+                en: 'Tool step failed',
+                zh: '工具步骤失败',
               )
             : event.errorMessage.trim(),
       );
@@ -823,7 +812,6 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
       case AgentStreamEventKind.toolStarted:
       case AgentStreamEventKind.toolProgress:
       case AgentStreamEventKind.toolCompleted:
-      case AgentStreamEventKind.workbenchProjectCard:
       case AgentStreamEventKind.completed:
       case AgentStreamEventKind.error:
       case AgentStreamEventKind.permissionRequired:

@@ -25,7 +25,6 @@ class RunLogReplayPolicy {
     'oob_agent_run',
     'omniflow.recall',
     'omniflow.ingest_run_log',
-    'workbench_api_list',
     'oob_function_list',
     'oob_function_get',
     'oob_function_register',

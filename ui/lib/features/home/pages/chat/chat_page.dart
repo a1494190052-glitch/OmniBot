@@ -27,6 +27,7 @@ import '../command_overlay/services/tool_card_detail_gesture_gate.dart';
 import '../common/openclaw_connection_checker.dart';
 import '../omnibot_workspace/omnibot_workspace_page.dart';
 import '../omnibot_workspace/widgets/omnibot_workspace_browser.dart';
+import '../omnibot_workspace/widgets/omnibot_workspace_project_frontends.dart';
 import 'services/chat_conversation_lifecycle_guard.dart';
 import 'services/chat_conversation_runtime_coordinator.dart';
 import 'package:ui/constants/openclaw/openclaw_keys.dart';
@@ -68,6 +69,8 @@ import 'package:ui/features/home/pages/codex/codex_remote_directory_picker.dart'
 import 'package:ui/features/home/pages/codex/codex_remote_workspace_browser.dart';
 import 'package:ui/features/task/pages/execution_history/run_log_timeline_page.dart';
 import 'package:ui/widgets/chat_drawer_gesture_guard.dart';
+import 'package:ui/widgets/oob_function_run_progress_card.dart';
+import 'package:ui/widgets/oob_function_run_progress_dialog.dart';
 
 // 导入 Mixins
 import 'mixins/chat_message_handler.dart';
@@ -384,6 +387,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   bool _isCompanionModeEnabled = false;
   bool _isCompanionToggleLoading = false;
   AppUpdateStatus? _appUpdateStatus;
+  OobFunctionRunProgressEvent? _oobFunctionRunProgressStatus;
   ModalRoute<dynamic>? _subscribedRoute;
   StreamSubscription<Map<String, dynamic>>?
   _conversationListChangedSubscription;
@@ -391,6 +395,8 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   _conversationMessagesChangedSubscription;
   StreamSubscription<Map<String, dynamic>>?
   _browserSessionSnapshotChangedSubscription;
+  StreamSubscription<OobFunctionRunProgressEvent>?
+  _oobFunctionRunProgressSubscription;
   StreamSubscription<Map<String, dynamic>>? _codexEventSubscription;
   Timer? _remoteCodexSessionSyncTimer;
   bool _remoteCodexSessionSyncInFlight = false;
@@ -1475,6 +1481,30 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   @override
   Future<void> persistAgentConversation() => saveConversation();
 
+  void _handleOobFunctionRunProgressEvent(OobFunctionRunProgressEvent event) {
+    if (!mounted || _activeMode != ChatPageMode.normal) return;
+    final cardId = oobFunctionRunProgressCardIdForEvent(event);
+    if (cardId.isEmpty) return;
+    final cardData = oobFunctionRunProgressCardDataForEvent(event);
+    final message = ChatMessageModel.cardMessage(cardData, id: cardId);
+    setState(() {
+      final existingIndex = _messages.indexWhere(
+        (item) =>
+            item.id == cardId ||
+            (item.cardData?['cardId'] ?? '').toString() == cardId,
+      );
+      if (existingIndex == -1) {
+        _messages.insert(0, message);
+      } else {
+        _messages[existingIndex] = message;
+      }
+    });
+    _syncRuntimeSnapshotForMode(_activeMode);
+    if (event.isTerminal) {
+      unawaited(saveConversation());
+    }
+  }
+
   @override
   void onConversationReset(ConversationMode mode) {
     _resetLocalConversationState(_pageModeForConversationMode(mode));
@@ -1872,9 +1902,13 @@ abstract class _ChatPageStateBase extends State<ChatPage>
 
   void _handleAppUpdateStatusChanged();
 
+  void _handleOobFunctionRunProgressStatusChanged();
+
   double _popupMenuBottomOffset();
 
   Future<void> _handleAppUpdateBannerTap();
+
+  Future<void> _handleOobFunctionRunProgressTap();
 
   Future<void> _refreshCodexStatus();
 

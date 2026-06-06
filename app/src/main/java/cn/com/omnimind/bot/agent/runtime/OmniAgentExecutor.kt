@@ -8,8 +8,6 @@ import cn.com.omnimind.bot.agent.workspace.memory.MemoryRetrievalPipeline
 import cn.com.omnimind.bot.agent.workspace.memory.TurnMemoryLoadTracker
 import cn.com.omnimind.bot.mcp.RemoteMcpDiscoveryRegistry
 import cn.com.omnimind.bot.omniflow.OobFunctionSkillProfile
-import cn.com.omnimind.bot.workbench.WorkbenchDisplayLayoutContext
-import cn.com.omnimind.bot.workbench.WorkbenchProjectStore
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -89,20 +87,7 @@ class OmniAgentExecutor(
             } else runCatching {
                 memoryService.buildPromptContext()
             }.getOrNull()
-            val activeWorkbenchProjectContext = if (lightweightToolProfile) {
-                null
-            } else runCatching {
-                WorkbenchProjectStore(context).activeProjectPromptContext()
-            }.getOrNull()
             val promptLocale = AppLocaleManager.resolvePromptLocale(context)
-            val workbenchDisplayLayoutContext = if (lightweightToolProfile) {
-                null
-            } else activeWorkbenchProjectContext?.let {
-                WorkbenchDisplayLayoutContext.promptSection(
-                    context = context,
-                    locale = promptLocale
-                )
-            }
             val oobFunctionCandidateContext = if (lightweightToolProfile) {
                 null
             } else OobFunctionSkillProfile.promptCandidateContext(
@@ -165,8 +150,6 @@ class OmniAgentExecutor(
                 skillsRootAndroidPath = workspaceManager.skillsRoot().absolutePath,
                 resolvedSkills = resolvedSkills,
                 memoryContext = promptMemoryContext,
-                activeWorkbenchProjectContext = activeWorkbenchProjectContext,
-                workbenchDisplayLayoutContext = workbenchDisplayLayoutContext,
                 oobFunctionCandidateContext = oobFunctionCandidateContext,
                 locale = promptLocale,
                 prefetchedMemoryHits = prefetchedMemoryHits,
@@ -277,8 +260,6 @@ class OmniAgentExecutor(
         skillsRootAndroidPath: String,
         resolvedSkills: List<ResolvedSkillContext>,
         memoryContext: WorkspaceMemoryPromptContext?,
-        activeWorkbenchProjectContext: String?,
-        workbenchDisplayLayoutContext: String?,
         oobFunctionCandidateContext: String?,
         locale: cn.com.omnimind.baselib.i18n.PromptLocale,
         prefetchedMemoryHits: List<WorkspaceMemorySearchHit> = emptyList(),
@@ -296,8 +277,6 @@ class OmniAgentExecutor(
             skillsRootAndroidPath = skillsRootAndroidPath,
             resolvedSkills = resolvedSkills,
             memoryContext = memoryContext,
-            activeWorkbenchProjectContext = activeWorkbenchProjectContext,
-            workbenchDisplayLayoutContext = workbenchDisplayLayoutContext,
             oobFunctionCandidateContext = oobFunctionCandidateContext,
             locale = locale,
             toolExposurePolicy = toolExposurePolicy,

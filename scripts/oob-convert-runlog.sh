@@ -142,14 +142,28 @@ if [[ -n "${RUN_ID// }" ]]; then
   BROADCAST_ARGS+=(--es runId "$RUN_ID")
 fi
 if [[ -n "${RUN_LOG_PATH// }" ]]; then
-  RUN_LOG_B64="$(python3 - "$RUN_LOG_PATH" <<'PY'
-import base64
+  REMOTE_RUNLOG_NAME="$(python3 - "$RUN_LOG_PATH" <<'PY'
+import re
 import sys
 from pathlib import Path
-print(base64.b64encode(Path(sys.argv[1]).read_bytes()).decode("ascii"))
+name = Path(sys.argv[1]).name
+name = re.sub(r"[^A-Za-z0-9._-]+", "_", name)
+print(name[:120] or "runlog.json")
 PY
 )"
-  BROADCAST_ARGS+=(--es runLogBase64 "$RUN_LOG_B64")
+  REMOTE_RUNLOG_PATH="debug-runlogs/$REMOTE_RUNLOG_NAME"
+  REMOTE_RUNLOG_ABS="/data/user/0/$PACKAGE_NAME/files/$REMOTE_RUNLOG_PATH"
+  "${ADB[@]}" shell run-as "$PACKAGE_NAME" mkdir -p "/data/user/0/$PACKAGE_NAME/files/debug-runlogs" >/dev/null
+  python3 - "$RUN_LOG_PATH" <<'PY' | "${ADB[@]}" shell run-as "$PACKAGE_NAME" sh -c "cat > '$REMOTE_RUNLOG_ABS'"
+import json
+import sys
+from pathlib import Path
+
+data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+payload = data.get("payload") if isinstance(data, dict) and isinstance(data.get("payload"), dict) else data
+print(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+PY
+  BROADCAST_ARGS+=(--es runLogPath "$REMOTE_RUNLOG_ABS")
 fi
 if [[ -n "${FUNCTION_ID// }" ]]; then
   BROADCAST_ARGS+=(--es functionId "$FUNCTION_ID")

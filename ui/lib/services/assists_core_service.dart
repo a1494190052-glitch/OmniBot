@@ -990,7 +990,12 @@ class OobFunctionRunProgressEvent {
     );
     return OobFunctionRunProgressEvent(
       status: (raw['status'] ?? '').toString().trim(),
-      runId: _firstNonBlank([raw['run_id'], raw['runId']]),
+      runId: _firstNonBlank([
+        raw['run_log_id'],
+        raw['runLogId'],
+        raw['run_id'],
+        raw['runId'],
+      ]),
       taskId: _firstNonBlank([raw['task_id'], raw['taskId']]),
       functionId: _firstNonBlank([raw['function_id'], raw['functionId']]),
       label: (raw['label'] ?? '').toString().trim(),
@@ -1015,6 +1020,20 @@ class OobFunctionRunProgressEvent {
 
   bool get isTerminal =>
       status == 'finished' || status == 'stopped' || status == 'failed';
+
+  String get runLogId => _firstNonBlank([
+    rawJson['run_log_id'],
+    rawJson['runLogId'],
+    runId,
+    taskId,
+  ]);
+
+  bool get shouldShowShortcut {
+    if (isRunning) return true;
+    if (status == 'stopped' || status == 'failed') return true;
+    final normalizedMessage = message.trim();
+    return normalizedMessage.contains('失败');
+  }
 
   int? get displayStepNumber {
     final explicit = currentStepNumber;
@@ -1409,6 +1428,149 @@ class UtgRunLogsSnapshot {
       runStorageDir: (map['run_storage_dir'] ?? '').toString(),
       provider: (map['provider'] ?? '').toString(),
     );
+  }
+}
+
+class OobReusableFunctionLastRunLog {
+  final bool success;
+  final String functionId;
+  final String runId;
+  final bool? runSuccess;
+  final String createdAt;
+  final String errorMessage;
+  final Map<String, dynamic> rawJson;
+
+  const OobReusableFunctionLastRunLog({
+    required this.success,
+    required this.functionId,
+    required this.runId,
+    required this.runSuccess,
+    required this.createdAt,
+    required this.errorMessage,
+    required this.rawJson,
+  });
+
+  factory OobReusableFunctionLastRunLog.fromFunctionSpec({
+    required String functionId,
+    Map<String, dynamic>? spec,
+  }) {
+    final raw = spec ?? const <String, dynamic>{};
+    final effectiveSpec = _firstMap([
+      raw['function_spec'],
+      raw['functionSpec'],
+      raw['spec'],
+      raw,
+    ]);
+    final registry = _firstMap([
+      effectiveSpec['_oob_registry'],
+      effectiveSpec['registry'],
+      raw['_oob_registry'],
+      raw['registry'],
+    ]);
+    final runStats = _firstMap([
+      effectiveSpec['run_stats'],
+      effectiveSpec['runStats'],
+      registry['run_stats'],
+      registry['runStats'],
+      raw['run_stats'],
+      raw['runStats'],
+    ]);
+    final lastRun = _firstMap([
+      effectiveSpec['last_run'],
+      effectiveSpec['lastRun'],
+      runStats['last_run'],
+      runStats['lastRun'],
+      raw['last_run'],
+      raw['lastRun'],
+    ]);
+    final runId = _firstNonBlank([
+      lastRun['run_id'],
+      lastRun['runId'],
+      runStats['last_run_id'],
+      runStats['lastRunId'],
+      effectiveSpec['last_run_id'],
+      effectiveSpec['lastRunId'],
+      raw['run_id'],
+      raw['runId'],
+      raw['last_run_id'],
+      raw['lastRunId'],
+    ]);
+    final createdAt = _firstNonBlank([
+      lastRun['created_at'],
+      lastRun['createdAt'],
+      runStats['last_run_at'],
+      runStats['lastRunAt'],
+      effectiveSpec['last_run_at'],
+      effectiveSpec['lastRunAt'],
+      raw['created_at'],
+      raw['createdAt'],
+      raw['last_run_at'],
+      raw['lastRunAt'],
+    ]);
+    final errorMessage = _firstNonBlank([
+      lastRun['error_message'],
+      lastRun['errorMessage'],
+      raw['error_message'],
+      raw['errorMessage'],
+    ]);
+    return OobReusableFunctionLastRunLog(
+      success: runId.isNotEmpty,
+      functionId: functionId.trim(),
+      runId: runId,
+      runSuccess: _boolValue(
+        lastRun['success'] ??
+            lastRun['run_success'] ??
+            lastRun['runSuccess'] ??
+            runStats['last_success'] ??
+            runStats['lastSuccess'] ??
+            raw['last_success'] ??
+            raw['lastSuccess'],
+      ),
+      createdAt: createdAt,
+      errorMessage: errorMessage,
+      rawJson: raw,
+    );
+  }
+
+  bool get hasRunLog => runId.trim().isNotEmpty;
+
+  static Map<String, dynamic> _firstMap(Iterable<dynamic> values) {
+    for (final value in values) {
+      final mapped = _asMap(value);
+      if (mapped.isNotEmpty) return mapped;
+    }
+    return const <String, dynamic>{};
+  }
+
+  static Map<String, dynamic> _asMap(dynamic value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) {
+      return value.map((key, item) => MapEntry(key.toString(), item));
+    }
+    return const <String, dynamic>{};
+  }
+
+  static String _firstNonBlank(Iterable<dynamic> values) {
+    for (final value in values) {
+      final text = value?.toString().trim() ?? '';
+      if (text.isNotEmpty) return text;
+    }
+    return '';
+  }
+
+  static bool? _boolValue(dynamic value) {
+    if (value == null) return null;
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    final normalized = value.toString().trim().toLowerCase();
+    if (normalized.isEmpty) return null;
+    if (normalized == 'true' || normalized == '1' || normalized == 'yes') {
+      return true;
+    }
+    if (normalized == 'false' || normalized == '0' || normalized == 'no') {
+      return false;
+    }
+    return null;
   }
 }
 
@@ -1867,6 +2029,10 @@ class AssistsMessageService {
   static final StreamController<OobFunctionRunProgressEvent>
   _oobFunctionRunProgressController =
       StreamController<OobFunctionRunProgressEvent>.broadcast();
+  static final ValueNotifier<OobFunctionRunProgressEvent?>
+  oobFunctionRunProgressNotifier = ValueNotifier<OobFunctionRunProgressEvent?>(
+    null,
+  );
 
   // 改为回调列表，支持多个监听器
   static final List<ChatTaskMessageCallBack> _onChatTaskMessageCallBacks = [];
@@ -1896,9 +2062,18 @@ class AssistsMessageService {
   static void debugDispatchOobFunctionRunProgressForTest(
     Map<String, dynamic> payload,
   ) {
-    _oobFunctionRunProgressController.add(
+    dispatchOobFunctionRunProgressEvent(
       OobFunctionRunProgressEvent.fromMap(payload),
     );
+  }
+
+  static void dispatchOobFunctionRunProgressEvent(
+    OobFunctionRunProgressEvent event,
+  ) {
+    _oobFunctionRunProgressController.add(event);
+    oobFunctionRunProgressNotifier.value = event.shouldShowShortcut
+        ? event
+        : null;
   }
 
   static void initialize() {
@@ -1973,7 +2148,7 @@ class AssistsMessageService {
           );
           break;
         case 'onOobFunctionRunProgress':
-          _oobFunctionRunProgressController.add(
+          dispatchOobFunctionRunProgressEvent(
             OobFunctionRunProgressEvent.fromMap(call.arguments as Map?),
           );
           break;
@@ -3060,6 +3235,39 @@ class AssistsMessageService {
       return null;
     }
     return _jsonSafeDynamicMap(result);
+  }
+
+  static Future<OobReusableFunctionLastRunLog> getOobReusableFunctionLastRunLog(
+    String functionId,
+  ) async {
+    final normalized = functionId.trim();
+    if (normalized.isEmpty) {
+      return const OobReusableFunctionLastRunLog(
+        success: false,
+        functionId: '',
+        runId: '',
+        runSuccess: null,
+        createdAt: '',
+        errorMessage: 'function_id is empty',
+        rawJson: <String, dynamic>{},
+      );
+    }
+    final spec = await getOobReusableFunction(normalized);
+    if (spec == null || spec.isEmpty) {
+      return OobReusableFunctionLastRunLog(
+        success: false,
+        functionId: normalized,
+        runId: '',
+        runSuccess: null,
+        createdAt: '',
+        errorMessage: 'function not found',
+        rawJson: const <String, dynamic>{},
+      );
+    }
+    return OobReusableFunctionLastRunLog.fromFunctionSpec(
+      functionId: normalized,
+      spec: spec,
+    );
   }
 
   static Future<Map<String, dynamic>> getAgentToolFeatures() async {

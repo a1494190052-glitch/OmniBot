@@ -671,7 +671,7 @@ String resolveAgentToolStatusLabel(
           locale: locale,
         );
       }
-      if (toolType == 'workbench') {
+      if (toolType == 'omniflow' || toolType == 'oob_function') {
         return AppTextLocalizer.choose(
           en: 'Updating',
           zh: '处理中',
@@ -730,15 +730,10 @@ String resolveAgentToolTypeLabel(
       return _localizeToolUiText('工作区', locale: locale);
     case 'oob_function':
     case 'reusable_function':
+    case 'omniflow':
       return AppTextLocalizer.choose(
         en: 'Reusable Function',
         zh: '复用指令',
-        locale: locale,
-      );
-    case 'workbench':
-      return AppTextLocalizer.choose(
-        en: 'Workbench',
-        zh: '工作台',
         locale: locale,
       );
     case 'schedule':
@@ -974,18 +969,18 @@ String _localizeToolUiText(String value, {Locale? locale}) {
         zh: '工作区',
         locale: locale,
       );
-    case 'Workbench activity':
-    case '工作台操作':
+    case 'OmniFlow activity':
+    case '工作流操作':
       return AppTextLocalizer.choose(
-        en: 'Workbench activity',
-        zh: '工作台操作',
+        en: 'OmniFlow activity',
+        zh: '工作流操作',
         locale: locale,
       );
-    case 'Workbench':
-    case '工作台':
+    case 'OmniFlow':
+    case '工作流':
       return AppTextLocalizer.choose(
-        en: 'Workbench',
-        zh: '工作台',
+        en: 'OmniFlow',
+        zh: '工作流',
         locale: locale,
       );
     case 'Reusable Function':

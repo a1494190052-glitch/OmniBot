@@ -273,7 +273,7 @@ bool _summaryCardPrefersSummary(AgentToolActivityKind? kind) {
   return kind == AgentToolActivityKind.vlm ||
       kind == AgentToolActivityKind.research ||
       kind == AgentToolActivityKind.generic ||
-      kind == AgentToolActivityKind.workbench;
+      kind == AgentToolActivityKind.omniflow;
 }
 
 IconData _summaryCardStatusIcon(String status, String toolType) {
@@ -310,7 +310,8 @@ IconData _summaryCardStatusIcon(String status, String toolType) {
       return LucideIcons.brain;
     case 'workspace':
       return LucideIcons.folder;
-    case 'workbench':
+    case 'omniflow':
+    case 'oob_function':
       return LucideIcons.layoutDashboard;
     case 'mcp':
       return LucideIcons.puzzle;

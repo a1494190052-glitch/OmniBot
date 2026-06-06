@@ -55,6 +55,9 @@ class OobFunctionFrontendSessionController(
             ?: "${runId}_omniflow_ui"
         val stopRequested = AtomicBoolean(false)
         val label = frontendLabel(functionId, spec)
+        fun requestStopNow() {
+            stopRequested.set(true)
+        }
         val stopOverlay = if (
             canUseUiOverlay &&
             helper.context.getSystemService(Context.WINDOW_SERVICE) is WindowManager
@@ -63,7 +66,7 @@ class OobFunctionFrontendSessionController(
                 context = helper.context,
                 label = helper.localized("停止"),
                 onStop = {
-                    stopRequested.set(true)
+                    requestStopNow()
                     OmniFlowUiSession.requestStopSession(runId)
                     DraggableBallInstance.finishDoingTask(helper.localized("任务已停止"))
                 }
@@ -73,9 +76,12 @@ class OobFunctionFrontendSessionController(
         }
         OmniFlowUiSession.registerRun(
             runId = runId,
-            onStopRequested = { stopRequested.set(true) },
-            onCompleteRequested = { stopRequested.set(true) }
+            onStopRequested = { requestStopNow() },
+            onCompleteRequested = { requestStopNow() }
         )
+        toolHandle?.bindStopAction {
+            requestStopNow()
+        }
         OmniFlowUiSession.beginTask(runId, taskId)
         dispatchRunProgress(
             status = "started",
@@ -87,19 +93,17 @@ class OobFunctionFrontendSessionController(
             embeddedInVlmTask = embeddedInVlmTask,
             message = helper.localized("准备执行复用指令"),
         )
-        if (canUseUiOverlay && stopOverlay != null) {
+        if (canUseUiOverlay) {
             runCatching {
                 withContext(Dispatchers.Main) {
                     DraggableBallInstance.loadBall()
-                    DraggableBallInstance.setDoing(
+                    DraggableBallInstance.doingTask(
                         message = helper.localized("准备执行复用指令"),
-                        isShowTakeOver = false,
                         subMessage = helper.localized(label),
-                        isShowStop = false,
-                        isTouchable = false,
-                        forceOnTop = true
+                        forceOnTop = true,
+                        isTouchable = false
                     )
-                    stopOverlay.show()
+                    stopOverlay?.show()
                 }
             }.onFailure {
                 OmniLog.w(TAG, "start OmniFlow frontend failed: ${it.message}")
@@ -116,6 +120,7 @@ class OobFunctionFrontendSessionController(
             embeddedInVlmTask = embeddedInVlmTask,
             stopOverlay = stopOverlay,
             canUseUiOverlay = canUseUiOverlay,
+            toolHandle = toolHandle,
         )
     }
 
@@ -148,7 +153,14 @@ class OobFunctionFrontendSessionController(
         private val embeddedInVlmTask: Boolean,
         private val stopOverlay: OobFunctionStopOverlay?,
         private val canUseUiOverlay: Boolean,
+        private val toolHandle: cn.com.omnimind.bot.agent.AgentToolExecutionHandle?,
     ) {
+        fun requestStop() {
+            stopRequested.set(true)
+        }
+
+        fun isStopRequested(): Boolean = stopRequested.get()
+
         fun throwIfStopRequested() {
             if (stopRequested.get()) {
                 throw ManualToolStopCancellationException("OmniFlow execution stopped manually")
@@ -179,13 +191,11 @@ class OobFunctionFrontendSessionController(
             if (canUseUiOverlay) {
                 runCatching {
                     withContext(Dispatchers.Main) {
-                        DraggableBallInstance.setDoing(
+                        DraggableBallInstance.doingTask(
                             message = message,
-                            isShowTakeOver = false,
                             subMessage = helper.localized(progressText),
-                            isShowStop = false,
-                            isTouchable = false,
-                            forceOnTop = true
+                            forceOnTop = true,
+                            isTouchable = false
                         )
                     }
                 }.onFailure {
@@ -198,6 +208,7 @@ class OobFunctionFrontendSessionController(
         suspend fun finish(message: String, closeAfterMs: Long = 0L) {
             OmniFlowUiSession.endTask(taskId)
             val end = OmniFlowUiSession.endRun(runId)
+            toolHandle?.bindStopAction(null)
             dispatchRunProgress(
                 status = if (stopRequested.get()) "stopped" else "finished",
                 runId = runId,
@@ -214,22 +225,18 @@ class OobFunctionFrontendSessionController(
                         stopOverlay?.hide()
                         if (!end.wasActive) return@withContext
                         if (embeddedInVlmTask) {
-                            DraggableBallInstance.setDoing(
+                            DraggableBallInstance.doingTask(
                                 message = helper.localized("复用指令执行完成"),
-                                isShowTakeOver = false,
                                 subMessage = helper.localized("智能执行中"),
-                                isShowStop = false,
-                                isTouchable = false,
-                                forceOnTop = true
+                                forceOnTop = true,
+                                isTouchable = false
                             )
                         } else {
-                            DraggableBallInstance.setDoing(
+                            DraggableBallInstance.doingTask(
                                 message = helper.localized(message.ifBlank { "任务已完成" }),
-                                isShowTakeOver = false,
                                 subMessage = helper.localized(label),
-                                isShowStop = false,
-                                isTouchable = false,
-                                forceOnTop = true
+                                forceOnTop = true,
+                                isTouchable = false
                             )
                             if (closeAfterMs > 0L) {
                                 delay(closeAfterMs)

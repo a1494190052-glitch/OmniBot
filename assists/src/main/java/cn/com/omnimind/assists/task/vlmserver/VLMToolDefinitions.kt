@@ -128,8 +128,8 @@ object VLMToolDefinitions {
             append(
                 t(
                     locale,
-                    "注意：每个 tool call 的 JSON 参数必须是严格合法的 object；如需调用本轮 recall 给出的复用流程，使用 call_tool(function_id, arguments)，不要把 Function id 当成单独工具名；当 step guidance 给出 preferred_call_tool 且匹配用户目标时，优先 call_tool，不要手动重复已保存路径。把 OOB indexed page evidence 作为主要 grounding：click/input_text/long_press 优先填写 element_index，swipe 优先填写 scrollable_index 和 direction。坐标必须是屏幕绝对像素，不是 0-1000 归一化坐标；分别写入 x / y / x1 / y1 / x2 / y2 字段，不要写成 \"x\": 827, 76 这类非法格式，坐标只作为兜底。wait 只在页面明确加载、动画或等待外部状态时使用。",
-                    "Important: every tool call JSON argument value must be a strict object. To call a recalled reusable workflow for this turn, use call_tool(function_id, arguments); do not treat the Function id as a separate tool name. When step guidance provides preferred_call_tool and it matches the user goal, prefer call_tool instead of manually repeating the saved path. Use OOB indexed page evidence as the primary grounding: for click/input_text/long_press prefer element_index, and for swipe prefer scrollable_index plus direction. Coordinates must be absolute screen pixels, not 0-1000 normalized coordinates; write them into x / y / x1 / y1 / x2 / y2 as separate scalar fields; do not emit invalid forms such as \"x\": 827, 76. Coordinates are fallback only. Use wait only when the page is clearly loading, animating, or waiting for an external state change."
+                    "注意：每个 tool call 的 JSON 参数必须是严格合法的 object；如需调用本轮 recall 给出的复用流程，使用 call_tool(function_id, arguments)，不要把 Function id 当成单独工具名；当 step guidance 给出 preferred_call_tool 且匹配用户目标时，优先 call_tool，不要手动重复已保存路径。把 OOB indexed page evidence 作为主要 grounding：click/input_text/long_press 优先填写 element_index，swipe 优先填写 scrollable_index 和 direction。坐标只作为兜底；坐标字段必须是 0..1000 相对坐标，分别写入 x / y / x1 / y1 / x2 / y2，不要写成 \"x\": 827, 76 这类非法格式。系统会在执行前解码为屏幕绝对像素，本地记录始终保存绝对像素。wait 只在页面明确加载、动画或等待外部状态时使用。",
+                    "Important: every tool call JSON argument value must be a strict object. To call a recalled reusable workflow for this turn, use call_tool(function_id, arguments); do not treat the Function id as a separate tool name. When step guidance provides preferred_call_tool and it matches the user goal, prefer call_tool instead of manually repeating the saved path. Use OOB indexed page evidence as the primary grounding: for click/input_text/long_press prefer element_index, and for swipe prefer scrollable_index plus direction. Coordinates are fallback only; coordinate fields must be 0..1000 relative coordinates, written into x / y / x1 / y1 / x2 / y2 as separate scalar fields. Do not emit invalid forms such as \"x\": 827, 76. The system decodes coordinates to screen absolute pixels before execution, and local records always store absolute pixels. Use wait only when the page is clearly loading, animating, or waiting for an external state change."
                 )
             )
         }
@@ -145,8 +145,8 @@ object VLMToolDefinitions {
             append(
                 t(
                     locale,
-                    "统一格式：只能使用原生 tool_call。OOB indexed page evidence 是首选可执行菜单：click/input_text/long_press 目标在 #index 中时必须填 element_index；swipe 目标在 Sindex 中时必须填 scrollable_index 和 direction。坐标只在 evidence 缺失时兜底，且必须是屏幕绝对像素，不是 0-1000；不要使用旧 action/coordinate/coordinate2。",
-                    "Unified format: native tool_call only. OOB indexed page evidence is the preferred executable menu: when a click/input_text/long_press target appears as #index, include element_index; when a swipe target appears as Sindex, include scrollable_index plus direction. Coordinates are fallback only when evidence is missing, and must be absolute screen pixels, not 0-1000. Do not use legacy action/coordinate/coordinate2."
+                    "统一格式：只能使用原生 tool_call。OOB indexed page evidence 是首选可执行菜单：click/input_text/long_press 目标在 #index 中时必须填 element_index；swipe 目标在 Sindex 中时必须填 scrollable_index 和 direction。坐标只在 evidence 缺失时兜底，且必须是 0..1000 相对坐标；系统会在执行前解码为屏幕绝对像素。不要使用旧 action/coordinate/coordinate2。",
+                    "Unified format: native tool_call only. OOB indexed page evidence is the preferred executable menu: when a click/input_text/long_press target appears as #index, include element_index; when a swipe target appears as Sindex, include scrollable_index plus direction. Coordinates are fallback only when evidence is missing, and must be 0..1000 relative coordinates; the system decodes them to screen absolute pixels before execution. Do not use legacy action/coordinate/coordinate2."
                 )
             )
         }.take(MAX_COMPACT_ACTION_SCHEMA_CHARS)
@@ -276,7 +276,26 @@ object VLMToolDefinitions {
                 arguments["y2"] = buildNumericPrimitive(y)
             }
         }
+        if ((arguments[OobCanonicalActionSchema.ARG_DIRECTION] as? JsonPrimitive)?.contentOrNull.isNullOrBlank()) {
+            inferSwipeDirection(arguments)?.let { direction ->
+                arguments[OobCanonicalActionSchema.ARG_DIRECTION] = JsonPrimitive(direction)
+            }
+        }
+    }
 
+    private fun inferSwipeDirection(arguments: Map<String, JsonElement>): String? {
+        val x1 = extractScalarNumber(arguments["x1"]) ?: return null
+        val y1 = extractScalarNumber(arguments["y1"]) ?: return null
+        val x2 = extractScalarNumber(arguments["x2"]) ?: return null
+        val y2 = extractScalarNumber(arguments["y2"]) ?: return null
+        val dx = x2 - x1
+        val dy = y2 - y1
+        if (kotlin.math.abs(dx) < 1.0 && kotlin.math.abs(dy) < 1.0) return null
+        return if (kotlin.math.abs(dy) >= kotlin.math.abs(dx)) {
+            if (dy < 0) "up" else "down"
+        } else {
+            if (dx < 0) "left" else "right"
+        }
     }
 
     private fun normalizeEnumArguments(

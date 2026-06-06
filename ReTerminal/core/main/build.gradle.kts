@@ -254,15 +254,7 @@ val prepareEmbeddedTerminalRuntime by tasks.registering {
     }
 }
 
-tasks.matching { task ->
-    task.name.startsWith("merge") && task.name.endsWith("Assets")
-}.configureEach {
-    dependsOn(prepareEmbeddedTerminalRuntime)
-}
-
-tasks.matching { task ->
-    task.name.startsWith("merge") && task.name.endsWith("JniLibFolders")
-}.configureEach {
+tasks.named("preBuild") {
     dependsOn(prepareEmbeddedTerminalRuntime)
 }
 

@@ -399,6 +399,38 @@ void main() {
     expect(saveButton.onPressed, isNull);
   });
 
+  testWidgets('Missing RunLog does not look like running execution', (
+    tester,
+  ) async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(assistCoreChannel, (call) async {
+          if (call.method == 'getInternalRunLogTimeline') {
+            return <String, dynamic>{
+              'success': true,
+              'run_id': 'missing-run',
+              'run_finished': false,
+              'run_success': false,
+              'error_code': 'RUN_LOG_NOT_FOUND',
+              'error_message': 'run log not found',
+              'cards': <Map<String, dynamic>>[],
+            };
+          }
+          return null;
+        });
+
+    await tester.pumpWidget(
+      _buildLocalizedApp(
+        locale: const Locale('zh'),
+        child: const RunLogTimelinePage(runId: 'missing-run', title: ''),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('执行失败'), findsOneWidget);
+    expect(find.text('执行还在进行中'), findsNothing);
+    expect(find.textContaining('运行中'), findsNothing);
+  });
+
   testWidgets('RunLog copied transcript hides internal compile schema keys', (
     tester,
   ) async {

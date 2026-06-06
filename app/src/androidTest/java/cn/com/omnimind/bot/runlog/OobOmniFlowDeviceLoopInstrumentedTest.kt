@@ -21,7 +21,7 @@ import cn.com.omnimind.bot.agent.WorkspaceMemoryService
 import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.SharedHelper
 import cn.com.omnimind.bot.mcp.McpServerManager
-import cn.com.omnimind.bot.workbench.WorkspaceFunctionStore
+import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
 import com.google.gson.Gson
 import java.io.File
 import java.io.FileInputStream

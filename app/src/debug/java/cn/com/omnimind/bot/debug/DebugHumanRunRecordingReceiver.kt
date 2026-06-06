@@ -478,7 +478,8 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
             OobCanonicalActionSchema.TOOL_CLICK,
             OobCanonicalActionSchema.TOOL_LONG_PRESS,
             OobCanonicalActionSchema.TOOL_SWIPE,
-            OobCanonicalActionSchema.TOOL_INPUT_TEXT
+            OobCanonicalActionSchema.TOOL_INPUT_TEXT,
+            OobCanonicalActionSchema.TOOL_PRESS_KEY
         )
     }
 

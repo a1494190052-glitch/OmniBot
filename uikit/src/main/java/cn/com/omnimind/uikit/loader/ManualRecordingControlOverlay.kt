@@ -1,14 +1,17 @@
 package cn.com.omnimind.uikit.loader
 
+import android.app.AlertDialog
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import android.text.InputType
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import cn.com.omnimind.assists.HumanTrajectoryLearningSession
@@ -41,6 +44,7 @@ object ManualRecordingControlOverlay {
     private var dragStartY = 0
     private var dragging = false
     private var transientStatusToken = 0
+    private var manualActionDialogShowing = false
     private var captureStateCallback: (suspend () -> Map<String, Any?>)? = null
 
     enum class State {
@@ -311,6 +315,25 @@ object ManualRecordingControlOverlay {
                 }
             }
         }
+        val manualActionButton = TextView(context).apply {
+            tag = "manual_recording_manual_action"
+            text = "动作"
+            contentDescription = "手动补录 input_text 或 press_key"
+            setTextColor(Color.WHITE)
+            textSize = 11f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+            setPadding(7.dpToPx(), 4.dpToPx(), 7.dpToPx(), 4.dpToPx())
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 9.dpToPx().toFloat()
+                setColor(Color.rgb(74, 66, 122))
+            }
+            setOnClickListener {
+                showManualActionDialog(context)
+            }
+        }
         val cancelButton = TextView(context).apply {
             tag = "manual_recording_cancel_action"
             text = "取消"
@@ -383,6 +406,15 @@ object ManualRecordingControlOverlay {
             }
         )
         container.addView(
+            manualActionButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                marginStart = 5.dpToPx()
+            }
+        )
+        container.addView(
             cancelButton,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -401,6 +433,144 @@ object ManualRecordingControlOverlay {
             }
         )
         return container
+    }
+
+    private fun showManualActionDialog(context: Context) {
+        val canShow = synchronized(this) {
+            if (manualActionDialogShowing) return
+            if (state != State.RECORDING) return@synchronized false
+            manualActionDialogShowing = true
+            true
+        }
+        if (!canShow) {
+            showTransientStatus("先开始录制", 900L)
+            return
+        }
+        ManualTouchRecordLoader.hide()
+        val labels = arrayOf(
+            "input_text",
+            "press_key enter",
+            "press_key back",
+            "press_key home"
+        )
+        val dialog = AlertDialog.Builder(context)
+            .setTitle("补录动作")
+            .setItems(labels) { _, which ->
+                when (which) {
+                    0 -> showManualInputTextDialog(context)
+                    1 -> executeManualPressKey("enter")
+                    2 -> executeManualPressKey("back")
+                    3 -> executeManualPressKey("home")
+                    else -> finishManualActionDialog()
+                }
+            }
+            .setNegativeButton("取消") { _, _ ->
+                finishManualActionDialog()
+            }
+            .create()
+        dialog.setOnCancelListener {
+            finishManualActionDialog()
+        }
+        if (!showOverlayDialog(dialog)) {
+            finishManualActionDialog("补录窗口失败")
+        }
+    }
+
+    private fun showManualInputTextDialog(context: Context) {
+        val input = EditText(context).apply {
+            hint = "输入要写入目标输入框的文本"
+            minLines = 1
+            maxLines = 4
+            inputType = InputType.TYPE_CLASS_TEXT or
+                InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            setSingleLine(false)
+        }
+        val dialog = AlertDialog.Builder(context)
+            .setTitle("input_text")
+            .setView(input)
+            .setPositiveButton("执行并记录", null)
+            .setNegativeButton("取消") { _, _ ->
+                finishManualActionDialog()
+            }
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
+                val text = input.text?.toString().orEmpty()
+                if (text.isBlank()) {
+                    input.error = "请输入文本"
+                    return@setOnClickListener
+                }
+                dialog.dismiss()
+                executeManualInputText(text)
+            }
+        }
+        dialog.setOnCancelListener {
+            finishManualActionDialog()
+        }
+        if (!showOverlayDialog(dialog)) {
+            finishManualActionDialog("补录窗口失败")
+        }
+    }
+
+    private fun executeManualInputText(text: String) {
+        showTransientStatus("补录中", 600L)
+        recordingControlScope.launch {
+            val recorded = runCatching {
+                HumanTrajectoryLearningSession.recordManualInputText(text)
+            }.getOrElse { error ->
+                OmniLog.e(TAG, "manual input_text action failed: ${error.message}", error)
+                false
+            }
+            withContext(Dispatchers.Main) {
+                finishManualActionDialog(if (recorded) "已补录 input_text" else "补录失败")
+            }
+        }
+    }
+
+    private fun executeManualPressKey(key: String) {
+        showTransientStatus("补录中", 600L)
+        recordingControlScope.launch {
+            val recorded = runCatching {
+                HumanTrajectoryLearningSession.recordManualPressKey(key)
+            }.getOrElse { error ->
+                OmniLog.e(TAG, "manual press_key action failed: ${error.message}", error)
+                false
+            }
+            withContext(Dispatchers.Main) {
+                finishManualActionDialog(if (recorded) "已补录 press_key" else "补录失败")
+            }
+        }
+    }
+
+    private fun finishManualActionDialog(message: String? = null) {
+        synchronized(this) {
+            manualActionDialogShowing = false
+        }
+        if (HumanTrajectoryLearningSession.isActive() && !HumanTrajectoryLearningSession.isPaused()) {
+            markRecording()
+        } else {
+            markPaused()
+        }
+        if (!message.isNullOrBlank()) {
+            showTransientStatus(message, 1_000L)
+        }
+    }
+
+    private fun showOverlayDialog(dialog: AlertDialog): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            dialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
+        } else {
+            @Suppress("DEPRECATION")
+            dialog.window?.setType(WindowManager.LayoutParams.TYPE_PHONE)
+        }
+        return runCatching {
+            dialog.show()
+            true
+        }.getOrElse { error ->
+            OmniLog.e(TAG, "show manual action dialog failed: ${error.message}", error)
+            false
+        }
     }
 
     private fun attachDragHandler(
@@ -488,6 +658,9 @@ object ManualRecordingControlOverlay {
         val pauseButton = (0 until container.childCount)
             .map { container.getChildAt(it) }
             .firstOrNull { it.tag == "manual_recording_pause_action" } as? TextView
+        val manualActionButton = (0 until container.childCount)
+            .map { container.getChildAt(it) }
+            .firstOrNull { it.tag == "manual_recording_manual_action" } as? TextView
         val cancelButton = (0 until container.childCount)
             .map { container.getChildAt(it) }
             .firstOrNull { it.tag == "manual_recording_cancel_action" } as? TextView
@@ -512,6 +685,12 @@ object ManualRecordingControlOverlay {
                 State.RECORDING -> "暂停手动录制"
                 State.PAUSED -> "继续手动录制"
             }
+        }
+        manualActionButton?.apply {
+            visibility = if (state == State.RECORDING) View.VISIBLE else View.GONE
+            isEnabled = state == State.RECORDING
+            text = "动作"
+            contentDescription = "手动补录 input_text 或 press_key"
         }
         cancelButton?.apply {
             visibility = View.VISIBLE

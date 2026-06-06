@@ -83,6 +83,10 @@ class ChatAppBar extends StatelessWidget {
   final bool showAppUpdateIndicator;
   final VoidCallback? onAppUpdateTap;
   final String? appUpdateTooltip;
+  final bool showReplayProgressIndicator;
+  final VoidCallback? onReplayProgressTap;
+  final String? replayProgressTooltip;
+  final bool isReplayProgressRunning;
   final bool translucent;
   final AppBackgroundVisualProfile visualProfile;
   final bool showMenuButton;
@@ -124,6 +128,10 @@ class ChatAppBar extends StatelessWidget {
     this.showAppUpdateIndicator = false,
     this.onAppUpdateTap,
     this.appUpdateTooltip,
+    this.showReplayProgressIndicator = false,
+    this.onReplayProgressTap,
+    this.replayProgressTooltip,
+    this.isReplayProgressRunning = false,
     this.translucent = false,
     this.visualProfile = AppBackgroundVisualProfile.defaultProfile,
     this.showMenuButton = true,
@@ -149,10 +157,13 @@ class ChatAppBar extends StatelessWidget {
         ? _kChatAppBarPureChatIconAsset
         : _kChatAppBarAgentIconAsset;
     const updateTint = Color(0xFFD4A017);
+    const replayTint = Color(0xFF2457D6);
     final showWorkspaceButton =
         showWorkspacePaneButton && onWorkspacePaneTap != null;
     final showUpdateShortcutButton =
         showAppUpdateIndicator && onAppUpdateTap != null;
+    final showReplayShortcutButton =
+        showReplayProgressIndicator && onReplayProgressTap != null;
     final appBarBackgroundColor = showSurfaceSwitcher
         ? palette.pageBackground
         : palette.surfacePrimary;
@@ -172,6 +183,7 @@ class ChatAppBar extends StatelessWidget {
                   _kChatAppBarAccessoryGap * 2;
               final rightActionCount =
                   (showUpdateShortcutButton ? 1 : 0) +
+                  (showReplayShortcutButton ? 1 : 0) +
                   (showWorkspaceButton ? 1 : 0) +
                   1;
               final rightReservedSpace =
@@ -290,29 +302,51 @@ class ChatAppBar extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         if (showUpdateShortcutButton)
-                          GestureDetector(
+                          _ChatAppBarIconButton(
                             key: const ValueKey('chat-app-update-button'),
-                            onTap: onAppUpdateTap,
-                            child: Tooltip(
-                              message:
-                                  appUpdateTooltip ??
-                                  (LegacyTextLocalizer.isEnglish
-                                      ? 'Check for updates'
-                                      : '检查更新'),
-                              child: Container(
-                                color: Colors.transparent,
-                                padding: const EdgeInsets.all(15),
-                                child: SvgPicture.asset(
-                                  _kChatAppBarUpdateSparklesAsset,
-                                  width: 18,
-                                  height: 18,
-                                  colorFilter: const ColorFilter.mode(
-                                    updateTint,
-                                    BlendMode.srcIn,
-                                  ),
-                                ),
+                            tooltip:
+                                appUpdateTooltip ??
+                                (LegacyTextLocalizer.isEnglish
+                                    ? 'Check for updates'
+                                    : '检查更新'),
+                            onTap: onAppUpdateTap!,
+                            child: SvgPicture.asset(
+                              _kChatAppBarUpdateSparklesAsset,
+                              width: 18,
+                              height: 18,
+                              colorFilter: const ColorFilter.mode(
+                                updateTint,
+                                BlendMode.srcIn,
                               ),
                             ),
+                          ),
+                        if (showReplayShortcutButton)
+                          _ChatAppBarIconButton(
+                            key: const ValueKey(
+                              'chat-app-replay-progress-button',
+                            ),
+                            tooltip:
+                                replayProgressTooltip ??
+                                (LegacyTextLocalizer.isEnglish
+                                    ? 'Reusable Function progress'
+                                    : '复用指令执行进度'),
+                            onTap: onReplayProgressTap!,
+                            child: isReplayProgressRunning
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        replayTint,
+                                      ),
+                                    ),
+                                  )
+                                : Icon(
+                                    Icons.task_alt_rounded,
+                                    size: 20,
+                                    color: replayTint,
+                                  ),
                           ),
                         if (showWorkspaceButton)
                           SizedBox(
@@ -359,6 +393,41 @@ class ChatAppBar extends StatelessWidget {
 }
 
 enum _ChatAppBarModeShortcutAction { agent, codex, pureChat }
+
+class _ChatAppBarIconButton extends StatelessWidget {
+  const _ChatAppBarIconButton({
+    super.key,
+    required this.tooltip,
+    required this.onTap,
+    required this.child,
+  });
+
+  final String tooltip;
+  final VoidCallback onTap;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: _kChatAppBarRightActionSlotWidth,
+      height: _kChatAppBarRightActionSlotWidth,
+      child: Center(
+        child: GestureDetector(
+          onTap: onTap,
+          behavior: HitTestBehavior.opaque,
+          child: Tooltip(
+            message: tooltip,
+            child: Container(
+              color: Colors.transparent,
+              padding: const EdgeInsets.all(15),
+              child: child,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _ChatAppBarCompanionButton extends StatelessWidget {
   const _ChatAppBarCompanionButton({
@@ -740,9 +809,7 @@ class _ChatAppBarModeShortcutMenuContent extends StatelessWidget {
       child: OmniGlassPanel(
         // 上边直 + 下半圆 (radius 20 = 半宽),跟上方触发按钮的"上半圆 + 下边直"
         // 在中线 zero-gap 处无缝拼接,整体看上去是一个完整的胶囊。
-        borderRadius: const BorderRadius.vertical(
-          bottom: Radius.circular(20),
-        ),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
         // 接缝处:省略顶边 1px 边线 + 关闭顶部高光条,
         // 否则与上方触发按钮的下边线会叠成可见的横线。
         omitTopBorder: true,
@@ -789,6 +856,9 @@ class _ChatAppBarModeShortcutMenuRow extends StatelessWidget {
     return Tooltip(
       message: item.tooltip,
       child: InkWell(
+        key: ValueKey(
+          'chat-app-bar-mode-menu-${_modeShortcutActionKey(item.action)}',
+        ),
         onTap: item.enabled
             ? () => Navigator.of(context).pop(item.action)
             : null,
@@ -806,6 +876,14 @@ class _ChatAppBarModeShortcutMenuRow extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String _modeShortcutActionKey(_ChatAppBarModeShortcutAction action) {
+    return switch (action) {
+      _ChatAppBarModeShortcutAction.agent => 'agent',
+      _ChatAppBarModeShortcutAction.codex => 'codex',
+      _ChatAppBarModeShortcutAction.pureChat => 'pure-chat',
+    };
   }
 }
 

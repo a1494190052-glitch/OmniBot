@@ -35,6 +35,7 @@ import 'package:ui/services/conversation_history_service.dart';
 import 'package:ui/services/home_greeting_settings_service.dart';
 import 'package:ui/services/link_preview_service.dart';
 import 'package:ui/widgets/ai_generated_badge.dart';
+import 'package:ui/widgets/oob_function_run_progress_card.dart';
 import 'package:ui/constants/openclaw/openclaw_keys.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/features/home/pages/chat/mixins/agent_stream_handler.dart';
@@ -99,6 +100,8 @@ class _ChatBotSheetState extends State<ChatBotSheet>
   bool _isSubmittingVlmReply = false;
   bool _isPopupVisible = false;
   String? _vlmInfoQuestion;
+  StreamSubscription<OobFunctionRunProgressEvent>?
+  _oobFunctionRunProgressSubscription;
 
   final Map<String, String> _currentAiMessages = {};
   final Set<String> _expandedAgentRunTaskIds = <String>{};
@@ -369,6 +372,9 @@ class _ChatBotSheetState extends State<ChatBotSheet>
     AssistsMessageService.setOnAgentStreamEventCallback(
       _handleIncomingAgentStreamEvent,
     );
+    _oobFunctionRunProgressSubscription = AssistsMessageService
+        .oobFunctionRunProgressStream
+        .listen(_handleOobFunctionRunProgressEvent);
   }
 
   Future<void> _loadOpenClawConfig() async {
@@ -969,8 +975,35 @@ class _ChatBotSheetState extends State<ChatBotSheet>
     AssistsMessageService.removeOnAgentStreamEventCallback(
       _handleIncomingAgentStreamEvent,
     );
+    _oobFunctionRunProgressSubscription?.cancel();
+    _oobFunctionRunProgressSubscription = null;
     ScreenDialogService.setOnBeforeCloseChatBotDialog(null);
     super.dispose();
+  }
+
+  void _handleOobFunctionRunProgressEvent(OobFunctionRunProgressEvent event) {
+    if (!mounted) return;
+    final cardId = oobFunctionRunProgressCardIdForEvent(event);
+    if (cardId.isEmpty) return;
+    final cardData = oobFunctionRunProgressCardDataForEvent(event);
+    setState(() {
+      final existingIndex = _messages.indexWhere(
+        (message) =>
+            message.id == cardId ||
+            (message.cardData?['cardId'] ?? '').toString() == cardId,
+      );
+      final message = ChatMessageModel.cardMessage(cardData, id: cardId);
+      if (existingIndex == -1) {
+        _messages.insert(0, message);
+      } else {
+        _messages[existingIndex] = message;
+      }
+    });
+    if (event.isTerminal) {
+      unawaited(
+        _saveConversationToDb(generateSummary: false, markComplete: true),
+      );
+    }
   }
 
   void _onFocusChange() {

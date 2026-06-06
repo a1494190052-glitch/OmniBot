@@ -8,7 +8,7 @@ import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import cn.com.omnimind.bot.omniflow.OobFunctionRepository
 import cn.com.omnimind.bot.omniflow.language.OmniflowCompiler
 import cn.com.omnimind.bot.omniflow.language.OmniflowFunctionStore
-import cn.com.omnimind.bot.workbench.WorkspaceFunctionStore
+import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
 
 /**
  * OOB-owned replay facade for RunLog-derived reusable Functions.
@@ -101,19 +101,25 @@ class OobRunLogReplayService(
         }
 
         mirrorRunLogForWorkspace(record)
-        // Compile and persist the Function model alongside the JSON spec.
-        runCatching {
-            val irFunction = OmniflowCompiler.compile(
-                cards = record.cards,
-                functionId = functionId,
-                goal = record.goal.ifBlank { record.operationDescription },
-                packageName = null,
-                skipPerceptionTools = true,
-            )
-            OmniflowFunctionStore.save(context, irFunction)
-        }.onFailure { OmniLog.w(TAG, "Function model compile/save failed for $functionId: ${it.message}") }
+        val registration = functionRepository.register(spec).toMutableMap()
+        if (registration["success"] == true) {
+            val compiledSaved = runCatching {
+                val irFunction = OmniflowCompiler.compile(
+                    cards = record.cards,
+                    functionId = functionId,
+                    goal = record.goal.ifBlank { record.operationDescription },
+                    packageName = null,
+                    skipPerceptionTools = true,
+                )
+                OmniflowFunctionStore.save(context, irFunction)
+                true
+            }.onFailure {
+                OmniLog.w(TAG, "Function model compile/save failed for $functionId: ${it.message}")
+            }.getOrDefault(false)
+            registration["compiled_function_saved"] = compiledSaved
+        }
 
-        return functionRepository.register(spec).toMutableMap().apply {
+        return registration.apply {
             put("registered", this["success"] == true)
             put("run_id", normalizedRunId)
             put("function_spec", spec)

@@ -11,7 +11,7 @@ import java.io.File
 
 class McpToolDefinitionsTest {
     @Test
-    fun fixedToolsIncludeAgentRunOobFunctionAndOobProjectControls() {
+    fun fixedToolsIncludeAgentRunAndOobFunctionControls() {
         val names = McpToolDefinitions.fixedTools.map { it["name"].toString() }.toSet()
 
         assertTrue(names.contains(AgentToolNames.VLM_TASK))
@@ -30,10 +30,6 @@ class McpToolDefinitionsTest {
         assertTrue(names.contains(OobFunctionToolNames.RUN_LOG_LIST))
         assertTrue(names.contains(OobFunctionToolNames.RUN_LOG_GET))
         assertTrue(names.contains(OobFunctionToolNames.RUN_LOG_CONVERT))
-        assertTrue(names.contains("oob_project_create"))
-        assertTrue(names.contains("oob_project_activate"))
-        assertTrue(names.contains("oob_project_open"))
-        assertTrue(names.contains("oob_project_progress_get"))
     }
 
     @Test
@@ -49,7 +45,7 @@ class McpToolDefinitionsTest {
             }
 
         assertTrue(
-            "Fixed MCP tools must be routed before Workbench fallback: $missingRoutes",
+            "Fixed MCP tools must be routed locally: $missingRoutes",
             missingRoutes.isEmpty()
         )
     }
@@ -155,7 +151,7 @@ class McpToolDefinitionsTest {
     }
 
     @Test
-    fun vlmTaskToolExposesDirectAndroidWorldControls() {
+    fun vlmTaskToolExposesDirectGuiAgentControls() {
         val tool = McpToolDefinitions.fixedTools.single {
             it["name"] == AgentToolNames.VLM_TASK
         }

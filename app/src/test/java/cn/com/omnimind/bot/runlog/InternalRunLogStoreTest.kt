@@ -6,7 +6,7 @@ import android.content.SharedPreferences
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
 import cn.com.omnimind.bot.omniflow.OobFunctionRepository
-import cn.com.omnimind.bot.workbench.WorkspaceFunctionStore
+import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
 import java.io.File
 import java.nio.file.Files
 import org.junit.Assert.assertEquals

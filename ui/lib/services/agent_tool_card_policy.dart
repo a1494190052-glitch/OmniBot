@@ -13,7 +13,7 @@ enum AgentToolActivityKind {
   vlm,
   terminal,
   workspace,
-  workbench,
+  omniflow,
   mcp,
   generic,
 }
@@ -233,12 +233,14 @@ class AgentToolCardPolicy {
     if (toolTypeLower == 'workspace' || toolNameLower.startsWith('file_')) {
       return AgentToolActivityKind.workspace;
     }
-    if (toolTypeLower == 'workbench' ||
+    if (toolTypeLower == 'omniflow' ||
         toolTypeLower == 'oob_function' ||
         toolTypeLower == 'reusable_function' ||
         toolNameLower == 'call_tool' ||
-        toolNameLower.startsWith('workbench_')) {
-      return AgentToolActivityKind.workbench;
+        toolNameLower.startsWith('oob_function_') ||
+        toolNameLower.startsWith('oob_run_log_') ||
+        toolNameLower.startsWith('omniflow.')) {
+      return AgentToolActivityKind.omniflow;
     }
     if (toolTypeLower == 'mcp') {
       return AgentToolActivityKind.mcp;
@@ -254,7 +256,7 @@ class AgentToolCardPolicy {
       AgentToolActivityKind.vlm => 'vlm',
       AgentToolActivityKind.terminal => 'terminal',
       AgentToolActivityKind.workspace => 'workspace',
-      AgentToolActivityKind.workbench => 'workbench',
+      AgentToolActivityKind.omniflow => 'omniflow',
       AgentToolActivityKind.mcp => 'mcp',
       AgentToolActivityKind.generic => 'tool',
     };
@@ -268,7 +270,7 @@ class AgentToolCardPolicy {
       AgentToolActivityKind.vlm => const Color(0xFFDB2777),
       AgentToolActivityKind.terminal => const Color(0xFF0F9F6E),
       AgentToolActivityKind.workspace => const Color(0xFFD97706),
-      AgentToolActivityKind.workbench => const Color(0xFF0891B2),
+      AgentToolActivityKind.omniflow => const Color(0xFF0891B2),
       AgentToolActivityKind.mcp => const Color(0xFF4F46E5),
       AgentToolActivityKind.generic => const Color(0xFF64748B),
     };
@@ -288,7 +290,7 @@ class AgentToolCardPolicy {
       AgentToolActivityKind.vlm => 'Visual task',
       AgentToolActivityKind.terminal => 'Terminal activity',
       AgentToolActivityKind.workspace => 'Workspace activity',
-      AgentToolActivityKind.workbench => 'Workbench activity',
+      AgentToolActivityKind.omniflow => 'OmniFlow activity',
       AgentToolActivityKind.mcp => 'MCP activity',
       AgentToolActivityKind.generic => 'Tool activity',
     };
@@ -418,9 +420,9 @@ class AgentToolCardPolicy {
         return toolName.startsWith('file_')
             ? toolName.substring('file_'.length)
             : toolName;
-      case AgentToolActivityKind.workbench:
-        return toolName.startsWith('workbench_')
-            ? toolName.substring('workbench_'.length)
+      case AgentToolActivityKind.omniflow:
+        return toolName.startsWith('oob_function_')
+            ? toolName.substring('oob_function_'.length)
             : toolName;
       case AgentToolActivityKind.mcp:
         return toolName;
@@ -496,7 +498,7 @@ class AgentToolCardPolicy {
           cardData['summary'],
           cardData['progress'],
         ]);
-      case AgentToolActivityKind.workbench:
+      case AgentToolActivityKind.omniflow:
         return firstNonBlank(<Object?>[
           args['projectId'],
           args['project_id'],
@@ -569,7 +571,7 @@ class AgentToolCardPolicy {
           args['file_path'],
           args['query'],
         ]);
-      case AgentToolActivityKind.workbench:
+      case AgentToolActivityKind.omniflow:
         return firstNonBlank(<Object?>[
           args['projectId'],
           args['project_id'],
@@ -617,7 +619,7 @@ class AgentToolCardPolicy {
       case AgentToolActivityKind.research:
       case AgentToolActivityKind.vlm:
       case AgentToolActivityKind.workspace:
-      case AgentToolActivityKind.workbench:
+      case AgentToolActivityKind.omniflow:
       case AgentToolActivityKind.mcp:
       case AgentToolActivityKind.generic:
         return normalizeKey('$action|$target');
@@ -655,8 +657,8 @@ class AgentToolCardPolicy {
             : '$taskId|terminal|$sessionId';
       case AgentToolActivityKind.workspace:
         return '$taskId|workspace';
-      case AgentToolActivityKind.workbench:
-        return '$taskId|workbench';
+      case AgentToolActivityKind.omniflow:
+        return '$taskId|omniflow';
       case AgentToolActivityKind.mcp:
         final serverName = firstNonBlank(<Object?>[
           cardData['serverName'],
@@ -952,7 +954,7 @@ class AgentToolCardPolicy {
     if (toolType == 'workspace') {
       return Icons.folder_outlined;
     }
-    if (toolType == 'workbench') {
+    if (toolType == 'omniflow' || toolType == 'oob_function') {
       return Icons.dashboard_customize_outlined;
     }
     if (toolType == 'subagent') {

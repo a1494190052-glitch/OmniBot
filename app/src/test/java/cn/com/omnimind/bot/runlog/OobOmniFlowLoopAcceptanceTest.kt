@@ -6,7 +6,7 @@ import android.content.SharedPreferences
 import android.content.pm.ApplicationInfo
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
-import cn.com.omnimind.bot.workbench.WorkspaceFunctionStore
+import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
 import java.io.File
 import java.nio.file.Files

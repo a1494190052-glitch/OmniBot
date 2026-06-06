@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -13,11 +12,6 @@ import 'package:ui/services/screen_dialog_service.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/constants/openclaw/openclaw_keys.dart';
 import 'package:ui/features/home/pages/common/openclaw_connection_checker.dart';
-import 'package:ui/features/workbench/models/workbench_models.dart';
-import 'package:ui/features/workbench/services/workbench_project_service.dart';
-import 'package:ui/features/workbench/widgets/workbench_annotation_context.dart';
-import 'package:ui/features/workbench/widgets/workbench_annotation_overlay.dart';
-import 'package:ui/features/workbench/widgets/workbench_layout_profile.dart';
 import 'package:ui/utils/data_parser.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/widgets/image/cached_image.dart';
@@ -53,6 +47,7 @@ class _CommandOverlayState extends State<CommandOverlay> {
   bool _showSlashCommandPanel = false;
   bool _openClawPanelExpanded = false;
   bool _isChatSheetVisible = false;
+  bool _annotationMode = false;
   bool _conversationPanelExpanded = false;
   bool _conversationSummariesLoading = false;
   bool _conversationSummariesLoaded = false;
@@ -60,7 +55,6 @@ class _CommandOverlayState extends State<CommandOverlay> {
   List<ConversationModel> _recentConversations = const [];
   StreamSubscription<Map<String, dynamic>>?
   _conversationListChangedSubscription;
-  bool _annotationMode = false;
   final TextEditingController _openClawBaseUrlController =
       TextEditingController();
   final TextEditingController _openClawTokenController =
@@ -422,6 +416,24 @@ class _CommandOverlayState extends State<CommandOverlay> {
     unawaited(_dismissFloatingOverlay());
   }
 
+  void _toggleAnnotationMode() {
+    if (!mounted) return;
+    setState(() {
+      _annotationMode = !_annotationMode;
+    });
+  }
+
+  Future<void> _submitAnnotation(String annotation) async {
+    final text = annotation.trim();
+    if (text.isEmpty) return;
+    if (mounted) {
+      setState(() {
+        _annotationMode = false;
+      });
+    }
+    _showChatSheet(initialMessage: text);
+  }
+
   Future<void> _toggleConversationPanel() async {
     final shouldExpand = !_conversationPanelExpanded;
     setState(() {
@@ -576,202 +588,6 @@ class _CommandOverlayState extends State<CommandOverlay> {
     setState(() {
       _chatInputAreaHeight = height;
     });
-  }
-
-  void _toggleAnnotationMode() {
-    _inputFocusNode.unfocus();
-    _hideSlashCommandPanel();
-    if (!mounted) return;
-    setState(() {
-      _annotationMode = !_annotationMode;
-      if (_annotationMode) {
-        _isPopupVisible = false;
-      }
-    });
-  }
-
-  Future<Map<String, Object?>> _buildFloatingAnnotationContext(
-    WorkbenchAnnotationPayload payload,
-    String prompt,
-  ) async {
-    final themeProfile = buildWorkbenchThemeProfile(context);
-    try {
-      final backend = NativeWorkbenchProjectBackend();
-      final project = await backend.getActiveProject();
-      if (project != null) {
-        final activeFrontendContext = await backend.getActiveFrontendContext();
-        final display = _displayForActiveFrontendContext(
-          project,
-          activeFrontendContext,
-        );
-        return {
-          ...buildWorkbenchAnnotationFrontendContext(
-            themeProfile: themeProfile,
-            project: project,
-            display: display,
-            payload: payload,
-            prompt: prompt,
-            source: 'xiaowan_floating_annotation_canvas',
-          ),
-          if (activeFrontendContext != null)
-            'activeFlutterContext': activeFrontendContext,
-          'screenshotSummary':
-              'VLM should inspect the current screen screenshot together with drawingPaths. The Flutter client does not classify the shape or target UI.',
-        };
-      }
-    } catch (error) {
-      debugPrint('读取激活 Workbench Project 失败: $error');
-    }
-    return {
-      ...payload.toFrontendContext(
-        projectId: '',
-        displayId: 'current-screen',
-        route: 'current_screen',
-        source: 'xiaowan_floating_annotation_canvas',
-        visibleState: {
-          'origin': 'xiaowan_floating_window',
-          'activeProjectAvailable': false,
-          ...themeProfile,
-        },
-      ),
-      ...themeProfile,
-      'screenshotSummary':
-          'VLM should inspect the current screen screenshot together with drawingPaths. The Flutter client does not classify the shape or target UI.',
-    };
-  }
-
-  WorkbenchDisplaySpec _displayForActiveFrontendContext(
-    WorkbenchProject project,
-    Map<String, dynamic>? activeFrontendContext,
-  ) {
-    final contextProjectId = activeFrontendContext?['projectId']
-        ?.toString()
-        .trim();
-    final contextDisplayId = activeFrontendContext?['displayId']
-        ?.toString()
-        .trim();
-    if (contextProjectId == project.projectId &&
-        contextDisplayId != null &&
-        contextDisplayId.isNotEmpty) {
-      for (final display in project.displays) {
-        if (display.id == contextDisplayId) {
-          return display;
-        }
-      }
-    }
-    return project.primaryDisplay;
-  }
-
-  String _buildAnnotationAgentMessage(
-    String prompt,
-    Map<String, Object?> frontendContext,
-  ) {
-    const encoder = JsonEncoder.withIndent('  ');
-    final contextJson = encoder.convert(frontendContext);
-    return '''
-$prompt
-
-小万悬浮窗画布上下文如下。已附上“当前屏幕 + 红色笔迹”的合成截图，请用 VLM 直接看图判断用户标注的形状和目标 UI，不要在前端做形状识别。若这是 Workbench Project 前端迭代，请把下面 JSON 原样作为 frontendContext 调用 workbench_project_hot_update。
-
-```json
-$contextJson
-```
-''';
-  }
-
-  List<Map<String, dynamic>> _drawingPathsForNative(
-    WorkbenchAnnotationPayload payload,
-  ) {
-    return payload.strokes
-        .map(
-          (stroke) =>
-              Map<String, dynamic>.from(stroke.toMap(payload.canvasSize)),
-        )
-        .toList(growable: false);
-  }
-
-  Future<Map<String, dynamic>?> _captureAnnotationAttachment(
-    WorkbenchAnnotationPayload payload,
-  ) async {
-    if (payload.canvasSize.width <= 0 || payload.canvasSize.height <= 0) {
-      return null;
-    }
-    return AssistsMessageService.captureWorkbenchAnnotationAttachment(
-      canvasWidth: payload.canvasSize.width,
-      canvasHeight: payload.canvasSize.height,
-      drawingPaths: _drawingPathsForNative(payload),
-    );
-  }
-
-  Map<String, Object?> _annotationImageContext(
-    WorkbenchAnnotationPayload payload,
-    Map<String, dynamic> attachment,
-  ) {
-    final width = attachment['width'];
-    final height = attachment['height'];
-    final imageWidth = width is num ? width.toDouble() : 0.0;
-    final imageHeight = height is num ? height.toDouble() : 0.0;
-    return {
-      'attachmentId': attachment['id']?.toString(),
-      'name': attachment['name']?.toString(),
-      'mimeType': attachment['mimeType']?.toString(),
-      'path': attachment['path']?.toString(),
-      'uri': attachment['uri']?.toString(),
-      'width': width,
-      'height': height,
-      'coordinateSpace': 'screenshot_pixels',
-      'canvasToImageScale': {
-        'x': payload.canvasSize.width <= 0
-            ? 1
-            : imageWidth / payload.canvasSize.width,
-        'y': payload.canvasSize.height <= 0
-            ? 1
-            : imageHeight / payload.canvasSize.height,
-      },
-    };
-  }
-
-  Future<bool> _submitAnnotation(
-    WorkbenchAnnotationPayload payload,
-    String prompt,
-  ) async {
-    final baseFrontendContext = await _buildFloatingAnnotationContext(
-      payload,
-      prompt,
-    );
-    final annotationAttachment = await _captureAnnotationAttachment(payload);
-    if (!mounted) return false;
-    final frontendContext = <String, Object?>{
-      ...baseFrontendContext,
-      if (annotationAttachment != null)
-        'annotationImage': _annotationImageContext(
-          payload,
-          annotationAttachment,
-        ),
-      'screenshotSummary': annotationAttachment == null
-          ? 'Screenshot capture failed; VLM should fall back to current screen state and drawingPaths. The Flutter client does not classify the shape or target UI.'
-          : 'An attached image contains the current screen screenshot composited with the user red strokes. VLM should infer shape and target UI from that image plus drawingPaths.',
-    };
-    if (annotationAttachment == null) {
-      AppToast.show(
-        AppTextLocalizer.choose(
-          en: 'Screenshot capture failed; sending red strokes as fallback.',
-          zh: '截图合成失败，先用红线坐标兜底发送。',
-        ),
-      );
-    }
-    if (!mounted) return false;
-    final agentMessage = _buildAnnotationAgentMessage(prompt, frontendContext);
-    setState(() => _annotationMode = false);
-    _showChatSheetWithScene(
-      ChatBotLaunchScene.normal,
-      initialMessage: agentMessage,
-      initialDisplayMessage: prompt,
-      initialAttachments: annotationAttachment == null
-          ? const []
-          : [annotationAttachment],
-    );
-    return true;
   }
 
   Widget _buildSlashCommandPanel() {
@@ -1490,6 +1306,189 @@ class _OpenClawConfigDialogState extends State<_OpenClawConfigDialog> {
             child: const Text('保存'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class WorkbenchAnnotationOverlay extends StatefulWidget {
+  final Widget child;
+  final double toolbarBottomInset;
+  final VoidCallback onClose;
+  final FutureOr<void> Function(String annotation) onSubmit;
+
+  const WorkbenchAnnotationOverlay({
+    super.key,
+    required this.child,
+    required this.toolbarBottomInset,
+    required this.onClose,
+    required this.onSubmit,
+  });
+
+  @override
+  State<WorkbenchAnnotationOverlay> createState() =>
+      _WorkbenchAnnotationOverlayState();
+}
+
+class _WorkbenchAnnotationOverlayState
+    extends State<WorkbenchAnnotationOverlay> {
+  final List<List<Offset>> _strokes = <List<Offset>>[];
+  bool _submitting = false;
+
+  void _startStroke(DragStartDetails details) {
+    setState(() {
+      _strokes.add(<Offset>[details.localPosition]);
+    });
+  }
+
+  void _appendStroke(DragUpdateDetails details) {
+    if (_strokes.isEmpty) return;
+    setState(() {
+      _strokes.last.add(details.localPosition);
+    });
+  }
+
+  void _clear() {
+    setState(_strokes.clear);
+  }
+
+  Future<void> _submit() async {
+    if (_submitting) return;
+    setState(() => _submitting = true);
+    final annotation = _strokes.isEmpty
+        ? AppTextLocalizer.choose(
+            en: 'Please update the current Project based on my on-screen annotation.',
+            zh: '请根据我在当前屏幕上的标注更新项目。',
+          )
+        : AppTextLocalizer.choose(
+            en: 'Please update the current Project based on the highlighted on-screen annotation.',
+            zh: '请根据当前屏幕上高亮标注的位置更新项目。',
+          );
+    await widget.onSubmit(annotation);
+    if (!mounted) return;
+    setState(() => _submitting = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        widget.child,
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onPanStart: _startStroke,
+            onPanUpdate: _appendStroke,
+            child: CustomPaint(painter: _WorkbenchAnnotationPainter(_strokes)),
+          ),
+        ),
+        Positioned(
+          left: 16,
+          right: 16,
+          bottom: widget.toolbarBottomInset,
+          child: _WorkbenchAnnotationToolbar(
+            submitting: _submitting,
+            canClear: _strokes.isNotEmpty,
+            onClose: widget.onClose,
+            onClear: _clear,
+            onSubmit: _submit,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _WorkbenchAnnotationPainter extends CustomPainter {
+  final List<List<Offset>> strokes;
+
+  const _WorkbenchAnnotationPainter(this.strokes);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final scrim = Paint()..color = Colors.black.withValues(alpha: 0.08);
+    canvas.drawRect(Offset.zero & size, scrim);
+
+    final paint = Paint()
+      ..color = const Color(0xFFFFD54F)
+      ..strokeWidth = 4
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..style = PaintingStyle.stroke;
+
+    for (final stroke in strokes) {
+      if (stroke.length < 2) continue;
+      final path = Path()..moveTo(stroke.first.dx, stroke.first.dy);
+      for (final point in stroke.skip(1)) {
+        path.lineTo(point.dx, point.dy);
+      }
+      canvas.drawPath(path, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _WorkbenchAnnotationPainter oldDelegate) => true;
+}
+
+class _WorkbenchAnnotationToolbar extends StatelessWidget {
+  final bool submitting;
+  final bool canClear;
+  final VoidCallback onClose;
+  final VoidCallback onClear;
+  final VoidCallback onSubmit;
+
+  const _WorkbenchAnnotationToolbar({
+    required this.submitting,
+    required this.canClear,
+    required this.onClose,
+    required this.onClear,
+    required this.onSubmit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(18),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.42),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                tooltip: AppTextLocalizer.choose(en: 'Close', zh: '关闭'),
+                onPressed: submitting ? null : onClose,
+                icon: const Icon(Icons.close_rounded, color: Colors.white),
+              ),
+              IconButton(
+                tooltip: AppTextLocalizer.choose(en: 'Clear', zh: '清除'),
+                onPressed: submitting || !canClear ? null : onClear,
+                icon: const Icon(Icons.refresh_rounded, color: Colors.white),
+              ),
+              const Spacer(),
+              FilledButton.icon(
+                onPressed: submitting ? null : onSubmit,
+                icon: submitting
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.check_rounded),
+                label: Text(
+                  AppTextLocalizer.choose(en: 'Apply annotation', zh: '应用标注'),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

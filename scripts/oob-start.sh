@@ -7,9 +7,9 @@
 #     MCP when a token is provided.
 #
 # Shared profile:
-#   - androidworld-5554: shared emulator. Build/install OOB, preserve existing
-#     Accessibility services, do not stop Mobilerun/AndroidWorld processes, use
-#     a separate MCP host port.
+#   - shared-5554: shared emulator. Build/install OOB, preserve existing
+#     Accessibility services, do not stop known conflict packages, use a
+#     separate MCP host port.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -38,8 +38,8 @@ Profiles:
       Dedicated OOB validation startup. Default device emulator-5556, host MCP
       port 28999, clean Accessibility rebind, stop known UiAutomation conflicts.
 
-  5554, androidworld-5554, shared
-      Shared AndroidWorld/Mobilerun-safe startup. Default device emulator-5554,
+  5554, shared-5554, shared
+      Shared startup. Default device emulator-5554,
       host MCP port 28998, preserve existing Accessibility services, do not stop
       known conflict packages.
 
@@ -96,8 +96,8 @@ Startup error summary:
       adb install failed on the selected device. Check device storage, install
       compatibility, and whether the emulator is still online.
   ui_automation_present
-      Another runner owns UiAutomation. Stop Mobilerun/Appium/AndroidWorld
-      ownership on the OOB device, or reboot the emulator.
+      Another runner owns UiAutomation. Stop the conflicting runner on the OOB
+      device, or reboot the emulator.
   enabled_but_not_bound
       Android secure settings list OOB Accessibility, but the service is not
       bound. Rerun this canonical one-click script; the 5556 profile cleanly
@@ -239,8 +239,8 @@ case "$PROFILE" in
     ACCESSIBILITY_ARGS=(--clean-accessibility)
     CONFLICT_ARGS=(--stop-conflicts)
     ;;
-  5554|androidworld-5554|shared)
-    PROFILE_CANONICAL="androidworld-5554"
+  5554|shared-5554|shared)
+    PROFILE_CANONICAL="shared-5554"
     DEVICE_SERIAL="${DEVICE_SERIAL:-emulator-5554}"
     HOST_PORT="${HOST_PORT:-28998}"
     ACCESSIBILITY_ARGS=(--preserve-accessibility)

@@ -7,11 +7,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.Path
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -56,6 +51,7 @@ import cn.com.omnimind.baselib.llm.SceneVoiceConfigStore
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
 import cn.com.omnimind.bot.omniflow.language.OmniflowFunctionStore
+import cn.com.omnimind.bot.runlog.OobFunctionRunLogRecorder
 import cn.com.omnimind.baselib.util.APPPackageUtil
 import cn.com.omnimind.baselib.util.ImageQuality
 import cn.com.omnimind.baselib.util.OmniLog
@@ -116,8 +112,6 @@ import cn.com.omnimind.bot.webchat.ConversationDomainService
 import cn.com.omnimind.bot.webchat.FlutterChatSyncBridge
 import cn.com.omnimind.bot.webchat.RealtimeHub
 import cn.com.omnimind.bot.workspace.PublicStorageAccess
-import cn.com.omnimind.bot.workbench.WorkbenchDisplayLayoutContext
-import cn.com.omnimind.bot.workbench.WorkbenchProjectStore
 import cn.com.omnimind.bot.workspace.WorkspaceStorageAccess
 import cn.com.omnimind.uikit.UIKit
 import cn.com.omnimind.uikit.loader.ManualRecordingControlOverlay
@@ -152,7 +146,6 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import java.io.File
-import java.io.FileOutputStream
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -629,9 +622,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         @Volatile
         private var sharedInstance: AssistsCoreManager? = null
 
-        @Volatile
-        private var latestWorkbenchFrontendContext: Map<String, Any?>? = null
-
         private val mainHandler = Handler(Looper.getMainLooper())
 
         fun bindMainEngineChannel(channel: MethodChannel) {
@@ -973,7 +963,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     private val chatTaskPersistenceStates: MutableMap<String, ChatTaskPersistenceState> =
         mutableMapOf()
     private val conversationDomainService by lazy { ConversationDomainService(context) }
-    private val workbenchProjectStore by lazy { WorkbenchProjectStore(context) }
 
     // 当前活跃的对话ID
     private var currentConversationId: Long? = null
@@ -1361,173 +1350,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         FlutterChatSyncBridge.bindCurrentChannel(_channel)
     }
 
-    fun captureWorkbenchAnnotationAttachment(call: MethodCall, result: MethodChannel.Result) {
-        val canvasWidth = call.argument<Number>("canvasWidth")?.toFloat() ?: 0f
-        val canvasHeight = call.argument<Number>("canvasHeight")?.toFloat() ?: 0f
-        val drawingPaths = call.argument<List<Map<String, Any?>>>("drawingPaths")
-            ?.map(::sanitizeInteropMap)
-            ?: emptyList()
-        val source = call.argument<String>("source")?.trim().orEmpty()
-            .ifEmpty { "xiaowan_floating_annotation_canvas" }
-
-        workJob.launch {
-            var bitmapToRecycle: Bitmap? = null
-            try {
-                val capture = AccessibilityController.captureScreenshotImage(
-                    isBitmap = true,
-                    isBase64 = false,
-                    isFile = false,
-                    isFilterOverlay = true,
-                    compressQuality = null
-                )
-                val capturedBitmap = capture.imageBitmap
-                if (!capture.isSuccess || capturedBitmap == null) {
-                    withContext(Dispatchers.Main) {
-                        result.error("SCREENSHOT_FAILED", "current screen screenshot is empty", null)
-                    }
-                    return@launch
-                }
-
-                val bitmap = if (capturedBitmap.isMutable &&
-                    capturedBitmap.config != Bitmap.Config.HARDWARE
-                ) {
-                    capturedBitmap
-                } else {
-                    capturedBitmap.copy(Bitmap.Config.ARGB_8888, true).also {
-                        if (!capturedBitmap.isRecycled) capturedBitmap.recycle()
-                    }
-                }
-                bitmapToRecycle = bitmap
-                drawWorkbenchAnnotationPaths(
-                    bitmap = bitmap,
-                    drawingPaths = drawingPaths,
-                    canvasWidth = canvasWidth,
-                    canvasHeight = canvasHeight
-                )
-
-                val workspaceManager = AgentWorkspaceManager(context)
-                val target = File(
-                    workspaceManager.attachmentsDirectory(),
-                    "xiaowan_annotation_${System.currentTimeMillis()}.jpg"
-                )
-                target.parentFile?.mkdirs()
-                FileOutputStream(target).use { stream ->
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 94, stream)
-                }
-                val payload = linkedMapOf<String, Any?>(
-                    "id" to "xiaowan_annotation_${target.nameWithoutExtension}",
-                    "name" to "xiaowan_annotation.jpg",
-                    "fileName" to target.name,
-                    "path" to target.absolutePath,
-                    "androidPath" to target.absolutePath,
-                    "uri" to workspaceManager.uriForFile(target),
-                    "shellPath" to workspaceManager.shellPathForAndroid(target),
-                    "mimeType" to "image/jpeg",
-                    "isImage" to true,
-                    "size" to target.length(),
-                    "width" to bitmap.width,
-                    "height" to bitmap.height,
-                    "source" to source,
-                    "annotationKind" to "current_screen_with_red_strokes",
-                    "canvasWidth" to canvasWidth,
-                    "canvasHeight" to canvasHeight,
-                    "isFilterOverlay" to capture.isFilterOverlay
-                ).filterValues { it != null }
-                withContext(Dispatchers.Main) {
-                    result.success(payload)
-                }
-            } catch (e: PermissionException) {
-                withContext(Dispatchers.Main) {
-                    result.error("PERMISSION_DENIED", e.message, null)
-                }
-            } catch (e: Exception) {
-                OmniLog.e(TAG, "captureWorkbenchAnnotationAttachment failed: ${e.message}", e)
-                withContext(Dispatchers.Main) {
-                    result.error("SCREENSHOT_FAILED", e.message, null)
-                }
-            } finally {
-                bitmapToRecycle?.let { bitmap ->
-                    if (!bitmap.isRecycled) bitmap.recycle()
-                }
-            }
-        }
-    }
-
-    fun workbenchFrontendContextSet(call: MethodCall, result: MethodChannel.Result) {
-        val raw = call.argument<Map<String, Any?>>("context") ?: emptyMap()
-        val contextPayload = sanitizeInteropMap(raw).toMutableMap().apply {
-            put("nativeUpdatedAtMillis", System.currentTimeMillis())
-        }
-        WorkbenchDisplayLayoutContext.updateFromFrontendContext(contextPayload)
-        latestWorkbenchFrontendContext = contextPayload
-        result.success(
-            mapOf(
-                "success" to true,
-                "context" to contextPayload
-            )
-        )
-    }
-
-    fun workbenchFrontendContextGet(call: MethodCall, result: MethodChannel.Result) {
-        result.success(latestWorkbenchFrontendContext ?: emptyMap<String, Any?>())
-    }
-
-    private fun drawWorkbenchAnnotationPaths(
-        bitmap: Bitmap,
-        drawingPaths: List<Map<String, Any?>>,
-        canvasWidth: Float,
-        canvasHeight: Float
-    ) {
-        if (canvasWidth <= 0f || canvasHeight <= 0f || drawingPaths.isEmpty()) {
-            return
-        }
-        val scaleX = bitmap.width / canvasWidth
-        val scaleY = bitmap.height / canvasHeight
-        val strokeScale = (scaleX + scaleY) / 2f
-        val canvas = Canvas(bitmap)
-        drawingPaths.forEach { stroke ->
-            val points = stroke["points"] as? List<*> ?: return@forEach
-            if (points.size < 2) return@forEach
-            val first = points.first() as? Map<*, *> ?: return@forEach
-            val startX = numberAsFloat(first["x"]) ?: return@forEach
-            val startY = numberAsFloat(first["y"]) ?: return@forEach
-            val path = Path().apply {
-                moveTo(startX * scaleX, startY * scaleY)
-            }
-            points.drop(1).forEach { rawPoint ->
-                val point = rawPoint as? Map<*, *> ?: return@forEach
-                val x = numberAsFloat(point["x"]) ?: return@forEach
-                val y = numberAsFloat(point["y"]) ?: return@forEach
-                path.lineTo(x * scaleX, y * scaleY)
-            }
-            val strokeWidth = numberAsFloat(stroke["strokeWidth"]) ?: 4f
-            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = parseAnnotationColor(stroke["color"])
-                style = Paint.Style.STROKE
-                this.strokeWidth = (strokeWidth * strokeScale).coerceAtLeast(4f)
-                strokeCap = Paint.Cap.ROUND
-                strokeJoin = Paint.Join.ROUND
-            }
-            canvas.drawPath(path, paint)
-        }
-    }
-
-    private fun numberAsFloat(value: Any?): Float? {
-        return when (value) {
-            is Number -> value.toFloat()
-            is String -> value.trim().toFloatOrNull()
-            else -> null
-        }
-    }
-
-    private fun parseAnnotationColor(value: Any?): Int {
-        val raw = value?.toString()?.trim().orEmpty()
-        if (raw.isNotEmpty()) {
-            runCatching { return Color.parseColor(raw) }
-        }
-        return Color.rgb(225, 61, 86)
-    }
-
     private fun currentChannelOrNull(): MethodChannel? {
         return if (this::channel.isInitialized) channel else null
     }
@@ -1726,22 +1548,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             "memory_upsert_longterm" -> AgentToolMeta("memory", t("沉淀长期记忆", "Upsert Long-Term Memory"))
             "memory_rollup_day" -> AgentToolMeta("memory", t("整理当日记忆", "Roll Up Daily Memory"))
             "subagent_dispatch" -> AgentToolMeta("subagent", t("分派子任务", "Dispatch Subtasks"))
-            "workbench_project_create" -> AgentToolMeta("workbench", t("创建 Project", "Create Project"))
-            "workbench_project_list" -> AgentToolMeta("workbench", t("查看 Project 列表", "List Projects"))
-            "workbench_project_get" -> AgentToolMeta("workbench", t("读取 Project", "Load Project"))
-            "workbench_project_update" -> AgentToolMeta("workbench", t("更新 Project", "Update Project"))
-            "workbench_api_list" -> AgentToolMeta("workbench", t("查看 Project Tool", "List Project Tools"))
-            "workbench_api_call" -> AgentToolMeta("workbench", t("调用 Project Tool", "Call Project Tool"))
-            "workbench_project_export" -> AgentToolMeta("workbench", t("导出 Project", "Export Project"))
-            "workbench_project_open" -> AgentToolMeta("workbench", t("打开 Project", "Open Project"))
-            "workbench_project_activate" -> AgentToolMeta("workbench", t("激活 Project", "Activate Project"))
-            "workbench_project_active_get" -> AgentToolMeta("workbench", t("查看当前 Project", "Get Active Project"))
-            "workbench_project_deactivate" -> AgentToolMeta("workbench", t("停用 Project", "Deactivate Project"))
-            "workbench_project_delete" -> AgentToolMeta("workbench", t("删除 Project", "Delete Project"))
-            "workbench_project_hot_update" -> AgentToolMeta("workbench", t("热更新 Project", "Hot Update Project"))
-            "workbench_project_ingest_android" -> AgentToolMeta("workbench", t("导入安卓资产", "Import Android Asset"))
-            "workbench_project_ingest_oss" -> AgentToolMeta("workbench", t("导入 OSS 资源", "Import OSS Asset"))
-            "workbench_project_progress_get" -> AgentToolMeta("workbench", t("查看 Project 进度", "Get Project Progress"))
             else -> {
                 val match = Regex("^mcp__(.+?)__(.+)$").find(toolName)
                 if (match != null) {
@@ -3986,7 +3792,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 return@launch
             }
 
-            val workspaceFunctionStore = cn.com.omnimind.bot.workbench.WorkspaceFunctionStore(
+            val workspaceFunctionStore = cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore(
                 AgentWorkspaceManager.rootDirectory(context)
             )
             val functionRepository = OobFunctionRepository(context, workspaceFunctionStore)
@@ -4138,6 +3944,12 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 stepCount = (runPayload["step_count"] as? Number)?.toInt()
                     ?: stepResults.size,
                 errorMessage = runPayload["error_message"]?.toString()
+            )
+            OobFunctionRunLogRecorder.record(
+                context = context,
+                functionId = functionId,
+                functionSpec = spec,
+                runPayload = runPayload,
             )
             val payload = buildOobReusableFunctionLocalPayload(
                 functionId = functionId,
@@ -5899,306 +5711,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             result.success(packageName)
         } catch (e: Exception) {
             result.error("GET_CURRENT_PACKAGE_NAME_ERROR", e.message, null)
-        }
-    }
-
-    fun workbenchProjectCreate(call: MethodCall, result: MethodChannel.Result) {
-        workJob.launch {
-            runCatching {
-                val args = normalizeMethodCallMap(call.arguments)
-                val config = normalizeMethodCallMap(args["config"]).ifEmpty { args }
-                workbenchProjectStore.createProject(config)
-            }.onSuccess { payload ->
-                withContext(Dispatchers.Main) { result.success(payload) }
-            }.onFailure { error ->
-                withContext(Dispatchers.Main) {
-                    result.error("WORKBENCH_PROJECT_CREATE_ERROR", error.message, null)
-                }
-            }
-        }
-    }
-
-    fun workbenchProjectGet(call: MethodCall, result: MethodChannel.Result) {
-        workJob.launch {
-            runCatching {
-                val projectId = call.argument<String>("projectId")?.trim().orEmpty()
-                val includeSources = call.argument<Boolean>("includeSources") ?: true
-                val includeRuntimeState =
-                    call.argument<Boolean>("includeRuntimeState") ?: true
-                val includeFrontendPayloads =
-                    call.argument<Boolean>("includeFrontendPayloads") ?: true
-                workbenchProjectStore.getProject(
-                    projectId = projectId,
-                    includeSources = includeSources,
-                    includeRuntimeState = includeRuntimeState,
-                    includeFrontendPayloads = includeFrontendPayloads
-                )
-            }.onSuccess { payload ->
-                withContext(Dispatchers.Main) { result.success(payload) }
-            }.onFailure { error ->
-                withContext(Dispatchers.Main) {
-                    result.error("WORKBENCH_PROJECT_GET_ERROR", error.message, null)
-                }
-            }
-        }
-    }
-
-    fun workbenchProjectUpdate(call: MethodCall, result: MethodChannel.Result) {
-        workJob.launch {
-            runCatching {
-                workbenchProjectStore.updateProject(
-                    args = normalizeMethodCallMap(call.arguments),
-                    caller = "ui"
-                )
-            }.onSuccess { payload ->
-                withContext(Dispatchers.Main) { result.success(payload) }
-            }.onFailure { error ->
-                withContext(Dispatchers.Main) {
-                    result.error("WORKBENCH_PROJECT_UPDATE_ERROR", error.message, null)
-                }
-            }
-        }
-    }
-
-    fun workbenchProjectList(call: MethodCall, result: MethodChannel.Result) {
-        workJob.launch {
-            runCatching {
-                workbenchProjectStore.listProjects()
-            }.onSuccess { payload ->
-                withContext(Dispatchers.Main) { result.success(payload) }
-            }.onFailure { error ->
-                withContext(Dispatchers.Main) {
-                    result.error("WORKBENCH_PROJECT_LIST_ERROR", error.message, null)
-                }
-            }
-        }
-    }
-
-    fun workbenchProjectOpen(call: MethodCall, result: MethodChannel.Result) {
-        workJob.launch {
-            runCatching {
-                val projectId = call.argument<String>("projectId")?.trim().orEmpty()
-                val route = workbenchProjectStore.routeForProject(projectId)
-                withContext(Dispatchers.Main) {
-                    TaskCompletionNavigator.navigateToMainRoute(context, route, needClear = false)
-                }
-                mapOf("success" to true, "projectId" to projectId, "route" to route)
-            }.onSuccess { payload ->
-                withContext(Dispatchers.Main) { result.success(payload) }
-            }.onFailure { error ->
-                withContext(Dispatchers.Main) {
-                    result.error("WORKBENCH_PROJECT_OPEN_ERROR", error.message, null)
-                }
-            }
-        }
-    }
-
-    fun workbenchProjectActivate(call: MethodCall, result: MethodChannel.Result) {
-        workJob.launch {
-            runCatching {
-                val projectId = call.argument<String>("projectId")?.trim().orEmpty()
-                workbenchProjectStore.activateProject(projectId)
-            }.onSuccess { payload ->
-                withContext(Dispatchers.Main) { result.success(payload) }
-            }.onFailure { error ->
-                withContext(Dispatchers.Main) {
-                    result.error("WORKBENCH_PROJECT_ACTIVATE_ERROR", error.message, null)
-                }
-            }
-        }
-    }
-
-    fun workbenchProjectActiveGet(call: MethodCall, result: MethodChannel.Result) {
-        workJob.launch {
-            runCatching {
-                val includeSources = call.argument<Boolean>("includeSources") ?: false
-                val compact = call.argument<Boolean>("compact") ?: false
-                workbenchProjectStore.getActiveProject(
-                    includeSources = includeSources,
-                    includeManifest = !compact
-                )
-            }.onSuccess { payload ->
-                withContext(Dispatchers.Main) { result.success(payload) }
-            }.onFailure { error ->
-                withContext(Dispatchers.Main) {
-                    result.error("WORKBENCH_PROJECT_ACTIVE_GET_ERROR", error.message, null)
-                }
-            }
-        }
-    }
-
-    fun workbenchProjectDeactivate(call: MethodCall, result: MethodChannel.Result) {
-        workJob.launch {
-            runCatching {
-                workbenchProjectStore.deactivateProject()
-            }.onSuccess { payload ->
-                withContext(Dispatchers.Main) { result.success(payload) }
-            }.onFailure { error ->
-                withContext(Dispatchers.Main) {
-                    result.error("WORKBENCH_PROJECT_DEACTIVATE_ERROR", error.message, null)
-                }
-            }
-        }
-    }
-
-    fun workbenchProjectDelete(call: MethodCall, result: MethodChannel.Result) {
-        workJob.launch {
-            runCatching {
-                val projectId = call.argument<String>("projectId")?.trim().orEmpty()
-                workbenchProjectStore.deleteProject(projectId)
-            }.onSuccess { payload ->
-                withContext(Dispatchers.Main) { result.success(payload) }
-            }.onFailure { error ->
-                withContext(Dispatchers.Main) {
-                    result.error("WORKBENCH_PROJECT_DELETE_ERROR", error.message, null)
-                }
-            }
-        }
-    }
-
-    fun workbenchProjectExport(call: MethodCall, result: MethodChannel.Result) {
-        workJob.launch {
-            runCatching {
-                val projectId = call.argument<String>("projectId")?.trim().orEmpty()
-                workbenchProjectStore.exportProject(projectId)
-            }.onSuccess { payload ->
-                withContext(Dispatchers.Main) { result.success(payload) }
-            }.onFailure { error ->
-                withContext(Dispatchers.Main) {
-                    result.error("WORKBENCH_PROJECT_EXPORT_ERROR", error.message, null)
-                }
-            }
-        }
-    }
-
-    fun workbenchProjectHotUpdate(call: MethodCall, result: MethodChannel.Result) {
-        workJob.launch {
-            runCatching {
-                val projectId = call.argument<String>("projectId")?.trim().orEmpty()
-                val prompt = call.argument<String>("prompt")?.trim().orEmpty()
-                val caller = call.argument<String>("caller")?.trim().orEmpty().ifBlank { "ui" }
-                val frontendContext =
-                    call.argument<Map<String, Any?>>("frontendContext") ?: emptyMap()
-                workbenchProjectStore.hotUpdateProject(
-                    projectId = projectId,
-                    prompt = prompt,
-                    caller = caller,
-                    frontendContext = frontendContext
-                )
-            }.onSuccess { payload ->
-                withContext(Dispatchers.Main) { result.success(payload) }
-            }.onFailure { error ->
-                withContext(Dispatchers.Main) {
-                    result.error("WORKBENCH_PROJECT_HOT_UPDATE_ERROR", error.message, null)
-                }
-            }
-        }
-    }
-
-    fun workbenchProjectIngestAndroid(call: MethodCall, result: MethodChannel.Result) {
-        workJob.launch {
-            runCatching {
-                val projectId = call.argument<String>("projectId")?.trim().orEmpty()
-                val sourcePath = call.argument<String>("sourcePath")?.trim().orEmpty()
-                val sourceKind = call.argument<String>("sourceKind")?.trim()
-                val displayName = call.argument<String>("displayName")?.trim()
-                val caller = call.argument<String>("caller")?.trim().orEmpty().ifBlank { "ui" }
-                workbenchProjectStore.ingestAndroidAsset(
-                    projectId = projectId,
-                    sourcePath = sourcePath,
-                    sourceKind = sourceKind,
-                    displayName = displayName,
-                    caller = caller
-                )
-            }.onSuccess { payload ->
-                withContext(Dispatchers.Main) { result.success(payload) }
-            }.onFailure { error ->
-                withContext(Dispatchers.Main) {
-                    result.error("WORKBENCH_PROJECT_INGEST_ANDROID_ERROR", error.message, null)
-                }
-            }
-        }
-    }
-
-    fun workbenchProjectIngestOss(call: MethodCall, result: MethodChannel.Result) {
-        workJob.launch {
-            runCatching {
-                val projectId = call.argument<String>("projectId")?.trim().orEmpty()
-                val sourceUrl = call.argument<String>("sourceUrl")?.trim()
-                val sourcePath = call.argument<String>("sourcePath")?.trim()
-                val sourceKind = call.argument<String>("sourceKind")?.trim()
-                val ref = call.argument<String>("ref")?.trim()
-                val displayName = call.argument<String>("displayName")?.trim()
-                val caller = call.argument<String>("caller")?.trim().orEmpty().ifBlank { "ui" }
-                workbenchProjectStore.ingestOssSource(
-                    projectId = projectId,
-                    sourceUrl = sourceUrl,
-                    sourcePath = sourcePath,
-                    sourceKind = sourceKind,
-                    ref = ref,
-                    displayName = displayName,
-                    caller = caller
-                )
-            }.onSuccess { payload ->
-                withContext(Dispatchers.Main) { result.success(payload) }
-            }.onFailure { error ->
-                withContext(Dispatchers.Main) {
-                    result.error("WORKBENCH_PROJECT_INGEST_OSS_ERROR", error.message, null)
-                }
-            }
-        }
-    }
-
-    fun workbenchProjectProgressGet(call: MethodCall, result: MethodChannel.Result) {
-        workJob.launch {
-            runCatching {
-                val projectId = call.argument<String>("projectId")?.trim()
-                val limit = call.argument<Int>("limit") ?: 50
-                workbenchProjectStore.getProjectProgress(projectId, limit)
-            }.onSuccess { payload ->
-                withContext(Dispatchers.Main) { result.success(payload) }
-            }.onFailure { error ->
-                withContext(Dispatchers.Main) {
-                    result.error("WORKBENCH_PROJECT_PROGRESS_GET_ERROR", error.message, null)
-                }
-            }
-        }
-    }
-
-    fun workbenchApiList(call: MethodCall, result: MethodChannel.Result) {
-        workJob.launch {
-            runCatching {
-                workbenchProjectStore.listApis(call.argument<String>("projectId"))
-            }.onSuccess { payload ->
-                withContext(Dispatchers.Main) { result.success(payload) }
-            }.onFailure { error ->
-                withContext(Dispatchers.Main) {
-                    result.error("WORKBENCH_API_LIST_ERROR", error.message, null)
-                }
-            }
-        }
-    }
-
-    fun workbenchApiCall(call: MethodCall, result: MethodChannel.Result) {
-        workJob.launch {
-            runCatching {
-                val requestedProjectId = call.argument<String>("projectId")?.trim().orEmpty()
-                val projectId = requestedProjectId.ifBlank {
-                    val activeProject = workbenchProjectStore.getActiveProject()["project"] as? Map<*, *>
-                    activeProject?.get("projectId")?.toString()?.trim().orEmpty()
-                }
-                val apiId = call.argument<String>("apiId")?.trim()
-                    ?: call.argument<String>("toolId")?.trim().orEmpty()
-                val inputs = normalizeMethodCallMap(call.argument<Any>("inputs"))
-                val caller = call.argument<String>("caller")?.trim().orEmpty().ifBlank { "ui" }
-                workbenchProjectStore.callApi(projectId, apiId, inputs, caller)
-            }.onSuccess { payload ->
-                withContext(Dispatchers.Main) { result.success(payload) }
-            }.onFailure { error ->
-                withContext(Dispatchers.Main) {
-                    result.error("WORKBENCH_API_CALL_ERROR", error.message, null)
-                }
-            }
         }
     }
 
@@ -8717,94 +8229,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 )
                 FlutterChatSyncBridge.dispatchBrowserSnapshotUpdated(snapshot)
             }
-            if (toolName == "workbench_project_create" && success) {
-                runCatching { injectWorkbenchProjectCard(entryId, roundIndex, result) }
-                    .onFailure { OmniLog.w(TAG, "workbench project card failed: ${it.message}") }
-            }
-        }
-
-        private suspend fun injectWorkbenchProjectCard(
-            toolEntryId: String,
-            roundIndex: Int,
-            result: ToolExecutionResult
-        ) {
-            val previewJson = (result as? ToolExecutionResult.ContextResult)?.previewJson ?: return
-            val root = runCatching { JSONObject(previewJson) }.getOrNull() ?: return
-            val project = root.optJSONObject("project") ?: return
-            val projectId = project.optString("projectId").trim().takeIf { it.isNotEmpty() } ?: return
-            val name = project.optString("name").trim().ifEmpty { projectId }
-            val route = project.optString("route").trim()
-            val pageSpec = project.optJSONObject("pageSpec")
-            val description = pageSpec?.optString("description")?.trim().orEmpty()
-            val displaysArray = project.optJSONArray("displays")
-            var displayRoute = ""
-            var displayId = ""
-            if (displaysArray != null) {
-                for (i in 0 until displaysArray.length()) {
-                    val display = displaysArray.optJSONObject(i) ?: continue
-                    val candidateRoute = display.optString("route").trim()
-                    if (candidateRoute.isEmpty()) continue
-                    if (display.optBoolean("isDefault") || displayRoute.isEmpty()) {
-                        displayRoute = candidateRoute
-                        displayId = display.optString("id").trim()
-                    }
-                    if (display.optBoolean("isDefault")) break
-                }
-            }
-            val apisArray = project.optJSONArray("apis")
-            val apis = mutableListOf<Map<String, Any?>>()
-            if (apisArray != null) {
-                for (i in 0 until apisArray.length()) {
-                    val api = apisArray.optJSONObject(i) ?: continue
-                    val toolId = api.optString("toolId").trim().takeIf { it.isNotEmpty() } ?: continue
-                    val displayName = api.optString("displayName").trim().ifEmpty { toolId }
-                    val inputSchema = api.optJSONObject("inputSchema")
-                    val required = inputSchema?.optJSONArray("required")
-                    val hasInputs = required != null && required.length() > 0
-                    apis += linkedMapOf("toolId" to toolId, "displayName" to displayName, "hasInputs" to hasInputs)
-                }
-            }
-            val frontendType = when {
-                (project.optJSONObject("frontendHtml")?.optJSONObject("sources")?.length() ?: 0) > 0 -> "html"
-                (project.optJSONObject("frontendMarkdown")?.optJSONObject("sources")?.length() ?: 0) > 0 -> "markdown"
-                (project.optJSONObject("frontendFlutter")?.optJSONObject("sources")?.length() ?: 0) > 0 -> "flutter"
-                else -> "default"
-            }
-            val cardEntryId = "$toolEntryId-project"
-            val cardData = linkedMapOf<String, Any?>(
-                "type" to "workbench_project",
-                "projectId" to projectId,
-                "name" to name,
-                "description" to description,
-                "route" to route.ifEmpty { displayRoute },
-                "displayRoute" to displayRoute,
-                "displayId" to displayId,
-                "frontendType" to frontendType,
-                "apis" to apis,
-                "createdAt" to System.currentTimeMillis()
-            )
-            persistConversationMutation("inject workbench project card", publish = true) {
-                repository.upsertUiCard(
-                    conversationId = conversationId ?: return@persistConversationMutation,
-                    conversationMode = resolvedConversationMode,
-                    entryId = cardEntryId,
-                    cardData = sanitizeInteropMap(cardData),
-                    streamMeta = streamMeta(
-                        entryId = cardEntryId,
-                        roundIndex = roundIndex,
-                        kind = "workbench_project_card",
-                        isFinal = true
-                    ),
-                    createdAt = System.currentTimeMillis()
-                )
-            }
-            sendStreamEvent(
-                kind = "workbench_project_card",
-                entryId = cardEntryId,
-                roundIndex = roundIndex,
-                isFinal = true,
-                extras = cardData
-            )
         }
 
         override suspend fun onChatMessage(message: String) {

@@ -7532,6 +7532,23 @@ _RunLogStatusInfo _runLogStatusInfo(
     payload['status'],
   ]).toLowerCase();
   final finished = _isRunLogFinished(payload);
+  final success = _runLogSuccess(payload);
+  final requestFailed = _asBool(payload['success']) == false;
+  final errorMessage = _firstNonBlank([
+    payload['error_message'],
+    payload['errorMessage'],
+    payload['error_code'],
+    payload['errorCode'],
+  ]);
+  if (success == false || requestFailed || errorMessage.isNotEmpty) {
+    return _RunLogStatusInfo(
+      kind: _RunLogStatusKind.failed,
+      label: _text(context, '失败', 'Failed'),
+      title: _text(context, '执行失败', 'Execution failed'),
+      color: _errorColor(context),
+      icon: Icons.error_outline_rounded,
+    );
+  }
   if (!finished || rawStatus == 'running' || rawStatus == 'in_progress') {
     return _RunLogStatusInfo(
       kind: _RunLogStatusKind.running,
@@ -7541,7 +7558,6 @@ _RunLogStatusInfo _runLogStatusInfo(
       icon: Icons.timelapse_rounded,
     );
   }
-  final success = _runLogSuccess(payload);
   if (success == true) {
     return _RunLogStatusInfo(
       kind: _RunLogStatusKind.success,
@@ -7551,11 +7567,7 @@ _RunLogStatusInfo _runLogStatusInfo(
       icon: Icons.check_circle_outline_rounded,
     );
   }
-  if (success == false ||
-      _firstNonBlank([
-        payload['error_message'],
-        payload['errorMessage'],
-      ]).isNotEmpty) {
+  if (rawStatus == 'failed' || rawStatus == 'error') {
     return _RunLogStatusInfo(
       kind: _RunLogStatusKind.failed,
       label: _text(context, '失败', 'Failed'),

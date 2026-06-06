@@ -482,10 +482,10 @@ String _activityLabel(
         en: 'Workspace activity',
         locale: locale,
       );
-    case AgentToolActivityKind.workbench:
+    case AgentToolActivityKind.omniflow:
       return AppTextLocalizer.choose(
-        zh: '工作台操作',
-        en: 'Workbench activity',
+        zh: '工作流操作',
+        en: 'OmniFlow activity',
         locale: locale,
       );
     case AgentToolActivityKind.mcp:
@@ -543,7 +543,7 @@ bool _activityPrefersSummary(AgentToolActivityKind kind) {
   return kind == AgentToolActivityKind.vlm ||
       kind == AgentToolActivityKind.research ||
       kind == AgentToolActivityKind.generic ||
-      kind == AgentToolActivityKind.workbench;
+      kind == AgentToolActivityKind.omniflow;
 }
 
 String _activityLatestSummary(
@@ -609,10 +609,10 @@ String _localizedActivityText(BuildContext context, String value) {
         zh: '工作区操作',
         locale: locale,
       );
-    case 'Workbench activity':
+    case 'OmniFlow activity':
       return AppTextLocalizer.choose(
-        en: 'Workbench activity',
-        zh: '工作台操作',
+        en: 'OmniFlow activity',
+        zh: '工作流操作',
         locale: locale,
       );
     case 'Reusable Function':

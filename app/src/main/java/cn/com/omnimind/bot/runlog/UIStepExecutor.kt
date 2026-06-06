@@ -2,7 +2,10 @@ package cn.com.omnimind.bot.runlog
 
 import cn.com.omnimind.bot.runlog.OobActionCodec.boolArg
 import cn.com.omnimind.bot.runlog.OobActionCodec.firstNonBlank
+import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -198,14 +201,63 @@ object UIStepExecutor {
         return null
     }
 
+    private fun throwIfStopRequested(stopRequested: (() -> Boolean)?) {
+        if (stopRequested?.invoke() == true) {
+            throw ManualToolStopCancellationException("OmniFlow execution stopped manually")
+        }
+    }
+
+    private suspend fun delayWithStopPolling(
+        delayMs: Long,
+        stopRequested: (() -> Boolean)?,
+    ) {
+        var remainingMs = delayMs.coerceAtLeast(0L)
+        while (remainingMs > 0L) {
+            throwIfStopRequested(stopRequested)
+            val sliceMs = min(remainingMs, STOP_POLL_INTERVAL_MS)
+            delay(sliceMs)
+            remainingMs -= sliceMs
+        }
+        throwIfStopRequested(stopRequested)
+    }
+
+    private suspend fun <T> runWithStopPolling(
+        stopRequested: (() -> Boolean)?,
+        block: suspend () -> T,
+    ): T {
+        throwIfStopRequested(stopRequested)
+        if (stopRequested == null) {
+            return block()
+        }
+        return coroutineScope {
+            val action = async { block() }
+            while (action.isActive) {
+                if (stopRequested()) {
+                    action.cancel(
+                        ManualToolStopCancellationException(
+                            "OmniFlow execution stopped manually"
+                        )
+                    )
+                    throw ManualToolStopCancellationException(
+                        "OmniFlow execution stopped manually"
+                    )
+                }
+                delay(STOP_POLL_INTERVAL_MS)
+            }
+            action.await()
+        }
+    }
+
     suspend fun execute(
         step: Map<String, Any?>,
         stepId: String,
         stepTitle: String,
         checkerRules: List<OmniflowCheckerRule> = emptyList(),
         checkerBudget: CheckerTriggerBudget = CheckerTriggerBudget(),
+        stopRequested: (() -> Boolean)? = null,
     ): Map<String, Any?> {
         val timing = ReplayStepTiming()
+        throwIfStopRequested(stopRequested)
         val action = actionNameForStep(step)
         if (action !in OobActionCodec.executableActions) {
             throw IllegalArgumentException("Unsupported omniflow action: $action")
@@ -244,8 +296,10 @@ object UIStepExecutor {
             }
         }
         if (!fixedReplay && preTransferControls.isNotEmpty()) {
+            throwIfStopRequested(stopRequested)
             refreshReplayState("after_pre_transfer_controls")
         }
+        throwIfStopRequested(stopRequested)
         val attemptedRemapResult = timing.measure("action_transfer_ms") {
             if (fixedReplay) {
                 StepArgsResult(initialArgs)
@@ -273,6 +327,7 @@ object UIStepExecutor {
             initialArgs = initialArgs,
         )
         var args = normalizeArgsMap(remapResult.args)
+        throwIfStopRequested(stopRequested)
         val preActionControls = timing.measure("checker_ms") {
             if (fixedReplay) {
                 emptyList()
@@ -287,6 +342,7 @@ object UIStepExecutor {
             }
         }
         if (!fixedReplay && preActionControls.isNotEmpty()) {
+            throwIfStopRequested(stopRequested)
             val refreshed = refreshReplayState("after_pre_action_controls")
             if (transferRequested) {
                 val remappedAfterControl = timing.measure("action_transfer_ms") {
@@ -314,86 +370,105 @@ object UIStepExecutor {
                 args = normalizeArgsMap(remapResult.args)
             }
         }
+        throwIfStopRequested(stopRequested)
         val actionTransferApplied = transferRequested && remapResult.meta["applied"] == true
+        var actionDispatchWarning: Map<String, Any?> = emptyMap()
         val summary = timing.measure("act_ms") {
-            when (action) {
-                OobActionCodec.ACTION_CLICK -> {
-                    val x = numberArg(args, "x")?.toFloat()
-                        ?: throw IllegalArgumentException("click requires x")
-                    val y = numberArg(args, "y")?.toFloat()
-                        ?: throw IllegalArgumentException("click requires y")
-                    backend.click(x, y)
-                    OobActionCodec.ACTION_CLICK
+            runWithStopPolling(stopRequested) {
+                when (action) {
+                    OobActionCodec.ACTION_CLICK -> {
+                        val x = numberArg(args, "x")?.toFloat()
+                            ?: throw IllegalArgumentException("click requires x")
+                        val y = numberArg(args, "y")?.toFloat()
+                            ?: throw IllegalArgumentException("click requires y")
+                        runReplayGestureIgnoringDispatchTimeout(
+                            action = action,
+                            onWarning = { actionDispatchWarning = it },
+                        ) {
+                            backend.click(x, y)
+                        }
+                        OobActionCodec.ACTION_CLICK
+                    }
+
+                    OobActionCodec.ACTION_LONG_PRESS -> {
+                        val x = numberArg(args, "x")?.toFloat()
+                            ?: throw IllegalArgumentException("long_press requires x")
+                        val y = numberArg(args, "y")?.toFloat()
+                            ?: throw IllegalArgumentException("long_press requires y")
+                        runReplayGestureIgnoringDispatchTimeout(
+                            action = action,
+                            onWarning = { actionDispatchWarning = it },
+                        ) {
+                            backend.longPress(
+                                x = x,
+                                y = y,
+                                durationMs = durationMs(args, defaultMs = 1000L)
+                            )
+                        }
+                        OobActionCodec.ACTION_LONG_PRESS
+                    }
+
+                    OobActionCodec.ACTION_SWIPE -> {
+                        val swipe = swipeSpec(args, replayState("act_swipe"))
+                        runReplayGestureIgnoringDispatchTimeout(
+                            action = action,
+                            onWarning = { actionDispatchWarning = it },
+                        ) {
+                            backend.scrollWithContext(
+                                x = swipe.x,
+                                y = swipe.y,
+                                direction = swipe.direction,
+                                distance = swipe.distance,
+                                durationMs = durationMs(args, defaultMs = 1500L),
+                                targetDescription = stringArg(args, "target_description").orEmpty()
+                            )
+                        }
+                        action
+                    }
+
+                    OobActionCodec.ACTION_INPUT_TEXT -> {
+                        val text = stringArg(args, "text")
+                            ?: throw IllegalArgumentException("$action requires text")
+                        backend.inputText(
+                            text = text,
+                            targetDescription = stringArg(
+                                args,
+                                "target_description",
+                                "label",
+                                "selector",
+                            ).orEmpty(),
+                            x = numberArg(args, "x")?.toFloat(),
+                            y = numberArg(args, "y")?.toFloat(),
+                            nodeResourceId = stringArg(
+                                args,
+                                "node_resource_id",
+                            ).orEmpty(),
+                        )
+                        action
+                    }
+
+                    OobActionCodec.ACTION_OPEN_APP -> {
+                        val packageName = stringArg(args, "package_name")
+                            ?: throw IllegalArgumentException("open_app requires package_name")
+                        backend.launchApplication(packageName)
+                        OobActionCodec.ACTION_OPEN_APP
+                    }
+
+                    OobActionCodec.ACTION_PRESS_KEY -> {
+                        backend.pressHotKey(pressKeyArg(args))
+                        action
+                    }
+
+                    OobActionCodec.ACTION_FINISHED -> OobActionCodec.ACTION_FINISHED
+
+                    else -> throw IllegalArgumentException("Unsupported omniflow action: $action")
                 }
-
-                OobActionCodec.ACTION_LONG_PRESS -> {
-                    val x = numberArg(args, "x")?.toFloat()
-                        ?: throw IllegalArgumentException("long_press requires x")
-                    val y = numberArg(args, "y")?.toFloat()
-                        ?: throw IllegalArgumentException("long_press requires y")
-                    backend.longPress(
-                        x = x,
-                        y = y,
-                        durationMs = durationMs(args, defaultMs = 1000L)
-                    )
-                    OobActionCodec.ACTION_LONG_PRESS
-                }
-
-                OobActionCodec.ACTION_SWIPE -> {
-                    val swipe = swipeSpec(args, replayState("act_swipe"))
-                    backend.scrollWithContext(
-                        x = swipe.x,
-                        y = swipe.y,
-                        direction = swipe.direction,
-                        distance = swipe.distance,
-                        durationMs = durationMs(args, defaultMs = 1500L),
-                        targetDescription = stringArg(args, "target_description").orEmpty()
-                    )
-                    action
-                }
-
-                OobActionCodec.ACTION_INPUT_TEXT -> {
-                    val text = stringArg(args, "text")
-                        ?: throw IllegalArgumentException("$action requires text")
-                    backend.inputText(
-                        text = text,
-                        targetDescription = stringArg(
-                            args,
-                            "target_description",
-                            "label",
-                            "selector",
-                        ).orEmpty(),
-                        x = numberArg(args, "x")?.toFloat(),
-                        y = numberArg(args, "y")?.toFloat(),
-                        nodeResourceId = stringArg(
-                            args,
-                            "node_resource_id",
-                        ).orEmpty(),
-                    )
-                    action
-                }
-
-                OobActionCodec.ACTION_OPEN_APP -> {
-                    val packageName = stringArg(args, "package_name")
-                        ?: throw IllegalArgumentException("open_app requires package_name")
-                    backend.launchApplication(packageName)
-                    stabilizeOpenAppLaunch(packageName, resetTask = false, timing)
-                    OobActionCodec.ACTION_OPEN_APP
-                }
-
-                OobActionCodec.ACTION_PRESS_KEY -> {
-                    backend.pressHotKey(pressKeyArg(args))
-                    action
-                }
-
-                OobActionCodec.ACTION_FINISHED -> OobActionCodec.ACTION_FINISHED
-
-                else -> throw IllegalArgumentException("Unsupported omniflow action: $action")
             }
         }
         if (action != OobActionCodec.ACTION_FINISHED) {
-            delay(1000L)
+            delayWithStopPolling(REPLAY_ACTION_FIXED_WAIT_MS, stopRequested)
         }
+        throwIfStopRequested(stopRequested)
         val postActionControls = timing.measure("checker_ms") {
             val hasPostActionRules = checkerRules.any {
                 it.phase == OmniflowCheckerRule.PHASE_POST_ACTION && it.enabled
@@ -441,6 +516,9 @@ object UIStepExecutor {
             }
             if (controlEffects.isNotEmpty()) {
                 put("control_effects", controlEffects)
+            }
+            if (actionDispatchWarning.isNotEmpty()) {
+                put("action_dispatch", actionDispatchWarning)
             }
         }
     }
@@ -593,6 +671,31 @@ object UIStepExecutor {
         transferRequested && transfer["recorded_action_args_used"] == true -> "recorded_action_replay"
         transferRequested -> "action_transfer_skipped"
         else -> "direct_replay"
+    }
+
+    private suspend fun runReplayGestureIgnoringDispatchTimeout(
+        action: String,
+        onWarning: (Map<String, Any?>) -> Unit,
+        block: suspend () -> Unit,
+    ) {
+        try {
+            block()
+        } catch (error: Exception) {
+            if (!isGestureDispatchTimeout(error)) throw error
+            onWarning(
+                mapOf(
+                    "status" to "dispatch_timeout_ignored",
+                    "action" to action,
+                    "message" to error.message.orEmpty(),
+                    "fixed_post_action_wait_ms" to REPLAY_ACTION_FIXED_WAIT_MS,
+                )
+            )
+        }
+    }
+
+    private fun isGestureDispatchTimeout(error: Throwable): Boolean {
+        val message = error.message.orEmpty()
+        return message.startsWith("dispatch_timeout:")
     }
 
     fun remapStepArgs(step: Map<String, Any?>): StepArgsResult =
@@ -767,31 +870,6 @@ object UIStepExecutor {
             else -> null
         }
     }
-
-    private suspend fun stabilizeOpenAppLaunch(
-        packageName: String,
-        resetTask: Boolean,
-        timing: ReplayStepTiming,
-    ) {
-        if (packageName.isBlank()) return
-        var lastPackage = effectiveCurrentPackage(timing)
-        repeat(OPEN_APP_STABILITY_ATTEMPTS) { index ->
-            val matchMode = packageMatchMode(packageName, lastPackage)
-            if (matchMode != null) return
-            if (resetTask && index == OPEN_APP_RELAUNCH_ATTEMPT_INDEX) {
-                runCatching { OmniflowActionRuntime.backend.pressHotKey("BACK") }
-                delay(OPEN_APP_STABILITY_DELAY_MS)
-                runCatching { OmniflowActionRuntime.backend.launchApplication(packageName, true) }
-            }
-            if (index < OPEN_APP_STABILITY_ATTEMPTS - 1) {
-                delay(OPEN_APP_STABILITY_DELAY_MS)
-                lastPackage = effectiveCurrentPackage(timing)
-            }
-        }
-    }
-
-    private suspend fun effectiveCurrentPackage(timing: ReplayStepTiming): String =
-        readBackendSnapshot(timing).effectivePackage()
 
     private fun beforeActionCheckerSummary(
         action: String,
@@ -2644,7 +2722,7 @@ object UIStepExecutor {
             (nanos / 1_000_000L).coerceAtLeast(0L)
     }
 
-    private const val PRE_ACTION_CONTROL_DELAY_MS = 300L
+    private const val PRE_ACTION_CONTROL_DELAY_MS = 1_000L
     private const val DEFAULT_SCREEN_CENTER_X = 540f
     private const val DEFAULT_SCREEN_CENTER_Y = 960f
     private const val DEFAULT_SWIPE_DISTANCE = 600f
@@ -2654,9 +2732,6 @@ object UIStepExecutor {
     private const val MIN_APP_UPGRADE_DISMISS_SCORE = 700f
     private const val KEYBOARD_OBSCURE_MARGIN_PX = 16f
     private const val ACTION_TARGET_HIT_MARGIN_PX = 24f
-    private const val OPEN_APP_STABILITY_ATTEMPTS = 5
-    private const val OPEN_APP_STABILITY_DELAY_MS = 350L
-    private const val OPEN_APP_RELAUNCH_ATTEMPT_INDEX = 1
     private val REPLAY_STEP_PHASE_NAMES = listOf(
         "observe_ms",
         "checker_ms",
@@ -3005,6 +3080,8 @@ object UIStepExecutor {
 
     private const val DEFAULT_CHECKER_TRIGGER_LIMIT = 1
     private const val DEFAULT_PAGE_GUARD_TRIGGER_LIMIT = 3
+    private const val REPLAY_ACTION_FIXED_WAIT_MS = 1000L
+    private const val STOP_POLL_INTERVAL_MS = 50L
 
     private val ALLOW_EXACT_LABELS = setOf(
         "允许", "allow", "始终允许", "always allow",

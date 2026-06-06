@@ -59,13 +59,7 @@ class CatDialogShowInfoView @JvmOverloads constructor(
     ) {
         setMessage(message)
         setSubMessage(subMessage)
-        // 取消首次展示动画（如果正在执行）
-        if (CatDialogStateData.viewState == CatDialogViewState.EMPTY) {
-            showInfoView.visibility = GONE
-        } else {
-            showInfoView.visibility = VISIBLE
-
-        }
+        showInfoView.visibility = VISIBLE
         visibility = VISIBLE
         showInfoView.doingTask(catDialogShowInfoView, layoutParams, windowManager)
         CatDialogStateData.viewState = CatDialogViewState.TASK_DOING
@@ -84,13 +78,7 @@ class CatDialogShowInfoView @JvmOverloads constructor(
         ) {
         setMessage(message)
         subMessage?.let { setSubMessage(it) }
-        // 取消首次展示动画（如果正在执行）
-        if (CatDialogStateData.viewState == CatDialogViewState.EMPTY) {
-            showInfoView.visibility = GONE
-        } else {
-            showInfoView.visibility = VISIBLE
-
-        }
+        showInfoView.visibility = VISIBLE
         visibility = VISIBLE
         showInfoView.setDoing(
             catDialogShowInfoView,

@@ -3,6 +3,7 @@ package cn.com.omnimind.bot.agent.tool.handlers
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.listArg
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
+import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
 import cn.com.omnimind.bot.runlog.OmniflowCheckerRule
 import cn.com.omnimind.bot.runlog.UIStepExecutor
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
@@ -24,7 +25,9 @@ class OobFunctionGraphStepRunner(
         callableTool: String,
         checkerRules: List<OmniflowCheckerRule> = emptyList(),
         checkerBudget: UIStepExecutor.CheckerTriggerBudget = UIStepExecutor.CheckerTriggerBudget(),
+        stopRequested: (() -> Boolean)? = null,
     ): Map<String, Any?> {
+        throwIfStopRequested(stopRequested)
         val path = resolveGraphPath(step, callableTool)
         if (path.isEmpty()) {
             return failureStepResult(
@@ -37,6 +40,7 @@ class OobFunctionGraphStepRunner(
 
         val primitiveResults = mutableListOf<Map<String, Any?>>()
         for ((index, primitiveStep) in path.withIndex()) {
+            throwIfStopRequested(stopRequested)
             val pathStepId = "${stepId}_path_${index + 1}"
             val pathTitle = primitiveStep["title"]?.toString()?.takeIf { it.isNotBlank() }
                 ?: "$stepTitle path ${index + 1}"
@@ -48,6 +52,7 @@ class OobFunctionGraphStepRunner(
                     stepTitle = pathTitle,
                     checkerRules = checkerRules,
                     checkerBudget = checkerBudget,
+                    stopRequested = stopRequested,
                 )
             } catch (e: CancellationException) {
                 throw e
@@ -69,6 +74,7 @@ class OobFunctionGraphStepRunner(
                 putIfAbsent("duration_ms", (finishedAtMs - startedAtMs).coerceAtLeast(0))
             }
             if (result["success"] == false) break
+            throwIfStopRequested(stopRequested)
         }
 
         val success = primitiveResults.size == path.size &&
@@ -200,6 +206,12 @@ class OobFunctionGraphStepRunner(
 
     private fun Map<String, Any?>.hasExecutionArgs(): Boolean =
         EXECUTION_ARG_KEYS.any { key -> this[key] != null }
+
+    private fun throwIfStopRequested(stopRequested: (() -> Boolean)?) {
+        if (stopRequested?.invoke() == true) {
+            throw ManualToolStopCancellationException("OmniFlow execution stopped manually")
+        }
+    }
 
     private fun failureStepResult(
         stepId: String,

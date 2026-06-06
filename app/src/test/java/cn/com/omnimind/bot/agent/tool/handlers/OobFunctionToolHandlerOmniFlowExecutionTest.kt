@@ -19,8 +19,13 @@ import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
 import cn.com.omnimind.bot.agent.ToolExecutionResult
 import cn.com.omnimind.bot.agent.WorkspaceMemoryService
 import cn.com.omnimind.bot.agent.NoOpAgentRunControl
+import cn.com.omnimind.bot.omniflow.OobFunctionRepository
 import cn.com.omnimind.bot.omniflow.OobFunctionParameterBindingNormalizer
-import cn.com.omnimind.bot.workbench.WorkspaceFunctionStore
+import cn.com.omnimind.bot.omniflow.language.OmniflowFunction
+import cn.com.omnimind.bot.omniflow.language.OmniflowFunctionStore
+import cn.com.omnimind.bot.omniflow.language.ParameterValue
+import cn.com.omnimind.bot.omniflow.language.UIStep
+import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
 import cn.com.omnimind.baselib.llm.AssistantToolCall
 import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
 import cn.com.omnimind.bot.runlog.OobUdegNodeStore
@@ -31,12 +36,15 @@ import cn.com.omnimind.omniintelligence.models.ScrollDirection
 import java.io.File
 import java.nio.file.Files
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -188,6 +196,56 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
             assertEquals(false, run["success"])
             assertEquals("OOB_FUNCTION_STOPPED", run["error_code"])
             assertTrue(run["error_message"].toString().contains("停止"))
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `bound stop action cancels active replay action immediately`() = runBlocking {
+        val context = TempFilesContext()
+        val backend = BlockingClickBackend(
+            currentXml = CURRENT_PAGE_XML,
+            currentPackage = "com.xingin.xhs",
+            currentActivity = "FeedActivity",
+        )
+        try {
+            val spec = functionSpec(
+                functionId = "stop_during_click",
+                steps = listOf(
+                    mapOf(
+                        "id" to "click_step",
+                        "title" to "Click target",
+                        "kind" to "omniflow_action",
+                        "executor" to "omniflow",
+                        "model_free" to true,
+                        "scriptable" to true,
+                        "tool" to "click",
+                        "args" to mapOf("x" to 100, "y" to 240),
+                    )
+                ),
+            )
+            val stopHandle = StopActionHandle()
+            OmniflowActionRuntime.useBackendForTesting(backend).use {
+                val runDeferred = async {
+                    handler(context, WorkspaceFunctionStore(context.root)).runMaterializedFunction(
+                        functionId = "stop_during_click",
+                        spec = spec,
+                        materializedSpec = OobReusableFunctionStore.materialize(spec, emptyMap()),
+                        toolHandle = stopHandle,
+                        allowAgentFallback = false,
+                    )
+                }
+
+                backend.clickStarted.await()
+                stopHandle.awaitStopAction().invoke()
+
+                val run = withTimeout(1000L) { runDeferred.await() }
+                assertEquals(false, run["success"])
+                assertEquals("OOB_FUNCTION_STOPPED", run["error_code"])
+                assertEquals(1, backend.clickCount)
+                assertTrue(run["error_message"].toString().contains("停止"))
+            }
         } finally {
             context.root.deleteRecursively()
         }
@@ -1194,11 +1252,11 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
             val router = CapturingRouter()
             handler.router = router
             val spec = functionSpec(
-                functionId = "direct_androidworld_vlm",
+                functionId = "direct_guiagent_vlm",
                 steps = listOf(
                     mapOf(
-                        "id" to "androidworld_step",
-                        "title" to "AndroidWorld current page smoke",
+                        "id" to "guiagent_step",
+                        "title" to "GUIagent current page smoke",
                         "kind" to "tool_call",
                         "executor" to "tool",
                         "scriptable" to true,
@@ -1218,7 +1276,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
             )
 
             val run = handler.runMaterializedFunction(
-                functionId = "direct_androidworld_vlm",
+                functionId = "direct_guiagent_vlm",
                 spec = spec,
                 materializedSpec = OobReusableFunctionStore.materialize(spec, emptyMap()),
                 env = FakeEnv(context),
@@ -1382,7 +1440,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
                     runtimeDescriptor = AgentToolRegistry.RuntimeToolDescriptor(
                         name = "call_tool",
                         displayName = "执行复用指令",
-                        toolType = "workbench",
+                        toolType = "oob_function",
                     ),
                     env = FakeEnv(context),
                     callback = RecordingToolCardCallback(),
@@ -1399,6 +1457,60 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
                 assertTrue(result.rawResultJson.contains("search_keyword"))
                 assertTrue(result.rawResultJson.contains("keyword"))
             }
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `registering edited function invalidates stale compiled function cache`() = runBlocking {
+        val context = TempFilesContext()
+        try {
+            val functionId = "edited_search_keyword"
+            val store = WorkspaceFunctionStore(context.root)
+            OmniflowFunctionStore.save(
+                context,
+                OmniflowFunction(
+                    id = functionId,
+                    name = "Old search keyword",
+                    steps = listOf(
+                        UIStep(
+                            id = "old_input_keyword",
+                            title = "Input old keyword",
+                            toolName = "input_text",
+                            arguments = mapOf("text" to ParameterValue.Literal("旧关键词")),
+                        )
+                    ),
+                )
+            )
+            assertNotNull(OmniflowFunctionStore.get(context, functionId))
+
+            val editedSpec = functionSpec(
+                functionId = functionId,
+                steps = listOf(
+                    mapOf(
+                        "id" to "new_input_keyword",
+                        "title" to "Input new keyword",
+                        "kind" to "omniflow_action",
+                        "executor" to "omniflow",
+                        "model_free" to true,
+                        "scriptable" to true,
+                        "tool" to "input_text",
+                        "callable_tool" to "input_text",
+                        "args" to mapOf("text" to "新关键词"),
+                    ),
+                ),
+            )
+
+            val register = OobFunctionRepository(context, store).register(editedSpec)
+
+            assertEquals(true, register["success"])
+            assertEquals(true, register["compiled_function_invalidated"])
+            assertEquals(null, OmniflowFunctionStore.get(context, functionId))
+            val storedSpec = OobFunctionRepository(context, store).get(functionId)!!
+            val steps = OobFunctionSchemaBuilder.materializedSteps(storedSpec)
+            assertEquals("new_input_keyword", steps.single()["id"])
+            assertEquals("新关键词", (steps.single()["args"] as Map<*, *>)["text"])
         } finally {
             context.root.deleteRecursively()
         }
@@ -1742,6 +1854,37 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
         override fun complete() = Unit
     }
 
+    private class StopActionHandle : cn.com.omnimind.bot.agent.AgentToolExecutionHandle {
+        override val generation: Long = 1L
+        override val toolName: String = "call_tool"
+        override val toolCallId: String = "stop-action-test"
+        private val stopAction = CompletableDeferred<suspend () -> Unit>()
+
+        suspend fun awaitStopAction(): suspend () -> Unit = stopAction.await()
+
+        override fun bindCardId(cardId: String) = Unit
+
+        override fun currentCardId(): String? = null
+
+        override fun bindExecutionJob(job: Job) = Unit
+
+        override fun bindStopAction(action: (suspend () -> Unit)?) {
+            if (action != null && !stopAction.isCompleted) {
+                stopAction.complete(action)
+            }
+        }
+
+        override fun recordProgress(summary: String, extras: Map<String, Any?>) = Unit
+
+        override fun latestProgressSnapshot(): AgentToolProgressSnapshot = AgentToolProgressSnapshot()
+
+        override fun isManualStopRequested(): Boolean = false
+
+        override fun throwIfStopRequested() = Unit
+
+        override fun complete() = Unit
+    }
+
     private class NotReadyBackend : OmniflowActionBackend {
         var clickCount = 0
 
@@ -1772,6 +1915,47 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
         override fun currentPackageName(): String? = null
 
         override fun currentActivityName(): String? = null
+    }
+
+    private class BlockingClickBackend(
+        private val currentXml: String,
+        private val currentPackage: String,
+        private val currentActivity: String,
+    ) : OmniflowActionBackend {
+        val clickStarted = CompletableDeferred<Unit>()
+        private val clickRelease = CompletableDeferred<Unit>()
+        var clickCount = 0
+            private set
+
+        override fun isReady(): Boolean = true
+
+        override suspend fun click(x: Float, y: Float) {
+            clickCount += 1
+            clickStarted.complete(Unit)
+            clickRelease.await()
+        }
+
+        override suspend fun longPress(x: Float, y: Float, durationMs: Long) = Unit
+
+        override suspend fun scroll(
+            x: Float,
+            y: Float,
+            direction: ScrollDirection,
+            distance: Float,
+            durationMs: Long,
+        ) = Unit
+
+        override suspend fun inputTextToFocusedNode(text: String) = Unit
+
+        override suspend fun launchApplication(packageName: String) = Unit
+
+        override suspend fun pressHotKey(key: String) = Unit
+
+        override fun currentXml(): String? = currentXml
+
+        override fun currentPackageName(): String? = currentPackage
+
+        override fun currentActivityName(): String? = currentActivity
     }
 
     private class RecordingBackend(

@@ -1,6 +1,9 @@
 package cn.com.omnimind.bot.mcp
 
 import android.content.Context
+import android.hardware.display.DisplayManager
+import android.util.DisplayMetrics
+import android.view.Display
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.assists.task.vlmserver.VLMIndexedPageContext
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
@@ -19,13 +22,26 @@ import cn.com.omnimind.bot.webchat.AgentRunService
 import cn.com.omnimind.bot.webchat.ConversationDomainService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
+import kotlin.math.max
 
 /**
  * MCP 工具执行器
  */
 object McpToolExecutors {
     private const val TAG = "[McpToolExecutors]"
+    private const val XML_STABILITY_DEFAULT_ATTEMPTS = 5
+    private const val XML_STABILITY_MAX_ATTEMPTS_LIMIT = 8
+    private const val XML_STABILITY_DEFAULT_INTERVAL_MS = 250L
+    private const val XML_STABILITY_MIN_INTERVAL_MS = 50L
+    private const val XML_STABILITY_MAX_INTERVAL_MS = 1_000L
+    private const val XML_STABILITY_BOUNDS_TOLERANCE_PX = 8
+    private const val XML_STABILITY_NODE_DELTA_RATIO = 0.05f
+    private const val XML_DISPLAY_BOUNDS_MIN_TOLERANCE_PX = 80
+    private val XML_BOUNDS_REGEX = Regex("""bounds="\[(-?\d+),(-?\d+)]\[(-?\d+),(-?\d+)]"""")
+    private val XML_PACKAGE_REGEX = Regex("""package="([^"]+)"""")
     private fun brandName(): String = AppLocaleManager.brandName()
     
     /**
@@ -133,8 +149,11 @@ object McpToolExecutors {
         val activityName = runCatching { AccessibilityController.getCurrentActivity().orEmpty() }
             .getOrDefault("")
 
+        var xmlStability: StableXmlCapture? = null
         val xmlCapture = if (includeXml || includeIndexedContext || includeMarkedScreenshot) {
-            runCatching { AccessibilityController.getCaptureScreenShotXml(true).orEmpty() }
+            runCatching {
+                captureStableXml(context, args).also { xmlStability = it }.xml
+            }
         } else {
             Result.success("")
         }
@@ -198,6 +217,11 @@ object McpToolExecutors {
             appendLine("activity_name: ${activityName.ifBlank { "unknown" }}")
             appendLine("xml_chars: ${rawXml.length}")
             appendLine("xml_node_count: ${xmlNodeCount(rawXml)}")
+            xmlStability?.let {
+                appendLine("xml_stable: ${it.stable}")
+                appendLine("xml_capture_attempts: ${it.attempts}")
+                appendLine("xml_stability_reason: ${it.reason}")
+            }
             appendLine("screenshot_present: ${screenshotDataUri != null}")
             if (screenshotPayload != null) {
                 appendLine("screenshot_size: ${screenshotPayload.compressedWidth}x${screenshotPayload.compressedHeight}")
@@ -236,7 +260,15 @@ object McpToolExecutors {
             "xml_chars" to rawXml.length,
             "xml_node_count" to xmlNodeCount(rawXml),
             "xml_truncated" to (includeXml && returnedXml.length < rawXml.length),
-            "xml_error" to xmlCapture.exceptionOrNull()?.message,
+            "xml_error" to (xmlCapture.exceptionOrNull()?.message ?: xmlStability?.errorMessage),
+            "xml_stable" to xmlStability?.stable,
+            "xml_capture_attempts" to xmlStability?.attempts,
+            "xml_stability_reason" to xmlStability?.reason,
+            "xml_stability_wait_ms" to xmlStability?.waitMs,
+            "xml_display_width" to xmlStability?.displayWidth,
+            "xml_display_height" to xmlStability?.displayHeight,
+            "xml_max_right" to xmlStability?.maxRight,
+            "xml_max_bottom" to xmlStability?.maxBottom,
             "indexed_page_evidence" to indexedEvidence.takeIf { it.isNotBlank() },
             "screenshot" to screenshotPayload?.let { payload ->
                 linkedMapOf<String, Any?>(
@@ -264,6 +296,256 @@ object McpToolExecutors {
             },
             "source" to "oob_accessibility_runtime"
         ).filterValues { it != null }
+    }
+
+    private data class StableXmlCapture(
+        val xml: String,
+        val stable: Boolean,
+        val attempts: Int,
+        val waitMs: Long,
+        val reason: String,
+        val displayWidth: Int,
+        val displayHeight: Int,
+        val maxRight: Int,
+        val maxBottom: Int,
+        val errorMessage: String? = null,
+    )
+
+    private data class XmlSnapshot(
+        val xml: String,
+        val nodeCount: Int,
+        val rootBounds: XmlBounds?,
+        val maxRight: Int,
+        val maxBottom: Int,
+        val packageName: String,
+        val withinDisplay: Boolean,
+        val errorMessage: String? = null,
+    )
+
+    private data class XmlBounds(
+        val left: Int,
+        val top: Int,
+        val right: Int,
+        val bottom: Int,
+    ) {
+        val width: Int get() = right - left
+        val height: Int get() = bottom - top
+    }
+
+    private suspend fun captureStableXml(
+        context: Context,
+        args: Map<String, Any?>?,
+    ): StableXmlCapture {
+        val stableEnabled = boolArgOrDefault(
+            args,
+            true,
+            "stable_xml",
+            "stableXml",
+            "wait_xml_stable",
+            "waitXmlStable",
+        )
+        val maxAttempts = intArg(args, "xml_stability_attempts", "xmlStabilityAttempts")
+            ?.coerceIn(1, XML_STABILITY_MAX_ATTEMPTS_LIMIT)
+            ?: XML_STABILITY_DEFAULT_ATTEMPTS
+        val intervalMs = longArg(args, "xml_stability_interval_ms", "xmlStabilityIntervalMs")
+            ?.coerceIn(XML_STABILITY_MIN_INTERVAL_MS, XML_STABILITY_MAX_INTERVAL_MS)
+            ?: XML_STABILITY_DEFAULT_INTERVAL_MS
+        val (displayWidth, displayHeight) = currentDisplaySize(context)
+        val startedAtMs = System.currentTimeMillis()
+
+        if (!stableEnabled || maxAttempts <= 1) {
+            val snapshot = captureXmlSnapshot(displayWidth, displayHeight)
+            return stableXmlResult(
+                snapshot = snapshot,
+                stable = stableEnabled,
+                attempts = 1,
+                startedAtMs = startedAtMs,
+                reason = if (stableEnabled) "single_capture" else "stable_xml_disabled",
+                displayWidth = displayWidth,
+                displayHeight = displayHeight,
+            )
+        }
+
+        var previousValid: XmlSnapshot? = null
+        var lastSnapshot: XmlSnapshot? = null
+        var lastValid: XmlSnapshot? = null
+
+        repeat(maxAttempts) { index ->
+            val snapshot = captureXmlSnapshot(displayWidth, displayHeight)
+            lastSnapshot = snapshot
+            if (snapshot.xml.isNotBlank() && snapshot.withinDisplay) {
+                val previous = previousValid
+                if (previous != null && snapshotsStable(previous, snapshot)) {
+                    return stableXmlResult(
+                        snapshot = snapshot,
+                        stable = true,
+                        attempts = index + 1,
+                        startedAtMs = startedAtMs,
+                        reason = "consecutive_stable_xml",
+                        displayWidth = displayWidth,
+                        displayHeight = displayHeight,
+                    )
+                }
+                previousValid = snapshot
+                lastValid = snapshot
+            } else {
+                previousValid = null
+            }
+            if (index < maxAttempts - 1) {
+                delay(intervalMs)
+            }
+        }
+
+        val fallback = lastValid ?: lastSnapshot ?: XmlSnapshot(
+            xml = "",
+            nodeCount = 0,
+            rootBounds = null,
+            maxRight = 0,
+            maxBottom = 0,
+            packageName = "",
+            withinDisplay = false,
+            errorMessage = "xml_capture_unavailable",
+        )
+        val reason = when {
+            lastValid != null -> "timeout_using_last_display_valid_xml"
+            fallback.errorMessage != null -> "timeout_with_capture_error"
+            fallback.xml.isBlank() -> "timeout_with_empty_xml"
+            !fallback.withinDisplay -> "timeout_with_out_of_display_xml"
+            else -> "timeout_using_last_xml"
+        }
+        return stableXmlResult(
+            snapshot = fallback,
+            stable = false,
+            attempts = maxAttempts,
+            startedAtMs = startedAtMs,
+            reason = reason,
+            displayWidth = displayWidth,
+            displayHeight = displayHeight,
+        )
+    }
+
+    private fun stableXmlResult(
+        snapshot: XmlSnapshot,
+        stable: Boolean,
+        attempts: Int,
+        startedAtMs: Long,
+        reason: String,
+        displayWidth: Int,
+        displayHeight: Int,
+    ): StableXmlCapture =
+        StableXmlCapture(
+            xml = snapshot.xml,
+            stable = stable,
+            attempts = attempts,
+            waitMs = (System.currentTimeMillis() - startedAtMs).coerceAtLeast(0L),
+            reason = reason,
+            displayWidth = displayWidth,
+            displayHeight = displayHeight,
+            maxRight = snapshot.maxRight,
+            maxBottom = snapshot.maxBottom,
+            errorMessage = snapshot.errorMessage,
+        )
+
+    private fun captureXmlSnapshot(displayWidth: Int, displayHeight: Int): XmlSnapshot {
+        var errorMessage: String? = null
+        val xml = runCatching {
+            AccessibilityController.getCaptureScreenShotXml(true).orEmpty()
+        }.getOrElse { error ->
+            errorMessage = error.message.orEmpty()
+            ""
+        }
+        return xmlSnapshot(xml, displayWidth, displayHeight, errorMessage)
+    }
+
+    private fun xmlSnapshot(
+        xml: String,
+        displayWidth: Int,
+        displayHeight: Int,
+        errorMessage: String?,
+    ): XmlSnapshot {
+        val bounds = XML_BOUNDS_REGEX.findAll(xml)
+            .mapNotNull { match ->
+                val left = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
+                val top = match.groupValues[2].toIntOrNull() ?: return@mapNotNull null
+                val right = match.groupValues[3].toIntOrNull() ?: return@mapNotNull null
+                val bottom = match.groupValues[4].toIntOrNull() ?: return@mapNotNull null
+                XmlBounds(left, top, right, bottom)
+            }
+            .toList()
+        val rootBounds = bounds.firstOrNull()
+        val maxRight = bounds.maxOfOrNull { it.right } ?: 0
+        val maxBottom = bounds.maxOfOrNull { it.bottom } ?: 0
+        return XmlSnapshot(
+            xml = xml,
+            nodeCount = xmlNodeCount(xml),
+            rootBounds = rootBounds,
+            maxRight = maxRight,
+            maxBottom = maxBottom,
+            packageName = XML_PACKAGE_REGEX.find(xml)?.groupValues?.getOrNull(1).orEmpty(),
+            withinDisplay = xml.isNotBlank() &&
+                rootBounds != null &&
+                xmlBoundsWithinDisplay(rootBounds, maxRight, maxBottom, displayWidth, displayHeight),
+            errorMessage = errorMessage,
+        )
+    }
+
+    private fun snapshotsStable(previous: XmlSnapshot, current: XmlSnapshot): Boolean {
+        if (previous.nodeCount <= 0 || current.nodeCount <= 0) return false
+        val previousRoot = previous.rootBounds ?: return false
+        val currentRoot = current.rootBounds ?: return false
+        if (previous.packageName.isNotBlank() &&
+            current.packageName.isNotBlank() &&
+            previous.packageName != current.packageName
+        ) {
+            return false
+        }
+        if (!boundsSimilar(previousRoot, currentRoot, XML_STABILITY_BOUNDS_TOLERANCE_PX)) {
+            return false
+        }
+        if (abs(previous.maxRight - current.maxRight) > XML_STABILITY_BOUNDS_TOLERANCE_PX) {
+            return false
+        }
+        if (abs(previous.maxBottom - current.maxBottom) > XML_STABILITY_BOUNDS_TOLERANCE_PX) {
+            return false
+        }
+        val nodeBase = max(previous.nodeCount, current.nodeCount).coerceAtLeast(1)
+        val nodeDeltaRatio = abs(previous.nodeCount - current.nodeCount).toFloat() / nodeBase
+        return nodeDeltaRatio <= XML_STABILITY_NODE_DELTA_RATIO
+    }
+
+    private fun boundsSimilar(first: XmlBounds, second: XmlBounds, tolerancePx: Int): Boolean =
+        abs(first.left - second.left) <= tolerancePx &&
+            abs(first.top - second.top) <= tolerancePx &&
+            abs(first.right - second.right) <= tolerancePx &&
+            abs(first.bottom - second.bottom) <= tolerancePx
+
+    private fun xmlBoundsWithinDisplay(
+        rootBounds: XmlBounds,
+        maxRight: Int,
+        maxBottom: Int,
+        displayWidth: Int,
+        displayHeight: Int,
+    ): Boolean {
+        val widthTolerance = max(XML_DISPLAY_BOUNDS_MIN_TOLERANCE_PX, displayWidth / 10)
+        val heightTolerance = max(XML_DISPLAY_BOUNDS_MIN_TOLERANCE_PX, displayHeight / 10)
+        val rightLimit = displayWidth + widthTolerance
+        val bottomLimit = displayHeight + heightTolerance
+        return rootBounds.left >= -widthTolerance &&
+            rootBounds.top >= -heightTolerance &&
+            rootBounds.right <= rightLimit &&
+            rootBounds.bottom <= bottomLimit &&
+            maxRight <= rightLimit &&
+            maxBottom <= bottomLimit
+    }
+
+    private fun currentDisplaySize(context: Context): Pair<Int, Int> {
+        val metrics = DisplayMetrics().apply { setTo(context.resources.displayMetrics) }
+        runCatching {
+            val displayManager = context.getSystemService(DisplayManager::class.java)
+            @Suppress("DEPRECATION")
+            displayManager?.getDisplay(Display.DEFAULT_DISPLAY)?.getRealMetrics(metrics)
+        }
+        return metrics.widthPixels.coerceAtLeast(1) to metrics.heightPixels.coerceAtLeast(1)
     }
 
     private fun firstString(args: Map<String, Any?>?, vararg keys: String): String? {

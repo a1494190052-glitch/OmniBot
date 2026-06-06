@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/services/omnibot_resource_service.dart';
 import 'package:ui/services/workspace_mount_service.dart';
 import 'package:ui/theme/app_colors.dart';
@@ -46,12 +45,12 @@ class OmnibotWorkspaceBrowser extends StatefulWidget {
   final bool enableSystemBackHandler;
   final bool translucentSurfaces;
   final ValueChanged<bool>? onCanGoUpChanged;
+  final String? initialDirectoryPath;
+  final ValueChanged<String>? onCurrentDirectoryChanged;
   final bool showBreadcrumbHeader;
   final bool showHeaderTitle;
   final bool enableInlineDirectoryExpansion;
   final bool inlineFilePreview;
-  final String? initialDirectoryPath;
-  final ValueChanged<String>? onCurrentDirectoryChanged;
 
   const OmnibotWorkspaceBrowser({
     super.key,
@@ -60,12 +59,12 @@ class OmnibotWorkspaceBrowser extends StatefulWidget {
     this.enableSystemBackHandler = true,
     this.translucentSurfaces = false,
     this.onCanGoUpChanged,
+    this.initialDirectoryPath,
+    this.onCurrentDirectoryChanged,
     this.showBreadcrumbHeader = false,
     this.showHeaderTitle = true,
     this.enableInlineDirectoryExpansion = true,
     this.inlineFilePreview = false,
-    this.initialDirectoryPath,
-    this.onCurrentDirectoryChanged,
   });
 
   @override
@@ -128,17 +127,7 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
       GlobalKey<_WorkspaceInlineFilePreviewState>();
   bool _isBulkSelectionMode = false;
 
-  String _text(String text) {
-    return AppTextLocalizer.text(text, locale: Localizations.localeOf(context));
-  }
-
-  String _choose({required String zh, required String en}) {
-    return AppTextLocalizer.choose(
-      zh: zh,
-      en: en,
-      locale: Localizations.localeOf(context),
-    );
-  }
+  bool get _isEnglish => Localizations.localeOf(context).languageCode == 'en';
 
   Color _surfaceColor({double opacity = 0.8}) {
     return backgroundSurfaceColor(
@@ -159,26 +148,19 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
   void initState() {
     super.initState();
     _rootDirectory = Directory(widget.workspacePath);
-    _directory = _resolveInitialDirectory();
-    _notifyCanGoUpChanged();
-    _refresh();
-  }
-
-  Directory _resolveInitialDirectory() {
     final initialPath = widget.initialDirectoryPath?.trim();
-    if (initialPath == null || initialPath.isEmpty) {
-      return _rootDirectory;
-    }
-    final normalized = _normalizePath(initialPath);
-    if (!_isInsideWorkspace(normalized)) {
-      return _rootDirectory;
-    }
-    final directory = Directory(normalized);
-    return directory.existsSync() ? directory : _rootDirectory;
-  }
-
-  void _notifyCurrentDirectoryChanged() {
-    widget.onCurrentDirectoryChanged?.call(_normalizePath(_directory.path));
+    final initialDirectory = initialPath == null || initialPath.isEmpty
+        ? null
+        : Directory(_normalizePath(initialPath));
+    _directory =
+        initialDirectory != null &&
+            _isInsideWorkspace(initialDirectory.path) &&
+            initialDirectory.existsSync()
+        ? initialDirectory
+        : _rootDirectory;
+    _notifyCanGoUpChanged();
+    _notifyCurrentDirectoryChanged();
+    _refresh();
   }
 
   void _notifyCanGoUpChanged() {
@@ -188,6 +170,16 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       callback(value);
+    });
+  }
+
+  void _notifyCurrentDirectoryChanged() {
+    final callback = widget.onCurrentDirectoryChanged;
+    if (callback == null) return;
+    final path = _directory.path;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      callback(path);
     });
   }
 
@@ -277,8 +269,8 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
       _selectedFileMetadata = null;
       _isBulkSelectionMode = false;
     });
-    _notifyCurrentDirectoryChanged();
     _notifyCanGoUpChanged();
+    _notifyCurrentDirectoryChanged();
     _refresh();
   }
 
@@ -347,8 +339,8 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
       _selectedFileMetadata = null;
       _isBulkSelectionMode = false;
     });
-    _notifyCurrentDirectoryChanged();
     _notifyCanGoUpChanged();
+    _notifyCurrentDirectoryChanged();
     _refresh();
   }
 
@@ -591,7 +583,9 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
         children: [
           if (widget.showHeaderTitle) ...[
             Text(
-              _text('工作区'),
+              Localizations.localeOf(context).languageCode == 'en'
+                  ? 'Workspace'
+                  : '工作区',
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
@@ -609,7 +603,7 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
               Expanded(
                 child: breadcrumbs.isEmpty
                     ? Text(
-                        _choose(zh: '加载工作区中...', en: 'Loading workspace...'),
+                        _isEnglish ? 'Loading workspace...' : '加载工作区中...',
                         style: TextStyle(
                           fontSize: 12,
                           color: palette.textSecondary,
@@ -659,9 +653,9 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
     final palette = context.omniPalette;
     final isActive = _isBulkSelectionMode;
     return Tooltip(
-      message: isActive
-          ? _choose(zh: '退出批量选择', en: 'Exit multi-select')
-          : _choose(zh: '批量选择', en: 'Multi-select'),
+      message: _isEnglish
+          ? (isActive ? 'Exit multi-select' : 'Multi-select')
+          : (isActive ? '退出批量选择' : '批量选择'),
       child: Material(
         color: Colors.transparent,
         child: InkResponse(
@@ -690,7 +684,7 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
 
   Widget _buildDeleteSelectedButton() {
     final count = _selectedEntryPaths.length;
-    final label = _choose(zh: '删除 $count 项', en: 'Delete ($count)');
+    final label = _isEnglish ? 'Delete ($count)' : '删除 $count 项';
     return TextButton(
       key: ValueKey<String>('workspace-delete-selected-$count'),
       onPressed: () => unawaited(_confirmAndDeleteSelectedEntries()),
@@ -853,14 +847,17 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
             onRefresh: () async => _refresh(),
             child: !exists
                 ? _buildStatusList(
-                    message: _choose(zh: '工作区不存在', en: 'Workspace not found'),
+                    message:
+                        Localizations.localeOf(context).languageCode == 'en'
+                        ? 'Workspace not found'
+                        : '工作区不存在',
                   )
                 : itemCount == 0
                 ? _buildStatusList(
-                    message: _choose(
-                      zh: '当前目录为空',
-                      en: 'Current directory is empty',
-                    ),
+                    message:
+                        Localizations.localeOf(context).languageCode == 'en'
+                        ? 'Current directory is empty'
+                        : '当前目录为空',
                   )
                 : ListView.builder(
                     physics: const AlwaysScrollableScrollPhysics(),
@@ -1300,10 +1297,9 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
                 Text(
                   mountEntry == null
                       ? '长按左侧图标并拖动到目标文件夹可移动位置'
-                      : _choose(
-                          zh: '这是一个挂载进 /workspace 的宿主目录',
-                          en: 'This entry is a mounted host directory',
-                        ),
+                      : (Localizations.localeOf(context).languageCode == 'en'
+                            ? 'This entry is a mounted host directory'
+                            : '这是一个挂载进 /workspace 的宿主目录'),
                   style: TextStyle(
                     fontSize: 12,
                     color: palette.textSecondary,
@@ -1562,7 +1558,7 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
   Future<void> _confirmAndDeleteSelectedEntries() async {
     final selectedPaths = _topLevelSelectedPathsForDelete();
     if (selectedPaths.isEmpty) {
-      showToast(_choose(zh: '还没有选中文件或文件夹', en: 'No items selected'));
+      showToast(_isEnglish ? 'No items selected' : '还没有选中文件或文件夹');
       return;
     }
 
@@ -1572,21 +1568,19 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
         .where((name) => name.isNotEmpty)
         .toList(growable: false);
     final content = selectedPaths.length == 1
-        ? _choose(
-            zh: '确认删除“${previewNames.first}”？删除后不可恢复。',
-            en: 'Delete "${previewNames.first}"? This cannot be undone.',
-          )
-        : _choose(
-            zh: '确认删除已选择的 ${selectedPaths.length} 项？删除后不可恢复。',
-            en: 'Delete ${selectedPaths.length} selected items? This cannot be undone.',
-          );
+        ? (_isEnglish
+              ? 'Delete "${previewNames.first}"? This cannot be undone.'
+              : '确认删除“${previewNames.first}”？删除后不可恢复。')
+        : (_isEnglish
+              ? 'Delete ${selectedPaths.length} selected items? This cannot be undone.'
+              : '确认删除已选择的 ${selectedPaths.length} 项？删除后不可恢复。');
 
     final confirmed = await AppDialog.confirm(
       context,
-      title: _choose(zh: '删除所选项', en: 'Delete selected items'),
+      title: _isEnglish ? 'Delete selected items' : '删除所选项',
       content: content,
-      cancelText: _text('取消'),
-      confirmText: _text('删除'),
+      cancelText: _isEnglish ? 'Cancel' : '取消',
+      confirmText: _isEnglish ? 'Delete' : '删除',
       confirmButtonColor: const Color(0xFFE53935),
     );
     if (confirmed != true) return;
@@ -1617,10 +1611,9 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
 
     if (failedPaths.isEmpty) {
       showToast(
-        _choose(
-          zh: '已删除 $deletedCount 项文件或文件夹',
-          en: 'Deleted $deletedCount item(s)',
-        ),
+        _isEnglish
+            ? 'Deleted $deletedCount item(s)'
+            : '已删除 $deletedCount 项文件或文件夹',
         type: ToastType.success,
       );
       return;
@@ -1628,17 +1621,16 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
 
     if (deletedCount > 0) {
       showToast(
-        _choose(
-          zh: '已删除 $deletedCount 项，${failedPaths.length} 项删除失败',
-          en: 'Deleted $deletedCount item(s), ${failedPaths.length} failed',
-        ),
+        _isEnglish
+            ? 'Deleted $deletedCount item(s), ${failedPaths.length} failed'
+            : '已删除 $deletedCount 项，${failedPaths.length} 项删除失败',
         type: ToastType.warning,
       );
       return;
     }
 
     showToast(
-      _choose(zh: '删除所选项失败', en: 'Failed to delete selected items'),
+      _isEnglish ? 'Failed to delete selected items' : '删除所选项失败',
       type: ToastType.error,
     );
   }
@@ -1999,18 +1991,6 @@ class _WorkspaceInlineFilePreviewState
     super.dispose();
   }
 
-  String _text(String text) {
-    return AppTextLocalizer.text(text, locale: Localizations.localeOf(context));
-  }
-
-  String _choose({required String zh, required String en}) {
-    return AppTextLocalizer.choose(
-      zh: zh,
-      en: en,
-      locale: Localizations.localeOf(context),
-    );
-  }
-
   void _handleEditorChanged() {
     if (!_isEditing) return;
     final nextDirty = _editorController.text != (_textContent ?? '');
@@ -2056,13 +2036,10 @@ class _WorkspaceInlineFilePreviewState
     }
     final confirmed = await AppDialog.confirm(
       context,
-      title: _choose(zh: '放弃修改', en: 'Discard changes'),
-      content: _choose(
-        zh: '当前有未保存修改，确认离开吗？',
-        en: 'There are unsaved changes. Leave anyway?',
-      ),
-      cancelText: _choose(zh: '继续编辑', en: 'Keep editing'),
-      confirmText: _choose(zh: '放弃', en: 'Discard'),
+      title: '放弃修改',
+      content: '当前有未保存修改，确认离开吗？',
+      cancelText: '继续编辑',
+      confirmText: '放弃',
     );
     return confirmed == true;
   }
@@ -2110,16 +2087,10 @@ class _WorkspaceInlineFilePreviewState
         _error = null;
         _isEditing = false;
       });
-      showToast(
-        _choose(zh: '文件已保存', en: 'File saved'),
-        type: ToastType.success,
-      );
+      showToast('文件已保存', type: ToastType.success);
     } catch (error) {
       if (!mounted) return;
-      showToast(
-        _choose(zh: '保存失败：$error', en: 'Save failed: $error'),
-        type: ToastType.error,
-      );
+      showToast('保存失败：$error', type: ToastType.error);
     } finally {
       if (mounted) {
         setState(() {
@@ -2161,16 +2132,16 @@ class _WorkspaceInlineFilePreviewState
 
   Widget _buildEditor() {
     final statusText = _loadingText && _textContent == null
-        ? _choose(
-            zh: '正在加载原始内容，可先开始编辑',
-            en: 'Loading original content, you can start editing first',
-          )
+        ? (Localizations.localeOf(context).languageCode == 'en'
+              ? 'Loading original content, you can start editing first'
+              : '正在加载原始内容，可先开始编辑')
         : (_isDirty
-              ? _choose(zh: '编辑中，存在未保存修改', en: 'Editing with unsaved changes')
-              : _choose(
-                  zh: '编辑中，保存后会立即写回 workspace',
-                  en: 'Editing. Save will write back to workspace immediately',
-                ));
+              ? (Localizations.localeOf(context).languageCode == 'en'
+                    ? 'Editing with unsaved changes'
+                    : '编辑中，存在未保存修改')
+              : (Localizations.localeOf(context).languageCode == 'en'
+                    ? 'Editing. Save will write back to workspace immediately'
+                    : '编辑中，保存后会立即写回 workspace'));
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2206,7 +2177,9 @@ class _WorkspaceInlineFilePreviewState
               decoration: InputDecoration(
                 filled: true,
                 fillColor: context.omniPalette.surfacePrimary,
-                hintText: _choose(zh: '输入文件内容', en: 'Enter file content'),
+                hintText: Localizations.localeOf(context).languageCode == 'en'
+                    ? 'Enter file content'
+                    : '输入文件内容',
                 alignLabelWithHint: true,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -2239,7 +2212,11 @@ class _WorkspaceInlineFilePreviewState
                 key: const ValueKey('workspace-inline-preview-cancel'),
                 onPressed: _isSaving ? null : _handleCancelEditing,
                 icon: const Icon(Icons.close_rounded),
-                label: Text(_text('取消')),
+                label: Text(
+                  Localizations.localeOf(context).languageCode == 'en'
+                      ? 'Cancel'
+                      : '取消',
+                ),
               ),
             if (_isEditing) const SizedBox(width: 10),
             FilledButton.icon(
@@ -2260,7 +2237,15 @@ class _WorkspaceInlineFilePreviewState
                           )
                         : const Icon(Icons.save_outlined))
                   : const Icon(Icons.edit_outlined),
-              label: Text(_isEditing ? _text('保存') : _text('编辑')),
+              label: Text(
+                _isEditing
+                    ? (Localizations.localeOf(context).languageCode == 'en'
+                          ? 'Save'
+                          : '保存')
+                    : (Localizations.localeOf(context).languageCode == 'en'
+                          ? 'Edit'
+                          : '编辑'),
+              ),
             ),
           ],
         ),
@@ -2271,7 +2256,11 @@ class _WorkspaceInlineFilePreviewState
   Widget _buildBody(BuildContext context) {
     if (!widget.metadata.exists) {
       return Center(
-        child: Text(_choose(zh: '文件不存在', en: 'File does not exist')),
+        child: Text(
+          Localizations.localeOf(context).languageCode == 'en'
+              ? 'File does not exist'
+              : '文件不存在',
+        ),
       );
     }
     if (_error != null) {
@@ -2302,7 +2291,13 @@ class _WorkspaceInlineFilePreviewState
           return const Center(child: CircularProgressIndicator.adaptive());
         }
         if (_textContent == null) {
-          return Center(child: Text(_text('暂无内容')));
+          return Center(
+            child: Text(
+              Localizations.localeOf(context).languageCode == 'en'
+                  ? 'No content'
+                  : '暂无内容',
+            ),
+          );
         }
         if (widget.metadata.mimeType == 'text/markdown') {
           return SingleChildScrollView(

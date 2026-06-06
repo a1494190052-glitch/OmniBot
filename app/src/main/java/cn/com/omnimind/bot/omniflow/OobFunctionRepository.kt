@@ -7,8 +7,9 @@ import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import cn.com.omnimind.bot.agent.config.AgentToolFeatureStore
 import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
+import cn.com.omnimind.bot.omniflow.language.OmniflowFunctionStore
 import cn.com.omnimind.bot.runlog.OobUdegNodeStore
-import cn.com.omnimind.bot.workbench.WorkspaceFunctionStore
+import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
 
 /**
  * Single owner for OOB Function storage and index synchronization.
@@ -72,6 +73,18 @@ class OobFunctionRepository(
             )
         }
         val success = registryResult["success"] == true
+        val invalidatedCompiledFunction = if (success) {
+            runCatching { OmniflowFunctionStore.delete(context, functionId) }
+                .onFailure { error ->
+                    OmniLog.w(
+                        TAG,
+                        "compiled function invalidation failed: $functionId, ${error.message}"
+                    )
+                }
+                .getOrDefault(false)
+        } else {
+            false
+        }
         val sourceRunIds = sourceRunIds(spec)
         val runLogBindings = if (success) {
             sourceRunIds.mapNotNull { runId ->
@@ -118,6 +131,7 @@ class OobFunctionRepository(
                 AgentToolFeatureStore.isOobFunctionAsToolEnabled(context),
             "workspace" to workspaceResult,
             "registry" to registryResult,
+            "compiled_function_invalidated" to invalidatedCompiledFunction,
             "udeg" to udegResult,
             "normalized_from_function_id" to rawFunctionId.takeIf { it != functionId },
             "source_run_ids" to sourceRunIds,
@@ -172,8 +186,9 @@ class OobFunctionRepository(
         }
         val deletedWorkspace = workspaceFunctionStore.delete(normalized)
         val deletedPrefs = OobReusableFunctionStore.delete(context, normalized)
+        val deletedCompiledFunction = OmniflowFunctionStore.delete(context, normalized)
         val udegResult = OobUdegNodeStore(context).removeFunctionReferences(setOf(normalized))
-        val deleted = deletedWorkspace || deletedPrefs
+        val deleted = deletedWorkspace || deletedPrefs || deletedCompiledFunction
         if (listSpecs(limit = 1).isEmpty()) {
             AgentToolFeatureStore.clearOobFunctionAsToolEnabled(context)
         }
@@ -183,6 +198,7 @@ class OobFunctionRepository(
             "deleted" to deleted,
             "deleted_workspace" to deletedWorkspace,
             "deleted_registry" to deletedPrefs,
+            "deleted_compiled_function" to deletedCompiledFunction,
             "udeg" to udegResult,
             "source" to "oob_function_repository",
         )
@@ -191,12 +207,14 @@ class OobFunctionRepository(
     fun clear(): Map<String, Any?> {
         val workspaceIds = workspaceFunctionStore.functionIds()
         val registryIds = OobReusableFunctionStore.functionIds(context)
-        val functionIds = (workspaceIds + registryIds)
+        val compiledIds = OmniflowFunctionStore.ids(context)
+        val functionIds = (workspaceIds + registryIds + compiledIds)
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .distinct()
         val workspaceResult = workspaceFunctionStore.clear()
         val registryResult = OobReusableFunctionStore.clear(context)
+        val deletedCompiledIds = compiledIds.filter { OmniflowFunctionStore.delete(context, it) }
         val udegResult = OobUdegNodeStore(context).clearFunctionReferences()
         AgentToolFeatureStore.clearOobFunctionAsToolEnabled(context)
         return linkedMapOf(
@@ -206,6 +224,7 @@ class OobFunctionRepository(
             "function_ids" to functionIds,
             "workspace" to workspaceResult,
             "registry" to registryResult,
+            "deleted_compiled_function_ids" to deletedCompiledIds,
             "udeg" to udegResult,
             "oob_function_as_tool_enabled" to false,
             "source" to "oob_function_repository",
