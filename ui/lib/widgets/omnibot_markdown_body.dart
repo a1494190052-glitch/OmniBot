@@ -112,7 +112,21 @@ class OmnibotMarkdownBody extends StatelessWidget {
         (segments.length == 1 && segments.first.tableRows != null)) {
       final styleSheet = _resolveMarkdownStyleSheet(context, baseStyle);
       final children = <Widget>[];
-      for (final segment in segments) {
+      // trailingInline 是一个独立 Widget 实例（通常带 LocalKey），必须只在
+      // 整棵子树中出现一次。若每个文本段都注入 token，同一个 widget 会被嵌入
+      // 多个 MarkdownBody 子树，违反 Flutter 元素树不变量（InheritedElement
+      // 在 deactivate 时会触发 _dependents.isEmpty 断言）。因此先定位最后一个
+      // 会真正渲染的段落，仅在该段落（或其后）挂载 trailingInline。
+      var lastRenderedIndex = -1;
+      for (var i = 0; i < segments.length; i++) {
+        final segment = segments[i];
+        if (segment.tableRows != null || segment.text.trim().isNotEmpty) {
+          lastRenderedIndex = i;
+        }
+      }
+      for (var i = 0; i < segments.length; i++) {
+        final segment = segments[i];
+        final isLast = i == lastRenderedIndex;
         final tableRows = segment.tableRows;
         if (tableRows != null) {
           children.add(
@@ -123,12 +137,22 @@ class OmnibotMarkdownBody extends StatelessWidget {
               onResourceOpen: onResourceOpen,
             )._buildTableFromRows(context, styleSheet, tableRows),
           );
+          // 末尾段是表格时，trailingInline 作为 Column 的兄弟块附在表格后面。
+          if (isLast && trailingInline != null) {
+            children.add(trailingInline!);
+          }
           continue;
         }
         if (segment.text.trim().isEmpty) {
           continue;
         }
-        children.add(_buildMarkdownBody(context, segment.text));
+        children.add(
+          _buildMarkdownBody(
+            context,
+            segment.text,
+            attachTrailingInline: isLast,
+          ),
+        );
       }
       if (children.isEmpty) {
         return const SizedBox.shrink();
@@ -150,18 +174,26 @@ class OmnibotMarkdownBody extends StatelessWidget {
     );
   }
 
-  Widget _buildMarkdownBody(BuildContext context, String source) {
+  Widget _buildMarkdownBody(
+    BuildContext context,
+    String source, {
+    bool attachTrailingInline = true,
+  }) {
+    final effectiveTrailing = attachTrailingInline ? trailingInline : null;
     final styleSheet = _resolveMarkdownStyleSheet(context, baseStyle);
+    final preparedSource = effectiveTrailing != null
+        ? _appendTrailingInlineToken(source)
+        : source;
     return RepaintBoundary(
       child: MarkdownBody(
-        data: _linkifyBareOmnibotUris(_withTrailingInlineToken(source)),
+        data: _linkifyBareOmnibotUris(preparedSource),
         selectable: selectable,
         onTapLink: (text, href, title) {
           if (href == null) return;
           _handleMarkdownLinkTap(context, href, onResourceOpen);
         },
         blockSyntaxes: _kBlockSyntaxes,
-        inlineSyntaxes: trailingInline != null
+        inlineSyntaxes: effectiveTrailing != null
             ? _kInlineSyntaxesWithTrailing
             : _kInlineSyntaxesWithoutTrailing,
         builders: buildOmnibotMarkdownBuilders(
@@ -169,7 +201,7 @@ class OmnibotMarkdownBody extends StatelessWidget {
           selectable: selectable,
           inlineResourcePlainStyle: inlineResourcePlainStyle,
           codeTapHandler: _kOmnibotCodeTapHandler,
-          trailingInline: trailingInline,
+          trailingInline: effectiveTrailing,
           onResourceOpen: onResourceOpen,
         ),
         sizedImageBuilder: (config) {
@@ -194,10 +226,7 @@ class OmnibotMarkdownBody extends StatelessWidget {
     );
   }
 
-  String _withTrailingInlineToken(String source) {
-    if (trailingInline == null) {
-      return source;
-    }
+  static String _appendTrailingInlineToken(String source) {
     // 只去除尾部换行（避免 token 被推入新段落），保留原始空格，
     // 不人为添加额外空格，使 markdown 前缀与纯文本尾部无缝衔接。
     final trimmed = source.replaceFirst(RegExp(r'[\r\n]+$'), '');
