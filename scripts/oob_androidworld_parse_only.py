@@ -43,6 +43,16 @@ def generate_goal(task_type: Any, seed: int) -> tuple[str, dict[str, Any]]:
     return str(task.goal), dict(getattr(task, "params", params) or params)
 
 
+def json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(key): json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [json_safe(item) for item in value]
+    return str(value)
+
+
 def run_parse_only(args: argparse.Namespace, task_name: str, goal: str, output_dir: Path) -> dict[str, Any]:
     slug = "".join(ch.lower() if ch.isalnum() else "-" for ch in task_name).strip("-")
     output_path = output_dir / f"{time.strftime('%Y%m%d-%H%M%S')}-{slug}.json"
@@ -148,7 +158,7 @@ def main(argv: list[str]) -> int:
         goal, params = generate_goal(task_registry[task_name], args.seed + index)
         print(f"== {task_name}: {goal} ==", file=sys.stderr)
         item = run_parse_only(args, task_name, goal, output_dir)
-        item["params"] = params
+        item["params"] = json_safe(params)
         results.append(item)
         print(json.dumps({
             "task_name": task_name,

@@ -203,4 +203,34 @@ class AgentLlmStreamAccumulatorTest {
         assertEquals("", turn.reasoning)
         assertEquals("normal answer", turn.message.contentText())
     }
+
+    @Test
+    fun `route-gated leading buffer still parses inline tool markup`() {
+        val accumulator = AgentLlmStreamAccumulator(
+            json = json,
+            preferInlineThinkTags = false,
+            bufferLeadingTextUntilInlineThinkTag = true
+        )
+
+        accumulator.consume(
+            """
+            <tool_call>
+            <function=web_search>
+            <parameter=query>OmniFlow RunLog</parameter>
+            <parameter=limit>3</parameter>
+            </function>
+            </tool_call>
+            """.trimIndent()
+        )
+
+        val turn = accumulator.buildTurn()
+        val toolCalls = turn.message.toolCalls.orEmpty()
+
+        assertEquals("", turn.reasoning)
+        assertEquals("", turn.message.contentText())
+        assertEquals(1, toolCalls.size)
+        assertEquals("web_search", toolCalls[0].function.name)
+        assertTrue(toolCalls[0].function.arguments.contains("OmniFlow RunLog"))
+        assertTrue(toolCalls[0].function.arguments.contains("\"limit\":3"))
+    }
 }
