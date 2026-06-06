@@ -374,6 +374,13 @@ Keep in OmniFlow/provider for now:
 
 Run focused tests after RunLog changes:
 
+Replay UI progress is a mandatory regression check. Every change that touches
+Function replay, RunLog conversion, replay result payloads, or direct UI replay
+must verify that the frontend shows the current step as `第 X/Y 步` while replay
+is running and still shows `执行到第 X/Y 步` in the terminal result payload. Do
+not rely on the floating cat/overlay for this signal; Flutter must receive the
+progress event even when overlay permission is unavailable.
+
 ```bash
 cd ui
 flutter test test/features/task/pages/execution_history/run_log_reusable_function_converter_test.dart

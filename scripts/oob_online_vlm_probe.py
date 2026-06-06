@@ -67,6 +67,9 @@ def print_probe(summary: dict[str, Any]) -> None:
         "tool_name": summary.get("tool_name"),
         "action": summary.get("action"),
         "error": summary.get("error"),
+        "phase": summary.get("phase"),
+        "error_message": summary.get("error_message"),
+        "error_type": summary.get("error_type"),
         "finish_reason": summary.get("finish_reason"),
         "prompt_chars": summary.get("prompt_chars"),
     }, ensure_ascii=False, indent=2))

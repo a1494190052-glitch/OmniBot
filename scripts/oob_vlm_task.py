@@ -249,6 +249,13 @@ class OobVlmTaskClient:
                     # goals.
                     if not result_request_id and str(parsed.get("goal") or "").strip() == expected_goal:
                         return parsed
+                    # Some already-installed debug APKs predate request_id and
+                    # do not include goal on early exception paths. Since this
+                    # script deletes RESULT_FILE immediately before broadcast,
+                    # a request-less exception written afterward is the current
+                    # run and should fail fast instead of waiting for timeout.
+                    if not result_request_id and not str(parsed.get("goal") or "").strip() and parsed.get("phase") == "exception":
+                        return parsed
                     last_mismatched_request_id = result_request_id
                 except json.JSONDecodeError as exc:
                     last_error = exc
@@ -278,6 +285,18 @@ def default_output_path(parse_only: bool) -> Path:
 
 
 def summarize_result(data: dict[str, Any], output_path: Path, device: str) -> dict[str, Any]:
+    if data.get("phase") == "exception":
+        return {
+            "success": False,
+            "target": device,
+            "parse_only": data.get("parse_only"),
+            "executed": False,
+            "phase": data.get("phase"),
+            "error_message": data.get("error_message"),
+            "error_type": data.get("error_type"),
+            "result_path": str(output_path),
+        }
+
     if data.get("parse_only") is True:
         parse_result = data.get("parse_result") or {}
         return {

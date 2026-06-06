@@ -273,8 +273,8 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
           _functionPanelStatus = _RunLogFunctionPanelStatus.saved;
           _functionPanelMessage = _text(
             context,
-            '已保存为人工 Function',
-            'Saved as manual function',
+            '已保存为复用指令',
+            'Reusable Function saved',
           );
           _functionPanelError = null;
         } else if (_functionPanelStatus == _RunLogFunctionPanelStatus.saved) {
@@ -382,7 +382,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
         message: savedSpec != null
             ? _text(context, '查看复用指令', 'View reusable Function')
             : convertEligibility.canConvert
-            ? _text(context, '保存为人工 Function', 'Save manual function')
+            ? _text(context, '保存为复用指令', 'Save reusable Function')
             : convertEligibility.message,
         child: IconButton(
           key: const ValueKey('run-log-action-save-function'),
@@ -570,8 +570,8 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       _functionPanelStatus = _RunLogFunctionPanelStatus.saving;
       _functionPanelMessage = _text(
         context,
-        '正在保存人工 Function',
-        'Saving manual function',
+        '正在保存复用指令',
+        'Saving reusable Function',
       );
       _functionPanelError = null;
     });
@@ -634,8 +634,8 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
         _functionPanelStatus = _RunLogFunctionPanelStatus.saved;
         _functionPanelMessage = _text(
           context,
-          '已保存为人工 Function',
-          'Saved as manual function',
+          '已保存为复用指令',
+          'Reusable Function saved',
         );
         _functionPanelError = null;
       });
@@ -708,7 +708,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       await showFunctionRunResultSheet(
         context,
         result: result,
-        title: _text(context, '复用指令执行结果', 'Reusable Function result'),
+        title: _text(context, 'RunLog 重放结果', 'RunLog replay result'),
         arguments: _defaultArgumentsForFunctionSpec(spec),
       );
     } catch (e) {
@@ -1230,9 +1230,9 @@ class _RunLogFunctionStatusStrip extends StatelessWidget {
   String _title(BuildContext context) {
     switch (status) {
       case _RunLogFunctionPanelStatus.saving:
-        return _text(context, '正在保存人工 Function', 'Saving manual function');
+        return _text(context, '正在保存复用指令', 'Saving reusable Function');
       case _RunLogFunctionPanelStatus.saved:
-        return _text(context, '已保存人工 Function', 'Manual function saved');
+        return _text(context, '已保存为复用指令', 'Reusable Function saved');
       case _RunLogFunctionPanelStatus.enhancing:
         return _text(context, '后台增强中', 'Enhancing in background');
       case _RunLogFunctionPanelStatus.enhanced:
@@ -7708,7 +7708,7 @@ String _runLogStepDetailTitle(BuildContext context, _RunLogStepSource source) {
     case _RunLogStepSource.human:
       return _text(context, '人类接管记录', 'Human takeover');
     case _RunLogStepSource.omniflowReplay:
-      return _text(context, '复用指令执行记录', 'Reusable Function run');
+      return _text(context, 'OmniFlow 执行记录', 'OmniFlow run');
     case _RunLogStepSource.route:
       return _text(context, '工具调用', 'Tool call');
   }
@@ -8641,13 +8641,13 @@ String _userVisibleString(String value) {
   return value
       .replaceAll(RegExp('compile', caseSensitive: false), 'execution')
       .replaceAll('编译', '执行')
+      .replaceAll(RegExp(r'参考\s*function', caseSensitive: false), '参考复用指令')
       .replaceAll(
         RegExp(r'reusable[_\s-]*function', caseSensitive: false),
-        'reusable_function',
+        'reusable_instruction',
       )
-      .replaceAll(RegExp(r'参考\s*function', caseSensitive: false), '参考复用指令')
-      .replaceAll(RegExp(r'Function'), 'Reusable Function')
-      .replaceAll(RegExp(r'function'), 'reusable_function')
+      .replaceAll(RegExp(r'Function'), 'Instruction')
+      .replaceAll(RegExp(r'function'), 'instruction')
       .replaceAll('函数', '复用指令');
 }
 

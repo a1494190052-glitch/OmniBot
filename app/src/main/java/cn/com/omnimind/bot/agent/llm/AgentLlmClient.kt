@@ -253,7 +253,8 @@ class HttpAgentLlmClient(
                 modelOverride?.providerProfileId,
                 modelOverride?.apiBase
             ),
-            includeReasoningInAssistantMessage = routeInfo.requiresReasoningEcho
+            includeReasoningInAssistantMessage = routeInfo.requiresReasoningEcho,
+            bufferLeadingTextUntilInlineThinkTag = shouldBufferLeadingInlineThinkTag(routeInfo)
         )
         var lastReasoning = ""
         var lastReasoningEmitLength = 0

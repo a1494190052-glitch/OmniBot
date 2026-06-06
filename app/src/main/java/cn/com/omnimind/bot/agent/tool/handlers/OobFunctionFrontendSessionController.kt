@@ -40,7 +40,7 @@ class OobFunctionFrontendSessionController(
         frontendParent: String = "",
     ): Session? {
         if (stepCount <= 0 || callStack.isNotEmpty()) return null
-        if (!canUseMainDispatcher()) return null
+        val canUseUiOverlay = canUseMainDispatcher()
         val embeddedInVlmTask = frontendParent.trim() == "vlm_task"
         val runId = frontendRunId
             .trim()
@@ -55,18 +55,22 @@ class OobFunctionFrontendSessionController(
             ?: "${runId}_omniflow_ui"
         val stopRequested = AtomicBoolean(false)
         val label = frontendLabel(functionId, spec)
-        if (helper.context.getSystemService(Context.WINDOW_SERVICE) !is WindowManager) {
-            return null
+        val stopOverlay = if (
+            canUseUiOverlay &&
+            helper.context.getSystemService(Context.WINDOW_SERVICE) is WindowManager
+        ) {
+            OobFunctionStopOverlay(
+                context = helper.context,
+                label = helper.localized("停止"),
+                onStop = {
+                    stopRequested.set(true)
+                    OmniFlowUiSession.requestStopSession(runId)
+                    DraggableBallInstance.finishDoingTask(helper.localized("任务已停止"))
+                }
+            )
+        } else {
+            null
         }
-        val stopOverlay = OobFunctionStopOverlay(
-            context = helper.context,
-            label = helper.localized("停止"),
-            onStop = {
-                stopRequested.set(true)
-                OmniFlowUiSession.requestStopSession(runId)
-                DraggableBallInstance.finishDoingTask(helper.localized("任务已停止"))
-            }
-        )
         OmniFlowUiSession.registerRun(
             runId = runId,
             onStopRequested = { stopRequested.set(true) },
@@ -83,21 +87,23 @@ class OobFunctionFrontendSessionController(
             embeddedInVlmTask = embeddedInVlmTask,
             message = helper.localized("准备执行复用指令"),
         )
-        runCatching {
-            withContext(Dispatchers.Main) {
-                DraggableBallInstance.loadBall()
-                DraggableBallInstance.setDoing(
-                    message = helper.localized("准备执行复用指令"),
-                    isShowTakeOver = false,
-                    subMessage = helper.localized(label),
-                    isShowStop = false,
-                    isTouchable = false,
-                    forceOnTop = true
-                )
-                stopOverlay.show()
+        if (canUseUiOverlay && stopOverlay != null) {
+            runCatching {
+                withContext(Dispatchers.Main) {
+                    DraggableBallInstance.loadBall()
+                    DraggableBallInstance.setDoing(
+                        message = helper.localized("准备执行复用指令"),
+                        isShowTakeOver = false,
+                        subMessage = helper.localized(label),
+                        isShowStop = false,
+                        isTouchable = false,
+                        forceOnTop = true
+                    )
+                    stopOverlay.show()
+                }
+            }.onFailure {
+                OmniLog.w(TAG, "start OmniFlow frontend failed: ${it.message}")
             }
-        }.onFailure {
-            OmniLog.w(TAG, "start OmniFlow frontend failed: ${it.message}")
         }
         return Session(
             runId = runId,
@@ -109,6 +115,7 @@ class OobFunctionFrontendSessionController(
             stepCount = stepCount,
             embeddedInVlmTask = embeddedInVlmTask,
             stopOverlay = stopOverlay,
+            canUseUiOverlay = canUseUiOverlay,
         )
     }
 
@@ -139,7 +146,8 @@ class OobFunctionFrontendSessionController(
         private val functionId: String,
         private val stepCount: Int,
         private val embeddedInVlmTask: Boolean,
-        private val stopOverlay: OobFunctionStopOverlay,
+        private val stopOverlay: OobFunctionStopOverlay?,
+        private val canUseUiOverlay: Boolean,
     ) {
         fun throwIfStopRequested() {
             if (stopRequested.get()) {
@@ -168,19 +176,21 @@ class OobFunctionFrontendSessionController(
                 message = helper.localized(progressText),
                 currentStepNumber = currentStepNumber,
             )
-            runCatching {
-                withContext(Dispatchers.Main) {
-                    DraggableBallInstance.setDoing(
-                        message = message,
-                        isShowTakeOver = false,
-                        subMessage = helper.localized(progressText),
-                        isShowStop = false,
-                        isTouchable = false,
-                        forceOnTop = true
-                    )
+            if (canUseUiOverlay) {
+                runCatching {
+                    withContext(Dispatchers.Main) {
+                        DraggableBallInstance.setDoing(
+                            message = message,
+                            isShowTakeOver = false,
+                            subMessage = helper.localized(progressText),
+                            isShowStop = false,
+                            isTouchable = false,
+                            forceOnTop = true
+                        )
+                    }
+                }.onFailure {
+                    OmniLog.w(TAG, "update OmniFlow frontend failed: ${it.message}")
                 }
-            }.onFailure {
-                OmniLog.w(TAG, "update OmniFlow frontend failed: ${it.message}")
             }
             throwIfStopRequested()
         }
@@ -198,38 +208,42 @@ class OobFunctionFrontendSessionController(
                 embeddedInVlmTask = embeddedInVlmTask,
                 message = helper.localized(message.ifBlank { "任务已完成" }),
             )
-            runCatching {
-                withContext(NonCancellable + Dispatchers.Main) {
-                    stopOverlay.hide()
-                    if (!end.wasActive) return@withContext
-                    if (embeddedInVlmTask) {
-                        DraggableBallInstance.setDoing(
-                            message = helper.localized("复用指令执行完成"),
-                            isShowTakeOver = false,
-                            subMessage = helper.localized("智能执行中"),
-                            isShowStop = false,
-                            isTouchable = false,
-                            forceOnTop = true
-                        )
-                    } else {
-                        DraggableBallInstance.setDoing(
-                            message = helper.localized(message.ifBlank { "任务已完成" }),
-                            isShowTakeOver = false,
-                            subMessage = helper.localized(label),
-                            isShowStop = false,
-                            isTouchable = false,
-                            forceOnTop = true
-                        )
-                        if (closeAfterMs > 0L) {
-                            delay(closeAfterMs)
-                            DraggableBallInstance.finishDoingTask(
-                                helper.localized(message.ifBlank { "任务已完成" })
+            if (canUseUiOverlay) {
+                runCatching {
+                    withContext(NonCancellable + Dispatchers.Main) {
+                        stopOverlay?.hide()
+                        if (!end.wasActive) return@withContext
+                        if (embeddedInVlmTask) {
+                            DraggableBallInstance.setDoing(
+                                message = helper.localized("复用指令执行完成"),
+                                isShowTakeOver = false,
+                                subMessage = helper.localized("智能执行中"),
+                                isShowStop = false,
+                                isTouchable = false,
+                                forceOnTop = true
                             )
+                        } else {
+                            DraggableBallInstance.setDoing(
+                                message = helper.localized(message.ifBlank { "任务已完成" }),
+                                isShowTakeOver = false,
+                                subMessage = helper.localized(label),
+                                isShowStop = false,
+                                isTouchable = false,
+                                forceOnTop = true
+                            )
+                            if (closeAfterMs > 0L) {
+                                delay(closeAfterMs)
+                                DraggableBallInstance.finishDoingTask(
+                                    helper.localized(message.ifBlank { "任务已完成" })
+                                )
+                            }
                         }
                     }
+                }.onFailure {
+                    OmniLog.w(TAG, "finish OmniFlow frontend failed: ${it.message}")
                 }
-            }.onFailure {
-                OmniLog.w(TAG, "finish OmniFlow frontend failed: ${it.message}")
+            } else {
+                stopOverlay?.hide()
             }
         }
     }

@@ -622,15 +622,16 @@ class AgentLlmStreamAccumulator(
         if (text.isEmpty()) {
             return
         }
-        if (!preferInlineThinkTags) {
-            appendVisibleText(text)
+        if (shouldBufferLeadingInlineText()) {
+            inlineTextBuffer.append(text)
+            flushInlineTextBuffer(final = false)
             return
         }
         if (!preferInlineThinkTags && !autoInlineThinkTagMode && !thinkSectionOpen) {
             val containsThinkTag = text.contains(THINK_OPEN_TAG) || text.contains(THINK_CLOSE_TAG)
             val hasTrailingTagPrefix = partialInlineTagSuffixLength(text) > 0
             if (!containsThinkTag && !hasTrailingTagPrefix) {
-                contentBuffer.append(text)
+                appendVisibleText(text)
                 return
             }
             autoInlineThinkTagMode = true

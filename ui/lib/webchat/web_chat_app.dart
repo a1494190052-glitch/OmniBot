@@ -9,8 +9,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:ui/features/home/pages/chat/tool_activity_utils.dart';
 import 'package:ui/features/home/pages/chat/utils/agent_run_timeline.dart';
+import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_summary_card.dart';
 import 'package:ui/l10n/generated/app_localizations.dart';
 import 'package:ui/models/agent_stream_event.dart';
 import 'package:ui/models/chat_message_model.dart';
@@ -2961,108 +2961,7 @@ class _WebChatHomeState extends State<_WebChatHome> {
           ),
         );
       case tool_policy.kAgentToolSummaryCardType:
-        final locale = Localizations.localeOf(context);
-        final status = (cardData['status'] ?? 'running').toString();
-        final title = resolveAgentToolTitle(cardData, locale: locale);
-        final statusLabel = resolveAgentToolStatusLabel(
-          cardData,
-          locale: locale,
-        );
-        final typeLabel = resolveAgentToolTypeLabel(cardData, locale: locale);
-        final color = switch (status) {
-          'success' => const Color(0xFF2F8F4E),
-          'error' => const Color(0xFFFF6464),
-          'interrupted' => const Color(0xFFFFAA2C),
-          _ => const Color(0xFF00AEFF),
-        };
-        return Align(
-          alignment: Alignment.centerLeft,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(context).size.width * 0.78,
-              minHeight: 34,
-            ),
-            child: Container(
-              margin: const EdgeInsets.only(top: 6, bottom: 2),
-              padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 16,
-                    height: 16,
-                    decoration: BoxDecoration(
-                      color: color.withValues(alpha: 0.12),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Center(
-                      child: status == 'running'
-                          ? SizedBox(
-                              width: 8,
-                              height: 8,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 1.4,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  color,
-                                ),
-                              ),
-                            )
-                          : Icon(
-                              status == 'error'
-                                  ? Icons.error_outline_rounded
-                                  : status == 'interrupted'
-                                  ? Icons.stop_circle_outlined
-                                  : Icons.check_circle_outline_rounded,
-                              size: 10,
-                              color: color,
-                            ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: _kPrimaryText,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: 0,
-                        height: 1.15,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 7,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.78),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      status == 'running' ? typeLabel : statusLabel,
-                      style: TextStyle(
-                        color: color,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0,
-                        height: 1,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
+        return AgentToolSummaryCard(cardData: cardData);
       default:
         return Container(
           width: double.infinity,

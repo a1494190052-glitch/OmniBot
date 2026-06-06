@@ -156,6 +156,8 @@ def main(argv: list[str]) -> int:
             "parsed": item.get("summary", {}).get("parsed"),
             "tool_name": item.get("summary", {}).get("tool_name"),
             "error": item.get("summary", {}).get("error"),
+            "phase": item.get("summary", {}).get("phase"),
+            "error_message": item.get("summary", {}).get("error_message"),
             "output_path": item.get("output_path"),
         }, ensure_ascii=False))
 
