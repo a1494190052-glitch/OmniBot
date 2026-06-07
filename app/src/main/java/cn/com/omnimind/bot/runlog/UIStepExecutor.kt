@@ -505,9 +505,6 @@ object UIStepExecutor {
                 }
             }
         }
-        if (action != OobActionCodec.ACTION_FINISHED) {
-            delayWithStopPolling(REPLAY_ACTION_FIXED_WAIT_MS, stopRequested)
-        }
         throwIfStopRequested(stopRequested)
         val postActionControls = timing.measure("checker_ms") {
             val hasPostActionRules = checkerRules.any {
@@ -727,7 +724,6 @@ object UIStepExecutor {
                     "status" to "dispatch_timeout_ignored",
                     "action" to action,
                     "message" to error.message.orEmpty(),
-                    "fixed_post_action_wait_ms" to REPLAY_ACTION_FIXED_WAIT_MS,
                 )
             )
         }
@@ -766,6 +762,140 @@ object UIStepExecutor {
                 nodeResourceId = nodeResourceId,
             )
         }
+    }
+
+    suspend fun waitForHighConfidenceAction(
+        step: Map<String, Any?>,
+        timeoutMs: Long = PRE_ACTION_READY_TIMEOUT_MS,
+        pollMs: Long = PRE_ACTION_READY_POLL_MS,
+        stopRequested: (() -> Boolean)? = null,
+    ): Map<String, Any?> {
+        val action = actionNameForStep(step)
+        if (action == OobActionCodec.ACTION_FINISHED) {
+            return preActionReadyWaitMeta(
+                status = "skipped",
+                startedAtMs = System.currentTimeMillis(),
+                attempts = 0,
+                state = null,
+                transfer = emptyMap(),
+                reason = "finished_action",
+            )
+        }
+        if (action !in OobActionCodec.coordinateActions) {
+            return preActionReadyWaitMeta(
+                status = "skipped",
+                startedAtMs = System.currentTimeMillis(),
+                attempts = 0,
+                state = null,
+                transfer = emptyMap(),
+                reason = "non_coordinate_action",
+            )
+        }
+        if (!shouldUseCoordinateHook(step)) {
+            return preActionReadyWaitMeta(
+                status = "skipped",
+                startedAtMs = System.currentTimeMillis(),
+                attempts = 0,
+                state = null,
+                transfer = emptyMap(),
+                reason = "missing_coordinate_transfer_context",
+            )
+        }
+
+        val timing = ReplayStepTiming()
+        val startedAtMs = System.currentTimeMillis()
+        val deadlineMs = startedAtMs + timeoutMs.coerceAtLeast(0L)
+        val pollDelayMs = pollMs.coerceAtLeast(1L)
+        var attempts = 0
+        var lastState: ReplayState? = null
+        var lastTransfer: Map<String, Any?> = emptyMap()
+
+        while (true) {
+            throwIfStopRequested(stopRequested)
+            attempts += 1
+            val state = observeReplayState(timing, "pre_action_ready_$attempts")
+            lastState = state
+            val transfer = try {
+                remapStepArgsForState(step, state).meta
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                mapOf(
+                    "applied" to false,
+                    "reason" to "action_transfer_exception",
+                    "algorithm" to "anchor_projection",
+                    "error_message" to e.message.orEmpty(),
+                )
+            }
+            lastTransfer = transfer
+            if (isHighConfidenceTransfer(transfer)) {
+                return preActionReadyWaitMeta(
+                    status = "ready",
+                    startedAtMs = startedAtMs,
+                    attempts = attempts,
+                    state = state,
+                    transfer = transfer,
+                    reason = null,
+                    timeoutMs = timeoutMs,
+                )
+            }
+
+            val nowMs = System.currentTimeMillis()
+            if (nowMs >= deadlineMs) {
+                break
+            }
+            delayWithStopPolling(
+                delayMs = min(pollDelayMs, deadlineMs - nowMs),
+                stopRequested = stopRequested,
+            )
+        }
+
+        return preActionReadyWaitMeta(
+            status = "timeout",
+            startedAtMs = startedAtMs,
+            attempts = attempts,
+            state = lastState,
+            transfer = lastTransfer,
+            reason = lastTransfer["reason"]?.toString().orEmpty().ifBlank { "not_ready" },
+            timeoutMs = timeoutMs,
+        )
+    }
+
+    private fun isHighConfidenceTransfer(transfer: Map<String, Any?>): Boolean {
+        if (transfer["applied"] != true) return false
+        val confidence = floatArg(transfer["confidence"]) ?: return false
+        return confidence >= MIN_ANCHOR_PROJECTION_CONFIDENCE
+    }
+
+    private fun preActionReadyWaitMeta(
+        status: String,
+        startedAtMs: Long,
+        attempts: Int,
+        state: ReplayState?,
+        transfer: Map<String, Any?>,
+        reason: String?,
+        timeoutMs: Long? = null,
+    ): Map<String, Any?> {
+        val snapshot = state?.snapshot
+        val nowMs = System.currentTimeMillis()
+        return linkedMapOf<String, Any?>(
+            "status" to status,
+            "waited_ms" to (nowMs - startedAtMs).coerceAtLeast(0L),
+            "attempts" to attempts,
+            "timeout_ms" to timeoutMs.takeIf { status == "timeout" },
+            "reason" to reason?.takeIf { it.isNotBlank() },
+            "xml_ready" to (snapshot?.xml?.isNotBlank() == true),
+            "xml_chars" to snapshot?.xml?.length,
+            "action_transfer_applied" to transfer["applied"],
+            "confidence" to transfer["confidence"],
+            "min_confidence" to MIN_ANCHOR_PROJECTION_CONFIDENCE,
+            "mode" to transfer["mode"],
+            "algorithm" to transfer["algorithm"],
+            "transfer_reason" to transfer["reason"],
+            "package_name" to snapshot?.rawPackage?.takeIf { it.isNotBlank() },
+            "effective_package" to snapshot?.effectivePackage()?.takeIf { it.isNotBlank() },
+            "activity_name" to snapshot?.activityName?.takeIf { it.isNotBlank() },
+        ).filterValues { it != null }
     }
 
     private fun inputTextAttemptFailure(attempt: Int, error: Throwable): String =
@@ -3192,7 +3322,8 @@ object UIStepExecutor {
 
     private const val DEFAULT_CHECKER_TRIGGER_LIMIT = 1
     private const val DEFAULT_PAGE_GUARD_TRIGGER_LIMIT = 3
-    private const val REPLAY_ACTION_FIXED_WAIT_MS = 1000L
+    private const val PRE_ACTION_READY_TIMEOUT_MS = 5000L
+    private const val PRE_ACTION_READY_POLL_MS = 500L
     private const val INPUT_TEXT_OBSERVE_RETRY_COUNT = 2
     private const val INPUT_TEXT_OBSERVE_RETRY_DELAY_MS = 250L
     private const val STOP_POLL_INTERVAL_MS = 50L

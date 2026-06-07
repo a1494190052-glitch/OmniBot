@@ -164,7 +164,12 @@ class UIStepExecutorTest {
             val timing = result["timing"] as? Map<*, *> ?: error("missing timing")
             assertEquals("oob_omniflow_step_executor", timing["source"])
             val phaseMs = timing["phase_ms"] as? Map<*, *> ?: error("missing phase timing")
-            listOf("observe_ms", "checker_ms", "action_transfer_ms", "act_ms").forEach { phase ->
+            listOf(
+                "observe_ms",
+                "checker_ms",
+                "action_transfer_ms",
+                "act_ms",
+            ).forEach { phase ->
                 assertTrue("missing $phase", phaseMs.containsKey(phase))
                 assertTrue((phaseMs[phase] as Number).toLong() >= 0L)
             }
@@ -194,6 +199,62 @@ class UIStepExecutorTest {
             assertEquals("action_transfer", result["replay_mode"])
             assertEquals(1, backend.currentXmlReadCount)
             assertFalse(result.containsKey("step_settle"))
+        }
+    }
+
+    @Test
+    fun `wait for high confidence action polls observe until transfer is ready`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = EMPTY_PAGE_XML,
+            afterXml = EMPTY_PAGE_XML,
+            preActionXmls = listOf(EMPTY_PAGE_XML, SOURCE_XML),
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val wait = UIStepExecutor.waitForHighConfidenceAction(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "args" to mapOf("x" to 120, "y" to 240),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to SOURCE_XML),
+                    ),
+                ),
+                timeoutMs = 100,
+                pollMs = 1,
+            )
+
+            assertEquals("ready", wait["status"])
+            assertEquals(2, (wait["attempts"] as Number).toInt())
+            assertEquals(true, wait["xml_ready"])
+            assertEquals(true, wait["action_transfer_applied"])
+            assertTrue((wait["confidence"] as Number).toFloat() >= 0.55f)
+            assertTrue(backend.currentXmlReadCount >= 2)
+        }
+    }
+
+    @Test
+    fun `wait for high confidence action times out without failing`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = EMPTY_PAGE_XML,
+            afterXml = EMPTY_PAGE_XML,
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val wait = UIStepExecutor.waitForHighConfidenceAction(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "args" to mapOf("x" to 120, "y" to 240),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to SOURCE_XML),
+                    ),
+                ),
+                timeoutMs = 1,
+                pollMs = 1,
+            )
+
+            assertEquals("timeout", wait["status"])
+            assertEquals(false, wait["action_transfer_applied"])
+            assertTrue((wait["attempts"] as Number).toInt() >= 1)
         }
     }
 
@@ -1213,6 +1274,7 @@ class UIStepExecutorTest {
         private val currentActivity: String = "ExampleActivity",
         private val missingXmlReadsBeforeAction: Int = 0,
         private val missingXmlReadsAfterAction: Int = 0,
+        private val preActionXmls: List<String>? = null,
         private val postActionXmls: List<String>? = null,
         private val postActionPackages: List<String>? = null,
         private val inputFailuresBeforeSuccess: Int = 0,
@@ -1303,6 +1365,15 @@ class UIStepExecutorTest {
                 if (preActionXmlReadCount < missingXmlReadsBeforeAction) {
                     preActionXmlReadCount += 1
                     return null
+                }
+                preActionXmls?.let { xmls ->
+                    if (xmls.isNotEmpty()) {
+                        val index = (preActionXmlReadCount - missingXmlReadsBeforeAction)
+                            .coerceAtLeast(0)
+                            .coerceAtMost(xmls.lastIndex)
+                        preActionXmlReadCount += 1
+                        return xmls[index]
+                    }
                 }
                 return beforeXml
             }

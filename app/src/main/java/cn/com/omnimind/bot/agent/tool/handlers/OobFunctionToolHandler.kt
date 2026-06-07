@@ -484,8 +484,16 @@ class OobFunctionToolHandler(
                 }
 
                 UIStepExecutor.isUIStep(step) -> {
+                    val preActionReadyWait = if (index > 0) {
+                        UIStepExecutor.waitForHighConfidenceAction(
+                            step = step,
+                            stopRequested = replayStopRequested,
+                        )
+                    } else {
+                        emptyMap()
+                    }
                     try {
-                        UIStepExecutor.execute(
+                        val result = UIStepExecutor.execute(
                             step = step,
                             stepId = stepId,
                             stepTitle = stepTitle,
@@ -493,6 +501,7 @@ class OobFunctionToolHandler(
                             checkerBudget = checkerBudget,
                             stopRequested = replayStopRequested,
                         )
+                        withPreActionReadyWait(result, preActionReadyWait)
                     } catch (e: kotlinx.coroutines.CancellationException) {
                         throw e
                     } catch (e: Exception) {
@@ -501,7 +510,7 @@ class OobFunctionToolHandler(
                         val recovery = agentFallbackController.refetchCurrentPageForFailedStep(failReason)
                         if (allowAgentFallback) {
                             modelRequired = true
-                            runResultBuilder.agentFallbackStep(
+                            val fallbackResult = runResultBuilder.agentFallbackStep(
                                 stepId = stepId,
                                 tool = UIStepExecutor.actionNameForStep(step),
                                 prompt = agentFallbackController.prompt(step, stepTitle, recovery),
@@ -513,8 +522,9 @@ class OobFunctionToolHandler(
                                     "recovery" to recovery,
                                 ),
                             )
+                            withPreActionReadyWait(fallbackResult, preActionReadyWait)
                         } else {
-                            runResultBuilder.failureStep(
+                            val failureResult = runResultBuilder.failureStep(
                                 stepId = stepId,
                                 tool = UIStepExecutor.actionNameForStep(step),
                                 executor = RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
@@ -525,6 +535,7 @@ class OobFunctionToolHandler(
                                     "recovery" to recovery,
                                 ),
                             )
+                            withPreActionReadyWait(failureResult, preActionReadyWait)
                         }
                     }
                 }
@@ -1162,8 +1173,16 @@ class OobFunctionToolHandler(
                             "args" to resolvedArgs,
                             "source_context" to step.sourceContext,
                         )
+                        val preActionReadyWait = if (absIdx > 0) {
+                            UIStepExecutor.waitForHighConfidenceAction(
+                                step = syntheticStep,
+                                stopRequested = replayStopRequested,
+                            )
+                        } else {
+                            emptyMap()
+                        }
                         try {
-                            UIStepExecutor.execute(
+                            val result = UIStepExecutor.execute(
                                 step = syntheticStep,
                                 stepId = step.id,
                                 stepTitle = step.title,
@@ -1177,25 +1196,28 @@ class OobFunctionToolHandler(
                                 checkerBudget = checkerBudget,
                                 stopRequested = replayStopRequested,
                             )
+                            withPreActionReadyWait(result, preActionReadyWait)
                         } catch (e: kotlinx.coroutines.CancellationException) {
                             throw e
                         } catch (e: Exception) {
                             val failReason = e.message ?: "omniflow step failed"
                             if (allowAgentFallback) {
                                 modelRequired = true
-                                runResultBuilder.agentFallbackStep(
+                                val fallbackResult = runResultBuilder.agentFallbackStep(
                                     stepId = step.id,
                                     tool = step.toolName,
                                     prompt = agentFallbackController.prompt(syntheticStep, step.title),
                                     summary = "Omniflow step requires VLM continuation: ${step.title}",
                                 )
+                                withPreActionReadyWait(fallbackResult, preActionReadyWait)
                             } else {
-                                runResultBuilder.failureStep(
+                                val failureResult = runResultBuilder.failureStep(
                                     stepId = step.id, tool = step.toolName,
                                     executor = RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
                                     summary = failReason,
                                     errorCode = "OOB_OMNIFLOW_STEP_FAILED",
                                 )
+                                withPreActionReadyWait(failureResult, preActionReadyWait)
                             }
                         }
                     }
@@ -1446,6 +1468,19 @@ class OobFunctionToolHandler(
     private fun requiresAgentPlanning(step: Map<String, Any?>): Boolean {
         val reason = mapArg(step["agent_call"])["reason"]?.toString() ?: step["reason"]?.toString() ?: ""
         return RunLogReplayPolicy.requiresAgentPlanningReason(reason)
+    }
+
+    private fun withPreActionReadyWait(
+        result: Map<String, Any?>,
+        preActionReadyWait: Map<String, Any?>,
+    ): Map<String, Any?> {
+        if (preActionReadyWait.isEmpty()) {
+            return result
+        }
+        return LinkedHashMap<String, Any?>().apply {
+            putAll(result)
+            put("pre_action_ready_wait", preActionReadyWait)
+        }
     }
 
     private companion object {

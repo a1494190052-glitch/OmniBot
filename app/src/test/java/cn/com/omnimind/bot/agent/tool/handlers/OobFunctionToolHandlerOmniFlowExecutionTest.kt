@@ -179,6 +179,68 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
+    fun `function replay waits for high confidence transfer before next primitive action`() = runBlocking {
+        val context = TempFilesContext()
+        val readyPage = pageXml("Ready", "com.example.current")
+        val backend = RecordingBackend(
+            currentXml = readyPage,
+            currentPackage = "com.example.current",
+            currentActivity = "CurrentActivity",
+            currentXmlSequence = listOf(
+                CURRENT_PAGE_XML,
+                CURRENT_PAGE_XML,
+                readyPage,
+                readyPage,
+            ),
+        )
+        try {
+            val spec = functionSpec(
+                functionId = "wait_until_second_click_ready",
+                steps = listOf(
+                    mapOf(
+                        "id" to "first_click",
+                        "title" to "First click",
+                        "kind" to "omniflow_action",
+                        "executor" to "omniflow",
+                        "model_free" to true,
+                        "scriptable" to true,
+                        "tool" to "click",
+                        "callable_tool" to "click",
+                        "args" to mapOf("x" to 100, "y" to 240),
+                    ),
+                    clickStepWithSource(
+                        stepId = "second_click",
+                        sourceXml = readyPage,
+                        destinationXml = readyPage,
+                        packageName = "com.example.current",
+                    ),
+                ),
+            )
+            OmniflowActionRuntime.useBackendForTesting(backend).use {
+                val run = handler(context, WorkspaceFunctionStore(context.root)).runMaterializedFunction(
+                    functionId = "wait_until_second_click_ready",
+                    spec = spec,
+                    materializedSpec = OobReusableFunctionStore.materialize(spec, emptyMap()),
+                    allowAgentFallback = false,
+                )
+
+                assertEquals(true, run["success"])
+                assertEquals(2, backend.clickCount)
+                val results = stepResults(run)
+                assertEquals(2, results.size)
+                val wait = results[1]["pre_action_ready_wait"] as? Map<*, *>
+                    ?: error("missing pre-action ready wait")
+                assertEquals("ready", wait["status"])
+                assertEquals(2, (wait["attempts"] as Number).toInt())
+                assertEquals(true, wait["action_transfer_applied"])
+                assertTrue((wait["confidence"] as Number).toFloat() >= 0.55f)
+            }
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `manual stop returns stopped run payload instead of throwing`() = runBlocking {
         val context = TempFilesContext()
         try {
@@ -2017,6 +2079,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
         private val currentXml: String,
         private val currentPackage: String,
         private val currentActivity: String,
+        private val currentXmlSequence: List<String>? = null,
     ) : OmniflowActionBackend {
         var clickCount = 0
             private set
@@ -2059,6 +2122,11 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
 
         override fun currentXml(): String? {
             currentXmlReadCount += 1
+            currentXmlSequence?.let { xmls ->
+                if (xmls.isNotEmpty()) {
+                    return xmls[(currentXmlReadCount - 1).coerceAtMost(xmls.lastIndex)]
+                }
+            }
             return currentXml
         }
 
