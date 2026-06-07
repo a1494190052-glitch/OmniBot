@@ -321,6 +321,14 @@ internal object PrivilegedCommandExecutor {
             PrivilegedActionPolicy.ACTION_DEVICE_KEYEVENT -> {
                 listOf("input", "keyevent", requireKeyEvent(arguments["key"]))
             }
+            PrivilegedActionPolicy.ACTION_DEVICE_TAP -> {
+                listOf(
+                    "input",
+                    "tap",
+                    requireCoordinate(arguments["x"], "x"),
+                    requireCoordinate(arguments["y"], "y")
+                )
+            }
             PrivilegedActionPolicy.ACTION_DEVICE_EXPAND_NOTIFICATIONS -> {
                 listOf("cmd", "statusbar", "expand-notifications")
             }
@@ -529,6 +537,13 @@ internal object PrivilegedCommandExecutor {
         return requireNotBlank(value, "key").also {
             require(Regex("^[A-Za-z0-9_]+$").matches(it)) { "Invalid key event." }
         }
+    }
+
+    private fun requireCoordinate(value: String?, fieldName: String): String {
+        val coordinate = requireNotBlank(value, fieldName).toFloatOrNull()
+            ?: throw IllegalArgumentException("$fieldName must be a number.")
+        require(coordinate >= 0f && coordinate <= 10000f) { "$fieldName is out of supported screen bounds." }
+        return coordinate.toInt().toString()
     }
 
     private fun requireSafeComponent(value: String) {

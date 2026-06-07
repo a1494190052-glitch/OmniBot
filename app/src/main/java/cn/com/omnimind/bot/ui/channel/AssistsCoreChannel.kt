@@ -255,6 +255,9 @@ class AssistsCoreChannel {
                 "cancelRunningTask" -> {
                     assistsCoreManager!!.cancelRunningTask( call, result)
                 }
+                "completeRunningTask" -> {
+                    assistsCoreManager!!.completeRunningTask(call, result)
+                }
                 "stopAgentToolCall" -> {
                     assistsCoreManager!!.stopAgentToolCall(call, result)
                 }

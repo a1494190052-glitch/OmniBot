@@ -8,9 +8,6 @@ import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/features/local_model/local_model_feature.dart';
 import 'package:ui/l10n/l10n.dart';
 import 'package:ui/services/assists_core_service.dart';
-import 'package:ui/services/floating_overlay_service.dart';
-import 'package:ui/services/storage_service.dart';
-import 'package:ui/utils/cache_util.dart';
 import 'package:ui/services/mcp_server_service.dart';
 import 'package:ui/services/special_permission.dart';
 import 'package:ui/services/workspace_memory_service.dart';
@@ -27,18 +24,10 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  bool vibrationEnabled = true;
-  bool hideFromRecentsEnabled = false;
-  bool _floatingOverlayEnabled = true;
-  bool _floatingOverlayBusy = false;
-  bool _autoBackToChatAfterTaskEnabled = true;
   bool _mcpEnabled = false;
   bool _mcpLoaded = false;
   bool _mcpBusy = false;
   McpServerInfo? _mcpInfo;
-  bool _oobFunctionAsToolEnabled = false;
-  bool _oobFunctionAsToolLoaded = false;
-  bool _oobFunctionAsToolBusy = false;
   bool _workspaceMemoryLoaded = false;
   WorkspaceMemoryEmbeddingConfig? _embeddingConfig;
   StreamSubscription<AgentAiConfigChangedEvent>? _configChangedSubscription;
@@ -46,18 +35,7 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   void initState() {
     super.initState();
-    _autoBackToChatAfterTaskEnabled =
-        StorageService.getBool(
-          StorageService.kAutoBackToChatAfterTaskKey,
-          defaultValue: true,
-        ) ??
-        true;
-    _loadVibrationState();
-    _loadHideFromRecentsState();
-    _loadFloatingOverlayState();
-    _loadAutoBackToChatAfterTaskState();
     _loadMcpServerState();
-    _loadOobFunctionAsToolState();
     _loadWorkspaceMemoryState();
     _configChangedSubscription = AssistsMessageService
         .agentAiConfigChangedStream
@@ -73,101 +51,6 @@ class _SettingsPageState extends State<SettingsPage> {
   void dispose() {
     _configChangedSubscription?.cancel();
     super.dispose();
-  }
-
-  Future<void> _loadVibrationState() async {
-    try {
-      final enabled = await CacheUtil.getBool(
-        'app_vibrate',
-        defaultValue: true,
-      );
-      setState(() {
-        vibrationEnabled = enabled;
-      });
-      debugPrint('Vibration state loaded: $vibrationEnabled');
-    } catch (e) {
-      debugPrint('Error loading vibration state: $e');
-    }
-  }
-
-  Future<void> _loadHideFromRecentsState() async {
-    try {
-      final enabled =
-          StorageService.getBool('hide_from_recents', defaultValue: false) ??
-          false;
-      setState(() {
-        hideFromRecentsEnabled = enabled;
-      });
-    } catch (e) {
-      debugPrint('Error loading hide from recents state: $e');
-    }
-  }
-
-  Future<void> _loadFloatingOverlayState() async {
-    try {
-      final enabled = await FloatingOverlayService.loadEnabled();
-      if (!mounted) return;
-      setState(() {
-        _floatingOverlayEnabled = enabled;
-      });
-    } catch (e) {
-      debugPrint('Error loading floating overlay state: $e');
-    }
-  }
-
-  Future<void> _onFloatingOverlayChanged(bool value) async {
-    if (_floatingOverlayBusy) return;
-    setState(() {
-      _floatingOverlayBusy = true;
-      _floatingOverlayEnabled = value;
-    });
-    final success = await FloatingOverlayService.setEnabled(value);
-    if (!mounted) return;
-    setState(() {
-      _floatingOverlayBusy = false;
-      _floatingOverlayEnabled = success ? value : !value;
-    });
-    if (!success) {
-      showToast(context.trText('设置悬浮窗失败'), type: ToastType.error);
-      return;
-    }
-    showToast(context.trText(value ? '小万悬浮窗已开启' : '小万悬浮窗已关闭'));
-  }
-
-  Future<void> _loadAutoBackToChatAfterTaskState() async {
-    try {
-      final enabled = await StorageService.isAutoBackToChatAfterTaskEnabled();
-      if (!mounted) return;
-      if (_autoBackToChatAfterTaskEnabled == enabled) return;
-      setState(() {
-        _autoBackToChatAfterTaskEnabled = enabled;
-      });
-    } catch (e) {
-      debugPrint('Error loading auto back to chat setting: $e');
-    }
-  }
-
-  Future<void> _onAutoBackToChatAfterTaskChanged(bool value) async {
-    try {
-      await StorageService.setAutoBackToChatAfterTaskEnabled(value);
-      final synced =
-          await AssistsMessageService.setAutoBackToChatAfterTaskEnabled(value);
-      if (!synced) {
-        throw Exception('native_sync_failed');
-      }
-      if (!mounted) return;
-      setState(() {
-        _autoBackToChatAfterTaskEnabled = value;
-      });
-      showToast(
-        value
-            ? context.l10n.settingsAutoBackEnabledToast
-            : context.l10n.settingsAutoBackDisabledToast,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      showToast(context.l10n.settingsSaveFailed, type: ToastType.error);
-    }
   }
 
   Future<void> _loadMcpServerState() async {
@@ -256,124 +139,118 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> _loadOobFunctionAsToolState() async {
-    try {
-      final features = await AssistsMessageService.getAgentToolFeatures();
-      if (!mounted) return;
-      setState(() {
-        _oobFunctionAsToolEnabled = features['oobFunctionAsToolEnabled'] == true;
-        _oobFunctionAsToolLoaded = true;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _oobFunctionAsToolLoaded = true;
-      });
-    }
-  }
-
-  Future<void> _toggleOobFunctionAsTool(bool enable) async {
-    if (_oobFunctionAsToolBusy) return;
-    setState(() {
-      _oobFunctionAsToolBusy = true;
-      _oobFunctionAsToolEnabled = enable;
-    });
-    try {
-      final features = await AssistsMessageService.setAgentToolFeatures(
-        oobFunctionAsToolEnabled: enable,
-      );
-      if (!mounted) return;
-      setState(() {
-        _oobFunctionAsToolEnabled = features['oobFunctionAsToolEnabled'] == true;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      showToast(
-        context.l10n.settingsOobFunctionAsToolToggleFailed,
-        type: ToastType.error,
-      );
-      setState(() {
-        _oobFunctionAsToolEnabled = !enable;
-      });
-    } finally {
-      if (mounted) setState(() => _oobFunctionAsToolBusy = false);
-    }
-  }
-
   void _showMcpInfo() {
     final info = _mcpInfo;
     if (info == null || info.endpoint.isEmpty) return;
+    final l10n = context.l10n;
+    final palette = context.omniPalette;
 
     showModalBottomSheet<void>(
       context: context,
-      builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                context.l10n.settingsMcpLocalService,
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 12),
-              Text(context.l10n.settingsMcpAddress),
-              SelectableText(info.endpoint),
-              const SizedBox(height: 8),
-              Text(context.l10n.settingsMcpToken),
-              SelectableText(
-                info.token.isEmpty
-                    ? context.l10n.settingsNotGenerated
-                    : info.token,
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  TextButton(
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: info.endpoint));
-                      Navigator.of(context).pop();
-                      showToast(context.l10n.settingsCopiedAddress);
-                    },
-                    child: Text(context.l10n.settingsCopyAddress),
+      backgroundColor: palette.surfacePrimary,
+      builder: (sheetContext) {
+        final sheetPalette = sheetContext.omniPalette;
+        final labelStyle = TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w500,
+          color: sheetPalette.textSecondary,
+        );
+        final valueStyle = TextStyle(
+          fontSize: 13,
+          color: sheetPalette.textPrimary,
+        );
+        final actionStyle = TextButton.styleFrom(
+          foregroundColor: sheetPalette.accentPrimary,
+          minimumSize: const Size(0, 36),
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+        );
+
+        return SafeArea(
+          top: false,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  l10n.settingsMcpLocalService,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: sheetPalette.textPrimary,
                   ),
-                  TextButton(
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: info.token));
-                      Navigator.of(context).pop();
-                      showToast(context.l10n.settingsCopiedToken);
-                    },
-                    child: Text(context.l10n.settingsCopyToken),
+                ),
+                const SizedBox(height: 12),
+                Text(l10n.settingsMcpAddress, style: labelStyle),
+                SelectableText(info.endpoint, style: valueStyle),
+                const SizedBox(height: 8),
+                Text(l10n.settingsMcpToken, style: labelStyle),
+                SelectableText(
+                  info.token.isEmpty ? l10n.settingsNotGenerated : info.token,
+                  style: valueStyle,
+                ),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: Wrap(
+                    spacing: 4,
+                    runSpacing: 2,
+                    alignment: WrapAlignment.end,
+                    children: [
+                      TextButton(
+                        style: actionStyle,
+                        onPressed: () {
+                          Clipboard.setData(ClipboardData(text: info.endpoint));
+                          Navigator.of(sheetContext).pop();
+                          showToast(l10n.settingsCopiedAddress);
+                        },
+                        child: Text(l10n.settingsCopyAddress),
+                      ),
+                      TextButton(
+                        style: actionStyle,
+                        onPressed: () {
+                          Clipboard.setData(ClipboardData(text: info.token));
+                          Navigator.of(sheetContext).pop();
+                          showToast(l10n.settingsCopiedToken);
+                        },
+                        child: Text(l10n.settingsCopyToken),
+                      ),
+                      TextButton(
+                        style: actionStyle,
+                        onPressed: () async {
+                          Navigator.of(sheetContext).pop();
+                          try {
+                            final refreshed =
+                                await McpServerService.refreshToken();
+                            if (!mounted) return;
+                            setState(() {
+                              _mcpInfo = refreshed ?? _mcpInfo;
+                            });
+                            showToast(l10n.settingsTokenRefreshed);
+                          } catch (_) {
+                            showToast(
+                              l10n.settingsTokenRefreshFailed,
+                              type: ToastType.error,
+                            );
+                          }
+                        },
+                        child: Text(l10n.settingsRefreshToken),
+                      ),
+                    ],
                   ),
-                  TextButton(
-                    onPressed: () async {
-                      final successToast = context.l10n.settingsTokenRefreshed;
-                      final failedToast =
-                          context.l10n.settingsTokenRefreshFailed;
-                      Navigator.of(context).pop();
-                      try {
-                        final refreshed = await McpServerService.refreshToken();
-                        if (!mounted) return;
-                        setState(() {
-                          _mcpInfo = refreshed ?? _mcpInfo;
-                        });
-                        showToast(successToast);
-                      } catch (_) {
-                        showToast(failedToast, type: ToastType.error);
-                      }
-                    },
-                    child: Text(context.l10n.settingsRefreshToken),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  l10n.settingsMcpSecurityNotice,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: sheetPalette.textSecondary,
                   ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                context.l10n.settingsMcpSecurityNotice,
-                style: TextStyle(fontSize: 12, color: Colors.black54),
-              ),
-              const SizedBox(height: 8),
-            ],
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
           ),
         );
       },
@@ -481,15 +358,13 @@ class _SettingsPageState extends State<SettingsPage> {
             onTap: _mcpEnabled && !_mcpBusy ? _showMcpInfo : null,
           ),
           _SettingItem(
-            icon: Icons.build_outlined,
-            title: context.l10n.settingsOobFunctionAsToolTitle,
-            subtitle: context.l10n.settingsOobFunctionAsToolSubtitle,
-            trailing: _buildSwitchTrailing(
-              value: _oobFunctionAsToolEnabled,
-              enabled: _oobFunctionAsToolLoaded && !_oobFunctionAsToolBusy,
-              loading: !_oobFunctionAsToolLoaded,
-              onToggle: _toggleOobFunctionAsTool,
-            ),
+            icon: Icons.forum_outlined,
+            iconSvg: 'assets/home/imessage_setting_icon.svg',
+            title: 'IMessage',
+            subtitle: context.trLegacy('微信与 Telegram 消息渠道'),
+            onTap: () {
+              GoRouterManager.push('/home/imessage_setting');
+            },
           ),
           _SettingItem(
             icon: Icons.code,
@@ -503,6 +378,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           _SettingItem(
             icon: Icons.terminal_rounded,
+            iconSvg: 'assets/home/chat/codex.svg',
             title: 'Codex',
             subtitle: context.trLegacy('本地 Alpine 与远程 PC Bridge'),
             onTap: () {
@@ -523,39 +399,13 @@ class _SettingsPageState extends State<SettingsPage> {
             },
           ),
           _SettingItem(
-            icon: Icons.vibration,
-            iconSvg: 'assets/home/vibration_icon.svg',
-            title: context.l10n.settingsVibrationTitle,
-            subtitle: context.l10n.settingsVibrationSubtitle,
-            trailing: _buildSwitchTrailing(
-              value: vibrationEnabled,
-              onToggle: (val) async {
-                await CacheUtil.cacheBool('app_vibrate', val);
-                setState(() {
-                  vibrationEnabled = val;
-                });
-              },
-            ),
-          ),
-          _SettingItem(
-            icon: Icons.assistant_photo_outlined,
-            title: context.trText('小万悬浮窗'),
-            subtitle: context.trText('关闭后不再显示桌面悬浮球、半屏输入层和运行胶囊'),
-            trailing: _buildSwitchTrailing(
-              value: _floatingOverlayEnabled,
-              enabled: !_floatingOverlayBusy,
-              onToggle: _onFloatingOverlayChanged,
-            ),
-          ),
-          _SettingItem(
-            icon: Icons.chat_outlined,
-            iconSvg: 'assets/home/auto_back_chat_setting_icon.svg',
-            title: context.l10n.settingsAutoBackTitle,
-            subtitle: context.l10n.settingsAutoBackSubtitle,
-            trailing: _buildSwitchTrailing(
-              value: _autoBackToChatAfterTaskEnabled,
-              onToggle: _onAutoBackToChatAfterTaskChanged,
-            ),
+            icon: Icons.more_horiz_rounded,
+            iconSvg: 'assets/home/misc_blocks_setting_icon.svg',
+            title: context.trLegacy('杂项'),
+            subtitle: context.trLegacy('首页、后台隐藏、闹钟、振动与打开方式'),
+            onTap: () {
+              GoRouterManager.push('/home/experience_misc_setting');
+            },
           ),
         ],
       ),
@@ -566,7 +416,7 @@ class _SettingsPageState extends State<SettingsPage> {
             icon: Icons.admin_panel_settings_outlined,
             iconSvg: 'assets/home/app_permission_authorize_icon.svg',
             title: context.l10n.authorizePageTitle,
-            subtitle: context.trText('查看并配置无障碍、悬浮窗、Shizuku 等权限'),
+            subtitle: context.trLegacy('查看并配置无障碍、悬浮窗、Shizuku 等权限'),
             onTap: () {
               GoRouterManager.push('/home/authorize_setting');
             },
@@ -577,8 +427,6 @@ class _SettingsPageState extends State<SettingsPage> {
             title: context.l10n.settingsCompanionPermissionTitle,
             subtitle: context.l10n.settingsCompanionPermissionSubtitle,
             onTap: () async {
-              final failedToast =
-                  context.l10n.settingsInstalledAppsPermissionFailed;
               try {
                 final granted = await ensureInstalledAppsPermission();
                 if (granted == true) {
@@ -586,7 +434,8 @@ class _SettingsPageState extends State<SettingsPage> {
                 }
               } catch (e) {
                 debugPrint('Failed to request installed apps permission: $e');
-                showToast(failedToast);
+                if (!mounted) return;
+                showToast(context.l10n.settingsInstalledAppsPermissionFailed);
               }
             },
           ),
@@ -621,7 +470,7 @@ class _SettingsPageState extends State<SettingsPage> {
           child: Row(
             children: [
               Text(
-                context.trText(section.label),
+                context.trLegacy(section.label),
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
@@ -688,7 +537,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      context.trText(item.title),
+                      context.trLegacy(item.title),
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
@@ -700,7 +549,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     if (item.subtitle != null) ...[
                       const SizedBox(height: 2),
                       Text(
-                        context.trText(item.subtitle!),
+                        context.trLegacy(item.subtitle!),
                         style: TextStyle(
                           color: palette.textSecondary,
                           fontSize: 11,

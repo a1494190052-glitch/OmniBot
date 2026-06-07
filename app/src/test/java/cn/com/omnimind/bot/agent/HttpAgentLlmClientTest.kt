@@ -246,11 +246,12 @@ class HttpAgentLlmClientTest {
         requestedModel: String,
         resolvedModel: String,
         protocolType: String,
-        requiresReasoningEcho: Boolean
+        requiresReasoningEcho: Boolean,
+        apiBase: String = "https://example.com"
     ) = HttpController.ChatCompletionRouteInfo(
         requestedModel = requestedModel,
         resolvedModel = resolvedModel,
-        apiBase = "https://example.com",
+        apiBase = apiBase,
         providerProfileId = "test",
         providerProfileName = "Test",
         routeTag = "test",
@@ -301,6 +302,113 @@ class HttpAgentLlmClientTest {
 
             assertEquals("first reasoning", turn.reasoning)
             assertEquals("final answer", turn.message.contentText())
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `nvidia kimi guarded route retries conservative no thinking variant after leak`() = runBlocking {
+        val scope = CoroutineScope(Job() + Dispatchers.Default)
+        val requestBodies = mutableListOf<String>()
+        try {
+            val client = HttpAgentLlmClient(
+                scope = scope,
+                modelOverride = testOverride(),
+                resolveRouteInfoOp = { model, _, _, _, protocolType ->
+                    routeInfo(
+                        requestedModel = model,
+                        resolvedModel = "kimi-k2.6",
+                        protocolType = protocolType ?: "openai_compatible",
+                        requiresReasoningEcho = false,
+                        apiBase = "https://integrate.api.nvidia.com/v1"
+                    )
+                },
+                streamRequestOp = { _, requestBodyJson, listener, _, _, _, _, _ ->
+                    requestBodies += requestBodyJson
+                    val source = dummyEventSource()
+                    listener.onOpen(source, okResponse())
+                    if (requestBodies.size == 1) {
+                        listener.onEvent(
+                            source,
+                            null,
+                            "message",
+                            """{"choices":[{"delta":{"content":"# Understanding the User's Question\nThe user is asking for a fix"}}]}"""
+                        )
+                    } else {
+                        listener.onEvent(
+                            source,
+                            null,
+                            "message",
+                            """{"choices":[{"delta":{"content":"final answer"}}]}"""
+                        )
+                        listener.onEvent(source, null, "message", "[DONE]")
+                    }
+                    source
+                },
+                streamIdleWatchdogMs = 5_000L,
+                json = json
+            )
+
+            val turn = client.streamTurn(request = simpleRequest())
+
+            assertEquals("final answer", turn.message.contentText())
+            assertEquals(2, requestBodies.size)
+            assertTrue(requestBodies[0].contains(""""enable_thinking":false"""))
+            assertTrue(requestBodies[0].contains(""""reasoning_effort":"none""""))
+            assertTrue(requestBodies[0].contains(""""thinking":{"type":"disabled"}"""))
+            assertTrue(requestBodies[0].contains("stream_options"))
+            assertTrue(requestBodies[1].contains(""""enable_thinking":false"""))
+            assertTrue(requestBodies[1].contains(""""reasoning_effort":"none""""))
+            assertTrue(requestBodies[1].contains(""""thinking":{"type":"disabled"}"""))
+            assertTrue(!requestBodies[1].contains("stream_options"))
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `nvidia kimi guarded route fails after conservative variants still leak`() = runBlocking {
+        val scope = CoroutineScope(Job() + Dispatchers.Default)
+        val requestBodies = mutableListOf<String>()
+        try {
+            val client = HttpAgentLlmClient(
+                scope = scope,
+                modelOverride = testOverride(),
+                resolveRouteInfoOp = { model, _, _, _, protocolType ->
+                    routeInfo(
+                        requestedModel = model,
+                        resolvedModel = "kimi-k2.6",
+                        protocolType = protocolType ?: "openai_compatible",
+                        requiresReasoningEcho = false,
+                        apiBase = "https://integrate.api.nvidia.com/v1"
+                    )
+                },
+                streamRequestOp = { _, requestBodyJson, listener, _, _, _, _, _ ->
+                    requestBodies += requestBodyJson
+                    val source = dummyEventSource()
+                    listener.onOpen(source, okResponse())
+                    listener.onEvent(
+                        source,
+                        null,
+                        "message",
+                        """{"choices":[{"delta":{"content":"# Understanding the User's Question\nThe user is asking for a fix"}}]}"""
+                    )
+                    source
+                },
+                streamIdleWatchdogMs = 5_000L,
+                json = json
+            )
+
+            val error = runCatching {
+                client.streamTurn(request = simpleRequest())
+            }.exceptionOrNull()
+
+            requireNotNull(error)
+            assertTrue(error is AgentStreamReasoningLeakException)
+            assertEquals(2, requestBodies.size)
+            assertTrue(requestBodies[0].contains("stream_options"))
+            assertTrue(!requestBodies[1].contains("stream_options"))
         } finally {
             scope.cancel()
         }

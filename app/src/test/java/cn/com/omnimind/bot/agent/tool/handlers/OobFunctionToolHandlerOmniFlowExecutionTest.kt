@@ -3,6 +3,7 @@ package cn.com.omnimind.bot.agent.tool.handlers
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.SharedPreferences
+import cn.com.omnimind.assists.OmniFlowUiSession
 import cn.com.omnimind.baselib.runlog.InternalRunLogRecord
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
 import cn.com.omnimind.bot.agent.AgentCallback
@@ -247,6 +248,60 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
                 assertTrue(run["error_message"].toString().contains("停止"))
             }
         } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `overlay complete request finishes active replay as user completed`() = runBlocking {
+        val context = TempFilesContext()
+        val backend = BlockingClickBackend(
+            currentXml = CURRENT_PAGE_XML,
+            currentPackage = "com.xingin.xhs",
+            currentActivity = "FeedActivity",
+        )
+        val frontendRunId = "overlay-complete-${System.nanoTime()}"
+        val frontendTaskId = "$frontendRunId-task"
+        try {
+            val spec = functionSpec(
+                functionId = "complete_during_click",
+                steps = listOf(
+                    mapOf(
+                        "id" to "click_step",
+                        "title" to "Click target",
+                        "kind" to "omniflow_action",
+                        "executor" to "omniflow",
+                        "model_free" to true,
+                        "scriptable" to true,
+                        "tool" to "click",
+                        "args" to mapOf("x" to 100, "y" to 240),
+                    )
+                ),
+            )
+            OmniflowActionRuntime.useBackendForTesting(backend).use {
+                val runDeferred = async {
+                    handler(context, WorkspaceFunctionStore(context.root)).runMaterializedFunction(
+                        functionId = "complete_during_click",
+                        spec = spec,
+                        materializedSpec = OobReusableFunctionStore.materialize(spec, emptyMap()),
+                        allowAgentFallback = false,
+                        frontendRunId = frontendRunId,
+                        frontendTaskId = frontendTaskId,
+                    )
+                }
+
+                backend.clickStarted.await()
+                assertTrue(OmniFlowUiSession.requestCompleteSession(frontendTaskId))
+
+                val run = withTimeout(1000L) { runDeferred.await() }
+                assertEquals(true, run["success"])
+                assertEquals("user_completed", run["done_reason"])
+                assertEquals(true, run["completed_by_user"])
+                assertEquals(null, run["error_code"])
+                assertEquals(1, backend.clickCount)
+            }
+        } finally {
+            OmniFlowUiSession.endRun(frontendRunId)
             context.root.deleteRecursively()
         }
     }

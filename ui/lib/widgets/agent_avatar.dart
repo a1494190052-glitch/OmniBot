@@ -40,6 +40,7 @@ class AgentAvatarButton extends StatefulWidget {
 
 class _AgentAvatarButtonState extends State<AgentAvatarButton> {
   bool _isPressed = false;
+  bool _isOpeningPicker = false;
 
   @override
   void initState() {
@@ -48,11 +49,25 @@ class _AgentAvatarButtonState extends State<AgentAvatarButton> {
   }
 
   Future<void> _openPicker() async {
-    final selectedState = await showAgentAvatarPicker(context);
-    if (selectedState == null || !mounted) {
+    if (_isOpeningPicker) {
       return;
     }
-    widget.onChanged?.call(selectedState);
+    setState(() {
+      _isOpeningPicker = true;
+    });
+    try {
+      final selectedState = await showAgentAvatarPicker(context);
+      if (selectedState == null || !mounted) {
+        return;
+      }
+      widget.onChanged?.call(selectedState);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isOpeningPicker = false;
+        });
+      }
+    }
   }
 
   @override
@@ -218,8 +233,17 @@ class _AvatarImage extends StatelessWidget {
   }
 }
 
-class _AgentAvatarPickerDialog extends StatelessWidget {
+class _AgentAvatarPickerDialog extends StatefulWidget {
   const _AgentAvatarPickerDialog();
+
+  @override
+  State<_AgentAvatarPickerDialog> createState() =>
+      _AgentAvatarPickerDialogState();
+}
+
+class _AgentAvatarPickerDialogState extends State<_AgentAvatarPickerDialog> {
+  static bool _isImagePickerActive = false;
+  bool _isPickingLocalImage = false;
 
   Future<void> _selectPresetAvatar(
     BuildContext context,
@@ -235,6 +259,15 @@ class _AgentAvatarPickerDialog extends StatelessWidget {
   }
 
   Future<void> _pickLocalImage(BuildContext context) async {
+    if (_isPickingLocalImage || _isImagePickerActive) {
+      return;
+    }
+    _isImagePickerActive = true;
+    if (mounted) {
+      setState(() {
+        _isPickingLocalImage = true;
+      });
+    }
     try {
       final pickedFile = await ImagePicker().pickImage(
         source: ImageSource.gallery,
@@ -264,6 +297,13 @@ class _AgentAvatarPickerDialog extends StatelessWidget {
       Navigator.of(context).pop(selectedState);
     } catch (error) {
       showToast('选择头像失败：$error', type: ToastType.error);
+    } finally {
+      _isImagePickerActive = false;
+      if (mounted) {
+        setState(() {
+          _isPickingLocalImage = false;
+        });
+      }
     }
   }
 
@@ -335,7 +375,10 @@ class _AgentAvatarPickerDialog extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 16),
-                _LocalAvatarPickerButton(onTap: () => _pickLocalImage(context)),
+                _LocalAvatarPickerButton(
+                  isBusy: _isPickingLocalImage,
+                  onTap: () => _pickLocalImage(context),
+                ),
                 const SizedBox(height: 14),
                 ValueListenableBuilder<AgentAvatarState>(
                   valueListenable: AgentAvatarService.avatarStateNotifier,
@@ -373,8 +416,9 @@ class _AgentAvatarPickerDialog extends StatelessWidget {
 }
 
 class _LocalAvatarPickerButton extends StatelessWidget {
-  const _LocalAvatarPickerButton({required this.onTap});
+  const _LocalAvatarPickerButton({required this.isBusy, required this.onTap});
 
+  final bool isBusy;
   final VoidCallback onTap;
 
   @override
@@ -387,7 +431,7 @@ class _LocalAvatarPickerButton extends StatelessWidget {
       color: Colors.transparent,
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
-        onTap: onTap,
+        onTap: isBusy ? null : onTap,
         borderRadius: BorderRadius.circular(16),
         child: Container(
           width: double.infinity,
@@ -405,11 +449,19 @@ class _LocalAvatarPickerButton extends StatelessWidget {
                   color: accentColor,
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
-                  Icons.image_outlined,
-                  color: Colors.white,
-                  size: 18,
-                ),
+                child: isBusy
+                    ? const Padding(
+                        padding: EdgeInsets.all(8),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(
+                        Icons.image_outlined,
+                        color: Colors.white,
+                        size: 18,
+                      ),
               ),
               const SizedBox(width: 11),
               Expanded(

@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:ui/l10n/l10n.dart';
-import 'package:ui/l10n/app_text_localizer.dart';
+import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/services/storage_usage_service.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/ui.dart';
@@ -56,7 +56,10 @@ class _StorageUsagePageState extends State<StorageUsagePage> {
   }
 
   String _t(BuildContext context, String zh, String en) {
-    return AppTextLocalizer.choose(en: en, zh: context.trText(zh));
+    if (LegacyTextLocalizer.isEnglish) {
+      return en;
+    }
+    return context.trLegacy(zh);
   }
 
   Future<void> _loadSummary({bool silent = false}) async {

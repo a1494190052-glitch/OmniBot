@@ -529,7 +529,8 @@ object VlmToolCoordinator {
             requestToolChoice = turn.requestToolChoice,
             requestParallelToolCalls = turn.requestParallelToolCalls,
             currentUserTextPreview = requestEnvelope.currentUserText.take(DRY_RUN_PROMPT_PREVIEW_CHARS),
-            pageDiagnostics = workingContext.pageDiagnostics + linkedMapOf(
+            pageDiagnostics = callToolFunctionDiagnostics(requestEnvelope.dynamicFunctionToolNames) +
+                workingContext.pageDiagnostics + linkedMapOf(
                 "vlm_stream_request_variant" to turn.requestVariant.orEmpty(),
                 "vlm_stream_request_had_tools" to turn.requestHadTools?.toString().orEmpty(),
                 "vlm_stream_request_tool_choice" to turn.requestToolChoice.orEmpty(),
@@ -1405,6 +1406,15 @@ object VlmToolCoordinator {
             is WaitAction -> linkedMapOf("tool" to name, "duration_ms" to durationMs)
             is RecordAction -> linkedMapOf("tool" to name, "content" to content)
         }.filterValues { it != null }
+
+    private fun callToolFunctionDiagnostics(functionNames: Collection<String>): Map<String, String> {
+        val names = functionNames.mapNotNull { it.trim().takeIf(String::isNotEmpty) }
+        if (names.isEmpty()) return emptyMap()
+        return linkedMapOf(
+            "omniflow_call_tool_function_count" to names.size.toString(),
+            "omniflow_call_tool_function_ids" to names.joinToString(","),
+        )
+    }
 
     private fun JsonElement.toPlainAny(): Any? =
         when (this) {

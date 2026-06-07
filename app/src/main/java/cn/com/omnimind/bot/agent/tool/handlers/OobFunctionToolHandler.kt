@@ -354,6 +354,7 @@ class OobFunctionToolHandler(
         var frontendFinished = false
         val replayStopRequested = {
             frontendSession?.isStopRequested() == true ||
+                frontendSession?.isCompleteRequested() == true ||
                 toolHandle?.isManualStopRequested() == true
         }
         var frontendFinishMessage = helper.localized("任务已完成")
@@ -382,6 +383,17 @@ class OobFunctionToolHandler(
             allowAgentFallback = allowAgentFallback,
             failureReason = failureReason,
         ).also { it.putAll(OobFunctionArgumentBindingValidator.runtimeDiagnostics(materializedSpec)) }
+        fun isUserCompletedReplay(): Boolean =
+            frontendSession?.isUserFinishedRequested() == true &&
+                toolHandle?.isManualStopRequested() != true
+        fun buildUserCompletedResult(): MutableMap<String, Any?> =
+            buildResult().toMutableMap().apply {
+                put("success", true)
+                put("done_reason", "user_completed")
+                put("completed_by_user", true)
+                put("error_code", null)
+                put("error_message", "")
+            }
         try {
         // Checker rules from the Function spec (metadata.checker_rules).
         // These are layered on top of the global built-in rules inside the executor.
@@ -394,6 +406,9 @@ class OobFunctionToolHandler(
             val stepStartedAtMs = System.currentTimeMillis()
             frontendSession?.throwIfStopRequested()
             toolHandle?.throwIfStopRequested()
+            if (isUserCompletedReplay()) {
+                break
+            }
             val index = normalizedResumeFromStep + relativeIndex
             val stepIndex = index + 1
             val stepId = step["id"]?.toString() ?: "step_$stepIndex"
@@ -574,7 +589,11 @@ class OobFunctionToolHandler(
         timing.recordElapsed("step_loop_ms", stepLoopStartedAt)
 
         val resultBuildStartedAt = System.nanoTime()
-        val resultPayload = buildResult()
+        val resultPayload = if (isUserCompletedReplay()) {
+            buildUserCompletedResult()
+        } else {
+            buildResult()
+        }
         startPreparation.goToResult?.let { result ->
             resultPayload["pre_function_go_to"] = result
         }
@@ -592,6 +611,15 @@ class OobFunctionToolHandler(
         frontendFinished = true
         return resultPayload
         } catch (e: ManualToolStopCancellationException) {
+            if (isUserCompletedReplay()) {
+                frontendFinishMessage = helper.localized("任务已完成")
+                frontendCloseAfterMs = FRONTEND_SUCCESS_POPUP_VISIBLE_MS
+                val resultPayload = buildUserCompletedResult()
+                resultPayload["timing"] = timing.finish()
+                frontendSession?.finish(frontendFinishMessage, closeAfterMs = frontendCloseAfterMs)
+                frontendFinished = true
+                return resultPayload
+            }
             frontendFinishMessage = helper.localized("任务已停止")
             frontendCloseAfterMs = FRONTEND_TERMINAL_POPUP_VISIBLE_MS
             if (currentStepIndex >= 0 && stepResults.none { it["index"] == currentStepIndex }) {
@@ -625,6 +653,15 @@ class OobFunctionToolHandler(
             frontendFinished = true
             return resultPayload
         } catch (e: kotlinx.coroutines.CancellationException) {
+            if (isUserCompletedReplay()) {
+                frontendFinishMessage = helper.localized("任务已完成")
+                frontendCloseAfterMs = FRONTEND_SUCCESS_POPUP_VISIBLE_MS
+                val resultPayload = buildUserCompletedResult()
+                resultPayload["timing"] = timing.finish()
+                frontendSession?.finish(frontendFinishMessage, closeAfterMs = frontendCloseAfterMs)
+                frontendFinished = true
+                return resultPayload
+            }
             if (frontendSession?.isStopRequested() == true || toolHandle?.isManualStopRequested() == true) {
                 frontendFinishMessage = helper.localized("任务已停止")
                 frontendCloseAfterMs = FRONTEND_TERMINAL_POPUP_VISIBLE_MS
@@ -941,6 +978,7 @@ class OobFunctionToolHandler(
         var frontendFinished = false
         val replayStopRequested = {
             frontendSession?.isStopRequested() == true ||
+                frontendSession?.isCompleteRequested() == true ||
                 toolHandle?.isManualStopRequested() == true
         }
         var frontendFinishMessage = helper.localized("任务已完成")
@@ -1038,6 +1076,17 @@ class OobFunctionToolHandler(
                 put("finished_at_ms", finishedAtMs)
                 startPreparation.goToResult?.let { put("pre_function_go_to", it) }
             }
+        fun isUserCompletedReplay(): Boolean =
+            frontendSession?.isUserFinishedRequested() == true &&
+                toolHandle?.isManualStopRequested() != true
+        fun buildUserCompletedResult(): LinkedHashMap<String, Any?> =
+            buildResult().apply {
+                put("success", true)
+                put("done_reason", "user_completed")
+                put("completed_by_user", true)
+                put("error_code", null)
+                put("error_message", "")
+            }
 
         try {
             for ((relativeIdx, step) in activeSteps.withIndex()) {
@@ -1045,6 +1094,9 @@ class OobFunctionToolHandler(
                 val stepStartedAtMs = System.currentTimeMillis()
                 frontendSession?.throwIfStopRequested()
                 toolHandle?.throwIfStopRequested()
+                if (isUserCompletedReplay()) {
+                    break
+                }
                 currentStepIndex = absIdx
                 currentStepId = step.id
                 currentStepTool = step.toolName
@@ -1199,7 +1251,11 @@ class OobFunctionToolHandler(
                 }
             }
 
-            val resultPayload = buildResult()
+            val resultPayload = if (isUserCompletedReplay()) {
+                buildUserCompletedResult()
+            } else {
+                buildResult()
+            }
             val allSuccess = resultPayload["success"] == true
             frontendFinishMessage = helper.localized(if (allSuccess) "任务已完成" else "任务执行失败")
             frontendCloseAfterMs = if (allSuccess) {
@@ -1211,6 +1267,14 @@ class OobFunctionToolHandler(
             frontendFinished = true
             return resultPayload
         } catch (e: ManualToolStopCancellationException) {
+            if (isUserCompletedReplay()) {
+                frontendFinishMessage = helper.localized("任务已完成")
+                frontendCloseAfterMs = FRONTEND_SUCCESS_POPUP_VISIBLE_MS
+                val resultPayload = buildUserCompletedResult()
+                frontendSession?.finish(frontendFinishMessage, closeAfterMs = frontendCloseAfterMs)
+                frontendFinished = true
+                return resultPayload
+            }
             frontendFinishMessage = helper.localized("任务已停止")
             frontendCloseAfterMs = FRONTEND_TERMINAL_POPUP_VISIBLE_MS
             if (currentStepIndex >= 0 && stepResults.none { it["index"] == currentStepIndex }) {
@@ -1243,6 +1307,14 @@ class OobFunctionToolHandler(
             frontendFinished = true
             return resultPayload
         } catch (e: kotlinx.coroutines.CancellationException) {
+            if (isUserCompletedReplay()) {
+                frontendFinishMessage = helper.localized("任务已完成")
+                frontendCloseAfterMs = FRONTEND_SUCCESS_POPUP_VISIBLE_MS
+                val resultPayload = buildUserCompletedResult()
+                frontendSession?.finish(frontendFinishMessage, closeAfterMs = frontendCloseAfterMs)
+                frontendFinished = true
+                return resultPayload
+            }
             if (frontendSession?.isStopRequested() == true || toolHandle?.isManualStopRequested() == true) {
                 frontendFinishMessage = helper.localized("任务已停止")
                 frontendCloseAfterMs = FRONTEND_TERMINAL_POPUP_VISIBLE_MS

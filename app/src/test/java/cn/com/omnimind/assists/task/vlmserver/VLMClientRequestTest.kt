@@ -118,7 +118,7 @@ class VLMClientRequestTest {
     }
 
     @Test
-    fun `operation request appends recalled function tools`() {
+    fun `operation request exposes recalled functions through call tool only`() {
         val client = VLMClient(
             systemPromptBuilder = { "system prompt" },
             turnPromptBuilder = { context, _ -> context.overallTask }
@@ -135,20 +135,13 @@ class VLMClientRequestTest {
 
         val toolNames = envelope.request.tools.orEmpty().map { it.function.name }
         assertTrue(toolNames.contains("click"))
-        assertTrue(toolNames.contains("debug_agent_function_open_settings"))
+        assertTrue(toolNames.contains("call_tool"))
+        assertFalse(toolNames.contains("debug_agent_function_open_settings"))
         assertTrue(envelope.dynamicFunctionToolNames.contains("debug_agent_function_open_settings"))
         assertEquals(toolNames, envelope.toolNames)
         assertEquals("required", envelope.request.toolChoice!!.jsonPrimitive.contentOrNull)
         assertTrue(envelope.systemPromptChars > 0)
         assertTrue(envelope.currentUserTextChars > 0)
-
-        val dynamicTool = envelope.request.tools.single { it.function.name == "debug_agent_function_open_settings" }
-        val parameters = dynamicTool.function.parameters
-        val properties = parameters["properties"]!!.jsonObject
-        val required = parameters["required"]!!.jsonArray.map { it.jsonPrimitive.contentOrNull }
-        assertFalse(properties.containsKey("tool_title"))
-        assertFalse(required.contains("tool_title"))
-        assertTrue(properties.containsKey("keyword"))
     }
 
     @Test

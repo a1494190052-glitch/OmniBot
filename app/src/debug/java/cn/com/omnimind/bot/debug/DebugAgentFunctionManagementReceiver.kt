@@ -25,7 +25,6 @@ import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import cn.com.omnimind.bot.agent.DefaultAgentExecutionEnvironment
 import cn.com.omnimind.bot.agent.NoOpAgentCallback
 import cn.com.omnimind.bot.agent.NoOpAgentRunControl
-import cn.com.omnimind.bot.agent.StreamingToolCallSnapshot
 import cn.com.omnimind.bot.agent.SubagentDispatcher
 import cn.com.omnimind.bot.agent.ToolExecutionResult
 import cn.com.omnimind.bot.agent.WorkspaceMemoryService
@@ -130,7 +129,6 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
                     request: ChatCompletionRequest,
                     onReasoningUpdate: (suspend (String) -> Unit)?,
                     onContentUpdate: (suspend (String) -> Unit)?,
-                    onToolCallUpdate: (suspend (StreamingToolCallSnapshot) -> Unit)?,
                 ): ChatCompletionTurn {
                     error("Subagent dispatch is not part of debug Function management validation")
                 }

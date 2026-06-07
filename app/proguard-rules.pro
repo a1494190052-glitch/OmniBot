@@ -185,6 +185,10 @@
 -keep class com.tencent.mmkv.** { *; }
 -dontwarn com.tencent.mmkv.**
 
+# OpeniLink WeChat SDK is accessed via reflection by the IMessage channel.
+-keep class com.openilink.** { *; }
+-dontwarn com.openilink.**
+-dontwarn ch.qos.logback.**
 
 # 保持Ktor相关类不被混淆
 -keep class io.ktor.** { *; }

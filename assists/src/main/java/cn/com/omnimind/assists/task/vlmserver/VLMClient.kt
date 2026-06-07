@@ -47,8 +47,11 @@ class VLMClient(
     ): VLMRequestEnvelope {
         val sceneId = resolveVlmSceneId(model)
         val modelOverride = resolveVlmModelOverride(model)
+        val dynamicFunctionToolNames = VLMToolDefinitions
+            .dynamicFunctionToolNamesFromDefinitions(context.dynamicToolDefinitions)
+        val promptContext = context.withDynamicFunctionCallToolGuidance(dynamicFunctionToolNames)
         val systemPrompt = systemPromptBuilder(sceneId)
-        val currentUserText = turnPromptBuilder(context, sceneId)
+        val currentUserText = turnPromptBuilder(promptContext, sceneId)
         val historyMessages = conversationState.historyMessages()
         val effectiveMarkedScreenshot = markedScreenshot.takeIf { includeMarkedScreenshot }
         val messages = buildMessages(
@@ -57,14 +60,15 @@ class VLMClient(
             currentUserText = currentUserText,
             screenshot = screenshot,
             markedScreenshot = effectiveMarkedScreenshot,
-            context = context,
+            context = promptContext,
             retryState = retryState
         )
         val imageCount = listOf(screenshot, effectiveMarkedScreenshot).count { !it.isNullOrBlank() }
         val baseTools = VLMToolDefinitions.tools()
-        val dynamicTools = VLMToolDefinitions.dynamicToolsFromDefinitions(context.dynamicToolDefinitions)
+        val dynamicTools = VLMToolDefinitions
+            .dynamicToolsFromDefinitions(promptContext.dynamicToolDefinitions)
+            .filterNot { it.function.name in dynamicFunctionToolNames }
         val tools = (baseTools + dynamicTools).distinctBy { it.function.name }
-        val dynamicFunctionToolNames = dynamicTools.mapTo(linkedSetOf()) { it.function.name }
 
         OmniLog.i(
             TAG,
@@ -90,6 +94,17 @@ class VLMClient(
             systemPromptChars = systemPrompt.length,
             currentUserTextChars = currentUserText.length,
         )
+    }
+
+    private fun UIContext.withDynamicFunctionCallToolGuidance(functionNames: Set<String>): UIContext {
+        if (functionNames.isEmpty()) return this
+        if (stepSkillGuidance.contains("call_tool")) return this
+        val hint = "Recalled Functions for this turn: ${functionNames.joinToString(", ")}. " +
+            "Use call_tool(function_id, arguments) to run one; do not call Function ids as separate tools."
+        val mergedGuidance = listOf(stepSkillGuidance.trim(), hint)
+            .filter(String::isNotBlank)
+            .joinToString("\n\n")
+        return copy(stepSkillGuidance = mergedGuidance)
     }
 
     fun parseVLMResponse(

@@ -989,8 +989,7 @@ class AgentOrchestratorTest {
         override suspend fun streamTurn(
             request: ChatCompletionRequest,
             onReasoningUpdate: (suspend (String) -> Unit)?,
-            onContentUpdate: (suspend (String) -> Unit)?,
-            onToolCallUpdate: (suspend (StreamingToolCallSnapshot) -> Unit)?
+            onContentUpdate: (suspend (String) -> Unit)?
         ): ChatCompletionTurn {
             requests += request
             if (queuedFailures.isNotEmpty()) {

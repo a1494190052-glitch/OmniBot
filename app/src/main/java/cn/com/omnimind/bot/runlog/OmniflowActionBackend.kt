@@ -4,6 +4,7 @@ import BaseApplication
 import android.app.Activity
 import android.content.Intent
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
+import cn.com.omnimind.baselib.shizuku.ShizukuCapabilityManager
 import cn.com.omnimind.baselib.util.APPPackageUtil
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.baselib.util.exception.PrivacyBlockedException
@@ -106,6 +107,18 @@ private object AccessibilityOmniflowActionBackend : OmniflowActionBackend {
     override fun isReady(): Boolean = AccessibilityController.initController()
 
     override suspend fun click(x: Float, y: Float) {
+        val privileged = runCatching {
+            ShizukuCapabilityManager.get(BaseApplication.instance).tap(x, y)
+        }.getOrNull()
+        if (privileged?.success == true) {
+            return
+        }
+        if (privileged != null) {
+            OmniLog.w(
+                TAG,
+                "privileged tap fallback unavailable: code=${privileged.code} message=${privileged.message}"
+            )
+        }
         AccessibilityController.clickCoordinate(x, y)
     }
 

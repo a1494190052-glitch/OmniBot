@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
 import hashlib
 import json
@@ -89,6 +90,9 @@ DEFAULT_CASES = [
 TASK_APP_NAMES = {
     "AudioRecorderRecordAudio": "audio_recorder",
     "AudioRecorderRecordAudioWithFileName": "audio_recorder",
+    "BrowserDraw": "chrome",
+    "BrowserMaze": "chrome",
+    "BrowserMultiply": "chrome",
     "CameraTakePhoto": "camera",
     "CameraTakeVideo": "camera",
     "ClockStopWatchPausedVerify": "clock",
@@ -336,6 +340,13 @@ def _adb_shell_string(device: str, command: str) -> str:
 def _verify_final_state(task: str, params: dict[str, Any], state: dict[str, Any], *, device: str) -> dict[str, Any]:
     xml = str(state.get("xml") or "")
     text = json.dumps(state, ensure_ascii=False)
+    if task.startswith("Browser"):
+        package_name = str(state.get("package_name") or "")
+        return {
+            "success": package_name == "com.android.chrome" and "Success!" in xml,
+            "package_name": package_name,
+            "has_success_text": "Success!" in xml,
+        }
     if task == "AudioRecorderRecordAudio":
         files = _adb_shell_string(
             device,
@@ -826,6 +837,16 @@ def _prepare_oob(device: str, package_name: str, port: int) -> None:
 
 
 def _prepare_replay_state(task: str, *, device: str) -> dict[str, Any]:
+    if task.startswith("Browser"):
+        from scripts.oob_collect_androidworld_verified_trajectory import Adb, find_adb, open_browser_task_html
+
+        adb = Adb(find_adb(), device, DEFAULT_PACKAGE)
+        adb.shell("settings", "put", "global", "http_proxy", ":0", timeout=10, check=False)
+        adb.shell("settings", "delete", "global", "global_http_proxy_host", timeout=10, check=False)
+        adb.shell("settings", "delete", "global", "global_http_proxy_port", timeout=10, check=False)
+        result = open_browser_task_html(adb)
+        result["action"] = "open_browser_task_html"
+        return result
     if task not in {"ContactsAddContact", "ContactsNewContactDraft"}:
         return {"success": True, "action": "noop"}
     commands = [

@@ -96,6 +96,15 @@ object VLMToolDefinitions {
         }
     }
 
+    fun dynamicFunctionToolNamesFromDefinitions(definitions: List<JsonObject>): Set<String> {
+        return definitions.mapNotNullTo(linkedSetOf()) { definition ->
+            val function = definition["function"] as? JsonObject ?: return@mapNotNullTo null
+            val toolType = function["toolType"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            if (!toolType.equals("oob_function", ignoreCase = true)) return@mapNotNullTo null
+            function["name"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf(String::isNotEmpty)
+        }
+    }
+
     private fun sanitizeVlmDynamicFunctionParameters(parameters: JsonObject): JsonObject {
         if (parameters.isEmpty()) return parameters
         return buildJsonObject {

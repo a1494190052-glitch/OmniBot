@@ -2033,6 +2033,11 @@ class AssistsMessageService {
   oobFunctionRunProgressNotifier = ValueNotifier<OobFunctionRunProgressEvent?>(
     null,
   );
+  // IM/WeChat/Telegram 等外部入口直推的用户消息：
+  // 原生侧在写库后立刻 invokeMethod 发过来，runtime 直接插入气泡，
+  // 不依赖 messagesChanged + DB reload 的事件链。
+  static final List<void Function(Map<String, dynamic>)>
+  _onExternalUserMessageAppendedCallbacks = [];
 
   // 改为回调列表，支持多个监听器
   static final List<ChatTaskMessageCallBack> _onChatTaskMessageCallBacks = [];
@@ -2125,6 +2130,18 @@ class AssistsMessageService {
               (call.arguments as Map?) ?? const <String, dynamic>{},
             ),
           );
+          break;
+        case 'onExternalUserMessageAppended':
+          final data = Map<String, dynamic>.from(
+            (call.arguments as Map?) ?? const <String, dynamic>{},
+          );
+          for (final callback in List<void Function(Map<String, dynamic>)>.from(
+            _onExternalUserMessageAppendedCallbacks,
+          )) {
+            try {
+              callback(data);
+            } catch (_) {}
+          }
           break;
         case 'onBrowserSessionSnapshotUpdated':
           _browserSessionSnapshotChangedController.add(
@@ -2477,6 +2494,20 @@ class AssistsMessageService {
     _onAgentStreamEventCallbacks.remove(callback);
   }
 
+  static void addOnExternalUserMessageAppendedCallback(
+    void Function(Map<String, dynamic>) callback,
+  ) {
+    if (!_onExternalUserMessageAppendedCallbacks.contains(callback)) {
+      _onExternalUserMessageAppendedCallbacks.add(callback);
+    }
+  }
+
+  static void removeOnExternalUserMessageAppendedCallback(
+    void Function(Map<String, dynamic>) callback,
+  ) {
+    _onExternalUserMessageAppendedCallbacks.remove(callback);
+  }
+
   // 发送按钮点击事件到Android端
   static Future<bool> clickButton(
     String taskID,
@@ -2520,6 +2551,20 @@ class AssistsMessageService {
       return result == "SUCCESS";
     } on PlatformException catch (e) {
       debugPrint('取消运行中任务失败: ${e.message}');
+      return false;
+    }
+  }
+
+  /// 标记当前运行任务已由用户完成。
+  static Future<bool> completeRunningTask({String? taskId}) async {
+    try {
+      var result = await assistCore.invokeMethod(
+        'completeRunningTask',
+        taskId == null ? null : {'taskId': taskId},
+      );
+      return result == "SUCCESS";
+    } on PlatformException catch (e) {
+      debugPrint('完成运行中任务失败: ${e.message}');
       return false;
     }
   }
@@ -3473,7 +3518,10 @@ class AssistsMessageService {
     required String userInput,
   }) {
     if (isVlmManualTakeoverPrompt(question)) {
-      return resumeVLMTask();
+      return resumeVLMTask().then((resumed) {
+        if (resumed) return true;
+        return completeRunningTask();
+      });
     }
     return provideUserInputToVLMTask(userInput);
   }

@@ -228,14 +228,12 @@ class _WorkspaceMemorySettingPageState
       showToast((result?['summary'] ?? context.l10n.workspaceRollupDone).toString());
       await _loadAll();
     } on PlatformException catch (e) {
-      if (!mounted) return;
       final message = e.message?.trim();
       final errorText = (message == null || message.isEmpty)
           ? context.l10n.workspaceRollupFailed
           : '${context.l10n.workspaceRollupFailed}：$message';
       showToast(errorText, type: ToastType.error);
     } catch (e) {
-      if (!mounted) return;
       showToast('${context.l10n.workspaceRollupFailed}：$e', type: ToastType.error);
     }
   }
@@ -405,7 +403,7 @@ class _WorkspaceMemorySettingPageState
                       height: 16,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : Text(context.trText('保存')),
+                  : Text(context.trLegacy('保存')),
             ),
           ),
         ],

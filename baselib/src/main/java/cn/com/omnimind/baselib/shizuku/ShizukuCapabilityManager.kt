@@ -356,6 +356,13 @@ class ShizukuCapabilityManager private constructor(
         )
     }
 
+    suspend fun tap(x: Float, y: Float): PrivilegedResult {
+        return executeAgentAction(
+            action = PrivilegedActionPolicy.ACTION_DEVICE_TAP,
+            arguments = mapOf("x" to x.toString(), "y" to y.toString())
+        )
+    }
+
     suspend fun inputText(text: String): PrivilegedResult {
         return executeAgentAction(
             action = PrivilegedActionPolicy.ACTION_DEVICE_INPUT_TEXT,

@@ -324,13 +324,10 @@ class AgentRunService(
                 request["conversationMode"]?.toString()
             ),
             "userMessage" to normalizedPayload.userMessage,
+            "userMessageCreatedAt" to (request["userMessageCreatedAt"] as? Number)?.toLong(),
             "attachments" to normalizedPayload.attachments,
             "terminalEnvironment" to AgentRunRequestNormalizer.normalizeMap(request["terminalEnvironment"]),
-            "modelOverride" to AgentRunRequestNormalizer.normalizeMap(request["modelOverride"]),
-            "toolProfile" to request["toolProfile"]?.toString()?.trim()?.takeIf { it.isNotEmpty() },
-            "allowedTools" to AgentRunRequestNormalizer.normalizeStringList(
-                request["allowedTools"] ?: request["allowed_tools"]
-            )
+            "modelOverride" to AgentRunRequestNormalizer.normalizeMap(request["modelOverride"])
         )
         invokeManager("createAgentTask", arguments) {
             manager.createAgentTask(it, this)

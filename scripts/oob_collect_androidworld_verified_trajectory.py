@@ -11,11 +11,17 @@ import argparse
 import base64
 import dataclasses
 import datetime as dt
+import functools
+import http.server
 import json
+import os
 import re
 import shlex
+import socket
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -28,7 +34,10 @@ from xml.etree import ElementTree
 
 DEFAULT_PACKAGE = "cn.com.omnimind.bot.debug"
 DEFAULT_PORT = 8910
-ANDROID_WORLD_ROOT = Path.home() / "Projects" / "android_world"
+ANDROID_WORLD_ROOT = Path(
+    os.environ.get("ANDROID_WORLD_ROOT", str(Path.home() / "Projects" / "android_world"))
+).expanduser()
+BROWSER_HTTP_SERVERS: list[Any] = []
 
 
 def repo_root() -> Path:
@@ -230,6 +239,7 @@ SUPPORTED_TASKS = sorted(set(SUPPORTED_TASKS) | {"SimpleCalendarAddOneEvent", "S
 SUPPORTED_TASKS = sorted(set(SUPPORTED_TASKS) | {"RecipeAddSingleRecipe"})
 SUPPORTED_TASKS = sorted(set(SUPPORTED_TASKS) | {"MarkorCreateFolder", "MarkorCreateNote"})
 SUPPORTED_TASKS = sorted(set(SUPPORTED_TASKS) | {"SimpleSmsSend"})
+SUPPORTED_TASKS = sorted(set(SUPPORTED_TASKS) | {"BrowserMaze"})
 
 
 BOUNDS_RE = re.compile(r"\[(-?\d+),(-?\d+)]\[(-?\d+),(-?\d+)]")
@@ -300,7 +310,7 @@ def capture_state_for_step(host: OobHost, step: Step, *, image_quality: str) -> 
         return state
     if find_xml_target(str(state.get("xml") or ""), step.target_regex):
         return state
-    deadline = time.monotonic() + 5.0
+    deadline = time.monotonic() + 12.0
     while time.monotonic() < deadline:
         time.sleep(0.4)
         candidate = capture_state(host, image_quality=image_quality)
@@ -439,6 +449,158 @@ def execute_step(host: OobHost, step: Step, before: dict[str, Any]) -> tuple[dic
             return args, {"success": False, "error": "target_not_found", "target_regex": step.target_regex}
     result = host.post("/act", {"tool": step.tool, "args": args}, timeout=60)
     return args, result
+
+
+def execute_available_optional_steps(
+    host: OobHost,
+    steps: list[Step],
+    *,
+    image_quality: str,
+) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for step in steps:
+        if not step.optional or not step.target_regex:
+            continue
+        before = capture_state_for_step(host, step, image_quality=image_quality)
+        if not find_xml_target(str(before.get("xml") or ""), step.target_regex):
+            continue
+        step_args, result = execute_step(host, step, before)
+        if step.wait_after_ms > 0:
+            time.sleep(step.wait_after_ms / 1000.0)
+        results.append({
+            "title": step.title,
+            "tool": step.tool,
+            "args": step_args,
+            "result": result,
+        })
+    return results
+
+
+def open_browser_task_html(adb: Adb) -> dict[str, Any]:
+    """Open AndroidWorld's generated Downloads/task.html in Chrome."""
+    html = adb.adb("exec-out", "cat", "/sdcard/Download/task.html", timeout=20, check=False)
+    attempts = []
+    if html.returncode == 0 and html.stdout:
+        temp_dir = Path(tempfile.mkdtemp(prefix="oob_browser_task_"))
+        (temp_dir / "task.html").write_text(html.stdout, encoding="utf-8")
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+        handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(temp_dir))
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        BROWSER_HTTP_SERVERS.append((server, thread, temp_dir))
+        url = f"http://10.0.2.2:{port}/task.html"
+        adb.shell("am", "force-stop", "com.android.chrome", timeout=10, check=False)
+        result = adb.shell(
+            "am",
+            "start",
+            "-a",
+            "android.intent.action.VIEW",
+            "-d",
+            url,
+            "-n",
+            "com.android.chrome/com.google.android.apps.chrome.Main",
+            timeout=30,
+            check=False,
+        )
+        attempts.append({
+            "command": f"am start {url}",
+            "returncode": result.returncode,
+            "stdout_tail": result.stdout[-500:],
+            "stderr_tail": result.stderr[-500:],
+        })
+        if result.returncode == 0:
+            time.sleep(2.0)
+            return {"success": True, "attempts": attempts, "source": "host_http", "url": url}
+    commands = [
+        [
+            "am",
+            "start",
+            "-a",
+            "android.intent.action.VIEW",
+            "-d",
+            "file:///sdcard/Download/task.html",
+            "-t",
+            "text/html",
+            "-n",
+            "com.android.chrome/com.google.android.apps.chrome.Main",
+        ],
+        [
+            "am",
+            "start",
+            "-a",
+            "android.intent.action.VIEW",
+            "-d",
+            "file:///storage/emulated/0/Download/task.html",
+            "-t",
+            "text/html",
+            "-n",
+            "com.android.chrome/com.google.android.apps.chrome.Main",
+        ],
+    ]
+    for command in commands:
+        result = adb.shell(*command, timeout=30, check=False)
+        attempts.append({
+            "command": " ".join(command),
+            "returncode": result.returncode,
+            "stdout_tail": result.stdout[-500:],
+            "stderr_tail": result.stderr[-500:],
+        })
+        if result.returncode == 0:
+            time.sleep(2.0)
+            return {"success": True, "attempts": attempts}
+    time.sleep(1.0)
+    return {"success": False, "attempts": attempts}
+
+
+class JsSeededRng:
+    def __init__(self, seed: int) -> None:
+        self.seed = int(seed) & 0xFFFFFFFF
+
+    def random(self) -> float:
+        self.seed = (1664525 * self.seed + 1013904223) % (2**32)
+        return self.seed / float(2**32)
+
+
+def browser_maze_route(seed: int) -> list[str]:
+    size = 4
+    maze = [["#" for _ in range(size)] for _ in range(size)]
+    stack = [(0, 0)]
+    directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+    rng = JsSeededRng(seed)
+    while stack:
+        row, col = stack.pop()
+        maze[row][col] = " "
+        if row == size - 1 and col == size - 1:
+            break
+        for i in range(len(directions) - 1, 0, -1):
+            j = int(rng.random() * (i + 1))
+            directions[i], directions[j] = directions[j], directions[i]
+        for dx, dy in directions:
+            nr, nc = row + dx, col + dy
+            if 0 <= nr < size and 0 <= nc < size and maze[nr][nc] == "#":
+                stack.append((nr, nc))
+    maze[0][0] = " "
+    maze[size - 1][size - 1] = "$"
+
+    queue: list[tuple[int, int, list[str]]] = [(0, 0, [])]
+    seen = {(0, 0)}
+    moves = [(-1, 0, "Up"), (1, 0, "Down"), (0, -1, "Left"), (0, 1, "Right")]
+    while queue:
+        row, col, route = queue.pop(0)
+        if row == size - 1 and col == size - 1:
+            return route
+        for dr, dc, label in moves:
+            nr, nc = row + dr, col + dc
+            if not (0 <= nr < size and 0 <= nc < size):
+                continue
+            if maze[nr][nc] == "#" or (nr, nc) in seen:
+                continue
+            seen.add((nr, nc))
+            queue.append((nr, nc, route + [label]))
+    raise ValueError(f"BrowserMaze has no route for seed {seed}")
 
 
 def build_card(
@@ -845,6 +1007,43 @@ def oob_device_reward_for_task(task_name: str, task_params: dict[str, Any], adb:
 def get_task_steps(task_name: str, task_params: dict[str, Any]) -> list[Step]:
     if task_name in TASK_STEPS:
         return TASK_STEPS[task_name]
+    if task_name == "BrowserMaze":
+        route = browser_maze_route(int(task_params.get("browser_task_seed") or 0))
+        return [
+            Step(
+                "click",
+                "接受 Chrome 首次启动条款",
+                {"target_description": "Accept & continue"},
+                target_regex=r"Accept & continue|terms_accept",
+                wait_after_ms=1200,
+                optional=True,
+            ),
+            Step(
+                "click",
+                "跳过 Chrome 登录",
+                {"target_description": "No thanks"},
+                target_regex=r"No thanks|Use without an account|negative_button|signin_fre_dismiss_button",
+                wait_after_ms=1500,
+                optional=True,
+            ),
+            Step(
+                "click",
+                "保留 Google 搜索",
+                {"target_description": "Keep Google"},
+                target_regex=r"Keep Google|button_secondary",
+                wait_after_ms=1000,
+                optional=True,
+            ),
+        ] + [
+            Step(
+                "click",
+                f"点击 {direction}",
+                {"target_description": direction},
+                target_regex=rf"^{re.escape(direction)}$",
+                wait_after_ms=500,
+            )
+            for direction in route
+        ]
     if task_name == "AudioRecorderRecordAudio":
         return [
             Step("open_app", "打开 Audio Recorder", {"package_name": "com.dimowner.audiorecorder"}, wait_after_ms=1500),
@@ -1915,6 +2114,8 @@ def collect_verified(args: argparse.Namespace) -> dict[str, Any]:
     task_goal = ""
     task_params: dict[str, Any] = {}
     verifier_diagnostics: dict[str, Any] = {}
+    browser_prepare: dict[str, Any] | None = None
+    browser_reopen_attempts: list[dict[str, Any]] = []
     try:
         env.reset(go_home=True)
         params_override = json.loads(args.task_params_json) if args.task_params_json else None
@@ -1923,15 +2124,26 @@ def collect_verified(args: argparse.Namespace) -> dict[str, Any]:
         task_params = json_safe(dict(getattr(task, "params", {}) or {}))
         task.initialize_task(env)
         adb.prepare_oob()
+        if args.task.startswith("Browser"):
+            browser_prepare = open_browser_task_html(adb)
         # Confirm host is up after AndroidWorld setup and OOB relaunch.
         host.get("/health", timeout=10)
         steps = get_task_steps(args.task, task_params)
         for index, step in enumerate(steps):
-            before = (
-                capture_state(host, image_quality=args.image_quality)
-                if step.optional else
-                capture_state_for_step(host, step, image_quality=args.image_quality)
-            )
+            before = capture_state_for_step(host, step, image_quality=args.image_quality)
+            if (
+                args.task.startswith("Browser")
+                and not step.optional
+                and step.target_regex
+                and not find_xml_target(str(before.get("xml") or ""), step.target_regex)
+            ):
+                reopen_result = open_browser_task_html(adb)
+                browser_reopen_attempts.append({
+                    "step_index": index,
+                    "target_regex": step.target_regex,
+                    "result": reopen_result,
+                })
+                before = capture_state_for_step(host, step, image_quality=args.image_quality)
             if step.optional and step.target_regex and not find_xml_target(str(before.get("xml") or ""), step.target_regex):
                 continue
             before_ref = save_state_artifacts(before, artifact_dir, f"step_{index + 1:02d}_before")
@@ -1941,6 +2153,26 @@ def collect_verified(args: argparse.Namespace) -> dict[str, Any]:
                 time.sleep(step.wait_after_ms / 1000.0)
             step_finished = now_ms()
             after = capture_state(host, image_quality=args.image_quality)
+            if (
+                step.optional
+                and step.tool == "click"
+                and result.get("success")
+                and step.target_regex
+                and find_xml_target(str(after.get("xml") or ""), step.target_regex)
+            ):
+                retry_started = now_ms()
+                retry_result = host.post("/act", {"tool": step.tool, "args": step_args}, timeout=60)
+                if step.wait_after_ms > 0:
+                    time.sleep(step.wait_after_ms / 1000.0)
+                after = capture_state(host, image_quality=args.image_quality)
+                result = {
+                    **result,
+                    "optional_click_retry": {
+                        "started_at_ms": retry_started,
+                        "finished_at_ms": now_ms(),
+                        "result": retry_result,
+                    },
+                }
             after_ref = save_state_artifacts(after, artifact_dir, f"step_{index + 1:02d}_after")
             cards.append(
                 build_card(
@@ -2025,6 +2257,8 @@ def collect_verified(args: argparse.Namespace) -> dict[str, Any]:
                 "device": args.device,
                 "console_port": args.console_port,
                 "grpc_port": args.grpc_port,
+                "browser_prepare": browser_prepare,
+                "browser_reopen_attempts": browser_reopen_attempts,
                 "androidworld_verifier": verifier_diagnostics,
             },
             "cards": cards,

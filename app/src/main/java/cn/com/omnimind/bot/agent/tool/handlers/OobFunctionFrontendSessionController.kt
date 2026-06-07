@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -32,7 +33,7 @@ class OobFunctionFrontendSessionController(
         frontendParent: String = "",
     ): Session? {
         if (stepCount <= 0 || callStack.isNotEmpty()) return null
-        val canUseUiOverlay = canUseMainDispatcher()
+        val canUseUiOverlay = !isHeadlessJvm() && canUseMainDispatcher()
         val embeddedInVlmTask = frontendParent.trim() == "vlm_task"
         val runId = frontendRunId
             .trim()
@@ -46,14 +47,18 @@ class OobFunctionFrontendSessionController(
             .takeIf { it.isNotEmpty() }
             ?: "${runId}_omniflow_ui"
         val stopRequested = AtomicBoolean(false)
+        val completeRequested = AtomicBoolean(false)
         val label = frontendLabel(functionId, spec)
         fun requestStopNow() {
             stopRequested.set(true)
         }
+        fun requestCompleteNow() {
+            completeRequested.set(true)
+        }
         OmniFlowUiSession.registerRun(
             runId = runId,
             onStopRequested = { requestStopNow() },
-            onCompleteRequested = { requestStopNow() }
+            onCompleteRequested = { requestCompleteNow() }
         )
         toolHandle?.bindStopAction {
             requestStopNow()
@@ -77,7 +82,7 @@ class OobFunctionFrontendSessionController(
                         message = helper.localized("准备执行复用指令"),
                         subMessage = helper.localized(label),
                         forceOnTop = true,
-                        isTouchable = false
+                        isTouchable = true
                     )
                 }
             }.onFailure {
@@ -88,6 +93,7 @@ class OobFunctionFrontendSessionController(
             runId = runId,
             taskId = taskId,
             stopRequested = stopRequested,
+            completeRequested = completeRequested,
             label = label,
             helper = helper,
             functionId = functionId,
@@ -99,9 +105,15 @@ class OobFunctionFrontendSessionController(
     }
 
     private suspend fun canUseMainDispatcher(): Boolean =
-        runCatching {
-            withContext(Dispatchers.Main.immediate) { true }
-        }.getOrDefault(false)
+        withTimeoutOrNull(MAIN_DISPATCHER_PROBE_TIMEOUT_MS) {
+            runCatching {
+                withContext(Dispatchers.Main.immediate) { true }
+            }.getOrDefault(false)
+        } ?: false
+
+    private fun isHeadlessJvm(): Boolean =
+        System.getProperty("java.awt.headless")
+            ?.equals("true", ignoreCase = true) == true
 
     private fun frontendLabel(
         functionId: String,
@@ -120,6 +132,7 @@ class OobFunctionFrontendSessionController(
         private val runId: String,
         private val taskId: String,
         private val stopRequested: AtomicBoolean,
+        private val completeRequested: AtomicBoolean,
         private val label: String,
         private val helper: SharedHelper,
         private val functionId: String,
@@ -133,6 +146,11 @@ class OobFunctionFrontendSessionController(
         }
 
         fun isStopRequested(): Boolean = stopRequested.get()
+
+        fun isCompleteRequested(): Boolean = completeRequested.get()
+
+        fun isUserFinishedRequested(): Boolean =
+            completeRequested.get() && !stopRequested.get()
 
         fun throwIfStopRequested() {
             if (stopRequested.get()) {
@@ -168,7 +186,7 @@ class OobFunctionFrontendSessionController(
                             message = message,
                             subMessage = helper.localized(progressText),
                             forceOnTop = true,
-                            isTouchable = false
+                            isTouchable = true
                         )
                     }
                 }.onFailure {
@@ -201,14 +219,14 @@ class OobFunctionFrontendSessionController(
                                 message = helper.localized("复用指令执行完成"),
                                 subMessage = helper.localized("智能执行中"),
                                 forceOnTop = true,
-                                isTouchable = false
+                                isTouchable = true
                             )
                         } else {
                             DraggableBallInstance.doingTask(
                                 message = helper.localized(message.ifBlank { "任务已完成" }),
                                 subMessage = helper.localized(label),
                                 forceOnTop = true,
-                                isTouchable = false
+                                isTouchable = true
                             )
                             if (closeAfterMs > 0L) {
                                 delay(closeAfterMs)
@@ -227,6 +245,7 @@ class OobFunctionFrontendSessionController(
 
     private companion object {
         const val TAG = "OobFunctionFrontendSession"
+        const val MAIN_DISPATCHER_PROBE_TIMEOUT_MS = 100L
         val STEP_PROGRESS_REGEX = Regex("""第\s*(\d+)\s*/\s*\d+\s*步""")
 
         fun dispatchRunProgress(

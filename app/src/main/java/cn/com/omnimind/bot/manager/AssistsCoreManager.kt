@@ -1145,7 +1145,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         return runsToCancel.isNotEmpty()
     }
 
-    private fun completeActiveAgentRun(taskId: String?, reason: String) {
+    private fun completeActiveAgentRun(taskId: String?, reason: String): Boolean {
         val runsToComplete = synchronized(activeAgentLock) {
             if (taskId.isNullOrBlank()) {
                 activeAgentRuns.values.toList()
@@ -1160,6 +1160,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 run.job.cancel(CancellationException(reason))
             }
         }
+        return runsToComplete.isNotEmpty()
     }
 
     private fun publishManualAgentCancellation(run: ActiveAgentRunContext) {
@@ -2218,6 +2219,44 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 OmniLog.e(TAG, "cancelRunningTask error: ${e.message}")
                 withContext(Dispatchers.Main) {
                     result.error("CANCEL_RUNNING_TASK_ERROR", e.message, null)
+                }
+            }
+        }
+    }
+
+    fun completeRunningTask(
+        call: MethodCall, result: MethodChannel.Result,
+    ) {
+        mainJob.launch {
+            try {
+                val taskId = call.argument<String>("taskId")?.trim()?.takeIf { it.isNotEmpty() }
+                val completedOmniFlowSession = taskId?.let {
+                    OmniFlowUiSession.requestCompleteSession(it)
+                } ?: OmniFlowUiSession.requestCompleteActiveSession()
+                val completedVlmSession = taskId?.let {
+                    AgentVlmUiSession.requestCompleteSession(it)
+                } ?: AgentVlmUiSession.requestCompleteActiveSession()
+                val completedAgentRun = taskId?.let {
+                    completeActiveAgentRun(it, "agent_vlm_ui_completed")
+                } ?: completeActiveAgentRun(null, "agent_vlm_ui_completed")
+                if (
+                    taskId != null &&
+                    !completedOmniFlowSession &&
+                    !completedVlmSession &&
+                    !completedAgentRun
+                ) {
+                    OmniLog.w(
+                        TAG,
+                        "completeRunningTask target not found; ignoring stale targeted complete: taskId=$taskId"
+                    )
+                }
+                withContext(Dispatchers.Main) {
+                    result.success("SUCCESS")
+                }
+            } catch (e: Exception) {
+                OmniLog.e(TAG, "completeRunningTask error: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    result.error("COMPLETE_RUNNING_TASK_ERROR", e.message, null)
                 }
             }
         }

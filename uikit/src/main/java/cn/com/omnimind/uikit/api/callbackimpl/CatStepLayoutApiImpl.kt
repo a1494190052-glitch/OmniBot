@@ -37,21 +37,7 @@ class CatStepLayoutApiImpl : CatStepLayoutApi {
             DraggableBallInstance.finishDoingTask("录制已取消")
             return
         }
-        if (AgentVlmUiSession.requestStopActiveSession()) {
-            DraggableBallInstance.finishDoingTask("任务已停止")
-            if (!CompanionOverlaySettings.isEnabled()) {
-                CompanionOverlaySettings.dismissFloatingUi()
-            }
-            return
-        }
-        if (OmniFlowUiSession.requestStopActiveSession()) {
-            DraggableBallInstance.finishDoingTask("任务已停止")
-            if (!CompanionOverlaySettings.isEnabled()) {
-                CompanionOverlaySettings.dismissFloatingUi()
-            }
-            return
-        }
-        if (UIKit.executionTaskEventApi?.vlmTask != null && completeActiveVlmUiSession()) {
+        if (completeActiveOmniFlowUiSession()) {
             return
         }
         if (completeActiveVlmUiSession()) {
@@ -95,7 +81,25 @@ class CatStepLayoutApiImpl : CatStepLayoutApi {
         if (UIKit.executionTaskEventApi?.taskType == ExecutingTaskType.VLM) {
             DraggableBallInstance.pauseTask("用户已接管任务")
             UIKit.executionTaskEventApi?.vlmTask?.requestPause()
+            return
         }
+        if (OmniFlowUiSession.requestStopActiveSession()) {
+            DraggableBallInstance.finishDoingTask("用户已接管任务")
+            if (!CompanionOverlaySettings.isEnabled()) {
+                CompanionOverlaySettings.dismissFloatingUi()
+            }
+        }
+    }
+
+    private fun completeActiveOmniFlowUiSession(): Boolean {
+        if (!OmniFlowUiSession.requestCompleteActiveSession()) {
+            return false
+        }
+        DraggableBallInstance.finishDoingTask("任务已完成")
+        if (!CompanionOverlaySettings.isEnabled()) {
+            CompanionOverlaySettings.dismissFloatingUi()
+        }
+        return true
     }
 
     private fun completeActiveVlmUiSession(): Boolean {

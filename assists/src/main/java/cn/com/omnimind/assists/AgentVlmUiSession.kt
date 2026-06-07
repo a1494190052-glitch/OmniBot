@@ -119,19 +119,7 @@ object AgentVlmUiSession {
     fun requestStopSession(runOrTaskId: String?): Boolean {
         val normalizedId = runOrTaskId?.trim().orEmpty()
         val callbacks = synchronized(lock) {
-            val candidates = if (normalizedId.isEmpty()) {
-                sessionsByRunId.values.toList()
-            } else {
-                val runId = if (sessionsByRunId.containsKey(normalizedId)) {
-                    normalizedId
-                } else {
-                    val ownerRunId = runIdByTaskId[normalizedId]
-                    ownerRunId?.takeIf { runId ->
-                        sessionsByRunId[runId]?.activeTaskIds?.contains(normalizedId) == true
-                    }
-                }
-                runId?.let { sessionsByRunId[it] }?.let(::listOf).orEmpty()
-            }
+            val candidates = resolveCandidateSessionsLocked(normalizedId)
             candidates
                 .filter { it.hasVlmTask && !it.completeRequested && !it.stopRequested }
                 .onEach { it.stopRequested = true }
@@ -141,15 +129,33 @@ object AgentVlmUiSession {
         return callbacks.isNotEmpty()
     }
 
-    fun requestCompleteActiveSession(): Boolean {
+    fun requestCompleteActiveSession(): Boolean = requestCompleteSession(null)
+
+    fun requestCompleteSession(runOrTaskId: String?): Boolean {
+        val normalizedId = runOrTaskId?.trim().orEmpty()
         val callbacks = synchronized(lock) {
-            sessionsByRunId.values
-                .filter { it.hasVlmTask && !it.stopRequested }
+            resolveCandidateSessionsLocked(normalizedId)
+                .filter { it.hasVlmTask && !it.stopRequested && !it.completeRequested }
                 .onEach { it.completeRequested = true }
                 .mapNotNull { it.onCompleteRequested }
         }
         callbacks.forEach { runCatching { it.invoke() } }
         return callbacks.isNotEmpty()
+    }
+
+    private fun resolveCandidateSessionsLocked(normalizedId: String): List<SessionState> {
+        if (normalizedId.isEmpty()) {
+            return sessionsByRunId.values.toList()
+        }
+        val runId = if (sessionsByRunId.containsKey(normalizedId)) {
+            normalizedId
+        } else {
+            val ownerRunId = runIdByTaskId[normalizedId]
+            ownerRunId?.takeIf { runId ->
+                sessionsByRunId[runId]?.activeTaskIds?.contains(normalizedId) == true
+            }
+        }
+        return runId?.let { sessionsByRunId[it] }?.let(::listOf).orEmpty()
     }
 
     fun endRun(runId: String): EndResult {

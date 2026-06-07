@@ -125,15 +125,7 @@ class AgentOrchestrator(
                         toolChoice = toolChoiceForRound,
                         parallelToolCalls = true
                     ),
-                    assistantContentPrefix = assistantContentPrefix,
-                    onToolCallUpdate = { snapshot ->
-                        callback.onToolCallPreview(
-                            toolName = snapshot.name.orEmpty(),
-                            argumentsJson = snapshot.arguments,
-                            toolCallId = snapshot.id,
-                            toolCallIndex = snapshot.index
-                        )
-                    }
+                    assistantContentPrefix = assistantContentPrefix
                 )
 
                 lastFinishReason = turn.finishReason
@@ -149,6 +141,14 @@ class AgentOrchestrator(
                     content = rawAssistantContent
                 )
                 val toolCalls = turn.message.toolCalls.orEmpty()
+                toolCalls.forEachIndexed { index, call ->
+                    callback.onToolCallPreview(
+                        toolName = call.function.name,
+                        argumentsJson = call.function.arguments,
+                        toolCallId = call.id,
+                        toolCallIndex = index
+                    )
+                }
                 logInfo(
                     tag,
                     "round=$round parsed_tool_calls=${toolCalls.size} finish_reason=${lastFinishReason.orEmpty()} assistant_content_len=${lastAssistantContent.length}"
@@ -488,8 +488,7 @@ class AgentOrchestrator(
     private suspend fun streamTurnWithRetry(
         callback: AgentCallback,
         request: ChatCompletionRequest,
-        assistantContentPrefix: String,
-        onToolCallUpdate: (suspend (StreamingToolCallSnapshot) -> Unit)? = null
+        assistantContentPrefix: String
     ): ChatCompletionTurn {
         var retryCount = 0
         while (true) {
@@ -512,8 +511,7 @@ class AgentOrchestrator(
                                 false
                             )
                         }
-                    },
-                    onToolCallUpdate = onToolCallUpdate
+                    }
                 )
             } catch (e: CancellationException) {
                 throw e
@@ -885,6 +883,7 @@ class AgentOrchestrator(
         }
         val actionGoal = userGoalRequiresExternalAction(userGoal)
         val actionIntent = containsActionIntentWithoutToolCall(normalized)
+        val externalActionIntent = containsExternalActionIntentWithoutToolCall(normalized)
         val intermediateUpdate = looksLikeIntermediateExecutionUpdate(normalized)
         val explicitFinalCue = containsExplicitFinalAnswerCue(normalized)
         val answerTooThinForActionGoal =
@@ -900,17 +899,21 @@ class AgentOrchestrator(
                 intermediateUpdate = intermediateUpdate,
                 answerTooThinForActionGoal = answerTooThinForActionGoal
             )
+        // 仅在用户目标本身就需要外部动作（actionGoal）时，才把"过渡语/中间态描述"
+        // 视作未完成执行。否则纯聊天里的"接下来…""我先看一下你的想法…"会被误判，
+        // 触发硬编码的 missingToolCallRecovery，导致用户感知到的卡顿与重复回复。
         val taskStillExecuting =
             roundStartsAfterToolResult ||
                 (hasPriorToolCall && (actionIntent || intermediateUpdate)) ||
-                actionIntent ||
-                intermediateUpdate ||
+                (actionGoal && (actionIntent || intermediateUpdate)) ||
+                externalActionIntent ||
                 answerTooThinForActionGoal
         val shouldRecover = taskStillExecuting && !completeFinalAnswer
         val reason = when {
             roundStartsAfterToolResult && !completeFinalAnswer -> "pending_tool_chain"
-            actionIntent && !completeFinalAnswer -> "action_intent_without_tool_call"
-            intermediateUpdate && !completeFinalAnswer -> "intermediate_status_without_result"
+            actionGoal && actionIntent && !completeFinalAnswer -> "action_intent_without_tool_call"
+            externalActionIntent && !completeFinalAnswer -> "action_intent_without_tool_call"
+            actionGoal && intermediateUpdate && !completeFinalAnswer -> "intermediate_status_without_result"
             answerTooThinForActionGoal -> "action_goal_reply_too_thin"
             completeFinalAnswer -> "complete_final_answer"
             else -> "plain_text_terminal_reply"
@@ -967,6 +970,21 @@ class AgentOrchestrator(
             RegexOption.IGNORE_CASE
         )
         return englishActionIntent.containsMatchIn(content)
+    }
+
+    private fun containsExternalActionIntentWithoutToolCall(content: String): Boolean {
+        val chineseExternalActionIntent = Regex(
+            """(?:让我|我|我来|我会|我将|我先|我再|我去|我来为您|我来帮您|我帮您)(?:先|再|再一次|最后一次|最后再|去|来为您|来帮您)?(?:[^。！？；，,\n]{0,16})?(?:查找|寻找|查询|查|检查|搜索|搜|核实|确认|回到|返回|回去|尝试|试着|筛选|过滤|定位|打开|点击|进入|读取|执行|运行)""",
+            RegexOption.IGNORE_CASE
+        )
+        if (chineseExternalActionIntent.containsMatchIn(content)) {
+            return true
+        }
+        val englishExternalActionIntent = Regex(
+            """\b(?:let me|i(?:'ll| will)|first,\s*let me)\s+(?:check|search|verify|find|try|return|open|click|navigate|filter|read|run|install|download|submit|fill|select|toggle|create|delete|edit)\b""",
+            RegexOption.IGNORE_CASE
+        )
+        return englishExternalActionIntent.containsMatchIn(content)
     }
 
     private fun userGoalRequiresExternalAction(content: String): Boolean {

@@ -216,4 +216,59 @@ class AgentLlmStreamAccumulatorTest {
         assertEquals("", turn.reasoning)
         assertEquals("normal answer", turn.message.contentText())
     }
+
+    @Test
+    fun `guarded leading buffer releases large normal content before stream end`() {
+        val accumulator = AgentLlmStreamAccumulator(
+            json = json,
+            preferInlineThinkTags = false,
+            bufferLeadingTextUntilInlineThinkTag = true,
+            guardLeadingReasoningLeak = true
+        )
+        val safeChunk = "A".repeat(950)
+
+        accumulator.consume("""{"choices":[{"delta":{"content":"$safeChunk"}}]}""")
+
+        assertEquals(safeChunk, accumulator.currentContent())
+    }
+
+    @Test
+    fun `guarded leading buffer aborts on high confidence reasoning leak pattern`() {
+        val accumulator = AgentLlmStreamAccumulator(
+            json = json,
+            preferInlineThinkTags = false,
+            bufferLeadingTextUntilInlineThinkTag = true,
+            guardLeadingReasoningLeak = true
+        )
+
+        val error = runCatching {
+            accumulator.consume(
+                """{"choices":[{"delta":{"content":"# Understanding the User's Question\nThe user is asking for a fix"}}]}"""
+            )
+        }.exceptionOrNull()
+
+        requireNotNull(error)
+        assertTrue(error is AgentStreamReasoningLeakException)
+        assertTrue(error.message.orEmpty().contains("guarded route leaked reasoning-looking content"))
+        assertEquals("", accumulator.currentContent())
+    }
+
+    @Test
+    fun `guarded leading buffer does not abort on single secondary pattern`() {
+        val accumulator = AgentLlmStreamAccumulator(
+            json = json,
+            preferInlineThinkTags = false,
+            bufferLeadingTextUntilInlineThinkTag = true,
+            guardLeadingReasoningLeak = true
+        )
+
+        accumulator.consume(
+            """{"choices":[{"delta":{"content":"The user is asking about the build fix."}}]}"""
+        )
+
+        val turn = accumulator.buildTurn()
+
+        assertEquals("", turn.reasoning)
+        assertEquals("The user is asking about the build fix.", turn.message.contentText())
+    }
 }

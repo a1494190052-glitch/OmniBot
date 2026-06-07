@@ -20,6 +20,7 @@ import 'pages/settings/workspace_memory_setting_page.dart';
 import 'pages/settings/background_setting_page.dart';
 import 'pages/settings/experience_misc_setting_page.dart';
 import 'pages/settings/home_setting_page.dart';
+import 'pages/settings/imessage_setting_page.dart';
 import 'pages/settings/open_with_omnibot_setting_page.dart';
 import 'pages/settings/storage_usage_page.dart';
 import 'pages/omnibot_workspace/omnibot_artifact_preview_page.dart';
@@ -123,25 +124,13 @@ ConversationThreadTarget? _parseChatThreadTarget(GoRouterState state) {
   );
 }
 
-String? _parseChatInitialSurfaceMode(GoRouterState state) {
-  final surface = state.uri.queryParameters['surface']?.trim().toLowerCase();
-  return switch (surface) {
-    'workspace' || 'work' => 'workspace',
-    'project' => 'project',
-    _ => null,
-  };
-}
-
 List<GoRoute> homeRoutes = [
   // 兼容旧首页路由，统一落到聊天页
   GoRoute(
     path: '/home/home',
     name: 'home/home',
     builder: (context, state) {
-      return ChatPage(
-        threadTarget: _parseChatThreadTarget(state),
-        initialSurfaceMode: _parseChatInitialSurfaceMode(state),
-      );
+      return ChatPage(threadTarget: _parseChatThreadTarget(state));
     },
   ),
   GoRoute(
@@ -155,10 +144,7 @@ List<GoRoute> homeRoutes = [
     path: '/home/chat',
     name: 'home/chat',
     builder: (context, state) {
-      return ChatPage(
-        threadTarget: _parseChatThreadTarget(state),
-        initialSurfaceMode: _parseChatInitialSurfaceMode(state),
-      );
+      return ChatPage(threadTarget: _parseChatThreadTarget(state));
     },
   ),
 
@@ -231,7 +217,6 @@ List<GoRoute> homeRoutes = [
         workspacePath: (extra['workspacePath'] ?? '').toString(),
         workspaceId: extra['workspaceId']?.toString(),
         workspaceShellPath: extra['workspaceShellPath']?.toString(),
-        startInProjectMode: extra['startInProjectMode'] != false,
       );
     },
   ),
@@ -380,6 +365,16 @@ List<GoRoute> homeRoutes = [
       key: state.pageKey,
       name: 'home/open_with_omnibot_setting',
       child: const OpenWithOmnibotSettingPage(),
+    ),
+  ),
+
+  GoRoute(
+    path: '/home/imessage_setting',
+    name: 'home/imessage_setting',
+    pageBuilder: (context, state) => GoRouterManager.buildActivitySlidePage(
+      key: state.pageKey,
+      name: 'home/imessage_setting',
+      child: const ImessageSettingPage(),
     ),
   ),
 

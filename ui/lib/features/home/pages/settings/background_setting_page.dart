@@ -338,7 +338,6 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
     if (config.sourceType == AppBackgroundSourceType.local &&
         config.localImagePath.trim().isNotEmpty &&
         !await File(config.localImagePath).exists()) {
-      if (!mounted) return null;
       return context.l10n.appearanceLocalImageMissing;
     }
     if (config.sourceType == AppBackgroundSourceType.remote) {
@@ -346,7 +345,6 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
       if (uri == null ||
           !(uri.scheme == 'http' || uri.scheme == 'https') ||
           (uri.host.isEmpty)) {
-        if (!mounted) return null;
         return context.l10n.appearanceInvalidHttpUrl;
       }
     }
@@ -504,7 +502,7 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
               Padding(
                 padding: const EdgeInsets.only(left: 4, bottom: 12),
                 child: Text(
-                  context.trText(_autoSaveHint),
+                  context.trLegacy(_autoSaveHint),
                   style: TextStyle(
                     fontSize: 12,
                     color: palette.textSecondary,
@@ -1134,14 +1132,14 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
     final identityBaseName = _petIdentityBaseName(file);
     final candidates = <File>[
       File('${file.parent.path}${Platform.pathSeparator}${baseName}_readme.md'),
-      File('${file.parent.path}${Platform.pathSeparator}$baseName.md'),
+      File('${file.parent.path}${Platform.pathSeparator}${baseName}.md'),
       if (identityBaseName != baseName)
         File(
           '${file.parent.path}${Platform.pathSeparator}${identityBaseName}_readme.md',
         ),
       if (identityBaseName != baseName)
         File(
-          '${file.parent.path}${Platform.pathSeparator}$identityBaseName.md',
+          '${file.parent.path}${Platform.pathSeparator}${identityBaseName}.md',
         ),
       File('${file.parent.path}${Platform.pathSeparator}README.md'),
     ];
@@ -1152,7 +1150,7 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
           '$workspaceRoot${Platform.pathSeparator}pets${Platform.pathSeparator}${baseName}_readme.md',
         ),
         File(
-          '$workspaceRoot${Platform.pathSeparator}pets${Platform.pathSeparator}$baseName.md',
+          '$workspaceRoot${Platform.pathSeparator}pets${Platform.pathSeparator}${baseName}.md',
         ),
         if (identityBaseName != baseName)
           File(
@@ -1160,7 +1158,7 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
           ),
         if (identityBaseName != baseName)
           File(
-            '$workspaceRoot${Platform.pathSeparator}pets${Platform.pathSeparator}$identityBaseName.md',
+            '$workspaceRoot${Platform.pathSeparator}pets${Platform.pathSeparator}${identityBaseName}.md',
           ),
       ]);
     }
@@ -1594,7 +1592,8 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
       final outputExists = await outputFile.exists();
       final existingUsable =
           outputExists && await _isUsablePetImage(outputFile);
-      final pictureInfo = await vg.loadPicture(SvgFileLoader(svgFile), null);
+      final svgText = await svgFile.readAsString();
+      final pictureInfo = await vg.loadPicture(SvgStringLoader(svgText), null);
       final sourceSize = pictureInfo.size;
       if (sourceSize.width <= 0 || sourceSize.height <= 0) {
         pictureInfo.picture.dispose();
@@ -1944,6 +1943,17 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
     return null;
   }
 
+  String _shellPathForFile(String path, String workspaceRoot) {
+    final normalized = _normalizePath(path);
+    final normalizedRoot = _normalizePath(workspaceRoot);
+    if (normalizedRoot.isEmpty) return path;
+    if (normalized == normalizedRoot) return '/workspace';
+    if (normalized.startsWith('$normalizedRoot/')) {
+      return '/workspace/${normalized.substring(normalizedRoot.length + 1)}';
+    }
+    return path;
+  }
+
   String _resolveWorkspaceDisplayPath(String path, String workspaceRoot) {
     final trimmed = path.trim();
     if (trimmed == '/workspace') return workspaceRoot;
@@ -1975,7 +1985,9 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
   Future<void> _selectPet(_OverlayPetOption option) async {
     setState(() => _petBusy = true);
     try {
-      final imagePath = option.isBuiltin ? '' : _playbackPathForPetOption(option);
+      final imagePath = option.isBuiltin
+          ? ''
+          : _playbackPathForPetOption(option);
       await StorageService.setPetOverlaySelectedId(option.id);
       await StorageService.setPetOverlayImagePath(imagePath);
       final synced = await OverlayService.setPetOverlayImagePath(
@@ -2148,6 +2160,9 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
         ? imageFile.lastModifiedSync().millisecondsSinceEpoch
         : 0;
     final isSvg = option.imagePath.toLowerCase().endsWith('.svg');
+    final svgText = isSvg && imageFile != null
+        ? _readPetPreviewSvgText(imageFile)
+        : null;
     return Container(
       width: 58,
       height: 58,
@@ -2164,9 +2179,9 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
                 'assets/avatar/default_avatar1.png',
                 fit: BoxFit.contain,
               )
-            : isSvg
-            ? SvgPicture.file(
-                imageFile!,
+            : isSvg && svgText != null
+            ? SvgPicture.string(
+                svgText,
                 key: ValueKey('${option.imagePath}:$imageStamp'),
                 fit: BoxFit.contain,
                 placeholderBuilder: (_) =>
@@ -2183,6 +2198,17 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
               ),
       ),
     );
+  }
+
+  String? _readPetPreviewSvgText(File file) {
+    try {
+      if (!file.existsSync()) {
+        return null;
+      }
+      return file.readAsStringSync();
+    } catch (_) {
+      return null;
+    }
   }
 
   Widget _buildSliderRow({
@@ -2203,7 +2229,7 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
           Row(
             children: [
               Text(
-                context.trText(label),
+                context.trLegacy(label),
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
@@ -2219,7 +2245,7 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
           ),
           const SizedBox(height: 2),
           Text(
-            context.trText(subtitle),
+            context.trLegacy(subtitle),
             style: TextStyle(fontSize: 12, color: palette.textSecondary),
           ),
           Slider(value: value, min: min, max: max, onChanged: onChanged),

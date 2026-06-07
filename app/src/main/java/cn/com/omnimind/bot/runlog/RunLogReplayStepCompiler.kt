@@ -299,6 +299,7 @@ internal object RunLogReplayStepCompiler {
             "model_free" to true,
             "scriptable" to true,
             "tool" to replayAction,
+            "omniflow_action" to replayAction,
             "args" to args,
             "source_context" to sourceContext.takeIf { it.isNotEmpty() },
             "utg" to utg.takeIf { it.isNotEmpty() },
