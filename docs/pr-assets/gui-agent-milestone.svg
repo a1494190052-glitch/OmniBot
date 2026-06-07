@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  <title id="title">GUI Agent Milestone Architecture</title>
+  <desc id="desc">A diagram summarizing the GUI, RunLog, OmniFlow, VLM, and accessibility changes in the milestone branch.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f7f8fb; }
+      .title { font: 700 34px Arial, Helvetica, sans-serif; fill: #172033; }
+      .subtitle { font: 400 18px Arial, Helvetica, sans-serif; fill: #516070; }
+      .label { font: 700 20px Arial, Helvetica, sans-serif; fill: #162033; }
+      .body { font: 400 15px Arial, Helvetica, sans-serif; fill: #415061; }
+      .small { font: 400 13px Arial, Helvetica, sans-serif; fill: #657384; }
+      .node { stroke: #d5dbe6; stroke-width: 2; rx: 12; }
+      .arrow { stroke: #64748b; stroke-width: 3; fill: none; marker-end: url(#arrowhead); }
+      .hub { fill: #172033; }
+      .hub-text { font: 700 20px Arial, Helvetica, sans-serif; fill: #ffffff; }
+      .hub-small { font: 400 13px Arial, Helvetica, sans-serif; fill: #d9e2ec; }
+    </style>
+    <marker id="arrowhead" markerWidth="12" markerHeight="8" refX="10" refY="4" orient="auto">
+      <path d="M0,0 L12,4 L0,8 Z" fill="#64748b" />
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1280" height="720" />
+  <text class="title" x="72" y="74">GUI Agent Milestone PR</text>
+  <text class="subtitle" x="72" y="108">Scope relative to main: Flutter GUI, agent streaming, RunLog, OmniFlow replay, VLM grounding, and native overlays</text>
+
+  <rect class="node" x="72" y="160" width="260" height="150" fill="#ffffff" />
+  <text class="label" x="96" y="198">Flutter GUI</text>
+  <text class="body" x="96" y="228">Agent run cards</text>
+  <text class="body" x="96" y="252">RunLog timeline pages</text>
+  <text class="body" x="96" y="276">Function library surfaces</text>
+  <text class="small" x="96" y="300">ui/lib/features + shared widgets</text>
+
+  <rect class="node" x="510" y="150" width="260" height="170" fill="#eef6ff" />
+  <text class="label" x="534" y="188">Canonical Actions</text>
+  <text class="body" x="534" y="218">Unified GUI action schema</text>
+  <text class="body" x="534" y="242">call_tool replay contracts</text>
+  <text class="body" x="534" y="266">Argument binding diagnostics</text>
+  <text class="small" x="534" y="292">baselib/runlog + schemas/oob</text>
+
+  <rect class="node" x="948" y="160" width="260" height="150" fill="#fff4e8" />
+  <text class="label" x="972" y="198">VLM Integration</text>
+  <text class="body" x="972" y="228">Qwen tool-call parsing</text>
+  <text class="body" x="972" y="252">Function recall guidance</text>
+  <text class="body" x="972" y="276">Grounded action execution</text>
+  <text class="small" x="972" y="300">assists/task/vlmserver</text>
+
+  <rect class="node" x="72" y="435" width="260" height="150" fill="#f0fbf4" />
+  <text class="label" x="96" y="473">RunLog</text>
+  <text class="body" x="96" y="503">Recording and replay cards</text>
+  <text class="body" x="96" y="527">Reusable function compiler</text>
+  <text class="body" x="96" y="551">Token and timing telemetry</text>
+  <text class="small" x="96" y="575">app/runlog + ui execution history</text>
+
+  <rect class="hub" x="484" y="392" width="312" height="150" rx="14" />
+  <text class="hub-text" x="529" y="445">OmniFlow Replay Core</text>
+  <text class="hub-small" x="538" y="477">Observe polling, action transfer,</text>
+  <text class="hub-small" x="557" y="501">graph paths, diagnostics</text>
+
+  <rect class="node" x="948" y="435" width="260" height="150" fill="#fff1f3" />
+  <text class="label" x="972" y="473">Native Control</text>
+  <text class="body" x="972" y="503">Accessibility actions</text>
+  <text class="body" x="972" y="527">Manual recording overlays</text>
+  <text class="body" x="972" y="551">Uikit progress controls</text>
+  <text class="small" x="972" y="575">accessibility + assists + uikit</text>
+
+  <path class="arrow" d="M332 235 C405 235, 430 235, 510 235" />
+  <path class="arrow" d="M770 235 C850 235, 875 235, 948 235" />
+  <path class="arrow" d="M202 310 C245 380, 320 430, 484 455" />
+  <path class="arrow" d="M1078 310 C1035 380, 960 430, 796 455" />
+  <path class="arrow" d="M332 510 C392 510, 424 496, 484 480" />
+  <path class="arrow" d="M796 480 C856 496, 888 510, 948 510" />
+  <path class="arrow" d="M640 320 L640 392" />
+
+  <rect x="72" y="636" width="1136" height="34" rx="8" fill="#e8edf5" />
+  <text class="small" x="96" y="658">Validation focus: no merge conflict with main, branch diff whitespace clean, replay unit tests cover observe polling and high-confidence action readiness.</text>
+</svg>
