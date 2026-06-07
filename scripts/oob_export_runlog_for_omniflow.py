@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +54,31 @@ def _compact_action_params(card: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
+RESOURCE_ID_RE = re.compile(r"\b[A-Za-z0-9_.]+:id/[A-Za-z0-9_]+\b")
+
+
+def _source_element_from_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
+    label = str(evidence.get("label") or evidence.get("text") or "").strip()
+    resource_id = (
+        evidence.get("resource_id")
+        or evidence.get("resource-id")
+        or evidence.get("node_resource_id")
+    )
+    if not resource_id and label:
+        match = RESOURCE_ID_RE.search(label)
+        if match:
+            resource_id = match.group(0)
+            label = label.replace(resource_id, "").strip()
+    element = {
+        "text": evidence.get("text") or label,
+        "content_desc": evidence.get("content_desc") or evidence.get("content-desc"),
+        "resource_id": resource_id,
+        "bounds": evidence.get("bounds"),
+        "clickable": evidence.get("clickable"),
+    }
+    return {key: value for key, value in element.items() if value not in (None, "", [])}
+
+
 def _source_context_for_card(card: dict[str, Any]) -> dict[str, Any]:
     source_context = card.get("source_context") if isinstance(card.get("source_context"), dict) else {}
     src_ctx = source_context.get("src_ctx") if isinstance(source_context.get("src_ctx"), dict) else {}
@@ -63,14 +89,9 @@ def _source_context_for_card(card: dict[str, Any]) -> dict[str, Any]:
         context["page"] = page
     evidence = params.get("target_evidence")
     if isinstance(evidence, dict):
-        element = {
-            "text": evidence.get("text") or evidence.get("label"),
-            "content_desc": evidence.get("content_desc") or evidence.get("content-desc"),
-            "resource_id": evidence.get("resource_id") or evidence.get("resource-id"),
-            "bounds": evidence.get("bounds"),
-            "clickable": evidence.get("clickable"),
-        }
-        context["element"] = {key: value for key, value in element.items() if value not in (None, "", [])}
+        element = _source_element_from_evidence(evidence)
+        if element:
+            context["element"] = element
     return context
 
 

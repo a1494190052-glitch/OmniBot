@@ -75,6 +75,7 @@ object AgentSystemPrompt {
                     when (locale) {
                         PromptLocale.ZH_CN -> {
                             appendLine("- ${skill.name} (`${skill.id}`)")
+                            appendLine("  - id=${skill.id}")
                             appendLine("  - 讲解: $description")
                             appendLine("  - 样例: $examples")
                             appendLine("  - 能力目录: $capabilities")
@@ -85,6 +86,7 @@ object AgentSystemPrompt {
                         }
                         PromptLocale.EN_US -> {
                             appendLine("- ${skill.name} (`${skill.id}`)")
+                            appendLine("  - id=${skill.id}")
                             appendLine("  - Explanation: $description")
                             appendLine("  - Examples: $examples")
                             appendLine("  - Capability dirs: $capabilities")

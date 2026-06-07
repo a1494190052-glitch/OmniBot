@@ -28,6 +28,7 @@ class OobFunctionUpdateService(
     private val intentParser: OobFunctionUpdateIntentParser = OobFunctionUpdateIntentParser(),
 ) {
     fun updateFunction(args: Map<String, Any?>?): Map<String, Any?> {
+        val updateStartedAtMs = System.currentTimeMillis()
         val request = args ?: emptyMap()
         val runId = firstNonBlank(request["run_id"])
         val runLogTimeline = if (runId.isNotEmpty()) {
@@ -61,6 +62,13 @@ class OobFunctionUpdateService(
             .ifEmpty { mapArg(request["function_patch"]) }
             .ifEmpty { mapArg(request["updates"]) }
             .ifEmpty { mapArg(analysis["recommended_patch"]) }
+        val updateCost = updateCostPayload(
+            request = request,
+            analysis = analysis,
+            patch = patch,
+            startedAtMs = updateStartedAtMs,
+            mode = requestedMode,
+        )
 
         if (runId.isNotEmpty() && analysis.isEmpty() && patch.isEmpty()) {
             val analysisContext = evidencePackager.analysisContext(
@@ -74,6 +82,7 @@ class OobFunctionUpdateService(
                 "needs_agent_analysis" to true, "analysis_context" to analysisContext,
                 "agent_prompt" to evidencePackager.agentPrompt(analysisContext),
                 "message" to "已读取 Function 和 RunLog，等待 agent 分析后再保存。",
+                "cost" to updateCost,
                 "source" to "oob_native_omniflow_toolkit"
             )
         }
@@ -140,13 +149,21 @@ class OobFunctionUpdateService(
         }
 
         val changed = changes.isNotEmpty()
-        appendUpdateAudit(spec = updated, mode = mode, instruction = instruction, changed = changed, dryRun = dryRun, changes = changes)
+        appendUpdateAudit(
+            spec = updated,
+            mode = mode,
+            instruction = instruction,
+            changed = changed,
+            dryRun = dryRun,
+            changes = changes,
+            updateCost = updateCost,
+        )
         if (!changed) {
             return linkedMapOf(
                 "success" to true, "function_id" to functionId, "mode" to mode,
                 "changed" to false, "saved" to false, "dry_run" to dryRun,
                 "requires_confirmation" to false, "message" to "未找到可安全应用的 Function 更新。",
-                "changes" to changes, "source" to "oob_native_omniflow_toolkit"
+                "changes" to changes, "cost" to updateCost, "source" to "oob_native_omniflow_toolkit"
             )
         }
         if (dryRun) {
@@ -155,6 +172,7 @@ class OobFunctionUpdateService(
                 "changed" to true, "saved" to false, "dry_run" to true,
                 "requires_confirmation" to false, "changes" to changes,
                 "updated_function" to updated, "message" to "已生成 Function 更新预览，未保存。",
+                "cost" to updateCost,
                 "source" to "oob_native_omniflow_toolkit"
             )
         }
@@ -166,6 +184,7 @@ class OobFunctionUpdateService(
             "mode" to mode, "changed" to changed, "saved" to saved, "dry_run" to false,
             "requires_confirmation" to false, "changes" to changes, "save" to save,
             "message" to if (saved) "Function 已更新并保存。" else save["error_message"]?.toString() ?: "Function 更新保存失败。",
+            "cost" to updateCost,
             "source" to "oob_native_omniflow_toolkit"
         )
     }
@@ -426,7 +445,15 @@ class OobFunctionUpdateService(
         return listOf(changeMap("metadata", "oob_function_evidence", existing.takeIf { it.isNotEmpty() }, evidence))
     }
 
-    private fun appendUpdateAudit(spec: MutableMap<String, Any?>, mode: String, instruction: String, changed: Boolean, dryRun: Boolean, changes: List<Map<String, Any?>>) {
+    private fun appendUpdateAudit(
+        spec: MutableMap<String, Any?>,
+        mode: String,
+        instruction: String,
+        changed: Boolean,
+        dryRun: Boolean,
+        changes: List<Map<String, Any?>>,
+        updateCost: Map<String, Any?>,
+    ) {
         val metadata = mutableJsonMap(mapArg(spec["metadata"]))
         metadata["oob_function_update"] = linkedMapOf(
             "schema_version" to "oob.function_update.v1", "tool" to OobFunctionToolNames.FUNCTION_UPDATE,
@@ -434,6 +461,7 @@ class OobFunctionUpdateService(
             "changed" to changed, "dry_run" to dryRun,
             "instruction" to instruction.takeIf { it.isNotBlank() },
             "change_count" to changes.size, "updated_at_ms" to System.currentTimeMillis(),
+            "cost" to updateCost.takeIf { it.isNotEmpty() },
         ).filterValues { it != null }
         if (mode == "enhance" || metadata["oob_enhancement"] != null) {
             metadata["oob_enhancement"] = linkedMapOf(
@@ -442,9 +470,70 @@ class OobFunctionUpdateService(
                 "status" to if (changed) "enhanced" else "unchanged", "changed" to changed,
                 "message" to if (changed) "Agent enhancement applied through update_function." else "No safe useful enhancement was applied.",
                 "updated_at_ms" to System.currentTimeMillis(),
+                "cost" to updateCost.takeIf { it.isNotEmpty() },
             )
         }
         spec["metadata"] = metadata
+    }
+
+    private fun updateCostPayload(
+        request: Map<String, Any?>,
+        analysis: Map<String, Any?>,
+        patch: Map<String, Any?>,
+        startedAtMs: Long,
+        mode: String,
+    ): Map<String, Any?> {
+        val usage = firstNonEmptyMap(
+            request["usage"],
+            request["token_usage"],
+            request["tokenUsage"],
+            analysis["usage"],
+            analysis["token_usage"],
+            analysis["tokenUsage"],
+            patch["usage"],
+            patch["token_usage"],
+            patch["tokenUsage"],
+        )
+        val cost = firstCostMap(
+            request["cost"],
+            request["cost_estimate"],
+            request["costEstimate"],
+            analysis["cost"],
+            analysis["cost_estimate"],
+            analysis["costEstimate"],
+            patch["cost"],
+            patch["cost_estimate"],
+            patch["costEstimate"],
+        )
+        val endedAtMs = System.currentTimeMillis()
+        return linkedMapOf(
+            "mode" to mode.takeIf { it.isNotBlank() },
+            "backend" to (firstNonBlank(request["source"], analysis["source"]).takeIf { it.isNotBlank() }
+                ?: "oob_native_omniflow_toolkit"),
+            "started_at_ms" to startedAtMs,
+            "ended_at_ms" to endedAtMs,
+            "duration_ms" to (endedAtMs - startedAtMs).coerceAtLeast(0L),
+            "usage" to usage.takeIf { it.isNotEmpty() },
+            "cost" to cost.takeIf { it.isNotEmpty() },
+        ).filterValues { it != null }
+    }
+
+    private fun firstNonEmptyMap(vararg values: Any?): Map<String, Any?> {
+        for (value in values) {
+            val mapped = mapArg(value).filterKeys { it.isNotBlank() }
+            if (mapped.isNotEmpty()) return mapped
+        }
+        return emptyMap()
+    }
+
+    private fun firstCostMap(vararg values: Any?): Map<String, Any?> {
+        for (value in values) {
+            val mapped = mapArg(value).filterKeys { it.isNotBlank() }
+            if (mapped.isNotEmpty()) return mapped
+            val text = value?.toString()?.trim().orEmpty()
+            if (text.isNotBlank()) return linkedMapOf("total" to text)
+        }
+        return emptyMap()
     }
 
     private fun applyStepLabelPatches(spec: MutableMap<String, Any?>, patch: Map<String, Any?>, changes: MutableList<Map<String, Any?>>) {

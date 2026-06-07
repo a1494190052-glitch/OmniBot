@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import argparse
 import base64
+import dataclasses
 import datetime as dt
 import json
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -133,9 +135,37 @@ class Step:
     target_regex: str = ""
     fallback_relative_xy: tuple[float, float] | None = None
     wait_after_ms: int = 1000
+    optional: bool = False
 
 
 TASK_STEPS: dict[str, list[Step]] = {
+    "ClockStopWatchPausedVerify": [
+        Step("open_app", "打开 Clock", {"package_name": "com.google.android.deskclock"}, wait_after_ms=1200),
+        Step(
+            "click",
+            "点击 Stopwatch",
+            {"target_description": "Stopwatch"},
+            target_regex="秒表|Stopwatch",
+            fallback_relative_xy=(700, 882),
+            wait_after_ms=1000,
+        ),
+        Step(
+            "click",
+            "点击 Start",
+            {"target_description": "Start"},
+            target_regex="开始|Start|启动",
+            fallback_relative_xy=(500, 738),
+            wait_after_ms=1000,
+        ),
+        Step(
+            "click",
+            "点击 Pause",
+            {"target_description": "Pause"},
+            target_regex="暂停|Pause",
+            fallback_relative_xy=(500, 738),
+            wait_after_ms=1000,
+        ),
+    ],
     "ClockStopWatchRunning": [
         Step("open_app", "打开 Clock", {"package_name": "com.google.android.deskclock"}, wait_after_ms=1200),
         Step(
@@ -163,9 +193,43 @@ OPEN_APP_PACKAGES = {
     "contacts": "com.google.android.contacts",
     "settings": "com.android.settings",
     "dialer": "com.google.android.dialer",
+    "simple_sms_messenger": "com.simplemobiletools.smsmessenger",
 }
 
-SUPPORTED_TASKS = sorted(set(TASK_STEPS) | {"ClockTimerEntry", "OpenAppTaskEval"})
+SUPPORTED_TASKS = sorted(set(TASK_STEPS) | {
+    "AudioRecorderRecordAudio",
+    "AudioRecorderRecordAudioWithFileName",
+    "ClockTimerEntry",
+    "OpenAppTaskEval",
+})
+SUPPORTED_TASKS = sorted(set(SUPPORTED_TASKS) | {"CameraTakePhoto", "CameraTakeVideo"})
+SUPPORTED_TASKS = sorted(set(SUPPORTED_TASKS) | {"ContactsAddContact", "ContactsNewContactDraft"})
+SUPPORTED_TASKS = sorted(set(SUPPORTED_TASKS) | {
+    "SystemWifiTurnOff",
+    "SystemWifiTurnOffVerify",
+    "SystemWifiTurnOn",
+    "SystemWifiTurnOnVerify",
+})
+SUPPORTED_TASKS = sorted(set(SUPPORTED_TASKS) | {
+    "SystemBluetoothTurnOff",
+    "SystemBluetoothTurnOffVerify",
+    "SystemBluetoothTurnOn",
+    "SystemBluetoothTurnOnVerify",
+})
+SUPPORTED_TASKS = sorted(set(SUPPORTED_TASKS) | {
+    "SystemBrightnessMax",
+    "SystemBrightnessMaxVerify",
+    "SystemBrightnessMin",
+    "SystemBrightnessMinVerify",
+})
+SUPPORTED_TASKS = sorted(set(SUPPORTED_TASKS) | {
+    "TurnOffWifiAndTurnOnBluetooth",
+    "TurnOnWifiAndOpenApp",
+})
+SUPPORTED_TASKS = sorted(set(SUPPORTED_TASKS) | {"SimpleCalendarAddOneEvent", "SimpleCalendarAddOneEventTomorrow"})
+SUPPORTED_TASKS = sorted(set(SUPPORTED_TASKS) | {"RecipeAddSingleRecipe"})
+SUPPORTED_TASKS = sorted(set(SUPPORTED_TASKS) | {"MarkorCreateFolder", "MarkorCreateNote"})
+SUPPORTED_TASKS = sorted(set(SUPPORTED_TASKS) | {"SimpleSmsSend"})
 
 
 BOUNDS_RE = re.compile(r"\[(-?\d+),(-?\d+)]\[(-?\d+),(-?\d+)]")
@@ -175,19 +239,75 @@ def now_ms() -> int:
     return time.time_ns() // 1_000_000
 
 
-def capture_state(host: OobHost, *, image_quality: str) -> dict[str, Any]:
-    return host.get(
-        "/get_state",
-        {
-            "includeXml": True,
-            "includeScreenshot": True,
-            "includeIndexedContext": True,
-            "maxXmlChars": 0,
-            "imageQuality": image_quality,
-            "filterOverlay": True,
-        },
-        timeout=45,
+def _looks_like_deskclock_transient_overlay(state: dict[str, Any]) -> bool:
+    if state.get("package_name") != "com.google.android.deskclock":
+        return False
+    xml = str(state.get("xml") or "")
+    if not xml.strip():
+        return False
+    clock_page_markers = (
+        "Stopwatch",
+        "Timer",
+        "Alarm",
+        "Clock",
+        "stopwatch",
+        "timer",
+        "秒表",
+        "计时器",
+        "闹钟",
     )
+    if any(marker in xml for marker in clock_page_markers):
+        return False
+    transient_markers = (
+        "privacy policy",
+        "consistent bedtime",
+        "com.google.android.deskclock:id/body",
+    )
+    if not any(marker in xml for marker in transient_markers):
+        return False
+    try:
+        root = ElementTree.fromstring(xml.encode("utf-8"))
+    except ElementTree.ParseError:
+        return False
+    return sum(1 for _ in root.iter()) <= 12
+
+
+def capture_state(host: OobHost, *, image_quality: str) -> dict[str, Any]:
+    params = {
+        "includeXml": True,
+        "includeScreenshot": True,
+        "includeIndexedContext": True,
+        "maxXmlChars": 0,
+        "imageQuality": image_quality,
+        "filterOverlay": True,
+    }
+    state = host.get("/get_state", params, timeout=45)
+    if not _looks_like_deskclock_transient_overlay(state):
+        return state
+    deadline = time.monotonic() + 4.0
+    while time.monotonic() < deadline:
+        time.sleep(0.4)
+        candidate = host.get("/get_state", params, timeout=45)
+        if not _looks_like_deskclock_transient_overlay(candidate):
+            return candidate
+        state = candidate
+    return state
+
+
+def capture_state_for_step(host: OobHost, step: Step, *, image_quality: str) -> dict[str, Any]:
+    state = capture_state(host, image_quality=image_quality)
+    if step.tool not in {"click", "input_text"} or not step.target_regex:
+        return state
+    if find_xml_target(str(state.get("xml") or ""), step.target_regex):
+        return state
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        time.sleep(0.4)
+        candidate = capture_state(host, image_quality=image_quality)
+        if find_xml_target(str(candidate.get("xml") or ""), step.target_regex):
+            return candidate
+        state = candidate
+    return state
 
 
 def parse_bounds(value: str) -> tuple[int, int, int, int] | None:
@@ -300,7 +420,7 @@ def save_state_artifacts(state: dict[str, Any], artifact_dir: Path, prefix: str)
 
 def execute_step(host: OobHost, step: Step, before: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     args = dict(step.args)
-    if step.tool == "click":
+    if step.tool in {"click", "input_text"}:
         target = find_xml_target(str(before.get("xml") or ""), step.target_regex)
         if target:
             args["x"] = target["x"]
@@ -315,7 +435,7 @@ def execute_step(host: OobHost, step: Step, before: dict[str, Any]) -> tuple[dic
                 "relative_0_1000": list(step.fallback_relative_xy),
                 "display_size": list(display_size(before)),
             }
-        else:
+        elif step.tool == "click":
             return args, {"success": False, "error": "target_not_found", "target_regex": step.target_regex}
     result = host.post("/act", {"tool": step.tool, "args": args}, timeout=60)
     return args, result
@@ -417,6 +537,137 @@ def load_androidworld() -> tuple[Any, Any]:
     return registry, env_launcher
 
 
+def patch_androidworld_clear_directory_empty_glob() -> None:
+    sys.path.insert(0, str(ANDROID_WORLD_ROOT))
+    from android_world.env import adb_utils
+    from android_world.utils import file_utils
+
+    if getattr(file_utils.clear_directory, "_oob_empty_glob_safe", False):
+        return
+    original_clear_directory = file_utils.clear_directory
+
+    def clear_directory_empty_glob_safe(directory_path: str, env: Any) -> None:
+        quoted_path = shlex.quote(directory_path)
+        adb_utils.issue_generic_request(
+            ["shell", f"mkdir -p {quoted_path} && rm -rf {quoted_path}/*"],
+            env,
+        )
+
+    clear_directory_empty_glob_safe._oob_empty_glob_safe = True  # type: ignore[attr-defined]
+    clear_directory_empty_glob_safe._oob_original_clear_directory = original_clear_directory  # type: ignore[attr-defined]
+    file_utils.clear_directory = clear_directory_empty_glob_safe
+
+
+def json_safe(value: Any) -> Any:
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return {key: json_safe(item) for key, item in dataclasses.asdict(value).items()}
+    if isinstance(value, dict):
+        return {str(key): json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(item) for item in value]
+    return value
+
+
+def hydrate_androidworld_params(task_name: str, params: dict[str, Any]) -> dict[str, Any]:
+    if task_name == "AudioRecorderRecordAudioWithFileName":
+        hydrated = dict(params)
+        hydrated["file_name"] = str(hydrated.get("file_name") or "oob_audio_named")
+        hydrated.setdefault("text", "")
+        return hydrated
+    if task_name == "RecipeAddSingleRecipe":
+        sys.path.insert(0, str(ANDROID_WORLD_ROOT))
+        from android_world.task_evals.common_validators import sqlite_validators
+        from android_world.task_evals.utils import sqlite_schema_utils
+
+        title = str(params.get("title") or "Lemon Toast")
+        description = str(params.get("description") or "A quick citrus breakfast.")
+        servings = str(params.get("servings") or "1 serving")
+        preparation_time = str(params.get("preparationTime") or params.get("preparation_time") or "10 mins")
+        source = str(params.get("source") or "")
+        ingredients = str(params.get("ingredients") or "bread, lemon, butter")
+        directions = str(params.get("directions") or "Toast bread, add butter, and finish with lemon zest.")
+        recipe = sqlite_schema_utils.Recipe(
+            title=title,
+            description=description,
+            servings=servings,
+            preparationTime=preparation_time,
+            source=source,
+            ingredients=ingredients,
+            directions=directions,
+        )
+        hydrated = dict(params)
+        hydrated.update(
+            {
+                "title": title,
+                "description": description,
+                "servings": servings,
+                "preparationTime": preparation_time,
+                "source": source,
+                "ingredients": ingredients,
+                "directions": directions,
+                sqlite_validators.ROW_OBJECTS: [recipe],
+                sqlite_validators.NOISE_ROW_OBJECTS: [],
+                "text_representation_type": "text_block",
+            }
+        )
+        return hydrated
+    if task_name == "MarkorCreateFolder":
+        folder_name = str(params.get("folder_name") or "folder_oob_demo")
+        hydrated = dict(params)
+        hydrated["folder_name"] = folder_name
+        return hydrated
+    if task_name == "MarkorCreateNote":
+        file_name = str(params.get("file_name") or "note_oob_demo.md")
+        text = str(params.get("text") or "OOB note body.")
+        hydrated = dict(params)
+        hydrated["file_name"] = file_name
+        hydrated["text"] = text
+        return hydrated
+    if task_name == "SimpleSmsSend":
+        hydrated = dict(params)
+        hydrated["number"] = str(hydrated.get("number") or "5551237788")
+        hydrated["message"] = str(hydrated.get("message") or "OOB enhanced SMS replay.")
+        return hydrated
+    if task_name not in {"SimpleCalendarAddOneEvent", "SimpleCalendarAddOneEventTomorrow"}:
+        return params
+    sys.path.insert(0, str(ANDROID_WORLD_ROOT))
+    from android_world.task_evals.common_validators import sqlite_validators
+    from android_world.task_evals.utils import sqlite_schema_utils
+    from android_world.utils import datetime_utils
+
+    title = str(params.get("event_title") or params.get("title") or "Project Sync")
+    description = str(params.get("event_description") or params.get("description") or "Discuss launch plan.")
+    day = int(params.get("day") if params.get("day") is not None else 16)
+    hour = int(params.get("hour") if params.get("hour") is not None else 16)
+    duration_mins = int(params.get("duration_mins") if params.get("duration_mins") is not None else 30)
+    start_ts = int(
+        params.get("start_ts")
+        or datetime_utils._create_unix_ts(day=day, hour=hour, month=10, year=2023)  # pylint: disable=protected-access
+    )
+    end_ts = int(params.get("end_ts") or (start_ts + duration_mins * 60))
+    event = sqlite_schema_utils.CalendarEvent(
+        start_ts=start_ts,
+        end_ts=end_ts,
+        title=title,
+        description=description,
+    )
+    hydrated = dict(params)
+    hydrated.update(
+        {
+            "year": 2023,
+            "month": 10,
+            "day": day,
+            "hour": hour,
+            "duration_mins": duration_mins,
+            "event_title": title,
+            "event_description": description,
+            sqlite_validators.ROW_OBJECTS: [event],
+            sqlite_validators.NOISE_ROW_OBJECTS: [],
+        }
+    )
+    return hydrated
+
+
 class OobVerifierEnv:
     """AndroidWorld env proxy whose state UI tree comes from OOB XML.
 
@@ -462,9 +713,326 @@ class OobVerifierEnv:
         )
 
 
+def oob_xml_reward_for_task(task_name: str, task_params: dict[str, Any], xml: str) -> float | None:
+    if task_name == "ContactsNewContactDraft":
+        text = xml
+        first = str(task_params.get("first") or "").strip()
+        last = str(task_params.get("last") or "").strip()
+        phone = re.sub(r"\D", "", str(task_params.get("phone") or ""))
+        phone_label = str(task_params.get("phone_label") or "").strip()
+        xml_digits = re.sub(r"\D", "", text)
+        non_mobile_phone_label = re.search(
+            r"Delete (Home|Work|Work Fax|Home Fax|Pager|Other|Custom|Callback|Car|Company Main|ISDN) Phone",
+            text,
+        )
+        label_ok = phone_label in text or (
+            phone_label.lower() == "mobile" and "Mobile Phone" in text
+        ) or (phone_label.lower() == "mobile" and non_mobile_phone_label is None)
+        success = (
+            bool(first)
+            and bool(last)
+            and bool(phone)
+            and bool(phone_label)
+            and first in text
+            and last in text
+            and phone in xml_digits
+            and label_ok
+            and "Create contact" in text
+        )
+        return 1.0 if success else 0.0
+    return None
+
+
+def oob_device_reward_for_task(task_name: str, task_params: dict[str, Any], adb: Adb) -> float | None:
+    if task_name == "AudioRecorderRecordAudio":
+        files = adb.shell(
+            "find",
+            "/storage/emulated/0/Android/data/com.dimowner.audiorecorder/files/Music/records",
+            "-maxdepth",
+            "1",
+            "-type",
+            "f",
+            "-size",
+            "+0c",
+            check=False,
+        ).stdout.strip().splitlines()
+        return 1.0 if files else 0.0
+    if task_name == "AudioRecorderRecordAudioWithFileName":
+        file_name = str(task_params.get("file_name") or "").strip()
+        if not file_name:
+            return 0.0
+        expected = file_name + ".m4a"
+        exists = adb.shell(
+            "test",
+            "-f",
+            f"/storage/emulated/0/Android/data/com.dimowner.audiorecorder/files/Music/records/{expected}",
+            check=False,
+        ).returncode == 0
+        return 1.0 if exists else 0.0
+    if task_name == "CameraTakePhoto":
+        files = adb.shell(
+            "find",
+            "/sdcard/Pictures",
+            "/sdcard/DCIM/Camera",
+            "-maxdepth",
+            "1",
+            "-type",
+            "f",
+            check=False,
+        ).stdout.strip().splitlines()
+        return 1.0 if files else 0.0
+    if task_name == "CameraTakeVideo":
+        files = adb.shell("find", "/sdcard/Movies", "-maxdepth", "1", "-type", "f", check=False).stdout.strip().splitlines()
+        return 1.0 if files else 0.0
+    if task_name == "TurnOffWifiAndTurnOnBluetooth":
+        wifi_on = adb.shell("settings", "get", "global", "wifi_on", check=False).stdout.strip()
+        bluetooth_on = adb.shell("settings", "get", "global", "bluetooth_on", check=False).stdout.strip()
+        return 1.0 if wifi_on == "0" and bluetooth_on == "1" else 0.0
+    if task_name == "TurnOnWifiAndOpenApp":
+        wifi_on = adb.shell("settings", "get", "global", "wifi_on", check=False).stdout.strip()
+        package = OPEN_APP_PACKAGES.get(str(task_params.get("app_name") or "settings"))
+        if not package:
+            return 0.0
+        current = adb.shell("dumpsys", "window", check=False).stdout
+        wifi_ok = wifi_on in {"1", "2"}
+        app_ok = package in current
+        return 1.0 if wifi_ok and app_ok else 0.0
+    if task_name in {"SystemWifiTurnOff", "SystemWifiTurnOffVerify", "SystemWifiTurnOn", "SystemWifiTurnOnVerify"}:
+        expected = "0" if "TurnOff" in task_name else "1"
+        value = adb.shell("settings", "get", "global", "wifi_on", check=False).stdout.strip()
+        if expected == "1":
+            return 1.0 if value in {"1", "2"} else 0.0
+        return 1.0 if value == "0" else 0.0
+    if task_name in {
+        "SystemBluetoothTurnOff",
+        "SystemBluetoothTurnOffVerify",
+        "SystemBluetoothTurnOn",
+        "SystemBluetoothTurnOnVerify",
+    }:
+        expected = "0" if "TurnOff" in task_name else "1"
+        value = adb.shell("settings", "get", "global", "bluetooth_on", check=False).stdout.strip()
+        return 1.0 if value == expected else 0.0
+    if task_name in {"SystemBrightnessMax", "SystemBrightnessMaxVerify", "SystemBrightnessMin", "SystemBrightnessMinVerify"}:
+        expected = "255" if "Max" in task_name else "1"
+        value = adb.shell("settings", "get", "system", "screen_brightness", check=False).stdout.strip()
+        return 1.0 if value == expected else 0.0
+    if task_name == "MarkorCreateNote":
+        file_name = str(task_params.get("file_name") or "").strip()
+        expected_text = str(task_params.get("text") or "").strip()
+        if not file_name or not expected_text:
+            return 0.0
+        path = f"/storage/emulated/0/Documents/Markor/{file_name}"
+        deadline = time.time() + 20.0
+        while True:
+            content = adb.shell("cat", path, check=False).stdout
+            if expected_text in content:
+                return 1.0
+            if time.time() >= deadline:
+                return 0.0
+            time.sleep(0.5)
+    if task_name == "SimpleSmsSend":
+        number = re.sub(r"\D", "", str(task_params.get("number") or ""))
+        message = str(task_params.get("message") or "").strip()
+        if not number or not message:
+            return 0.0
+        rows = adb.shell("content", "query", "--uri", "content://sms/sent", check=False).stdout
+        normalized_rows = re.sub(r"\D", "", rows)
+        current = adb.shell("dumpsys", "window", check=False).stdout
+        return 1.0 if number in normalized_rows and message in rows and "com.simplemobiletools.smsmessenger" in current else 0.0
+    return None
+
+
 def get_task_steps(task_name: str, task_params: dict[str, Any]) -> list[Step]:
     if task_name in TASK_STEPS:
         return TASK_STEPS[task_name]
+    if task_name == "AudioRecorderRecordAudio":
+        return [
+            Step("open_app", "打开 Audio Recorder", {"package_name": "com.dimowner.audiorecorder"}, wait_after_ms=1500),
+            Step(
+                "click",
+                "关闭录音列表警告弹窗",
+                {"target_description": "Ok"},
+                target_regex=r"dialog_ok_btn|^Ok$",
+                wait_after_ms=700,
+                optional=True,
+            ),
+            Step(
+                "click",
+                "点击录音按钮",
+                {"target_description": "Recording: %s"},
+                target_regex="Recording: %s|btn_record",
+                fallback_relative_xy=(500, 872),
+                wait_after_ms=1800,
+            ),
+            Step(
+                "click",
+                "点击停止录音",
+                {"target_description": "btn_record_stop"},
+                target_regex="btn_record_stop",
+                fallback_relative_xy=(714, 872),
+                wait_after_ms=900,
+            ),
+            Step(
+                "click",
+                "保存录音",
+                {"target_description": "Save"},
+                target_regex="^Save$|dialog_positive_btn",
+                fallback_relative_xy=(731, 406),
+                wait_after_ms=1500,
+            ),
+        ]
+    if task_name == "AudioRecorderRecordAudioWithFileName":
+        file_name = str(task_params.get("file_name") or "").strip()
+        if not file_name:
+            raise ValueError("AudioRecorderRecordAudioWithFileName requires file_name")
+        return [
+            Step("open_app", "打开 Audio Recorder", {"package_name": "com.dimowner.audiorecorder"}, wait_after_ms=1500),
+            Step(
+                "click",
+                "关闭录音列表警告弹窗",
+                {"target_description": "Ok"},
+                target_regex=r"dialog_ok_btn|^Ok$",
+                wait_after_ms=700,
+                optional=True,
+            ),
+            Step(
+                "click",
+                "打开录音设置",
+                {"target_description": "Settings"},
+                target_regex="Settings|btn_settings",
+                fallback_relative_xy=(117, 872),
+                wait_after_ms=700,
+            ),
+            Step(
+                "click",
+                "选择 M4a 格式",
+                {"target_description": "M4a"},
+                target_regex="^M4a$",
+                fallback_relative_xy=(128, 888),
+                wait_after_ms=700,
+            ),
+            Step(
+                "press_key",
+                "返回录音主界面",
+                {"key": "back"},
+                wait_after_ms=900,
+            ),
+            Step(
+                "click",
+                "关闭返回后的录音列表警告弹窗",
+                {"target_description": "Ok"},
+                target_regex=r"dialog_ok_btn|^Ok$",
+                wait_after_ms=700,
+                optional=True,
+            ),
+            Step(
+                "click",
+                "点击录音按钮",
+                {"target_description": "Recording: %s"},
+                target_regex="Recording: %s|btn_record",
+                fallback_relative_xy=(500, 872),
+                wait_after_ms=1800,
+            ),
+            Step(
+                "click",
+                "点击停止录音",
+                {"target_description": "btn_record_stop"},
+                target_regex="btn_record_stop",
+                fallback_relative_xy=(714, 872),
+                wait_after_ms=900,
+            ),
+            Step(
+                "input_text",
+                "填写录音文件名",
+                {"target_description": "New name", "text": file_name},
+                target_regex="input_name|New name",
+                fallback_relative_xy=(500, 246),
+                wait_after_ms=500,
+            ),
+            Step(
+                "click",
+                "保存命名录音",
+                {"target_description": "Save"},
+                target_regex="^Save$|dialog_positive_btn",
+                fallback_relative_xy=(731, 406),
+                wait_after_ms=1500,
+            ),
+        ]
+    if task_name == "CameraTakePhoto":
+        return [
+            Step("open_app", "打开 Camera", {"package_name": "com.android.camera2"}, wait_after_ms=1500),
+            Step(
+                "click",
+                "打开 Camera mode list",
+                {"target_description": "MODE LIST"},
+                target_regex="MODE LIST|mode_list",
+                fallback_relative_xy=(131, 38),
+                wait_after_ms=800,
+            ),
+            Step(
+                "click",
+                "切换到 Camera 拍照模式",
+                {"target_description": "Camera"},
+                target_regex="Switch to Camera Mode",
+                fallback_relative_xy=(142, 354),
+                wait_after_ms=1000,
+            ),
+            Step(
+                "click",
+                "点击 Shutter 拍照",
+                {"target_description": "Shutter"},
+                target_regex="Shutter|shutter_button",
+                fallback_relative_xy=(500, 869),
+                wait_after_ms=1800,
+            ),
+        ]
+    if task_name == "CameraTakeVideo":
+        return [
+            Step("open_app", "打开 Camera", {"package_name": "com.android.camera2"}, wait_after_ms=1500),
+            Step(
+                "click",
+                "打开 Camera mode list",
+                {"target_description": "MODE LIST"},
+                target_regex="MODE LIST|mode_list",
+                fallback_relative_xy=(131, 38),
+                wait_after_ms=800,
+            ),
+            Step(
+                "click",
+                "切换到 Video Camera",
+                {"target_description": "Switch to Video Camera"},
+                target_regex="Switch to Video Camera|Video Camera",
+                fallback_relative_xy=(216, 448),
+                wait_after_ms=1000,
+            ),
+            Step(
+                "click",
+                "点击 Shutter 开始录像",
+                {"target_description": "Shutter"},
+                target_regex="Shutter|shutter_button",
+                fallback_relative_xy=(500, 869),
+                wait_after_ms=2500,
+            ),
+            Step(
+                "click",
+                "点击 Shutter 停止录像",
+                {"target_description": "Shutter"},
+                target_regex="Shutter|shutter_button",
+                fallback_relative_xy=(500, 869),
+                wait_after_ms=2500,
+            ),
+        ]
+    if task_name == "TurnOffWifiAndTurnOnBluetooth":
+        return [
+            *get_task_steps("SystemWifiTurnOff", {"on_or_off": "off"}),
+            *get_task_steps("SystemBluetoothTurnOn", {"on_or_off": "on"}),
+        ]
+    if task_name == "TurnOnWifiAndOpenApp":
+        app_name = str(task_params.get("app_name") or "settings")
+        return [
+            *get_task_steps("SystemWifiTurnOn", {"on_or_off": "on"}),
+            *get_task_steps("OpenAppTaskEval", {"app_name": app_name}),
+        ]
     if task_name == "ClockTimerEntry":
         hours = int(task_params.get("hours") or 0)
         minutes = int(task_params.get("minutes") or 0)
@@ -497,13 +1065,784 @@ def get_task_steps(task_name: str, task_params: dict[str, Any]) -> list[Step]:
         package_name = OPEN_APP_PACKAGES.get(app_name)
         if not package_name:
             raise ValueError(f"Unsupported OpenAppTaskEval app_name: {app_name}")
-        return [
+        steps = [
             Step(
                 "open_app",
                 f"打开 {app_name}",
                 {"package_name": package_name},
                 wait_after_ms=1200,
             )
+        ]
+        if app_name == "settings":
+            steps.extend(
+                [
+                    Step(
+                        "click",
+                        "点击 Network & internet",
+                        {"target_description": "Network & internet"},
+                        target_regex="Network & internet|网络和互联网|网络和 Internet",
+                        wait_after_ms=1000,
+                    ),
+                    Step(
+                        "press_key",
+                        "返回 Settings",
+                        {"key": "back"},
+                        wait_after_ms=1000,
+                    ),
+                ]
+            )
+        return steps
+    if task_name in {
+        "SystemWifiTurnOffVerify",
+        "SystemWifiTurnOnVerify",
+        "SystemBluetoothTurnOffVerify",
+        "SystemBluetoothTurnOnVerify",
+        "SystemBrightnessMaxVerify",
+        "SystemBrightnessMinVerify",
+    }:
+        return [
+            Step(
+                "open_app",
+                "打开 Settings",
+                {"package_name": "com.android.settings"},
+                wait_after_ms=1200,
+            ),
+            Step(
+                "click",
+                "点击 Search settings",
+                {"target_description": "Search settings"},
+                target_regex="Search settings",
+                fallback_relative_xy=(500, 354),
+                wait_after_ms=700,
+            ),
+            Step(
+                "press_key",
+                "返回 Settings 首页",
+                {"key": "back"},
+                wait_after_ms=700,
+            ),
+        ]
+    if task_name in {"SystemBrightnessMax", "SystemBrightnessMin"}:
+        to_max = task_name == "SystemBrightnessMax"
+        slider_steps = [
+            Step(
+                "swipe",
+                "将亮度滑到最大" if to_max else "将亮度滑到最小",
+                {
+                    "x1": 45 if to_max else 640,
+                    "y1": 112,
+                    "x2": 710 if to_max else 45,
+                    "y2": 112,
+                    "duration_ms": 650 if to_max else 500,
+                },
+                wait_after_ms=500,
+            )
+        ]
+        if to_max:
+            slider_steps.append(
+                Step(
+                    "swipe",
+                    "再次确认最大亮度",
+                    {"x1": 45, "y1": 112, "x2": 710, "y2": 112, "duration_ms": 650},
+                    wait_after_ms=700,
+                )
+            )
+        return [
+            Step(
+                "open_app",
+                "打开 Settings",
+                {"package_name": "com.android.settings"},
+                wait_after_ms=1200,
+            ),
+            Step(
+                "swipe",
+                "滚动到 Display",
+                {"x1": 500, "y1": 1050, "x2": 500, "y2": 350, "duration_ms": 400},
+                wait_after_ms=700,
+            ),
+            Step(
+                "click",
+                "点击 Display",
+                {"target_description": "Display"},
+                target_regex="Display|Dark theme, font size, brightness|显示",
+                fallback_relative_xy=(500, 539),
+                wait_after_ms=900,
+            ),
+            Step(
+                "click",
+                "点击 Brightness level",
+                {"target_description": "Brightness level"},
+                target_regex="Brightness level|亮度级别|亮度",
+                fallback_relative_xy=(500, 458),
+                wait_after_ms=800,
+            ),
+            *slider_steps,
+        ]
+    if task_name in {"SystemWifiTurnOff", "SystemWifiTurnOn"}:
+        target = str(task_params.get("on_or_off") or ("off" if task_name == "SystemWifiTurnOff" else "on"))
+        return [
+            Step(
+                "open_app",
+                "打开 Settings",
+                {"package_name": "com.android.settings"},
+                wait_after_ms=1200,
+            ),
+            Step(
+                "click",
+                "点击 Network & internet",
+                {"target_description": "Network & internet"},
+                target_regex="Network & internet|Network and internet|Mobile, Wi",
+                fallback_relative_xy=(500, 488),
+                wait_after_ms=900,
+            ),
+            Step(
+                "click",
+                "点击 Internet",
+                {"target_description": "Internet"},
+                target_regex="^Internet$|Networks available",
+                fallback_relative_xy=(500, 378),
+                wait_after_ms=1200,
+            ),
+            Step(
+                "click",
+                f"切换 Wi-Fi {target}",
+                {"target_description": "Wi-Fi"},
+                target_regex="^Wi-Fi$|^Wifi$",
+                fallback_relative_xy=(500, 490),
+                wait_after_ms=2500,
+            ),
+        ]
+    if task_name in {"SystemBluetoothTurnOff", "SystemBluetoothTurnOn"}:
+        target = str(task_params.get("on_or_off") or ("off" if task_name == "SystemBluetoothTurnOff" else "on"))
+        return [
+            Step(
+                "open_app",
+                "打开 Settings",
+                {"package_name": "com.android.settings"},
+                wait_after_ms=1200,
+            ),
+            Step(
+                "click",
+                "点击 Connected devices",
+                {"target_description": "Connected devices"},
+                target_regex="Connected devices|Bluetooth, pairing",
+                fallback_relative_xy=(500, 626),
+                wait_after_ms=900,
+            ),
+            Step(
+                "click",
+                "点击 Connection preferences",
+                {"target_description": "Connection preferences"},
+                target_regex="Connection preferences|Bluetooth, Android Auto",
+                fallback_relative_xy=(500, 702),
+                wait_after_ms=900,
+            ),
+            Step(
+                "click",
+                "点击 Bluetooth",
+                {"target_description": "Bluetooth"},
+                target_regex="^Bluetooth$",
+                fallback_relative_xy=(500, 429),
+                wait_after_ms=900,
+            ),
+            Step(
+                "click",
+                f"切换 Bluetooth {target}",
+                {"target_description": "Use Bluetooth"},
+                target_regex="Use Bluetooth",
+                fallback_relative_xy=(500, 401),
+                wait_after_ms=2500,
+            ),
+        ]
+    if task_name == "ContactsAddContact":
+        name = str(task_params.get("name") or "").strip()
+        number = str(task_params.get("number") or "").strip()
+        if not name or not number:
+            raise ValueError("ContactsAddContact requires name and number")
+        return [
+            Step(
+                "open_app",
+                "打开 Contacts",
+                {"package_name": "com.google.android.contacts"},
+                wait_after_ms=1500,
+            ),
+            Step(
+                "click",
+                "点击 Create contact",
+                {"target_description": "Create contact"},
+                target_regex="Create contact|Create new contact|Add contact|新增联系人|新建联系人|创建联系人|floating_action_button",
+                fallback_relative_xy=(860, 870),
+                wait_after_ms=1200,
+            ),
+            Step(
+                "input_text",
+                "填写联系人姓名",
+                {"target_description": "First name", "text": name},
+                target_regex="First name|Name|姓名",
+                fallback_relative_xy=(330, 340),
+                wait_after_ms=800,
+            ),
+            Step(
+                "input_text",
+                "填写电话号码",
+                {"target_description": "Phone", "text": number},
+                target_regex="Phone|电话|号码",
+                fallback_relative_xy=(330, 560),
+                wait_after_ms=800,
+            ),
+            Step(
+                "click",
+                "点击 Save",
+                {"target_description": "Save"},
+                target_regex="Save|保存|Done|完成",
+                fallback_relative_xy=(920, 60),
+                wait_after_ms=1500,
+            ),
+        ]
+    if task_name == "ContactsNewContactDraft":
+        first = str(task_params.get("first") or "").strip()
+        last = str(task_params.get("last") or "").strip()
+        phone = str(task_params.get("phone") or "").strip()
+        phone_label = str(task_params.get("phone_label") or "").strip()
+        if not first or not last or not phone or not phone_label:
+            raise ValueError("ContactsNewContactDraft requires first, last, phone, and phone_label")
+        steps = [
+            Step(
+                "open_app",
+                "打开 Contacts",
+                {"package_name": "com.google.android.contacts"},
+                wait_after_ms=1500,
+            ),
+            Step(
+                "click",
+                "点击 Create contact",
+                {"target_description": "Create contact"},
+                target_regex="Create contact|Create new contact|Add contact|新增联系人|新建联系人|创建联系人|floating_action_button",
+                fallback_relative_xy=(860, 870),
+                wait_after_ms=1200,
+            ),
+            Step(
+                "input_text",
+                "填写名字",
+                {"target_description": "First name", "text": first},
+                target_regex="First name|名字|名",
+                fallback_relative_xy=(330, 340),
+                wait_after_ms=700,
+            ),
+            Step(
+                "input_text",
+                "填写姓氏",
+                {"target_description": "Last name", "text": last},
+                target_regex="Last name|姓氏|姓",
+                fallback_relative_xy=(330, 450),
+                wait_after_ms=700,
+            ),
+            Step(
+                "input_text",
+                "填写电话号码",
+                {"target_description": "Phone", "text": phone},
+                target_regex="Phone|电话|号码",
+                fallback_relative_xy=(330, 560),
+                wait_after_ms=700,
+            ),
+        ]
+        if phone_label.lower() == "mobile":
+            return steps
+        return steps + [
+            Step(
+                "click",
+                "点击 Phone label",
+                {"target_description": "Show dropdown menu"},
+                target_regex="Show dropdown menu|text_input_end_icon",
+                fallback_relative_xy=(553, 951),
+                wait_after_ms=800,
+            ),
+            Step(
+                "click",
+                f"选择 {phone_label}",
+                {"target_description": phone_label},
+                target_regex=rf"{re.escape(phone_label)}",
+                fallback_relative_xy=(330, 760),
+                wait_after_ms=1000,
+            ),
+        ]
+    if task_name in {"SimpleCalendarAddOneEvent", "SimpleCalendarAddOneEventTomorrow"}:
+        title = str(task_params.get("event_title") or task_params.get("title") or "").strip()
+        description = str(task_params.get("event_description") or task_params.get("description") or "").strip()
+        day = int(task_params.get("day") if task_params.get("day") is not None else 16)
+        hour = int(task_params.get("hour") if task_params.get("hour") is not None else 16)
+        duration_mins = int(task_params.get("duration_mins") if task_params.get("duration_mins") is not None else 30)
+        if not title or not description:
+            raise ValueError(f"{task_name} requires event_title and event_description")
+        if day != 16 or hour != 16 or duration_mins != 30:
+            raise ValueError(f"{task_name} v1 script supports day=16, hour=16, duration_mins=30")
+        return [
+            Step(
+                "open_app",
+                "打开 Simple Calendar Pro",
+                {"package_name": "com.simplemobiletools.calendar.pro"},
+                wait_after_ms=1500,
+            ),
+            Step(
+                "click",
+                "点击 New Event",
+                {"target_description": "New Event"},
+                target_regex="New Event|calendar_fab",
+                fallback_relative_xy=(878, 894),
+                wait_after_ms=700,
+            ),
+            Step(
+                "click",
+                "选择 Event",
+                {"target_description": "Event"},
+                target_regex="^Event$|fab_event_label",
+                fallback_relative_xy=(717, 894),
+                wait_after_ms=1000,
+            ),
+            Step(
+                "input_text",
+                "填写事件标题",
+                {"target_description": "Title", "text": title},
+                target_regex="Title|event_title",
+                fallback_relative_xy=(500, 197),
+                wait_after_ms=700,
+            ),
+            Step(
+                "input_text",
+                "填写事件描述",
+                {"target_description": "Description", "text": description},
+                target_regex="Description|event_description",
+                fallback_relative_xy=(500, 384),
+                wait_after_ms=700,
+            ),
+            Step(
+                "press_key",
+                "收起键盘",
+                {"key": "BACK"},
+                wait_after_ms=700,
+            ),
+            Step(
+                "swipe",
+                "滚动到日期时间区域",
+                {
+                    "x1": 360,
+                    "y1": 1050,
+                    "x2": 360,
+                    "y2": 300,
+                    "duration_ms": 600,
+                    "target_description": "scroll event form down",
+                },
+                wait_after_ms=900,
+            ),
+            Step(
+                "click",
+                "点击开始日期",
+                {"target_description": "October 15 start date"},
+                target_regex="event_start_date|October 15",
+                fallback_relative_xy=(367, 320),
+                wait_after_ms=700,
+            ),
+            Step(
+                "click",
+                "选择 16 October 2023",
+                {"target_description": "16 October 2023"},
+                target_regex="16 October 2023|^16$",
+                fallback_relative_xy=(278, 574),
+                wait_after_ms=400,
+            ),
+            Step(
+                "click",
+                "确认日期",
+                {"target_description": "OK"},
+                target_regex="^OK$",
+                fallback_relative_xy=(822, 837),
+                wait_after_ms=900,
+            ),
+            Step(
+                "click",
+                "点击开始时间",
+                {"target_description": "start time"},
+                target_regex="event_start_time",
+                fallback_relative_xy=(875, 320),
+                wait_after_ms=700,
+            ),
+            Step(
+                "click",
+                "切换开始时间为文字输入",
+                {"target_description": "Switch to text input mode"},
+                target_regex="Switch to text input mode|material_timepicker_mode_button",
+                fallback_relative_xy=(178, 847),
+                wait_after_ms=500,
+            ),
+            Step(
+                "input_text",
+                "设置开始小时 16",
+                {"target_description": "start hour", "text": "16"},
+                target_regex=r"^(00|16)$",
+                fallback_relative_xy=(333, 288),
+                wait_after_ms=500,
+            ),
+            Step(
+                "click",
+                "聚焦开始分钟",
+                {"target_description": "start minute"},
+                target_regex="0 minutes|00 minutes|^00$",
+                fallback_relative_xy=(667, 288),
+                wait_after_ms=400,
+            ),
+            Step(
+                "input_text",
+                "设置开始分钟 00",
+                {"target_description": "start minute", "text": "00"},
+                target_regex=r"^(00|30)$",
+                fallback_relative_xy=(667, 288),
+                wait_after_ms=500,
+            ),
+            Step(
+                "click",
+                "确认开始时间",
+                {"target_description": "OK"},
+                target_regex="^OK$|material_timepicker_ok_button",
+                fallback_relative_xy=(756, 454),
+                wait_after_ms=900,
+            ),
+            Step(
+                "click",
+                "点击结束时间",
+                {"target_description": "end time"},
+                target_regex="event_end_time",
+                fallback_relative_xy=(875, 405),
+                wait_after_ms=700,
+            ),
+            Step(
+                "click",
+                "切换结束时间为文字输入",
+                {"target_description": "Switch to text input mode"},
+                target_regex="Switch to text input mode|material_timepicker_mode_button",
+                fallback_relative_xy=(178, 847),
+                wait_after_ms=500,
+            ),
+            Step(
+                "input_text",
+                "设置结束小时 16",
+                {"target_description": "end hour", "text": "16"},
+                target_regex=r"^(00|16)$",
+                fallback_relative_xy=(333, 288),
+                wait_after_ms=500,
+            ),
+            Step(
+                "click",
+                "聚焦结束分钟",
+                {"target_description": "end minute"},
+                target_regex="0 minutes|00 minutes|^00$",
+                fallback_relative_xy=(667, 288),
+                wait_after_ms=400,
+            ),
+            Step(
+                "input_text",
+                "设置结束分钟 30",
+                {"target_description": "end minute", "text": "30"},
+                target_regex=r"^(00|30)$",
+                fallback_relative_xy=(667, 288),
+                wait_after_ms=500,
+            ),
+            Step(
+                "click",
+                "确认结束时间",
+                {"target_description": "OK"},
+                target_regex="^OK$|material_timepicker_ok_button",
+                fallback_relative_xy=(756, 454),
+                wait_after_ms=900,
+            ),
+            Step(
+                "click",
+                "点击 Save",
+                {"target_description": "Save"},
+                target_regex="Save|保存",
+                fallback_relative_xy=(933, 88),
+                wait_after_ms=1000,
+            ),
+            Step(
+                "click",
+                "确认提醒免责声明",
+                {"target_description": "OK"},
+                target_regex="^OK$",
+                fallback_relative_xy=(753, 667),
+                wait_after_ms=1800,
+            ),
+        ]
+    if task_name == "RecipeAddSingleRecipe":
+        title = str(task_params.get("title") or "").strip()
+        description = str(task_params.get("description") or "").strip()
+        servings = str(task_params.get("servings") or "").strip()
+        preparation_time = str(task_params.get("preparationTime") or task_params.get("preparation_time") or "").strip()
+        source = str(task_params.get("source") or "").strip()
+        ingredients = str(task_params.get("ingredients") or "").strip()
+        directions = str(task_params.get("directions") or "").strip()
+        if not all([title, description, servings, preparation_time, source, ingredients, directions]):
+            raise ValueError("RecipeAddSingleRecipe requires title, description, servings, preparationTime, source, ingredients, and directions")
+        return [
+            Step(
+                "open_app",
+                "打开 Broccoli",
+                {"package_name": "com.flauschcode.broccoli"},
+                wait_after_ms=1500,
+            ),
+            Step(
+                "click",
+                "点击 New Recipe",
+                {"target_description": "New Recipe"},
+                target_regex="New Recipe|fab_recipes",
+                fallback_relative_xy=(878, 894),
+                wait_after_ms=900,
+            ),
+            Step(
+                "input_text",
+                "填写 recipe title",
+                {"target_description": "Title", "text": title},
+                target_regex="Title|new_title",
+                fallback_relative_xy=(500, 508),
+                wait_after_ms=700,
+            ),
+            Step(
+                "swipe",
+                "滚动到 recipe 详情字段",
+                {
+                    "x1": 360,
+                    "y1": 1120,
+                    "x2": 360,
+                    "y2": 420,
+                    "duration_ms": 600,
+                    "target_description": "scroll recipe form down",
+                },
+                wait_after_ms=900,
+            ),
+            Step(
+                "input_text",
+                "填写 description",
+                {"target_description": "Description", "text": description},
+                target_regex="Description|new_description",
+                fallback_relative_xy=(500, 261),
+                wait_after_ms=600,
+            ),
+            Step(
+                "input_text",
+                "填写 source",
+                {"target_description": "Source", "text": source},
+                target_regex="Source|new_source",
+                fallback_relative_xy=(500, 382),
+                wait_after_ms=600,
+            ),
+            Step(
+                "input_text",
+                "填写 servings",
+                {"target_description": "Servings", "text": servings},
+                target_regex="Servings|new_servings",
+                fallback_relative_xy=(500, 502),
+                wait_after_ms=600,
+            ),
+            Step(
+                "input_text",
+                "填写 preparation time",
+                {"target_description": "Time", "text": preparation_time},
+                target_regex="Time|new_preparation_time",
+                fallback_relative_xy=(500, 622),
+                wait_after_ms=600,
+            ),
+            Step(
+                "input_text",
+                "填写 ingredients",
+                {"target_description": "Ingredients", "text": ingredients},
+                target_regex="Ingredients|new_ingredients",
+                fallback_relative_xy=(500, 743),
+                wait_after_ms=600,
+            ),
+            Step(
+                "input_text",
+                "填写 directions",
+                {"target_description": "Directions", "text": directions},
+                target_regex="Directions|new_directions",
+                fallback_relative_xy=(500, 863),
+                wait_after_ms=700,
+            ),
+            Step(
+                "click",
+                "点击 SAVE",
+                {"target_description": "SAVE"},
+                target_regex="SAVE|button_save_recipe",
+                fallback_relative_xy=(867, 81),
+                wait_after_ms=1800,
+            ),
+        ]
+    if task_name == "MarkorCreateFolder":
+        folder_name = str(task_params.get("folder_name") or "").strip()
+        if not folder_name:
+            raise ValueError("MarkorCreateFolder requires folder_name")
+        return [
+            Step(
+                "open_app",
+                "打开 Markor",
+                {"package_name": "net.gsantner.markor"},
+                wait_after_ms=1500,
+            ),
+            Step(
+                "click",
+                "点击 Create a new file or folder",
+                {"target_description": "Create a new file or folder"},
+                target_regex="Create a new file or folder|fab_add_new_item",
+                fallback_relative_xy=(878, 806),
+                wait_after_ms=800,
+            ),
+            Step(
+                "input_text",
+                "填写 folder name",
+                {"target_description": "Name", "text": folder_name},
+                target_regex="new_file_dialog__name|Name|my_note",
+                fallback_relative_xy=(345, 129),
+                wait_after_ms=500,
+            ),
+            Step(
+                "click",
+                "点击 FOLDER",
+                {"target_description": "FOLDER"},
+                target_regex="^FOLDER$",
+                fallback_relative_xy=(181, 458),
+                wait_after_ms=1400,
+            ),
+        ]
+    if task_name == "MarkorCreateNote":
+        file_name = str(task_params.get("file_name") or "").strip()
+        text = str(task_params.get("text") or "").strip()
+        if not file_name or not text:
+            raise ValueError("MarkorCreateNote requires file_name and text")
+        if "." in file_name:
+            name_base, extension = file_name.rsplit(".", 1)
+            extension = "." + extension
+        else:
+            name_base, extension = file_name, ".md"
+        if extension != ".md":
+            raise ValueError("MarkorCreateNote v1 script supports .md notes")
+        return [
+            Step(
+                "open_app",
+                "打开 Markor",
+                {"package_name": "net.gsantner.markor"},
+                wait_after_ms=1500,
+            ),
+            Step(
+                "click",
+                "点击 Create a new file or folder",
+                {"target_description": "Create a new file or folder"},
+                target_regex="Create a new file or folder|fab_add_new_item",
+                fallback_relative_xy=(878, 377),
+                wait_after_ms=800,
+            ),
+            Step(
+                "input_text",
+                "填写 note file name",
+                {"target_description": "Name", "text": name_base},
+                target_regex="new_file_dialog__name|Name|my_note",
+                fallback_relative_xy=(345, 134),
+                wait_after_ms=500,
+            ),
+            Step(
+                "click",
+                "点击 OK",
+                {"target_description": "OK"},
+                target_regex=r"\bOK\b|android:id/button1",
+                fallback_relative_xy=(833, 673),
+                wait_after_ms=1600,
+            ),
+            Step(
+                "input_text",
+                "填写 note content",
+                {
+                    "target_description": "document__fragment__edit__highlighting_editor",
+                    "text": text,
+                },
+                target_regex="document__fragment__edit__highlighting_editor",
+                fallback_relative_xy=(500, 293),
+                wait_after_ms=700,
+            ),
+            Step(
+                "press_key",
+                "隐藏键盘",
+                {"key": "back"},
+                wait_after_ms=700,
+            ),
+            Step(
+                "click",
+                "点击 Save",
+                {"target_description": "Save"},
+                target_regex=r"\bSave\b|action_save|menu_save",
+                fallback_relative_xy=(722, 81),
+                wait_after_ms=1800,
+            ),
+            Step(
+                "press_key",
+                "返回文件列表",
+                {"key": "back"},
+                wait_after_ms=1200,
+            ),
+            Step(
+                "press_key",
+                "回到桌面触发保存",
+                {"key": "home"},
+                wait_after_ms=2200,
+            ),
+        ]
+    if task_name == "SimpleSmsSend":
+        number = str(task_params.get("number") or "").strip()
+        message = str(task_params.get("message") or "").strip()
+        if not number or not message:
+            raise ValueError("SimpleSmsSend requires number and message")
+        return [
+            Step(
+                "open_app",
+                "打开 Simple SMS Messenger",
+                {"package_name": "com.simplemobiletools.smsmessenger"},
+                wait_after_ms=1500,
+            ),
+            Step(
+                "click",
+                "点击 Start a conversation",
+                {"target_description": "Start a conversation"},
+                target_regex="Start a conversation|conversations_fab",
+                fallback_relative_xy=(500, 244),
+                wait_after_ms=1200,
+            ),
+            Step(
+                "input_text",
+                "输入短信号码",
+                {"target_description": "Add Contact or Number", "text": number},
+                target_regex="Add Contact or Number|new_conversation_address",
+                fallback_relative_xy=(500, 175),
+                wait_after_ms=700,
+            ),
+            Step(
+                "click",
+                "确认短信收件人",
+                {"target_description": "Confirm recipient"},
+                target_regex="new_conversation_confirm",
+                fallback_relative_xy=(933, 175),
+                wait_after_ms=1200,
+            ),
+            Step(
+                "input_text",
+                "输入短信内容",
+                {"target_description": "Type a message", "text": message},
+                target_regex="Type a message|thread_type_message",
+                fallback_relative_xy=(500, 495),
+                wait_after_ms=700,
+            ),
+            Step(
+                "click",
+                "点击发送短信",
+                {"target_description": "Send SMS"},
+                target_regex="thread_send_message|OK|SMS",
+                fallback_relative_xy=(922, 495),
+                wait_after_ms=1800,
+            ),
         ]
     raise ValueError(f"Unsupported scripted task: {task_name}")
 
@@ -521,12 +1860,16 @@ def instantiate_task(task_name: str, env: Any, seed: int | None, params_override
 
         random.seed(seed)
     params = dict(params_override) if params_override is not None else task_type.generate_random_params()
+    params = hydrate_androidworld_params(task_name, params)
     return task_type(dict(params))
 
 
 def collect_verified(args: argparse.Namespace) -> dict[str, Any]:
     _, env_launcher = load_androidworld()
     from android_world.env import android_world_controller
+
+    if args.task.startswith("Markor") or args.task.startswith("Camera") or args.task.startswith("AudioRecorder"):
+        patch_androidworld_clear_directory_empty_glob()
 
     if args.androidworld_a11y_method == "uiautomator":
         original_controller = android_world_controller.AndroidWorldController
@@ -551,6 +1894,18 @@ def collect_verified(args: argparse.Namespace) -> dict[str, Any]:
     )
     adb = Adb(args.adb_path, args.device, args.package)
     host = OobHost(args.port)
+    if args.task.startswith("Markor"):
+        adb.shell("mkdir", "-p", "/storage/emulated/0/Documents/Markor", check=False)
+        adb.shell("sh", "-c", "touch /storage/emulated/0/Documents/Markor/.oob_keep", check=False)
+    if args.task.startswith("Camera"):
+        adb.shell("mkdir", "-p", "/sdcard/Pictures", "/sdcard/Movies", check=False)
+    if args.task.startswith("AudioRecorder"):
+        adb.shell(
+            "mkdir",
+            "-p",
+            "/storage/emulated/0/Android/data/com.dimowner.audiorecorder/files/Music/records",
+            check=False,
+        )
     run_id = f"androidworld_verified_{args.task}_{int(time.time())}"
     output_root = args.output_dir.expanduser().resolve()
     artifact_dir = output_root / f"{run_id}.artifacts"
@@ -565,14 +1920,20 @@ def collect_verified(args: argparse.Namespace) -> dict[str, Any]:
         params_override = json.loads(args.task_params_json) if args.task_params_json else None
         task = instantiate_task(args.task, env, args.seed, params_override)
         task_goal = str(task.goal)
-        task_params = dict(getattr(task, "params", {}) or {})
+        task_params = json_safe(dict(getattr(task, "params", {}) or {}))
         task.initialize_task(env)
         adb.prepare_oob()
         # Confirm host is up after AndroidWorld setup and OOB relaunch.
         host.get("/health", timeout=10)
         steps = get_task_steps(args.task, task_params)
         for index, step in enumerate(steps):
-            before = capture_state(host, image_quality=args.image_quality)
+            before = (
+                capture_state(host, image_quality=args.image_quality)
+                if step.optional else
+                capture_state_for_step(host, step, image_quality=args.image_quality)
+            )
+            if step.optional and step.target_regex and not find_xml_target(str(before.get("xml") or ""), step.target_regex):
+                continue
             before_ref = save_state_artifacts(before, artifact_dir, f"step_{index + 1:02d}_before")
             step_started = now_ms()
             step_args, result = execute_step(host, step, before)
@@ -601,11 +1962,21 @@ def collect_verified(args: argparse.Namespace) -> dict[str, Any]:
         time.sleep(args.verify_settle_seconds)
         final_state = capture_state(host, image_quality=args.image_quality)
         final_xml = str(final_state.get("xml") or "")
+        oob_xml_reward = oob_xml_reward_for_task(args.task, task_params, final_xml) if args.verify_state_source == "oob_xml" else None
+        oob_device_reward = oob_device_reward_for_task(args.task, task_params, adb)
         verifier_env = OobVerifierEnv(env, final_xml) if args.verify_state_source == "oob_xml" else env
-        reward = float(task.is_successful(verifier_env))
+        reward = float(
+            oob_device_reward
+            if oob_device_reward is not None
+            else oob_xml_reward
+            if oob_xml_reward is not None
+            else task.is_successful(verifier_env)
+        )
         verifier_ui_elements = verifier_env.get_state().ui_elements
         verifier_diagnostics = {
             "verify_state_source": args.verify_state_source,
+            "oob_xml_reward_override": oob_xml_reward is not None,
+            "oob_device_reward_override": oob_device_reward is not None,
             "ui_element_count": len(verifier_ui_elements),
             "matched_stopwatch_running_evidence": [
                 {

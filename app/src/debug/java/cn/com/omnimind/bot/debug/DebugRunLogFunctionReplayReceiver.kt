@@ -12,6 +12,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import java.security.MessageDigest
 import java.io.File
 
 class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
@@ -29,10 +30,26 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
             ?: intent?.getStringExtra("description").orEmpty()
         val goal = intent.decodeBase64Extra("goalBase64")
             ?: intent?.getStringExtra("goal").orEmpty()
+        val effectiveGoal = goal.ifBlank { description }
         val shouldRun = intent?.getBooleanExtra("run", true) ?: true
+        val shouldEnhance = intent?.getBooleanExtra("enhance", false) ?: false
         val agentVisible = intent.booleanExtra("agentVisible")
             ?: intent.booleanExtra("agent_visible")
             ?: false
+        val enhancementInstruction = intent.decodeBase64Extra("enhancementInstructionBase64")
+            ?: intent.decodeBase64Extra("instructionBase64")
+            ?: intent?.getStringExtra("enhancementInstruction")
+            ?: intent?.getStringExtra("instruction")
+            ?: ""
+        val enhancementAnalysis = intent.decodeJsonMapBase64Extra("enhancementAnalysisBase64")
+            ?: intent.decodeJsonMapBase64Extra("analysisBase64")
+            ?: emptyMap()
+        val enhancementPatch = intent.decodeJsonMapBase64Extra("enhancementPatchBase64")
+            ?: intent.decodeJsonMapBase64Extra("patchBase64")
+            ?: emptyMap()
+        val replayArguments = intent.decodeJsonMapBase64Extra("argumentsBase64")
+            ?: intent.decodeJsonMapBase64Extra("replayArgumentsBase64")
+            ?: emptyMap()
         val rawRunLog = intent.decodeBase64Extra("runLogBase64")
             ?.let(::decodeRunLog)
             ?: intent.readRunLogPath(appContext)
@@ -91,25 +108,95 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                     ?.mapKeys { it.key?.toString().orEmpty() }
                     ?: emptyMap<String, Any?>()
                 val functionSpec = convert["function_spec"] ?: convertResult["function_spec"]
-                val replay = if (
-                    shouldRun &&
+                val enhanceStartMs = if (shouldEnhance) System.currentTimeMillis() else null
+                val enhance = if (
+                    shouldEnhance &&
                     convert["success"] == true &&
                     inlineRegistration?.get("success") != false &&
                     createdFunctionId.isNotBlank()
                 ) {
-                    service.runFunction(
+                    service.updateFunction(
                         linkedMapOf(
                             "function_id" to createdFunctionId,
-                            "goal" to goal,
-                            "arguments" to emptyMap<String, Any?>(),
+                            "mode" to "enhance",
+                            "instruction" to enhancementInstruction.ifBlank {
+                                "Enhance this Function using OOB RunLog evidence before replay. Preserve the execution steps unless the supplied patch explicitly changes them."
+                            },
+                            "analysis" to defaultEnhancementAnalysis(
+                                runId = convert["run_id"]?.toString()
+                                    ?: runId.ifBlank { rawRunLog["run_id"]?.toString().orEmpty() },
+                                goal = effectiveGoal,
+                                rawAnalysis = enhancementAnalysis,
+                            ),
+                            "patch" to enhancementPatch,
                         )
                     )
                 } else {
                     null
                 }
+                val enhanceEndMs = if (shouldEnhance) System.currentTimeMillis() else null
+                val enhanceCost = buildEnhanceCost(
+                    requested = shouldEnhance,
+                    startedAtMs = enhanceStartMs,
+                    endedAtMs = enhanceEndMs,
+                    enhance = enhance,
+                )
+                val enhancedFunctionSpec = if (enhance?.get("success") == true) {
+                    service.getFunction(linkedMapOf("function_id" to createdFunctionId))["function"]
+                } else {
+                    null
+                }
+                val functionSpecHash = stableHash(functionSpec)
+                val enhancedFunctionSpecHash = stableHash(enhancedFunctionSpec)
+                val canReplay = shouldRun &&
+                    convert["success"] == true &&
+                    inlineRegistration?.get("success") != false &&
+                    createdFunctionId.isNotBlank() &&
+                    (!shouldEnhance || enhance?.get("success") == true)
+                val functionSpecBeforeReplay = if (canReplay) {
+                    service.getFunction(linkedMapOf("function_id" to createdFunctionId))["function"]
+                } else {
+                    null
+                }
+                val functionSpecBeforeReplayHash = stableHash(functionSpecBeforeReplay)
+                val replayWillUseEnhancedFunction = shouldRun &&
+                    shouldEnhance &&
+                    canReplay &&
+                    enhancedFunctionSpecHash.isNotBlank() &&
+                    enhancedFunctionSpecHash == functionSpecBeforeReplayHash
+                val replay = if (
+                    canReplay
+                ) {
+                    service.runFunction(
+                        linkedMapOf(
+                            "function_id" to createdFunctionId,
+                            "goal" to effectiveGoal,
+                            "arguments" to replayArguments,
+                        )
+                    )
+                } else {
+                    null
+                }
+                val replaySkippedReason = if (!shouldRun) {
+                    "run_not_requested"
+                } else if (convert["success"] != true) {
+                    "convert_failed"
+                } else if (inlineRegistration?.get("success") == false) {
+                    "registration_failed"
+                } else if (createdFunctionId.isBlank()) {
+                    "missing_function_id"
+                } else if (shouldEnhance && enhance?.get("success") != true) {
+                    "enhance_failed"
+                } else {
+                    null
+                }
 
                 linkedMapOf<String, Any?>(
-                    "success" to (convert["success"] == true && (replay?.get("success") != false)),
+                    "success" to (
+                        convert["success"] == true &&
+                            (!shouldEnhance || enhance?.get("success") == true) &&
+                            (replay?.get("success") != false)
+                        ),
                     "run_id" to (
                         convert["run_id"] ?: runId.ifBlank {
                             rawRunLog["run_id"] ?: rawRunLog["runId"]
@@ -119,8 +206,18 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                     "agent_visible" to agentVisible,
                     "convert" to convert,
                     "inline_registration" to inlineRegistration,
+                    "enhance_requested" to shouldEnhance,
+                    "enhance" to enhance,
+                    "enhance_cost" to enhanceCost,
                     "function_spec" to functionSpec,
+                    "enhanced_function_spec" to enhancedFunctionSpec,
+                    "function_spec_hash" to functionSpecHash.takeIf { it.isNotBlank() },
+                    "enhanced_function_spec_hash" to enhancedFunctionSpecHash.takeIf { it.isNotBlank() },
+                    "function_spec_before_replay_hash" to functionSpecBeforeReplayHash.takeIf { it.isNotBlank() },
+                    "replay_arguments" to replayArguments,
                     "replay" to replay,
+                    "replay_uses_enhanced_function" to (replay != null && replayWillUseEnhancedFunction),
+                    "replay_skipped_reason" to replaySkippedReason,
                     "run_requested" to shouldRun,
                 )
             }.getOrElse { error ->
@@ -156,6 +253,64 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
         }.getOrNull()
     }
 
+    private fun Intent?.decodeJsonMapBase64Extra(name: String): Map<String, Any?>? {
+        val raw = decodeBase64Extra(name) ?: return null
+        return decodeRunLog(raw).takeIf { it.isNotEmpty() }
+    }
+
+    private fun stableHash(value: Any?): String {
+        if (value !is Map<*, *> || value.isEmpty()) return ""
+        val json = gson.toJson(value)
+        val digest = MessageDigest.getInstance("SHA-256").digest(json.toByteArray(Charsets.UTF_8))
+        return digest.joinToString("") { "%02x".format(it) }
+    }
+
+    private fun buildEnhanceCost(
+        requested: Boolean,
+        startedAtMs: Long?,
+        endedAtMs: Long?,
+        enhance: Map<String, Any?>?,
+    ): Map<String, Any?> {
+        if (!requested) {
+            return linkedMapOf(
+                "requested" to false,
+                "backend" to "oob_native_omniflow_toolkit",
+            )
+        }
+        val updateCostPayload = firstMap(enhance?.get("cost"))
+        val usage = firstMap(
+            enhance?.get("usage"),
+            enhance?.get("token_usage"),
+            enhance?.get("tokenUsage"),
+            updateCostPayload["usage"],
+        )
+        val cost = firstMap(
+            updateCostPayload["cost"],
+            enhance?.get("cost_estimate"),
+            enhance?.get("costEstimate"),
+        )
+        return linkedMapOf<String, Any?>(
+            "requested" to true,
+            "success" to (enhance?.get("success") == true),
+            "backend" to (enhance?.get("source")?.toString()?.takeIf { it.isNotBlank() } ?: "oob_native_omniflow_toolkit"),
+            "started_at_ms" to startedAtMs,
+            "ended_at_ms" to endedAtMs,
+            "duration_ms" to if (startedAtMs != null && endedAtMs != null) (endedAtMs - startedAtMs).coerceAtLeast(0L) else null,
+            "usage" to usage.takeIf { it.isNotEmpty() },
+            "cost" to cost.takeIf { it.isNotEmpty() },
+        ).filterValues { it != null }
+    }
+
+    private fun firstMap(vararg values: Any?): Map<String, Any?> {
+        for (value in values) {
+            val mapped = (value as? Map<*, *>)
+                ?.mapKeys { it.key?.toString().orEmpty() }
+                ?.filterKeys { it.isNotBlank() }
+            if (!mapped.isNullOrEmpty()) return mapped
+        }
+        return emptyMap()
+    }
+
     private fun Intent?.readRunLogPath(context: Context): Map<String, Any?>? {
         val rawPath = this?.getStringExtra("runLogPath")
             ?: this?.getStringExtra("run_log_path")
@@ -185,6 +340,26 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
             decoded ?: emptyMap()
         }.getOrDefault(emptyMap())
     }
+
+    private fun defaultEnhancementAnalysis(
+        runId: String,
+        goal: String,
+        rawAnalysis: Map<String, Any?>,
+    ): Map<String, Any?> =
+        linkedMapOf<String, Any?>(
+            "summary" to (
+                rawAnalysis["summary"]?.toString()?.takeIf { it.isNotBlank() }
+                    ?: "OOB RunLog-derived Function enhanced before replay."
+                ),
+            "goal" to goal.takeIf { it.isNotBlank() },
+            "source_run_id" to runId.takeIf { it.isNotBlank() },
+            "recommended_patch" to (rawAnalysis["recommended_patch"] ?: rawAnalysis["recommendedPatch"]),
+            "notes" to (rawAnalysis["notes"] ?: "Preserve OOB canonical action schema and existing parameter bindings."),
+        ).apply {
+            rawAnalysis.forEach { (key, value) ->
+                if (key !in this) put(key, value)
+            }
+        }.filterValues { it != null }
 
     private fun Throwable.fullMessage(): String {
         val parts = mutableListOf<String>()

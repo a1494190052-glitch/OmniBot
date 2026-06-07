@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Distribute Codex-collected AndroidWorld OOB RunLogs to baseline evaluators.
+"""Prepare Codex-collected AndroidWorld OOB RunLogs for baseline evaluators.
 
 This script does not run `oob_vlm_task.py` and does not contain task-specific
 action adapters. AndroidWorld resets and initializes the task, then Codex (or a
 human operator using Codex) plans from the live goal/state and produces a real
 OOB RunLog by any valid OOB execution path. The script consumes that RunLog,
-converts it to OmniFlow canonical schema, and passes it to the existing
-Omniflow baseline harness, where selected methods are scored by AndroidWorld
-validators.
+converts it to OmniFlow canonical schema, and records the artifact paths.
+AndroidWorld is only valid for reset/init and final verification. Baseline
+runners must use the OOB local device HTTP host for intermediate observe/act.
 """
 
 from __future__ import annotations
@@ -31,11 +31,9 @@ DEFAULT_PACKAGE = "cn.com.omnimind.bot.debug"
 DEFAULT_METHODS = (
     "ours-full,"
     "ours-no-checker,"
-    "ours-no-control,"
-    "autodroid-memory-action-sequence,"
-    "autodroid-native-validator,"
-    "mobilegpt-native-validator"
+    "ours-no-control"
 )
+OOB_HOST_METHODS = {"ours-full", "ours-no-checker", "ours-no-control"}
 
 
 DEFAULT_CASES = [
@@ -173,6 +171,38 @@ def _convert_to_omniflow(oob_run_log_path: Path, canonical_path: Path) -> dict[s
 
 
 def _run_baselines(canonical_path: Path, collect_result: dict[str, Any], args: argparse.Namespace, case_dir: Path) -> dict[str, Any]:
+    requested_methods = {
+        item.strip()
+        for raw in str(args.methods or "").split(",")
+        for item in raw.split(",")
+        if item.strip()
+    }
+    unsupported_methods = sorted(requested_methods - OOB_HOST_METHODS)
+    if unsupported_methods and not args.allow_androidworld_observe_runner:
+        return {
+            "returncode": None,
+            "summary_path": None,
+            "summary": None,
+            "skipped": True,
+            "reason": (
+                "baseline fan-out skipped: requested methods are not wired to the "
+                f"OOB local device host yet: {unsupported_methods}. Keep the default "
+                "ours-* methods, or pass --allow-androidworld-observe-runner only "
+                "for legacy debugging."
+            ),
+        }
+    if not args.oob_device_url and not args.allow_androidworld_observe_runner:
+        return {
+            "returncode": None,
+            "summary_path": None,
+            "summary": None,
+            "skipped": True,
+            "reason": (
+                "baseline fan-out skipped: no OOB /get_state runner URL was provided. "
+                "Pass --oob-device-url, or pass --allow-androidworld-observe-runner "
+                "only for legacy debugging."
+            ),
+        }
     output_dir = case_dir / "baselines"
     command = [
         sys.executable,
@@ -206,6 +236,8 @@ def _run_baselines(canonical_path: Path, collect_result: dict[str, Any], args: a
         "--omniflow-replay-timeout-sec",
         str(args.omniflow_replay_timeout_sec),
     ]
+    if args.oob_device_url:
+        command.extend(["--oob-device-url", args.oob_device_url])
     if args.prepare_inputs_only:
         command.append("--prepare-inputs-only")
     if args.dry_run_baselines:
@@ -375,6 +407,11 @@ def main() -> int:
     parser.add_argument("--init-only", action="store_true", help="Only reset/init AndroidWorld and write collection_request.json.")
     parser.add_argument("--codex-run-log-path", default="", help="Single Codex-collected OOB RunLog path for --limit 1 or one case.")
     parser.add_argument("--methods", default=DEFAULT_METHODS)
+    parser.add_argument(
+        "--oob-device-url",
+        default="http://127.0.0.1:8910",
+        help="OOB local device HTTP host used by baseline replay observe/act.",
+    )
     parser.add_argument("--app-name", default="Clock")
     parser.add_argument("--task-random-seed", type=int, default=42)
     parser.add_argument("--baseline-max-steps", type=int, default=8)
@@ -383,6 +420,11 @@ def main() -> int:
     parser.add_argument("--baseline-timeout-sec", type=int, default=3600)
     parser.add_argument("--prepare-inputs-only", action="store_true")
     parser.add_argument("--dry-run-baselines", action="store_true")
+    parser.add_argument(
+        "--allow-androidworld-observe-runner",
+        action="store_true",
+        help="Legacy/debug only: allow runner paths that use AndroidWorld observe/uiautomator during replay.",
+    )
     parser.add_argument("--output-dir", type=Path, default=REPO_ROOT / "runtime" / "androidworld_codex_baseline_sweep")
     args = parser.parse_args()
 

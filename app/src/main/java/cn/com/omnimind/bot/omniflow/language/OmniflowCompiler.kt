@@ -144,12 +144,32 @@ object OmniflowCompiler {
     }
 
     private fun paramIdForInputStep(step: Map<String, Any?>, index: Int): String {
-        val title = firstNonBlank(step["title"], step["summary"])
+        val rawTitle = firstNonBlank(step["title"], step["summary"])
+        semanticParamId(rawTitle)?.let { return it }
+        val title = rawTitle
             .take(30)
             .replace(Regex("[^A-Za-z0-9_]+"), "_")
             .trim('_')
             .lowercase()
         return title.takeIf { it.isNotBlank() } ?: "input_text"
+    }
+
+    private fun semanticParamId(title: String): String? {
+        val normalized = title.lowercase()
+        return when {
+            "录音" in title && "文件名" in title -> "audio_file_name"
+            "联系人" in title && "姓名" in title -> "contact_name"
+            "电话" in title || "号码" in title -> "contact_phone"
+            "名字" in title -> "first_name"
+            "姓氏" in title -> "last_name"
+            "note" in normalized && "file" in normalized && "name" in normalized -> "note_file_name"
+            "note" in normalized && ("content" in normalized || "text" in normalized) -> "note_content"
+            "contact" in normalized && "name" in normalized -> "contact_name"
+            "phone" in normalized || "number" in normalized -> "contact_phone"
+            "first" in normalized && "name" in normalized -> "first_name"
+            "last" in normalized && "name" in normalized -> "last_name"
+            else -> null
+        }
     }
 
     private fun uniqueId(base: String, used: Set<String>): String {

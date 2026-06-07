@@ -50,6 +50,22 @@ interface OmniflowActionBackend {
         inputTextToFocusedNode(text)
     }
 
+    suspend fun inputTextByTyping(
+        text: String,
+        targetDescription: String = "",
+        x: Float? = null,
+        y: Float? = null,
+        nodeResourceId: String = "",
+    ) {
+        inputText(
+            text = text,
+            targetDescription = targetDescription,
+            x = x,
+            y = y,
+            nodeResourceId = nodeResourceId,
+        )
+    }
+
     suspend fun launchApplication(packageName: String)
 
     suspend fun launchApplication(packageName: String, resetTask: Boolean) {
@@ -138,6 +154,20 @@ private object AccessibilityOmniflowActionBackend : OmniflowActionBackend {
         )
     }
 
+    override suspend fun inputTextByTyping(
+        text: String,
+        targetDescription: String,
+        x: Float?,
+        y: Float?,
+        nodeResourceId: String,
+    ) {
+        if (x != null && y != null) {
+            click(x, y)
+            delay(250)
+        }
+        inputTextViaShell(text)
+    }
+
     override suspend fun launchApplication(packageName: String) {
         launchApplication(packageName = packageName, resetTask = false)
     }
@@ -165,6 +195,27 @@ private object AccessibilityOmniflowActionBackend : OmniflowActionBackend {
     override suspend fun hideKeyboard() {
         AccessibilityController.hideKeyboard()
         delay(250)
+    }
+
+    private suspend fun inputTextViaShell(text: String) = withContext(Dispatchers.IO) {
+        val escapedText = text
+            .replace("\\", "\\\\")
+            .replace(" ", "%s")
+            .replace("'", "\\'")
+            .replace("\"", "\\\"")
+            .replace("&", "\\&")
+            .replace("<", "\\<")
+            .replace(">", "\\>")
+            .replace("|", "\\|")
+            .replace(";", "\\;")
+            .replace("(", "\\(")
+            .replace(")", "\\)")
+            .replace("\n", "%n")
+        val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", "input text '$escapedText'"))
+        val exitCode = process.waitFor()
+        if (exitCode != 0) {
+            throw IllegalStateException("shell input text failed: exit_code=$exitCode")
+        }
     }
 
     override fun currentXml(): String? =

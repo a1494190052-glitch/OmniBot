@@ -16,7 +16,7 @@ class ExecutionRecordList extends StatelessWidget {
   final Function(ExecutionRecordListItemData)? onSchedulePressed;
   final Set<String> scheduledTaskKeys;
 
-  const ExecutionRecordList({super.key, 
+  const ExecutionRecordList({super.key,
     required this.records,
     required this.onDelete,
     required this.onMore,

@@ -1,13 +1,5 @@
 package cn.com.omnimind.bot.agent.tool.handlers
 
-import android.content.Context
-import android.graphics.Color
-import android.graphics.PixelFormat
-import android.graphics.drawable.GradientDrawable
-import android.view.Gravity
-import android.view.View
-import android.view.WindowManager
-import android.widget.TextView
 import cn.com.omnimind.assists.OmniFlowUiSession
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
@@ -58,22 +50,6 @@ class OobFunctionFrontendSessionController(
         fun requestStopNow() {
             stopRequested.set(true)
         }
-        val stopOverlay = if (
-            canUseUiOverlay &&
-            helper.context.getSystemService(Context.WINDOW_SERVICE) is WindowManager
-        ) {
-            OobFunctionStopOverlay(
-                context = helper.context,
-                label = helper.localized("停止"),
-                onStop = {
-                    requestStopNow()
-                    OmniFlowUiSession.requestStopSession(runId)
-                    DraggableBallInstance.finishDoingTask(helper.localized("任务已停止"))
-                }
-            )
-        } else {
-            null
-        }
         OmniFlowUiSession.registerRun(
             runId = runId,
             onStopRequested = { requestStopNow() },
@@ -103,7 +79,6 @@ class OobFunctionFrontendSessionController(
                         forceOnTop = true,
                         isTouchable = false
                     )
-                    stopOverlay?.show()
                 }
             }.onFailure {
                 OmniLog.w(TAG, "start OmniFlow frontend failed: ${it.message}")
@@ -118,7 +93,6 @@ class OobFunctionFrontendSessionController(
             functionId = functionId,
             stepCount = stepCount,
             embeddedInVlmTask = embeddedInVlmTask,
-            stopOverlay = stopOverlay,
             canUseUiOverlay = canUseUiOverlay,
             toolHandle = toolHandle,
         )
@@ -151,7 +125,6 @@ class OobFunctionFrontendSessionController(
         private val functionId: String,
         private val stepCount: Int,
         private val embeddedInVlmTask: Boolean,
-        private val stopOverlay: OobFunctionStopOverlay?,
         private val canUseUiOverlay: Boolean,
         private val toolHandle: cn.com.omnimind.bot.agent.AgentToolExecutionHandle?,
     ) {
@@ -222,7 +195,6 @@ class OobFunctionFrontendSessionController(
             if (canUseUiOverlay) {
                 runCatching {
                     withContext(NonCancellable + Dispatchers.Main) {
-                        stopOverlay?.hide()
                         if (!end.wasActive) return@withContext
                         if (embeddedInVlmTask) {
                             DraggableBallInstance.doingTask(
@@ -249,8 +221,6 @@ class OobFunctionFrontendSessionController(
                 }.onFailure {
                     OmniLog.w(TAG, "finish OmniFlow frontend failed: ${it.message}")
                 }
-            } else {
-                stopOverlay?.hide()
             }
         }
     }
@@ -296,73 +266,5 @@ class OobFunctionFrontendSessionController(
                 ).filterValues { it != null }
             )
         }
-    }
-}
-
-internal class OobFunctionStopOverlay(
-    context: Context,
-    private val label: String,
-    private val onStop: () -> Unit,
-) {
-    private val appContext = context.applicationContext
-    private val windowManager =
-        appContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-    private var view: View? = null
-
-    fun show() {
-        if (view != null) return
-        val button = TextView(appContext).apply {
-            text = label
-            textSize = 13f
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            contentDescription = label
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = 18.dp().toFloat()
-                setColor(0xE6C62828.toInt())
-            }
-            elevation = 8.dp().toFloat()
-            setOnClickListener {
-                hide()
-                onStop()
-            }
-        }
-        val params = WindowManager.LayoutParams(
-            56.dp(),
-            36.dp(),
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.BOTTOM or Gravity.END
-            x = 16.dp()
-            y = 128.dp()
-        }
-        runCatching {
-            windowManager.addView(button, params)
-            view = button
-        }.onFailure {
-            OmniLog.w(TAG, "show OOB stop overlay failed: ${it.message}")
-        }
-    }
-
-    fun hide() {
-        val current = view ?: return
-        view = null
-        runCatching {
-            windowManager.removeView(current)
-        }.onFailure {
-            OmniLog.w(TAG, "hide OOB stop overlay failed: ${it.message}")
-        }
-    }
-
-    private fun Int.dp(): Int =
-        (this * appContext.resources.displayMetrics.density + 0.5f).toInt()
-
-    private companion object {
-        const val TAG = "OobFunctionStopOverlay"
     }
 }

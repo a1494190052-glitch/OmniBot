@@ -102,7 +102,7 @@ class VlmRecallGuidanceBuilderTest {
                             "decision_guidance" to "Use Settings node context before choosing actions.",
                             "body" to """
                                 # UDEG Node Skill
-                                
+
                                 ## Decision Context
                                 Use Settings node context before choosing actions.
                             """.trimIndent(),

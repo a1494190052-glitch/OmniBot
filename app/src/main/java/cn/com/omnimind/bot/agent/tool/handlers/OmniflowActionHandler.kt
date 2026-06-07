@@ -81,13 +81,28 @@ class OmniflowActionHandler(
                 )
             }
             OobActionCodec.ACTION_INPUT_TEXT -> {
-                backend.inputText(
-                    text = str("text"),
-                    targetDescription = str("target_description"),
-                    x = args["x"]?.toString()?.toFloatOrNull(),
-                    y = args["y"]?.toString()?.toFloatOrNull(),
-                    nodeResourceId = str("node_resource_id"),
-                )
+                val text = str("text")
+                val targetDescription = str("target_description")
+                val x = args["x"]?.toString()?.toFloatOrNull()
+                val y = args["y"]?.toString()?.toFloatOrNull()
+                val nodeResourceId = str("node_resource_id")
+                if (str("input_mode").equals("typed", ignoreCase = true)) {
+                    backend.inputTextByTyping(
+                        text = text,
+                        targetDescription = targetDescription,
+                        x = x,
+                        y = y,
+                        nodeResourceId = nodeResourceId,
+                    )
+                } else {
+                    backend.inputText(
+                        text = text,
+                        targetDescription = targetDescription,
+                        x = x,
+                        y = y,
+                        nodeResourceId = nodeResourceId,
+                    )
+                }
             }
             OobActionCodec.ACTION_SWIPE -> {
                 val direction = ScrollDirection.entries.firstOrNull {

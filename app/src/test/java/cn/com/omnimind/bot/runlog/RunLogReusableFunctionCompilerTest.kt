@@ -219,6 +219,76 @@ class RunLogReusableFunctionCompilerTest {
     }
 
     @Test
+    fun `recorded audio file name input becomes semantic function parameter`() {
+        val spec = compile(
+            listOf(
+                card(
+                    "input_text",
+                    mapOf(
+                        "target_description" to "New name",
+                        "text" to "oob_audio_tau",
+                    ),
+                    title = "填写录音文件名",
+                    beforeXml = SOURCE_XML,
+                ),
+            ),
+            runId = "run-audio-file-name-input",
+        )
+
+        val parameters = spec["parameters"] as Map<*, *>
+        val properties = parameters["properties"] as Map<*, *>
+        assertTrue(properties.containsKey("audio_file_name"))
+        assertFalse(properties.containsKey("input_text"))
+
+        val action = (spec["actions"] as List<*>).single() as Map<*, *>
+        val args = action["args"] as Map<*, *>
+        assertEquals("\${audio_file_name}", args["text"])
+
+        val metadata = spec["metadata"] as Map<*, *>
+        val bindings = metadata["oob_parameter_bindings"] as List<*>
+        assertEquals("audio_file_name", (bindings.single() as Map<*, *>)["parameter"])
+    }
+
+    @Test
+    fun `recorded contact inputs become semantic function parameters`() {
+        val spec = compile(
+            listOf(
+                card(
+                    "input_text",
+                    mapOf(
+                        "target_description" to "First name",
+                        "text" to "OOB Contact Lambda",
+                    ),
+                    title = "填写联系人姓名",
+                    beforeXml = SOURCE_XML,
+                ),
+                card(
+                    "input_text",
+                    mapOf(
+                        "target_description" to "Phone",
+                        "text" to "5558675309",
+                    ),
+                    title = "填写电话号码",
+                    beforeXml = SOURCE_XML,
+                ),
+            ),
+            runId = "run-contact-inputs",
+        )
+
+        val parameters = spec["parameters"] as Map<*, *>
+        val properties = parameters["properties"] as Map<*, *>
+        assertTrue(properties.containsKey("contact_name"))
+        assertTrue(properties.containsKey("contact_phone"))
+        assertFalse(properties.containsKey("input_text"))
+
+        val actions = spec["actions"] as List<*>
+        val nameArgs = (actions[0] as Map<*, *>)["args"] as Map<*, *>
+        val phoneArgs = (actions[1] as Map<*, *>)["args"] as Map<*, *>
+        assertEquals("\${contact_name}", nameArgs["text"])
+        assertEquals("\${contact_phone}", phoneArgs["text"])
+    }
+
+    @Test
     fun `manual coordinate action without coordinates does not claim coordinate source context`() {
         val spec = compile(
             listOf(
@@ -922,6 +992,62 @@ class RunLogReusableFunctionCompilerTest {
     }
 
     @Test
+    fun `keyboard back between form inputs is dropped from fixed replay path`() {
+        val spec = compile(
+            listOf(
+                card("input_text", mapOf("target_description" to "First name", "text" to "Alice")),
+                card("press_key", mapOf("key" to "back")),
+                card("input_text", mapOf("target_description" to "Phone", "text" to "5551234567")),
+                card("press_key", mapOf("key" to "back")),
+                card("click", mapOf("target_description" to "Save", "x" to 536, "y" to 112)),
+            ),
+            runId = "run-keyboard-back-noise",
+        )
+
+        val steps = stepsFrom(spec)
+        assertEquals(listOf("input_text", "input_text", "click"), steps.map { it["tool"] })
+    }
+
+    @Test
+    fun `focus click before non editable time picker input is preserved`() {
+        val spec = compile(
+            listOf(
+                card(
+                    "click",
+                    mapOf(
+                        "target_description" to "start minute",
+                        "x" to 480,
+                        "y" to 368,
+                        "bounds" to "[384,288][576,448]",
+                    ),
+                    beforeXml = TIME_PICKER_HOUR_FOCUSED_XML,
+                    afterXml = TIME_PICKER_MINUTE_FOCUSED_XML,
+                    title = "聚焦开始分钟",
+                ),
+                card(
+                    "input_text",
+                    mapOf(
+                        "target_description" to "start minute",
+                        "text" to "00",
+                        "x" to 480,
+                        "y" to 368,
+                        "bounds" to "[384,288][576,448]",
+                    ),
+                    beforeXml = TIME_PICKER_MINUTE_FOCUSED_XML,
+                    afterXml = TIME_PICKER_MINUTE_FOCUSED_XML,
+                    title = "设置开始分钟 00",
+                ),
+            ),
+            runId = "run-time-picker-minute-focus",
+        )
+
+        val steps = stepsFrom(spec)
+        assertEquals(listOf("click", "input_text"), steps.map { it["tool"] })
+        val parameterProperties = parameterPropertiesFrom(parameterSchemaFrom(spec))
+        assertFalse(parameterProperties.containsKey("00"))
+    }
+
+    @Test
     fun `manual takeover recorded actions compile to local replay steps`() {
         val spec = compile(
             listOf(
@@ -1227,6 +1353,10 @@ class RunLogReusableFunctionCompilerTest {
             "<hierarchy><node bounds=\"[0,0][720,1280]\" text=\"Apps\" resource-id=\"com.android.settings:id/content_parent\"/><node bounds=\"[48,594][273,648]\" text=\"Default apps\" resource-id=\"android:id/title\"/></hierarchy>"
         private const val SETTINGS_SEARCH_XML =
             "<hierarchy><node bounds=\"[20,40][1060,140]\" text=\"Search settings\" resource-id=\"com.google.android.settings.intelligence:id/search_action_bar\"/></hierarchy>"
+        private const val TIME_PICKER_HOUR_FOCUSED_XML =
+            "<hierarchy><node class=\"android.widget.FrameLayout\" bounds=\"[96,184][624,633]\"><node text=\"16\" class=\"android.widget.EditText\" focused=\"true\" editable=\"true\" bounds=\"[144,288][336,448]\"/><node text=\"00\" content-desc=\"0 minutes\" class=\"android.view.View\" clickable=\"true\" focusable=\"true\" checkable=\"true\" bounds=\"[384,288][576,448]\"/></node></hierarchy>"
+        private const val TIME_PICKER_MINUTE_FOCUSED_XML =
+            "<hierarchy><node class=\"android.widget.FrameLayout\" bounds=\"[96,184][624,633]\"><node text=\"16\" content-desc=\"16 hours\" class=\"android.view.View\" clickable=\"true\" focusable=\"true\" checkable=\"true\" bounds=\"[144,288][336,448]\"/><node text=\"00\" class=\"android.widget.EditText\" focused=\"true\" editable=\"true\" bounds=\"[384,288][576,448]\"/></node></hierarchy>"
         private const val ANDROID_CRASH_DIALOG_XML =
             "<hierarchy><node class=\"android.widget.FrameLayout\" package=\"android\" bounds=\"[28,952][1052,1513]\"><node text=\"com.google.androidenv.accessibilityforwarder keeps stopping\" class=\"android.widget.TextView\" package=\"android\" bounds=\"[133,1041][947,1159]\"/><node text=\"Close app\" clickable=\"true\" class=\"android.widget.Button\" package=\"android\" bounds=\"[70,1324][1010,1450]\"/></node></hierarchy>"
         private const val CLOCK_BEDTIME_PROMPT_XML =

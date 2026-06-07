@@ -111,7 +111,8 @@ class AgentOrchestrator(
                     "round=$round request_tools=${toolRegistry.toolsForModel.size}"
                 )
                 val disableThinking = input.executionEnv.reasoningEffort == "no"
-                val turn = llmClient.streamTurn(
+                val turn = streamTurnWithRetry(
+                    callback = callback,
                     request = ChatCompletionRequest(
                         messages = memory.snapshot(),
                         model = model,
@@ -124,23 +125,7 @@ class AgentOrchestrator(
                         toolChoice = toolChoiceForRound,
                         parallelToolCalls = true
                     ),
-                    onReasoningUpdate = { reasoning ->
-                        if (reasoning.isNotBlank()) {
-                            callback.onThinkingUpdate(normalizeThinkingText(reasoning))
-                        }
-                    },
-                    onContentUpdate = { content ->
-                        val visibleContent = normalizeAssistantVisibleText(content)
-                        if (visibleContent.isNotBlank()) {
-                            callback.onChatMessage(
-                                combineContinuationContent(
-                                    prefix = assistantContentPrefix,
-                                    content = visibleContent
-                                ),
-                                false
-                            )
-                        }
-                    },
+                    assistantContentPrefix = assistantContentPrefix,
                     onToolCallUpdate = { snapshot ->
                         callback.onToolCallPreview(
                             toolName = snapshot.name.orEmpty(),
@@ -453,6 +438,9 @@ class AgentOrchestrator(
             }
         } catch (e: CancellationException) {
             throw e
+        } catch (e: ExhaustedRetryableTurnFailure) {
+            callback.onError(e.errorMessage, retryable = true)
+            return AgentResult.Error(e.errorMessage, e)
         } catch (e: Exception) {
             callback.onError("Agent execution failed: ${e.message}")
             return AgentResult.Error("Agent execution failed", e)
@@ -500,7 +488,8 @@ class AgentOrchestrator(
     private suspend fun streamTurnWithRetry(
         callback: AgentCallback,
         request: ChatCompletionRequest,
-        assistantContentPrefix: String
+        assistantContentPrefix: String,
+        onToolCallUpdate: (suspend (StreamingToolCallSnapshot) -> Unit)? = null
     ): ChatCompletionTurn {
         var retryCount = 0
         while (true) {
@@ -513,16 +502,18 @@ class AgentOrchestrator(
                         }
                     },
                     onContentUpdate = { content ->
-                        if (content.isNotBlank()) {
+                        val visibleContent = normalizeAssistantVisibleText(content)
+                        if (visibleContent.isNotBlank()) {
                             callback.onChatMessage(
                                 combineContinuationContent(
                                     prefix = assistantContentPrefix,
-                                    content = content
+                                    content = visibleContent
                                 ),
                                 false
                             )
                         }
-                    }
+                    },
+                    onToolCallUpdate = onToolCallUpdate
                 )
             } catch (e: CancellationException) {
                 throw e

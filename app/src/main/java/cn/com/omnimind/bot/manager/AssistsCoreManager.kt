@@ -4010,15 +4010,15 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     val packageName = appInfo.packageName
                     val appName = pm.getApplicationLabel(appInfo).toString()
                     var iconPath = ""
-                    
+
                     // 查询数据库中是否已有该应用的图标
                     var appIcon = DatabaseHelper.getAppIconByPackageName(packageName)
-                    
+
                     // 如果数据库中没有图标，则获取并保存
                     if (appIcon == null && appName.isNotEmpty()) {
                         val iconBase64 = APPPackageUtil.getAppIconBase64(context, packageName)
                         iconPath = APPPackageUtil.getAppIconFilePath(context, packageName)
-                        
+
                         if (iconBase64.isNotEmpty()) {
                             DatabaseHelper.insertAppIcon(
                                 appName = appName,
@@ -4028,7 +4028,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                             )
                         }
                     }
-                    
+
                     mapOf(
                         "package_name" to packageName,
                         "app_name" to appName,

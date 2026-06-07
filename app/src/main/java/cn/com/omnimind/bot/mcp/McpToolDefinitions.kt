@@ -477,6 +477,8 @@ BEHAVIOR:
                 "mode" to mapOf("type" to "string", "description" to "enhance, repair, or annotate."),
                 "analysis" to mapOf("type" to "object", "description" to "Agent-authored RunLog evidence analysis to persist in Function metadata."),
                 "patch" to mapOf("type" to "object", "description" to "Optional structured Function patch generated from the analysis."),
+                "usage" to mapOf("type" to "object", "description" to "Optional token usage from the API call that produced this enhancement analysis."),
+                "cost" to mapOf("type" to "object", "description" to "Optional cost estimate from the API call that produced this enhancement analysis."),
                 "dry_run" to mapOf("type" to "boolean", "description" to "Preview changes without saving."),
                 "allow_execution_change" to mapOf("type" to "boolean", "description" to "Allow repair operations that alter executable step targets."),
                 "allow_structural_change" to mapOf("type" to "boolean", "description" to "Allow insert/delete step operations.")

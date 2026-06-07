@@ -19,6 +19,8 @@ import kotlin.math.max
 import kotlin.math.min
 
 object UIStepExecutor {
+    private const val MIN_ANCHOR_PROJECTION_CONFIDENCE = 0.55f
+
     data class StepArgsResult(
         val args: Any?,
         val meta: Map<String, Any?> = emptyMap(),
@@ -429,21 +431,27 @@ object UIStepExecutor {
                     OobActionCodec.ACTION_INPUT_TEXT -> {
                         val text = stringArg(args, "text")
                             ?: throw IllegalArgumentException("$action requires text")
-                        backend.inputText(
-                            text = text,
-                            targetDescription = stringArg(
-                                args,
-                                "target_description",
-                                "label",
-                                "selector",
-                            ).orEmpty(),
-                            x = numberArg(args, "x")?.toFloat(),
-                            y = numberArg(args, "y")?.toFloat(),
-                            nodeResourceId = stringArg(
-                                args,
-                                "node_resource_id",
-                            ).orEmpty(),
-                        )
+                        val targetDescription = stringArg(args, "target_description").orEmpty()
+                        val x = numberArg(args, "x")?.toFloat()
+                        val y = numberArg(args, "y")?.toFloat()
+                        val nodeResourceId = stringArg(args, "node_resource_id").orEmpty()
+                        if (stringArg(args, "input_mode")?.equals("typed", ignoreCase = true) == true) {
+                            backend.inputTextByTyping(
+                                text = text,
+                                targetDescription = targetDescription,
+                                x = x,
+                                y = y,
+                                nodeResourceId = nodeResourceId,
+                            )
+                        } else {
+                            backend.inputText(
+                                text = text,
+                                targetDescription = targetDescription,
+                                x = x,
+                                y = y,
+                                nodeResourceId = nodeResourceId,
+                            )
+                        }
                         action
                     }
 
@@ -758,6 +766,9 @@ object UIStepExecutor {
                 meta = mapOf("applied" to false, "reason" to "missing_current_xml", "algorithm" to "anchor_projection")
             )
         }
+        if (tool == OobActionCodec.ACTION_CLICK || tool == OobActionCodec.ACTION_LONG_PRESS) {
+            directCurrentTargetArgs(tool, args, currentXml)?.let { return it }
+        }
         return when (tool) {
             OobActionCodec.ACTION_CLICK,
             OobActionCodec.ACTION_LONG_PRESS,
@@ -765,6 +776,108 @@ object UIStepExecutor {
             OobActionCodec.ACTION_SWIPE -> remapSwipeActionArgs(tool, args, sourceXml, currentXml)
             else -> StepArgsResult(args)
         }
+    }
+
+    private fun directCurrentTargetArgs(
+        tool: String,
+        args: Map<String, Any?>,
+        currentXml: String,
+    ): StepArgsResult? {
+        val nodeResourceId = stringArg(args, "node_resource_id")
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+        val target = stringArg(args, "target_description")
+            ?.trim()
+            ?.lowercase()
+            ?.takeIf { it.isNotBlank() }
+        if (nodeResourceId.isNullOrBlank() && target.isNullOrBlank()) return null
+        val page = parsePageModel(currentXml) ?: return null
+        if (!nodeResourceId.isNullOrBlank()) {
+            page.nodes
+                .asSequence()
+                .filter { it.visible && it.enabled && it.clickable && it.resourceId == nodeResourceId }
+                .sortedWith(compareBy<UiNode> { it.area }.thenBy { it.bounds.top }.thenBy { it.bounds.left })
+                .firstOrNull()
+                ?.let { node ->
+                    return targetArgsForNode(
+                        tool = tool,
+                        args = args,
+                        node = node,
+                        mode = "current_node_resource_id",
+                        algorithm = "node_resource_id_lookup",
+                        confidence = 600f,
+                    )
+                }
+        }
+        target ?: return null
+        val candidate = page.nodes
+            .asSequence()
+            .filter { it.visible && it.enabled && it.clickable }
+            .mapNotNull { node ->
+                val score = currentTargetScore(node, target)
+                if (score <= 0f) null else node to score
+            }
+            .sortedWith(
+                compareByDescending<Pair<UiNode, Float>> { it.second }
+                    .thenBy { it.first.area }
+                    .thenBy { it.first.bounds.top }
+                    .thenBy { it.first.bounds.left }
+            )
+            .firstOrNull()
+            ?: return null
+        val node = candidate.first
+        return targetArgsForNode(
+            tool = tool,
+            args = args,
+            node = node,
+            mode = "current_target_description",
+            algorithm = "target_description_lookup",
+            confidence = candidate.second,
+        )
+    }
+
+    private fun targetArgsForNode(
+        tool: String,
+        args: Map<String, Any?>,
+        node: UiNode,
+        mode: String,
+        algorithm: String,
+        confidence: Float,
+    ): StepArgsResult =
+        StepArgsResult(
+            args = args + mapOf("x" to node.centerX, "y" to node.centerY),
+            meta = mapOf(
+                "applied" to true,
+                "tool" to tool,
+                "mode" to mode,
+                "algorithm" to algorithm,
+                "confidence" to confidence,
+                "old" to mapOf(
+                    "x" to numberArg(args, "x"),
+                    "y" to numberArg(args, "y"),
+                ).filterValues { it != null },
+                "new" to mapOf("x" to node.centerX, "y" to node.centerY),
+                "target_element" to summarizeNode(node),
+            )
+        )
+
+    private fun currentTargetScore(node: UiNode, target: String): Float {
+        fun scoreText(value: String, exact: Float, contains: Float): Float {
+            val normalized = value.trim().lowercase()
+            if (normalized.isBlank()) return 0f
+            return when {
+                normalized == target -> exact
+                normalized.contains(target) || target.contains(normalized) -> contains
+                else -> 0f
+            }
+        }
+        return maxOf(
+            scoreText(node.text, exact = 500f, contains = 260f),
+            scoreText(node.contentDesc, exact = 480f, contains = 240f),
+            scoreText(node.subtreeText, exact = 360f, contains = 180f),
+            scoreText(node.resourceTail, exact = 440f, contains = 0f),
+            scoreText(node.resourceId, exact = 320f, contains = 0f),
+        )
     }
 
 
@@ -1970,6 +2083,24 @@ object UIStepExecutor {
                 args,
                 meta = mapOf("applied" to false, "reason" to "no_anchor_match", "algorithm" to "anchor_projection")
             )
+        if (mapped.mode == "omniflow_bayesian" && mapped.confidence < MIN_ANCHOR_PROJECTION_CONFIDENCE) {
+            return StepArgsResult(
+                args,
+                meta = mapOf(
+                    "applied" to false,
+                    "reason" to "low_confidence_anchor_projection",
+                    "algorithm" to "anchor_projection",
+                    "confidence" to mapped.confidence,
+                    "min_confidence" to MIN_ANCHOR_PROJECTION_CONFIDENCE,
+                    "anchor_count" to mapped.anchorCount,
+                    "old" to mapOf("x" to x, "y" to y),
+                    "rejected_new" to mapOf("x" to mapped.newX, "y" to mapped.newY),
+                    "source_element" to summarizeNode(mapped.sourceNode),
+                    "target_element" to summarizeNode(mapped.targetNode),
+                    "debug" to mapped.debug,
+                )
+            )
+        }
         return StepArgsResult(
             args = args + mapOf("x" to mapped.newX, "y" to mapped.newY),
             meta = mapOf(

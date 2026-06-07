@@ -7,8 +7,8 @@ class ProfileSection extends StatelessWidget {
   final String username;
   final String avatarUrl;
   final VoidCallback? onTap;
-  
-  const ProfileSection({super.key, 
+
+  const ProfileSection({super.key,
     required this.username,
     required this.avatarUrl,
     this.onTap,

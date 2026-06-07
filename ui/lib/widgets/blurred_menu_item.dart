@@ -6,7 +6,7 @@ class BlurredMenuItem<T> extends PopupMenuEntry<T> {
   final T value;
   final Widget child;
 
-  const BlurredMenuItem({super.key, 
+  const BlurredMenuItem({super.key,
     required this.value,
     required this.child,
   });

@@ -64,11 +64,14 @@ internal object RunLogReplayStepCompiler {
                 val replayAction = requireNotNull(
                     OobActionCodec.canonicalActionForName(normalizedToolName)
                 )
-                val replayArgs = OobActionCodec.argsForStep(
-                    mapOf(
-                        "tool" to toolName,
-                        "args" to args,
-                    )
+                val replayArgs = enrichArgsWithTargetEvidence(
+                    replayArgs = OobActionCodec.argsForStep(
+                        mapOf(
+                            "tool" to toolName,
+                            "args" to args,
+                        )
+                    ),
+                    rawArgs = args,
                 )
                 omniflowStep(
                     title = cleanStepTitle(title, replayAction, replayArgs),
@@ -223,6 +226,40 @@ internal object RunLogReplayStepCompiler {
             "utg" to utg.takeIf { it.isNotEmpty() },
             "observed_result" to result.takeUnless(::isEmptyJsonValue),
         )
+    }
+
+    private fun enrichArgsWithTargetEvidence(
+        replayArgs: Map<String, Any?>,
+        rawArgs: Map<String, Any?>,
+    ): Map<String, Any?> {
+        val evidence = asMap(rawArgs["target_evidence"])
+        if (evidence.isEmpty()) return replayArgs
+        val enriched = linkedMapOf<String, Any?>().apply { putAll(replayArgs) }
+        val label = firstNonBlank(evidence["label"])
+        val resourceId = firstNonBlank(
+            evidence["resource_id"],
+            evidence["resourceId"],
+            Regex("""[A-Za-z0-9_.]+:id/[A-Za-z0-9_.$-]+""").find(label)?.value,
+        )
+        if (resourceId.isNotBlank() && firstNonBlank(enriched["node_resource_id"]).isBlank()) {
+            enriched["node_resource_id"] = resourceId
+        }
+        if (firstNonBlank(enriched["element_index"]).isBlank()) {
+            firstNonBlank(evidence["index"]).takeIf { it.isNotBlank() }?.let {
+                enriched["element_index"] = it
+            }
+        }
+        if (firstNonBlank(enriched["bounds"]).isBlank()) {
+            val bounds = evidence["bounds"]
+            if (bounds is List<*> && bounds.size == 4) {
+                enriched["bounds"] = bounds.joinToString(
+                    prefix = "[",
+                    postfix = "]",
+                    separator = ","
+                ) { it.toString() }
+            }
+        }
+        return enriched
     }
 
     private fun canonicalCallToolArgs(

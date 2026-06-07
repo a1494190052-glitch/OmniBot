@@ -743,6 +743,36 @@ class UIStepExecutorTest {
     }
 
     @Test
+    fun `target description lookup does not match resource id contains`() = runBlocking {
+        val backend = FakeBackend(beforeXml = TIMER_SETUP_XML, afterXml = TIMER_SETUP_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = UIStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "coordinate_hook" to "omniflow",
+                    "args" to mapOf(
+                        "target_description" to "Timer",
+                        "x" to 360f,
+                        "y" to 1128.96f,
+                    ),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to STALE_DIALOG_XML),
+                    ),
+                ),
+                stepId = "step_timer_tab",
+                stepTitle = "click timer tab",
+            )
+
+            assertEquals(true, result["success"])
+            assertEquals("recorded_action_replay", result["replay_mode"])
+            val click = backend.clickPoints.single()
+            assertEquals(360f, click.first, 0.01f)
+            assertEquals(1128.96f, click.second, 0.01f)
+        }
+    }
+
+    @Test
     fun `coordinate remap miss falls back to recorded action coordinates`() = runBlocking {
         val backend = FakeBackend(beforeXml = EMPTY_PAGE_XML, afterXml = EMPTY_PAGE_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
@@ -1264,6 +1294,8 @@ class UIStepExecutorTest {
             "<hierarchy bounds=\"[0,0][720,1280]\"><node bounds=\"[199,66][640,157]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"android.view.ViewGroup\"><node bounds=\"[223,90][598,123]\" enabled=\"true\" visible-to-user=\"true\" text=\"Privacy\" class=\"android.widget.TextView\" resource-id=\"com.google.android.deskclock:id/body\"/></node></hierarchy>"
         private const val CLOCK_HOME_XML =
             "<hierarchy bounds=\"[0,0][720,1280]\"><node bounds=\"[0,0][720,1280]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.FrameLayout\"><node bounds=\"[0,176][720,1072]\" enabled=\"true\" focusable=\"true\" class=\"android.view.ViewGroup\" resource-id=\"com.google.android.deskclock:id/desk_clock_pager\"/><node bounds=\"[432,1072][576,1232]\" enabled=\"true\" clickable=\"true\" focusable=\"true\" content-desc=\"Stopwatch\" class=\"android.widget.FrameLayout\" resource-id=\"com.google.android.deskclock:id/tab_menu_stopwatch\"><node bounds=\"[433,1168][575,1209]\" enabled=\"true\" visible-to-user=\"true\" text=\"Stopwatch\" class=\"android.widget.TextView\" resource-id=\"com.google.android.deskclock:id/navigation_bar_item_small_label_view\"/></node></node></hierarchy>"
+        private const val TIMER_SETUP_XML =
+            "<hierarchy bounds=\"[0,0][720,1280]\"><node bounds=\"[0,0][720,1280]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.FrameLayout\"><node bounds=\"[48,84][163,140]\" enabled=\"true\" visible-to-user=\"true\" text=\"Timer\" class=\"android.widget.TextView\" resource-id=\"com.google.android.deskclock:id/action_bar_title\"/><node bounds=\"[184,340][296,452]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"1\" class=\"android.widget.Button\" resource-id=\"com.google.android.deskclock:id/timer_setup_digit_1\"/><node bounds=\"[304,460][416,572]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"5\" class=\"android.widget.Button\" resource-id=\"com.google.android.deskclock:id/timer_setup_digit_5\"/></node></hierarchy>"
         private const val SETTINGS_APPS_XML =
             "<hierarchy bounds=\"[0,0][720,1280]\"><node bounds=\"[0,0][720,1232]\" enabled=\"true\" visible-to-user=\"true\" text=\"Apps\" class=\"android.widget.TextView\" resource-id=\"com.android.settings:id/content_parent\"/><node bounds=\"[48,594][273,648]\" enabled=\"true\" visible-to-user=\"true\" text=\"Default apps\" class=\"android.widget.TextView\" resource-id=\"android:id/title\"/></hierarchy>"
         private const val PERMISSION_CONTROLLER_XML =

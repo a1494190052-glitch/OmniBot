@@ -15,6 +15,7 @@ object RunLogReplayStepNoiseNormalizer {
     fun normalize(steps: List<Map<String, Any?>>): List<Map<String, Any?>> =
         dropDuplicateTextInputSteps(steps)
             .let(::collapseConsecutiveTextInputSteps)
+            .let(::dropKeyboardDismissBackBetweenFormActions)
             .let(::dropRedundantClickBeforeInputText)
 
     /**
@@ -72,7 +73,8 @@ object RunLogReplayStepNoiseNormalizer {
             if (next != null &&
                 replayActionForStep(step) == OobActionCodec.ACTION_CLICK &&
                 replayActionForStep(next) in inputTextActions &&
-                clickAndInputShareTarget(step, next)
+                clickAndInputShareTarget(step, next) &&
+                clickTargetIsAlreadyEditable(step, next)
             ) {
                 i++
                 continue
@@ -92,6 +94,38 @@ object RunLogReplayStepNoiseNormalizer {
             val previous = output.lastOrNull()
             if (previous != null && isDuplicateTextInputStep(previous, step)) {
                 return@forEach
+            }
+            output += step
+        }
+        return output
+    }
+
+    /**
+     * Drops BACK presses recorded only to dismiss the keyboard between form actions.
+     *
+     * Replaying BACK as a fixed action is unsafe: when the keyboard is already
+     * hidden, Android may show a discard/leave dialog and block the next input.
+     * Runtime checker rules own conditional keyboard dismissal.
+     */
+    private fun dropKeyboardDismissBackBetweenFormActions(
+        steps: List<Map<String, Any?>>,
+    ): List<Map<String, Any?>> {
+        if (steps.size < 3) return steps
+        val output = mutableListOf<Map<String, Any?>>()
+        for (index in steps.indices) {
+            val previous = steps.getOrNull(index - 1)
+            val step = steps[index]
+            val next = steps.getOrNull(index + 1)
+            if (previous != null &&
+                next != null &&
+                replayActionForStep(previous) in inputTextActions &&
+                isBackPressStep(step) &&
+                replayActionForStep(next) in setOf(
+                    OobActionCodec.ACTION_INPUT_TEXT,
+                    OobActionCodec.ACTION_CLICK,
+                )
+            ) {
+                continue
             }
             output += step
         }
@@ -142,8 +176,62 @@ object RunLogReplayStepNoiseNormalizer {
         return false
     }
 
+    private fun clickTargetIsAlreadyEditable(
+        clickStep: Map<String, Any?>,
+        inputStep: Map<String, Any?>,
+    ): Boolean {
+        val clickArgs = OobActionCodec.argsForStep(clickStep)
+        val inputArgs = OobActionCodec.argsForStep(inputStep)
+
+        val clickResId = firstNonBlank(clickArgs["node_resource_id"])
+        val inputResId = firstNonBlank(inputArgs["node_resource_id"])
+        if (clickResId.isNotBlank() && clickResId == inputResId) return true
+
+        if (firstNonBlank(clickArgs["editable"]).equals("true", ignoreCase = true)) return true
+        if (firstNonBlank(OobActionCodec.sourceActionForStep(clickStep)["editable"]).equals("true", ignoreCase = true)) {
+            return true
+        }
+
+        val x = firstNonBlank(clickArgs["x"]).toFloatOrNull() ?: return false
+        val y = firstNonBlank(clickArgs["y"]).toFloatOrNull() ?: return false
+        val srcCtx = OobActionCodec.mapArg(OobActionCodec.sourceContextForStep(clickStep)["src_ctx"])
+        val sourceXml = OobActionCodec.pageXmlFromContext(srcCtx)
+        return nodeAtPointIsEditable(sourceXml, x, y)
+    }
+
+    private fun nodeAtPointIsEditable(sourceXml: String, x: Float, y: Float): Boolean {
+        if (sourceXml.isBlank()) return false
+        var bestArea: Int? = null
+        var bestEditable = false
+        nodeRegex.findAll(sourceXml).forEach { match ->
+            val tag = match.value
+            val bounds = boundsRegex.find(tag)?.destructured ?: return@forEach
+            val left = bounds.component1().toIntOrNull() ?: return@forEach
+            val top = bounds.component2().toIntOrNull() ?: return@forEach
+            val right = bounds.component3().toIntOrNull() ?: return@forEach
+            val bottom = bounds.component4().toIntOrNull() ?: return@forEach
+            if (x < left || x > right || y < top || y > bottom) return@forEach
+            val area = (right - left).coerceAtLeast(0) * (bottom - top).coerceAtLeast(0)
+            val currentBestArea = bestArea
+            if (currentBestArea == null || area < currentBestArea) {
+                bestArea = area
+                bestEditable = tag.contains("editable=\"true\"") ||
+                    tag.contains("class=\"android.widget.EditText\"")
+            }
+        }
+        return bestEditable
+    }
+
     private fun replayActionForStep(step: Map<String, Any?>): String =
         OobActionCodec.actionNameForStep(step)
+
+    private fun isBackPressStep(step: Map<String, Any?>): Boolean {
+        if (replayActionForStep(step) != OobActionCodec.ACTION_PRESS_KEY) return false
+        val key = firstNonBlank(OobActionCodec.argsForStep(step)["key"])
+            .trim()
+            .lowercase()
+        return key == "back"
+    }
 
     private fun textInputValue(step: Map<String, Any?>): String {
         val args = OobActionCodec.argsForStep(step)
@@ -164,5 +252,8 @@ object RunLogReplayStepNoiseNormalizer {
             action["target_description"],
         )
     }
+
+    private val nodeRegex = Regex("""<node\b[^>]*>""")
+    private val boundsRegex = Regex("bounds=\"\\[(-?\\d+),(-?\\d+)]\\[(-?\\d+),(-?\\d+)]\"")
 
 }

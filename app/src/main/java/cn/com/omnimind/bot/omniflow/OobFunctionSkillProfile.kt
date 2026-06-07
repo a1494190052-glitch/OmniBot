@@ -334,6 +334,14 @@ object OobFunctionSkillProfile {
                         put("description", "Agent-authored RunLog evidence analysis. Saved into Function metadata and may include recommended_patch.")
                     }
                     putJsonObject("patch") { put("type", "object") }
+                    putJsonObject("usage") {
+                        put("type", "object")
+                        put("description", "Optional token usage from the API call that produced this enhancement analysis.")
+                    }
+                    putJsonObject("cost") {
+                        put("type", "object")
+                        put("description", "Optional cost estimate from the API call that produced this enhancement analysis.")
+                    }
                     putJsonObject("dry_run") { put("type", "boolean") }
                     putJsonObject("allow_execution_change") { put("type", "boolean") }
                     putJsonObject("allow_structural_change") { put("type", "boolean") }
