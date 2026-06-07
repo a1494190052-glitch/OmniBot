@@ -25,6 +25,7 @@ import cn.com.omnimind.omniintelligence.models.AgentRequest.Payload
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
@@ -2500,8 +2501,15 @@ object HttpController {
         routeTag: String?
     ): SceneChatCompletionResponse {
         return try {
-            val jsonObject = JSONObject(response ?: "{}")
-            val choices = jsonObject.optJSONArray("choices")
+            val jsonObject = completionJson.parseToJsonElement(response ?: "{}") as? KxJsonObject
+                ?: return buildFailureSceneResponse(
+                    code = "500",
+                    message = "响应不符合 OpenAI 结构（根对象无效）",
+                    parser = parser,
+                    routeTag = routeTag,
+                    rawResponseBody = response
+                )
+            val choices = jsonObject["choices"] as? KxJsonArray
                 ?: return buildFailureSceneResponse(
                     code = "500",
                     message = "响应不符合 OpenAI 结构（缺少 choices）",
@@ -2510,7 +2518,7 @@ object HttpController {
                     rawResponseBody = response
                 )
 
-            val firstChoice = choices.optJSONObject(0)
+            val firstChoice = choices.firstOrNull() as? KxJsonObject
                 ?: return buildFailureSceneResponse(
                     code = "500",
                     message = "响应不符合 OpenAI 结构（choices[0] 无效）",
@@ -2519,20 +2527,22 @@ object HttpController {
                     rawResponseBody = response
                 )
 
-            val message = firstChoice.optJSONObject("message")
+            val message = firstChoice["message"] as? KxJsonObject
             val content = extractOpenAIChoiceContent(firstChoice, message)
             val reasoning = listOf(
-                message?.opt("reasoning_content"),
-                message?.opt("reasoning"),
-                message?.opt("thinking"),
-                firstChoice.opt("reasoning_content"),
-                firstChoice.opt("reasoning"),
-                firstChoice.opt("thinking")
+                message?.get("reasoning_content"),
+                message?.get("reasoning"),
+                message?.get("thinking"),
+                firstChoice["reasoning_content"],
+                firstChoice["reasoning"],
+                firstChoice["thinking"]
             ).asSequence()
                 .map { extractTextPayload(it) }
                 .firstOrNull { it.isNotBlank() }
                 .orEmpty()
-            val finishReason = firstChoice.optString("finish_reason").trim().takeIf { it.isNotEmpty() }
+            val finishReason = extractTextPayload(firstChoice["finish_reason"])
+                .trim()
+                .takeIf { it.isNotEmpty() }
             val toolCalls = parseToolCalls(firstChoice, message)
 
             runCatching {
@@ -2616,6 +2626,55 @@ object HttpController {
         return parsed
     }
 
+    private fun parseToolCalls(
+        choice: KxJsonObject,
+        message: KxJsonObject?
+    ): List<AssistantToolCall> {
+        val parsed = mutableListOf<AssistantToolCall>()
+        val toolCallsArray = (message?.get("tool_calls") as? KxJsonArray)
+            ?: (choice["tool_calls"] as? KxJsonArray)
+        if (toolCallsArray != null) {
+            toolCallsArray.forEachIndexed { index, rawToolCall ->
+                val toolCall = rawToolCall as? KxJsonObject ?: return@forEachIndexed
+                val functionObj = toolCall["function"] as? KxJsonObject ?: return@forEachIndexed
+                val name = extractTextPayload(functionObj["name"]).trim()
+                if (name.isEmpty()) return@forEachIndexed
+                val arguments = stringifyJsonPayload(functionObj["arguments"], "{}")
+                parsed.add(
+                    AssistantToolCall(
+                        id = extractTextPayload(toolCall["id"]).ifBlank { "tool_call_$index" },
+                        type = extractTextPayload(toolCall["type"]).ifBlank { "function" },
+                        function = AssistantToolCallFunction(
+                            name = name,
+                            arguments = arguments
+                        )
+                    )
+                )
+            }
+        }
+
+        val legacyFunction = (message?.get("function_call") as? KxJsonObject)
+            ?: (choice["function_call"] as? KxJsonObject)
+        if (legacyFunction != null) {
+            val name = extractTextPayload(legacyFunction["name"]).trim()
+            if (name.isNotEmpty()) {
+                val arguments = stringifyJsonPayload(legacyFunction["arguments"], "{}")
+                parsed.add(
+                    AssistantToolCall(
+                        id = "function_call_${parsed.size}",
+                        type = "function",
+                        function = AssistantToolCallFunction(
+                            name = name,
+                            arguments = arguments
+                        )
+                    )
+                )
+            }
+        }
+
+        return parsed
+    }
+
     private fun stringifyJsonPayload(value: Any?, fallback: String = ""): String {
         return when (value) {
             null, JSONObject.NULL -> fallback
@@ -2625,16 +2684,48 @@ object HttpController {
         }
     }
 
+    private fun stringifyJsonPayload(value: JsonElement?, fallback: String = ""): String {
+        return when (value) {
+            null, JsonNull -> fallback
+            is JsonPrimitive -> value.contentOrNull ?: value.toString()
+            is KxJsonObject, is KxJsonArray -> value.toString()
+        }
+    }
+
     private fun extractJsonPayloadText(value: Any?): String {
         return when (value) {
-            null, JSONObject.NULL -> ""
+            null, JSONObject.NULL, JsonNull -> ""
             is JSONObject, is JSONArray -> value.toString()
+            is JsonPrimitive -> value.contentOrNull ?: value.toString()
+            is KxJsonObject, is KxJsonArray -> value.toString()
             is String -> value
             else -> value.toString()
         }.trim()
     }
 
     private fun extractOpenAIChoiceContent(choice: JSONObject, message: JSONObject?): String {
+        val roots = listOfNotNull(message, choice)
+        for (root in roots) {
+            for (key in listOf(
+                "content",
+                "parsed",
+                "output_text",
+                "text",
+                "message",
+                "data",
+                "result",
+                "response"
+            )) {
+                val extracted = extractObjectFieldPayload(root, key)
+                if (extracted.isNotBlank()) {
+                    return extracted
+                }
+            }
+        }
+        return ""
+    }
+
+    private fun extractOpenAIChoiceContent(choice: KxJsonObject, message: KxJsonObject?): String {
         val roots = listOfNotNull(message, choice)
         for (root in roots) {
             for (key in listOf(
@@ -2663,7 +2754,39 @@ object HttpController {
         }
     }
 
+    private fun extractObjectFieldPayload(value: KxJsonObject, key: String): String {
+        val raw = value[key] ?: return ""
+        return extractTextPayload(raw).ifBlank {
+            extractJsonPayloadText(raw)
+        }
+    }
+
     private fun extractKnownJsonFieldPayload(value: JSONObject): String {
+        for (key in listOf(
+            "text",
+            "output_text",
+            "content",
+            "parsed",
+            "value",
+            "object",
+            "json",
+            "input",
+            "arguments",
+            "arguments_json",
+            "args_json",
+            "data",
+            "result",
+            "response"
+        )) {
+            val extracted = extractObjectFieldPayload(value, key)
+            if (extracted.isNotBlank()) {
+                return extracted
+            }
+        }
+        return ""
+    }
+
+    private fun extractKnownJsonFieldPayload(value: KxJsonObject): String {
         for (key in listOf(
             "text",
             "output_text",
@@ -2720,6 +2843,38 @@ object HttpController {
         }.trim()
     }
 
+    private fun extractTextPayload(contentRaw: JsonElement?): String {
+        return when (contentRaw) {
+            null, JsonNull -> ""
+            is JsonPrimitive -> contentRaw.contentOrNull ?: contentRaw.toString()
+            is KxJsonArray -> {
+                val buffer = StringBuilder()
+                contentRaw.forEach { item ->
+                    when (item) {
+                        is JsonPrimitive -> buffer.append(item.contentOrNull ?: item.toString())
+                        is KxJsonObject -> {
+                            val fieldPayload = extractKnownJsonFieldPayload(item)
+                            if (fieldPayload.isNotBlank()) {
+                                buffer.append(fieldPayload)
+                            } else if (looksLikeJsonContentObject(item)) {
+                                buffer.append(item.toString())
+                            }
+                        }
+                        else -> Unit
+                    }
+                }
+                buffer.toString()
+            }
+            is KxJsonObject -> extractKnownJsonFieldPayload(contentRaw).ifBlank {
+                if (looksLikeJsonContentObject(contentRaw)) {
+                    contentRaw.toString()
+                } else {
+                    ""
+                }
+            }
+        }.trim()
+    }
+
     private fun looksLikeJsonContentObject(value: JSONObject): Boolean {
         return listOf(
             "schema_version",
@@ -2734,6 +2889,22 @@ object HttpController {
             "agent_reuse",
             "execution"
         ).any { value.has(it) }
+    }
+
+    private fun looksLikeJsonContentObject(value: KxJsonObject): Boolean {
+        return listOf(
+            "schema_version",
+            "function_id",
+            "name",
+            "title",
+            "description",
+            "summary",
+            "parameters",
+            "steps",
+            "actions",
+            "agent_reuse",
+            "execution"
+        ).any { value.containsKey(it) }
     }
 
     private fun safeLogError(message: String) {

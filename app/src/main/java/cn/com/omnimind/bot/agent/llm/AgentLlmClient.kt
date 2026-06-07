@@ -3,6 +3,7 @@ package cn.com.omnimind.bot.agent
 import cn.com.omnimind.assists.controller.http.HttpController
 import cn.com.omnimind.baselib.llm.ChatCompletionRequest
 import cn.com.omnimind.baselib.llm.ChatCompletionMessage
+import cn.com.omnimind.baselib.llm.ChatCompletionStreamOptions
 import cn.com.omnimind.baselib.llm.ChatCompletionThinking
 import cn.com.omnimind.baselib.llm.ChatCompletionTurn
 import cn.com.omnimind.baselib.llm.DeepSeekProvider
@@ -520,7 +521,12 @@ class HttpAgentLlmClient(
             val noThinkingRequest = request.copy(
                 enableThinking = false,
                 reasoningEffort = "none",
-                thinking = ChatCompletionThinking(type = "disabled")
+                thinking = ChatCompletionThinking(type = "disabled"),
+                streamOptions = request.streamOptions ?: if (request.stream) {
+                    ChatCompletionStreamOptions()
+                } else {
+                    null
+                }
             )
             add("nvidia_no_thinking", noThinkingRequest)
             add(
@@ -568,9 +574,9 @@ class HttpAgentLlmClient(
         if (!shouldGuardNvidiaKimiReasoningLeak(routeInfo)) {
             return false
         }
-        return variants
-            .drop(variantIndex + 1)
-            .any { it.name.startsWith("nvidia_no_thinking") }
+        val current = variants.getOrNull(variantIndex)?.name ?: return false
+        val next = variants.getOrNull(variantIndex + 1)?.name ?: return false
+        return current == "nvidia_no_thinking" && next == "nvidia_no_thinking_minimal"
     }
 
     private fun shouldGuardNvidiaKimiReasoningLeak(

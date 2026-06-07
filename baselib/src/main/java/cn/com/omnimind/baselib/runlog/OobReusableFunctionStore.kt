@@ -3,7 +3,6 @@ package cn.com.omnimind.baselib.runlog
 import android.content.Context
 import cn.com.omnimind.baselib.util.OmniLog
 import com.google.gson.GsonBuilder
-import org.json.JSONArray
 
 object OobReusableFunctionStore {
     private const val TAG = "OobReusableFunctionStore"
@@ -478,11 +477,9 @@ object OobReusableFunctionStore {
         val raw = prefs.getString(INDEX_KEY, null)?.trim().orEmpty()
         if (raw.isEmpty()) return emptyList()
         return runCatching {
-            val array = JSONArray(raw)
-            buildList {
-                for (i in 0 until array.length()) {
-                    array.optString(i).trim().takeIf { it.isNotEmpty() }?.let(::add)
-                }
+            val decoded = gson.fromJson(raw, List::class.java) ?: emptyList<Any?>()
+            decoded.mapNotNull { value ->
+                value?.toString()?.trim()?.takeIf { it.isNotEmpty() }
             }
         }.getOrElse {
             OmniLog.w(TAG, "read index failed: ${it.message}")
@@ -494,9 +491,7 @@ object OobReusableFunctionStore {
         prefs: android.content.SharedPreferences,
         index: List<String>
     ) {
-        val array = JSONArray()
-        index.distinct().forEach { functionId -> array.put(functionId) }
-        prefs.edit().putString(INDEX_KEY, array.toString()).apply()
+        prefs.edit().putString(INDEX_KEY, gson.toJson(index.distinct())).apply()
     }
 
     private fun decodeMap(raw: String): Map<String, Any?> {
