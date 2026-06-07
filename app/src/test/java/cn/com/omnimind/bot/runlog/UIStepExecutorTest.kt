@@ -717,6 +717,43 @@ class UIStepExecutorTest {
     }
 
     @Test
+    fun `input text retries after observe when target is not ready`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = INPUT_FORM_XML,
+            afterXml = INPUT_FORM_XML,
+            inputFailuresBeforeSuccess = 1,
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = UIStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "input_text",
+                    "coordinate_hook" to "omniflow",
+                    "args" to mapOf(
+                        "text" to "Alice",
+                        "target_description" to "First name",
+                        "node_resource_id" to "app:id/first_name",
+                        "x" to 180,
+                        "y" to 232,
+                    ),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to INPUT_FORM_XML),
+                    ),
+                ),
+                stepId = "step_input_retry",
+                stepTitle = "type first name",
+            )
+
+            assertEquals(true, result["success"])
+            assertEquals(2, backend.inputRequests.size)
+            assertTrue("input retry should refresh observe", backend.currentXmlReadCount >= 2)
+            val dispatch = result["action_dispatch"] as? Map<*, *> ?: error("missing action dispatch")
+            assertEquals("input_text_observe_retry", dispatch["status"])
+            assertEquals(1, dispatch["retry_count"])
+        }
+    }
+
+    @Test
     fun `action transfer preserves webview relative hotspot`() = runBlocking {
         val backend = FakeBackend(beforeXml = WEBVIEW_CURRENT_XML, afterXml = WEBVIEW_CURRENT_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
@@ -739,6 +776,40 @@ class UIStepExecutorTest {
             val click = backend.clickPoints.single()
             assertEquals(360f, click.first, 0.01f)
             assertEquals(440f, click.second, 0.01f)
+        }
+    }
+
+    @Test
+    fun `action transfer ignores node resource id shortcut for obfuscated xhs ids`() = runBlocking {
+        val backend = FakeBackend(beforeXml = XHS_SEARCH_CURRENT_XML, afterXml = XHS_SEARCH_CURRENT_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = UIStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "coordinate_hook" to "omniflow",
+                    "args" to mapOf(
+                        "target_description" to "搜索",
+                        "node_resource_id" to "com.xingin.xhs:id/0_resource_name_obfuscated",
+                        "x" to 1165f,
+                        "y" to 246f,
+                    ),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to XHS_SEARCH_SOURCE_XML),
+                    ),
+                ),
+                stepId = "step_xhs_search",
+                stepTitle = "click xhs search",
+            )
+
+            assertEquals(true, result["success"])
+            assertEquals("action_transfer", result["replay_mode"])
+            val transfer = result["action_transfer"] as? Map<*, *> ?: error("missing action transfer")
+            assertEquals("anchor_projection", transfer["algorithm"])
+            assertFalse(transfer["mode"] == "current_node_resource_id")
+            val click = backend.clickPoints.single()
+            assertTrue("click should stay in the current search affordance", click.first in 480f..1120f)
+            assertTrue("click should stay in the current search affordance", click.second in 220f..340f)
         }
     }
 
@@ -1144,12 +1215,14 @@ class UIStepExecutorTest {
         private val missingXmlReadsAfterAction: Int = 0,
         private val postActionXmls: List<String>? = null,
         private val postActionPackages: List<String>? = null,
+        private val inputFailuresBeforeSuccess: Int = 0,
     ) : OmniflowActionBackend {
         var clicked = false
             private set
         private var currentXmlCallCount = 0
         private var preActionXmlReadCount = 0
         private var actionXmlReadCount = 0
+        private var inputFailureCount = 0
         val launchRequests = mutableListOf<String>()
         val clickPoints = mutableListOf<Pair<Float, Float>>()
         val inputRequests = mutableListOf<Map<String, Any?>>()
@@ -1201,6 +1274,10 @@ class UIStepExecutorTest {
                 "y" to y,
                 "nodeResourceId" to nodeResourceId,
             )
+            if (inputFailureCount < inputFailuresBeforeSuccess) {
+                inputFailureCount += 1
+                throw IllegalStateException("No input text target found: x=$x y=$y")
+            }
         }
 
         override suspend fun launchApplication(packageName: String) {
@@ -1264,6 +1341,10 @@ class UIStepExecutorTest {
             "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[100,100][500,500]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"android.webkit.WebView\" resource-id=\"app:id/webview\"/></hierarchy>"
         private const val WEBVIEW_CURRENT_XML =
             "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[200,200][1000,1000]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"android.webkit.WebView\" resource-id=\"app:id/webview\"/></hierarchy>"
+        private const val XHS_SEARCH_SOURCE_XML =
+            "<hierarchy bounds=\"[0,0][1260,2800]\"><node bounds=\"[1110,210][1230,290]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"搜索\" class=\"android.widget.TextView\" package=\"com.xingin.xhs\" resource-id=\"com.xingin.xhs:id/0_resource_name_obfuscated\"/></hierarchy>"
+        private const val XHS_SEARCH_CURRENT_XML =
+            "<hierarchy bounds=\"[0,0][1260,2800]\"><node bounds=\"[521,525][586,589]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"180\" class=\"android.widget.TextView\" package=\"com.xingin.xhs\" resource-id=\"com.xingin.xhs:id/0_resource_name_obfuscated\"/><node bounds=\"[480,220][1120,340]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"搜索\" class=\"android.widget.TextView\" package=\"com.xingin.xhs\" resource-id=\"com.xingin.xhs:id/0_resource_name_obfuscated\"/></hierarchy>"
         private const val AD_OVERLAY_XML =
             "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[100,200][300,280]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"Open\" class=\"android.widget.Button\" resource-id=\"app:id/open\"/><node bounds=\"[80,260][1000,1540]\" enabled=\"true\" visible-to-user=\"true\" text=\"Sponsored ad\" class=\"android.app.Dialog\" resource-id=\"ad:id/dialog\"><node bounds=\"[900,300][980,380]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" content-desc=\"Close ad\" class=\"android.widget.ImageButton\" resource-id=\"ad:id/close_ad\"/></node></hierarchy>"
         private const val SKIP_AD_XML =

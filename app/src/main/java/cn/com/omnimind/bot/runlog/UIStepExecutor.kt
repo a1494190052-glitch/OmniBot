@@ -373,7 +373,7 @@ object UIStepExecutor {
             }
         }
         throwIfStopRequested(stopRequested)
-        val actionTransferApplied = transferRequested && remapResult.meta["applied"] == true
+        var actionTransferApplied = transferRequested && remapResult.meta["applied"] == true
         var actionDispatchWarning: Map<String, Any?> = emptyMap()
         val summary = timing.measure("act_ms") {
             runWithStopPolling(stopRequested) {
@@ -429,28 +429,60 @@ object UIStepExecutor {
                     }
 
                     OobActionCodec.ACTION_INPUT_TEXT -> {
-                        val text = stringArg(args, "text")
-                            ?: throw IllegalArgumentException("$action requires text")
-                        val targetDescription = stringArg(args, "target_description").orEmpty()
-                        val x = numberArg(args, "x")?.toFloat()
-                        val y = numberArg(args, "y")?.toFloat()
-                        val nodeResourceId = stringArg(args, "node_resource_id").orEmpty()
-                        if (stringArg(args, "input_mode")?.equals("typed", ignoreCase = true) == true) {
-                            backend.inputTextByTyping(
-                                text = text,
-                                targetDescription = targetDescription,
-                                x = x,
-                                y = y,
-                                nodeResourceId = nodeResourceId,
-                            )
-                        } else {
-                            backend.inputText(
-                                text = text,
-                                targetDescription = targetDescription,
-                                x = x,
-                                y = y,
-                                nodeResourceId = nodeResourceId,
-                            )
+                        val inputFailures = mutableListOf<String>()
+                        var retryCount = 0
+                        while (true) {
+                            try {
+                                dispatchInputText(backend, action, args)
+                                if (retryCount > 0) {
+                                    actionDispatchWarning = mapOf(
+                                        "status" to "input_text_observe_retry",
+                                        "action" to action,
+                                        "retry_count" to retryCount,
+                                        "failures" to inputFailures,
+                                    )
+                                }
+                                break
+                            } catch (error: kotlinx.coroutines.CancellationException) {
+                                throw error
+                            } catch (error: Exception) {
+                                inputFailures += inputTextAttemptFailure(retryCount + 1, error)
+                                if (!shouldRetryInputTextAfterObserve(error) ||
+                                    retryCount >= INPUT_TEXT_OBSERVE_RETRY_COUNT
+                                ) {
+                                    throw inputTextFailureWithAttempts(error, inputFailures)
+                                }
+                                retryCount += 1
+                                delayWithStopPolling(INPUT_TEXT_OBSERVE_RETRY_DELAY_MS, stopRequested)
+                                val refreshed = refreshReplayState("input_text_retry_$retryCount")
+                                if (transferRequested) {
+                                    val remappedAfterObserve = timing.measure("action_transfer_ms") {
+                                        try {
+                                            remapStepArgsForState(step, refreshed)
+                                        } catch (e: kotlinx.coroutines.CancellationException) {
+                                            throw e
+                                        } catch (e: Exception) {
+                                            StepArgsResult(
+                                                args = initialArgs,
+                                                meta = mapOf(
+                                                    "applied" to false,
+                                                    "reason" to "action_transfer_exception",
+                                                    "algorithm" to "anchor_projection",
+                                                    "error_message" to e.message.orEmpty(),
+                                                    "retry_reason" to "input_text_observe_retry",
+                                                )
+                                            )
+                                        }
+                                    }
+                                    remapResult = recordedReplayFallbackIfNeeded(
+                                        transferRequested = transferRequested,
+                                        attempted = remappedAfterObserve,
+                                        initialArgs = initialArgs,
+                                    )
+                                    args = normalizeArgsMap(remapResult.args)
+                                    actionTransferApplied = transferRequested && remapResult.meta["applied"] == true
+                                }
+                            }
                         }
                         action
                     }
@@ -706,6 +738,60 @@ object UIStepExecutor {
         return message.startsWith("dispatch_timeout:")
     }
 
+    private suspend fun dispatchInputText(
+        backend: OmniflowActionBackend,
+        action: String,
+        args: Map<String, Any?>,
+    ) {
+        val text = stringArg(args, "text")
+            ?: throw IllegalArgumentException("$action requires text")
+        val targetDescription = stringArg(args, "target_description").orEmpty()
+        val x = numberArg(args, "x")?.toFloat()
+        val y = numberArg(args, "y")?.toFloat()
+        val nodeResourceId = stringArg(args, "node_resource_id").orEmpty()
+        if (stringArg(args, "input_mode")?.equals("typed", ignoreCase = true) == true) {
+            backend.inputTextByTyping(
+                text = text,
+                targetDescription = targetDescription,
+                x = x,
+                y = y,
+                nodeResourceId = nodeResourceId,
+            )
+        } else {
+            backend.inputText(
+                text = text,
+                targetDescription = targetDescription,
+                x = x,
+                y = y,
+                nodeResourceId = nodeResourceId,
+            )
+        }
+    }
+
+    private fun inputTextAttemptFailure(attempt: Int, error: Throwable): String =
+        "attempt=$attempt ${error.message ?: error::class.java.simpleName}"
+
+    private fun shouldRetryInputTextAfterObserve(error: Throwable): Boolean {
+        val message = error.message.orEmpty().lowercase()
+        return message.contains("input text") ||
+            message.contains("focused input") ||
+            message.contains("editable input") ||
+            message.contains("focused node") ||
+            message.contains("action_set_text")
+    }
+
+    private fun inputTextFailureWithAttempts(
+        error: Exception,
+        failures: List<String>,
+    ): Exception {
+        val attempts = failures.joinToString(separator = " | ")
+        val message = listOf(
+            error.message ?: error::class.java.simpleName,
+            "input_text_attempts=$attempts",
+        ).joinToString("; ")
+        return IllegalStateException(message, error)
+    }
+
     fun remapStepArgs(step: Map<String, Any?>): StepArgsResult =
         remapStepArgsInternal(step, currentXmlOverride = null)
 
@@ -766,9 +852,6 @@ object UIStepExecutor {
                 meta = mapOf("applied" to false, "reason" to "missing_current_xml", "algorithm" to "anchor_projection")
             )
         }
-        if (tool == OobActionCodec.ACTION_CLICK || tool == OobActionCodec.ACTION_LONG_PRESS) {
-            directCurrentTargetArgs(tool, args, currentXml)?.let { return it }
-        }
         return when (tool) {
             OobActionCodec.ACTION_CLICK,
             OobActionCodec.ACTION_LONG_PRESS,
@@ -776,108 +859,6 @@ object UIStepExecutor {
             OobActionCodec.ACTION_SWIPE -> remapSwipeActionArgs(tool, args, sourceXml, currentXml)
             else -> StepArgsResult(args)
         }
-    }
-
-    private fun directCurrentTargetArgs(
-        tool: String,
-        args: Map<String, Any?>,
-        currentXml: String,
-    ): StepArgsResult? {
-        val nodeResourceId = stringArg(args, "node_resource_id")
-            ?.trim()
-            ?.takeIf { it.isNotBlank() }
-        val target = stringArg(args, "target_description")
-            ?.trim()
-            ?.lowercase()
-            ?.takeIf { it.isNotBlank() }
-        if (nodeResourceId.isNullOrBlank() && target.isNullOrBlank()) return null
-        val page = parsePageModel(currentXml) ?: return null
-        if (!nodeResourceId.isNullOrBlank()) {
-            page.nodes
-                .asSequence()
-                .filter { it.visible && it.enabled && it.clickable && it.resourceId == nodeResourceId }
-                .sortedWith(compareBy<UiNode> { it.area }.thenBy { it.bounds.top }.thenBy { it.bounds.left })
-                .firstOrNull()
-                ?.let { node ->
-                    return targetArgsForNode(
-                        tool = tool,
-                        args = args,
-                        node = node,
-                        mode = "current_node_resource_id",
-                        algorithm = "node_resource_id_lookup",
-                        confidence = 600f,
-                    )
-                }
-        }
-        target ?: return null
-        val candidate = page.nodes
-            .asSequence()
-            .filter { it.visible && it.enabled && it.clickable }
-            .mapNotNull { node ->
-                val score = currentTargetScore(node, target)
-                if (score <= 0f) null else node to score
-            }
-            .sortedWith(
-                compareByDescending<Pair<UiNode, Float>> { it.second }
-                    .thenBy { it.first.area }
-                    .thenBy { it.first.bounds.top }
-                    .thenBy { it.first.bounds.left }
-            )
-            .firstOrNull()
-            ?: return null
-        val node = candidate.first
-        return targetArgsForNode(
-            tool = tool,
-            args = args,
-            node = node,
-            mode = "current_target_description",
-            algorithm = "target_description_lookup",
-            confidence = candidate.second,
-        )
-    }
-
-    private fun targetArgsForNode(
-        tool: String,
-        args: Map<String, Any?>,
-        node: UiNode,
-        mode: String,
-        algorithm: String,
-        confidence: Float,
-    ): StepArgsResult =
-        StepArgsResult(
-            args = args + mapOf("x" to node.centerX, "y" to node.centerY),
-            meta = mapOf(
-                "applied" to true,
-                "tool" to tool,
-                "mode" to mode,
-                "algorithm" to algorithm,
-                "confidence" to confidence,
-                "old" to mapOf(
-                    "x" to numberArg(args, "x"),
-                    "y" to numberArg(args, "y"),
-                ).filterValues { it != null },
-                "new" to mapOf("x" to node.centerX, "y" to node.centerY),
-                "target_element" to summarizeNode(node),
-            )
-        )
-
-    private fun currentTargetScore(node: UiNode, target: String): Float {
-        fun scoreText(value: String, exact: Float, contains: Float): Float {
-            val normalized = value.trim().lowercase()
-            if (normalized.isBlank()) return 0f
-            return when {
-                normalized == target -> exact
-                normalized.contains(target) || target.contains(normalized) -> contains
-                else -> 0f
-            }
-        }
-        return maxOf(
-            scoreText(node.text, exact = 500f, contains = 260f),
-            scoreText(node.contentDesc, exact = 480f, contains = 240f),
-            scoreText(node.subtreeText, exact = 360f, contains = 180f),
-            scoreText(node.resourceTail, exact = 440f, contains = 0f),
-            scoreText(node.resourceId, exact = 320f, contains = 0f),
-        )
     }
 
 
@@ -3212,6 +3193,8 @@ object UIStepExecutor {
     private const val DEFAULT_CHECKER_TRIGGER_LIMIT = 1
     private const val DEFAULT_PAGE_GUARD_TRIGGER_LIMIT = 3
     private const val REPLAY_ACTION_FIXED_WAIT_MS = 1000L
+    private const val INPUT_TEXT_OBSERVE_RETRY_COUNT = 2
+    private const val INPUT_TEXT_OBSERVE_RETRY_DELAY_MS = 250L
     private const val STOP_POLL_INTERVAL_MS = 50L
 
     private val ALLOW_EXACT_LABELS = setOf(

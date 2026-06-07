@@ -364,6 +364,7 @@ class OmniCaptureAction(
 //            return xml
 //        }
         val rootNode = getActualRootNode()
+        runCatching { rootNode?.refresh() }
 //        val rstartTime=System.currentTimeMillis()
         // 在 API 33+ 上，先预取整个树结构
 
@@ -389,6 +390,7 @@ class OmniCaptureAction(
 
     fun getNodeMap(): Map<String, AccessibilityNode>? {
         val rootNode = getActualRootNode() ?: return null
+        runCatching { rootNode.refresh() }
         val xmlTree = XmlTreeUtils.buildXmlTree(rootNode) ?: return null
         return XmlTreeUtils.extractNodeMap(xmlTree)
     }

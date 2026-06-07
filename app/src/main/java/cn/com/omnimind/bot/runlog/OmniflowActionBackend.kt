@@ -145,13 +145,27 @@ private object AccessibilityOmniflowActionBackend : OmniflowActionBackend {
         y: Float?,
         nodeResourceId: String,
     ) {
-        AccessibilityController.inputTextToBestNode(
-            text = text,
-            targetDescription = targetDescription,
-            x = x,
-            y = y,
-            nodeResourceId = nodeResourceId,
-        )
+        try {
+            AccessibilityController.inputTextToBestNode(
+                text = text,
+                targetDescription = targetDescription,
+                x = x,
+                y = y,
+                nodeResourceId = nodeResourceId,
+            )
+        } catch (error: Exception) {
+            if (x == null || y == null || !shouldFallbackInputTextByTyping(error)) {
+                throw error
+            }
+            OmniLog.w(TAG, "accessibility inputText failed, fallback to typed shell input: ${error.message}")
+            inputTextByTyping(
+                text = text,
+                targetDescription = targetDescription,
+                x = x,
+                y = y,
+                nodeResourceId = nodeResourceId,
+            )
+        }
     }
 
     override suspend fun inputTextByTyping(
@@ -216,6 +230,15 @@ private object AccessibilityOmniflowActionBackend : OmniflowActionBackend {
         if (exitCode != 0) {
             throw IllegalStateException("shell input text failed: exit_code=$exitCode")
         }
+    }
+
+    private fun shouldFallbackInputTextByTyping(error: Throwable): Boolean {
+        val message = error.message.orEmpty().lowercase()
+        return message.contains("input text") ||
+            message.contains("focused input") ||
+            message.contains("editable input") ||
+            message.contains("focused node") ||
+            message.contains("action_set_text")
     }
 
     override fun currentXml(): String? =
