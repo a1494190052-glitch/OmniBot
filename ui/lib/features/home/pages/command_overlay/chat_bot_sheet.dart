@@ -26,6 +26,7 @@ import 'package:ui/features/home/pages/chat/utils/omniflow_tool_profile_router.d
 import 'package:ui/features/home/pages/chat/utils/deep_thinking_persistence.dart';
 import 'package:ui/features/home/pages/chat/utils/keyboard_inset_motion_tracker.dart';
 import 'package:ui/features/home/pages/chat/widgets/agent_run_group_message.dart';
+import 'package:ui/features/home/pages/command_overlay/widgets/cards/manual_recording_result_card.dart';
 import 'package:ui/features/task/pages/execution_history/run_log_timeline_page.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/services/voice_playback_coordinator.dart';
@@ -1980,27 +1981,29 @@ class _ChatBotSheetState extends State<ChatBotSheet>
         result['function_registered'] ?? result['functionRegistered'];
     final agentVisible = result['agent_visible'] ?? result['agentVisible'];
     final errorMessage = result['error_message'] ?? result['errorMessage'];
-    final cardData = <String, dynamic>{
-      'type': 'manual_recording_result',
-      'cardId': messageId,
-      'success': success,
-      'recordingSuccess': recordingSuccess,
-      'recording_success': recordingSuccess,
-      'conversionSuccess': conversionSuccess,
-      'conversion_success': conversionSuccess,
-      'runId': runId,
-      'run_id': runId,
-      'actionCount': actionCount,
-      'action_count': actionCount,
-      'functionId': functionId,
-      'function_id': functionId,
-      'functionRegistered': functionRegistered,
-      'function_registered': functionRegistered,
-      'agent_visible': agentVisible,
-      'summary': result['summary'],
-      'errorMessage': errorMessage,
-      'error_message': errorMessage,
-    }..removeWhere((_, value) => value == null || value.toString().isEmpty);
+    final cardData = manualRecordingResultAgentToolCardData(
+      <String, dynamic>{
+        'type': kManualRecordingResultCardType,
+        'cardId': messageId,
+        'success': success,
+        'recordingSuccess': recordingSuccess,
+        'recording_success': recordingSuccess,
+        'conversionSuccess': conversionSuccess,
+        'conversion_success': conversionSuccess,
+        'runId': runId,
+        'run_id': runId,
+        'actionCount': actionCount,
+        'action_count': actionCount,
+        'functionId': functionId,
+        'function_id': functionId,
+        'functionRegistered': functionRegistered,
+        'function_registered': functionRegistered,
+        'agent_visible': agentVisible,
+        'summary': result['summary'],
+        'errorMessage': errorMessage,
+        'error_message': errorMessage,
+      }..removeWhere((_, value) => value == null || value.toString().isEmpty),
+    );
     setState(() {
       _messages.removeWhere((message) => message.id == messageId);
       _messages.insert(

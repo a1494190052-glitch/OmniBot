@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_summary_card.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/l10n/generated/app_localizations.dart';
+import 'package:ui/services/agent_tool_card_policy.dart';
 import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/theme/app_theme.dart';
 import 'package:ui/widgets/oob_function_run_progress_card.dart';
@@ -86,8 +88,11 @@ void main() {
     });
     final cardData = oobFunctionRunProgressCardDataForEvent(event);
 
-    expect(cardData['type'], kOobFunctionRunProgressCardType);
+    expect(cardData['type'], kAgentToolSummaryCardType);
+    expect(cardData['sourceCardType'], kOobFunctionRunProgressCardType);
     expect(cardData['cardId'], 'oob-function-run-progress-task-1');
+    expect(cardData['toolType'], 'oob_function');
+    expect(cardData['openRunLogAsTimeline'], isTrue);
 
     await tester.pumpWidget(
       MaterialApp(
@@ -99,8 +104,10 @@ void main() {
       ),
     );
 
-    expect(find.text('复用指令执行中'), findsOneWidget);
-    expect(find.text('第 3/5 步'), findsOneWidget);
-    expect(find.text('点击开关'), findsOneWidget);
+    expect(find.byType(AgentToolSummaryCard), findsOneWidget);
+    expect(find.textContaining('复用指令执行中'), findsOneWidget);
+    expect(find.textContaining('第 3/5 步'), findsOneWidget);
+    expect(find.textContaining('点击开关'), findsOneWidget);
+    expect(find.text('复用指令'), findsOneWidget);
   });
 }

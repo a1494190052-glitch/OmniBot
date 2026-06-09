@@ -723,10 +723,7 @@ diff --git a/lib/main.dart b/lib/main.dart
     expect(find.text('VLM 执行记录 · 第 1 步'), findsOneWidget);
     expect(find.text('VLM 动作'), findsOneWidget);
     expect(find.text('设置按钮'), findsAtLeastNWidgets(1));
-    expect(
-      find.textContaining('120,240', findRichText: true),
-      findsOneWidget,
-    );
+    expect(find.textContaining('120,240', findRichText: true), findsOneWidget);
     expect(find.byKey(kAgentToolDetailSheetKey), findsNothing);
   });
 
@@ -839,5 +836,82 @@ diff --git a/lib/main.dart b/lib/main.dart
     expect(find.text('第 1 步'), findsOneWidget);
     expect(find.textContaining('设置按钮'), findsAtLeastNWidgets(1));
     expect(find.text('VLM 执行记录'), findsNothing);
+  });
+
+  testWidgets('forced RunLog timeline opens complete timeline with card id', (
+    tester,
+  ) async {
+    const assistCoreChannel = MethodChannel(
+      'cn.com.omnimind.bot/AssistCoreEvent',
+    );
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(assistCoreChannel, (call) async {
+          if (call.method != 'getInternalRunLogTimeline') {
+            return null;
+          }
+          return <String, dynamic>{
+            'success': true,
+            'run_id': 'run-manual-1',
+            'run_finished': true,
+            'run_success': true,
+            'run_status': 'success',
+            'goal': '手动录制',
+            'cards': <Map<String, dynamic>>[
+              <String, dynamic>{
+                'card_id': 'step-click',
+                'compile_kind': 'vlm_step',
+                'source': 'vlm',
+                'header': <String, dynamic>{
+                  'step_index': 0,
+                  'success': true,
+                  'compile_kind': 'vlm_step',
+                },
+                'tool_call': <String, dynamic>{
+                  'id': 'step-click',
+                  'name': 'click',
+                  'arguments': <String, dynamic>{'target_description': '设置按钮'},
+                },
+                'result': <String, dynamic>{'summary': '已点击设置按钮'},
+              },
+            ],
+          };
+        });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(assistCoreChannel, null);
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        supportedLocales: const [Locale('zh'), Locale('en')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+        ],
+        home: Scaffold(
+          body: AgentToolSummaryCard(
+            cardData: {
+              'status': 'success',
+              'toolType': 'oob_function',
+              'toolName': 'manual_recording',
+              'toolTitle': '手动录制完成',
+              'summary': '手动录制完成',
+              'cardId': 'manual-card-1',
+              'runLogId': 'run-manual-1',
+              'openRunLogAsTimeline': true,
+            },
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('手动录制完成'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('执行步骤'), findsOneWidget);
+    expect(find.textContaining('设置按钮'), findsAtLeastNWidgets(1));
+    expect(find.byKey(kAgentToolDetailSheetKey), findsNothing);
   });
 }

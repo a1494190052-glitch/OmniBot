@@ -1354,27 +1354,29 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
         result['function_registered'] ?? result['functionRegistered'];
     final agentVisible = result['agent_visible'] ?? result['agentVisible'];
     final errorMessage = result['error_message'] ?? result['errorMessage'];
-    final cardData = <String, dynamic>{
-      'type': 'manual_recording_result',
-      'cardId': messageId,
-      'success': success,
-      'recordingSuccess': recordingSuccess,
-      'recording_success': recordingSuccess,
-      'conversionSuccess': conversionSuccess,
-      'conversion_success': conversionSuccess,
-      'runId': runId,
-      'run_id': runId,
-      'actionCount': actionCount,
-      'action_count': actionCount,
-      'functionId': functionId,
-      'function_id': functionId,
-      'functionRegistered': functionRegistered,
-      'function_registered': functionRegistered,
-      'agent_visible': agentVisible,
-      'summary': result['summary'],
-      'errorMessage': errorMessage,
-      'error_message': errorMessage,
-    }..removeWhere((_, value) => value == null || value.toString().isEmpty);
+    final cardData = manualRecordingResultAgentToolCardData(
+      <String, dynamic>{
+        'type': kManualRecordingResultCardType,
+        'cardId': messageId,
+        'success': success,
+        'recordingSuccess': recordingSuccess,
+        'recording_success': recordingSuccess,
+        'conversionSuccess': conversionSuccess,
+        'conversion_success': conversionSuccess,
+        'runId': runId,
+        'run_id': runId,
+        'actionCount': actionCount,
+        'action_count': actionCount,
+        'functionId': functionId,
+        'function_id': functionId,
+        'functionRegistered': functionRegistered,
+        'function_registered': functionRegistered,
+        'agent_visible': agentVisible,
+        'summary': result['summary'],
+        'errorMessage': errorMessage,
+        'error_message': errorMessage,
+      }..removeWhere((_, value) => value == null || value.toString().isEmpty),
+    );
     setState(() {
       _messages.removeWhere((message) => message.id == messageId);
       _messages.insert(

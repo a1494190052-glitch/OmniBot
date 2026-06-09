@@ -479,9 +479,9 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(find.text('复用指令执行中'), findsOneWidget);
-    expect(find.text('第 2/4 步'), findsOneWidget);
-    expect(find.text('点击蓝牙'), findsOneWidget);
+    expect(find.textContaining('复用指令执行中'), findsOneWidget);
+    expect(find.textContaining('第 2/4 步'), findsOneWidget);
+    expect(find.textContaining('点击蓝牙'), findsOneWidget);
 
     AssistsMessageService.debugDispatchOobFunctionRunProgressForTest(
       <String, dynamic>{
@@ -494,9 +494,9 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(find.text('复用指令执行中'), findsNothing);
-    expect(find.text('第 2/4 步'), findsNothing);
-    expect(find.text('点击蓝牙'), findsNothing);
+    expect(find.textContaining('复用指令执行中'), findsNothing);
+    expect(find.textContaining('第 2/4 步'), findsNothing);
+    expect(find.textContaining('点击蓝牙'), findsNothing);
   });
 
   testWidgets('Reusable Function detail opens shared step editor', (
@@ -972,8 +972,8 @@ void main() {
 
       expect(runCalls, 1);
       expect(find.text('执行中'), findsOneWidget);
-      expect(find.text('复用指令执行中'), findsOneWidget);
-      expect(find.text('准备执行复用指令'), findsOneWidget);
+      expect(find.textContaining('复用指令执行中'), findsOneWidget);
+      expect(find.textContaining('准备执行复用指令'), findsOneWidget);
       final runCall = methodCalls.singleWhere(
         (call) => call.method == 'runOobReusableFunction',
       );
@@ -1032,7 +1032,7 @@ void main() {
       expect(find.text('复用指令执行结果'), findsNothing);
 
       expect(find.text('执行'), findsOneWidget);
-      expect(find.text('复用指令执行中'), findsNothing);
+      expect(find.textContaining('复用指令执行中'), findsNothing);
     },
   );
 
@@ -1256,8 +1256,8 @@ void main() {
     await tester.pump();
 
     expect(find.text('执行中'), findsOneWidget);
-    expect(find.text('复用指令执行中'), findsOneWidget);
-    expect(find.text('准备执行复用指令'), findsOneWidget);
+    expect(find.textContaining('复用指令执行中'), findsOneWidget);
+    expect(find.textContaining('准备执行复用指令'), findsOneWidget);
     final runCall = methodCalls.singleWhere(
       (call) => call.method == 'runOobReusableFunction',
     );

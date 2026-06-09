@@ -266,6 +266,13 @@ Future<void> _openAgentToolCard(
     );
   }
   final runLogRef = AgentToolCardPolicy.runLogRef(cardData);
+  if (_shouldOpenRunLogAsTimeline(cardData) && runLogRef.hasRunLog) {
+    return showRunLogTimelineSheet(
+      context,
+      runId: runLogRef.runLogId,
+      title: title,
+    );
+  }
   final isVlmTaskWrapper =
       AgentToolCardPolicy.activityKindFor(cardData) ==
           AgentToolActivityKind.vlm &&
@@ -425,6 +432,21 @@ bool _summaryCardPrefersSummary(AgentToolActivityKind? kind) {
       kind == AgentToolActivityKind.research ||
       kind == AgentToolActivityKind.generic ||
       kind == AgentToolActivityKind.omniflow;
+}
+
+bool _shouldOpenRunLogAsTimeline(Map<String, dynamic> cardData) {
+  for (final key in const [
+    'openRunLogAsTimeline',
+    'open_run_log_as_timeline',
+    'forceRunLogTimeline',
+    'force_run_log_timeline',
+  ]) {
+    final value = cardData[key];
+    if (value is bool) return value;
+    final text = value?.toString().trim().toLowerCase() ?? '';
+    if (text == 'true' || text == '1' || text == 'yes') return true;
+  }
+  return false;
 }
 
 IconData _summaryCardStatusIcon(String status, String toolType) {

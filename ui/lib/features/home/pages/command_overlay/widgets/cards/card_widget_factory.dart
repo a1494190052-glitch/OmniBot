@@ -125,7 +125,7 @@ class CardWidgetFactory {
       case 'artifact_card':
         final artifact = cardData['artifact'] as Map<String, dynamic>? ?? {};
         return ArtifactCard(artifact: artifact);
-      case 'manual_recording_result':
+      case kManualRecordingResultCardType:
         return ManualRecordingResultCard(cardData: cardData);
       case kOobFunctionRunProgressCardType:
         return OobFunctionRunProgressCard.fromCardData(cardData);

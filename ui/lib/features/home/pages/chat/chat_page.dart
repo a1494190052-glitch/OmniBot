@@ -22,6 +22,7 @@ import '../../../../services/assists_core_service.dart';
 import '../../widgets/home_drawer.dart';
 import '../authorize/authorize_page_args.dart';
 import '../command_overlay/services/manual_recording_permission_guard.dart';
+import '../command_overlay/widgets/cards/manual_recording_result_card.dart';
 import '../command_overlay/widgets/chat_input_area.dart';
 import '../command_overlay/services/tool_card_detail_gesture_gate.dart';
 import '../common/openclaw_connection_checker.dart';

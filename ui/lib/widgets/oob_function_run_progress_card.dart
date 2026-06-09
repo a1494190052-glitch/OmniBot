@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:ui/features/task/pages/execution_history/run_log_timeline_page.dart';
+import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_summary_card.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
+import 'package:ui/services/agent_tool_card_policy.dart';
 import 'package:ui/services/assists_core_service.dart';
-import 'package:ui/theme/theme_context.dart';
 
 const String kOobFunctionRunProgressCardType = 'oob_function_run_progress';
 
@@ -19,14 +19,70 @@ String oobFunctionRunProgressCardIdForEvent(OobFunctionRunProgressEvent event) {
 Map<String, dynamic> oobFunctionRunProgressCardDataForEvent(
   OobFunctionRunProgressEvent event,
 ) {
-  final cardId = oobFunctionRunProgressCardIdForEvent(event);
+  return oobFunctionRunProgressAgentToolCardDataForEvent(event);
+}
+
+Map<String, dynamic> oobFunctionRunProgressAgentToolCardData(
+  Map<String, dynamic> cardData,
+) {
+  return oobFunctionRunProgressAgentToolCardDataForEvent(
+    OobFunctionRunProgressEvent.fromMap(cardData),
+  );
+}
+
+Map<String, dynamic> oobFunctionRunProgressAgentToolCardDataForEvent(
+  OobFunctionRunProgressEvent event,
+) {
+  final derivedCardId = oobFunctionRunProgressCardIdForEvent(event);
+  final cardId = derivedCardId.isNotEmpty
+      ? derivedCardId
+      : _firstNonBlank([event.rawJson['cardId'], event.rawJson['card_id']]);
+  final stepLabel = OobFunctionRunProgressCard._stepLabel(event);
+  final detail = OobFunctionRunProgressCard._messageFor(event, stepLabel);
+  final title = OobFunctionRunProgressCard._titleFor(event);
+  final summary = OobFunctionRunProgressCard._summaryFor(
+    title: title,
+    stepLabel: stepLabel,
+    detail: detail,
+  );
+  final runLogId = event.runLogId;
   return <String, dynamic>{
     ...event.rawJson,
-    'type': kOobFunctionRunProgressCardType,
+    'type': kAgentToolSummaryCardType,
+    'sourceCardType': kOobFunctionRunProgressCardType,
+    'source_card_type': kOobFunctionRunProgressCardType,
     'cardId': cardId,
-    'status': event.status,
-    'runLogId': event.runLogId,
-    'run_log_id': event.runLogId,
+    'toolCallId': cardId,
+    'tool_call_id': cardId,
+    'status': OobFunctionRunProgressCard._agentToolStatusFor(event),
+    'rawStatus': event.status,
+    'raw_status': event.status,
+    'toolType': 'oob_function',
+    'tool_type': 'oob_function',
+    'toolName': 'oob_function_run',
+    'tool_name': 'oob_function_run',
+    'toolTitle': title,
+    'tool_title': title,
+    'toolTypeLabel': OobFunctionRunProgressCard._choose(
+      zh: '复用指令',
+      en: 'Reusable Function',
+    ),
+    'tool_type_label': OobFunctionRunProgressCard._choose(
+      zh: '复用指令',
+      en: 'Reusable Function',
+    ),
+    'displayName': OobFunctionRunProgressCard._choose(
+      zh: '复用指令',
+      en: 'Reusable Function',
+    ),
+    'display_name': OobFunctionRunProgressCard._choose(
+      zh: '复用指令',
+      en: 'Reusable Function',
+    ),
+    'summary': summary,
+    'progress': detail,
+    'runLogId': runLogId,
+    'run_log_id': runLogId,
     'runId': event.runId,
     'run_id': event.runId,
     'taskId': event.taskId,
@@ -45,6 +101,8 @@ Map<String, dynamic> oobFunctionRunProgressCardDataForEvent(
     'embedded_in_vlm_task': event.embeddedInVlmTask,
     'timestampMs': event.timestampMs,
     'timestamp_ms': event.timestampMs,
+    'openRunLogAsTimeline': true,
+    'open_run_log_as_timeline': true,
   }..removeWhere((_, value) {
     if (value == null) return true;
     return value is String && value.trim().isEmpty;
@@ -75,161 +133,12 @@ class OobFunctionRunProgressCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = context.omniPalette;
-    final running = event.isRunning;
-    final isStopped = event.status == 'stopped';
-    final isFailed = event.status == 'failed' || _looksFailed(event.message);
-    final accent = isFailed
-        ? const Color(0xFFB42318)
-        : isStopped
-        ? const Color(0xFFD97706)
-        : running
-        ? palette.accentPrimary
-        : const Color(0xFF117A37);
-    final title = _titleFor(event);
-    final stepLabel = _stepLabel(event);
-    final message = _messageFor(event, stepLabel);
-    final runLogId = event.runLogId;
-
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: maxWidth ?? MediaQuery.of(context).size.width * 0.86,
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: elevated
-                  ? palette.surfacePrimary.withValues(alpha: 0.98)
-                  : (context.isDarkTheme
-                        ? Color.alphaBlend(
-                            accent.withValues(alpha: 0.10),
-                            palette.surfaceSecondary,
-                          )
-                        : accent.withValues(alpha: 0.08)),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: accent.withValues(alpha: 0.28)),
-              boxShadow: elevated
-                  ? [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.14),
-                        blurRadius: 18,
-                        offset: const Offset(0, 8),
-                      ),
-                    ]
-                  : null,
-            ),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: running
-                        ? CircularProgressIndicator(
-                            strokeWidth: 2.4,
-                            valueColor: AlwaysStoppedAnimation<Color>(accent),
-                          )
-                        : Icon(_terminalIcon(event), size: 22, color: accent),
-                  ),
-                  const SizedBox(width: 10),
-                  Flexible(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Flexible(
-                              child: Text(
-                                title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: palette.textPrimary,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w900,
-                                  height: 1.15,
-                                ),
-                              ),
-                            ),
-                            if (stepLabel.isNotEmpty) ...[
-                              const SizedBox(width: 8),
-                              Text(
-                                stepLabel,
-                                maxLines: 1,
-                                style: TextStyle(
-                                  color: accent,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w900,
-                                  height: 1.15,
-                                  fontFeatures: const [
-                                    FontFeature.tabularFigures(),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                        if (message.isNotEmpty) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            message,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: palette.textSecondary,
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w700,
-                              height: 1.2,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  if (runLogId.isNotEmpty) ...[
-                    const SizedBox(width: 8),
-                    Tooltip(
-                      message: _choose(zh: '查看执行步骤', en: 'View run log'),
-                      child: InkResponse(
-                        radius: 18,
-                        onTap: () => showRunLogTimelineSheet(
-                          context,
-                          runId: runLogId,
-                          title: title,
-                        ),
-                        child: Icon(
-                          Icons.account_tree_outlined,
-                          size: 18,
-                          color: accent,
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
+    return AgentToolSummaryCard(
+      cardData: oobFunctionRunProgressAgentToolCardDataForEvent(event),
     );
   }
 
   static bool _looksFailed(String message) => message.contains('失败');
-
-  static IconData _terminalIcon(OobFunctionRunProgressEvent event) {
-    if (event.status == 'stopped') return Icons.stop_circle_outlined;
-    if (event.status == 'failed' || _looksFailed(event.message)) {
-      return Icons.error_outline_rounded;
-    }
-    return Icons.check_circle_outline_rounded;
-  }
 
   static String _titleFor(OobFunctionRunProgressEvent event) {
     if (event.isRunning) {
@@ -279,7 +188,43 @@ class OobFunctionRunProgressCard extends StatelessWidget {
         .trim();
   }
 
+  static String _summaryFor({
+    required String title,
+    required String stepLabel,
+    required String detail,
+  }) {
+    return _uniqueNonBlank([title, stepLabel, detail]).join(' · ');
+  }
+
+  static String _agentToolStatusFor(OobFunctionRunProgressEvent event) {
+    if (event.isRunning) return 'running';
+    if (event.status == 'stopped') return 'interrupted';
+    if (event.status == 'failed' || _looksFailed(event.message)) {
+      return 'error';
+    }
+    return 'success';
+  }
+
   static String _choose({required String zh, required String en}) {
     return AppTextLocalizer.choose(zh: zh, en: en);
   }
+}
+
+String _firstNonBlank(Iterable<Object?> values) {
+  for (final value in values) {
+    final text = value?.toString().trim() ?? '';
+    if (text.isNotEmpty) return text;
+  }
+  return '';
+}
+
+List<String> _uniqueNonBlank(Iterable<String> values) {
+  final emitted = <String>{};
+  final result = <String>[];
+  for (final value in values) {
+    final text = value.trim();
+    if (text.isEmpty || !emitted.add(text)) continue;
+    result.add(text);
+  }
+  return result;
 }
