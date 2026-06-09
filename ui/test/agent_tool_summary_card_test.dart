@@ -232,9 +232,16 @@ void main() {
     expect(sheet, findsNothing);
   });
 
-  testWidgets('codex tool card uses inline tool row style', (tester) async {
+  testWidgets('codex tool card uses main-style capsule row', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh'),
+        supportedLocales: const [Locale('zh'), Locale('en')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+        ],
         home: Scaffold(
           body: Center(
             child: AgentToolSummaryCard(
@@ -256,6 +263,7 @@ void main() {
     expect(find.text('读取 README.md'), findsOneWidget);
     expect(find.byIcon(LucideIcons.folder), findsOneWidget);
     expect(find.text('工作区'), findsNothing);
+    expect(find.text('已完成'), findsOneWidget);
 
     await tester.tap(find.text('读取 README.md'));
     await tester.pumpAndSettle();
@@ -263,9 +271,18 @@ void main() {
     expect(find.byKey(kAgentToolDetailSheetKey), findsOneWidget);
   });
 
-  testWidgets('running codex inline tool title uses shimmer', (tester) async {
+  testWidgets('running codex tool card keeps main-style static title', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh'),
+        supportedLocales: const [Locale('zh'), Locale('en')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+        ],
         home: Scaffold(
           body: Center(
             child: AgentToolSummaryCard(
@@ -284,7 +301,8 @@ void main() {
     );
 
     expect(find.text('Read README.md'), findsOneWidget);
-    expect(find.byType(ShaderMask), findsOneWidget);
+    expect(find.text('工作区'), findsOneWidget);
+    expect(find.byType(ShaderMask), findsNothing);
   });
 
   testWidgets(
@@ -439,14 +457,21 @@ void main() {
     );
 
     expect(find.text('查看配置'), findsOneWidget);
-    expect(find.text('工作区'), findsNothing);
+    expect(find.text('工作区'), findsOneWidget);
   });
 
-  testWidgets('file diff card expands diff inline instead of opening sheet', (
+  testWidgets('file diff card opens diff sheet from main-style capsule', (
     tester,
   ) async {
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh'),
+        supportedLocales: const [Locale('zh'), Locale('en')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+        ],
         home: Scaffold(
           body: AgentToolSummaryCard(
             cardData: {
@@ -475,18 +500,16 @@ diff --git a/lib/main.dart b/lib/main.dart
       ),
     );
 
-    expect(find.text('更新 '), findsOneWidget);
-    expect(find.text('main.dart'), findsOneWidget);
-    expect(find.textContaining('+2 -1', findRichText: true), findsOneWidget);
+    expect(find.text('更新 main.dart'), findsOneWidget);
+    expect(find.text('+2 -1'), findsNothing);
     expect(find.textContaining('-old line', findRichText: true), findsNothing);
 
-    await tester.tap(
-      find.byKey(const ValueKey('inline-file-diff-title-toggle')),
-    );
-    await tester.pump(const Duration(milliseconds: 320));
+    await tester.tap(find.text('更新 main.dart'));
+    await tester.pumpAndSettle();
 
     expect(find.byKey(kAgentToolDetailSheetKey), findsNothing);
-    expect(find.text('lib/main.dart'), findsNothing);
+    expect(find.byKey(kAgentToolDiffSheetKey), findsOneWidget);
+    expect(find.text('lib/main.dart'), findsAtLeastNWidgets(1));
     expect(
       find.textContaining('-old line', findRichText: true),
       findsOneWidget,
@@ -501,11 +524,18 @@ diff --git a/lib/main.dart b/lib/main.dart
     );
   });
 
-  testWidgets('file diff title filename tap shows full path tooltip', (
+  testWidgets('file diff card keeps full path in clicked diff sheet', (
     tester,
   ) async {
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh'),
+        supportedLocales: const [Locale('zh'), Locale('en')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+        ],
         home: Scaffold(
           body: AgentToolSummaryCard(
             cardData: {
@@ -528,11 +558,15 @@ diff --git a/lib/main.dart b/lib/main.dart
       ),
     );
 
-    await tester.tap(find.text('main.dart'));
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.tap(find.text('更新 main.dart'));
+    await tester.pumpAndSettle();
 
-    expect(find.text('lib/main.dart'), findsOneWidget);
-    expect(find.textContaining('-old line', findRichText: true), findsNothing);
+    expect(find.byKey(kAgentToolDiffSheetKey), findsOneWidget);
+    expect(find.text('lib/main.dart'), findsAtLeastNWidgets(1));
+    expect(
+      find.textContaining('-old line', findRichText: true),
+      findsOneWidget,
+    );
   });
 
   testWidgets('tool card title follows appearance text color', (tester) async {
@@ -571,7 +605,7 @@ diff --git a/lib/main.dart b/lib/main.dart
     expect(title.style?.fontSize, 12);
   });
 
-  testWidgets('VLM tool card uses action summary instead of type label', (
+  testWidgets('VLM tool card uses action title with main-style type label', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -603,9 +637,97 @@ diff --git a/lib/main.dart b/lib/main.dart
     );
 
     expect(find.text('点击 设置按钮'), findsOneWidget);
-    expect(find.text('执行中'), findsOneWidget);
-    expect(find.text('视觉执行'), findsNothing);
+    expect(find.text('视觉执行'), findsOneWidget);
+    expect(find.text('执行中'), findsNothing);
     expect(find.text('网页搜索'), findsNothing);
+  });
+
+  testWidgets('VLM step card opens current RunLog step detail when tapped', (
+    tester,
+  ) async {
+    const assistCoreChannel = MethodChannel(
+      'cn.com.omnimind.bot/AssistCoreEvent',
+    );
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(assistCoreChannel, (call) async {
+          if (call.method != 'getInternalRunLogTimeline') {
+            return null;
+          }
+          return <String, dynamic>{
+            'success': true,
+            'run_id': 'run-vlm-step',
+            'run_finished': true,
+            'run_success': true,
+            'run_status': 'success',
+            'cards': <Map<String, dynamic>>[
+              <String, dynamic>{
+                'card_id': 'step-click',
+                'compile_kind': 'vlm_step',
+                'source': 'vlm',
+                'header': <String, dynamic>{
+                  'step_index': 0,
+                  'success': true,
+                  'compile_kind': 'vlm_step',
+                },
+                'tool_call': <String, dynamic>{
+                  'id': 'step-click',
+                  'name': 'click',
+                  'arguments': <String, dynamic>{
+                    'target_description': '设置按钮',
+                    'x': 120,
+                    'y': 240,
+                  },
+                },
+                'result': <String, dynamic>{'summary': '已点击设置按钮'},
+              },
+            ],
+          };
+        });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(assistCoreChannel, null);
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        supportedLocales: const [Locale('zh'), Locale('en')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+        ],
+        home: Scaffold(
+          body: AgentToolSummaryCard(
+            cardData: {
+              'status': 'success',
+              'toolType': 'vlm',
+              'toolName': 'click',
+              'toolTitle': '点击 设置按钮',
+              'cardId': 'step-click',
+              'runLogId': 'run-vlm-step',
+              'argsJson': jsonEncode({
+                'target_description': '设置按钮',
+                'x': 120,
+                'y': 240,
+              }),
+            },
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('设置按钮'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('VLM 执行记录 · 第 1 步'), findsOneWidget);
+    expect(find.text('VLM 动作'), findsOneWidget);
+    expect(find.text('设置按钮'), findsAtLeastNWidgets(1));
+    expect(
+      find.textContaining('120,240', findRichText: true),
+      findsOneWidget,
+    );
+    expect(find.byKey(kAgentToolDetailSheetKey), findsNothing);
   });
 
   testWidgets('VLM wrapper card localizes without explicit toolType', (
@@ -634,8 +756,8 @@ diff --git a/lib/main.dart b/lib/main.dart
     );
 
     expect(find.text('打开设置'), findsOneWidget);
-    expect(find.text('执行中'), findsOneWidget);
-    expect(find.text('视觉执行'), findsNothing);
+    expect(find.text('视觉执行'), findsOneWidget);
+    expect(find.text('执行中'), findsNothing);
     expect(find.text('Tool call'), findsNothing);
   });
 

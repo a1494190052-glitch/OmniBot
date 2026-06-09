@@ -1,10 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:ui/features/home/pages/chat/tool_activity_utils.dart';
-import 'package:ui/features/home/pages/chat/utils/agent_activity_compactor.dart';
 import 'package:ui/features/home/pages/chat/utils/agent_run_timeline.dart';
-import 'package:ui/features/home/pages/chat/widgets/agent_tool_activity_card.dart';
-import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_transcript.dart'
-    show showAgentToolDetailSheet;
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/card_widget_factory.dart'
     show OnBeforeTaskExecute, OnRequestAuthorize;
 import 'package:ui/features/home/pages/command_overlay/widgets/message_bubble.dart';
@@ -12,7 +8,6 @@ import 'package:ui/features/task/pages/execution_history/run_log_timeline_page.d
 import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/models/chat_message_model.dart';
 import 'package:ui/services/agent_avatar_service.dart';
-import 'package:ui/services/agent_tool_card_policy.dart' as tool_policy;
 import 'package:ui/services/app_background_service.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/widgets/agent_avatar.dart';
@@ -66,8 +61,6 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
   late final Animation<double> _lift;
   bool _isNotifyingParentDuringAnimation = false;
   bool _expandThinkingOnNextOpen = false;
-  final Set<String> _expandedToolGroupKeys = <String>{};
-  final _compactor = AgentActivityCompactor();
 
   @override
   void initState() {
@@ -102,9 +95,6 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
   @override
   void didUpdateWidget(covariant AgentRunGroupMessage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.group.taskId != oldWidget.group.taskId) {
-      _expandedToolGroupKeys.clear();
-    }
     if (widget.expanded == oldWidget.expanded) {
       return;
     }
@@ -156,8 +146,7 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
     final isRunLogOnly = widget.group.isRunLogOnly;
     final showRunLogButton =
         !widget.group.isActiveRun && widget.group.runLogId.trim().isNotEmpty;
-    final directProcessAction = _resolveDirectProcessAction(processMessages);
-    final showProcessToggle = hasProcessMessages && directProcessAction == null;
+    final showProcessToggle = hasProcessMessages;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -175,8 +164,7 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
           latestProcessSummary: _latestProcessSummary(context, processMessages),
           isRunLogOnly: isRunLogOnly,
           onTap: hasProcessMessages
-              ? (directProcessAction ??
-                    () => _toggleProcessSection(processMessages))
+              ? () => _toggleProcessSection(processMessages)
               : isRunLogOnly
               ? () => _openRunLog(context)
               : null,
@@ -212,79 +200,6 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
     showRunLogTimelineSheet(context, runId: runLogId);
   }
 
-  VoidCallback? _resolveDirectProcessAction(
-    List<ChatMessageModel> processMessages,
-  ) {
-    if (widget.expanded || processMessages.isEmpty) {
-      return null;
-    }
-    final processItems = _compactor.compact(
-      processMessages,
-      settleRunning: !widget.group.isActiveRun,
-    );
-    if (processItems.length != 1) {
-      return null;
-    }
-    final item = processItems.single;
-    final activity = item.activity;
-    if (activity != null) {
-      if (activity.kind == AgentToolActivityKind.vlm) {
-        return null;
-      }
-      final step = activity.steps.last;
-      final cardData = step.message.cardData;
-      if (cardData == null ||
-          (cardData['type'] ?? '').toString() != kAgentToolSummaryCardType) {
-        return null;
-      }
-      return () => _openSingleActivityStep(context, step);
-    }
-    final message = item.message!;
-    final cardData = message.cardData;
-    if ((cardData?['type'] ?? '').toString() == 'deep_thinking') {
-      final content = (cardData?['thinkingContent'] ?? '').toString().trim();
-      if (content.isEmpty) {
-        return null;
-      }
-      return () {
-        setState(() {
-          _expandThinkingOnNextOpen = true;
-        });
-        widget.onToggleExpanded();
-      };
-    }
-    if (cardData != null &&
-        (cardData['type'] ?? '').toString() == kAgentToolSummaryCardType) {
-      return () => showAgentToolDetailSheet(context, cardData: cardData);
-    }
-    return null;
-  }
-
-  void _openSingleActivityStep(
-    BuildContext context,
-    AgentToolActivityStep step,
-  ) {
-    final cardData = step.message.cardData ?? const <String, dynamic>{};
-    final kind = tool_policy.AgentToolCardPolicy.activityKindFor(cardData);
-    final runLogRef = tool_policy.AgentToolCardPolicy.runLogRef(
-      cardData,
-      message: step.message,
-    );
-    if (kind == tool_policy.AgentToolActivityKind.vlm && runLogRef.hasStep) {
-      showRunLogStepDetailSheet(
-        context,
-        runId: runLogRef.runLogId,
-        cardId: runLogRef.cardId,
-        title: resolveAgentToolTitle(
-          cardData,
-          locale: Localizations.localeOf(context),
-        ),
-      );
-      return;
-    }
-    showAgentToolDetailSheet(context, cardData: cardData);
-  }
-
   void _toggleProcessSection(List<ChatMessageModel> processMessages) {
     if (!widget.expanded &&
         processMessages.any(_shouldAutoExpandThinkingProcessMessage)) {
@@ -308,34 +223,17 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
       return const SizedBox.shrink();
     }
 
-    final processItems = _compactor.compact(
-      processMessages,
-      settleRunning: !widget.group.isActiveRun,
-    );
-
     return AnimatedBuilder(
       animation: _expandController,
       child: Column(
         key: ValueKey('agent-run-process-${widget.group.taskId}'),
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: processItems
+        children: processMessages
             .asMap()
             .entries
             .map((entry) {
               final index = entry.key;
-              final item = entry.value;
-              final activity = item.activity;
-              if (activity != null) {
-                return AgentToolActivityCard(
-                  key: ValueKey(
-                    'agent-run-${widget.group.taskId}-activity-$index-${activity.id}-${widget.expanded}',
-                  ),
-                  activity: activity,
-                  compactSurface: true,
-                  onLayoutChanged: widget.onStreamingTextLayoutChanged,
-                );
-              }
-              final message = item.message!;
+              final message = entry.value;
               if (_isThinkingProcessMessage(message)) {
                 final initiallyExpanded = _expandThinkingOnNextOpen;
                 if (initiallyExpanded) {
