@@ -125,6 +125,58 @@ class ManualRecordingPolicyTest {
     }
 
     @Test
+    fun `manual debug screenshots are optional and isolated from recording`() {
+        val source = readSource(
+            "assists/src/main/java/cn/com/omnimind/assists/task/vlmserver/ManualVlmTraceRecorder.kt"
+        )
+
+        assertTrue(source.contains("debugScreenshotDisabledReason"))
+        assertTrue(source.contains("debugScreenshotLastErrorType"))
+        assertTrue(source.contains("debugScreenshotsActive()"))
+        assertTrue(source.contains("catch (error: OutOfMemoryError)"))
+        assertTrue(source.contains("disabled_after_oom"))
+        assertTrue(source.contains("recordDebugScreenshotFailure("))
+        assertTrue(source.contains("\"last_error_type\" to debugScreenshotLastErrorType"))
+        assertTrue(source.contains("\"requested\" to enableDebugScreenshots"))
+        assertTrue(source.contains("screenshotSkippedCount += 1"))
+    }
+
+    @Test
+    fun `debug broadcast screenshots default disabled and require explicit opt in`() {
+        val humanReceiver = readSource(
+            "app/src/debug/java/cn/com/omnimind/bot/debug/DebugHumanRunRecordingReceiver.kt"
+        )
+        val manualReceiver = readSource(
+            "app/src/debug/java/cn/com/omnimind/bot/debug/DebugManualTraceReceiver.kt"
+        )
+
+        listOf(humanReceiver, manualReceiver).forEach { source ->
+            assertTrue(source.contains("intent ?: return false"))
+            assertTrue(source.contains("getBooleanExtra(\"disableDebugScreenshots\", false)"))
+            assertTrue(source.contains("getBooleanExtra(\"skipScreenshots\", false)"))
+            assertTrue(source.contains("!source.getBooleanExtra(\"keepScreenshots\", true)"))
+            assertTrue(source.contains("source.getBooleanExtra(\"debugScreenshots\", false)"))
+            assertTrue(source.contains("source.getBooleanExtra(\"enableDebugScreenshots\", false)"))
+            assertTrue(source.contains("source.getBooleanExtra(\"recordDebugScreenshots\", false)"))
+            assertFalse(source.contains("getBooleanExtra(\"debugScreenshots\", true)"))
+        }
+    }
+
+    @Test
+    fun `idle consolidation recovers unfinished human run logs before orphaning other runs`() {
+        val source = readSource(
+            "app/src/main/java/cn/com/omnimind/bot/manager/AssistsCoreManager.kt"
+        )
+
+        assertTrue(source.contains("InternalRunLogStore.listRunRecords(context, limit = 50)"))
+        assertTrue(source.contains("ManualRecordingRunLogRecovery.decisionFor(record)"))
+        assertTrue(source.contains("success = recovery.success"))
+        assertTrue(source.contains("doneReason = recovery.doneReason"))
+        assertTrue(source.contains("errorMessage = recovery.errorMessage"))
+        assertTrue(source.contains("doneReason = \"orphaned\""))
+    }
+
+    @Test
     fun `touch overlay drains bounded while recording is unfinished`() {
         val source = readSource(
             "uikit/src/main/java/cn/com/omnimind/uikit/loader/ManualTouchRecordLoader.kt"
@@ -169,10 +221,25 @@ class ManualRecordingPolicyTest {
         )
 
         assertTrue(source.contains("val sourceSnapshot = when (event.eventType)"))
-        assertTrue(source.contains("handleAccessibilityEventLocked(event, sourceSnapshot)"))
+        assertTrue(source.contains("val eventCopy = AccessibilityEvent.obtain(event)"))
+        assertTrue(source.contains("accessibilityEventScope.launch"))
+        assertTrue(source.contains("handleAccessibilityEventLocked(eventCopy, sourceSnapshot)"))
         assertTrue(source.contains("recordTextChanged(event, packageName, lastXmlSnapshot, lastScreenshotSnapshot, sourceSnapshot)"))
         assertTrue(source.contains("recordPostInputActionLocked(event, packageName, nowMs, sourceSnapshot)"))
         assertFalse(source.contains("val source = sourceSnapshotFromEvent(event)\n        val bounds = source?.bounds"))
+    }
+
+    @Test
+    fun `manual recorder avoids blocking package and persist work on accessibility path`() {
+        val source = readSource(
+            "assists/src/main/java/cn/com/omnimind/assists/task/vlmserver/ManualVlmTraceRecorder.kt"
+        )
+
+        assertFalse(source.contains("AccessibilityController.getPackageName()"))
+        assertTrue(source.contains("lastUsablePackageName"))
+        assertTrue(source.contains("actionPersistScope.launch"))
+        assertTrue(source.contains("awaitAccessibilityEventJobs(\"stop\")"))
+        assertTrue(source.contains("\"async_action_persist\""))
     }
 
     @Test

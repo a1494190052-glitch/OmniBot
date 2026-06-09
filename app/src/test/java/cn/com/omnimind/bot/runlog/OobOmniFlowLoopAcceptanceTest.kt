@@ -5,6 +5,10 @@ import android.content.ContextWrapper
 import android.content.SharedPreferences
 import android.content.pm.ApplicationInfo
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
+import cn.com.omnimind.bot.agent.AgentToolRegistry
+import cn.com.omnimind.bot.mcp.RemoteMcpDiscoveredServer
+import cn.com.omnimind.bot.mcp.RemoteMcpServerConfig
+import cn.com.omnimind.bot.mcp.RemoteMcpToolDescriptor
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
 import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
@@ -18,6 +22,36 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OobOmniFlowLoopAcceptanceTest {
+    @Test
+    fun `agent tool registry does not expose remote mcp discovered tools`() {
+        val context = TempFilesContext()
+        try {
+            val remoteServer = RemoteMcpDiscoveredServer(
+                config = RemoteMcpServerConfig(
+                    id = "remote_server",
+                    name = "Remote Test Server",
+                    endpointUrl = "http://127.0.0.1:17777/mcp",
+                ),
+                tools = listOf(
+                    RemoteMcpToolDescriptor(
+                        serverId = "remote_server",
+                        serverName = "Remote Test Server",
+                        toolName = "remote_echo",
+                        description = "Remote echo tool",
+                        inputSchema = mapOf("type" to "object"),
+                    )
+                ),
+            )
+
+            val registry = AgentToolRegistry(context, discoveredServers = listOf(remoteServer))
+
+            assertFalse(registry.toolsForModel.map { it.function.name }.contains("mcp__remote_server__remote_echo"))
+            assertEquals("builtin", registry.runtimeDescriptor("mcp__remote_server__remote_echo").toolType)
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
     @Test
     fun `simple function registration builds structured spec and UDEG recall candidate`() = runBlocking {
         val context = TempFilesContext()
@@ -149,10 +183,200 @@ class OobOmniFlowLoopAcceptanceTest {
     }
 
     @Test
-    fun `update function with runlog returns agent analysis context without saving`() = runBlocking {
+    fun `update function honors camelCase dry run and execution change aliases`() = runBlocking {
+        val context = TempFilesContext()
+        try {
+            val functionStore = WorkspaceFunctionStore(context.root)
+            val toolkit = OobOmniFlowToolkitService(context, functionStore)
+            val functionId = "camel_case_update_aliases"
+            val register = toolkit.registerFunction(
+                mapOf(
+                    "functionId" to functionId,
+                    "name" to "打开美食",
+                    "description" to "原始描述",
+                    "sourcePage" to mapOf(
+                        "xml" to TAKEOUT_XML,
+                        "packageName" to "com.example.food",
+                    ),
+                    "steps" to listOf(
+                        mapOf(
+                            "action" to "click",
+                            "title" to "点击美食",
+                            "target_description" to "美食",
+                            "x" to 230,
+                            "y" to 140,
+                        ),
+                    ),
+                )
+            )
+            assertEquals(true, register["success"])
+
+            val preview = toolkit.updateFunction(
+                mapOf(
+                    "function_id" to functionId,
+                    "dryRun" to true,
+                    "patch" to mapOf("description" to "预览描述"),
+                )
+            )
+            assertEquals(true, preview["success"])
+            assertEquals(true, preview["changed"])
+            assertEquals(false, preview["saved"])
+            assertEquals(true, preview["dry_run"])
+            assertEquals("原始描述", (preview["function"] as Map<*, *>)["description"])
+            assertEquals("预览描述", (preview["updated_function"] as Map<*, *>)["description"])
+            assertEquals(functionId, preview["function_id"])
+            assertEquals(functionId, (preview["function"] as Map<*, *>)["function_id"])
+            assertFalse(preview.containsKey("functions"))
+            assertEquals(listOf(functionId), functionStore.functionIds())
+
+            val afterPreview = toolkit.getFunction(mapOf("function_id" to functionId))["function"] as Map<*, *>
+            assertEquals("原始描述", afterPreview["description"])
+
+            val repair = toolkit.updateFunction(
+                mapOf(
+                    "function_id" to functionId,
+                    "mode" to "annotate",
+                    "allowExecutionChange" to true,
+                    "patch" to mapOf(
+                        "ops" to listOf(
+                            mapOf(
+                                "op" to "replace_target",
+                                "action" to "click",
+                                "wrong_text" to "美食",
+                                "desired_text" to "外卖",
+                            ),
+                        ),
+                    ),
+                )
+            )
+            assertEquals(true, repair["success"])
+            assertEquals(true, repair["changed"])
+            assertEquals(true, repair["saved"])
+            assertEquals(false, repair["requires_confirmation"])
+            assertEquals(functionId, repair["function_id"])
+            assertEquals(functionId, repair["updated_function_id"])
+            assertEquals(functionId, (repair["function"] as Map<*, *>)["function_id"])
+            assertEquals(functionId, (repair["updated_function"] as Map<*, *>)["function_id"])
+            val originalRepairExecution = (repair["function"] as Map<*, *>)["execution"] as Map<*, *>
+            val originalRepairStep = (originalRepairExecution["steps"] as List<*>).first() as Map<*, *>
+            val originalRepairArgs = originalRepairStep["args"] as Map<*, *>
+            assertEquals("美食", originalRepairArgs["target_description"])
+            val updatedRepairExecution = (repair["updated_function"] as Map<*, *>)["execution"] as Map<*, *>
+            val updatedRepairStep = (updatedRepairExecution["steps"] as List<*>).first() as Map<*, *>
+            val updatedRepairArgs = updatedRepairStep["args"] as Map<*, *>
+            assertEquals("外卖", updatedRepairArgs["target_description"])
+            assertFalse(repair.containsKey("functions"))
+            assertEquals(listOf(functionId), functionStore.functionIds())
+
+            val stored = toolkit.getFunction(mapOf("function_id" to functionId))
+            val function = stored["function"] as Map<*, *>
+            assertEquals(functionId, function["function_id"])
+            val execution = function["execution"] as Map<*, *>
+            val step = (execution["steps"] as List<*>).first() as Map<*, *>
+            val args = step["args"] as Map<*, *>
+            assertEquals("外卖", args["target_description"])
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `update function uses action alias when retargeting non click steps`() = runBlocking {
         val context = TempFilesContext()
         try {
             val toolkit = OobOmniFlowToolkitService(context, WorkspaceFunctionStore(context.root))
+            val functionId = "retarget_input_text_action_alias"
+            val register = toolkit.registerFunction(
+                mapOf(
+                    "functionId" to functionId,
+                    "name" to "搜索内容",
+                    "description" to "用于验证 replace_target action alias",
+                    "steps" to listOf(
+                        mapOf(
+                            "action" to "click",
+                            "title" to "点击搜索框",
+                            "target_description" to "搜索",
+                        ),
+                        mapOf(
+                            "action" to "input_text",
+                            "title" to "输入旧关键词",
+                            "target_description" to "关键词",
+                            "text" to "猫",
+                        ),
+                    ),
+                )
+            )
+            assertEquals(true, register["success"])
+
+            val update = toolkit.updateFunction(
+                mapOf(
+                    "function_id" to functionId,
+                    "patch" to mapOf(
+                        "ops" to listOf(
+                            mapOf(
+                                "op" to "replace_target",
+                                "action" to "input_text",
+                                "wrong_text" to "关键词",
+                                "desired_text" to "搜索输入框",
+                            ),
+                        ),
+                    ),
+                )
+            )
+
+            assertEquals(true, update["success"])
+            assertEquals(true, update["changed"])
+            assertEquals(true, update["saved"])
+            assertEquals(false, update["requires_confirmation"])
+
+            val stored = toolkit.getFunction(mapOf("function_id" to functionId))
+            val function = stored["function"] as Map<*, *>
+            val execution = function["execution"] as Map<*, *>
+            val step = (execution["steps"] as List<*>)[1] as Map<*, *>
+            val args = step["args"] as Map<*, *>
+            assertEquals("input_text", step["tool"])
+            assertEquals("搜索输入框", args["target_description"])
+            assertEquals("输入旧搜索输入框", step["title"])
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `update function with runlog invokes agent analysis and saves patch`() = runBlocking {
+        val context = TempFilesContext()
+        try {
+            var modelCalls = 0
+            var requestedJsonObject = false
+            val toolkit = OobOmniFlowToolkitService(
+                context,
+                WorkspaceFunctionStore(context.root),
+            ) { prompt, responseJsonObject ->
+                modelCalls += 1
+                requestedJsonObject = responseJsonObject
+                assertTrue(prompt.contains("Analyze this OOB Function"))
+                """
+                ```json
+                {
+                  "arguments": {
+                    "analysis": {
+                      "summary": "失败 RunLog 显示原先点击美食，应该强化外卖入口。",
+                      "failure_reason": {
+                        "code": "wrong_target",
+                        "message": "RunLog attempted 美食 while the Function target is 外卖."
+                      },
+                      "recommended_patch": {
+                        "description": "点击外卖入口，失败 RunLog 已用于纠错。"
+                      }
+                    },
+                    "patch": {
+                      "description": "点击外卖入口，失败 RunLog 已用于纠错。"
+                    }
+                  }
+                }
+                ```
+                """.trimIndent()
+            }
             val functionId = "runlog_analysis_context_demo"
             val runId = "runlog-analysis-context-run"
             assertEquals(true, toolkit.registerFunction(
@@ -199,13 +423,87 @@ class OobOmniFlowLoopAcceptanceTest {
             val update = toolkit.updateFunction(mapOf("function_id" to functionId, "run_id" to runId))
 
             assertEquals(true, update["success"])
-            assertEquals(true, update["needs_agent_analysis"])
-            assertEquals(false, update["changed"])
-            assertEquals(false, update["saved"])
-            assertTrue(update["agent_prompt"].toString().contains("Analyze this OOB Function"))
-            val contextPayload = update["analysis_context"] as Map<*, *>
+            assertEquals(false, update["needs_agent_analysis"])
+            assertEquals(true, update["agent_model_invoked"])
+            assertEquals(true, update["changed"])
+            assertEquals(true, update["saved"])
+            assertEquals(1, modelCalls)
+            assertEquals(true, requestedJsonObject)
+            val initial = update["agent_analysis_initial"] as Map<*, *>
+            assertTrue(initial["agent_prompt"].toString().contains("Analyze this OOB Function"))
+            val contextPayload = initial["analysis_context"] as Map<*, *>
             assertEquals(functionId, contextPayload["function_id"])
             assertEquals(runId, (contextPayload["runlog"] as Map<*, *>)["run_id"])
+            val updated = update["updated_function"] as Map<*, *>
+            assertEquals("点击外卖入口，失败 RunLog 已用于纠错。", updated["description"])
+            val stored = toolkit.getFunction(mapOf("function_id" to functionId))["function"] as Map<*, *>
+            assertEquals("点击外卖入口，失败 RunLog 已用于纠错。", stored["description"])
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `update function with unparseable agent analysis fails without saving`() = runBlocking {
+        val context = TempFilesContext()
+        try {
+            val toolkit = OobOmniFlowToolkitService(
+                context,
+                WorkspaceFunctionStore(context.root),
+            ) { _, _ -> "not json" }
+            val functionId = "runlog_analysis_unparseable_demo"
+            val runId = "runlog-analysis-unparseable-run"
+            assertEquals(true, toolkit.registerFunction(
+                mapOf(
+                    "functionId" to functionId,
+                    "name" to "打开外卖入口",
+                    "description" to "点击外卖入口",
+                    "steps" to listOf(
+                        mapOf(
+                            "action" to "click",
+                            "title" to "点击外卖",
+                            "target_description" to "外卖",
+                            "x" to 790,
+                            "y" to 140,
+                        ),
+                    ),
+                )
+            )["success"])
+            InternalRunLogStore.beginRun(
+                context = context,
+                runId = runId,
+                goal = "打开外卖入口",
+                source = "test",
+                toolName = RunLogReplayPolicy.TOOL_CALL_TOOL,
+            )
+            InternalRunLogStore.appendCard(
+                context = context,
+                runId = runId,
+                card = mapOf(
+                    "tool_name" to "click",
+                    "header" to mapOf("success" to false),
+                    "arguments" to mapOf("target_description" to "美食"),
+                    "result" to mapOf("success" to false, "error" to "target_not_found"),
+                )
+            )
+            InternalRunLogStore.finishRun(
+                context = context,
+                runId = runId,
+                success = false,
+                doneReason = "replay_failed",
+                errorMessage = "target_not_found",
+            )
+
+            val update = toolkit.updateFunction(mapOf("function_id" to functionId, "run_id" to runId))
+
+            assertEquals(false, update["success"])
+            assertEquals("AGENT_ANALYSIS_UNPARSEABLE", update["error_code"])
+            assertEquals(false, update["needs_agent_analysis"])
+            assertEquals(false, update["saved"])
+            assertEquals(true, update["agent_model_invoked"])
+            assertEquals("not json", update["agent_raw_response"])
+            val stored = toolkit.getFunction(mapOf("function_id" to functionId))["function"] as Map<*, *>
+            assertEquals("点击外卖入口", stored["description"])
         } finally {
             context.root.deleteRecursively()
         }
@@ -215,7 +513,10 @@ class OobOmniFlowLoopAcceptanceTest {
     fun `update function saves agent runlog analysis metadata and recommended patch`() = runBlocking {
         val context = TempFilesContext()
         try {
-            val toolkit = OobOmniFlowToolkitService(context, WorkspaceFunctionStore(context.root))
+            val toolkit = OobOmniFlowToolkitService(
+                context,
+                WorkspaceFunctionStore(context.root),
+            ) { _, _ -> error("agent requester must not be called when analysis is already provided") }
             val functionId = "runlog_analysis_save_demo"
             val runId = "runlog-analysis-save-run"
             assertEquals(true, toolkit.registerFunction(
@@ -564,13 +865,11 @@ class OobOmniFlowLoopAcceptanceTest {
                     mapOf(
                         "op" to "insert_step",
                         "step_index" to 1,
-                        "step" to mapOf(
-                            "action" to "click",
-                            "title" to "点击外卖",
-                            "target_description" to "外卖",
-                            "x" to 790,
-                            "y" to 140,
-                        ),
+                        "action" to "click",
+                        "title" to "点击外卖",
+                        "target_description" to "外卖",
+                        "x" to 790,
+                        "y" to 140,
                     ),
                 ),
             )
@@ -1049,7 +1348,7 @@ class OobOmniFlowLoopAcceptanceTest {
     }
 
     @Test
-    fun `failed run logs are rejected before reusable function conversion`() = runBlocking {
+    fun `failed run logs with replayable cards are saved with conversion warning`() = runBlocking {
         val context = TempFilesContext()
         try {
             val workspaceStore = WorkspaceFunctionStore(context.root)
@@ -1101,15 +1400,20 @@ class OobOmniFlowLoopAcceptanceTest {
                     "register" to true,
                 )
             )
-            assertEquals(false, convert["success"])
-            assertEquals("RUN_LOG_NOT_SUCCESSFUL", convert["error_code"])
-            assertEquals(null, convert["function_spec"])
+            assertEquals(true, convert["success"])
+            assertEquals(true, convert["registered"])
+            assertEquals("RUN_LOG_NOT_SUCCESSFUL", convert["conversion_warning_code"])
+            assertEquals(listOf("RUN_LOG_NOT_SUCCESSFUL"), convert["conversion_warning_codes"])
+            assertNotNull(convert["function_spec"])
+            assertEquals(false, convert["source_run_success"])
+            assertEquals("vlm_error", convert["source_run_done_reason"])
 
             val ingestById = toolkit.ingestRunLog(mapOf("run_id" to runId))
-            assertEquals(false, ingestById["accepted"])
-            assertEquals(false, ingestById["success"])
+            assertEquals(true, ingestById["accepted"])
+            assertEquals(true, ingestById["success"])
+            assertEquals("converted", ingestById["status"])
             val ingestResult = ingestById["result"] as? Map<*, *>
-            assertEquals("RUN_LOG_NOT_SUCCESSFUL", ingestResult?.get("error_code"))
+            assertEquals("RUN_LOG_NOT_SUCCESSFUL", ingestResult?.get("conversion_warning_code"))
 
             val ingestInline = toolkit.ingestRunLog(
                 mapOf(
@@ -1127,10 +1431,11 @@ class OobOmniFlowLoopAcceptanceTest {
                     )
                 )
             )
-            assertEquals(false, ingestInline["accepted"])
-            assertEquals(false, ingestInline["success"])
+            assertEquals(true, ingestInline["accepted"])
+            assertEquals(true, ingestInline["success"])
+            assertEquals("converted", ingestInline["status"])
             val inlineResult = ingestInline["result"] as? Map<*, *>
-            assertEquals("RUN_LOG_NOT_SUCCESSFUL", inlineResult?.get("error_code"))
+            assertEquals("RUN_LOG_NOT_SUCCESSFUL", inlineResult?.get("conversion_warning_code"))
 
             val autoRegister = OobRunLogReplayService(
                 context,
@@ -1138,8 +1443,74 @@ class OobOmniFlowLoopAcceptanceTest {
             ).autoRegisterRecentRunLogs(limit = 20)
             assertEquals(0, (autoRegister["eligible_count"] as Number).toInt())
             assertEquals(1, (autoRegister["skipped_count"] as Number).toInt())
-            val listAfter = toolkit.listFunctions(mapOf("limit" to 10))
-            assertEquals(0, (listAfter["count"] as Number).toInt())
+            val stored = toolkit.getFunction(mapOf("function_id" to convert["function_id"]))
+            assertEquals(true, stored["success"])
+            assertEquals(convert["function_id"], stored["function_id"])
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `unfinished run logs with replayable cards are saved with conversion warning`() = runBlocking {
+        val context = TempFilesContext()
+        try {
+            val workspaceStore = WorkspaceFunctionStore(context.root)
+            val toolkit = OobOmniFlowToolkitService(context, workspaceStore)
+            val runId = "unfinished-run-log-${System.nanoTime()}"
+
+            InternalRunLogStore.beginRun(
+                context = context,
+                runId = runId,
+                goal = "Open About phone settings",
+                source = "human_trajectory",
+                toolName = "human_trajectory",
+                operationDescription = "Open About phone settings",
+            )
+            InternalRunLogStore.appendCard(
+                context = context,
+                runId = runId,
+                card = linkedMapOf(
+                    "card_id" to "$runId-human-1",
+                    "tool_name" to "click",
+                    "title" to "点击 About phone",
+                    "success" to true,
+                    "tool_type" to "manual_recording",
+                    "compile_kind" to "manual_recording",
+                    "source" to "human_trajectory",
+                    "params" to linkedMapOf(
+                        "target_description" to "About phone",
+                        "x" to 360,
+                        "y" to 968,
+                        "recording_backend" to "overlay_touch",
+                    ),
+                    "before" to linkedMapOf(
+                        "package_name" to "com.android.settings",
+                        "observation_xml" to SOURCE_XML,
+                    ),
+                    "after" to linkedMapOf(
+                        "package_name" to "com.android.settings",
+                        "observation_xml" to AFTER_XML,
+                    ),
+                )
+            )
+
+            val convert = toolkit.convertRunLog(
+                mapOf(
+                    "run_id" to runId,
+                    "register" to true,
+                )
+            )
+            assertEquals(true, convert["success"])
+            assertEquals(true, convert["registered"])
+            assertEquals("RUN_LOG_NOT_FINISHED", convert["conversion_warning_code"])
+            assertEquals(
+                listOf("RUN_LOG_NOT_FINISHED", "RUN_LOG_NOT_SUCCESSFUL"),
+                convert["conversion_warning_codes"]
+            )
+            assertEquals(false, convert["source_run_finished"])
+            assertEquals(false, convert["source_run_success"])
+            assertNotNull(convert["function_spec"])
         } finally {
             context.root.deleteRecursively()
         }

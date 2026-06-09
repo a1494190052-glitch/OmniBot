@@ -308,45 +308,8 @@ object OobFunctionSkillProfile {
             put("name", OobFunctionToolNames.FUNCTION_UPDATE)
             put("displayName", "更新复用指令")
             put("toolType", "oob_function")
-            put("description", "根据结构化 patch、用户纠错指令或 RunLog 证据分析更新一个已保存的 OOB Function。传 run_id 且不传 analysis/patch 时只返回 agent 分析上下文；不会执行手机操作。")
-            putJsonObject("parameters") {
-                put("type", "object")
-                putJsonObject("properties") {
-                    putJsonObject("function_id") { put("type", "string") }
-                    putJsonObject("run_id") {
-                        put("type", "string")
-                        put("description", "Optional local RunLog id. With no analysis/patch, ${OobFunctionToolNames.FUNCTION_UPDATE} returns analysis_context and agent_prompt for evidence analysis.")
-                    }
-                    putJsonObject("instruction") { put("type", "string") }
-                    putJsonObject("mode") {
-                        put("type", "string")
-                        putJsonArray("enum") {
-                            add("enhance")
-                            add("repair")
-                            add("annotate")
-                        }
-                    }
-                    putJsonObject("dryRun") { put("type", "boolean") }
-                    putJsonObject("allowExecutionChange") { put("type", "boolean") }
-                    putJsonObject("allowStructuralChange") { put("type", "boolean") }
-                    putJsonObject("analysis") {
-                        put("type", "object")
-                        put("description", "Agent-authored RunLog evidence analysis. Saved into Function metadata and may include recommended_patch.")
-                    }
-                    putJsonObject("patch") { put("type", "object") }
-                    putJsonObject("usage") {
-                        put("type", "object")
-                        put("description", "Optional token usage from the API call that produced this enhancement analysis.")
-                    }
-                    putJsonObject("cost") {
-                        put("type", "object")
-                        put("description", "Optional cost estimate from the API call that produced this enhancement analysis.")
-                    }
-                    putJsonObject("dry_run") { put("type", "boolean") }
-                    putJsonObject("allow_execution_change") { put("type", "boolean") }
-                    putJsonObject("allow_structural_change") { put("type", "boolean") }
-                }
-            }
+            put("description", "根据结构化 patch、用户纠错指令或 RunLog 证据分析更新一个已保存的 OOB Function。传 run_id 且不传 analysis/patch 时后台会自动分析 RunLog、生成 patch 并保存增强结果；不会执行手机操作。")
+            put("parameters", mapToJsonElement(OobFunctionUpdateToolSchema.inputSchema(includeCamelCaseAliases = true)))
         }
     }
 

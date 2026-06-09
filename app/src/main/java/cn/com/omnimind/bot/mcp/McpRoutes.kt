@@ -2,6 +2,7 @@ package cn.com.omnimind.bot.mcp
 
 import android.content.Context
 import cn.com.omnimind.bot.agent.AgentToolNames
+import cn.com.omnimind.bot.omniflow.OobFunctionSchemaExport
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
 import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
@@ -137,17 +138,35 @@ object McpRoutes {
             "resources/list" -> mapOf(
                 "jsonrpc" to "2.0",
                 "id" to id,
-                "result" to mapOf("resources" to emptyList<Map<String, Any?>>())
+                "result" to mapOf("resources" to listOf(McpToolDefinitions.schemaExportResource))
             )
             "resources/read" -> {
-                mapOf(
-                    "jsonrpc" to "2.0",
-                    "id" to id,
-                    "error" to mapOf(
-                        "code" to -32602,
-                        "message" to "No MCP resources are available"
+                val params = request["params"] as? Map<String, Any?>
+                val uri = params?.get("uri")?.toString()?.trim().orEmpty()
+                if (uri == OobFunctionSchemaExport.RESOURCE_URI) {
+                    mapOf(
+                        "jsonrpc" to "2.0",
+                        "id" to id,
+                        "result" to mapOf(
+                            "contents" to listOf(
+                                mapOf(
+                                    "uri" to OobFunctionSchemaExport.RESOURCE_URI,
+                                    "mimeType" to "application/json",
+                                    "text" to McpServerManager.gson.toJson(McpToolDefinitions.schemaExportBundle),
+                                )
+                            )
+                        )
                     )
-                )
+                } else {
+                    mapOf(
+                        "jsonrpc" to "2.0",
+                        "id" to id,
+                        "error" to mapOf(
+                            "code" to -32602,
+                            "message" to "Unknown MCP resource: $uri"
+                        )
+                    )
+                }
             }
             "prompts/list" -> mapOf(
                 "jsonrpc" to "2.0",
@@ -197,6 +216,7 @@ object McpRoutes {
             "task_reply" -> McpToolExecutors.executeTaskReply(args)
             "task_wait_unlock" -> McpToolExecutors.executeTaskWaitUnlock(context, args, serverScope)
             "get_state" -> McpToolExecutors.executeGetState(context, args)
+            "act" -> McpToolExecutors.executeAct(context, args)
             "file_transfer" -> McpToolExecutors.executeFileTransfer(args)
             "agent_run" -> McpToolExecutors.executeAgentRun(context, args)
             RunLogReplayPolicy.TOOL_CALL_TOOL -> McpToolExecutors.executeOobToolCall(context, args)

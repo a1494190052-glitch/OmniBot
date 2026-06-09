@@ -496,6 +496,28 @@ class InternalRunLogStoreTest {
     }
 
     @Test
+    fun `xml artifact references are readable by runlog accessors`() {
+        val context = TempFilesContext()
+        try {
+            val xml = "<hierarchy package=\"com.android.settings\"><node text=\"Wi-Fi\" /></hierarchy>"
+            val artifact = File(context.root, "page.xml").apply {
+                writeText(xml)
+            }
+            val observation = linkedMapOf<String, Any?>(
+                "observation_xml_path" to artifact.absolutePath
+            )
+            val sourceContext = linkedMapOf<String, Any?>(
+                "xml_path" to artifact.absolutePath
+            )
+
+            assertEquals(xml, RunLogCardAccessors.observationXml(observation))
+            assertEquals(xml, OobActionCodec.pageXmlFromContext(sourceContext))
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `timeline preserves run level diagnostics`() {
         val context = TempFilesContext()
         try {

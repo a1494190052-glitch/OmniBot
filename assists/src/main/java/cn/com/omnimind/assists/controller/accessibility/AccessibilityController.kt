@@ -171,9 +171,12 @@ class AccessibilityController() {
                     return
                 }
             }
-            if (x != null && y != null) {
+            val lookupTargetDescription = listOf(targetDescription, nodeResourceId)
+                .filter { it.isNotBlank() }
+                .joinToString(" ")
+            if (x != null && y != null || lookupTargetDescription.isNotBlank()) {
                 waitForEditableInputCandidate(
-                    targetDescription = "",
+                    targetDescription = lookupTargetDescription,
                     x = x,
                     y = y,
                 )?.let { candidateNode ->
@@ -181,7 +184,11 @@ class AccessibilityController() {
                             node = candidateNode,
                             text = text,
                             focusBeforeInput = true,
-                            source = "nearest mapped editable input candidate",
+                            source = if (x != null && y != null) {
+                                "nearest mapped editable input candidate"
+                            } else {
+                                "semantic editable input candidate"
+                            },
                             failures = failures
                         )
                     ) {
@@ -1154,7 +1161,9 @@ class AccessibilityController() {
             if (service == null || screenshotAction == null) {
                 initController()
             }
-            var image = if (isFilterOverlay) {
+            var image: Bitmap? = null
+            try {
+            image = if (isFilterOverlay) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                     screenshotAction?.captureExcludingOverlaysV14()
 
@@ -1328,6 +1337,36 @@ class AccessibilityController() {
                 compressedHeight = compressedHeight,
                 appliedScale = appliedScale
             )
+            } catch (error: OutOfMemoryError) {
+                if (image != null && !image.isRecycled) {
+                    image.recycle()
+                }
+                OmniLog.e(TAG, "captureScreenshotImage OOM; screenshot skipped", error)
+                return CaptureData(
+                    isSuccess = false,
+                    isFilterOverlay = isFilterOverlay,
+                    isLotOfSingleColor = false,
+                    isMostlyLightBackground = false,
+                    imageFilePath = null,
+                    imageBase64 = null,
+                    imageBitmap = null
+                )
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                if (image != null && !image.isRecycled) {
+                    image.recycle()
+                }
+                OmniLog.e(TAG, "captureScreenshotImage failed; screenshot skipped", error)
+                return CaptureData(
+                    isSuccess = false,
+                    isFilterOverlay = isFilterOverlay,
+                    isLotOfSingleColor = false,
+                    isMostlyLightBackground = false,
+                    imageFilePath = null,
+                    imageBase64 = null,
+                    imageBitmap = null
+                )
+            }
         }
 
         //

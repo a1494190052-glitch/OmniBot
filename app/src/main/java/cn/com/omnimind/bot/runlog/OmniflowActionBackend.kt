@@ -91,6 +91,9 @@ object OmniflowActionRuntime {
     val backend: OmniflowActionBackend
         get() = backendOverride ?: AccessibilityOmniflowActionBackend
 
+    internal val isUsingBackendForTesting: Boolean
+        get() = backendOverride != null
+
     fun useBackendForTesting(backend: OmniflowActionBackend): AutoCloseable {
         backendOverride = backend
         return AutoCloseable {

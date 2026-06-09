@@ -46,7 +46,7 @@ class OobFunctionGraphStepRunner(
                 ?: "$stepTitle path ${index + 1}"
             val startedAtMs = System.currentTimeMillis()
             val preActionReadyWait = if (index > 0) {
-                UIStepExecutor.waitForHighConfidenceAction(
+                UIStepExecutor.waitForReplayActionReady(
                     step = primitiveStep,
                     stopRequested = stopRequested,
                 )

@@ -6,6 +6,7 @@ import android.content.Intent
 import cn.com.omnimind.accessibility.service.AssistsService
 import cn.com.omnimind.assists.HumanTrajectoryLearningResult
 import cn.com.omnimind.assists.HumanTrajectoryLearningSession
+import cn.com.omnimind.assists.ManualRecordingRunLogRecovery
 import cn.com.omnimind.assists.ManualOverlayTouchGesture
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
@@ -285,9 +286,9 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
                 ?.takeIf { candidate -> candidate.source == "human_trajectory" && candidate.finishedAtMs == null }
         }
             ?: return errorPayload("NO_RECOVERABLE_RECORDING", "No unfinished human recording RunLog found")
-        val replayableActionCount = record.cards.count(::isManualReplayActionCard)
-        val success = replayableActionCount > 0
-        val diagnostics = recoveredManualRecordingDiagnostics(record.cards)
+        val recovery = ManualRecordingRunLogRecovery.decisionFor(record)
+            ?: return errorPayload("NO_RECOVERABLE_RECORDING", "No unfinished human recording RunLog found")
+        val diagnostics = recovery.diagnostics
         if (diagnostics.isNotEmpty()) {
             InternalRunLogStore.updateDiagnostics(
                 context = context,
@@ -298,66 +299,25 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
         InternalRunLogStore.finishRun(
             context = context,
             runId = record.runId,
-            success = success,
-            doneReason = if (success) {
-                "recovered_after_restart"
-            } else {
-                "empty_recording_after_restart"
-            },
-            errorMessage = if (success) {
-                null
-            } else {
-                "未记录到可复用的人类操作"
-            }
+            success = recovery.success,
+            doneReason = recovery.doneReason,
+            errorMessage = recovery.errorMessage
         )
         val runLog = InternalRunLogStore.timelinePayload(context, record.runId)
         return linkedMapOf(
-            "success" to success,
+            "success" to recovery.success,
             "phase" to "recovered",
             "recording_active" to false,
             "run_id" to record.runId,
             "name" to record.operationDescription,
             "description" to record.goal,
-            "action_count" to replayableActionCount,
+            "action_count" to recovery.replayableActionCount,
             "summary" to "Recovered unfinished human recording RunLog after app restart",
-            "error_message" to if (success) null else "未记录到可复用的人类操作",
+            "error_message" to recovery.errorMessage,
             "run_log" to runLog,
             "token_usage_total" to 0,
             "source" to "oob_debug_human_run_recording"
         ).filterValues { it != null }
-    }
-
-    private fun recoveredManualRecordingDiagnostics(cards: List<Map<String, Any?>>): Map<String, Any?> {
-        val actionCards = cards.filter(::isManualReplayActionCard)
-        if (actionCards.isEmpty()) return emptyMap()
-        val backends = actionCards.mapNotNull { card ->
-            val params = card["params"] as? Map<*, *>
-            params?.get("recording_backend")?.toString()?.takeIf { it.isNotBlank() }
-        }
-        val overlayOnly = backends.isNotEmpty() && backends.all {
-            it == "overlay_touch" || it == "overlay_touch_text_input"
-        }
-        val actionSource = when {
-            overlayOnly -> "overlay_touch"
-            backends.any { it.startsWith("device_getevent") } -> "mixed_real_touch"
-            else -> backends.firstOrNull() ?: "recovered_manual_recording"
-        }
-        return linkedMapOf(
-            "manual_recording" to linkedMapOf(
-                "schema_version" to "oob.manual_recording.diagnostics.v1",
-                "recovered_after_restart" to true,
-                "action_source" to actionSource,
-                "completeness" to if (overlayOnly) {
-                    "complete_overlay_touch"
-                } else {
-                    "recovered_incremental_actions"
-                },
-                "guarantees_no_missing_clicks" to overlayOnly,
-                "a11_replay_actions_enabled" to false,
-                "replayable_action_count" to actionCards.size,
-                "recording_backend_counts" to backends.groupingBy { it }.eachCount()
-            )
-        )
     }
 
     private suspend fun awaitResult(
@@ -463,26 +423,6 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun isManualReplayActionCard(card: Map<String, Any?>): Boolean {
-        val compileKind = card["compile_kind"]?.toString()?.trim()
-            ?: card["compileKind"]?.toString()?.trim()
-        val toolType = card["tool_type"]?.toString()?.trim()
-            ?: card["toolType"]?.toString()?.trim()
-        if (compileKind != "manual_recording" && toolType != "manual_recording") {
-            return false
-        }
-        val action = card["action_type"]?.toString()?.trim()
-            ?: card["tool_name"]?.toString()?.trim()
-            ?: card["toolName"]?.toString()?.trim()
-        return action in setOf(
-            OobCanonicalActionSchema.TOOL_CLICK,
-            OobCanonicalActionSchema.TOOL_LONG_PRESS,
-            OobCanonicalActionSchema.TOOL_SWIPE,
-            OobCanonicalActionSchema.TOOL_INPUT_TEXT,
-            OobCanonicalActionSchema.TOOL_PRESS_KEY
-        )
-    }
-
     private fun writeJson(context: Context, fileName: String, payload: Map<String, Any?>) {
         OmniLog.i(TAG, "writing $fileName")
         File(context.filesDir, fileName).writeText(gson.toJson(payload))
@@ -506,9 +446,13 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
         ) {
             return false
         }
-        val source = intent ?: return true
-        return source.getBooleanExtra("debugScreenshots", true) &&
-            source.getBooleanExtra("keepScreenshots", true)
+        val source = intent ?: return false
+        if (!source.getBooleanExtra("keepScreenshots", true)) {
+            return false
+        }
+        return source.getBooleanExtra("debugScreenshots", false) ||
+            source.getBooleanExtra("enableDebugScreenshots", false) ||
+            source.getBooleanExtra("recordDebugScreenshots", false)
     }
 
     private fun distance(x1: Float, y1: Float, x2: Float, y2: Float): Float =

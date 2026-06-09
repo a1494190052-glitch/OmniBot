@@ -53,6 +53,16 @@ class OobActionCodecTest {
     }
 
     @Test
+    fun `open app normalizes legacy packageName arg before canonical filtering`() {
+        assertEquals(
+            mapOf("package_name" to "com.example.app"),
+            OobActionCodec.argsForStep(
+                mapOf("tool" to "open_app", "args" to mapOf("packageName" to "com.example.app"))
+            ),
+        )
+    }
+
+    @Test
     fun `redacts input text in action summaries`() {
         val summary = OobActionCodec.actionArgsSummary(
             actionType = "input_text",

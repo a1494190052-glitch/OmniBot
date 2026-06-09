@@ -128,6 +128,62 @@ class McpToolDefinitionsTest {
         assertTrue(properties.containsKey("dry_run"))
         assertFalse(properties.containsKey("functionId"))
         assertFalse(properties.containsKey("runId"))
+
+        val analysis = properties["analysis"] as Map<*, *>
+        val analysisProperties = analysis["properties"] as Map<*, *>
+        assertTrue(analysisProperties.containsKey("summary"))
+        assertTrue(analysisProperties.containsKey("recommended_patch"))
+
+        val patch = properties["patch"] as Map<*, *>
+        val patchProperties = patch["properties"] as Map<*, *>
+        assertTrue(patchProperties.containsKey("ops"))
+        assertTrue(patchProperties.containsKey("steps"))
+        assertTrue(patchProperties.containsKey("checker_rules"))
+        val ops = patchProperties["ops"] as Map<*, *>
+        val opItems = ops["items"] as Map<*, *>
+        val opProperties = opItems["properties"] as Map<*, *>
+        val op = opProperties["op"] as Map<*, *>
+        val enumValues = op["enum"] as List<*>
+        assertTrue(enumValues.contains("replace_target"))
+        assertTrue(enumValues.contains("insert_step"))
+        assertTrue(enumValues.contains("delete_step"))
+        assertTrue(opProperties.containsKey("desired_text"))
+        assertTrue(opProperties.containsKey("action"))
+    }
+
+    @Test
+    fun functionManagementSchemasAreExportedFromSharedBundle() {
+        val resource = McpToolDefinitions.schemaExportResource
+        assertEquals("omniflow://schemas/function-management", resource["uri"])
+        assertEquals("application/json", resource["mimeType"])
+
+        val bundle = McpToolDefinitions.schemaExportBundle
+        assertEquals("oob.function_schema_export.v1", bundle["schema_version"])
+        val schemas = bundle["schemas"] as Map<*, *>
+        assertTrue(schemas.containsKey("oob.reusable_function.v1"))
+        assertTrue(schemas.containsKey("oob.function_enhancement.v1"))
+        assertTrue(schemas.containsKey("update_function.input.mcp"))
+        assertTrue(schemas.containsKey("update_function.input.agent_profile"))
+        assertTrue(schemas.containsKey("update_function.analysis"))
+        assertTrue(schemas.containsKey("update_function.patch"))
+        assertTrue(schemas.containsKey(RunLogReplayPolicy.schemaVersion))
+
+        val exportedUpdateSchema = schemas["update_function.input.mcp"] as Map<*, *>
+        val liveUpdateSchema = McpToolDefinitions.fixedTools.single {
+            it["name"] == OobFunctionToolNames.FUNCTION_UPDATE
+        }["inputSchema"]
+        assertEquals(liveUpdateSchema, exportedUpdateSchema)
+
+        val agentProfileSchema = schemas["update_function.input.agent_profile"] as Map<*, *>
+        val agentProperties = agentProfileSchema["properties"] as Map<*, *>
+        assertTrue(agentProperties.containsKey("dryRun"))
+        assertTrue(agentProperties.containsKey("allowExecutionChange"))
+
+        val toolSchemas = bundle["tool_schemas"] as List<*>
+        assertTrue(
+            toolSchemas.map { (it as Map<*, *>)["name"] }
+                .contains(OobFunctionToolNames.FUNCTION_UPDATE)
+        )
     }
 
     @Test

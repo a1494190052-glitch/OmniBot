@@ -1,8 +1,8 @@
 package cn.com.omnimind.bot.omniflow
 
-import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
 import cn.com.omnimind.bot.runlog.OobActionCodec
+import cn.com.omnimind.bot.runlog.RunLogXmlArtifacts
 import org.w3c.dom.Element
 import org.w3c.dom.Node
 import org.xml.sax.InputSource
@@ -51,12 +51,8 @@ class OobFunctionTargetSourceMatcher {
         val sourceContext = mapArg(step["source_context"])
             .ifEmpty { mapArg(args["source_context"]) }
         val srcCtx = mapArg(sourceContext["src_ctx"])
-        return firstNonBlank(
-            srcCtx["page"],
-            srcCtx["xml"],
-            sourceContext["page"],
-            sourceContext["xml"],
-        )
+        return RunLogXmlArtifacts.pageXmlFromContext(srcCtx)
+            .ifBlank { RunLogXmlArtifacts.pageXmlFromContext(sourceContext) }
     }
 
     private fun findNodeByText(xml: String, desiredText: String, action: String): Match? {

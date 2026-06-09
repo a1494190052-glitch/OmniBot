@@ -64,6 +64,9 @@ class AssistsCoreChannel {
                 "registerOobReusableFunction" -> {
                     assistsCoreManager!!.registerOobReusableFunction(call, result)
                 }
+                "updateOobFunction" -> {
+                    assistsCoreManager!!.updateOobFunction(call, result)
+                }
                 "convertInternalRunLogToOobFunction" -> {
                     assistsCoreManager!!.convertInternalRunLogToOobFunction(call, result)
                 }

@@ -1162,6 +1162,44 @@ class RunLogReusableFunctionCompilerTest {
     }
 
     @Test
+    fun `click run log infers callable target parameters and materializes independently`() {
+        val spec = compile(
+            listOf(
+                card("click", mapOf("target_description" to "speed first", "x" to 120, "y" to 240)),
+                card("click", mapOf("target_description" to "time first", "x" to 160, "y" to 280)),
+            ),
+            runId = "run-click-target-parameters",
+        )
+
+        val parameterSchema = parameterSchemaFrom(spec)
+        val properties = parameterPropertiesFrom(parameterSchema)
+        assertTrue(properties.containsKey("speed_first"))
+        assertTrue(properties.containsKey("time_first"))
+        assertEquals(
+            listOf("$.execution.steps[0].args.target_description", "$.actions[0].args.target_description"),
+            properties.getValue("speed_first")["x_oob_bindings"],
+        )
+        assertEquals(
+            listOf("$.execution.steps[1].args.target_description", "$.actions[1].args.target_description"),
+            properties.getValue("time_first")["x_oob_bindings"],
+        )
+
+        val actions = actionsFrom(spec)
+        assertEquals("\${speed_first}", ((actions[0] as Map<*, *>)["args"] as Map<*, *>)["target_description"])
+        assertEquals("\${time_first}", ((actions[1] as Map<*, *>)["args"] as Map<*, *>)["target_description"])
+
+        val changed = OobReusableFunctionStore.materialize(
+            spec,
+            mapOf("speed_first" to "speed second", "time_first" to "time second"),
+        )
+        val changedSteps = stepsFrom(changed)
+        assertEquals("speed second", (changedSteps[0]["args"] as Map<*, *>)["target_description"])
+        assertEquals("time second", (changedSteps[1]["args"] as Map<*, *>)["target_description"])
+        assertEquals(120, (changedSteps[0]["args"] as Map<*, *>)["x"])
+        assertEquals(280, (changedSteps[1]["args"] as Map<*, *>)["y"])
+    }
+
+    @Test
     fun `input text action preserves target grounding for action only specs`() {
         val spec = compile(
             listOf(

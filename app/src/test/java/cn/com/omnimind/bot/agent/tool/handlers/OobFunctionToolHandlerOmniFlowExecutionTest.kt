@@ -179,9 +179,9 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
-    fun `function replay waits for high confidence transfer before next primitive action`() = runBlocking {
+    fun `function replay waits for semantic target before next primitive action`() = runBlocking {
         val context = TempFilesContext()
-        val readyPage = pageXml("Ready", "com.example.current")
+        val readyPage = pageXml("second_click", "com.example.current")
         val backend = RecordingBackend(
             currentXml = readyPage,
             currentPackage = "com.example.current",
@@ -232,8 +232,8 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
                     ?: error("missing pre-action ready wait")
                 assertEquals("ready", wait["status"])
                 assertEquals(2, (wait["attempts"] as Number).toInt())
-                assertEquals(true, wait["action_transfer_applied"])
-                assertTrue((wait["confidence"] as Number).toFloat() >= 0.55f)
+                assertTrue(wait["matched_by"] == "text_exact" || wait["matched_by"] == "text_contains")
+                assertEquals("second_click", wait["matched_value"])
             }
         } finally {
             context.root.deleteRecursively()

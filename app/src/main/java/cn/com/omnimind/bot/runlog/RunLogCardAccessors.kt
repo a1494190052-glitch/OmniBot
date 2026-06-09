@@ -71,12 +71,7 @@ internal object RunLogCardAccessors {
     }
 
     fun observationXml(observation: Map<String, Any?>): String {
-        return firstNonBlank(
-            observation["observation_xml"],
-            observation["observationXml"],
-            observation["xml"],
-            observation["page"],
-        )
+        return RunLogXmlArtifacts.observationXml(observation)
     }
 
     fun androidPrivilegedReplayAction(args: Map<String, Any?>): String? {

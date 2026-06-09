@@ -90,13 +90,13 @@ object LocalDeviceHttpHostManager {
                 }
                 post("/act") {
                     val body = call.receiveMap()
-                    val result = executeAction(body)
+                    val result = executeAction(context, body)
                     val status = if (result["success"] == true) HttpStatusCode.OK else HttpStatusCode.BadRequest
                     call.respond(status, result)
                 }
                 post("/action") {
                     val body = call.receiveMap()
-                    val result = executeAction(body)
+                    val result = executeAction(context, body)
                     val status = if (result["success"] == true) HttpStatusCode.OK else HttpStatusCode.BadRequest
                     call.respond(status, result)
                 }
@@ -117,42 +117,8 @@ object LocalDeviceHttpHostManager {
         return McpToolExecutors.executeGetState(context, args)
     }
 
-    private suspend fun executeAction(body: Map<String, Any?>): Map<String, Any?> =
-        withContext(Dispatchers.IO) {
-            runCatching {
-                val actionPayload = mapArg(body["action"]).ifEmpty { body }
-                val action = firstNonBlank(
-                    actionPayload["type"],
-                    actionPayload["action_type"],
-                    actionPayload["tool"],
-                    body["type"],
-                    body["action_type"],
-                    body["tool"],
-                )
-                val params = mapArg(actionPayload["params"])
-                    .ifEmpty { mapArg(actionPayload["args"]) }
-                    .ifEmpty { actionPayload.filterKeys { it !in setOf("type", "action_type", "tool", "params", "args", "action") } }
-                val canonicalAction = canonicalAction(action)
-                val normalizedArgs = normalizeArgs(canonicalAction, params)
-                if (canonicalAction == OobActionCodec.ACTION_WAIT) {
-                    kotlinx.coroutines.delay(waitMs(normalizedArgs))
-                } else {
-                    OmniflowActionHandler().dispatch(canonicalAction, normalizedArgs)
-                }
-                linkedMapOf<String, Any?>(
-                    "success" to true,
-                    "action" to canonicalAction,
-                    "args" to redactedArgs(canonicalAction, normalizedArgs),
-                    "source" to "oob_local_device_http_host",
-                )
-            }.getOrElse { error ->
-                linkedMapOf<String, Any?>(
-                    "success" to false,
-                    "error" to (error.message ?: error.javaClass.simpleName),
-                    "source" to "oob_local_device_http_host",
-                )
-            }
-        }
+    private suspend fun executeAction(context: Context, body: Map<String, Any?>): Map<String, Any?> =
+        McpToolExecutors.executeAct(context, body) + mapOf("source" to "oob_local_device_http_host")
 
     private fun canonicalAction(raw: String): String {
         val alias = when (raw.trim().lowercase()) {

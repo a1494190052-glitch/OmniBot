@@ -55,7 +55,7 @@ class OobFunctionUpdateService(
                 functionId = functionId
             )
         val requestedMode = firstNonBlank(request["mode"], request["operation"]).lowercase().ifBlank { "enhance" }
-        val dryRun = boolArg(request["dry_run"])
+        val dryRun = boolArg(request["dry_run"]) || boolArg(request["dryRun"])
         val instruction = firstNonBlank(request["instruction"], request["request"], request["user_instruction"])
         val analysis = mapArg(request["analysis"]).ifEmpty { mapArg(request["evidence_analysis"]) }
         val patch = mapArg(request["patch"])
@@ -79,6 +79,7 @@ class OobFunctionUpdateService(
                 "success" to true, "function_id" to functionId, "run_id" to runId,
                 "mode" to requestedMode, "changed" to false, "saved" to false,
                 "dry_run" to dryRun, "requires_confirmation" to false,
+                "function" to original, "updated_function" to original,
                 "needs_agent_analysis" to true, "analysis_context" to analysisContext,
                 "agent_prompt" to evidencePackager.agentPrompt(analysisContext),
                 "message" to "已读取 Function 和 RunLog，等待 agent 分析后再保存。",
@@ -95,7 +96,9 @@ class OobFunctionUpdateService(
         val inferredRepairIntent = requestedMode == "enhance" && ops.any(intentParser::isReplaceTargetOperation)
         val inferredStructuralIntent = requestedMode == "enhance" && ops.any(intentParser::isStructuralOperation)
         val mode = if (inferredRepairIntent || inferredStructuralIntent) "repair" else requestedMode
-        val allowExecutionChange = boolArg(request["allow_execution_change"]) || mode in setOf("repair", "fix", "correction")
+        val allowExecutionChange = boolArg(request["allow_execution_change"]) ||
+            boolArg(request["allowExecutionChange"]) ||
+            mode in setOf("repair", "fix", "correction")
         val allowStructuralChange = boolArg(request["allow_structural_change"]) || boolArg(request["allowStructuralChange"])
 
         if (patch.isNotEmpty()) changes += applyPatch(updated, patch)
@@ -119,6 +122,7 @@ class OobFunctionUpdateService(
                             "success" to true, "function_id" to functionId, "mode" to mode,
                             "changed" to false, "saved" to false, "dry_run" to dryRun,
                             "requires_confirmation" to true, "reason" to result.reason,
+                            "function" to original, "updated_function" to original,
                             "candidates" to allCandidates, "message" to "需要确认要修改哪一步，Function 未保存。",
                             "source" to "oob_native_omniflow_toolkit"
                         )
@@ -147,6 +151,7 @@ class OobFunctionUpdateService(
                 }
             }
         }
+        updated["function_id"] = functionId
 
         val changed = changes.isNotEmpty()
         appendUpdateAudit(
@@ -163,6 +168,7 @@ class OobFunctionUpdateService(
                 "success" to true, "function_id" to functionId, "mode" to mode,
                 "changed" to false, "saved" to false, "dry_run" to dryRun,
                 "requires_confirmation" to false, "message" to "未找到可安全应用的 Function 更新。",
+                "function" to original, "updated_function" to original,
                 "changes" to changes, "cost" to updateCost, "source" to "oob_native_omniflow_toolkit"
             )
         }
@@ -171,19 +177,24 @@ class OobFunctionUpdateService(
                 "success" to true, "function_id" to functionId, "mode" to mode,
                 "changed" to true, "saved" to false, "dry_run" to true,
                 "requires_confirmation" to false, "changes" to changes,
-                "updated_function" to updated, "message" to "已生成 Function 更新预览，未保存。",
+                "function" to original, "updated_function" to updated, "message" to "已生成 Function 更新预览，未保存。",
                 "cost" to updateCost,
                 "source" to "oob_native_omniflow_toolkit"
             )
         }
 
         val save = functionRepository.register(updated)
-        val saved = save["success"] == true
+        val savedFunctionId = firstNonBlank(save["function_id"], functionId)
+        val identityPreserved = savedFunctionId == functionId && firstNonBlank(updated["function_id"]) == functionId
+        val saved = save["success"] == true && identityPreserved
         return linkedMapOf(
-            "success" to saved, "function_id" to firstNonBlank(save["function_id"], functionId),
+            "success" to saved, "function_id" to savedFunctionId,
+            "updated_function_id" to firstNonBlank(updated["function_id"], functionId),
             "mode" to mode, "changed" to changed, "saved" to saved, "dry_run" to false,
             "requires_confirmation" to false, "changes" to changes, "save" to save,
-            "message" to if (saved) "Function 已更新并保存。" else save["error_message"]?.toString() ?: "Function 更新保存失败。",
+            "function" to original,
+            "updated_function" to updated,
+            "message" to if (saved) "Function 已更新并保存。" else if (!identityPreserved) "Function 更新必须保持同一个 function_id。" else save["error_message"]?.toString() ?: "Function 更新保存失败。",
             "cost" to updateCost,
             "source" to "oob_native_omniflow_toolkit"
         )
@@ -206,7 +217,14 @@ class OobFunctionUpdateService(
         val wrongText = firstNonBlank(op["wrong_text"], op["wrongText"], op["old_text"], op["oldText"],
             op["avoid_text"], op["avoidText"])
         if (desiredText.isBlank()) return ReplaceTargetResult(emptyList(), emptyList(), true, "desired_text_missing")
-        val rawAction = firstNonBlank(op["tool"])
+        val rawAction = firstNonBlank(
+            op["tool"],
+            op["action"],
+            op["tool_name"],
+            op["toolName"],
+            op["action_name"],
+            op["actionName"],
+        )
         val action = OobActionCodec.canonicalActionForName(rawAction) ?: OobActionCodec.normalizeName(rawAction).ifBlank { OobActionCodec.ACTION_CLICK }
         val execution = mutableJsonMap(mapArg(spec["execution"]))
         val steps = mutableJsonList(listArg(execution["steps"]))
@@ -307,7 +325,14 @@ class OobFunctionUpdateService(
     }
 
     private fun structuralStepFromOperation(op: Map<String, Any?>): Map<String, Any?> {
-        val action = firstNonBlank(op["tool"])
+        val action = firstNonBlank(
+            op["tool"],
+            op["action"],
+            op["tool_name"],
+            op["toolName"],
+            op["action_name"],
+            op["actionName"],
+        )
         if (action.isBlank()) return emptyMap()
         return linkedMapOf<String, Any?>(
             "tool" to action, "title" to firstNonBlank(op["title"], op["summary"], op["description"]).takeIf { it.isNotBlank() },
@@ -553,9 +578,10 @@ class OobFunctionUpdateService(
             setStringFieldIfChanged(step, "summary", sp["summary"], changes, "step_label", stepIndex)
             setStringFieldIfChanged(step, "description", sp["description"], changes, "step_label", stepIndex)
             val ca = mapArg(sp["cleanup_annotation"]).ifEmpty { mapArg(sp["cleanupAnnotation"]) }
-            if (ca.isNotEmpty() && mapArg(step["cleanup_annotation"]) != ca) {
+            val oldCleanupAnnotation = mapArg(step["cleanup_annotation"])
+            if (ca.isNotEmpty() && oldCleanupAnnotation != ca) {
                 step["cleanup_annotation"] = ca
-                changes += changeMap("step_cleanup", "cleanup_annotation", mapArg(step["cleanup_annotation"]).takeIf { it.isNotEmpty() }, ca, stepIndex)
+                changes += changeMap("step_cleanup", "cleanup_annotation", oldCleanupAnnotation.takeIf { it.isNotEmpty() }, ca, stepIndex)
             }
             steps[stepIndex] = step
         }

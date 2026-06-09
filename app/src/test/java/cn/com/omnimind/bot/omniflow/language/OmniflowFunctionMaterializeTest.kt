@@ -48,6 +48,44 @@ class OmniflowFunctionMaterializeTest {
         )
     }
 
+    @Test
+    fun `compiler binds click target descriptions as independent parameters`() {
+        val fn = OmniflowCompiler.compile(
+            cards = listOf(
+                card(
+                    toolName = "click",
+                    args = mapOf("target_description" to "speed first", "x" to 120),
+                    title = "Tap speed first",
+                ),
+                card(
+                    toolName = "click",
+                    args = mapOf("target_description" to "time first", "x" to 160),
+                    title = "Tap time first",
+                ),
+            ),
+            functionId = "click_target_binding",
+        )
+
+        assertEquals(listOf("speed_first", "time_first"), fn.parameters.map { it.id })
+        assertTrue(fn.steps[0].arguments.getValue("target_description") is ParameterValue.Bound)
+        assertTrue(fn.steps[1].arguments.getValue("target_description") is ParameterValue.Bound)
+
+        val materialized = fn.materialize(
+            mapOf("speed_first" to "speed second", "time_first" to "time second"),
+        )
+
+        assertEquals(
+            "speed second",
+            (materialized.steps[0].arguments.getValue("target_description") as ParameterValue.Literal).value,
+        )
+        assertEquals(
+            "time second",
+            (materialized.steps[1].arguments.getValue("target_description") as ParameterValue.Literal).value,
+        )
+        assertEquals("120", (materialized.steps[0].arguments.getValue("x") as ParameterValue.Literal).value)
+        assertEquals("160", (materialized.steps[1].arguments.getValue("x") as ParameterValue.Literal).value)
+    }
+
     private fun functionWithLegacyInputTextParameter(): OmniflowFunction =
         OmniflowFunction(
             id = "oob_fn_human_trajectory_106fd985",

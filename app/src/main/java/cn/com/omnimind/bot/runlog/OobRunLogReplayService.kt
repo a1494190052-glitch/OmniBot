@@ -49,30 +49,18 @@ class OobRunLogReplayService(
                 message = "RunLog not found: $normalizedRunId",
                 runId = normalizedRunId
             )
-        if (record.finishedAtMs == null) {
-            return errorPayload(
-                code = "RUN_LOG_NOT_FINISHED",
-                message = "RunLog is not finished yet: $normalizedRunId",
-                runId = normalizedRunId
-            )
-        }
-        if (record.success != true) {
-            return errorPayload(
-                code = "RUN_LOG_NOT_SUCCESSFUL",
-                message = "RunLog did not finish successfully: $normalizedRunId",
-                runId = normalizedRunId
-            )
-        }
+        val runStatusWarnings = runStatusWarnings(record)
         val compiled = RunLogReusableFunctionCompiler.compile(record)
             ?: return errorPayload(
                 code = "RUN_LOG_NO_REPLAYABLE_STEPS",
                 message = "RunLog has no replayable steps",
                 runId = normalizedRunId,
-                extra = noReplayableStepDiagnostics(record)
+                extra = noReplayableStepDiagnostics(record) + runStatusWarningDiagnostics(runStatusWarnings)
             ).also {
                 OmniLog.w(
                     TAG,
-                    "convert runlog failed no replayable steps runId=$normalizedRunId cards=${record.cards.size}"
+                    "convert runlog failed no replayable steps runId=$normalizedRunId " +
+                        "cards=${record.cards.size} warnings=${runStatusWarnings.map { it.code }}"
                 )
             }
         val spec = applyOverrides(
@@ -96,7 +84,7 @@ class OobRunLogReplayService(
                 "asset_state" to "native_local",
                 "source" to "oob_run_log_replay_service"
             ).apply {
-                putAll(conversionDiagnostics(record, spec))
+                putAll(conversionDiagnostics(record, spec, runStatusWarnings))
             }
         }
 
@@ -125,11 +113,12 @@ class OobRunLogReplayService(
             put("function_spec", spec)
             put("summary", functionRepository.summaryMap(spec))
             put("source", "oob_run_log_replay_service")
-            putAll(conversionDiagnostics(record, spec))
+            putAll(conversionDiagnostics(record, spec, runStatusWarnings))
             if (this["success"] == true) {
                 OmniLog.d(
                     TAG,
-                    "convert runlog registered runId=$normalizedRunId functionId=$functionId cards=${record.cards.size}"
+                    "convert runlog registered runId=$normalizedRunId functionId=$functionId " +
+                        "cards=${record.cards.size} warnings=${runStatusWarnings.map { it.code }}"
                 )
             } else {
                 OmniLog.w(
@@ -213,16 +202,64 @@ class OobRunLogReplayService(
         linkedMapOf(
             "card_count" to record.cards.size,
             "successful_card_count" to successfulCardCount(record),
+            "source_run_finished" to (record.finishedAtMs != null),
+            "source_run_success" to (record.success == true),
+            "source_run_done_reason" to record.doneReason.takeIf { it.isNotBlank() },
+            "source_run_error_message" to record.errorMessage.takeIf { it.isNotBlank() },
         )
 
     private fun conversionDiagnostics(
         record: InternalRunLogRecord,
         spec: Map<String, Any?>,
-    ): Map<String, Any?> = linkedMapOf(
+        runStatusWarnings: List<RunStatusWarning> = runStatusWarnings(record),
+    ): Map<String, Any?> = linkedMapOf<String, Any?>(
         "card_count" to record.cards.size,
         "successful_card_count" to successfulCardCount(record),
         "compiled_step_count" to compiledStepCount(spec),
-    )
+        "source_run_finished" to (record.finishedAtMs != null),
+        "source_run_success" to (record.success == true),
+        "source_run_done_reason" to record.doneReason.takeIf { it.isNotBlank() },
+        "source_run_error_message" to record.errorMessage.takeIf { it.isNotBlank() },
+    ).apply {
+        putAll(runStatusWarningDiagnostics(runStatusWarnings))
+    }.filterValues { it != null }
+
+    private fun runStatusWarningDiagnostics(
+        warnings: List<RunStatusWarning>
+    ): Map<String, Any?> {
+        if (warnings.isEmpty()) return emptyMap()
+        return linkedMapOf(
+            "conversion_warning_code" to warnings.first().code,
+            "conversion_warning_message" to warnings.first().message,
+            "conversion_warning_codes" to warnings.map { it.code },
+            "conversion_warnings" to warnings.map { warning ->
+                linkedMapOf(
+                    "code" to warning.code,
+                    "message" to warning.message
+                )
+            }
+        )
+    }
+
+    private fun runStatusWarnings(record: InternalRunLogRecord): List<RunStatusWarning> =
+        buildList {
+            if (record.finishedAtMs == null) {
+                add(
+                    RunStatusWarning(
+                        code = "RUN_LOG_NOT_FINISHED",
+                        message = "RunLog is not finished yet: ${record.runId}"
+                    )
+                )
+            }
+            if (record.success != true) {
+                add(
+                    RunStatusWarning(
+                        code = "RUN_LOG_NOT_SUCCESSFUL",
+                        message = "RunLog did not finish successfully: ${record.runId}"
+                    )
+                )
+            }
+        }
 
     private fun successfulCardCount(record: InternalRunLogRecord): Int =
         record.cards.count { card ->
@@ -317,6 +354,11 @@ class OobRunLogReplayService(
     ).apply {
         putAll(extra)
     }
+
+    private data class RunStatusWarning(
+        val code: String,
+        val message: String
+    )
 
     private companion object {
         const val TAG = "OobRunLogReplayService"

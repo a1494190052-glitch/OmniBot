@@ -3,7 +3,9 @@ package cn.com.omnimind.bot.mcp
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
 import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
 import cn.com.omnimind.bot.agent.AgentToolNames
+import cn.com.omnimind.bot.omniflow.OobFunctionSchemaExport
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
+import cn.com.omnimind.bot.omniflow.OobFunctionUpdateToolSchema
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 
 /**
@@ -244,6 +246,40 @@ Returns the foreground package/activity, live Accessibility XML, screenshot meta
         )
     )
 
+    val actTool = mapOf(
+        "name" to "act",
+        "description" to """Execute one canonical Android UI action through OOB's on-device runtime.
+
+Use this for external evaluators that make their own next-step decision but want OOB to provide the physical device operation. This is a single-step executor, not a planner: pass one action such as click, input_text, swipe, open_app, press_key, long_press, or finished. Coordinates are absolute screen pixels by default; set coordinate_space=relative_0_1000 only when x/y fields are normalized 0..1000 values.
+""".trimIndent(),
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "action" to mapOf(
+                    "type" to "object",
+                    "description" to "Canonical action object, for example {tool:'click', args:{x:100,y:200}}."
+                ),
+                "tool" to mapOf(
+                    "type" to "string",
+                    "description" to "Action name when action is not supplied."
+                ),
+                "args" to mapOf(
+                    "type" to "object",
+                    "description" to "Action arguments when action is not supplied."
+                ),
+                "coordinate_space" to mapOf(
+                    "type" to "string",
+                    "enum" to listOf("absolute", "relative_0_1000"),
+                    "description" to "Coordinate space for x/y fields. Default absolute."
+                ),
+                "settle_delay_ms" to mapOf(
+                    "type" to "integer",
+                    "description" to "Optional fixed wait after the action. Default 1000ms."
+                )
+            )
+        )
+    )
+
     val fileTransferTool
         get() = mapOf(
         "name" to "file_transfer",
@@ -468,23 +504,7 @@ BEHAVIOR:
     val updateFunctionTool = mapOf(
         "name" to OobFunctionToolNames.FUNCTION_UPDATE,
         "description" to "Update one saved OOB Function from a structured patch, user correction, or RunLog evidence. Passing run_id without analysis/patch returns analysis_context and agent_prompt; saving RunLog evidence uses analysis plus an optional patch.",
-        "inputSchema" to mapOf(
-            "type" to "object",
-            "properties" to mapOf(
-                "function_id" to mapOf("type" to "string", "description" to "Function id to update."),
-                "run_id" to mapOf("type" to "string", "description" to "Optional local RunLog id used as evidence for agent analysis."),
-                "instruction" to mapOf("type" to "string", "description" to "Optional user correction or enhancement instruction."),
-                "mode" to mapOf("type" to "string", "description" to "enhance, repair, or annotate."),
-                "analysis" to mapOf("type" to "object", "description" to "Agent-authored RunLog evidence analysis to persist in Function metadata."),
-                "patch" to mapOf("type" to "object", "description" to "Optional structured Function patch generated from the analysis."),
-                "usage" to mapOf("type" to "object", "description" to "Optional token usage from the API call that produced this enhancement analysis."),
-                "cost" to mapOf("type" to "object", "description" to "Optional cost estimate from the API call that produced this enhancement analysis."),
-                "dry_run" to mapOf("type" to "boolean", "description" to "Preview changes without saving."),
-                "allow_execution_change" to mapOf("type" to "boolean", "description" to "Allow repair operations that alter executable step targets."),
-                "allow_structural_change" to mapOf("type" to "boolean", "description" to "Allow insert/delete step operations.")
-            ),
-            "required" to listOf("function_id")
-        )
+        "inputSchema" to OobFunctionUpdateToolSchema.inputSchema(includeCamelCaseAliases = false)
     )
 
     val oobFunctionGuardCheckTool = mapOf(
@@ -570,6 +590,7 @@ BEHAVIOR:
             taskReplyTool,
             taskWaitUnlockTool,
             getStateTool,
+            actTool,
             fileTransferTool,
             agentRunTool,
             callToolTool,
@@ -589,6 +610,17 @@ BEHAVIOR:
 
     val fixedToolNames: Set<String>
         get() = fixedTools.mapNotNull { it["name"]?.toString() }.toSet()
+
+    val schemaExportResource: Map<String, Any?>
+        get() = mapOf(
+            "uri" to OobFunctionSchemaExport.RESOURCE_URI,
+            "name" to "OmniFlow Function Management Schemas",
+            "description" to "Exported JSON schema bundle for OOB Function, update_function, enhancement reports, replay policy, and MCP tool inputs.",
+            "mimeType" to "application/json",
+        )
+
+    val schemaExportBundle: Map<String, Any?>
+        get() = OobFunctionSchemaExport.bundle(fixedTools)
 
     val allTools
         get() = fixedTools

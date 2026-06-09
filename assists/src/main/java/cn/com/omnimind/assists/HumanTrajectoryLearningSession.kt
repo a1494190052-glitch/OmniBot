@@ -6,6 +6,8 @@ import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.assists.task.vlmserver.ManualVlmRecordedAction
 import cn.com.omnimind.assists.task.vlmserver.ManualVlmTraceRecorder
 import kotlinx.coroutines.CompletableDeferred
+import java.io.File
+import java.security.MessageDigest
 import java.util.UUID
 
 data class HumanTrajectoryLearningResult(
@@ -74,6 +76,7 @@ data class HumanTrajectoryLearningStatus(
 object HumanTrajectoryLearningSession {
     private const val TAG = "HumanTrajectoryLearningSession"
     private const val SOURCE_CONTEXT_MODE_COORDINATE_ONLY_NO_XML = "coordinate_only_no_xml"
+    private const val MANUAL_ACTION_ARTIFACT_DIR = "internal_run_logs/manual_action_artifacts"
 
     private data class ActiveSession(
         val context: Context,
@@ -365,7 +368,7 @@ object HumanTrajectoryLearningSession {
         val persisted = runCatching {
             val buildStartedAtMs = System.currentTimeMillis()
             val cards = trace.actions.mapIndexed { index, action ->
-                buildRunLogCard(session.runId, index + 1, action)
+                buildRunLogCard(session.context, session.runId, index + 1, action)
             }
             buildCardsMs = System.currentTimeMillis() - buildStartedAtMs
             if (cards.isNotEmpty()) {
@@ -487,7 +490,7 @@ object HumanTrajectoryLearningSession {
         index: Int,
         action: ManualVlmRecordedAction
     ) {
-        val card = buildRunLogCard(runId, index, action)
+        val card = buildRunLogCard(context, runId, index, action)
         val cardId = card["card_id"]?.toString()?.trim()
             ?.takeIf { it.isNotEmpty() }
             ?: "$runId-human-$index"
@@ -531,10 +534,40 @@ object HumanTrajectoryLearningSession {
         runId: String,
         index: Int,
         action: ManualVlmRecordedAction
+    ): Map<String, Any?> = buildRunLogCard(
+        context = null,
+        runId = runId,
+        index = index,
+        action = action
+    )
+
+    private fun buildRunLogCard(
+        context: Context?,
+        runId: String,
+        index: Int,
+        action: ManualVlmRecordedAction
     ): Map<String, Any?> {
         val cardId = "$runId-human-$index"
         val durationMs = (action.finishedAtMs - action.startedAtMs).coerceAtLeast(0L)
-        val sourceContext = sourceContextForAction(action)
+        val beforeXmlArtifact = saveManualXmlArtifact(
+            context = context,
+            runId = runId,
+            cardId = cardId,
+            stage = "before",
+            xml = action.beforeXml
+        )
+        val afterXmlArtifact = saveManualXmlArtifact(
+            context = context,
+            runId = runId,
+            cardId = cardId,
+            stage = "after",
+            xml = action.afterXml
+        )
+        val sourceContext = sourceContextForAction(
+            action = action,
+            beforeXmlArtifact = beforeXmlArtifact,
+            afterXmlArtifact = afterXmlArtifact
+        )
         return linkedMapOf(
             "card_id" to cardId,
             "tool_call_id" to cardId,
@@ -576,13 +609,25 @@ object HumanTrajectoryLearningSession {
                 "source" to "human_trajectory"
             ),
             "before" to linkedMapOf(
-                "observation_xml" to action.beforeXml,
+                "observation_xml" to action.beforeXml.takeIf { beforeXmlArtifact == null },
+                "observation_xml_path" to beforeXmlArtifact?.path,
+                "observation_xml_relative_path" to beforeXmlArtifact?.relativePath,
+                "observation_xml_sha256" to beforeXmlArtifact?.sha256,
+                "observation_xml_chars" to beforeXmlArtifact?.chars,
+                "observation_xml_bytes" to beforeXmlArtifact?.bytes,
+                "xml_path" to beforeXmlArtifact?.path,
                 "screenshot" to action.beforeScreenshot?.asMap(),
                 "screenshot_path" to action.beforeScreenshot?.path,
                 "package_name" to action.packageName
             ).filterValues { it != null },
             "after" to linkedMapOf(
-                "observation_xml" to action.afterXml,
+                "observation_xml" to action.afterXml.takeIf { afterXmlArtifact == null },
+                "observation_xml_path" to afterXmlArtifact?.path,
+                "observation_xml_relative_path" to afterXmlArtifact?.relativePath,
+                "observation_xml_sha256" to afterXmlArtifact?.sha256,
+                "observation_xml_chars" to afterXmlArtifact?.chars,
+                "observation_xml_bytes" to afterXmlArtifact?.bytes,
+                "xml_path" to afterXmlArtifact?.path,
                 "screenshot" to action.afterScreenshot?.asMap(),
                 "screenshot_path" to action.afterScreenshot?.path,
                 "summary" to action.summary,
@@ -591,7 +636,11 @@ object HumanTrajectoryLearningSession {
         ).filterValues { it != null }
     }
 
-    private fun sourceContextForAction(action: ManualVlmRecordedAction): Map<String, Any?> {
+    private fun sourceContextForAction(
+        action: ManualVlmRecordedAction,
+        beforeXmlArtifact: ManualXmlArtifact? = null,
+        afterXmlArtifact: ManualXmlArtifact? = null
+    ): Map<String, Any?> {
         val beforeXml = action.beforeXml?.takeIf { it.isNotBlank() }
         val recordingBackend = action.params["recording_backend"]?.toString()
             ?.takeIf { it.isNotBlank() }
@@ -601,7 +650,12 @@ object HumanTrajectoryLearningSession {
             if (value != null) actionMap[key] = value
         }
         val dstCtx = linkedMapOf<String, Any?>(
-            "page" to action.afterXml?.takeIf { it.isNotBlank() },
+            "page" to action.afterXml?.takeIf { afterXmlArtifact == null && it.isNotBlank() },
+            "page_path" to afterXmlArtifact?.path,
+            "xml_path" to afterXmlArtifact?.path,
+            "page_sha256" to afterXmlArtifact?.sha256,
+            "page_chars" to afterXmlArtifact?.chars,
+            "page_bytes" to afterXmlArtifact?.bytes,
             "screenshot" to action.afterScreenshot?.asMap(),
             "screenshot_path" to action.afterScreenshot?.path,
             "package_name" to action.packageName
@@ -609,7 +663,12 @@ object HumanTrajectoryLearningSession {
         val coordinateOnlyWithoutXml = beforeXml.isNullOrBlank() && hasCoordinateEvidence(actionMap)
         return linkedMapOf(
             "src_ctx" to linkedMapOf(
-                "page" to beforeXml,
+                "page" to beforeXml.takeIf { beforeXmlArtifact == null },
+                "page_path" to beforeXmlArtifact?.path,
+                "xml_path" to beforeXmlArtifact?.path,
+                "page_sha256" to beforeXmlArtifact?.sha256,
+                "page_chars" to beforeXmlArtifact?.chars,
+                "page_bytes" to beforeXmlArtifact?.bytes,
                 "screenshot" to action.beforeScreenshot?.asMap(),
                 "screenshot_path" to action.beforeScreenshot?.path,
                 "package_name" to action.packageName,
@@ -621,6 +680,9 @@ object HumanTrajectoryLearningSession {
                 "mode" to "manual_operation_recording",
                 "recording_backend" to recordingBackend,
                 "action_source" to recordingBackend,
+                "xml_artifact_mode" to "file_ref".takeIf {
+                    beforeXmlArtifact != null || afterXmlArtifact != null
+                },
                 "source_context_mode" to SOURCE_CONTEXT_MODE_COORDINATE_ONLY_NO_XML.takeIf {
                     coordinateOnlyWithoutXml
                 },
@@ -628,6 +690,51 @@ object HumanTrajectoryLearningSession {
                 "event_context" to action.eventContext.takeIf { it.isNotEmpty() }
             ).filterValues { it != null }
         ).filterValues { it != null }
+    }
+
+    private data class ManualXmlArtifact(
+        val path: String,
+        val relativePath: String,
+        val chars: Int,
+        val bytes: Long,
+        val sha256: String
+    )
+
+    private fun saveManualXmlArtifact(
+        context: Context?,
+        runId: String,
+        cardId: String,
+        stage: String,
+        xml: String?
+    ): ManualXmlArtifact? {
+        val content = xml?.takeIf { it.isNotBlank() } ?: return null
+        val appContext = context?.applicationContext ?: context ?: return null
+        return runCatching {
+            val rootDir = File(appContext.filesDir, MANUAL_ACTION_ARTIFACT_DIR)
+            val actionDir = File(
+                File(rootDir, safeFilePart(runId)),
+                safeFilePart(cardId)
+            ).apply {
+                if (!exists()) mkdirs()
+            }
+            val file = File(actionDir, "${safeFilePart(stage)}.xml")
+            val tmp = File(actionDir, "${file.name}.tmp")
+            tmp.writeText(content)
+            if (!tmp.renameTo(file)) {
+                file.writeText(content)
+                tmp.delete()
+            }
+            ManualXmlArtifact(
+                path = file.absolutePath,
+                relativePath = file.relativeToOrSelf(appContext.filesDir).path,
+                chars = content.length,
+                bytes = file.length(),
+                sha256 = sha256(content)
+            )
+        }.getOrElse { error ->
+            OmniLog.w(TAG, "save manual XML artifact failed: run=$runId card=$cardId stage=$stage ${error.message}")
+            null
+        }
     }
 
     private fun hasCoordinateEvidence(action: Map<String, Any?>): Boolean {
@@ -641,5 +748,16 @@ object HumanTrajectoryLearningSession {
 
     private fun Any?.isPresent(): Boolean =
         this != null && this.toString().trim().isNotEmpty()
+
+    private fun safeFilePart(value: String): String {
+        return value.replace(Regex("[^A-Za-z0-9._-]"), "_")
+            .take(96)
+            .ifBlank { "artifact" }
+    }
+
+    private fun sha256(value: String): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray())
+        return digest.joinToString("") { "%02x".format(it) }
+    }
 
 }

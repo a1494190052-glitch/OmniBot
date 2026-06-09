@@ -69,7 +69,10 @@ class RunLogFunctionEnhancementJob {
   bool get isSaved =>
       isCompleted &&
       registrationResult != null &&
-      registrationResult?['success'] == true;
+      registrationResult?['success'] == true &&
+      (registrationResult?['saved'] == true ||
+          registrationResult?['changed'] == false ||
+          registrationResult?['already_exists'] == true);
 
   RunLogReusableFunctionSpec? get savedSpec {
     final json = enhancedFunctionJson;
@@ -353,24 +356,26 @@ class RunLogFunctionEnhancementJobService {
       );
       if (_canceledJobIds.contains(jobId)) return;
 
-      final saveResult =
-          await AssistsMessageService.registerOobReusableFunction(
-            functionSpec: enhanced.json,
-          );
+      final patch = _updateFunctionPatchFromEnhancedSpec(
+        original: job.inputFunctionJson,
+        enhanced: enhanced.json,
+      );
+      final updateRunId = patch.isEmpty ? null : job.runId;
+      final saveJson = await AssistsMessageService.updateOobFunction(
+        functionId: job.functionId,
+        runId: updateRunId,
+        mode: 'enhance',
+        patch: patch,
+        extraArgs: const <String, dynamic>{
+          'source': 'run_log_function_enhancement_job',
+        },
+      );
       if (_canceledJobIds.contains(jobId)) return;
-      final saveJson = saveResult.rawJson.isNotEmpty
-          ? saveResult.rawJson
-          : <String, dynamic>{
-              'success': saveResult.success,
-              'function_id': saveResult.functionId,
-              'created_function_id': saveResult.createdFunctionId,
-              'already_exists': saveResult.alreadyExists,
-              'asset_kind': saveResult.assetKind,
-              'asset_state': saveResult.assetState,
-              if (saveResult.errorMessage != null)
-                'error_message': saveResult.errorMessage,
-            };
-      if (!saveResult.success) {
+      final updateSuccess = saveJson['success'] == true;
+      final changed = saveJson['changed'] == true;
+      final saved = saveJson['saved'] == true;
+      final noSafeChange = updateSuccess && !changed;
+      if (!updateSuccess || (changed && !saved)) {
         await _transition(
           job.copyWith(
             phase: RunLogFunctionEnhancementJobPhase.failed,
@@ -380,20 +385,45 @@ class RunLogFunctionEnhancementJobService {
                 : 'Agent 已生成增强结果，但保存 Function 失败；当前 Function 保持原样。',
             registrationResult: saveJson,
             error:
-                saveResult.errorMessage ??
-                (job.useEnglish ? 'Function save failed' : 'Function 保存失败'),
+                _updateFunctionErrorMessage(saveJson) ??
+                (job.useEnglish
+                    ? 'update_function save failed'
+                    : 'update_function 保存失败'),
           ),
         );
         return;
       }
 
+      final updatedFunction = _nullableStringKeyMap(
+        saveJson['updated_function'],
+      );
+      if (updatedFunction == null) {
+        await _transition(
+          job.copyWith(
+            phase: RunLogFunctionEnhancementJobPhase.failed,
+            enhancementStatus: RunLogReusableFunctionEnhancementStatus.failed,
+            message: job.useEnglish
+                ? 'update_function did not return updated_function. The current Function is unchanged.'
+                : 'update_function 未返回 updated_function；当前 Function 保持原样。',
+            registrationResult: saveJson,
+            error: job.useEnglish
+                ? 'update_function missing updated_function'
+                : 'update_function 缺少 updated_function',
+          ),
+        );
+        return;
+      }
+      final finalStatus = noSafeChange
+          ? RunLogReusableFunctionEnhancementStatus.unchanged
+          : enhanced.enhancementStatus;
       await _transition(
         job.copyWith(
           phase: RunLogFunctionEnhancementJobPhase.completed,
-          enhancementStatus: enhanced.enhancementStatus,
+          enhancementStatus: finalStatus,
           message:
               enhanced.enhancementMessage ??
-              _statusMessage(enhanced.enhancementStatus, job.useEnglish),
+              _statusMessage(finalStatus, job.useEnglish),
+          enhancedFunctionJson: updatedFunction,
           registrationResult: saveJson,
           error: null,
         ),
@@ -538,6 +568,134 @@ Map<String, dynamic> _stringKeyMap(dynamic value) {
 Map<String, dynamic>? _nullableStringKeyMap(dynamic value) {
   final map = _stringKeyMap(value);
   return map.isEmpty ? null : map;
+}
+
+Map<String, dynamic> _jsonSafeMap(dynamic value) => _stringKeyMap(value);
+
+Map<String, dynamic> _updateFunctionPatchFromEnhancedSpec({
+  required Map<String, dynamic> original,
+  required Map<String, dynamic> enhanced,
+}) {
+  final patch = <String, dynamic>{};
+  _copyChangedString(patch, original, enhanced, 'name');
+  _copyChangedString(patch, original, enhanced, 'description');
+
+  final originalExecution = _stringKeyMap(original['execution']);
+  final enhancedExecution = _stringKeyMap(enhanced['execution']);
+  final originalSteps = _mapList(originalExecution['steps']);
+  final enhancedSteps = _mapList(enhancedExecution['steps']);
+  final stepPatches = <Map<String, dynamic>>[];
+  for (var index = 0; index < enhancedSteps.length; index++) {
+    if (index >= originalSteps.length) {
+      continue;
+    }
+    final originalStep = originalSteps[index];
+    final enhancedStep = enhancedSteps[index];
+    final stepPatch = <String, dynamic>{
+      'index': index,
+      if ((enhancedStep['id'] ?? '').toString().trim().isNotEmpty)
+        'id': enhancedStep['id'].toString(),
+    };
+    _copyChangedString(stepPatch, originalStep, enhancedStep, 'title');
+    _copyChangedString(stepPatch, originalStep, enhancedStep, 'summary');
+    _copyChangedString(stepPatch, originalStep, enhancedStep, 'description');
+    _copyChangedValue(
+      stepPatch,
+      originalStep,
+      enhancedStep,
+      'cleanup_annotation',
+    );
+    if (stepPatch.length > (stepPatch.containsKey('id') ? 2 : 1)) {
+      stepPatches.add(stepPatch);
+    }
+  }
+  if (stepPatches.isNotEmpty) {
+    patch['steps'] = stepPatches;
+  }
+
+  _copyChangedValue(patch, original, enhanced, 'parameters');
+  _copyChangedValue(patch, original, enhanced, 'agent_reuse');
+
+  final originalMetadata = _stringKeyMap(original['metadata']);
+  final enhancedMetadata = _stringKeyMap(enhanced['metadata']);
+  final metadataPatch = <String, dynamic>{};
+  for (final key in const <String>[
+    'oob_enhancement',
+    'enhancement',
+    'enhancement_status',
+    'enhancement_message',
+    'oob_step_cleanup',
+  ]) {
+    _copyChangedValue(metadataPatch, originalMetadata, enhancedMetadata, key);
+  }
+  if (metadataPatch.isNotEmpty) {
+    patch['metadata'] = metadataPatch;
+  }
+  _copyChangedValue(patch, originalMetadata, enhancedMetadata, 'checker_rules');
+  return _jsonSafeMap(patch);
+}
+
+void _copyChangedString(
+  Map<String, dynamic> output,
+  Map<String, dynamic> original,
+  Map<String, dynamic> enhanced,
+  String key,
+) {
+  final value = (enhanced[key] ?? '').toString().trim();
+  if (value.isEmpty || value == (original[key] ?? '').toString().trim()) {
+    return;
+  }
+  output[key] = value;
+}
+
+void _copyChangedValue(
+  Map<String, dynamic> output,
+  Map<String, dynamic> original,
+  Map<String, dynamic> enhanced,
+  String key,
+) {
+  if (!enhanced.containsKey(key)) {
+    return;
+  }
+  final value = _jsonSafe(enhanced[key]);
+  if (_jsonEquals(value, _jsonSafe(original[key]))) {
+    return;
+  }
+  output[key] = value;
+}
+
+List<Map<String, dynamic>> _mapList(dynamic value) {
+  final safe = _jsonSafe(value);
+  if (safe is! List) {
+    return const <Map<String, dynamic>>[];
+  }
+  return safe
+      .whereType<Map>()
+      .map((item) => item.map((key, value) => MapEntry(key.toString(), value)))
+      .toList(growable: false);
+}
+
+bool _jsonEquals(dynamic left, dynamic right) =>
+    jsonEncode(_jsonSafe(left)) == jsonEncode(_jsonSafe(right));
+
+String? _updateFunctionErrorMessage(Map<String, dynamic> result) {
+  for (final key in const <String>[
+    'error_message',
+    'message',
+    'reason',
+    'error',
+  ]) {
+    final value = result[key]?.toString().trim();
+    if (value != null && value.isNotEmpty) {
+      return value;
+    }
+  }
+  final save = _stringKeyMap(result['save']);
+  final saveError = save['error_message']?.toString().trim();
+  if (saveError != null && saveError.isNotEmpty) {
+    return saveError;
+  }
+  return null;
 }
 
 dynamic _jsonSafe(dynamic value) {

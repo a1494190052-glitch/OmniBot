@@ -33,6 +33,14 @@ extension RunLogReusableFunctionEnhancementStatusX
 const String kOmniFlowFunctionEnhancerContractAsset =
     'assets/execution_history/omniflow_function_enhancer_contract.md';
 
+const int _labelStepPromptChunkSize = 6;
+const int _labelBindingCandidateLimit = 40;
+const int _labelParameterCandidateLimit = 24;
+const int _labelParameterContextStepLimit = 16;
+const int _labelReuseStepOutlineLimit = 40;
+const String _functionEnhancementModel = 'scene.dispatch.model';
+const String _functionEnhancementModelSource = 'main_agent_scene';
+
 const String kOmniFlowFunctionEnhancerContract = '''
 OmniFlow Function Enhancer skill contract:
 - This is the saved Function enhancement pass; RunLog is provenance only.
@@ -202,6 +210,17 @@ Map<String, dynamic> _buildEnhancementReport({
   };
 }
 
+Map<String, dynamic> _labelPromptDiagnostics(
+  String prompt,
+  Map<String, dynamic> context,
+) {
+  return {
+    ...context,
+    'prompt_chars': prompt.length,
+    'prompt_approx_tokens': (prompt.length / 4).ceil(),
+  };
+}
+
 Map<String, dynamic> _withEnhancementMetadata(
   Map<String, dynamic> functionJson,
   Map<String, dynamic> report,
@@ -294,21 +313,19 @@ class RunLogReusableFunctionConverter {
 
     final prompt = await buildAiPromptAsync(baseJson, useEnglish: useEnglish);
     try {
-      final raw = await AssistsMessageService.postLLMChat(
+      final raw = await _postFunctionEnhancementChat(
         text: prompt,
-        model: 'scene.compactor.context',
         responseJsonObject: true,
       );
       var aiJson = await extractJsonObjectAsync(raw ?? '');
       String? repairRaw;
       if (aiJson == null && (raw ?? '').trim().isNotEmpty) {
-        repairRaw = await AssistsMessageService.postLLMChat(
+        repairRaw = await _postFunctionEnhancementChat(
           text: await buildJsonRepairPromptAsync(
             invalidOutput: raw ?? '',
             fallbackJson: baseJson,
             useEnglish: useEnglish,
           ),
-          model: 'scene.compactor.context',
           responseJsonObject: true,
         );
         aiJson = await extractJsonObjectAsync(repairRaw ?? '');
@@ -451,6 +468,18 @@ class RunLogReusableFunctionConverter {
       final emittedToolName = modelFree && replayAction != null
           ? replayAction
           : _canonicalToolNameForStep(snapshot.toolName, args);
+      final callableTool = executor == 'agent'
+          ? 'oob.agent.run'
+          : emittedToolName;
+      final sourceToolName = RunLogReplayPolicy.normalizeToolName(
+        snapshot.toolName,
+      );
+      final toolBindingKind = _toolBindingKindForStep(
+        executor: executor,
+        toolName: emittedToolName,
+        args: args,
+        replayAction: replayAction ?? '',
+      );
       final scriptable = executor != 'agent';
       final coordinateHook = _buildCoordinateHookMetadata(
         snapshot: snapshot,
@@ -484,6 +513,10 @@ class RunLogReusableFunctionConverter {
         'title': snapshot.title.isNotEmpty ? snapshot.title : emittedToolName,
         if (summary.isNotEmpty) 'summary': summary,
         'tool': emittedToolName,
+        'source_tool': sourceToolName,
+        'callable_tool': callableTool,
+        if (modelFree && replayAction != null) 'omniflow_action': replayAction,
+        if (modelFree && replayAction != null) 'local_action': replayAction,
         'executor': executor,
         'scriptable': scriptable,
         if (modelFree) 'model_free': true,
@@ -496,17 +529,9 @@ class RunLogReusableFunctionConverter {
             'source': snapshot.promptSource,
           },
         'tool_binding': {
-          'kind': executor == 'agent'
-              ? 'agent_replan'
-              : RunLogReplayPolicy.isOmniflowGraphTool(emittedToolName)
-              ? 'omniflow_graph'
-              : RunLogReplayPolicy.isOmniflowFunctionTool(emittedToolName) ||
-                    _callToolFunctionId(args).isNotEmpty
-              ? 'omniflow_function'
-              : executor == 'omniflow'
-              ? 'function'
-              : 'oob_agent_tool',
+          'kind': toolBindingKind,
           'name': emittedToolName,
+          'callable_tool': callableTool,
         },
         if (executor == 'agent')
           'agent_call': {
@@ -724,6 +749,7 @@ class RunLogReusableFunctionConverter {
         required String partName,
         required String prompt,
         required Map<String, dynamic> fallbackPatch,
+        Map<String, dynamic> reportContext = const <String, dynamic>{},
       }) async {
         try {
           final result = await _requestLabelEnhancementPatch(
@@ -731,6 +757,7 @@ class RunLogReusableFunctionConverter {
             prompt: prompt,
             fallbackPatch: fallbackPatch,
             useEnglish: useEnglish,
+            reportContext: reportContext,
           );
           rawParts.addAll(result.rawTexts);
           sectionReports.add(result.sectionReport);
@@ -741,6 +768,9 @@ class RunLogReusableFunctionConverter {
           rawParts.add('[$partName error]\n$error');
           sectionReports.add({
             'part': partName,
+            ...reportContext,
+            'model': _functionEnhancementModel,
+            'model_source': _functionEnhancementModelSource,
             'status': 'error',
             'accepted': false,
             'error': error.toString(),
@@ -756,17 +786,32 @@ class RunLogReusableFunctionConverter {
           useEnglish: useEnglish,
         ),
         fallbackPatch: _labelHeaderFallbackPatch(fallbackJson),
+        reportContext: const {'section': 'header'},
       );
 
-      for (final chunk in _labelStepPromptChunks(fallbackJson)) {
+      final stepChunks = _labelStepPromptChunks(fallbackJson);
+      for (var chunkIndex = 0; chunkIndex < stepChunks.length; chunkIndex++) {
+        final chunk = stepChunks[chunkIndex];
+        final stepIndexes = chunk
+            .map((step) => _asInt(step['index']))
+            .whereType<int>()
+            .toList(growable: false);
         await requestPart(
-          partName: 'steps',
+          partName: stepIndexes.isEmpty
+              ? 'step_$chunkIndex'
+              : 'step_${stepIndexes.first}',
           prompt: _buildLabelStepsEnhancementPrompt(
             chunk,
             skillContract: skillContract,
             useEnglish: useEnglish,
           ),
           fallbackPatch: {'steps': _stepPromptFallback(chunk)},
+          reportContext: {
+            'section': 'steps',
+            'chunk_index': chunkIndex,
+            'chunk_count': stepChunks.length,
+            'step_indexes': stepIndexes,
+          },
         );
       }
 
@@ -778,6 +823,7 @@ class RunLogReusableFunctionConverter {
           useEnglish: useEnglish,
         ),
         fallbackPatch: _labelParametersFallbackPatch(fallbackJson),
+        reportContext: const {'section': 'parameters'},
       );
 
       await requestPart(
@@ -796,6 +842,7 @@ class RunLogReusableFunctionConverter {
             'segments': [],
           },
         },
+        reportContext: const {'section': 'agent_reuse'},
       );
 
       final aiJson = _mergeLabelEnhancementPatches(patches);
@@ -918,11 +965,12 @@ class RunLogReusableFunctionConverter {
     required String prompt,
     required Map<String, dynamic> fallbackPatch,
     required bool useEnglish,
+    Map<String, dynamic> reportContext = const <String, dynamic>{},
+    bool responseJsonObject = true,
   }) async {
-    final raw = await AssistsMessageService.postLLMChat(
+    final raw = await _postFunctionEnhancementChat(
       text: prompt,
-      model: 'scene.compactor.context',
-      responseJsonObject: true,
+      responseJsonObject: responseJsonObject,
     );
     var aiJson = _extractJsonObject(raw ?? '');
     final rawTexts = <String>[
@@ -930,15 +978,14 @@ class RunLogReusableFunctionConverter {
     ];
     var repaired = false;
     if (aiJson == null && (raw ?? '').trim().isNotEmpty) {
-      final repairRaw = await AssistsMessageService.postLLMChat(
+      final repairRaw = await _postFunctionEnhancementChat(
         text: _buildLabelEnhancementPartRepairPrompt(
           partName: partName,
           invalidOutput: raw ?? '',
           fallbackPatch: fallbackPatch,
           useEnglish: useEnglish,
         ),
-        model: 'scene.compactor.context',
-        responseJsonObject: true,
+        responseJsonObject: responseJsonObject,
       );
       if ((repairRaw ?? '').trim().isNotEmpty) {
         rawTexts.add('[$partName repair]\n${repairRaw!.trim()}');
@@ -960,13 +1007,36 @@ class RunLogReusableFunctionConverter {
       rawTexts: rawTexts,
       sectionReport: {
         'part': partName,
+        ..._labelPromptDiagnostics(prompt, reportContext),
+        'model': _functionEnhancementModel,
+        'model_source': _functionEnhancementModelSource,
         'status': status,
         'accepted':
             status == 'parsed' ||
             status == 'repaired' ||
             status == 'empty_patch',
         'patch_keys': aiJson?.keys.toList(growable: false) ?? const <String>[],
+        'raw_chars': (raw ?? '').length,
       },
+    );
+  }
+
+  static Future<String?> _postFunctionEnhancementChat({
+    required String text,
+    required bool responseJsonObject,
+  }) async {
+    final raw = await AssistsMessageService.postLLMChat(
+      text: text,
+      model: _functionEnhancementModel,
+      responseJsonObject: responseJsonObject,
+    );
+    if (!responseJsonObject || (raw ?? '').trim().isNotEmpty) {
+      return raw;
+    }
+    return AssistsMessageService.postLLMChat(
+      text: text,
+      model: _functionEnhancementModel,
+      responseJsonObject: false,
     );
   }
 
@@ -1102,7 +1172,7 @@ class RunLogReusableFunctionConverter {
       '执行策略:',
       '1. 优先按已物化的 execution.steps 顺序执行。',
       '2. executor=omniflow/model_free 时直接执行本地动作，不需要模型调用。',
-        '3. executor=tool 时，先检查 validation，再用 step.tool 和已物化 step.args 调工具。',
+      '3. executor=tool 时，先检查 validation，再用 step.tool 和已物化 step.args 调工具。',
       '4. executor=agent 或状态不匹配时，调用 step.agent_call.tool / fallback.tool，从当前屏幕重规划该步。',
       '5. 运行时参数会先通过 parameters.bindings 写入对应 step args。',
       '',
@@ -1129,6 +1199,9 @@ Requirements:
 - You may rewrite name/description to make it a clearer reusable Function name.
 - You may refine parameters: abstract hard-coded user input, search terms, message text, URLs, and target objects into parameters; do not abstract coordinate x/y into user parameters.
 - Every parameter must include name/type/description/bindings/default. bindings must be a JSONPath string array pointing to leaf fields under execution.steps[*].args, including nested call_tool arguments such as execution.steps[*].args.arguments.query.
+- One parameter may bind multiple actions when they refer to the same runtime value, for example search text and the later click target for the same person/product/query.
+- Only abstract click.target_description when the click selects a variable entity in a list, row, search result, or sibling-text context. Keep stable navigation controls such as Back, Search, New Message, drawer, tab, or fixed menu entries as constants.
+- If you abstract a click target, bind its context too: reuse the same parameter for related input/search/call_tool/click bindings that carry the same runtime object instead of creating an isolated click-only parameter.
 - Parameter names must be semantic, for example contact_name, search_query, message_text, target_date, or target_url. Do not use mechanical names such as input_text_3 as final parameter names.
 - Preserve or improve step executor/model_free/scriptable/tool/args/agent_call/validation/fallback fields.
 - Keep model_free OOB actions model-free; do not turn click/swipe/input_text/open_app/press_key/call_tool into agent steps.
@@ -1152,6 +1225,9 @@ $compact
 - 可以重写 name/description，使其更像复用指令名称。
 - 可以整理 parameters：把硬编码的用户输入、搜索词、消息文本、URL、目标对象抽象成参数；不要把坐标 x/y 抽象成用户参数。
 - 每个 parameter 必须包含 name/type/description/bindings/default，其中 bindings 是 JSONPath 字符串数组，指向 execution.steps[*].args 下的叶子字段，也可以指向嵌套 call_tool 的 arguments，例如 execution.steps[*].args.arguments.query。
+- 一个 parameter 可以绑定多个动作，只要它们表示同一个运行时值，例如搜索输入和后续点击同一个人/商品/查询结果。
+- 只有当 click.target_description 是列表、行、搜索结果或同级文本上下文里的可变实体时，才把它抽象成参数。Back、Search、New Message、抽屉、tab、固定菜单项等稳定导航控件要保持常量。
+- 如果抽象 click 目标，必须绑定它的上下文：把相关 input/search/call_tool/click 中同一个运行时对象绑定到同一个 parameter，不要生成孤立的 click-only 参数。
 - parameter name 必须有语义，例如 contact_name、search_query、message_text、target_date 或 target_url。不要把 input_text_3 这类机械名作为最终参数名。
 - 保留或优化每步的 executor/model_free/scriptable/tool/args/agent_call/validation/fallback 字段。
 - 保持 model_free OOB 动作无模型执行，不要把 click/swipe/input_text/open_app/press_key/call_tool 改成 agent 步骤。
@@ -1288,6 +1364,9 @@ Rules:
 - You may add or rename parameter descriptors only from candidate_bindings in the input digest. Candidate bindings may target nested call_tool arguments. Do not bind coordinates, bounds, widths, heights, or invented paths.
 - Do not rewrite execution.steps or tool arguments. Parameter abstraction is metadata + bindings only; the runner applies fresh arguments later.
 - Prefer reusable slots for user-entered text, contact names, phone numbers, search terms, message text, dates, URLs, and target object names.
+- One parameter can include multiple bindings when the bindings are the same runtime object across actions.
+- Parameterize click target_description only when the click chooses a variable entity from a list, row, search result, or sibling-text context; keep stable navigation/control clicks fixed.
+- When parameterizing a click target, bind its context too: include related input/search/call_tool/click bindings for the same value in the same parameter, and do not create a click-only parameter unless no context binding exists and the click is clearly the variable target.
 - Parameter names must be semantic, for example contact_name, search_query, message_text, target_date, or target_url. Do not use mechanical names such as input_text_3 as final parameter names.
 - Use agent_reuse only as non-executable metadata for key actions, reuse conditions, avoid conditions, success signal, and contiguous segment candidates.
 - Segment candidates must use inclusive contiguous step indexes from the existing execution.steps. Do not claim a segment is already registered as a new Function.
@@ -1381,6 +1460,9 @@ ${_labelEnhancementSkillContract(skillContract: skillContract, section: 'all')}
 - 可以新增或重命名参数描述，但只能从输入摘要的 candidate_bindings 中选择；candidate_bindings 可以指向嵌套 call_tool 的 arguments。不要绑定坐标、bounds、宽高或不存在的路径。
 - 不要重写 execution.steps 或工具参数。参数抽象只落成 metadata + bindings，回放时由 runner 注入新的运行时参数。
 - 优先抽象用户输入文本、联系人姓名、手机号、搜索词、消息正文、日期、URL 和目标对象名。
+- 一个 parameter 可以包含多个 bindings，只要这些 binding 在多个动作里表示同一个运行时对象。
+- 只有当 click.target_description 是列表、行、搜索结果或同级文本上下文中的可变实体时，才参数化 click 目标；稳定导航/控件点击保持常量。
+- 参数化 click 目标时必须绑定上下文：把同一个值相关的 input/search/call_tool/click binding 放进同一个 parameter；除非没有上下文 binding 且该 click 明确是可变目标，否则不要生成 click-only 参数。
 - agent_reuse 只作为非执行元数据，用来记录 key action、复用条件、避免条件、成功信号和连续 segment 候选。
 - segment 候选必须使用现有 execution.steps 的闭区间连续 step index。不要声称 segment 已经注册成新的复用指令。
 - 简介要紧凑但更详细，方便 Agent 下次判断是否调用。说明它执行了哪些可见操作、需要处于哪个 app/页面、依赖哪些运行时输入，以及已知的成功信号。
@@ -1539,6 +1621,9 @@ Rules:
 - A binding may point to a nested call_tool argument, for example \$.execution.steps[1].args.arguments.search_query.
 - Do not bind coordinates, bounds, widths, heights, or invented paths.
 - Prefer slots for user-entered text, contact names, phone numbers, search terms, message text, dates, URLs, and target object names.
+- A single parameter may contain multiple bindings when they are the same runtime object across steps.
+- For click target_description, create a parameter only when the click selects a variable entity from a list, row, search result, or sibling-text context. Do not parameterize stable navigation/control clicks.
+- Bind click context: if candidate_bindings lists related input/search/call_tool/click bindings for the same value, put them in the same parameter instead of making a click-only parameter.
 - Do not include name, steps, execution, tools, args, or agent_reuse.
 - Parameter names must be semantic, for example contact_name, search_query, message_text, target_date, or target_url.
 
@@ -1560,6 +1645,9 @@ ${_labelEnhancementSkillContract(skillContract: skillContract, section: 'paramet
 - binding 可以指向嵌套 call_tool 参数，例如 \$.execution.steps[1].args.arguments.search_query。
 - 不要绑定坐标、bounds、宽高或不存在的路径。
 - 优先抽象用户输入文本、联系人姓名、手机号、搜索词、消息正文、日期、URL 和目标对象名。
+- 一个 parameter 可以包含多个 bindings，只要这些 binding 在多个步骤中表示同一个运行时对象。
+- 对 click target_description，只有当它是在列表、行、搜索结果或同级文本上下文中选择可变实体时才建参数；稳定导航/控件点击不要参数化。
+- 绑定 click 上下文：如果 candidate_bindings 里有同值相关的 input/search/call_tool/click binding，必须放进同一个 parameter，不要生成 click-only 参数。
 - 不要包含 name、steps、execution、tools、args 或 agent_reuse。
 - 参数名必须有语义，例如 contact_name、search_query、message_text、target_date 或 target_url。
 
@@ -1683,13 +1771,34 @@ $fallback
     Map<String, dynamic> functionJson,
   ) {
     final digest = _buildLabelEnhancementPromptInput(functionJson);
+    final candidateBindings = digest['candidate_bindings'] is List
+        ? (digest['candidate_bindings'] as List)
+              .map(_asStringKeyMap)
+              .where((item) => item.isNotEmpty)
+              .take(_labelParameterCandidateLimit)
+              .toList(growable: false)
+        : const <Map<String, dynamic>>[];
+    final candidateStepIndexes = candidateBindings
+        .map((item) => _asInt(item['step_index']))
+        .whereType<int>()
+        .toSet();
     return {
       'function_id': digest['function_id'],
       'name': digest['name'],
       'description': digest['description'],
       'existing_parameters': digest['existing_parameters'],
-      'steps': digest['steps'],
-      'candidate_bindings': digest['candidate_bindings'],
+      'step_count': digest['steps'] is List
+          ? (digest['steps'] as List).length
+          : 0,
+      'steps': _compactEnhancementStepOutlines(
+        digest['steps'],
+        includeIndexes: candidateStepIndexes,
+        limit: _labelParameterContextStepLimit,
+      ),
+      'candidate_binding_count': digest['candidate_bindings'] is List
+          ? (digest['candidate_bindings'] as List).length
+          : 0,
+      'candidate_bindings': candidateBindings,
     };
   }
 
@@ -1702,7 +1811,13 @@ $fallback
       'function_id': digest['function_id'],
       'name': digest['name'],
       'description': digest['description'],
-      'steps': digest['steps'],
+      'step_count': digest['steps'] is List
+          ? (digest['steps'] as List).length
+          : 0,
+      'steps': _compactEnhancementStepOutlines(
+        digest['steps'],
+        limit: _labelReuseStepOutlineLimit,
+      ),
       'parameter_names': parameterNames.toList(growable: false),
     };
   }
@@ -1729,7 +1844,7 @@ $fallback
 
   static List<List<Map<String, dynamic>>> _labelStepPromptChunks(
     Map<String, dynamic> functionJson, {
-    int chunkSize = 6,
+    int chunkSize = _labelStepPromptChunkSize,
   }) {
     final digest = _buildLabelEnhancementPromptInput(functionJson);
     final steps = digest['steps'] is List
@@ -1746,6 +1861,50 @@ $fallback
       chunks.add(steps.sublist(start, end));
     }
     return chunks;
+  }
+
+  static List<Map<String, dynamic>> _compactEnhancementStepOutlines(
+    dynamic rawSteps, {
+    Set<int> includeIndexes = const <int>{},
+    required int limit,
+  }) {
+    final steps = rawSteps is List
+        ? rawSteps.map(_asStringKeyMap).where((step) => step.isNotEmpty)
+        : const Iterable<Map<String, dynamic>>.empty();
+    final selected = <Map<String, dynamic>>[];
+    for (final step in steps) {
+      final index = _asInt(step['index']);
+      if (includeIndexes.isNotEmpty && !includeIndexes.contains(index)) {
+        continue;
+      }
+      selected.add(step);
+      if (selected.length >= limit) {
+        break;
+      }
+    }
+    if (selected.isEmpty && includeIndexes.isEmpty) {
+      selected.addAll(steps.take(limit));
+    }
+    return selected
+        .map((step) {
+          final cleanup = _asStringKeyMap(step['cleanup_annotation']);
+          return {
+            'index': step['index'],
+            'id': step['id'],
+            'tool': step['tool'],
+            'title': step['title'],
+            'summary': _firstNonBlank([
+              step['summary'],
+              step['description'],
+              step['action_purpose'],
+            ]),
+            if (_firstNonBlank([step['action_purpose']]).isNotEmpty)
+              'action_purpose': step['action_purpose'],
+            if (cleanup.isNotEmpty)
+              'cleanup_action': _firstNonBlank([cleanup['cleanup_action']]),
+          }..removeWhere((_, value) => _isEmptyJsonValue(value));
+        })
+        .toList(growable: false);
   }
 
   static List<Map<String, dynamic>> _stepPromptFallback(
@@ -2281,13 +2440,16 @@ $fallback
         output.add({...parameter, 'name': name});
         continue;
       }
-      final remainingBindings = targets
-          .map((target) => target.binding)
-          .where((binding) => !consumedBindings.contains(binding))
+      final remainingTargets = targets
+          .where((target) => !consumedBindings.contains(target.binding))
           .toList(growable: false);
-      if (remainingBindings.isEmpty) {
+      if (remainingTargets.isEmpty ||
+          _isClickTargetParameterOnly(remainingTargets, steps)) {
         continue;
       }
+      final remainingBindings = remainingTargets
+          .map((target) => target.binding)
+          .toList(growable: false);
       final name = _uniqueParameterName(
         _firstNonBlank([parameter['name'], 'parameter']),
         usedNames,
@@ -3353,11 +3515,11 @@ List<Map<String, dynamic>> _enhancementBindingCandidates(
       value: args,
       path: const <String>[],
     );
-    if (output.length >= 80) {
+    if (output.length >= _labelBindingCandidateLimit) {
       break;
     }
   }
-  return output;
+  return _withBindingCandidateContext(output);
 }
 
 void _collectEnhancementBindingCandidates({
@@ -3368,7 +3530,7 @@ void _collectEnhancementBindingCandidates({
   required dynamic value,
   required List<String> path,
 }) {
-  if (output.length >= 80) {
+  if (output.length >= _labelBindingCandidateLimit) {
     return;
   }
   final decoded = _jsonSafe(value);
@@ -3430,6 +3592,7 @@ void _collectEnhancementBindingCandidates({
     'step_index': stepIndex,
     'step_id': _firstNonBlank([step['id'], 'step_${stepIndex + 1}']),
     'step_title': _firstNonBlank([step['title']]),
+    'tool': toolName,
     'arg_key': leafKey,
     'recorded_value': _enhancementPreviewValue(decoded, depth: 0),
     'value_type': decoded is num
@@ -3438,6 +3601,68 @@ void _collectEnhancementBindingCandidates({
         ? 'boolean'
         : 'string',
   });
+}
+
+List<Map<String, dynamic>> _withBindingCandidateContext(
+  List<Map<String, dynamic>> candidates,
+) {
+  if (candidates.isEmpty) {
+    return candidates;
+  }
+  final byValue = <String, List<Map<String, dynamic>>>{};
+  for (final candidate in candidates) {
+    final key = _bindingCandidateValueKey(candidate['recorded_value']);
+    if (key.isEmpty) {
+      continue;
+    }
+    byValue.putIfAbsent(key, () => <Map<String, dynamic>>[]).add(candidate);
+  }
+  return candidates
+      .map((candidate) {
+        final enriched = Map<String, dynamic>.from(candidate);
+        final key = _bindingCandidateValueKey(candidate['recorded_value']);
+        final related = (byValue[key] ?? const <Map<String, dynamic>>[])
+            .where((item) => item['binding'] != candidate['binding'])
+            .map(
+              (item) => {
+                'binding': item['binding'],
+                'step_index': item['step_index'],
+                'tool': item['tool'],
+                'arg_key': item['arg_key'],
+              },
+            )
+            .take(5)
+            .toList(growable: false);
+        if (related.isNotEmpty) {
+          enriched['related_bindings_same_value'] = related;
+        }
+        if (_isClickTargetCandidate(candidate)) {
+          enriched['click_parameter_gate'] =
+              'Only parameterize this click target if it is a variable entity in a list/row/search-result/sibling-text context; keep fixed navigation/control clicks constant.';
+          enriched['context_binding_required'] =
+              'If parameterized, bind related input/search/call_tool/click candidates for the same runtime object into the same parameter when available.';
+        }
+        return enriched;
+      })
+      .toList(growable: false);
+}
+
+String _bindingCandidateValueKey(dynamic rawValue) {
+  final value = rawValue?.toString().trim().toLowerCase() ?? '';
+  if (value.isEmpty) {
+    return '';
+  }
+  return value.replaceAll(RegExp(r'\s+'), ' ');
+}
+
+bool _isClickTargetCandidate(Map<String, dynamic> candidate) {
+  final tool =
+      OobCanonicalActionSchema.canonicalToolName(
+        _firstNonBlank([candidate['tool']]),
+      ) ??
+      RunLogReplayPolicy.normalizeToolName(_firstNonBlank([candidate['tool']]));
+  final argKey = candidate['arg_key']?.toString().trim().toLowerCase() ?? '';
+  return tool == 'click' && argKey == 'target_description';
 }
 
 List<_ParameterBindingTarget> _validBindingTargets(
@@ -3707,6 +3932,29 @@ bool _bindingTargetValuesMatch(List<_ParameterBindingTarget> targets) {
   }
   final first = targets.first.value;
   return targets.every((target) => _valuesEquivalent(target.value, first));
+}
+
+bool _isClickTargetParameterOnly(
+  List<_ParameterBindingTarget> targets,
+  List<Map<String, dynamic>> steps,
+) {
+  if (targets.isEmpty) {
+    return false;
+  }
+  return targets.every((target) {
+    if (target.pathSuffix != 'target_description' ||
+        target.stepIndex < 0 ||
+        target.stepIndex >= steps.length) {
+      return false;
+    }
+    final step = steps[target.stepIndex];
+    final tool =
+        OobCanonicalActionSchema.canonicalToolName(
+          _firstNonBlank([step['tool']]),
+        ) ??
+        RunLogReplayPolicy.normalizeToolName(_firstNonBlank([step['tool']]));
+    return tool == 'click';
+  });
 }
 
 bool _valuesEquivalent(dynamic left, dynamic right) {
@@ -4122,9 +4370,9 @@ bool _isParameterCandidate(String toolName, String key, dynamic value) {
   }
   final canonicalTool = OobCanonicalActionSchema.canonicalToolName(toolName);
   if (canonicalTool != null) {
-    return OobCanonicalActionSchema.argNames(canonicalTool).contains(
-      normalizedKey,
-    );
+    return OobCanonicalActionSchema.argNames(
+      canonicalTool,
+    ).contains(normalizedKey);
   }
   const candidateKeys = {
     'text',
@@ -4207,14 +4455,15 @@ Map<String, dynamic> _canonicalCallToolArgs(String toolName, dynamic args) {
     return safe is Map<String, dynamic> ? safe : _asStringKeyMap(safe);
   }
   final mapped = Map<String, dynamic>.from(_asStringKeyMap(args));
-  final functionId = _firstNonBlank([
-    mapped['function_id'],
-  ]);
+  final functionId = _firstNonBlank([mapped['function_id']]);
   if (functionId.isNotEmpty) {
     mapped['function_id'] = functionId;
   }
   final targetTool = _firstNonBlank([
     mapped['tool_name'],
+    mapped['toolName'],
+    mapped['target_tool'],
+    mapped['targetTool'],
   ]);
   if (targetTool.isNotEmpty &&
       !RunLogReplayPolicy.isOmniflowFunctionTool(normalizedTool)) {
@@ -4225,9 +4474,7 @@ Map<String, dynamic> _canonicalCallToolArgs(String toolName, dynamic args) {
 
 String _callToolFunctionId(dynamic args) {
   final mapped = _asStringKeyMap(args);
-  return _firstNonBlank([
-    mapped['function_id'],
-  ]);
+  return _firstNonBlank([mapped['function_id']]);
 }
 
 String _stepKindForToolName(String toolName, String route, {dynamic args}) {
@@ -4245,6 +4492,29 @@ String _stepKindForToolName(String toolName, String route, {dynamic args}) {
     return 'omniflow_function';
   }
   return executor == 'omniflow' ? 'function' : 'tool_call';
+}
+
+String _toolBindingKindForStep({
+  required String executor,
+  required String toolName,
+  required dynamic args,
+  String replayAction = '',
+}) {
+  if (executor == 'agent') {
+    return 'agent_replan';
+  }
+  if (RunLogReplayPolicy.isOmniflowGraphTool(toolName)) {
+    return 'omniflow_graph';
+  }
+  if (RunLogReplayPolicy.isOmniflowFunctionTool(toolName) ||
+      (RunLogReplayPolicy.isOmniflowToolCallTool(toolName) &&
+          _callToolFunctionId(args).isNotEmpty)) {
+    return 'omniflow_function';
+  }
+  if (executor == 'omniflow' && replayAction.isNotEmpty) {
+    return 'omniflow_action';
+  }
+  return executor == 'omniflow' ? 'function' : 'oob_agent_tool';
 }
 
 String _executorForSnapshot(
@@ -4416,9 +4686,25 @@ String? _replayActionForSnapshot(_RunLogActionSnapshot snapshot) {
     return null;
   }
   final argsMap = _asStringKeyMap(snapshot.args);
+  final rawAction = _firstNonBlank([
+    argsMap['tool'],
+    argsMap['action'],
+    argsMap['type'],
+    argsMap['name'],
+  ]);
   return RunLogReplayPolicy.omniflowActionForToolName(
-    _firstNonBlank([argsMap['tool']]),
+    _androidPrivilegedActionAlias(rawAction),
   );
+}
+
+String _androidPrivilegedActionAlias(String rawAction) {
+  final normalized = RunLogReplayPolicy.normalizeToolName(rawAction);
+  return switch (normalized) {
+    'tap' || 'touch' => 'click',
+    'type' || 'input' || 'text' => 'input_text',
+    'longpress' || 'long_press' => 'long_press',
+    _ => normalized,
+  };
 }
 
 Map<String, dynamic> _cleanupEvent({
@@ -4749,9 +5035,7 @@ bool _isDuplicateTextInputStep(
 }
 
 bool _isTextInputStep(Map<String, dynamic> step) {
-  final rawAction = _firstNonBlank([
-    step['tool'],
-  ]);
+  final rawAction = _firstNonBlank([step['tool']]);
   final action =
       RunLogReplayPolicy.omniflowActionForToolName(rawAction) ??
       RunLogReplayPolicy.normalizeToolName(rawAction);
@@ -4789,7 +5073,9 @@ dynamic _replayArgsForSnapshot(_RunLogActionSnapshot snapshot) {
   final nestedArguments = _asStringKeyMap(argsMap['arguments']);
   final flattened = <String, dynamic>{};
   for (final entry in argsMap.entries) {
-    if (entry.key == 'tool' || entry.key == 'arguments') {
+    if (entry.key == 'tool' ||
+        entry.key == 'action' ||
+        entry.key == 'arguments') {
       continue;
     }
     flattened[entry.key] = entry.value;
@@ -5537,6 +5823,20 @@ List<dynamic> _normalizeExecutionSteps(dynamic value, dynamic fallback) {
     final emittedToolName = executor == 'omniflow' && replayAction.isNotEmpty
         ? replayAction
         : canonicalToolName;
+    final callableTool = executor == 'agent'
+        ? 'oob.agent.run'
+        : emittedToolName;
+    final sourceToolName = _firstNonBlank([
+      merged['source_tool'],
+      fallbackStep['source_tool'],
+      toolName,
+    ]);
+    final toolBindingKind = _toolBindingKindForStep(
+      executor: executor,
+      toolName: emittedToolName,
+      args: normalizedArgs,
+      replayAction: replayAction,
+    );
     final modelFree =
         executor == 'omniflow' ||
         (executor != 'agent' &&
@@ -5585,6 +5885,13 @@ List<dynamic> _normalizeExecutionSteps(dynamic value, dynamic fallback) {
         args: normalizedArgs,
       ),
       'tool': emittedToolName,
+      if (sourceToolName.isNotEmpty)
+        'source_tool': RunLogReplayPolicy.normalizeToolName(sourceToolName),
+      'callable_tool': callableTool,
+      if (executor == 'omniflow' && replayAction.isNotEmpty)
+        'omniflow_action': replayAction,
+      if (executor == 'omniflow' && replayAction.isNotEmpty)
+        'local_action': replayAction,
       'executor': executor,
       'scriptable': scriptable,
       if (modelFree) 'model_free': true,
@@ -5595,19 +5902,11 @@ List<dynamic> _normalizeExecutionSteps(dynamic value, dynamic fallback) {
           _asStringKeyMap(merged['tool_binding']),
         ),
         {
-          'kind': executor == 'agent'
-              ? 'agent_replan'
-              : RunLogReplayPolicy.isOmniflowGraphTool(emittedToolName)
-              ? 'omniflow_graph'
-                  : RunLogReplayPolicy.isOmniflowFunctionTool(emittedToolName) ||
-                        _callToolFunctionId(normalizedArgs).isNotEmpty
-                  ? 'omniflow_function'
-                  : executor == 'omniflow'
-                  ? 'function'
-                  : 'oob_agent_tool',
-              'name': emittedToolName,
-            },
-          ),
+          'kind': toolBindingKind,
+          'name': emittedToolName,
+          'callable_tool': callableTool,
+        },
+      ),
       if (prompt.isNotEmpty)
         'prompt': {
           ..._asStringKeyMap(fallbackStep['prompt']),

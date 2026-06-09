@@ -67,7 +67,9 @@ class OmniflowActionHandler(
             args[key]?.toString()?.toFloatOrNull() ?: default
         fun long(key: String, default: Long = 0L) =
             args[key]?.toString()?.toLongOrNull() ?: default
-        fun str(key: String) = args[key]?.toString().orEmpty()
+        fun str(vararg keys: String): String =
+            keys.firstNotNullOfOrNull { key -> args[key]?.toString()?.takeIf { it.isNotBlank() } }
+                .orEmpty()
 
         when (action) {
             OobActionCodec.ACTION_CLICK -> {
@@ -118,7 +120,7 @@ class OmniflowActionHandler(
                 )
             }
             OobActionCodec.ACTION_OPEN_APP -> {
-                backend.launchApplication(packageName = str("package_name"))
+                backend.launchApplication(packageName = str("package_name", "packageName", "package"))
             }
             OobActionCodec.ACTION_PRESS_KEY -> {
                 backend.pressHotKey(pressKey(str("key")))

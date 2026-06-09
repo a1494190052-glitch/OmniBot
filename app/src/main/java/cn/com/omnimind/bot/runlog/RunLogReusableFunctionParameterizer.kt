@@ -3,9 +3,9 @@ package cn.com.omnimind.bot.runlog
 /**
  * Deterministic parameter inference for RunLog -> reusable Function conversion.
  *
- * Keep this small: by default only user-entered input_text content becomes a
- * public Function argument. Other action internals stay replay evidence unless
- * an enhancer explicitly rewrites the Function spec.
+ * Keep this small: by default user-entered input_text content and described
+ * click targets become public Function arguments. Coordinates and source
+ * evidence stay replay-only.
  */
 object RunLogReusableFunctionParameterizer {
     data class Result(
@@ -24,40 +24,66 @@ object RunLogReusableFunctionParameterizer {
             val action = actionFromStep(step)
             val tool = action["tool"]?.toString().orEmpty()
             val args = OobActionCodec.argsForStep(step).toMutableMap()
-            if (tool == OobActionCodec.ACTION_INPUT_TEXT) {
-                val textKey = INPUT_TEXT_ARG_KEYS.firstOrNull { key ->
-                    args[key]?.toString()?.trim()?.isNotEmpty() == true
+            val binding = when (tool) {
+                OobActionCodec.ACTION_INPUT_TEXT -> {
+                    val textKey = INPUT_TEXT_ARG_KEYS.firstOrNull { key ->
+                        args[key]?.toString()?.trim()?.isNotEmpty() == true
+                    }
+                    if (textKey != null && !isInternalConstantInput(step, args[textKey]?.toString().orEmpty())) {
+                        ParameterBindingCandidate(
+                            argPath = textKey,
+                            baseName = parameterNameForInput(step),
+                            defaultValue = args[textKey]?.toString().orEmpty(),
+                            descriptionPrefix = "Text",
+                        )
+                    } else {
+                        null
+                    }
                 }
-                if (textKey != null && !isInternalConstantInput(step, args[textKey]?.toString().orEmpty())) {
-                    val parameterName = uniqueName(parameterNameForInput(step), usedNames)
-                    usedNames += parameterName
-                    val defaultValue = args[textKey]?.toString().orEmpty()
-                    val bindings = listOf(
-                        "$.execution.steps[$index].args.$textKey",
-                        "$.actions[$index].args.$textKey",
-                    )
-                    properties[parameterName] = linkedMapOf<String, Any?>(
-                        "type" to "string",
-                        "description" to "Text for step ${index + 1}: ${step["title"] ?: tool}",
-                        "default" to defaultValue,
-                        "x_oob_bindings" to bindings,
-                    )
-                    parameterBindings += linkedMapOf(
-                        "parameter" to parameterName,
-                        "step_index" to index,
-                        "arg_path" to textKey,
-                        "bindings" to bindings,
-                    )
-                    legacyParameters += linkedMapOf(
-                        "name" to parameterName,
-                        "type" to "string",
-                        "required" to false,
-                        "default" to defaultValue,
-                        "description" to "Text for step ${index + 1}: ${step["title"] ?: tool}",
-                        "bindings" to bindings,
-                    )
-                    args[textKey] = "\${$parameterName}"
+                OobActionCodec.ACTION_CLICK -> {
+                    val targetDescription = args[CLICK_TARGET_ARG]?.toString()?.trim().orEmpty()
+                    if (targetDescription.isNotEmpty()) {
+                        ParameterBindingCandidate(
+                            argPath = CLICK_TARGET_ARG,
+                            baseName = parameterNameForClickTarget(step, targetDescription),
+                            defaultValue = targetDescription,
+                            descriptionPrefix = "Click target",
+                        )
+                    } else {
+                        null
+                    }
                 }
+                else -> null
+            }
+            if (binding != null) {
+                val parameterName = uniqueName(binding.baseName, usedNames)
+                usedNames += parameterName
+                val bindings = listOf(
+                    "$.execution.steps[$index].args.${binding.argPath}",
+                    "$.actions[$index].args.${binding.argPath}",
+                )
+                val description = "${binding.descriptionPrefix} for step ${index + 1}: ${step["title"] ?: tool}"
+                properties[parameterName] = linkedMapOf<String, Any?>(
+                    "type" to "string",
+                    "description" to description,
+                    "default" to binding.defaultValue,
+                    "x_oob_bindings" to bindings,
+                )
+                parameterBindings += linkedMapOf(
+                    "parameter" to parameterName,
+                    "step_index" to index,
+                    "arg_path" to binding.argPath,
+                    "bindings" to bindings,
+                )
+                legacyParameters += linkedMapOf(
+                    "name" to parameterName,
+                    "type" to "string",
+                    "required" to false,
+                    "default" to binding.defaultValue,
+                    "description" to description,
+                    "bindings" to bindings,
+                )
+                args[binding.argPath] = "\${$parameterName}"
             }
             action + ("args" to args)
         }
@@ -99,6 +125,19 @@ object RunLogReusableFunctionParameterizer {
             .trim('_')
             .lowercase()
         return title.takeIf { it.isNotBlank() } ?: "input_text"
+    }
+
+    private fun parameterNameForClickTarget(step: Map<String, Any?>, targetDescription: String): String {
+        val rawTitle = listOf(targetDescription, step["title"], step["summary"])
+            .map { it?.toString().orEmpty().trim() }
+            .firstOrNull { it.isNotEmpty() }
+            .orEmpty()
+        val name = rawTitle
+            .take(40)
+            .replace(Regex("[^A-Za-z0-9_]+"), "_")
+            .trim('_')
+            .lowercase()
+        return name.takeIf { it.isNotBlank() && it !in INTERNAL_PARAMETER_NAMES } ?: "click_target"
     }
 
     private fun semanticParameterName(title: String): String? {
@@ -146,5 +185,18 @@ object RunLogReusableFunctionParameterizer {
         ).any { marker -> marker in context }
     }
 
+    private data class ParameterBindingCandidate(
+        val argPath: String,
+        val baseName: String,
+        val defaultValue: String,
+        val descriptionPrefix: String,
+    )
+
     private val INPUT_TEXT_ARG_KEYS = listOf("text")
+    private const val CLICK_TARGET_ARG = "target_description"
+    private val INTERNAL_PARAMETER_NAMES = setOf(
+        "package_name", "package", "target_description", "target",
+        "selector", "node_id", "node_resource_id", "element_index", "scrollable_index",
+        "x", "y", "x1", "y1", "x2", "y2", "bounds", "clear", "duration_ms",
+    )
 }

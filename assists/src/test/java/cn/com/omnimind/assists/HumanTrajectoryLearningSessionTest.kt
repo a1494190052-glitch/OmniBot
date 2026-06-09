@@ -1,8 +1,13 @@
 package cn.com.omnimind.assists
 
+import android.content.Context
+import android.content.ContextWrapper
 import cn.com.omnimind.assists.task.vlmserver.ManualVlmRecordedAction
 import cn.com.omnimind.assists.task.vlmserver.ManualVlmScreenshotRef
 import cn.com.omnimind.assists.task.vlmserver.ManualRecordingDiagnostics
+import cn.com.omnimind.baselib.runlog.InternalRunLogRecord
+import java.io.File
+import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -167,6 +172,128 @@ class HumanTrajectoryLearningSessionTest {
         assertEquals(action.eventContext, meta["event_context"])
     }
 
+    @Test
+    fun `manual recording run log card stores xml artifacts when context is available`() {
+        val context = TempFilesContext()
+        try {
+            val beforeXml = "<hierarchy package=\"com.android.settings\"><node text=\"Wi-Fi\" /></hierarchy>"
+            val afterXml = "<hierarchy package=\"com.android.settings\"><node text=\"Network\" /></hierarchy>"
+            val action = ManualVlmRecordedAction(
+                actionName = "click",
+                title = "人工点击 Wi-Fi",
+                params = linkedMapOf(
+                    "target_description" to "Wi-Fi",
+                    "x" to 50f,
+                    "y" to 50f,
+                    "recording_backend" to "overlay_touch",
+                ),
+                packageName = "com.android.settings",
+                beforeXml = beforeXml,
+                afterXml = afterXml,
+                startedAtMs = 2000L,
+                finishedAtMs = 2100L,
+                summary = "人工点击 Wi-Fi",
+            )
+
+            val card = buildRunLogCardForTest(context, "human-artifact-run", 1, action)
+            val before = card["before"] as Map<*, *>
+            val after = card["after"] as Map<*, *>
+            val sourceContext = card["source_context"] as Map<*, *>
+            val srcCtx = sourceContext["src_ctx"] as Map<*, *>
+            val dstCtx = sourceContext["dst_ctx"] as Map<*, *>
+            val beforePath = before["observation_xml_path"].toString()
+            val afterPath = after["observation_xml_path"].toString()
+
+            assertFalse(before.containsKey("observation_xml"))
+            assertFalse(after.containsKey("observation_xml"))
+            assertFalse(srcCtx.containsKey("page"))
+            assertFalse(dstCtx.containsKey("page"))
+            assertEquals(beforePath, srcCtx["xml_path"])
+            assertEquals(afterPath, dstCtx["xml_path"])
+            assertEquals(beforeXml.length, (before["observation_xml_chars"] as Number).toInt())
+            assertEquals(afterXml.length, (after["observation_xml_chars"] as Number).toInt())
+            assertEquals(beforeXml, File(beforePath).readText())
+            assertEquals(afterXml, File(afterPath).readText())
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `unfinished human run log with replayable manual card recovers as success`() {
+        val action = ManualVlmRecordedAction(
+            actionName = "click",
+            title = "人工点击 Wi-Fi",
+            params = linkedMapOf(
+                "target_description" to "Wi-Fi",
+                "x" to 50f,
+                "y" to 50f,
+                "recording_backend" to "overlay_touch",
+            ),
+            packageName = "com.android.settings",
+            beforeXml = "<hierarchy package=\"com.android.settings\" />",
+            afterXml = null,
+            startedAtMs = 2000L,
+            finishedAtMs = 2100L,
+            summary = "人工点击 Wi-Fi",
+            eventContext = linkedMapOf("recording_backend" to "overlay_touch"),
+        )
+        val card = buildRunLogCardForTest("human-recovery-run", 1, action)
+        val record = InternalRunLogRecord(
+            runId = "human-recovery-run",
+            source = ManualRecordingRunLogRecovery.HUMAN_TRAJECTORY_SOURCE,
+            cards = listOf(card),
+        )
+
+        val decision = ManualRecordingRunLogRecovery.decisionFor(record)!!
+        val manual = decision.diagnostics["manual_recording"] as Map<*, *>
+
+        assertTrue(decision.success)
+        assertEquals(ManualRecordingRunLogRecovery.DONE_REASON_RECOVERED_AFTER_RESTART, decision.doneReason)
+        assertEquals(null, decision.errorMessage)
+        assertEquals(1, decision.replayableActionCount)
+        assertEquals(true, manual["recovered_after_restart"])
+        assertEquals("overlay_touch", manual["action_source"])
+        assertEquals(true, manual["guarantees_no_missing_clicks"])
+        assertEquals(1, manual["replayable_action_count"])
+    }
+
+    @Test
+    fun `unfinished empty human run log recovers as empty recording failure`() {
+        val record = InternalRunLogRecord(
+            runId = "human-empty-run",
+            source = ManualRecordingRunLogRecovery.HUMAN_TRAJECTORY_SOURCE,
+            cards = emptyList(),
+        )
+
+        val decision = ManualRecordingRunLogRecovery.decisionFor(record)!!
+        val manual = decision.diagnostics["manual_recording"] as Map<*, *>
+
+        assertFalse(decision.success)
+        assertEquals(ManualRecordingRunLogRecovery.DONE_REASON_EMPTY_AFTER_RESTART, decision.doneReason)
+        assertEquals(ManualRecordingRunLogRecovery.EMPTY_RECORDING_ERROR, decision.errorMessage)
+        assertEquals(0, decision.replayableActionCount)
+        assertEquals(false, manual["recovered_after_restart"])
+        assertEquals("none", manual["action_source"])
+        assertEquals(ManualRecordingRunLogRecovery.EMPTY_RECORDING_ERROR, manual["error_message"])
+    }
+
+    @Test
+    fun `non human unfinished run is not handled by manual recovery helper`() {
+        val record = InternalRunLogRecord(
+            runId = "agent-run",
+            source = "internal_oob",
+            cards = listOf(
+                linkedMapOf(
+                    "compile_kind" to "manual_recording",
+                    "tool_name" to "click",
+                )
+            ),
+        )
+
+        assertEquals(null, ManualRecordingRunLogRecovery.decisionFor(record))
+    }
+
     private fun screenshotRef(stage: String, path: String): ManualVlmScreenshotRef =
         ManualVlmScreenshotRef(
             path = path,
@@ -194,5 +321,31 @@ class HumanTrajectoryLearningSessionTest {
         )
         method.isAccessible = true
         return method.invoke(HumanTrajectoryLearningSession, runId, index, action) as Map<String, Any?>
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun buildRunLogCardForTest(
+        context: Context,
+        runId: String,
+        index: Int,
+        action: ManualVlmRecordedAction,
+    ): Map<String, Any?> {
+        val method = HumanTrajectoryLearningSession::class.java.getDeclaredMethod(
+            "buildRunLogCard",
+            Context::class.java,
+            String::class.java,
+            Int::class.javaPrimitiveType,
+            ManualVlmRecordedAction::class.java,
+        )
+        method.isAccessible = true
+        return method.invoke(HumanTrajectoryLearningSession, context, runId, index, action) as Map<String, Any?>
+    }
+
+    private class TempFilesContext : ContextWrapper(null) {
+        val root: File = Files.createTempDirectory("manual-runlog-card-test").toFile()
+
+        override fun getApplicationContext(): Context = this
+
+        override fun getFilesDir(): File = root
     }
 }

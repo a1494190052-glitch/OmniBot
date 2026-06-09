@@ -121,29 +121,49 @@ object OmniflowCompiler {
         val usedIds = mutableSetOf<String>()
         steps.forEachIndexed { index, step ->
             val tool = OobActionCodec.actionNameForStep(step)
-            if (tool !in INPUT_TEXT_ACTIONS) return@forEachIndexed
             val args = OobActionCodec.argsForStep(step)
-            val inputKey = INPUT_TEXT_ARG_KEYS.firstOrNull { k ->
-                args[k]?.toString()?.trim()?.isNotEmpty() == true
-            } ?: return@forEachIndexed
-            val defaultValue = args[inputKey]?.toString()?.takeIf { it.isNotBlank() }
-                ?: return@forEachIndexed
-            val baseId = paramIdForInputStep(step, index)
+            val candidate = when {
+                tool in INPUT_TEXT_ACTIONS -> {
+                    val inputKey = INPUT_TEXT_ARG_KEYS.firstOrNull { k ->
+                        args[k]?.toString()?.trim()?.isNotEmpty() == true
+                    } ?: return@forEachIndexed
+                    val defaultValue = args[inputKey]?.toString()?.takeIf { it.isNotBlank() }
+                        ?: return@forEachIndexed
+                    ParameterCandidate(
+                        argPath = inputKey,
+                        defaultValue = defaultValue,
+                        baseId = paramIdForInputStep(step),
+                        descriptionPrefix = "Text",
+                    )
+                }
+                tool == OobActionCodec.ACTION_CLICK -> {
+                    val defaultValue = args[CLICK_TARGET_ARG]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+                        ?: return@forEachIndexed
+                    ParameterCandidate(
+                        argPath = CLICK_TARGET_ARG,
+                        defaultValue = defaultValue,
+                        baseId = paramIdForClickTarget(step, defaultValue),
+                        descriptionPrefix = "Click target",
+                    )
+                }
+                else -> return@forEachIndexed
+            }
+            val baseId = candidate.baseId
             val id = uniqueId(baseId, usedIds)
             usedIds += id
             params += FunctionParameter(
                 id = id,
                 type = OobCanonicalActionSchema.Type.STRING,
                 required = false,
-                default = defaultValue,
-                description = "Text for step ${index + 1}: ${step["title"] ?: tool}",
-                bindings = listOf(StepArgBinding(stepIndex = index, argPath = inputKey)),
+                default = candidate.defaultValue,
+                description = "${candidate.descriptionPrefix} for step ${index + 1}: ${step["title"] ?: tool}",
+                bindings = listOf(StepArgBinding(stepIndex = index, argPath = candidate.argPath)),
             )
         }
         return params
     }
 
-    private fun paramIdForInputStep(step: Map<String, Any?>, index: Int): String {
+    private fun paramIdForInputStep(step: Map<String, Any?>): String {
         val rawTitle = firstNonBlank(step["title"], step["summary"])
         semanticParamId(rawTitle)?.let { return it }
         val title = rawTitle
@@ -152,6 +172,16 @@ object OmniflowCompiler {
             .trim('_')
             .lowercase()
         return title.takeIf { it.isNotBlank() } ?: "input_text"
+    }
+
+    private fun paramIdForClickTarget(step: Map<String, Any?>, targetDescription: String): String {
+        val rawTitle = firstNonBlank(targetDescription, step["title"], step["summary"])
+        val title = rawTitle
+            .take(40)
+            .replace(Regex("[^A-Za-z0-9_]+"), "_")
+            .trim('_')
+            .lowercase()
+        return title.takeIf { it.isNotBlank() && it !in INTERNAL_PARAMETER_IDS } ?: "click_target"
     }
 
     private fun semanticParamId(title: String): String? {
@@ -259,4 +289,16 @@ object OmniflowCompiler {
     )
 
     private val INPUT_TEXT_ARG_KEYS = listOf("text", "input", "value", "content")
+    private const val CLICK_TARGET_ARG = "target_description"
+    private data class ParameterCandidate(
+        val argPath: String,
+        val defaultValue: String,
+        val baseId: String,
+        val descriptionPrefix: String,
+    )
+    private val INTERNAL_PARAMETER_IDS = setOf(
+        "package_name", "package", "target_description", "target",
+        "selector", "node_id", "node_resource_id", "element_index", "scrollable_index",
+        "x", "y", "x1", "y1", "x2", "y2", "bounds", "clear", "duration_ms",
+    )
 }

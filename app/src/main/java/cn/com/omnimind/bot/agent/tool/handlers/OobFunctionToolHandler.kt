@@ -11,12 +11,15 @@ import cn.com.omnimind.bot.omniflow.language.resolveArgPath
 import cn.com.omnimind.bot.agent.AgentToolJson.mapToJsonElement
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
 import cn.com.omnimind.bot.omniflow.OobFunctionArgumentBindingValidator
+import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
 import cn.com.omnimind.bot.runlog.OmniflowCheckerRule
 import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
 import cn.com.omnimind.bot.runlog.OobActionCodec
+import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
 import cn.com.omnimind.bot.runlog.OobUdegNodeStore
 import cn.com.omnimind.bot.runlog.UIStepExecutor
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
 import java.util.concurrent.atomic.AtomicLong
 
@@ -50,6 +53,7 @@ class OobFunctionToolHandler(
 
     override fun canHandle(toolName: String): Boolean =
         RunLogReplayPolicy.isOmniflowToolCallTool(toolName) ||
+            toolName in OobFunctionToolNames.profileTools ||
             runCatching {
                 cn.com.omnimind.baselib.runlog.OobReusableFunctionStore.get(context, toolName) != null
             }.getOrDefault(false) ||
@@ -80,6 +84,9 @@ class OobFunctionToolHandler(
         toolHandle: cn.com.omnimind.bot.agent.AgentToolExecutionHandle
     ): cn.com.omnimind.bot.agent.ToolExecutionResult {
         val toolName = toolCall.function.name
+        if (toolName in OobFunctionToolNames.profileTools) {
+            return executeLifecycleTool(toolName, args, callback, toolHandle)
+        }
         if (RunLogReplayPolicy.isOmniflowToolCallTool(toolName)) {
             return executeModelCallTool(toolCall, args, env, callback, toolHandle)
         }
@@ -129,6 +136,98 @@ class OobFunctionToolHandler(
             rawResultJson = payload,
             success = allSuccess
         )
+    }
+
+    private suspend fun executeLifecycleTool(
+        toolName: String,
+        args: JsonObject,
+        callback: cn.com.omnimind.bot.agent.AgentCallback,
+        toolHandle: cn.com.omnimind.bot.agent.AgentToolExecutionHandle,
+    ): cn.com.omnimind.bot.agent.ToolExecutionResult {
+        return try {
+            helper.reportToolProgress(
+                callback = callback,
+                toolName = toolName,
+                progress = lifecycleProgress(toolName),
+                toolHandle = toolHandle,
+            )
+            val store = workspaceFunctionStore
+                ?: cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore(
+                    cn.com.omnimind.bot.agent.AgentWorkspaceManager.rootDirectory(context)
+                )
+            val toolkit = OobOmniFlowToolkitService(context, store)
+            val argsMap = helper.jsonObjectToMap(args).filterKeys { it != "tool_title" }
+            val payload = when (toolName) {
+                OobFunctionToolNames.FUNCTION_LIST -> toolkit.listFunctions(argsMap)
+                OobFunctionToolNames.FUNCTION_GET -> toolkit.getFunction(argsMap)
+                OobFunctionToolNames.FUNCTION_REGISTER -> toolkit.registerFunction(argsMap)
+                OobFunctionToolNames.FUNCTION_UPDATE -> toolkit.updateFunction(argsMap)
+                OobFunctionToolNames.FUNCTION_GUARD_CHECK -> toolkit.guardCheck(argsMap)
+                OobFunctionToolNames.FUNCTION_DELETE -> toolkit.deleteFunction(argsMap)
+                OobFunctionToolNames.FUNCTION_CLEAR -> toolkit.clearFunctions(argsMap)
+                OobFunctionToolNames.RUN_LOG_LIST -> toolkit.listRunLogs(argsMap)
+                OobFunctionToolNames.RUN_LOG_GET -> toolkit.getRunLog(argsMap)
+                OobFunctionToolNames.RUN_LOG_CONVERT -> toolkit.convertRunLog(argsMap)
+                else -> return cn.com.omnimind.bot.agent.ToolExecutionResult.Error(
+                    toolName,
+                    "Unknown OOB Function tool: $toolName"
+                )
+            }
+            val payloadJson = helper.encodeLocalizedPayload(payload)
+            cn.com.omnimind.bot.agent.ToolExecutionResult.ContextResult(
+                toolName = toolName,
+                summaryText = lifecycleSummary(toolName, payload),
+                previewJson = payloadJson,
+                rawResultJson = payloadJson,
+                success = payload["success"] != false
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            cn.com.omnimind.bot.agent.ToolExecutionResult.Error(
+                toolName,
+                helper.localized(e.message ?: "OOB Function tool failed")
+            )
+        }
+    }
+
+    private fun lifecycleProgress(toolName: String): String = when (toolName) {
+        OobFunctionToolNames.FUNCTION_UPDATE -> "正在更新复用指令"
+        OobFunctionToolNames.FUNCTION_REGISTER -> "正在注册复用指令"
+        OobFunctionToolNames.FUNCTION_GET -> "正在读取复用指令"
+        OobFunctionToolNames.FUNCTION_LIST -> "正在读取复用指令列表"
+        OobFunctionToolNames.RUN_LOG_GET -> "正在读取 RunLog"
+        OobFunctionToolNames.RUN_LOG_LIST -> "正在读取 RunLog 列表"
+        OobFunctionToolNames.RUN_LOG_CONVERT -> "正在转换 RunLog"
+        OobFunctionToolNames.FUNCTION_DELETE -> "正在删除复用指令"
+        OobFunctionToolNames.FUNCTION_CLEAR -> "正在清空复用指令"
+        OobFunctionToolNames.FUNCTION_GUARD_CHECK -> "正在检查复用指令"
+        else -> "正在处理复用指令"
+    }
+
+    private fun lifecycleSummary(toolName: String, payload: Map<String, Any?>): String {
+        val error = payload["error_message"]?.toString()?.trim().orEmpty()
+        if (payload["success"] == false && error.isNotEmpty()) return error
+        val message = payload["message"]?.toString()?.trim().orEmpty()
+        if (message.isNotEmpty()) return message
+        return when (toolName) {
+            OobFunctionToolNames.FUNCTION_UPDATE -> {
+                if (payload["needs_agent_analysis"] == true) {
+                    "已读取 Function 和 RunLog，等待 agent 分析后再保存。"
+                } else if (payload["saved"] == true || payload["changed"] == true) {
+                    "复用指令已更新。"
+                } else {
+                    "复用指令更新检查完成。"
+                }
+            }
+            OobFunctionToolNames.FUNCTION_REGISTER -> "复用指令已注册。"
+            OobFunctionToolNames.RUN_LOG_CONVERT -> "RunLog 转换完成。"
+            OobFunctionToolNames.FUNCTION_GET -> "已读取复用指令。"
+            OobFunctionToolNames.FUNCTION_LIST -> "已读取复用指令列表。"
+            OobFunctionToolNames.RUN_LOG_GET -> "已读取 RunLog。"
+            OobFunctionToolNames.RUN_LOG_LIST -> "已读取 RunLog 列表。"
+            else -> "复用指令工具调用完成。"
+        }
     }
 
     private suspend fun executeModelCallTool(
@@ -485,7 +584,7 @@ class OobFunctionToolHandler(
 
                 UIStepExecutor.isUIStep(step) -> {
                     val preActionReadyWait = if (index > 0) {
-                        UIStepExecutor.waitForHighConfidenceAction(
+                        UIStepExecutor.waitForReplayActionReady(
                             step = step,
                             stopRequested = replayStopRequested,
                         )
@@ -1174,7 +1273,7 @@ class OobFunctionToolHandler(
                             "source_context" to step.sourceContext,
                         )
                         val preActionReadyWait = if (absIdx > 0) {
-                            UIStepExecutor.waitForHighConfidenceAction(
+                            UIStepExecutor.waitForReplayActionReady(
                                 step = syntheticStep,
                                 stopRequested = replayStopRequested,
                             )

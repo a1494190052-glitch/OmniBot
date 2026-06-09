@@ -187,9 +187,13 @@ class DebugManualTraceReceiver : BroadcastReceiver() {
         ) {
             return false
         }
-        val source = intent ?: return true
-        return source.getBooleanExtra("debugScreenshots", true) &&
-            source.getBooleanExtra("keepScreenshots", true)
+        val source = intent ?: return false
+        if (!source.getBooleanExtra("keepScreenshots", true)) {
+            return false
+        }
+        return source.getBooleanExtra("debugScreenshots", false) ||
+            source.getBooleanExtra("enableDebugScreenshots", false) ||
+            source.getBooleanExtra("recordDebugScreenshots", false)
     }
 
     private class DebugTiming {

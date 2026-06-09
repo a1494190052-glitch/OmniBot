@@ -2,22 +2,24 @@ package cn.com.omnimind.bot.runlog
 
 import android.content.Context
 import cn.com.omnimind.baselib.runlog.InternalRunLogRecord
-import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
+import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import cn.com.omnimind.bot.omniflow.OobFunctionRecallService
 import cn.com.omnimind.bot.omniflow.OobFunctionRepository
 import cn.com.omnimind.bot.omniflow.OobFunctionRunPolicy
+import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
+import cn.com.omnimind.bot.omniflow.OobFunctionUpdateAgentOrchestrator
 import cn.com.omnimind.bot.omniflow.OobFunctionUpdateService
 import cn.com.omnimind.bot.omniflow.OobFunctionRunner
+import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
 import cn.com.omnimind.bot.runlog.OobActionCodec.boolArg
 import cn.com.omnimind.bot.runlog.OobActionCodec.boolArgOrDefault
 import cn.com.omnimind.bot.runlog.OobActionCodec.firstNonBlank
 import cn.com.omnimind.bot.runlog.OobActionCodec.intArg
 import cn.com.omnimind.bot.runlog.OobActionCodec.listArg
 import cn.com.omnimind.bot.runlog.OobActionCodec.mapArg
-import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
 
 /**
  * OOB-native implementation of the public OmniFlow agent toolkit surface.
@@ -32,7 +34,11 @@ class OobOmniFlowToolkitService(
     private val context: Context,
     private val workspaceFunctionStore: WorkspaceFunctionStore = WorkspaceFunctionStore(
         AgentWorkspaceManager.rootDirectory(context)
-    )
+    ),
+    private val updateAgentRequester: suspend (prompt: String, responseJsonObject: Boolean) -> String? =
+        { prompt, responseJsonObject ->
+            OobFunctionUpdateAgentOrchestrator.requestAgentAnalysis(prompt, responseJsonObject)
+        },
 ) {
     private val functionRepository = OobFunctionRepository(context, workspaceFunctionStore)
     private val replayService = OobRunLogReplayService(context, workspaceFunctionStore, functionRepository)
@@ -40,6 +46,8 @@ class OobOmniFlowToolkitService(
     private val functionRunner = OobFunctionRunner(context, workspaceFunctionStore, functionRepository)
     private val functionRunPolicy = OobFunctionRunPolicy(functionRepository)
     private val functionUpdateService = OobFunctionUpdateService(context, functionRepository)
+    private val functionUpdateAgentOrchestrator =
+        OobFunctionUpdateAgentOrchestrator(functionUpdateService, updateAgentRequester)
     private val explorer = OobOmniFlowExplorer(context)
 
     fun recall(args: Map<String, Any?>?): Map<String, Any?> =
@@ -409,8 +417,8 @@ class OobOmniFlowToolkitService(
         )
     }
 
-    fun updateFunction(args: Map<String, Any?>?): Map<String, Any?> =
-        functionUpdateService.updateFunction(args)
+    suspend fun updateFunction(args: Map<String, Any?>?): Map<String, Any?> =
+        functionUpdateAgentOrchestrator.updateFunction(args)
 
     fun guardCheck(args: Map<String, Any?>?): Map<String, Any?> {
         val request = args ?: emptyMap()
@@ -645,17 +653,12 @@ class OobOmniFlowToolkitService(
             errorMessage = firstNonBlank(resultMap["error"], runLog["error_message"]),
             cards = cards,
         )
-        if (record.success != true) {
-            return errorPayload(
-                code = "RUN_LOG_NOT_SUCCESSFUL",
-                message = "RunLog did not finish successfully: ${record.runId}"
-            )
-        }
+        val runStatusWarnings = runStatusWarnings(record)
         val spec = RunLogReusableFunctionCompiler.compile(record)
             ?: return errorPayload(
                 code = "RUN_LOG_NO_REPLAYABLE_STEPS",
                 message = "RunLog has no replayable steps"
-            )
+            ) + inlineConversionDiagnostics(record, emptyMap(), runStatusWarnings)
         val effectiveSpec = if (agentVisible) spec else markManualFunctionSpec(spec)
         val functionId = OobFunctionRepository.functionIdFromSpec(effectiveSpec)
         if (!register) {
@@ -668,17 +671,83 @@ class OobOmniFlowToolkitService(
                 "function_spec" to effectiveSpec,
                 "summary" to functionRepository.summaryMap(effectiveSpec),
                 "source" to "oob_native_omniflow_toolkit"
-            )
+            ) + inlineConversionDiagnostics(record, effectiveSpec, runStatusWarnings)
         }
-        workspaceFunctionStore.mirrorRunLog(record)
-        return functionRepository.register(effectiveSpec) + linkedMapOf(
-            "registered" to true,
+        runCatching { workspaceFunctionStore.mirrorRunLog(record) }
+            .onFailure { error ->
+                OmniLog.w(TAG, "mirror inline runlog before register failed: ${record.runId}, ${error.message}")
+            }
+        val registration = functionRepository.register(effectiveSpec)
+        return registration + linkedMapOf(
+            "registered" to (registration["success"] == true),
             "run_id" to record.runId,
             "function_id" to functionId,
             "created_function_id" to functionId,
             "function_spec" to effectiveSpec
+        ) + inlineConversionDiagnostics(record, effectiveSpec, runStatusWarnings)
+    }
+
+    private fun inlineConversionDiagnostics(
+        record: InternalRunLogRecord,
+        spec: Map<String, Any?>,
+        warnings: List<RunStatusWarning>
+    ): Map<String, Any?> = linkedMapOf<String, Any?>(
+        "card_count" to record.cards.size,
+        "successful_card_count" to record.cards.count { card ->
+            card["success"] != false &&
+                (card["header"] as? Map<*, *>)?.get("success") != false
+        },
+        "compiled_step_count" to compiledStepCount(spec),
+        "source_run_finished" to (record.finishedAtMs != null),
+        "source_run_success" to (record.success == true),
+        "source_run_done_reason" to record.doneReason.takeIf { it.isNotBlank() },
+        "source_run_error_message" to record.errorMessage.takeIf { it.isNotBlank() },
+    ).apply {
+        putAll(runStatusWarningDiagnostics(warnings))
+    }.filterValues { it != null }
+
+    private fun compiledStepCount(spec: Map<String, Any?>): Int? {
+        val execution = spec["execution"] as? Map<*, *> ?: return null
+        return (execution["step_count"] as? Number)?.toInt()
+            ?: (execution["steps"] as? List<*>)?.size
+    }
+
+    private fun runStatusWarningDiagnostics(
+        warnings: List<RunStatusWarning>
+    ): Map<String, Any?> {
+        if (warnings.isEmpty()) return emptyMap()
+        return linkedMapOf(
+            "conversion_warning_code" to warnings.first().code,
+            "conversion_warning_message" to warnings.first().message,
+            "conversion_warning_codes" to warnings.map { it.code },
+            "conversion_warnings" to warnings.map { warning ->
+                linkedMapOf(
+                    "code" to warning.code,
+                    "message" to warning.message
+                )
+            }
         )
     }
+
+    private fun runStatusWarnings(record: InternalRunLogRecord): List<RunStatusWarning> =
+        buildList {
+            if (record.finishedAtMs == null) {
+                add(
+                    RunStatusWarning(
+                        code = "RUN_LOG_NOT_FINISHED",
+                        message = "RunLog is not finished yet: ${record.runId}"
+                    )
+                )
+            }
+            if (record.success != true) {
+                add(
+                    RunStatusWarning(
+                        code = "RUN_LOG_NOT_SUCCESSFUL",
+                        message = "RunLog did not finish successfully: ${record.runId}"
+                    )
+                )
+            }
+        }
 
     private fun markManualFunctionSpec(spec: Map<String, Any?>): Map<String, Any?> =
         linkedMapOf<String, Any?>().apply {
@@ -699,6 +768,11 @@ class OobOmniFlowToolkitService(
                 }
             )
         }
+
+    private data class RunStatusWarning(
+        val code: String,
+        val message: String
+    )
 
     private fun functionAgentSummary(spec: Map<String, Any?>): Map<String, Any?> {
         val execution = mapArg(spec["execution"])
@@ -741,5 +815,9 @@ class OobOmniFlowToolkitService(
     ).apply {
         decision?.let { put("decision", it) }
         riskLevel?.let { put("risk_level", it) }
+    }
+
+    private companion object {
+        const val TAG = "OobOmniFlowToolkitService"
     }
 }

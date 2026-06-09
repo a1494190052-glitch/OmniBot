@@ -12,6 +12,7 @@ import cn.com.omnimind.bot.agent.WorkspaceScheduledTaskScheduler
 import cn.com.omnimind.bot.activity.StartupThemeResolver
 import cn.com.omnimind.bot.im.ImChannelManager
 import cn.com.omnimind.bot.localmodel.LocalModelFeatureInstaller
+import cn.com.omnimind.bot.devicehost.LocalDeviceHttpHostManager
 import cn.com.omnimind.bot.mcp.McpServerManager
 import cn.com.omnimind.bot.quicklog.QuickLogWidgetUpdater
 import cn.com.omnimind.bot.terminal.EmbeddedTerminalRuntime
@@ -142,6 +143,7 @@ class App : BaseApplication() {
         }
 
         initSDKsAfterPrivacyConsent()
+        LocalDeviceHttpHostManager.startIfDebug(this)
         McpServerManager.restoreIfEnabled(this)
         ImChannelManager.restoreIfEnabled(this)
         CoroutineScope(Dispatchers.IO).launch {

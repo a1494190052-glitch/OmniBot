@@ -14,6 +14,7 @@ import cn.com.omnimind.bot.runlog.RunLogCardAccessors.isEmptyJsonValue
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.jsonSafe
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.jsonSafeMap
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.nullableMap
+import cn.com.omnimind.bot.runlog.RunLogCardAccessors.observationXml
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.toJson
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.toolNameForCard
 
@@ -320,12 +321,7 @@ internal object RunLogReplayStepCompiler {
         val after = asMap(card["after"])
             .ifEmpty { asMap(card["observation_after_act"]) }
             .ifEmpty { asMap(card["after_observation"]) }
-        val sourceXml = firstNonBlank(
-            before["observation_xml"],
-            before["observationXml"],
-            before["xml"],
-            before["page"],
-        )
+        val sourceXml = observationXml(before)
         val rawToolName = toolNameForCard(card)
         val normalizedToolName = RunLogReplayPolicy.normalizeToolName(rawToolName)
         val actionArgs = if (normalizedToolName == AgentToolNames.ANDROID_PRIVILEGED_ACTION) {
@@ -384,19 +380,9 @@ internal object RunLogReplayStepCompiler {
                 sourceAction = sourceAction,
             )
         }
-        val afterXml = firstNonBlank(
-            after["observation_xml"],
-            after["observationXml"],
-            after["xml"],
-            after["page"],
-        )
+        val afterXml = observationXml(after)
         val nextBefore = nextReplayableCard?.let(::beforeObservationForCard).orEmpty()
-        val nextBeforeXml = firstNonBlank(
-            nextBefore["observation_xml"],
-            nextBefore["observationXml"],
-            nextBefore["xml"],
-            nextBefore["page"],
-        )
+        val nextBeforeXml = observationXml(nextBefore)
         val repairedAfterXml = if (shouldUseNextBeforeAsAfter(afterXml, nextBeforeXml)) {
             nextBeforeXml
         } else {

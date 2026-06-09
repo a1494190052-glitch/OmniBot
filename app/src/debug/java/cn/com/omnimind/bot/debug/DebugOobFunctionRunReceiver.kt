@@ -12,6 +12,7 @@ import cn.com.omnimind.bot.runlog.OmniflowActionRuntime
 import cn.com.omnimind.bot.runlog.RunLogPagePackageInference
 import cn.com.omnimind.bot.util.AssistsUtil
 import com.google.gson.GsonBuilder
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -29,16 +30,20 @@ class DebugOobFunctionRunReceiver : BroadcastReceiver() {
             ?: ""
         val goal = intent.decodeBase64Extra("goalBase64")
             ?: intent?.getStringExtra("goal").orEmpty()
+        val arguments = intent.decodeJsonMapBase64Extra("argumentsBase64")
+            ?: intent.decodeJsonMapBase64Extra("replayArgumentsBase64")
+            ?: emptyMap()
 
         scope.launch {
             val result = runCatching {
                 waitForReplayPage(appContext)
-                runFunctionWithRunLogFallback(appContext, functionId, goal)
+                runFunctionWithRunLogFallback(appContext, functionId, goal, arguments)
             }.getOrElse { error ->
                 linkedMapOf<String, Any?>(
                     "success" to false,
                     "phase" to "exception",
                     "function_id" to functionId,
+                    "arguments" to arguments,
                     "error_message" to error.message.orEmpty(),
                     "error_type" to error.javaClass.name,
                 )
@@ -53,9 +58,10 @@ class DebugOobFunctionRunReceiver : BroadcastReceiver() {
         context: Context,
         functionId: String,
         goal: String,
+        arguments: Map<String, Any?>,
     ): Map<String, Any?> {
         val service = OobOmniFlowToolkitService(context)
-        val initial = service.runFunction(functionRunArgs(functionId, goal))
+        val initial = service.runFunction(functionRunArgs(functionId, goal, arguments))
         if (!isFunctionNotFound(initial)) return initial
 
         val runId = runIdFromDebugFunctionId(functionId)
@@ -81,18 +87,22 @@ class DebugOobFunctionRunReceiver : BroadcastReceiver() {
             )
         }
 
-        return service.runFunction(functionRunArgs(functionId, goal)) + linkedMapOf(
+        return service.runFunction(functionRunArgs(functionId, goal, arguments)) + linkedMapOf(
             "auto_register_attempted" to true,
             "auto_register_success" to true,
             "auto_register" to summarizeConvert(convert),
         )
     }
 
-    private fun functionRunArgs(functionId: String, goal: String): Map<String, Any?> =
+    private fun functionRunArgs(
+        functionId: String,
+        goal: String,
+        arguments: Map<String, Any?>,
+    ): Map<String, Any?> =
         linkedMapOf(
             "function_id" to functionId,
             "goal" to goal,
-            "arguments" to emptyMap<String, Any?>(),
+            "arguments" to arguments,
         )
 
     private fun isFunctionNotFound(result: Map<String, Any?>): Boolean =
@@ -187,6 +197,7 @@ class DebugOobFunctionRunReceiver : BroadcastReceiver() {
         private const val PAGE_OBSERVE_ATTEMPTS = 80
         private const val PAGE_OBSERVE_INTERVAL_MS = 250L
         private val gson = GsonBuilder().disableHtmlEscaping().create()
+        private val mapType = object : TypeToken<Map<String, Any?>>() {}.type
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     }
 
@@ -195,6 +206,14 @@ class DebugOobFunctionRunReceiver : BroadcastReceiver() {
         return runCatching {
             String(Base64.decode(raw, Base64.DEFAULT), Charsets.UTF_8).trim()
                 .takeIf { it.isNotEmpty() }
+        }.getOrNull()
+    }
+
+    private fun Intent?.decodeJsonMapBase64Extra(name: String): Map<String, Any?>? {
+        val raw = decodeBase64Extra(name) ?: return null
+        return runCatching {
+            val decoded = gson.fromJson<Map<String, Any?>>(raw, mapType)
+            decoded?.takeIf { it.isNotEmpty() }
         }.getOrNull()
     }
 }

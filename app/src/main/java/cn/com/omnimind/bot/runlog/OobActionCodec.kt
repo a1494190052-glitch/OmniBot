@@ -53,7 +53,10 @@ object OobActionCodec {
         val canonicalAction = canonicalActionForName(rawAction)
             ?: return mapArg(step[OobCanonicalActionSchema.ROOT_ARGS])
         val allowedArgs = OobCanonicalActionSchema.argNames(canonicalAction)
-        return mapArg(step[OobCanonicalActionSchema.ROOT_ARGS])
+        return normalizeActionArgs(
+            action = canonicalAction,
+            args = mapArg(step[OobCanonicalActionSchema.ROOT_ARGS]),
+        )
             .filterKeys { it in allowedArgs }
     }
 
@@ -64,12 +67,7 @@ object OobActionCodec {
         mapArg(sourceContextForStep(step)["action"])
 
     fun pageXmlFromContext(context: Map<String, Any?>): String =
-        firstNonBlank(
-            context["page"],
-            context["xml"],
-            context["observation_xml"],
-            context["observationXml"],
-        )
+        RunLogXmlArtifacts.pageXmlFromContext(context)
 
     private fun rawActionNameForStep(step: Map<String, Any?>): String {
         return firstNonBlankActionName(
@@ -193,6 +191,23 @@ object OobActionCodec {
             if (text.isNotEmpty()) return text
         }
         return ""
+    }
+
+    private fun normalizeActionArgs(
+        action: String,
+        args: Map<String, Any?>,
+    ): Map<String, Any?> {
+        if (action != ACTION_OPEN_APP || args.containsKey(OobCanonicalActionSchema.ARG_PACKAGE_NAME)) {
+            return args
+        }
+        val packageName = firstNonBlank(args["packageName"], args["package"])
+        if (packageName.isBlank()) {
+            return args
+        }
+        return LinkedHashMap<String, Any?>().apply {
+            putAll(args)
+            put(OobCanonicalActionSchema.ARG_PACKAGE_NAME, packageName)
+        }
     }
 
     private fun MutableMap<String, Any?>.putFirstPresent(key: String, vararg values: Any?) {

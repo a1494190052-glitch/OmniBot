@@ -1,8 +1,8 @@
 package cn.com.omnimind.bot.runlog
 
 import cn.com.omnimind.bot.runlog.OobActionCodec.boolArg
-import cn.com.omnimind.bot.runlog.OobActionCodec.firstNonBlank
 import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
+import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -47,6 +47,24 @@ object UIStepExecutor {
         val step: Map<String, Any?>,
         val action: String,
         val args: Map<String, Any?>,
+    )
+
+    private data class ReplaySemanticTarget(
+        val texts: List<String>,
+        val resourceIds: List<String>,
+    ) {
+        fun isEmpty(): Boolean = texts.isEmpty() && resourceIds.isEmpty()
+        fun isNotEmpty(): Boolean = !isEmpty()
+
+        companion object {
+            val EMPTY = ReplaySemanticTarget(emptyList(), emptyList())
+        }
+    }
+
+    private data class ReplaySemanticTargetMatch(
+        val node: UiNode,
+        val matchedBy: String,
+        val matchedValue: String,
     )
 
 
@@ -488,7 +506,7 @@ object UIStepExecutor {
                     }
 
                     OobActionCodec.ACTION_OPEN_APP -> {
-                        val packageName = stringArg(args, "package_name")
+                        val packageName = stringArg(args, "package_name", "packageName", "package")
                             ?: throw IllegalArgumentException("open_app requires package_name")
                         backend.launchApplication(packageName)
                         OobActionCodec.ACTION_OPEN_APP
@@ -764,134 +782,241 @@ object UIStepExecutor {
         }
     }
 
-    suspend fun waitForHighConfidenceAction(
+    suspend fun waitForReplayActionReady(
         step: Map<String, Any?>,
-        timeoutMs: Long = PRE_ACTION_READY_TIMEOUT_MS,
-        pollMs: Long = PRE_ACTION_READY_POLL_MS,
         stopRequested: (() -> Boolean)? = null,
+        settleDelayMs: Long = REPLAY_ACTION_SETTLE_DELAY_MS,
+        targetTimeoutMs: Long = REPLAY_TARGET_READY_TIMEOUT_MS,
+        pollMs: Long = REPLAY_TARGET_READY_POLL_MS,
     ): Map<String, Any?> {
+        val startedAtMs = System.currentTimeMillis()
+        val fixedDelayMs = effectiveReplayDelayMs(settleDelayMs)
+        delayWithStopPolling(fixedDelayMs, stopRequested)
+
         val action = actionNameForStep(step)
-        if (action == OobActionCodec.ACTION_FINISHED) {
-            return preActionReadyWaitMeta(
-                status = "skipped",
-                startedAtMs = System.currentTimeMillis(),
+        if (action !in REPLAY_SEMANTIC_TARGET_ACTIONS) {
+            return replayActionReadyWaitMeta(
+                status = "settled",
+                startedAtMs = startedAtMs,
                 attempts = 0,
                 state = null,
-                transfer = emptyMap(),
-                reason = "finished_action",
+                target = ReplaySemanticTarget.EMPTY,
+                match = null,
+                reason = "non_semantic_target_action",
+                settleDelayMs = settleDelayMs,
+                targetTimeoutMs = 0L,
             )
         }
-        if (action !in OobActionCodec.coordinateActions) {
-            return preActionReadyWaitMeta(
-                status = "skipped",
-                startedAtMs = System.currentTimeMillis(),
+
+        val target = replaySemanticTargetForStep(step)
+        if (target.isEmpty()) {
+            return replayActionReadyWaitMeta(
+                status = "settled",
+                startedAtMs = startedAtMs,
                 attempts = 0,
                 state = null,
-                transfer = emptyMap(),
-                reason = "non_coordinate_action",
-            )
-        }
-        if (!shouldUseCoordinateHook(step)) {
-            return preActionReadyWaitMeta(
-                status = "skipped",
-                startedAtMs = System.currentTimeMillis(),
-                attempts = 0,
-                state = null,
-                transfer = emptyMap(),
-                reason = "missing_coordinate_transfer_context",
+                target = target,
+                match = null,
+                reason = "no_semantic_target",
+                settleDelayMs = settleDelayMs,
+                targetTimeoutMs = 0L,
             )
         }
 
         val timing = ReplayStepTiming()
-        val startedAtMs = System.currentTimeMillis()
-        val deadlineMs = startedAtMs + timeoutMs.coerceAtLeast(0L)
-        val pollDelayMs = pollMs.coerceAtLeast(1L)
+        val deadlineMs = System.currentTimeMillis() + targetTimeoutMs.coerceAtLeast(0L)
+        val pollDelayMs = effectiveReplayDelayMs(pollMs.coerceAtLeast(1L))
+        val maxAttempts = ((targetTimeoutMs.coerceAtLeast(0L) / pollMs.coerceAtLeast(1L)) + 1)
+            .coerceAtLeast(1L)
         var attempts = 0
         var lastState: ReplayState? = null
-        var lastTransfer: Map<String, Any?> = emptyMap()
-
         while (true) {
             throwIfStopRequested(stopRequested)
             attempts += 1
-            val state = observeReplayState(timing, "pre_action_ready_$attempts")
+            val state = observeReplayState(timing, "pre_action_target_ready_$attempts")
             lastState = state
-            val transfer = try {
-                remapStepArgsForState(step, state).meta
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                mapOf(
-                    "applied" to false,
-                    "reason" to "action_transfer_exception",
-                    "algorithm" to "anchor_projection",
-                    "error_message" to e.message.orEmpty(),
-                )
-            }
-            lastTransfer = transfer
-            if (isHighConfidenceTransfer(transfer)) {
-                return preActionReadyWaitMeta(
+            val match = state.page?.let { findReplaySemanticTarget(it, target) }
+            if (match != null) {
+                return replayActionReadyWaitMeta(
                     status = "ready",
                     startedAtMs = startedAtMs,
                     attempts = attempts,
                     state = state,
-                    transfer = transfer,
+                    target = target,
+                    match = match,
                     reason = null,
-                    timeoutMs = timeoutMs,
+                    settleDelayMs = settleDelayMs,
+                    targetTimeoutMs = targetTimeoutMs,
                 )
             }
 
-            val nowMs = System.currentTimeMillis()
-            if (nowMs >= deadlineMs) {
+            if (OmniflowActionRuntime.isUsingBackendForTesting) {
+                if (attempts >= maxAttempts) break
+            } else if (System.currentTimeMillis() >= deadlineMs) {
                 break
             }
             delayWithStopPolling(
-                delayMs = min(pollDelayMs, deadlineMs - nowMs),
+                delayMs = min(pollDelayMs, (deadlineMs - System.currentTimeMillis()).coerceAtLeast(0L)),
                 stopRequested = stopRequested,
             )
         }
 
-        return preActionReadyWaitMeta(
+        return replayActionReadyWaitMeta(
             status = "timeout",
             startedAtMs = startedAtMs,
             attempts = attempts,
             state = lastState,
-            transfer = lastTransfer,
-            reason = lastTransfer["reason"]?.toString().orEmpty().ifBlank { "not_ready" },
-            timeoutMs = timeoutMs,
+            target = target,
+            match = null,
+            reason = "semantic_target_not_visible",
+            settleDelayMs = settleDelayMs,
+            targetTimeoutMs = targetTimeoutMs,
         )
     }
 
-    private fun isHighConfidenceTransfer(transfer: Map<String, Any?>): Boolean {
-        if (transfer["applied"] != true) return false
-        val confidence = floatArg(transfer["confidence"]) ?: return false
-        return confidence >= MIN_ANCHOR_PROJECTION_CONFIDENCE
+    private fun effectiveReplayDelayMs(delayMs: Long): Long =
+        if (OmniflowActionRuntime.isUsingBackendForTesting) 0L else delayMs.coerceAtLeast(0L)
+
+    private fun replaySemanticTargetForStep(step: Map<String, Any?>): ReplaySemanticTarget {
+        val rawArgs = OobActionCodec.mapArg(step[OobCanonicalActionSchema.ROOT_ARGS])
+        val args = OobActionCodec.argsForStep(step)
+        val sourceContext = OobActionCodec.sourceContextForStep(step)
+        val sourceAction = OobActionCodec.sourceActionForStep(step)
+        val sourceTargetElement = firstNonEmptyMap(
+            sourceAction["target_element"],
+            sourceAction["targetElement"],
+            sourceContext["target_element"],
+            sourceContext["targetElement"],
+            OobActionCodec.mapArg(sourceContext["src_ctx"])["target_element"],
+            OobActionCodec.mapArg(sourceContext["src_ctx"])["targetElement"],
+        )
+        val textCandidates = listOf(
+            rawArgs["text"],
+            rawArgs["target_text"],
+            rawArgs["targetText"],
+            rawArgs["content_desc"],
+            rawArgs["contentDesc"],
+            rawArgs["target_description"],
+            args["text"],
+            args["target_description"],
+            sourceAction["text"],
+            sourceAction["target_text"],
+            sourceAction["targetText"],
+            sourceAction["content_desc"],
+            sourceAction["contentDesc"],
+            sourceAction["target_description"],
+            sourceTargetElement["text"],
+            sourceTargetElement["content_desc"],
+            sourceTargetElement["content-desc"],
+            sourceTargetElement["contentDesc"],
+            sourceTargetElement["hint_text"],
+            sourceTargetElement["hint-text"],
+        ).flatMap(::semanticTargetTextCandidates).distinct()
+        val resourceIds = listOf(
+            rawArgs["node_resource_id"],
+            rawArgs["resource_id"],
+            rawArgs["resource-id"],
+            sourceAction["node_resource_id"],
+            sourceAction["resource_id"],
+            sourceAction["resource-id"],
+            sourceTargetElement["node_resource_id"],
+            sourceTargetElement["resource_id"],
+            sourceTargetElement["resource-id"],
+        ).mapNotNull { value ->
+            value?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+        }.filterNot(::isGenericResourceId).distinct()
+        return ReplaySemanticTarget(texts = textCandidates, resourceIds = resourceIds)
     }
 
-    private fun preActionReadyWaitMeta(
+    private fun firstNonEmptyMap(vararg values: Any?): Map<String, Any?> {
+        values.forEach { value ->
+            val map = OobActionCodec.mapArg(value)
+            if (map.isNotEmpty()) return map
+        }
+        return emptyMap()
+    }
+
+    private fun semanticTargetTextCandidates(value: Any?): List<String> {
+        val normalized = normalizeText(value?.toString())
+        if (!isMeaningfulSemanticTargetText(normalized)) return emptyList()
+        val candidates = linkedSetOf(normalized)
+        normalized.split(Regex("""[\s,，:：;；/|()\[\]{}<>]+"""))
+            .map(::normalizeText)
+            .filter(::isMeaningfulSemanticTargetText)
+            .filterNot { it in GENERIC_TARGET_TEXT_TOKENS }
+            .forEach { candidates += it }
+        return candidates.toList()
+    }
+
+    private fun isMeaningfulSemanticTargetText(text: String): Boolean {
+        if (text.isBlank()) return false
+        if (text in GENERIC_TARGET_TEXT_TOKENS) return false
+        return text.length >= 2
+    }
+
+    private fun findReplaySemanticTarget(
+        page: PageModel,
+        target: ReplaySemanticTarget,
+    ): ReplaySemanticTargetMatch? {
+        val nodes = page.nodes.filter { it.visible && it.enabled }
+        for (resourceId in target.resourceIds) {
+            val targetTail = resourceTail(resourceId)
+            val node = nodes.firstOrNull {
+                it.resourceId == resourceId ||
+                    (targetTail.isNotBlank() && it.resourceTail == targetTail)
+            }
+            if (node != null) {
+                return ReplaySemanticTargetMatch(node, "resource_id", resourceId)
+            }
+        }
+        for (text in target.texts.sortedByDescending { it.length }) {
+            val exact = nodes.firstOrNull { node ->
+                listOf(node.text, node.contentDesc, node.hintText)
+                    .map(::normalizeText)
+                    .any { it == text }
+            }
+            if (exact != null) {
+                return ReplaySemanticTargetMatch(exact, "text_exact", text)
+            }
+        }
+        for (text in target.texts.sortedByDescending { it.length }) {
+            val contains = nodes.firstOrNull { node ->
+                val label = nodeLabelText(node)
+                label.contains(text) || (text.contains(label) && label.length >= 2)
+            }
+            if (contains != null) {
+                return ReplaySemanticTargetMatch(contains, "text_contains", text)
+            }
+        }
+        return null
+    }
+
+    private fun replayActionReadyWaitMeta(
         status: String,
         startedAtMs: Long,
         attempts: Int,
         state: ReplayState?,
-        transfer: Map<String, Any?>,
+        target: ReplaySemanticTarget,
+        match: ReplaySemanticTargetMatch?,
         reason: String?,
-        timeoutMs: Long? = null,
+        settleDelayMs: Long,
+        targetTimeoutMs: Long,
     ): Map<String, Any?> {
         val snapshot = state?.snapshot
-        val nowMs = System.currentTimeMillis()
         return linkedMapOf<String, Any?>(
             "status" to status,
-            "waited_ms" to (nowMs - startedAtMs).coerceAtLeast(0L),
+            "waited_ms" to (System.currentTimeMillis() - startedAtMs).coerceAtLeast(0L),
+            "settle_delay_ms" to settleDelayMs,
+            "target_timeout_ms" to targetTimeoutMs.takeIf { target.isNotEmpty() },
             "attempts" to attempts,
-            "timeout_ms" to timeoutMs.takeIf { status == "timeout" },
             "reason" to reason?.takeIf { it.isNotBlank() },
+            "target_texts" to target.texts.take(6).takeIf { it.isNotEmpty() },
+            "target_resource_ids" to target.resourceIds.take(4).takeIf { it.isNotEmpty() },
+            "matched_by" to match?.matchedBy,
+            "matched_value" to match?.matchedValue,
+            "target_element" to match?.node?.let(::summarizeNode),
             "xml_ready" to (snapshot?.xml?.isNotBlank() == true),
             "xml_chars" to snapshot?.xml?.length,
-            "action_transfer_applied" to transfer["applied"],
-            "confidence" to transfer["confidence"],
-            "min_confidence" to MIN_ANCHOR_PROJECTION_CONFIDENCE,
-            "mode" to transfer["mode"],
-            "algorithm" to transfer["algorithm"],
-            "transfer_reason" to transfer["reason"],
             "package_name" to snapshot?.rawPackage?.takeIf { it.isNotBlank() },
             "effective_package" to snapshot?.effectivePackage()?.takeIf { it.isNotBlank() },
             "activity_name" to snapshot?.activityName?.takeIf { it.isNotBlank() },
@@ -963,12 +1088,9 @@ object UIStepExecutor {
             args,
             meta = mapOf("applied" to false, "reason" to "missing_source_context", "algorithm" to "anchor_projection")
         )
-        val srcCtx = sourceContext["src_ctx"] as? Map<*, *>
-        val sourceXml = firstNonBlank(
-            srcCtx?.get("page"),
-            sourceContext["page"],
-            sourceContext["xml"],
-        )
+        val srcCtx = OobActionCodec.mapArg(sourceContext["src_ctx"])
+        val sourceXml = RunLogXmlArtifacts.pageXmlFromContext(srcCtx)
+            .ifBlank { RunLogXmlArtifacts.pageXmlFromContext(OobActionCodec.mapArg(sourceContext)) }
         if (sourceXml.isEmpty()) {
             return StepArgsResult(
                 args,
@@ -1967,11 +2089,8 @@ object UIStepExecutor {
     private fun sourceXmlForStep(step: Map<String, Any?>): String {
         val sourceContext = OobActionCodec.sourceContextForStep(step)
         val srcCtx = OobActionCodec.mapArg(sourceContext["src_ctx"])
-        return firstNonBlank(
-            srcCtx["page"],
-            sourceContext["page"],
-            sourceContext["xml"],
-        )
+        return RunLogXmlArtifacts.pageXmlFromContext(srcCtx)
+            .ifBlank { RunLogXmlArtifacts.pageXmlFromContext(sourceContext) }
     }
 
     private fun actionTargetHitsNode(
@@ -3322,11 +3441,23 @@ object UIStepExecutor {
 
     private const val DEFAULT_CHECKER_TRIGGER_LIMIT = 1
     private const val DEFAULT_PAGE_GUARD_TRIGGER_LIMIT = 3
-    private const val PRE_ACTION_READY_TIMEOUT_MS = 5000L
-    private const val PRE_ACTION_READY_POLL_MS = 500L
+    private const val REPLAY_ACTION_SETTLE_DELAY_MS = 1000L
+    private const val REPLAY_TARGET_READY_TIMEOUT_MS = 5000L
+    private const val REPLAY_TARGET_READY_POLL_MS = 500L
     private const val INPUT_TEXT_OBSERVE_RETRY_COUNT = 2
     private const val INPUT_TEXT_OBSERVE_RETRY_DELAY_MS = 250L
     private const val STOP_POLL_INTERVAL_MS = 50L
+
+    private val REPLAY_SEMANTIC_TARGET_ACTIONS = setOf(
+        OobActionCodec.ACTION_CLICK,
+        OobActionCodec.ACTION_LONG_PRESS,
+        OobActionCodec.ACTION_INPUT_TEXT,
+    )
+
+    private val GENERIC_TARGET_TEXT_TOKENS = setOf(
+        "click", "tap", "press", "button", "view", "viewgroup", "textview",
+        "imageview", "android", "widget", "点击", "按钮", "文本", "视图",
+    )
 
     private val ALLOW_EXACT_LABELS = setOf(
         "允许", "allow", "始终允许", "always allow",

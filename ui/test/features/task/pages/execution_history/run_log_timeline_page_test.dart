@@ -882,20 +882,46 @@ void main() {
 }
 ''';
           }
-          if (call.method == 'registerOobReusableFunction') {
+          if (call.method == 'updateOobFunction') {
             final args = Map<String, dynamic>.from(call.arguments as Map);
-            final spec = Map<String, dynamic>.from(
-              args['function_spec'] as Map,
+            expect(args['function_id'], 'fn_from_runlog');
+            expect(args['run_id'], 'run-vlm');
+            final patch = Map<String, dynamic>.from(args['patch'] as Map);
+            expect(patch['name'], '打开系统设置');
+            final metadata = Map<String, dynamic>.from(
+              patch['metadata'] as Map,
             );
-            expect(spec['function_id'], 'fn_from_runlog');
-            expect(spec['name'], '打开系统设置');
+            final report = Map<String, dynamic>.from(
+              metadata['oob_enhancement'] as Map,
+            );
+            final sections = (report['sections'] as List)
+                .map((item) => Map<String, dynamic>.from(item as Map))
+                .toList(growable: false);
+            final stepSection = sections.singleWhere(
+              (section) => section['section'] == 'steps',
+            );
+            expect(stepSection['part'], 'step_0');
+            expect(stepSection['chunk_index'], 0);
+            expect(stepSection['chunk_count'], 1);
+            expect(stepSection['step_indexes'], [0]);
+            expect(stepSection['prompt_chars'], greaterThan(0));
+            expect(stepSection['prompt_approx_tokens'], greaterThan(0));
+            expect(
+              sections.where((section) => section['prompt_chars'] != null),
+              hasLength(4),
+            );
             return <String, dynamic>{
               'success': true,
               'function_id': 'fn_from_runlog',
-              'created_function_id': 'fn_from_runlog',
-              'already_exists': true,
-              'asset_kind': 'oob_reusable_function',
+              'changed': true,
+              'saved': true,
+              'function_kind': 'oob_reusable_function',
               'asset_state': 'native_local',
+              'updated_function': _runLogReusableFunctionSpec(
+                name: '打开系统设置',
+                description: '打开 Android 系统设置页，适合需要进入设置入口时复用。',
+                stepTitle: '打开设置应用',
+              ),
             };
           }
           return null;
@@ -939,12 +965,18 @@ void main() {
       findsWidgets,
     );
     expect(find.text('打开设置应用', skipOffstage: false), findsWidgets);
+    final llmCalls = methodCalls
+        .where((call) => call.method == 'postLLMChat')
+        .toList(growable: false);
+    expect(llmCalls, hasLength(4));
     expect(
-      methodCalls.where((call) => call.method == 'postLLMChat'),
-      hasLength(4),
+      llmCalls.every(
+        (call) => (call.arguments as Map)['model'] == 'scene.dispatch.model',
+      ),
+      isTrue,
     );
     expect(
-      methodCalls.where((call) => call.method == 'registerOobReusableFunction'),
+      methodCalls.where((call) => call.method == 'updateOobFunction'),
       hasLength(1),
     );
     expect(find.text('已增强并保存', skipOffstage: false), findsOneWidget);
@@ -978,14 +1010,19 @@ void main() {
           if (call.method == 'postLLMChat') {
             return llmCompleter.future;
           }
-          if (call.method == 'registerOobReusableFunction') {
+          if (call.method == 'updateOobFunction') {
             return <String, dynamic>{
               'success': true,
               'function_id': 'fn_from_runlog',
-              'created_function_id': 'fn_from_runlog',
-              'already_exists': true,
-              'asset_kind': 'oob_reusable_function',
+              'changed': true,
+              'saved': true,
+              'function_kind': 'oob_reusable_function',
               'asset_state': 'native_local',
+              'updated_function': _runLogReusableFunctionSpec(
+                name: '打开系统设置',
+                description: '打开 Android 系统设置页，适合需要进入设置入口时复用。',
+                stepTitle: '打开设置应用',
+              ),
             };
           }
           return null;
@@ -1081,25 +1118,29 @@ void main() {
             }
             return '{}';
           }
-          if (call.method == 'registerOobReusableFunction') {
+          if (call.method == 'updateOobFunction') {
             final args = Map<String, dynamic>.from(call.arguments as Map);
-            final spec = Map<String, dynamic>.from(
-              args['function_spec'] as Map,
+            expect(args['function_id'], 'fn_from_runlog');
+            final patch = Map<String, dynamic>.from(args['patch'] as Map);
+            final metadata = Map<String, dynamic>.from(
+              patch['metadata'] as Map,
             );
-            final metadata = Map<String, dynamic>.from(spec['metadata'] as Map);
             final report = Map<String, dynamic>.from(
               metadata['oob_enhancement'] as Map,
             );
-            expect(spec['name'], '打开 Settings');
             expect(report['status'], 'unchanged');
             expect(report['changed'], isFalse);
             return <String, dynamic>{
               'success': true,
               'function_id': 'fn_from_runlog',
-              'created_function_id': 'fn_from_runlog',
-              'already_exists': true,
-              'asset_kind': 'oob_reusable_function',
+              'changed': false,
+              'saved': false,
+              'function_kind': 'oob_reusable_function',
               'asset_state': 'native_local',
+              'updated_function': _runLogReusableFunctionSpec(
+                name: '打开 Settings',
+                description: '打开 Android 设置',
+              ),
             };
           }
           return null;
@@ -1136,7 +1177,92 @@ void main() {
     expect(find.text('已增强并保存', skipOffstage: false), findsNothing);
   });
 
-  testWidgets('RunLog Agent enhancement failure is explicit and retryable', (
+  testWidgets(
+    'RunLog Agent enhancement surfaces empty model response as failure',
+    (tester) async {
+      final methodCalls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(assistCoreChannel, (call) async {
+            methodCalls.add(call);
+            if (call.method == 'getInternalRunLogTimeline') {
+              return _runLogTimelinePayload(runId: 'run-vlm');
+            }
+            if (call.method == 'getOobReusableFunction') {
+              return null;
+            }
+            if (call.method == 'convertInternalRunLogToOobFunction') {
+              return <String, dynamic>{
+                'success': true,
+                'registered': true,
+                'created_function_id': 'fn_from_runlog',
+                'function_id': 'fn_from_runlog',
+                'function_spec': _runLogReusableFunctionSpec(
+                  name: '打开 Settings',
+                  description: '打开 Android 设置',
+                ),
+              };
+            }
+            if (call.method == 'postLLMChat') {
+              return '';
+            }
+            if (call.method == 'updateOobFunction') {
+              fail('updateOobFunction should not run without usable AI output');
+            }
+            return null;
+          });
+
+      await tester.pumpWidget(
+        _buildLocalizedApp(
+          locale: const Locale('zh'),
+          child: const RunLogTimelinePage(runId: 'run-vlm', title: ''),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey('run-log-action-save-function')),
+      );
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 500)),
+      );
+      await tester.pumpAndSettle();
+      await _pumpUntilFound(
+        tester,
+        find.byKey(const ValueKey('run-log-function-enhance')),
+      );
+      await tester.tap(find.byKey(const ValueKey('run-log-function-enhance')));
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 1500)),
+      );
+
+      await _pumpUntilFound(tester, find.text('处理失败', skipOffstage: false));
+      expect(find.text('已检查，无需修改', skipOffstage: false), findsNothing);
+      expect(
+        methodCalls.where((call) => call.method == 'updateOobFunction'),
+        isEmpty,
+      );
+      final llmCalls = methodCalls
+          .where((call) => call.method == 'postLLMChat')
+          .toList(growable: false);
+      expect(llmCalls, hasLength(8));
+      expect(
+        llmCalls.every(
+          (call) => (call.arguments as Map)['model'] == 'scene.dispatch.model',
+        ),
+        isTrue,
+      );
+      expect(
+        llmCalls.where(
+          (call) => (call.arguments as Map)['responseJsonObject'] == false,
+        ),
+        hasLength(4),
+      );
+    },
+  );
+
+  testWidgets('RunLog Agent enhancement records invalid JSON diagnostics', (
     tester,
   ) async {
     final methodCalls = <MethodCall>[];
@@ -1164,8 +1290,8 @@ void main() {
           if (call.method == 'postLLMChat') {
             return '这不是 JSON，也无法修复。';
           }
-          if (call.method == 'registerOobReusableFunction') {
-            fail('failed enhancement must not save a Function');
+          if (call.method == 'updateOobFunction') {
+            fail('updateOobFunction should not run without usable AI output');
           }
           return null;
         });
@@ -1196,14 +1322,11 @@ void main() {
       () => Future<void>.delayed(const Duration(milliseconds: 1500)),
     );
 
-    await _pumpUntilFound(
-      tester,
-      find.byKey(const ValueKey('run-log-function-enhance')),
-    );
+    await _pumpUntilFound(tester, find.text('处理失败', skipOffstage: false));
+    expect(find.text('已检查，无需修改', skipOffstage: false), findsNothing);
     expect(find.text('已增强并保存', skipOffstage: false), findsNothing);
-    expect(find.text('处理失败', skipOffstage: false), findsOneWidget);
     expect(
-      methodCalls.where((call) => call.method == 'registerOobReusableFunction'),
+      methodCalls.where((call) => call.method == 'updateOobFunction'),
       isEmpty,
     );
     expect(
@@ -1285,20 +1408,23 @@ void main() {
 }
 ''';
           }
-          if (call.method == 'registerOobReusableFunction') {
+          if (call.method == 'updateOobFunction') {
             final args = Map<String, dynamic>.from(call.arguments as Map);
-            final spec = Map<String, dynamic>.from(
-              args['function_spec'] as Map,
-            );
-            expect(spec['function_id'], 'fn_from_runlog');
-            expect(spec['name'], '打开系统设置');
+            expect(args['function_id'], 'fn_from_runlog');
+            final patch = Map<String, dynamic>.from(args['patch'] as Map);
+            expect(patch['name'], '打开系统设置');
             return <String, dynamic>{
               'success': true,
               'function_id': 'fn_from_runlog',
-              'created_function_id': 'fn_from_runlog',
-              'already_exists': true,
-              'asset_kind': 'oob_reusable_function',
+              'changed': true,
+              'saved': true,
+              'function_kind': 'oob_reusable_function',
               'asset_state': 'native_local',
+              'updated_function': _runLogReusableFunctionSpec(
+                name: '打开系统设置',
+                description: '打开 Android 系统设置页，适合需要进入设置入口时复用。',
+                stepTitle: '打开设置应用',
+              ),
             };
           }
           return null;
@@ -1344,7 +1470,7 @@ void main() {
       hasLength(1),
     );
     expect(
-      methodCalls.where((call) => call.method == 'registerOobReusableFunction'),
+      methodCalls.where((call) => call.method == 'updateOobFunction'),
       hasLength(1),
     );
     expect(find.text('已增强并保存', skipOffstage: false), findsOneWidget);
@@ -1444,6 +1570,7 @@ Map<String, dynamic> _nestedVlmRunLogTimelinePayload() {
 Map<String, dynamic> _runLogReusableFunctionSpec({
   required String name,
   required String description,
+  String? stepTitle,
 }) {
   return <String, dynamic>{
     'schema_version': 'oob.reusable_function.v1',
@@ -1462,7 +1589,7 @@ Map<String, dynamic> _runLogReusableFunctionSpec({
         <String, dynamic>{
           'id': 'step_1',
           'index': 0,
-          'title': name,
+          'title': stepTitle ?? name,
           'kind': 'omniflow_action',
           'tool': 'open_app',
           'executor': 'omniflow',

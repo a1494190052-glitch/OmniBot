@@ -31,7 +31,9 @@ class DebugModelProviderConfigReceiver : BroadcastReceiver() {
             .ifBlank { DEFAULT_PROFILE_NAME }
         val protocolType = intent.stringExtra("protocolType", "protocol_type")
             .ifBlank { "openai_compatible" }
-        val sceneIds = parseSceneIds(intent.stringExtra("sceneIds", "scene_ids"))
+        val rawSceneIds = intent.stringExtra("sceneIds", "scene_ids")
+        val useDefaultSceneIds = rawSceneIds.isBlank()
+        val sceneIds = parseSceneIds(rawSceneIds)
 
         scope.launch {
             val result = runCatching {
@@ -44,6 +46,7 @@ class DebugModelProviderConfigReceiver : BroadcastReceiver() {
                     modelId = modelId,
                     protocolType = protocolType,
                     sceneIds = sceneIds,
+                    clearLegacyDefaultDebugBindings = useDefaultSceneIds,
                 )
             }.getOrElse { error ->
                 linkedMapOf<String, Any?>(
@@ -68,6 +71,7 @@ class DebugModelProviderConfigReceiver : BroadcastReceiver() {
         modelId: String,
         protocolType: String,
         sceneIds: List<String>,
+        clearLegacyDefaultDebugBindings: Boolean,
     ): Map<String, Any?> {
         require(baseUrl.isNotBlank()) { "baseUrl is empty" }
         require(apiKey.isNotBlank()) { "apiKey is empty" }
@@ -88,6 +92,11 @@ class DebugModelProviderConfigReceiver : BroadcastReceiver() {
                 modelId = modelId,
             )
         }
+        val clearedSceneIds = if (clearLegacyDefaultDebugBindings) {
+            clearLegacyDebugBindings(profile.id, sceneIds)
+        } else {
+            emptyList()
+        }
         seedFlutterManualModelId(context, profile.id, modelId)
         AgentAiCapabilityConfigSync.get(context).syncFileFromStores()
         AssistsCoreManager.dispatchAgentAiConfigChanged(
@@ -100,8 +109,19 @@ class DebugModelProviderConfigReceiver : BroadcastReceiver() {
             "profile" to profile.toSafePayload(),
             "modelId" to modelId,
             "configuredSceneIds" to sceneIds,
+            "clearedSceneIds" to clearedSceneIds,
             "sceneBindings" to SceneModelBindingStore.getBindingEntries().map { it.toPayload() },
         )
+    }
+
+    private fun clearLegacyDebugBindings(profileId: String, keepSceneIds: List<String>): List<String> {
+        val keep = keepSceneIds.map { it.trim() }.toSet()
+        return LEGACY_DEFAULT_DEBUG_SCENE_IDS
+            .filterNot { it in keep }
+            .filter { sceneId ->
+                SceneModelBindingStore.getBinding(sceneId)?.providerProfileId == profileId
+            }
+            .onEach(SceneModelBindingStore::clearBinding)
     }
 
     private fun seedFlutterManualModelId(context: Context, profileId: String, modelId: String) {
@@ -170,6 +190,9 @@ class DebugModelProviderConfigReceiver : BroadcastReceiver() {
         private const val DEFAULT_PROFILE_ID = "debug-runtime-provider"
         private const val DEFAULT_PROFILE_NAME = "Debug Runtime Provider"
         private val DEFAULT_SCENE_IDS = listOf(
+            "scene.vlm.operation.primary",
+        )
+        private val LEGACY_DEFAULT_DEBUG_SCENE_IDS = listOf(
             "scene.dispatch.model",
             "scene.vlm.operation.primary",
             "scene.compactor.context",

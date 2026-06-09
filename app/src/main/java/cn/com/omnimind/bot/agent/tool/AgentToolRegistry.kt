@@ -2,14 +2,11 @@ package cn.com.omnimind.bot.agent
 
 import android.content.Context
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
-import cn.com.omnimind.baselib.i18n.LocalizedText
-import cn.com.omnimind.baselib.i18n.PromptLocale
 import cn.com.omnimind.baselib.shizuku.PrivilegedActionPolicy
 import cn.com.omnimind.baselib.shizuku.ShizukuBackend
 import cn.com.omnimind.baselib.shizuku.ShizukuCapabilityManager
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.mcp.RemoteMcpDiscoveredServer
-import cn.com.omnimind.bot.mcp.RemoteMcpToolDescriptor
 import cn.com.omnimind.bot.omniflow.OobFunctionSkillProfile
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -17,7 +14,6 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
@@ -34,8 +30,7 @@ class AgentToolRegistry(
         val name: String,
         val displayName: String,
         val toolType: String,
-        val serverName: String? = null,
-        val remoteTool: RemoteMcpToolDescriptor? = null
+        val serverName: String? = null
     )
 
     private val tag = "AgentToolRegistry"
@@ -100,9 +95,6 @@ class AgentToolRegistry(
         }
         runtimeDefinitions.addAll(AgentToolDefinitions.memoryTools(locale))
         runtimeDefinitions.addAll(AgentToolDefinitions.subagentTools(locale))
-        discoveredServers.flatMap { it.tools }.forEach { tool ->
-            runtimeDefinitions.add(toDynamicMcpToolDefinition(tool, locale))
-        }
         runtimeDefinitions.addAll(
             OobFunctionSkillProfile.dynamicFunctionToolDefinitions(
                 context = context,
@@ -149,8 +141,7 @@ class AgentToolRegistry(
                 name = name,
                 displayName = displayName,
                 toolType = toolType,
-                serverName = serverName,
-                remoteTool = findRemoteTool(name, discoveredServers)
+                serverName = serverName
             )
             toolsByName[name] = ChatCompletionTool(
                 function = ChatCompletionFunction(
@@ -302,42 +293,6 @@ class AgentToolRegistry(
                 else -> "primitive"
             }
         }
-    }
-
-    private fun findRemoteTool(
-        toolName: String,
-        discoveredServers: List<RemoteMcpDiscoveredServer>
-    ): RemoteMcpToolDescriptor? {
-        return discoveredServers.asSequence()
-            .flatMap { it.tools.asSequence() }
-            .firstOrNull { it.encodedToolName == toolName }
-    }
-
-    private fun toDynamicMcpToolDefinition(
-        tool: RemoteMcpToolDescriptor,
-        locale: PromptLocale
-    ): JsonObject {
-        return AgentToolDefinitions.decorateToolDefinition(buildJsonObject {
-            put("type", JsonPrimitive("function"))
-            put("function", buildJsonObject {
-                put("name", JsonPrimitive(tool.encodedToolName))
-                put("displayName", JsonPrimitive(tool.toolName))
-                put("toolType", JsonPrimitive("mcp"))
-                put("serverName", JsonPrimitive(tool.serverName))
-                put(
-                    "description",
-                    JsonPrimitive(
-                        tool.description.ifBlank {
-                            LocalizedText(
-                                zhCN = "调用远端 MCP 工具。",
-                                enUS = "Call a remote MCP tool."
-                            ).resolve(locale)
-                        }
-                    )
-                )
-                put("parameters", AgentToolJson.mapToJsonElement(tool.inputSchema))
-            })
-        }, locale)
     }
 
     private companion object {

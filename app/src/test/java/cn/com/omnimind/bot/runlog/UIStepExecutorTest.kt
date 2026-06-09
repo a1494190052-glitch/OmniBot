@@ -203,57 +203,57 @@ class UIStepExecutorTest {
     }
 
     @Test
-    fun `wait for high confidence action polls observe until transfer is ready`() = runBlocking {
+    fun `wait for replay action ready polls observe until semantic target appears`() = runBlocking {
         val backend = FakeBackend(
             beforeXml = EMPTY_PAGE_XML,
             afterXml = EMPTY_PAGE_XML,
             preActionXmls = listOf(EMPTY_PAGE_XML, SOURCE_XML),
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val wait = UIStepExecutor.waitForHighConfidenceAction(
+            val wait = UIStepExecutor.waitForReplayActionReady(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
-                    "args" to mapOf("x" to 120, "y" to 240),
+                    "args" to mapOf("x" to 120, "y" to 240, "target_description" to "Open"),
                     "source_context" to mapOf(
                         "src_ctx" to mapOf("page" to SOURCE_XML),
                     ),
                 ),
-                timeoutMs = 100,
+                targetTimeoutMs = 100,
                 pollMs = 1,
             )
 
             assertEquals("ready", wait["status"])
             assertEquals(2, (wait["attempts"] as Number).toInt())
             assertEquals(true, wait["xml_ready"])
-            assertEquals(true, wait["action_transfer_applied"])
-            assertTrue((wait["confidence"] as Number).toFloat() >= 0.55f)
+            assertEquals("text_exact", wait["matched_by"])
+            assertEquals("open", wait["matched_value"])
             assertTrue(backend.currentXmlReadCount >= 2)
         }
     }
 
     @Test
-    fun `wait for high confidence action times out without failing`() = runBlocking {
+    fun `wait for replay action ready times out without failing`() = runBlocking {
         val backend = FakeBackend(
             beforeXml = EMPTY_PAGE_XML,
             afterXml = EMPTY_PAGE_XML,
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val wait = UIStepExecutor.waitForHighConfidenceAction(
+            val wait = UIStepExecutor.waitForReplayActionReady(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
-                    "args" to mapOf("x" to 120, "y" to 240),
+                    "args" to mapOf("x" to 120, "y" to 240, "target_description" to "Open"),
                     "source_context" to mapOf(
                         "src_ctx" to mapOf("page" to SOURCE_XML),
                     ),
                 ),
-                timeoutMs = 1,
+                targetTimeoutMs = 1,
                 pollMs = 1,
             )
 
             assertEquals("timeout", wait["status"])
-            assertEquals(false, wait["action_transfer_applied"])
+            assertEquals("semantic_target_not_visible", wait["reason"])
             assertTrue((wait["attempts"] as Number).toInt() >= 1)
         }
     }
@@ -576,6 +576,25 @@ class UIStepExecutorTest {
 
             assertEquals(true, result["success"])
             assertEquals(listOf("com.example:false"), backend.launchRequests)
+        }
+    }
+
+    @Test
+    fun `execute opens app with legacy packageName arg`() = runBlocking {
+        val backend = FakeBackend(beforeXml = SOURCE_XML, afterXml = AFTER_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = UIStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "open_app",
+                    "args" to mapOf("packageName" to "com.example.legacy"),
+                ),
+                stepId = "step_open_app_legacy_package",
+                stepTitle = "open app",
+            )
+
+            assertEquals(true, result["success"])
+            assertEquals(listOf("com.example.legacy:false"), backend.launchRequests)
         }
     }
 

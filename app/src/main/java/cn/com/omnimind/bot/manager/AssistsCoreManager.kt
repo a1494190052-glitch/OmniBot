@@ -15,6 +15,7 @@ import cn.com.omnimind.accessibility.service.AssistsService
 import cn.com.omnimind.assists.AgentVlmUiSession
 import cn.com.omnimind.assists.AssistsCore
 import cn.com.omnimind.assists.HumanTrajectoryLearningSession
+import cn.com.omnimind.assists.ManualRecordingRunLogRecovery
 import cn.com.omnimind.assists.OmniFlowUiSession
 import cn.com.omnimind.assists.task.vlmserver.ManualVlmRecordedAction
 import cn.com.omnimind.assists.api.bean.TaskParams
@@ -99,6 +100,8 @@ import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.SharedHelper
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
 import cn.com.omnimind.bot.omniflow.OobFunctionRepository
+import cn.com.omnimind.bot.omniflow.OobFunctionUpdateAgentOrchestrator
+import cn.com.omnimind.bot.omniflow.OobFunctionUpdateService
 import cn.com.omnimind.bot.runlog.OobActionCodec
 import cn.com.omnimind.bot.runlog.OobUdegNodeStore
 import cn.com.omnimind.bot.runlog.OobRunLogReplayService
@@ -1080,31 +1083,56 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     }
 
     private suspend fun consolidateIdleRunLogs() {
-        @Suppress("UNCHECKED_CAST")
-        val runs = (InternalRunLogStore.listRuns(context, limit = 50)["runs"]
-            as? List<Map<String, Any?>>) ?: return
+        val runs = InternalRunLogStore.listRunRecords(context, limit = 50)
 
-        // Seal any run that never received finishRun() — i.e. the process was killed
-        // or crashed before the finally block could execute. By the time this runs
-        // (2 min after the last active task), all runs from this session have already
-        // been closed by their own finally blocks, so any still-open run is an orphan.
+        // Seal any run that never received finishRun() because the process was killed
+        // or crashed before the finally block could execute. Human manual recordings
+        // persist action cards incrementally, so they can still be recovered when at
+        // least one replayable manual action card is already present.
         var sealed = 0
-        for (run in runs) {
-            val finishedAt = run["finished_at"]?.toString()?.trim().orEmpty()
-            if (finishedAt.isNotEmpty()) continue                    // already finished
-            val runId = run["run_id"]?.toString()?.trim() ?: continue
+        var recoveredHuman = 0
+        var emptyHuman = 0
+        for (record in runs) {
+            if (record.finishedAtMs != null) continue
+            val runId = record.runId.trim().takeIf { it.isNotEmpty() } ?: continue
             runCatching {
-                InternalRunLogStore.finishRun(
-                    context = context,
-                    runId = runId,
-                    success = false,
-                    doneReason = "orphaned"
-                )
-                sealed++
-            }.onFailure { OmniLog.w(TAG, "seal orphan run failed runId=$runId: ${it.message}") }
+                val recovery = ManualRecordingRunLogRecovery.decisionFor(record)
+                if (recovery != null) {
+                    if (recovery.diagnostics.isNotEmpty()) {
+                        InternalRunLogStore.updateDiagnostics(
+                            context = context,
+                            runId = runId,
+                            diagnostics = recovery.diagnostics
+                        )
+                    }
+                    InternalRunLogStore.finishRun(
+                        context = context,
+                        runId = runId,
+                        success = recovery.success,
+                        doneReason = recovery.doneReason,
+                        errorMessage = recovery.errorMessage
+                    )
+                    if (recovery.success) {
+                        recoveredHuman++
+                    } else {
+                        emptyHuman++
+                    }
+                } else {
+                    InternalRunLogStore.finishRun(
+                        context = context,
+                        runId = runId,
+                        success = false,
+                        doneReason = "orphaned"
+                    )
+                    sealed++
+                }
+            }.onFailure { OmniLog.w(TAG, "consolidate unfinished run failed runId=$runId: ${it.message}") }
         }
-        if (sealed > 0) {
-            OmniLog.i(TAG, "idle consolidation: sealed $sealed orphaned run log(s)")
+        if (sealed > 0 || recoveredHuman > 0 || emptyHuman > 0) {
+            OmniLog.i(
+                TAG,
+                "idle consolidation: sealed=$sealed recovered_human=$recoveredHuman empty_human=$emptyHuman"
+            )
         }
         OmniLog.d(TAG, "idle consolidation completed without implicit RunLog registration")
     }
@@ -3108,6 +3136,35 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         }
     }
 
+    fun updateOobFunction(call: MethodCall, result: MethodChannel.Result) {
+        mainJob.launch {
+            val args = normalizeMethodCallMap(call.arguments)
+            val payload = withContext(Dispatchers.IO) {
+                runCatching {
+                    val updateService = OobFunctionUpdateService(
+                        context = context,
+                        functionRepository = OobFunctionRepository(context)
+                    )
+                    OobFunctionUpdateAgentOrchestrator(updateService).updateFunction(args)
+                }.getOrElse { error ->
+                    linkedMapOf(
+                        "success" to false,
+                        "error_code" to "OOB_FUNCTION_UPDATE_FAILED",
+                        "error_message" to error.fullCauseMessage(),
+                        "error_type" to error.javaClass.name,
+                        "error_cause_chain" to error.causeChainPayload(),
+                        "function_kind" to "oob_reusable_function",
+                        "asset_state" to "native_local",
+                        "source" to "assists_core_channel"
+                    )
+                }
+            }
+            withContext(Dispatchers.Main) {
+                result.success(payload)
+            }
+        }
+    }
+
     fun convertInternalRunLogToOobFunction(call: MethodCall, result: MethodChannel.Result) {
         mainJob.launch {
             val args = normalizeMethodCallMap(call.arguments)
@@ -3610,13 +3667,40 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 "decision_path" to payload["decision_path"],
                 "recording_backend" to "manual_recording_control"
             ).filterValues { it != null },
-            "result" to payload,
+            "result" to compactManualUdegStateCaptureResult(payload),
             "_oob_meta" to linkedMapOf(
                 "mode" to "manual_operation_recording",
                 "recording_backend" to "manual_recording_control",
                 "replayable" to false,
                 "state_capture_kind" to "get_state_udeg_node",
             )
+        ).filterValues { it != null }
+    }
+
+    private fun compactManualUdegStateCaptureResult(payload: Map<String, Any?>): Map<String, Any?> {
+        val success = payload["success"] == true
+        return linkedMapOf<String, Any?>(
+            "success" to success,
+            "schema_version" to payload["schema_version"],
+            "kind" to payload["kind"],
+            "captured_at_ms" to payload["captured_at_ms"],
+            "node_id" to payload["node_id"],
+            "page_similarity" to payload["page_similarity"],
+            "first_seen" to payload["first_seen"],
+            "reason" to payload["reason"],
+            "package_name" to payload["package_name"],
+            "activity_name" to payload["activity_name"],
+            "xml_chars" to payload["xml_chars"],
+            "screenshot_present" to payload["screenshot_present"],
+            "screenshot_width" to payload["screenshot_width"],
+            "screenshot_height" to payload["screenshot_height"],
+            "state_artifact" to normalizeMethodCallMap(payload["state_artifact"])
+                .takeIf { it.isNotEmpty() },
+            "decision_path" to payload["decision_path"],
+            "error_code" to payload["error_code"],
+            "error_message" to payload["error_message"],
+            "error_type" to payload["error_type"],
+            "source" to payload["source"],
         ).filterValues { it != null }
     }
 

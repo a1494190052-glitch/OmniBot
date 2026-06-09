@@ -19,6 +19,7 @@ import cn.com.omnimind.accessibility.service.AssistsService
 import cn.com.omnimind.baselib.util.OmniLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -45,6 +46,8 @@ class OmniScreenshotAction(
         private const val FAST_SCREENSHOT_INTERVAL_MS = 200L
         private const val SAFE_SCREENSHOT_INTERVAL_MS = 420L
         private const val OVERLAY_HIDE_SETTLE_MS = 96L
+        private const val MAX_MERGED_SCREENSHOT_PIXELS = 12_000_000L
+        private const val MAX_SCREEN_BOUNDS_MULTIPLIER = 2
         @Volatile
         private var lastScreenshotCompletedAtMs: Long = 0L
         @Volatile
@@ -59,12 +62,23 @@ class OmniScreenshotAction(
      * 如果能过滤就过滤,如果过滤不了就截取默认截图
      */
     suspend fun captureScreenshotWithDefault(): Bitmap? {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            captureExcludingOverlaysV14()
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            captureDefaultScreenshot()
-        }else {
-            ScreenCaptureManager.getInstance().captureOnce()
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                captureExcludingOverlaysV14()
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                captureDefaultScreenshot()
+            } else {
+                ScreenCaptureManager.getInstance().captureOnce()
+            }
+        } catch (error: OutOfMemoryError) {
+            currentScreenshotIntervalMs = SAFE_SCREENSHOT_INTERVAL_MS
+            OmniLog.e(TAG, "captureScreenshotWithDefault OOM; screenshot skipped", error)
+            null
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            currentScreenshotIntervalMs = SAFE_SCREENSHOT_INTERVAL_MS
+            OmniLog.e(TAG, "captureScreenshotWithDefault failed; screenshot skipped", error)
+            null
         }
     }
 
@@ -76,7 +90,7 @@ class OmniScreenshotAction(
         screenshotMutex.lock()
         var delayUnlock = false // 成功时延迟解锁，失败时立即解锁
         try {
-            var lastError: Exception? = null
+            var lastError: Throwable? = null
             for (attemptIndex in 0..1) {
                 val elapsedSinceLastShot =
                     SystemClock.elapsedRealtime() - lastScreenshotCompletedAtMs
@@ -105,7 +119,8 @@ class OmniScreenshotAction(
                         delayUnlock = true
                         return result
                     }
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
+                    if (e is CancellationException) throw e
                     lastError = e
                 }
                 currentScreenshotIntervalMs = SAFE_SCREENSHOT_INTERVAL_MS
@@ -150,7 +165,7 @@ class OmniScreenshotAction(
         screenshotMutex.lock()
         var delayUnlock = false // 成功时延迟解锁，失败时立即解锁
         try {
-            var lastError: Exception? = null
+            var lastError: Throwable? = null
             for (attemptIndex in 0..1) {
                 val elapsedSinceLastShot =
                     SystemClock.elapsedRealtime() - lastScreenshotCompletedAtMs
@@ -187,10 +202,16 @@ class OmniScreenshotAction(
 
                                                     // 转换为软件 Bitmap 以便进行像素操作
                                                     val softwareBitmap = convertToSoftwareBitmap(bitmap)
-
-                                                    cont.resume(softwareBitmap)
-                                                } catch (e: Exception) {
-                                                    cont.resumeWithException(e)
+                                                    if (cont.isActive) {
+                                                        cont.resume(softwareBitmap)
+                                                    }
+                                                } catch (error: OutOfMemoryError) {
+                                                    currentScreenshotIntervalMs = SAFE_SCREENSHOT_INTERVAL_MS
+                                                    OmniLog.e(TAG, "captureDefaultScreenshot OOM while processing hardware buffer", error)
+                                                    if (cont.isActive) cont.resume(null)
+                                                } catch (error: Throwable) {
+                                                    if (error is CancellationException) throw error
+                                                    if (cont.isActive) cont.resumeWithException(error)
                                                 }
                                             }
                                         }
@@ -202,9 +223,11 @@ class OmniScreenshotAction(
                                         CoroutineScope(Dispatchers.Main).launch {
                                             showOverlay?.invoke()
                                         }
-                                        cont.resumeWithException(
-                                            RuntimeException("Screenshot failed with error code: $errorCode")
-                                        )
+                                        if (cont.isActive) {
+                                            cont.resumeWithException(
+                                                RuntimeException("Screenshot failed with error code: $errorCode")
+                                            )
+                                        }
                                     }
                                 },
                             )
@@ -212,7 +235,7 @@ class OmniScreenshotAction(
                     } ?: run {
                         currentScreenshotIntervalMs = SAFE_SCREENSHOT_INTERVAL_MS
                         // 超时处理
-                        OmniLog.e(TAG, "captureDefaultScreenshot timeout after 10 seconds")
+                        OmniLog.e(TAG, "captureDefaultScreenshot timeout after 2 seconds")
                         showOverlay?.invoke() // 恢复显示悬浮框
                         null
                     }
@@ -220,7 +243,8 @@ class OmniScreenshotAction(
                         delayUnlock = true
                         return result
                     }
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
+                    if (e is CancellationException) throw e
                     lastError = e
                 }
                 currentScreenshotIntervalMs = SAFE_SCREENSHOT_INTERVAL_MS
@@ -319,10 +343,22 @@ class OmniScreenshotAction(
         } else {
             0
         }
-        return Point(
-            maxOf(boundsWidth, fallbackMetrics.widthPixels, 1),
-            maxOf(boundsHeight, fallbackMetrics.heightPixels, 1)
-        )
+        val maxWidth = (fallbackMetrics.widthPixels * MAX_SCREEN_BOUNDS_MULTIPLIER).coerceAtLeast(1)
+        val maxHeight = (fallbackMetrics.heightPixels * MAX_SCREEN_BOUNDS_MULTIPLIER).coerceAtLeast(1)
+        val resolvedWidth = maxOf(boundsWidth, fallbackMetrics.widthPixels, 1)
+        val resolvedHeight = maxOf(boundsHeight, fallbackMetrics.heightPixels, 1)
+        if (resolvedWidth > maxWidth || resolvedHeight > maxHeight) {
+            OmniLog.w(
+                TAG,
+                "Ignoring outlier screenshot bounds ${resolvedWidth}x${resolvedHeight}; " +
+                    "fallback=${fallbackMetrics.widthPixels}x${fallbackMetrics.heightPixels}"
+            )
+            return Point(
+                maxOf(fallbackMetrics.widthPixels, 1),
+                maxOf(fallbackMetrics.heightPixels, 1)
+            )
+        }
+        return Point(resolvedWidth, resolvedHeight)
     }
 
     /**
@@ -336,6 +372,15 @@ class OmniScreenshotAction(
     ): Bitmap? {
         // 按图层排序
         val sortedWindows = windows.sortedBy { it.first.layer }
+        val requestedPixels = screenWidth.toLong() * screenHeight.toLong()
+        if (screenWidth <= 0 || screenHeight <= 0 || requestedPixels > MAX_MERGED_SCREENSHOT_PIXELS) {
+            OmniLog.w(
+                TAG,
+                "Skip merged screenshot canvas ${screenWidth}x$screenHeight pixels=$requestedPixels"
+            )
+            cleanupWindows(sortedWindows)
+            return null
+        }
 
         // 添加超时机制，避免永远阻塞（2秒超时）
         return withTimeoutOrNull(2000L) {
@@ -373,6 +418,17 @@ class OmniScreenshotAction(
                                             }
 
                                             val softwareBitmap = convertToSoftwareBitmap(bitmap)
+                                                ?: run {
+                                                    OmniLog.w(
+                                                        TAG,
+                                                        "Failed to convert hardware bitmap for window: $windowId"
+                                                    )
+                                                    synchronized(lock) {
+                                                        failureCount++
+                                                    }
+                                                    checkAndComplete()
+                                                    return@launch
+                                                }
                                             val bounds = Rect()
                                             window.getBoundsInScreen(bounds)
 
@@ -387,7 +443,18 @@ class OmniScreenshotAction(
                                             )
                                             checkAndComplete()
                                         }
-                                    } catch (e: Exception) {
+                                    } catch (error: OutOfMemoryError) {
+                                        OmniLog.e(
+                                            TAG,
+                                            "OOM processing screenshot for window: $windowId",
+                                            error
+                                        )
+                                        synchronized(lock) {
+                                            failureCount++
+                                        }
+                                        checkAndComplete()
+                                    } catch (e: Throwable) {
+                                        if (e is CancellationException) throw e
                                         OmniLog.e(
                                             TAG,
                                             "Error processing screenshot for window: $windowId",
@@ -403,30 +470,49 @@ class OmniScreenshotAction(
                             }
 
                             override fun onFailure(errorCode: Int) {
-                                // 错误码 6 表示安全窗口（FLAG_SECURE），无法截图，这是正常的
-                                // 记录日志但继续处理其他窗口
-                                val bounds = Rect()
-                                window.getBoundsInScreen(bounds)
-                                when (errorCode) {
-                                    6 -> {
-                                        OmniLog.d(
-                                            TAG,
-                                            "Window $windowId is secure (FLAG_SECURE), skipping. bounds=$bounds"
-                                        )
-                                    }
-
-                                    else -> {
+                                try {
+                                    // 错误码 6 表示安全窗口（FLAG_SECURE），无法截图，这是正常的
+                                    // 记录日志但继续处理其他窗口。回调可能晚于超时清理到达，
+                                    // 因此读取 bounds 也要容错。
+                                    val bounds = Rect()
+                                    runCatching {
+                                        window.getBoundsInScreen(bounds)
+                                    }.onFailure { error ->
                                         OmniLog.w(
                                             TAG,
-                                            "Failed to capture window: id=$windowId, errorCode=$errorCode, bounds=$bounds"
+                                            "Failed to read bounds for failed window: id=$windowId, " +
+                                                "error=${error.message}"
                                         )
                                     }
+                                    when (errorCode) {
+                                        6 -> {
+                                            OmniLog.d(
+                                                TAG,
+                                                "Window $windowId is secure (FLAG_SECURE), skipping. bounds=$bounds"
+                                            )
+                                        }
+
+                                        else -> {
+                                            OmniLog.w(
+                                                TAG,
+                                                "Failed to capture window: id=$windowId, errorCode=$errorCode, bounds=$bounds"
+                                            )
+                                        }
+                                    }
+                                } catch (error: Throwable) {
+                                    if (error is CancellationException) throw error
+                                    OmniLog.w(
+                                        TAG,
+                                        "Screenshot failure callback handling failed for window: $windowId, " +
+                                            "error=${error.message}"
+                                    )
+                                } finally {
+                                    // 原子性递增计数器
+                                    synchronized(lock) {
+                                        failureCount++
+                                    }
+                                    checkAndComplete()
                                 }
-                                // 原子性递增计数器
-                                synchronized(lock) {
-                                    failureCount++
-                                }
-                                checkAndComplete()
                             }
 
                             /**
@@ -459,12 +545,18 @@ class OmniScreenshotAction(
                                                     TAG,
                                                     "Screenshot merge completed: success=$successCount, failed=$failureCount"
                                                 )
-                                                cont.resume(mergedBitmap)
-                                            } catch (e: Exception) {
+                                                if (cont.isActive) cont.resume(mergedBitmap)
+                                            } catch (error: OutOfMemoryError) {
+                                                OmniLog.e(TAG, "OOM while merging screenshots", error)
+                                                cleanupWindows(sortedWindows)
+                                                cleanupBitmaps(screenshots.values.map { it.first })
+                                                if (cont.isActive) cont.resume(null)
+                                            } catch (e: Throwable) {
+                                                if (e is CancellationException) throw e
                                                 OmniLog.e(TAG, "Failed to merge screenshots", e)
                                                 cleanupWindows(sortedWindows)
                                                 cleanupBitmaps(screenshots.values.map { it.first })
-                                                cont.resume(null)
+                                                if (cont.isActive) cont.resume(null)
                                             }
                                         } else {
                                             // 所有窗口都失败了
@@ -473,7 +565,7 @@ class OmniScreenshotAction(
                                                 "All windows failed to capture: total=$totalWindows"
                                             )
                                             cleanupWindows(sortedWindows)
-                                            cont.resume(null)
+                                            if (cont.isActive) cont.resume(null)
                                         }
                                     }
                                 }
@@ -484,7 +576,7 @@ class OmniScreenshotAction(
             }
         } ?: run {
             // 超时处理
-            OmniLog.e(TAG, "captureAndMergeWindows timeout after 10 seconds")
+            OmniLog.e(TAG, "captureAndMergeWindows timeout after 2 seconds")
             cleanupWindows(sortedWindows)
             null
         }
@@ -564,7 +656,7 @@ class OmniScreenshotAction(
                                         pureTransparentRect.width(),
                                         pureTransparentRect.height()
                                     )
-                                } catch (e: Exception) {
+                                } catch (e: Throwable) {
                                     OmniLog.w(TAG, "trim pure transparent failed: ${e.message}")
                                     null
                                 }
@@ -588,7 +680,7 @@ class OmniScreenshotAction(
                             OmniLog.d(TAG, "crp[$cropLeft,$cropTop,$cropWidth,$cropHeight]")
                             val croppedBitmap = try {
                                 Bitmap.createBitmap(workBitmap, cropLeft, cropTop, cropWidth, cropHeight)
-                            } catch (e: Exception) {
+                            } catch (e: Throwable) {
                                 OmniLog.e(TAG, "Failed to crop bitmap for window: id=$windowId", e)
                                 canvas.drawBitmap(workBitmap, bounds.left.toFloat(), bounds.top.toFloat(), null)
                                 null
@@ -626,14 +718,17 @@ class OmniScreenshotAction(
                             )
                         }
                     }
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     OmniLog.e(TAG, "Failed to draw bitmap for window: id=$windowId", e)
                     // 继续处理其他窗口
                 }
             }
 
             mergedBitmap
-        } catch (e: Exception) {
+        } catch (error: OutOfMemoryError) {
+            OmniLog.e(TAG, "OOM creating merged screenshot bitmap", error)
+            null
+        } catch (e: Throwable) {
             OmniLog.e(TAG, "Failed to merge screenshots", e)
             null
         }
@@ -691,11 +786,19 @@ class OmniScreenshotAction(
     /**
      * 转换硬件位图为软件位图
      */
-    private fun convertToSoftwareBitmap(bitmap: Bitmap): Bitmap {
-        return if (bitmap.config == Bitmap.Config.HARDWARE) {
-            bitmap.copy(Bitmap.Config.ARGB_8888, false)
-        } else {
-            bitmap
+    private fun convertToSoftwareBitmap(bitmap: Bitmap): Bitmap? {
+        return try {
+            if (bitmap.config == Bitmap.Config.HARDWARE) {
+                bitmap.copy(Bitmap.Config.ARGB_8888, false)
+            } else {
+                bitmap
+            }
+        } catch (error: OutOfMemoryError) {
+            OmniLog.e(TAG, "OOM converting hardware bitmap to software bitmap", error)
+            null
+        } catch (error: Throwable) {
+            OmniLog.e(TAG, "Failed converting hardware bitmap to software bitmap", error)
+            null
         }
     }
 

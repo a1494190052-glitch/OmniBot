@@ -201,7 +201,7 @@ void main() {
     final steps = stepsFrom(spec);
     expect(steps, hasLength(1));
     expect(steps.single['tool'], 'input_text');
-    expect((steps.single['args'] as Map)['content'], 'hello');
+    expect((steps.single['args'] as Map)['text'], 'hello');
     expect(steps.single['source_indices'], [0, 1]);
 
     final annotation = steps.single['cleanup_annotation'] as Map;
@@ -687,9 +687,18 @@ void main() {
     expect(englishPrompt, contains('Reusable Function:'));
     expect(englishPrompt, contains('Reusable Function ID:'));
     expect(englishPrompt, contains('Reusable Function JSON:'));
-    expect(englishPrompt, isNot(contains('Function:')));
-    expect(englishPrompt, isNot(contains('Function ID:')));
-    expect(englishPrompt, isNot(contains('Function JSON:')));
+    expect(
+      englishPrompt,
+      isNot(matches(RegExp(r'^Function:', multiLine: true))),
+    );
+    expect(
+      englishPrompt,
+      isNot(matches(RegExp(r'^Function ID:', multiLine: true))),
+    );
+    expect(
+      englishPrompt,
+      isNot(matches(RegExp(r'^Function JSON:', multiLine: true))),
+    );
     expect(zhPrompt, contains('复用指令：'));
     expect(zhPrompt, contains('复用指令 ID：'));
     expect(zhPrompt, contains('复用指令 JSON:'));
@@ -946,7 +955,7 @@ Actual output:
                 'type': 'string',
                 'description': 'Contact name to enter at runtime',
                 'default': '妈妈',
-                'bindings': [r'$.execution.steps[0].args.content'],
+                'bindings': [r'$.execution.steps[0].args.text'],
               },
               {
                 'name': 'phone_number',
@@ -992,7 +1001,7 @@ Actual output:
           }, fallback);
 
       final steps = stepsFrom(enhanced);
-      expect((steps[0]['args'] as Map)['content'], '妈妈');
+      expect((steps[0]['args'] as Map)['text'], '妈妈');
       expect((steps[1]['args'] as Map)['text'], '13800138000');
 
       final parameters = (enhanced['parameters'] as List).cast<Map>();
@@ -1003,10 +1012,7 @@ Actual output:
         (item) => item['name'] == 'phone_number',
       );
       expect(contact['default'], '妈妈');
-      expect(
-        contact['bindings'],
-        contains(r'$.execution.steps[0].args.content'),
-      );
+      expect(contact['bindings'], contains(r'$.execution.steps[0].args.text'));
       expect(phone['default'], '13800138000');
       expect(phone['bindings'], contains(r'$.execution.steps[1].args.text'));
 
@@ -1064,6 +1070,58 @@ Actual output:
       expect(
         searchQuery['bindings'],
         contains(r'$.execution.steps[2].args.text'),
+      );
+    },
+  );
+
+  test(
+    'agent enhancement can bind click target context into one runtime parameter',
+    () async {
+      final fallback = RunLogReusableFunctionConverter.buildLocalFunctionJson(
+        runId: 'run-twitter-follow-user',
+        title: 'Follow user',
+        payload: const {'goal': 'Follow Bill Gates'},
+        cards: [
+          card('click', const {'target_description': 'Search'}),
+          card('input_text', const {'text': 'Bill Gates'}),
+          card('click', const {'target_description': 'Bill Gates'}),
+        ],
+        useEnglish: true,
+      );
+
+      final enhanced =
+          await RunLogReusableFunctionConverter.applyLabelEnhancementAsync({
+            'parameters': [
+              {
+                'name': 'user_name',
+                'type': 'string',
+                'description': 'User name to search and select',
+                'default': 'Bill Gates',
+                'bindings': [
+                  r'$.execution.steps[1].args.text',
+                  r'$.execution.steps[2].args.target_description',
+                ],
+              },
+            ],
+          }, fallback);
+
+      final parameters = (enhanced['parameters'] as List).cast<Map>();
+      final userName = parameters.firstWhere(
+        (item) => item['name'] == 'user_name',
+      );
+      expect(userName['bindings'], [
+        r'$.execution.steps[1].args.text',
+        r'$.execution.steps[2].args.target_description',
+      ]);
+      expect(
+        parameters.any((item) {
+          final bindings = item['bindings'];
+          return bindings is List &&
+              bindings.contains(
+                r'$.execution.steps[0].args.target_description',
+              );
+        }),
+        isFalse,
       );
     },
   );
@@ -1429,10 +1487,4 @@ Actual output:
 
 Set<String> _stringSet(Object? value) {
   return (value as List).map((item) => item.toString()).toSet();
-}
-
-Map<String, String> _stringMap(Object? value) {
-  return (value as Map).map(
-    (key, item) => MapEntry(key.toString(), item.toString()),
-  );
 }

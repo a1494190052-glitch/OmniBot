@@ -20,6 +20,8 @@ import androidx.core.graphics.createBitmap
 import BaseApplication
 import cn.com.omnimind.baselib.permission.ServiceRequest
 import cn.com.omnimind.accessibility.service.MediaProjectionForegroundService
+import cn.com.omnimind.baselib.util.OmniLog
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -36,6 +38,7 @@ import kotlin.coroutines.suspendCoroutine
 class ScreenCaptureManager private constructor() {
 
     companion object {
+        private const val TAG = "ScreenCaptureManager"
         private const val VIRTUAL_DISPLAY_NAME = "screen_capture"
         const val REQUEST_MEDIA_PROJECTION = 1001
 
@@ -152,91 +155,151 @@ class ScreenCaptureManager private constructor() {
     suspend fun captureOnce(): Bitmap? {
         val projection = mediaProjection ?: return null
         return screenshotMutex.withLock {
-            withTimeoutOrNull(2000L) {
-                suspendCancellableCoroutine<Bitmap?> { cont ->
-                    val metrics = resolveDisplayMetrics()
-                    val width = metrics.widthPixels
-                    val height = metrics.heightPixels
-                    val densityDpi = metrics.densityDpi
+            try {
+                withTimeoutOrNull(2000L) {
+                    suspendCancellableCoroutine<Bitmap?> { cont ->
+                        var pollJob: Job? = null
+                        try {
+                            val metrics = resolveDisplayMetrics()
+                            val width = metrics.widthPixels.coerceAtLeast(1)
+                            val height = metrics.heightPixels.coerceAtLeast(1)
+                            val densityDpi = metrics.densityDpi.coerceAtLeast(1)
 
-                    imageReader?.close()
-                    imageReader = ImageReader.newInstance(
-                        width,
-                        height,
-                        PixelFormat.RGBA_8888,
-                        3
-                    )
+                            imageReader?.close()
+                            imageReader = ImageReader.newInstance(
+                                width,
+                                height,
+                                PixelFormat.RGBA_8888,
+                                3
+                            )
 
-                    virtualDisplay?.release()
-                    virtualDisplay = projection.createVirtualDisplay(
-                        VIRTUAL_DISPLAY_NAME,
-                        width,
-                        height,
-                        densityDpi,
-                        DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                        imageReader?.surface,
-                        null,
-                        null
-                    )
+                            virtualDisplay?.release()
+                            virtualDisplay = projection.createVirtualDisplay(
+                                VIRTUAL_DISPLAY_NAME,
+                                width,
+                                height,
+                                densityDpi,
+                                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                                imageReader?.surface,
+                                null,
+                                null
+                            )
 
-                    var pollJob: Job? = null
-                    cont.invokeOnCancellation {
-                        pollJob?.cancel()
-                        virtualDisplay?.release()
-                        virtualDisplay = null
-                    }
+                            cont.invokeOnCancellation {
+                                pollJob?.cancel()
+                                cleanupCaptureSurfaces()
+                            }
 
-                    pollJob = CoroutineScope(Dispatchers.Default).launch {
-                        delay(150)
-                        var elapsed = 150L
-                        val pollInterval = 80L
-                        val timeout = 2000L
-                        while (elapsed < timeout && !cont.isCancelled) {
-                            delay(pollInterval)
-                            elapsed += pollInterval
-                            if (!cont.isCancelled) {
-                                val image = try {
-                                    imageReader?.acquireLatestImage()
-                                } catch (e: Exception) {
-                                    null
-                                }
-                                if (image != null) {
-                                    var bitmap: Bitmap? = null
-                                    try {
-                                        val plane = image.planes[0]
-                                        val buffer = plane.buffer
-                                        val pixelStride = plane.pixelStride
-                                        val rowStride = plane.rowStride
-                                        val rowPadding = rowStride - pixelStride * width
-                                        val rowPixels = width + rowPadding / pixelStride
-                                        bitmap = createBitmap(
-                                            rowPixels,
-                                            height,
-                                            Bitmap.Config.ARGB_8888
-                                        )
-                                        bitmap.copyPixelsFromBuffer(buffer)
-                                        if (rowPixels != width) {
-                                            bitmap = Bitmap.createBitmap(bitmap!!, 0, 0, width, height)
+                            pollJob = CoroutineScope(Dispatchers.Default).launch {
+                                delay(150)
+                                var elapsed = 150L
+                                val pollInterval = 80L
+                                val timeout = 2000L
+                                while (elapsed < timeout && !cont.isCancelled) {
+                                    delay(pollInterval)
+                                    elapsed += pollInterval
+                                    if (!cont.isCancelled) {
+                                        val image = try {
+                                            imageReader?.acquireLatestImage()
+                                        } catch (error: Throwable) {
+                                            if (error is CancellationException) throw error
+                                            OmniLog.w(TAG, "MediaProjection acquireLatestImage failed: ${error.message}")
+                                            null
                                         }
-                                    } catch (e: Exception) {
-                                        e.printStackTrace()
-                                    } finally {
-                                        image.close()
+                                        if (image != null) {
+                                            val bitmap = try {
+                                                imageToBitmap(image, width, height)
+                                            } catch (error: OutOfMemoryError) {
+                                                OmniLog.e(TAG, "MediaProjection bitmap OOM; screenshot skipped", error)
+                                                null
+                                            } catch (error: Throwable) {
+                                                if (error is CancellationException) throw error
+                                                OmniLog.e(TAG, "MediaProjection bitmap failed; screenshot skipped", error)
+                                                null
+                                            } finally {
+                                                runCatching { image.close() }
+                                            }
+                                            cleanupCaptureSurfaces()
+                                            if (cont.isActive) {
+                                                cont.resume(bitmap)
+                                            }
+                                            return@launch
+                                        }
                                     }
-                                    virtualDisplay?.release()
-                                    virtualDisplay = null
-                                    cont.resume(bitmap)
-                                    return@launch
+                                }
+                                cleanupCaptureSurfaces()
+                                if (cont.isActive) {
+                                    cont.resume(null)
                                 }
                             }
+                        } catch (error: OutOfMemoryError) {
+                            pollJob?.cancel()
+                            cleanupCaptureSurfaces()
+                            OmniLog.e(TAG, "MediaProjection setup OOM; screenshot skipped", error)
+                            if (cont.isActive) {
+                                cont.resume(null)
+                            }
+                        } catch (error: Throwable) {
+                            if (error is CancellationException) throw error
+                            pollJob?.cancel()
+                            cleanupCaptureSurfaces()
+                            OmniLog.e(TAG, "MediaProjection setup failed; screenshot skipped", error)
+                            if (cont.isActive) {
+                                cont.resume(null)
+                            }
                         }
-                        virtualDisplay?.release()
-                        virtualDisplay = null
-                        cont.resume(null)
                     }
                 }
+            } catch (error: OutOfMemoryError) {
+                cleanupCaptureSurfaces()
+                OmniLog.e(TAG, "MediaProjection capture OOM; screenshot skipped", error)
+                null
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                cleanupCaptureSurfaces()
+                OmniLog.e(TAG, "MediaProjection capture failed; screenshot skipped", error)
+                null
             }
         }
+    }
+
+    private fun imageToBitmap(
+        image: android.media.Image,
+        width: Int,
+        height: Int
+    ): Bitmap? {
+        var paddedBitmap: Bitmap? = null
+        return try {
+            val plane = image.planes.firstOrNull() ?: return null
+            val buffer = plane.buffer
+            val pixelStride = plane.pixelStride.takeIf { it > 0 } ?: return null
+            val rowStride = plane.rowStride
+            val rowPadding = rowStride - pixelStride * width
+            val rowPixels = (width + rowPadding / pixelStride).coerceAtLeast(width)
+            paddedBitmap = createBitmap(
+                rowPixels,
+                height,
+                Bitmap.Config.ARGB_8888
+            )
+            paddedBitmap.copyPixelsFromBuffer(buffer)
+            if (rowPixels == width) {
+                paddedBitmap
+            } else {
+                Bitmap.createBitmap(paddedBitmap, 0, 0, width, height)
+            }
+        } finally {
+            val bitmap = paddedBitmap
+            if (bitmap != null && bitmap.width != width && !bitmap.isRecycled) {
+                bitmap.recycle()
+            }
+        }
+    }
+
+    private fun cleanupCaptureSurfaces() {
+        runCatching { virtualDisplay?.release() }
+        virtualDisplay = null
+        runCatching { imageReader?.close() }
+        imageReader = null
     }
 
     private fun resolveDisplayMetrics(): DisplayMetrics {

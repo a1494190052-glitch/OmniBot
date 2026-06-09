@@ -42,6 +42,23 @@
             </intent-filter>
         </receiver>
         <receiver
+            android:name=".debug.DebugOobFunctionUpdateReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="cn.com.omnimind.bot.debug.UPDATE_OOB_FUNCTION" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".debug.DebugOobFunctionImportExportReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="cn.com.omnimind.bot.debug.IMPORT_OOB_FUNCTION" />
+                <action android:name="cn.com.omnimind.bot.debug.EXPORT_OOB_FUNCTION" />
+            </intent-filter>
+        </receiver>
+        <receiver
             android:name=".debug.DebugOobFunctionSegmentReceiver"
             android:enabled="true"
             android:exported="true">

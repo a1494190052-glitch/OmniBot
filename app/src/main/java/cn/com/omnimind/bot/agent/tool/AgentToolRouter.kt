@@ -6,7 +6,6 @@ import cn.com.omnimind.bot.agent.tool.handlers.ContextToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.FileToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.ImageGenerationToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.ImagePickerToolHandler
-import cn.com.omnimind.bot.agent.tool.handlers.McpToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.MemoryLoadToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.MemoryToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.PrivilegedToolHandler
@@ -63,8 +62,6 @@ class AgentToolRouter(
         SubagentToolHandler(helper, subagentDispatcher)
     )
 
-    private val mcpFallback = McpToolHandler(helper)
-
     private val oobFunctionHandler = OobFunctionToolHandler(context, helper)
 
     init {
@@ -93,11 +90,8 @@ class AgentToolRouter(
         val toolName = toolCall.function.name
         val handler = handlerMap[toolName]
             ?: if (oobFunctionHandler.canHandle(toolName)) oobFunctionHandler else null
-        return if (handler != null) {
-            handler.execute(toolCall, args, runtimeDescriptor, env, callback, toolHandle)
-        } else {
-            mcpFallback.execute(toolCall, args, runtimeDescriptor, env, callback, toolHandle)
-        }
+        return handler?.execute(toolCall, args, runtimeDescriptor, env, callback, toolHandle)
+            ?: ToolExecutionResult.Error(toolName, "Unknown tool: $toolName")
     }
 
     override suspend fun dispose() {

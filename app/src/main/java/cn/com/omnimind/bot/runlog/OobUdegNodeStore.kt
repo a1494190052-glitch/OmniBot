@@ -1628,12 +1628,7 @@ class OobUdegNodeStore(
         mapArg(step["source_context"]).ifEmpty { mapArg(mapArg(step["args"])["source_context"]) }
 
     private fun pageXmlFromContext(context: Map<String, Any?>): String =
-        firstNonBlank(
-            context["page"],
-            context["xml"],
-            context["observation_xml"],
-            context["observationXml"],
-        )
+        RunLogXmlArtifacts.pageXmlFromContext(context)
 
     private fun targetEvidence(actionSummary: Map<String, Any?>): Map<String, Any?> =
         linkedMapOf(
@@ -1954,21 +1949,13 @@ class OobUdegNodeStore(
     }
 
     private fun extractSourcePage(functionSpec: Map<String, Any?>): SourcePage? {
-        val execution = mapArg(functionSpec["execution"])
-        listArg(execution["steps"]).forEach { raw ->
-            val step = mapArg(raw)
-            val sourceContext = mapArg(step["source_context"])
+        materializedSteps(functionSpec).forEach { step ->
+            val sourceContext = sourceContextForStep(step)
             val srcCtx = mapArg(sourceContext["src_ctx"])
                 .ifEmpty { mapArg(sourceContext["source_context"]) }
                 .ifEmpty { mapArg(sourceContext["page_context"]) }
-            val page = firstNonBlank(
-                srcCtx["page"],
-                srcCtx["xml"],
-                srcCtx["observation_xml"],
-                sourceContext["page"],
-                sourceContext["xml"],
-                sourceContext["observation_xml"],
-            )
+            val page = pageXmlFromContext(srcCtx)
+                .ifBlank { pageXmlFromContext(sourceContext) }
             if (page.isNotBlank()) {
                 return SourcePage(
                     pageXml = page,
