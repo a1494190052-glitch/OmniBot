@@ -1247,18 +1247,37 @@ object UIStepExecutor {
         attempted: StepArgsResult,
         initialArgs: Map<String, Any?>,
     ): StepArgsResult {
-        return if (transferRequested && attempted.meta["applied"] == false) {
-            StepArgsResult(
-                args = initialArgs,
-                meta = attempted.meta + mapOf(
-                    "fallback_replay_mode" to "recorded_action_replay",
-                    "recorded_action_args_used" to true,
-                )
-            )
-        } else {
-            attempted
+        if (!transferRequested || attempted.meta["applied"] != false) {
+            return attempted
         }
+        val reason = attempted.meta["reason"]?.toString().orEmpty()
+        if (isHardActionTransferFailure(reason)) {
+            throw ExecutionException(
+                errorCode = "OOB_FUNCTION_SOURCE_NOT_REACHED",
+                message = "action transfer could not match the recorded source page: $reason",
+                diagnostics = attempted.meta + mapOf(
+                    "initial_args" to initialArgs,
+                    "recorded_action_args_used" to false,
+                ),
+            )
+        }
+        return StepArgsResult(
+            args = initialArgs,
+            meta = attempted.meta + mapOf(
+                "fallback_replay_mode" to "recorded_action_replay",
+                "recorded_action_args_used" to true,
+            )
+        )
     }
+
+    private fun isHardActionTransferFailure(reason: String): Boolean =
+        reason in setOf(
+            "no_anchor_match",
+            "low_confidence_anchor_projection",
+            "invalid_source_page",
+            "invalid_current_page",
+            "missing_scroll_source_element",
+        )
 
     private fun transferExceptionMeta(e: Exception, extraMeta: Map<String, Any?> = emptyMap()): Map<String, Any?> =
         mapOf(
@@ -1354,6 +1373,7 @@ object UIStepExecutor {
     ): StepArgsResult {
         val rawArgs = step["args"]
         val args = OobActionCodec.argsForStep(step)
+        val coordinateReplayControls = coordinateReplayControlArgs(OobActionCodec.mapArg(rawArgs))
         if (rawArgs !is Map<*, *> && args.isEmpty()) return StepArgsResult(rawArgs)
         if (!shouldUseCoordinateHook(step)) {
             return StepArgsResult(args)
@@ -1387,8 +1407,20 @@ object UIStepExecutor {
         return when (tool) {
             OobActionCodec.ACTION_CLICK,
             OobActionCodec.ACTION_LONG_PRESS,
-            OobActionCodec.ACTION_INPUT_TEXT -> remapPointActionArgs(tool, args, sourceXml, currentXml)
-            OobActionCodec.ACTION_SWIPE -> remapSwipeActionArgs(tool, args, sourceXml, currentXml)
+            OobActionCodec.ACTION_INPUT_TEXT -> remapPointActionArgs(
+                tool,
+                args,
+                sourceXml,
+                currentXml,
+                coordinateReplayControls,
+            )
+            OobActionCodec.ACTION_SWIPE -> remapSwipeActionArgs(
+                tool,
+                args,
+                sourceXml,
+                currentXml,
+                coordinateReplayControls,
+            )
             else -> StepArgsResult(args)
         }
     }
@@ -2721,6 +2753,7 @@ object UIStepExecutor {
         args: Map<String, Any?>,
         sourceXml: String,
         currentXml: String,
+        coordinateReplayControls: Map<String, Any?>,
     ): StepArgsResult {
         val x = floatArg(args["x"]) ?: return StepArgsResult(
             args,
@@ -2744,7 +2777,7 @@ object UIStepExecutor {
             null
         }
             ?: remapPointWithinPages(sourcePage, targetPage, x, y)
-            ?: if (coordinateReplayAllowed(args)) {
+            ?: if (coordinateReplayAllowed(args, coordinateReplayControls)) {
                 remapPointWithinRoots(sourcePage, targetPage, x, y)
             } else {
                 null
@@ -2890,6 +2923,7 @@ object UIStepExecutor {
         args: Map<String, Any?>,
         sourceXml: String,
         currentXml: String,
+        coordinateReplayControls: Map<String, Any?>,
     ): StepArgsResult {
         val x1 = floatArg(args["x1"]) ?: return StepArgsResult(
             args,
@@ -2922,7 +2956,7 @@ object UIStepExecutor {
                 meta = mapOf("applied" to false, "reason" to "missing_scroll_source_element", "algorithm" to "anchor_projection")
             )
         val targetMatch = matchTargetNode(sourcePage, targetPage, sourceContainer)
-            ?: return if (coordinateReplayAllowed(args)) {
+            ?: return if (coordinateReplayAllowed(args, coordinateReplayControls)) {
                 rootProjectionFallbackForScroll(tool, args, sourceContainer, sourcePage.rootBounds, targetPage.rootBounds)
             } else {
                 StepArgsResult(
@@ -2986,13 +3020,34 @@ object UIStepExecutor {
         )
     }
 
-    private fun coordinateReplayAllowed(args: Map<String, Any?>): Boolean =
+    private fun coordinateReplayAllowed(
+        args: Map<String, Any?>,
+        coordinateReplayControls: Map<String, Any?> = emptyMap(),
+    ): Boolean =
         boolArg(args["coordinate_replay_allowed"]) ||
             boolArg(args["coordinateReplayAllowed"]) ||
             boolArg(args["raw_coordinate_replay_allowed"]) ||
             boolArg(args["allow_raw_coordinate_replay"]) ||
+            boolArg(coordinateReplayControls["coordinate_replay_allowed"]) ||
+            boolArg(coordinateReplayControls["coordinateReplayAllowed"]) ||
+            boolArg(coordinateReplayControls["raw_coordinate_replay_allowed"]) ||
+            boolArg(coordinateReplayControls["allow_raw_coordinate_replay"]) ||
             stringArg(args, "projection_mode", "projectionMode")
+                ?.equals("fixed", ignoreCase = true) == true ||
+            stringArg(coordinateReplayControls, "projection_mode", "projectionMode")
                 ?.equals("fixed", ignoreCase = true) == true
+
+    private fun coordinateReplayControlArgs(rawArgs: Map<String, Any?>): Map<String, Any?> =
+        listOf(
+            "coordinate_replay_allowed",
+            "coordinateReplayAllowed",
+            "raw_coordinate_replay_allowed",
+            "allow_raw_coordinate_replay",
+            "projection_mode",
+            "projectionMode",
+        ).mapNotNull { key ->
+            rawArgs[key]?.let { key to it }
+        }.toMap()
 
     private fun rootProjectionFallbackForScroll(
         tool: String,

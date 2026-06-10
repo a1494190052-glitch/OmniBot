@@ -875,7 +875,11 @@ class UIStepExecutorTest {
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
-                    "args" to mapOf("x" to 360, "y" to 749),
+                    "args" to mapOf(
+                        "x" to 360,
+                        "y" to 749,
+                        "coordinate_replay_allowed" to true,
+                    ),
                     "source_context" to mapOf(
                         "src_ctx" to mapOf("page" to SETTINGS_XML),
                         "dst_ctx" to mapOf(
@@ -1061,58 +1065,66 @@ class UIStepExecutorTest {
     }
 
     @Test
-    fun `target description lookup does not match resource id contains`() = runBlocking {
+    fun `target description lookup miss does not replay stale coordinates`() = runBlocking {
         val backend = FakeBackend(beforeXml = TIMER_SETUP_XML, afterXml = TIMER_SETUP_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = UIStepExecutor.execute(
-                step = mapOf(
-                    "executor" to "omniflow",
-                    "tool" to "click",
-                    "coordinate_hook" to "omniflow",
-                    "args" to mapOf(
-                        "target_description" to "Timer",
-                        "x" to 360f,
-                        "y" to 1128.96f,
+            val error = try {
+                UIStepExecutor.execute(
+                    step = mapOf(
+                        "executor" to "omniflow",
+                        "tool" to "click",
+                        "coordinate_hook" to "omniflow",
+                        "args" to mapOf(
+                            "target_description" to "Timer",
+                            "x" to 360f,
+                            "y" to 1128.96f,
+                        ),
+                        "source_context" to mapOf(
+                            "src_ctx" to mapOf("page" to STALE_DIALOG_XML),
+                        ),
                     ),
-                    "source_context" to mapOf(
-                        "src_ctx" to mapOf("page" to STALE_DIALOG_XML),
-                    ),
-                ),
-                stepId = "step_timer_tab",
-                stepTitle = "click timer tab",
-            )
+                    stepId = "step_timer_tab",
+                    stepTitle = "click timer tab",
+                )
+                null
+            } catch (e: UIStepExecutor.ExecutionException) {
+                e
+            }
 
-            assertEquals(true, result["success"])
-            assertEquals("recorded_action_replay", result["replay_mode"])
-            val click = backend.clickPoints.single()
-            assertEquals(360f, click.first, 0.01f)
-            assertEquals(1128.96f, click.second, 0.01f)
+            require(error != null) { "expected OOB_FUNCTION_SOURCE_NOT_REACHED" }
+            assertEquals("OOB_FUNCTION_SOURCE_NOT_REACHED", error.errorCode)
+            assertEquals("no_anchor_match", error.diagnostics["reason"])
+            assertTrue("stale coordinates should not be clicked", backend.clickPoints.isEmpty())
         }
     }
 
     @Test
-    fun `coordinate remap miss falls back to recorded action coordinates`() = runBlocking {
+    fun `coordinate remap miss fails before replaying stale coordinates`() = runBlocking {
         val backend = FakeBackend(beforeXml = EMPTY_PAGE_XML, afterXml = EMPTY_PAGE_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = UIStepExecutor.execute(
-                step = mapOf(
-                    "executor" to "omniflow",
-                    "tool" to "click",
-                    "coordinate_hook" to "omniflow",
-                    "args" to mapOf("x" to 120, "y" to 240),
-                    "source_context" to mapOf(
-                        "src_ctx" to mapOf("page" to SOURCE_XML),
+            val error = try {
+                UIStepExecutor.execute(
+                    step = mapOf(
+                        "executor" to "omniflow",
+                        "tool" to "click",
+                        "coordinate_hook" to "omniflow",
+                        "args" to mapOf("x" to 120, "y" to 240),
+                        "source_context" to mapOf(
+                            "src_ctx" to mapOf("page" to SOURCE_XML),
+                        ),
                     ),
-                ),
-                stepId = "step_no_anchor",
-                stepTitle = "click stale target",
-            )
+                    stepId = "step_no_anchor",
+                    stepTitle = "click stale target",
+                )
+                null
+            } catch (e: UIStepExecutor.ExecutionException) {
+                e
+            }
 
-            assertEquals(true, result["success"])
-            assertEquals("recorded_action_replay", result["replay_mode"])
-            val click = backend.clickPoints.single()
-            assertEquals(120f, click.first, 0.01f)
-            assertEquals(240f, click.second, 0.01f)
+            require(error != null) { "expected OOB_FUNCTION_SOURCE_NOT_REACHED" }
+            assertEquals("OOB_FUNCTION_SOURCE_NOT_REACHED", error.errorCode)
+            assertEquals("no_anchor_match", error.diagnostics["reason"])
+            assertTrue("stale coordinates should not be clicked", backend.clickPoints.isEmpty())
         }
     }
 
