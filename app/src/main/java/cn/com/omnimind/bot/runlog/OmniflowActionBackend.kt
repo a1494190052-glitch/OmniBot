@@ -18,6 +18,15 @@ interface OmniflowActionBackend {
 
     suspend fun click(x: Float, y: Float)
 
+    suspend fun click(
+        x: Float,
+        y: Float,
+        targetDescription: String,
+        nodeResourceId: String,
+    ) {
+        click(x, y)
+    }
+
     suspend fun longPress(x: Float, y: Float, durationMs: Long)
 
     suspend fun scroll(
@@ -110,19 +119,49 @@ private object AccessibilityOmniflowActionBackend : OmniflowActionBackend {
     override fun isReady(): Boolean = AccessibilityController.initController()
 
     override suspend fun click(x: Float, y: Float) {
-        val privileged = runCatching {
-            ShizukuCapabilityManager.get(BaseApplication.instance).tap(x, y)
-        }.getOrNull()
-        if (privileged?.success == true) {
+        try {
+            AccessibilityController.clickCoordinate(x, y)
             return
-        }
-        if (privileged != null) {
+        } catch (error: Exception) {
             OmniLog.w(
                 TAG,
-                "privileged tap fallback unavailable: code=${privileged.code} message=${privileged.message}"
+                "accessibility coordinate click failed, fallback to privileged tap: ${error.message}"
             )
         }
-        AccessibilityController.clickCoordinate(x, y)
+        if (!tryPrivilegedTap(x, y)) {
+            AccessibilityController.clickCoordinate(x, y)
+        }
+    }
+
+    override suspend fun click(
+        x: Float,
+        y: Float,
+        targetDescription: String,
+        nodeResourceId: String,
+    ) {
+        if (nodeResourceId.isNotBlank()) {
+            val beforeXml = currentXml().orEmpty()
+            runCatching {
+                AccessibilityController.clickNodeById(nodeResourceId, targetDescription)
+            }.onSuccess {
+                delay(180)
+                val afterXml = currentXml().orEmpty()
+                if (xmlChanged(beforeXml, afterXml)) {
+                    return
+                }
+                OmniLog.w(
+                    TAG,
+                    "accessibility node click had no visible effect, fallback to tap: node=$nodeResourceId"
+                )
+            }.onFailure { error ->
+                OmniLog.w(
+                    TAG,
+                    "accessibility node click failed, fallback to tap: node=$nodeResourceId message=${error.message}"
+                )
+            }
+        }
+        // Replay click coordinates are already transferred to the live page.
+        click(x, y)
     }
 
     override suspend fun longPress(x: Float, y: Float, durationMs: Long) {
@@ -255,6 +294,28 @@ private object AccessibilityOmniflowActionBackend : OmniflowActionBackend {
             message.contains("editable input") ||
             message.contains("focused node") ||
             message.contains("action_set_text")
+    }
+
+    private suspend fun tryPrivilegedTap(x: Float, y: Float): Boolean {
+        val privileged = runCatching {
+            ShizukuCapabilityManager.get(BaseApplication.instance).tap(x, y)
+        }.getOrNull()
+        if (privileged?.success == true) {
+            return true
+        }
+        if (privileged != null) {
+            OmniLog.w(
+                TAG,
+                "privileged tap unavailable: code=${privileged.code} message=${privileged.message}"
+            )
+        }
+        return false
+    }
+
+    private fun xmlChanged(beforeXml: String, afterXml: String): Boolean {
+        if (beforeXml.isBlank() || afterXml.isBlank()) return false
+        if (beforeXml == afterXml) return false
+        return beforeXml.hashCode() != afterXml.hashCode()
     }
 
     override fun currentXml(): String? =

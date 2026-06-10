@@ -608,7 +608,10 @@ object McpToolExecutors {
         request: Map<String, Any?>,
     ): NormalizedActRequest {
         val actionPayload = mapArg(request["action"]).ifEmpty { request }
-        val nestedArgs = mapArg(actionPayload["args"]).ifEmpty { mapArg(request["args"]) }
+        val nestedArgs = mapArg(actionPayload["args"])
+            .ifEmpty { mapArg(actionPayload["params"]) }
+            .ifEmpty { mapArg(request["args"]) }
+            .ifEmpty { mapArg(request["params"]) }
         val rawType = firstNonBlank(
             actionPayload["tool"],
             actionPayload["name"],
@@ -661,7 +664,6 @@ object McpToolExecutors {
         if (tool == OobActionCodec.ACTION_SWIPE && rawType == "scroll") {
             fillDefaultScrollArgs(context, args)
         }
-        normalizeIndexedActionArgs(context, tool, args)
         decodeRelativeCoordinatesIfRequested(context, request, actionPayload, args)
         return NormalizedActRequest(
             tool = tool,
@@ -683,41 +685,6 @@ object McpToolExecutors {
         args.putIfAbsent("duration_ms", 300L)
     }
 
-    private fun normalizeIndexedActionArgs(
-        context: Context,
-        tool: String,
-        args: MutableMap<String, Any?>,
-    ) {
-        if (tool !in setOf(
-                OobActionCodec.ACTION_CLICK,
-                OobActionCodec.ACTION_LONG_PRESS,
-                OobActionCodec.ACTION_INPUT_TEXT,
-            )
-        ) {
-            return
-        }
-        if (numericArg(args, "x") != null && numericArg(args, "y") != null) return
-        val index = intArg(args, "element_index", "index") ?: return
-        val xml = runCatching { AccessibilityController.getCaptureScreenShotXml(true).orEmpty() }
-            .getOrDefault("")
-        if (xml.isBlank()) return
-        val (displayWidth, displayHeight) = currentDisplaySize(context)
-        val target = VLMIndexedPageContext.elementTarget(
-            currentXml = xml,
-            displayWidth = displayWidth,
-            displayHeight = displayHeight,
-            index = index,
-        ) ?: return
-        args["element_index"] = index
-        args["x"] = target.centerX
-        args["y"] = target.centerY
-        if (firstNonBlank(args["target_description"]).isBlank()) {
-            args["target_description"] = target.label
-        }
-        if (firstNonBlank(args["node_id"]).isBlank()) {
-            args["node_id"] = target.nodeId
-        }
-    }
 
     private fun decodeRelativeCoordinatesIfRequested(
         context: Context,
@@ -755,7 +722,7 @@ object McpToolExecutors {
 
     private val ANDROIDWORLD_ACTION_ARG_KEYS = setOf(
         "x", "y", "x1", "y1", "x2", "y2",
-        "index", "element_index", "node_id", "node_resource_id",
+        "index", "node_id", "node_resource_id",
         "text", "direction", "app_name", "package_name", "goal_status",
         "key", "keycode", "clear_text", "target_description",
         "duration_ms", "time_ms", "time_s", "distance", "coordinate_space",

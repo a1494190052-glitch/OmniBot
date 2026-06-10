@@ -17,10 +17,11 @@ import kotlin.math.sqrt
  *   - visual_state[2] = focused (not editable||focusable)
  *   - affordance = class-based detection OR flag
  *
- * Bayesian matching (matches Python probabilistic_matching.py):
- *   - Geometric term: normalized Gaussian mixture with proximity kernel on anchor weights
- *   - φ(s,a) = sim² × exp(−d_pixel²/2σ² − λ·d_tree)
- *   - Bayes risk gate + entropy-based confidence
+ * Anchor-vote matching (matches Python probabilistic_matching.py production path):
+ *   - Candidate score is an explicit weighted average of source-target element similarity
+ *     and anchor projection support.
+ *   - The source action node is never used as its own anchor vote.
+ *   - Support, margin, action similarity, and anchor votes are kept in debug diagnostics.
  */
 internal object OmniflowNodeMatcher {
 
@@ -35,14 +36,19 @@ internal object OmniflowNodeMatcher {
     private const val TEXT_TRUNCATE_LEN = 10          // Python: text_truncate_len = 10
     private val TEXT_CLEAN_REGEX = Regex("[^a-zA-Z0-9_\\u4e00-\\u9fff]")
 
-    // ── Bayesian parameters ───────────────────────────────────────────────────
-    const val SEMANTIC_TEMPERATURE = 0.05f
+    // ── Matching parameters ───────────────────────────────────────────────────
     const val GEOMETRIC_SIGMA = 0.15f
     const val IDENTITY_MATCH_LOGIT = 2.5f
     const val IDENTITY_MISMATCH_LOGIT = -1.0f
-    const val NULL_PRIOR_LOGIT = 1.6f
-    const val WRONG_CLICK_LOSS = 1.5f
-    const val ABSTAIN_LOSS = 1.0f
+    private const val MATCH_PROBABILITY_SCALE = 8f
+    private const val MIN_MATCH_SUPPORT = 0.45f
+    private const val MIN_MATCH_MARGIN = 0.05f
+    private const val MIN_ACTION_SIMILARITY = 0.30f
+    private const val MIN_ANCHOR_VOTES = 1f
+    private const val VECTOR_SIMILARITY_WEIGHT = 0.85f
+    private const val IDENTITY_SIMILARITY_WEIGHT = 0.15f
+    private const val ACTION_SIMILARITY_WEIGHT = 0.5f
+    private const val TRANSFER_SUPPORT_WEIGHT = 0.5f
     const val MIN_ANCHOR_SIMILARITY = 0.5f
     const val MAX_ANCHOR_COUNT = 5
 
@@ -94,6 +100,29 @@ internal object OmniflowNodeMatcher {
         val confidence: Float,
         val mode: String,
         val debug: Map<String, Any?>,
+    )
+
+    private data class AnchorContribution(
+        val anchorIndex: Int,
+        val vote: Float,
+        val anchorSimilarity: Float,
+        val geometricSupport: Float,
+        val normalizedDistance: Float,
+        val projectedX: Float,
+        val projectedY: Float,
+        val sourceAnchor: NodeInfo,
+        val targetAnchor: NodeInfo,
+    )
+
+    private data class CandidateScore(
+        val index: Int,
+        val vectorSimilarity: Float,
+        val identitySimilarity: Float,
+        val actionSimilarity: Float,
+        val transferScore: Float,
+        val matchScore: Float,
+        val anchorVoteCount: Float,
+        val contributions: List<AnchorContribution>,
     )
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -222,73 +251,91 @@ internal object OmniflowNodeMatcher {
             mode = "no_candidates", debug = emptyMap(),
         )
 
-        val logAnchorWeights = if (anchors.isNotEmpty()) {
-            val norm = srcDiagonal.coerceAtLeast(1f)
-            val rawW = FloatArray(anchors.size) { k ->
-                val a = anchors[k]
-                val dPixel = hypot(src.centerX - a.src.centerX, src.centerY - a.src.centerY) / norm
-                val dTree = kotlin.math.abs(src.depth - a.src.depth).toFloat()
-                val phi = exp(
-                    -(dPixel * dPixel) / (2.0 * ANCHOR_LOCAL_SIGMA * ANCHOR_LOCAL_SIGMA)
-                    - ANCHOR_TREE_LAMBDA * dTree
-                ).toFloat()
-                a.sim * a.sim * phi
-            }
-            val wSum = rawW.sum().coerceAtLeast(1e-10f)
-            FloatArray(anchors.size) { ln((rawW[it] / wSum).toDouble() + 1e-10).toFloat() }
-        } else FloatArray(0)
-
-        val logPosts = FloatArray(candidates.size)
-        val debugEntries = ArrayList<Map<String, Any?>>(candidates.size)
-
+        val usableAnchors = anchors.filterNot { isSameElement(src, it.src) }
+        val hasAnchorProjection = usableAnchors.isNotEmpty()
+        val scoredCandidates = ArrayList<CandidateScore>(candidates.size)
         for (ti in candidates.indices) {
             val cand = candidates[ti]
-            val sim = cosine(srcVec, candidateVecs[ti]).coerceIn(-1f, 1f)
-            val logSem = sim / SEMANTIC_TEMPERATURE
-            val logGeo = if (anchors.isEmpty()) {
-                -ln(candidates.size.toFloat())
+            val vectorSimilarity = cosine(srcVec, candidateVecs[ti]).coerceIn(0f, 1f)
+            val identitySimilarity = identitySimilarity(src, cand)
+            val actionSimilarity = (
+                (VECTOR_SIMILARITY_WEIGHT * vectorSimilarity) +
+                    (IDENTITY_SIMILARITY_WEIGHT * identitySimilarity)
+                ).coerceIn(0f, 1f)
+            val contributions = anchorContributions(
+                src = src,
+                candidate = cand,
+                anchors = usableAnchors,
+                pageDiagonal = pageDiagonal,
+                scaleX = scaleX,
+                scaleY = scaleY,
+            )
+            val transferScore = aggregateTransferScore(contributions)
+            val totalWeight = if (hasAnchorProjection) {
+                ACTION_SIMILARITY_WEIGHT + TRANSFER_SUPPORT_WEIGHT
             } else {
-                val logTerms = anchors.indices.map { k ->
-                    val a = anchors[k]
-                    val predX = a.tgt.centerX + (src.centerX - a.src.centerX) * scaleX
-                    val predY = a.tgt.centerY + (src.centerY - a.src.centerY) * scaleY
-                    val nd = hypot(predX - cand.centerX, predY - cand.centerY) / pageDiagonal.coerceAtLeast(1f)
-                    -(nd * nd) / (2f * GEOMETRIC_SIGMA * GEOMETRIC_SIGMA) + logAnchorWeights[k]
-                }
-                logSumExp(logTerms)
+                ACTION_SIMILARITY_WEIGHT
+            }.coerceAtLeast(1e-6f)
+            val matchScore = if (hasAnchorProjection) {
+                ((ACTION_SIMILARITY_WEIGHT * actionSimilarity) +
+                    (TRANSFER_SUPPORT_WEIGHT * transferScore)) / totalWeight
+            } else {
+                actionSimilarity
             }
-            val logId = identityLogit(src, cand)
-            val logPost = logSem + logGeo + logId
-            logPosts[ti] = logPost
-            debugEntries += mapOf(
-                "i" to ti, "cosine" to sim,
-                "log_sem" to logSem, "log_geo" to logGeo, "log_id" to logId,
-                "log_post" to logPost,
+            scoredCandidates += CandidateScore(
+                index = ti,
+                vectorSimilarity = vectorSimilarity,
+                identitySimilarity = identitySimilarity,
+                actionSimilarity = actionSimilarity,
+                transferScore = transferScore,
+                matchScore = matchScore.coerceIn(0f, 1f),
+                anchorVoteCount = contributions.count { it.vote > 1e-4f }.toFloat(),
+                contributions = contributions,
             )
         }
 
-        val allLogits = logPosts.toMutableList().also { it += NULL_PRIOR_LOGIT }
+        val allLogits = scoredCandidates.map { it.matchScore * MATCH_PROBABILITY_SCALE }
+            .toMutableList()
+            .also { it += MIN_MATCH_SUPPORT * MATCH_PROBABILITY_SCALE }
         val probs = softmax(allLogits)
-        val bestIdx = logPosts.indices.maxByOrNull { logPosts[it] } ?: -1
+        val best = scoredCandidates.minWithOrNull(
+            compareByDescending<CandidateScore> { it.matchScore }.thenBy { it.index }
+        )
+        val bestIdx = best?.index ?: -1
+        val bestScore = best?.matchScore ?: 0f
+        val secondScore = scoredCandidates
+            .filter { it.index != bestIdx }
+            .maxOfOrNull { it.matchScore } ?: 0f
+        val margin = bestScore - secondScore
         val pBest = if (bestIdx >= 0) probs[bestIdx] else 0f
         val pNull = probs.last()
-        val riskExecute = WRONG_CLICK_LOSS * (1f - pBest)
-        val riskAbstain = ABSTAIN_LOSS * (1f - pNull)
-        val abstain = bestIdx < 0 || riskExecute >= riskAbstain
+        val gate = voteGate(best, margin, hasAnchorProjection, pBest, pNull)
+        val abstain = bestIdx < 0 || gate["decision"] != "execute"
 
         return MatchResult(
             index = if (abstain) -1 else bestIdx,
             abstain = abstain,
             pBest = pBest, pNull = pNull,
             confidence = entropyConfidence(probs),
-            mode = if (abstain) "bayesian_abstain" else "omniflow_bayesian",
+            mode = if (abstain) "anchor_vote_abstain" else "omniflow_anchor_vote",
             debug = mapOf(
-                "algorithm" to "omniflow_bayesian",
+                "algorithm" to "omniflow_anchor_vote",
                 "p_best" to pBest, "p_null" to pNull,
-                "risk_execute" to riskExecute, "risk_abstain" to riskAbstain,
-                "best_cosine" to ((debugEntries.getOrNull(bestIdx)?.get("cosine") as? Float) ?: 0f),
-                "anchor_count" to anchors.size, "candidate_count" to candidates.size,
-                "top" to debugEntries.sortedByDescending { (it["log_post"] as? Float) ?: 0f }.take(3),
+                "best_match_score" to bestScore,
+                "vote_margin" to margin,
+                "gate" to gate,
+                "best_cosine" to (best?.actionSimilarity ?: 0f),
+                "best_action_similarity" to (best?.actionSimilarity ?: 0f),
+                "best_transfer_score" to (best?.transferScore ?: 0f),
+                "best_anchor_vote_count" to (best?.anchorVoteCount ?: 0f),
+                "anchor_count" to anchors.size,
+                "usable_anchor_count" to usableAnchors.size,
+                "candidate_count" to candidates.size,
+                "semantic_weight" to if (hasAnchorProjection) ACTION_SIMILARITY_WEIGHT else 1f,
+                "geometric_weight" to if (hasAnchorProjection) TRANSFER_SUPPORT_WEIGHT else 0f,
+                "top" to scoredCandidates.sortedByDescending { it.matchScore }.take(3).map {
+                    candidateDebugEntry(it, probs.getOrNull(it.index) ?: 0f)
+                },
             ),
         )
     }
@@ -341,6 +388,169 @@ internal object OmniflowNodeMatcher {
         val sd = stableHash(source.contentDesc); val td = stableHash(target.contentDesc)
         if (sd != null) logit += if (sd == td) IDENTITY_MATCH_LOGIT else if (td != null) IDENTITY_MISMATCH_LOGIT else 0f
         return logit
+    }
+
+    private fun anchorContributions(
+        src: NodeInfo,
+        candidate: NodeInfo,
+        anchors: List<Anchor>,
+        pageDiagonal: Float,
+        scaleX: Float,
+        scaleY: Float,
+    ): List<AnchorContribution> {
+        if (anchors.isEmpty()) return emptyList()
+        val norm = pageDiagonal.coerceAtLeast(1f)
+        return anchors.mapIndexed { index, anchor ->
+            val predX = anchor.tgt.centerX + (src.centerX - anchor.src.centerX) * scaleX
+            val predY = anchor.tgt.centerY + (src.centerY - anchor.src.centerY) * scaleY
+            val nd = hypot(predX - candidate.centerX, predY - candidate.centerY) / norm
+            val geometricSupport = exp(
+                -(nd * nd) / (2.0 * GEOMETRIC_SIGMA * GEOMETRIC_SIGMA)
+            ).toFloat().coerceIn(0f, 1f)
+            val vote = (anchor.sim.coerceIn(0f, 1f) * geometricSupport).coerceIn(0f, 1f)
+            AnchorContribution(
+                anchorIndex = index,
+                vote = vote,
+                anchorSimilarity = anchor.sim,
+                geometricSupport = geometricSupport,
+                normalizedDistance = nd,
+                projectedX = predX,
+                projectedY = predY,
+                sourceAnchor = anchor.src,
+                targetAnchor = anchor.tgt,
+            )
+        }.sortedByDescending { it.vote }
+    }
+
+    private fun aggregateTransferScore(contributions: List<AnchorContribution>): Float {
+        if (contributions.isEmpty()) return 0f
+        var missProbability = 1f
+        for (vote in contributions.take(12).map { it.vote.coerceIn(0f, 1f) }) {
+            missProbability *= (1f - vote)
+        }
+        return (1f - missProbability).coerceIn(0f, 1f)
+    }
+
+    private fun voteGate(
+        best: CandidateScore?,
+        margin: Float,
+        hasAnchorProjection: Boolean,
+        pBest: Float,
+        pNull: Float,
+    ): Map<String, Any?> {
+        if (best == null) {
+            return mapOf(
+                "decision" to "abstain",
+                "reason" to "no_candidate",
+                "support" to 0f,
+                "margin" to 0f,
+                "action_similarity" to 0f,
+                "anchor_vote_count" to 0f,
+            )
+        }
+        val decision: String
+        val reason: String
+        when {
+            best.matchScore < MIN_MATCH_SUPPORT -> {
+                decision = "abstain"; reason = "low_support"
+            }
+            margin < MIN_MATCH_MARGIN && pBest <= pNull -> {
+                decision = "abstain"; reason = "low_margin"
+            }
+            best.actionSimilarity < MIN_ACTION_SIMILARITY -> {
+                decision = "abstain"; reason = "low_action_similarity"
+            }
+            hasAnchorProjection && best.anchorVoteCount < MIN_ANCHOR_VOTES -> {
+                decision = "abstain"; reason = "low_anchor_votes"
+            }
+            pBest <= pNull -> {
+                decision = "abstain"; reason = "null_prior"
+            }
+            else -> {
+                decision = "execute"; reason = "ok"
+            }
+        }
+        return mapOf(
+            "decision" to decision,
+            "reason" to reason,
+            "support" to best.matchScore,
+            "margin" to margin,
+            "action_similarity" to best.actionSimilarity,
+            "transfer_score" to best.transferScore,
+            "anchor_vote_count" to best.anchorVoteCount,
+            "p_best" to pBest,
+            "p_null" to pNull,
+            "min_support" to MIN_MATCH_SUPPORT,
+            "min_margin" to MIN_MATCH_MARGIN,
+            "min_action_similarity" to MIN_ACTION_SIMILARITY,
+            "min_anchor_votes" to if (hasAnchorProjection) MIN_ANCHOR_VOTES else 0f,
+        )
+    }
+
+    private fun candidateDebugEntry(score: CandidateScore, probability: Float): Map<String, Any?> =
+        mapOf(
+            "i" to score.index,
+            "probability" to probability,
+            "match_score" to score.matchScore,
+            "vector_similarity" to score.vectorSimilarity,
+            "identity_similarity" to score.identitySimilarity,
+            "action_similarity" to score.actionSimilarity,
+            "transfer_score" to score.transferScore,
+            "anchor_vote_count" to score.anchorVoteCount,
+            "top_anchor_contributions" to score.contributions.take(3).map { contribution ->
+                mapOf(
+                    "anchor_index" to contribution.anchorIndex,
+                    "vote" to contribution.vote,
+                    "anchor_similarity" to contribution.anchorSimilarity,
+                    "geometric_support" to contribution.geometricSupport,
+                    "normalized_distance" to contribution.normalizedDistance,
+                    "projected" to mapOf(
+                        "x" to contribution.projectedX,
+                        "y" to contribution.projectedY,
+                    ),
+                    "source_anchor" to summarizeMatcherNode(contribution.sourceAnchor),
+                    "target_anchor" to summarizeMatcherNode(contribution.targetAnchor),
+                )
+            },
+        )
+
+    private fun summarizeMatcherNode(node: NodeInfo): Map<String, Any?> =
+        mapOf(
+            "resource_tail" to node.resourceTail,
+            "text" to node.text,
+            "content_desc" to node.contentDesc,
+            "class_suffix" to node.classSuffix,
+            "center" to mapOf("x" to node.centerX, "y" to node.centerY),
+        )
+
+    private fun isSameElement(a: NodeInfo, b: NodeInfo): Boolean {
+        if (a.resourceId.isNotBlank() && a.resourceId == b.resourceId) return true
+        val sameCenter = kotlin.math.abs(a.centerX - b.centerX) < 1f &&
+            kotlin.math.abs(a.centerY - b.centerY) < 1f
+        if (!sameCenter) return false
+        return a.classSuffix == b.classSuffix &&
+            a.text == b.text &&
+            a.contentDesc == b.contentDesc &&
+            a.hintText == b.hintText
+    }
+
+    private fun identitySimilarity(source: NodeInfo, target: NodeInfo): Float {
+        val fields = listOf(
+            source.resourceId to target.resourceId,
+            source.text to target.text,
+            source.contentDesc to target.contentDesc,
+            source.hintText to target.hintText,
+        ).filter { (left, right) -> left.isNotBlank() || right.isNotBlank() }
+        if (fields.isEmpty()) return 0.5f
+        var score = 0f
+        for ((left, right) in fields) {
+            score += when {
+                left.isBlank() || right.isBlank() -> 0.5f
+                left == right -> 1f
+                else -> 0f
+            }
+        }
+        return (score / fields.size).coerceIn(0f, 1f)
     }
 
     private fun stableHash(text: String): String? {

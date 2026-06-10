@@ -293,106 +293,26 @@ object UIStepExecutor {
             shouldUseCoordinateHook(step)
         var currentState: ReplayState? = null
 
-        suspend fun replayState(reason: String): ReplayState {
-            val existing = currentState
-            if (existing != null) return existing
-            return observeReplayState(timing, reason).also { currentState = it }
-        }
+        suspend fun getState(reason: String): ReplayState =
+            currentState ?: observeReplayState(timing, reason).also { currentState = it }
 
-        suspend fun refreshReplayState(reason: String): ReplayState =
+        suspend fun refreshState(reason: String): ReplayState =
             observeReplayState(timing, reason).also { currentState = it }
 
-        val preTransferControls = timing.measure("checker_ms") {
-            if (fixedReplay) {
-                emptyList()
-            } else {
-                runCheckerPhase(
-                    phase = OmniflowCheckerRule.PHASE_PRE_TRANSFER,
-                    state = replayState("before_step"),
-                    replayAction = ReplayAction(step, action, initialArgs),
-                    extraRules = checkerRules,
-                    checkerBudget = checkerBudget,
-                )
-            }
-        }
-        if (!fixedReplay && preTransferControls.isNotEmpty()) {
-            throwIfStopRequested(stopRequested)
-            refreshReplayState("after_pre_transfer_controls")
-        }
-        throwIfStopRequested(stopRequested)
-        val attemptedRemapResult = timing.measure("action_transfer_ms") {
-            if (fixedReplay) {
-                StepArgsResult(initialArgs)
-            } else {
-                try {
-                    remapStepArgsForState(step, replayState("action_transfer"))
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    StepArgsResult(
-                        args = initialArgs,
-                        meta = mapOf(
-                            "applied" to false,
-                            "reason" to "action_transfer_exception",
-                            "algorithm" to "anchor_projection",
-                            "error_message" to e.message.orEmpty(),
-                        )
-                    )
-                }
-            }
-        }
-        var remapResult = recordedReplayFallbackIfNeeded(
-            transferRequested = transferRequested,
-            attempted = attemptedRemapResult,
-            initialArgs = initialArgs,
+        val (preTransferControls, preActionControls, initRemapResult, initArgs) = runPreActionPhase(
+            step = step, action = action, initialArgs = initialArgs,
+            fixedReplay = fixedReplay, transferRequested = transferRequested,
+            checkerRules = checkerRules, checkerBudget = checkerBudget,
+            timing = timing, stopRequested = stopRequested,
+            getState = ::getState, refreshState = ::refreshState,
         )
-        var args = normalizeArgsMap(remapResult.args)
-        throwIfStopRequested(stopRequested)
-        val preActionControls = timing.measure("checker_ms") {
-            if (fixedReplay) {
-                emptyList()
-            } else {
-                runCheckerPhase(
-                    phase = OmniflowCheckerRule.PHASE_PRE_ACTION,
-                    state = replayState("before_action"),
-                    replayAction = ReplayAction(step, action, args),
-                    extraRules = checkerRules,
-                    checkerBudget = checkerBudget,
-                )
-            }
-        }
-        if (!fixedReplay && preActionControls.isNotEmpty()) {
-            throwIfStopRequested(stopRequested)
-            val refreshed = refreshReplayState("after_pre_action_controls")
-            if (transferRequested) {
-                val remappedAfterControl = timing.measure("action_transfer_ms") {
-                    try {
-                        remapStepArgsForState(step, refreshed)
-                    } catch (e: kotlinx.coroutines.CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        StepArgsResult(
-                            args = initialArgs,
-                            meta = mapOf(
-                                "applied" to false,
-                                "reason" to "action_transfer_exception",
-                                "algorithm" to "anchor_projection",
-                                "error_message" to e.message.orEmpty(),
-                            )
-                        )
-                    }
-                }
-                remapResult = recordedReplayFallbackIfNeeded(
-                    transferRequested = transferRequested,
-                    attempted = remappedAfterControl,
-                    initialArgs = initialArgs,
-                )
-                args = normalizeArgsMap(remapResult.args)
-            }
-        }
+        var remapResult = initRemapResult
+        var args = initArgs
         throwIfStopRequested(stopRequested)
         var actionTransferApplied = transferRequested && remapResult.meta["applied"] == true
         var actionDispatchWarning: Map<String, Any?> = emptyMap()
+        var executedActionArgs: Map<String, Any?> = emptyMap()
+        var expectedOpenAppPackageName: String? = null
         val summary = timing.measure("act_ms") {
             runWithStopPolling(stopRequested) {
                 when (action) {
@@ -401,12 +321,48 @@ object UIStepExecutor {
                             ?: throw IllegalArgumentException("click requires x")
                         val y = numberArg(args, "y")?.toFloat()
                             ?: throw IllegalArgumentException("click requires y")
+                        val targetDescription = stringArg(args, "target_description").orEmpty()
+                        val transferTargetElement = firstNonEmptyMap(
+                            remapResult.meta["target_element"],
+                            remapResult.meta["targetElement"],
+                            OobActionCodec.mapArg(remapResult.meta["debug"])["target_element"],
+                            OobActionCodec.mapArg(remapResult.meta["debug"])["targetElement"],
+                        )
+                        val transferredNodeResourceId = replaySafeClickNodeResourceId(
+                            OobActionCodec.firstNonBlank(
+                                transferTargetElement["node_resource_id"]?.toString(),
+                                transferTargetElement["resource_id"]?.toString(),
+                                transferTargetElement["resource-id"]?.toString(),
+                            )
+                        )
+                        val recordedNodeResourceId = if (remapResult.meta["applied"] == true) {
+                            ""
+                        } else {
+                            replaySafeClickNodeResourceId(
+                                stringArg(args, "node_resource_id", "resource_id", "resource-id")
+                            )
+                        }
+                        val nodeResourceId = OobActionCodec.firstNonBlank(
+                            transferredNodeResourceId,
+                            recordedNodeResourceId,
+                        )
                         runReplayGestureIgnoringDispatchTimeout(
                             action = action,
                             onWarning = { actionDispatchWarning = it },
                         ) {
-                            backend.click(x, y)
+                            backend.click(
+                                x = x,
+                                y = y,
+                                targetDescription = targetDescription,
+                                nodeResourceId = nodeResourceId.orEmpty(),
+                            )
                         }
+                        executedActionArgs = mapOf(
+                            "x" to x,
+                            "y" to y,
+                            "target_description" to targetDescription.takeIf { it.isNotBlank() },
+                            "node_resource_id" to nodeResourceId,
+                        ).filterValues { it != null }
                         OobActionCodec.ACTION_CLICK
                     }
 
@@ -425,11 +381,17 @@ object UIStepExecutor {
                                 durationMs = durationMs(args, defaultMs = 1000L)
                             )
                         }
+                        executedActionArgs = mapOf(
+                            "x" to x,
+                            "y" to y,
+                            "duration_ms" to durationMs(args, defaultMs = 1000L),
+                            "target_description" to stringArg(args, "target_description"),
+                        ).filterValues { it != null }
                         OobActionCodec.ACTION_LONG_PRESS
                     }
 
                     OobActionCodec.ACTION_SWIPE -> {
-                        val swipe = swipeSpec(args, replayState("act_swipe"))
+                        val swipe = swipeSpec(args, getState("act_swipe"))
                         runReplayGestureIgnoringDispatchTimeout(
                             action = action,
                             onWarning = { actionDispatchWarning = it },
@@ -443,6 +405,14 @@ object UIStepExecutor {
                                 targetDescription = stringArg(args, "target_description").orEmpty()
                             )
                         }
+                        executedActionArgs = mapOf(
+                            "x" to swipe.x,
+                            "y" to swipe.y,
+                            "direction" to swipe.direction.name.lowercase(),
+                            "distance" to swipe.distance,
+                            "duration_ms" to durationMs(args, defaultMs = 1500L),
+                            "target_description" to stringArg(args, "target_description"),
+                        ).filterValues { it != null }
                         action
                     }
 
@@ -472,58 +442,82 @@ object UIStepExecutor {
                                 }
                                 retryCount += 1
                                 delayWithStopPolling(INPUT_TEXT_OBSERVE_RETRY_DELAY_MS, stopRequested)
-                                val refreshed = refreshReplayState("input_text_retry_$retryCount")
+                                val refreshed = refreshState("input_text_retry_$retryCount")
                                 if (transferRequested) {
-                                    val remappedAfterObserve = timing.measure("action_transfer_ms") {
-                                        try {
-                                            remapStepArgsForState(step, refreshed)
-                                        } catch (e: kotlinx.coroutines.CancellationException) {
-                                            throw e
-                                        } catch (e: Exception) {
-                                            StepArgsResult(
-                                                args = initialArgs,
-                                                meta = mapOf(
-                                                    "applied" to false,
-                                                    "reason" to "action_transfer_exception",
-                                                    "algorithm" to "anchor_projection",
-                                                    "error_message" to e.message.orEmpty(),
-                                                    "retry_reason" to "input_text_observe_retry",
-                                                )
-                                            )
-                                        }
-                                    }
-                                    remapResult = recordedReplayFallbackIfNeeded(
-                                        transferRequested = transferRequested,
-                                        attempted = remappedAfterObserve,
-                                        initialArgs = initialArgs,
+                                    remapResult = safeRemapStep(
+                                        step, refreshed, transferRequested, initialArgs, fixedReplay, timing,
+                                        extraMeta = mapOf("retry_reason" to "input_text_observe_retry"),
                                     )
                                     args = normalizeArgsMap(remapResult.args)
                                     actionTransferApplied = transferRequested && remapResult.meta["applied"] == true
                                 }
                             }
                         }
+                        executedActionArgs = compactReplayActionArgs(args)
                         action
                     }
 
                     OobActionCodec.ACTION_OPEN_APP -> {
                         val packageName = stringArg(args, "package_name", "packageName", "package")
                             ?: throw IllegalArgumentException("open_app requires package_name")
+                        expectedOpenAppPackageName = packageName
                         backend.launchApplication(packageName)
+                        executedActionArgs = mapOf("package_name" to packageName)
                         OobActionCodec.ACTION_OPEN_APP
                     }
 
                     OobActionCodec.ACTION_PRESS_KEY -> {
-                        backend.pressHotKey(pressKeyArg(args))
+                        val key = pressKeyArg(args)
+                        backend.pressHotKey(key)
+                        executedActionArgs = mapOf("key" to key)
                         action
                     }
 
-                    OobActionCodec.ACTION_FINISHED -> OobActionCodec.ACTION_FINISHED
+                    OobActionCodec.ACTION_FINISHED -> {
+                        executedActionArgs = compactReplayActionArgs(args)
+                        OobActionCodec.ACTION_FINISHED
+                    }
 
                     else -> throw IllegalArgumentException("Unsupported omniflow action: $action")
                 }
             }
         }
         throwIfStopRequested(stopRequested)
+        val openAppReadyWait = if (action == OobActionCodec.ACTION_OPEN_APP) {
+            timing.measure("open_app_ready_wait_ms") {
+                waitForOpenAppReady(
+                    expectedPackage = expectedOpenAppPackageName.orEmpty(),
+                    timing = timing,
+                    stopRequested = stopRequested,
+                )
+            }
+        } else {
+            emptyMap()
+        }
+        var postActionState: ReplayState? = null
+        val postActionObserve = if (action == OobActionCodec.ACTION_FINISHED) {
+            emptyMap()
+        } else {
+            timing.measure("post_action_observe_ms") {
+                val startedAtMs = System.currentTimeMillis()
+                val settleDelayMs = if (action == OobActionCodec.ACTION_OPEN_APP) {
+                    0L
+                } else {
+                    REPLAY_ACTION_SETTLE_DELAY_MS
+                }
+                if (settleDelayMs > 0L) {
+                    delayWithStopPolling(effectiveReplayDelayMs(settleDelayMs), stopRequested)
+                }
+                val observed = refreshState("post_action_observe")
+                postActionState = observed
+                postActionObserveMeta(
+                    action = action,
+                    startedAtMs = startedAtMs,
+                    settleDelayMs = settleDelayMs,
+                    state = observed,
+                )
+            }
+        }
         val postActionControls = timing.measure("checker_ms") {
             val hasPostActionRules = checkerRules.any {
                 it.phase == OmniflowCheckerRule.PHASE_POST_ACTION && it.enabled
@@ -533,7 +527,7 @@ object UIStepExecutor {
             } else {
                 runCheckerPhase(
                     phase = OmniflowCheckerRule.PHASE_POST_ACTION,
-                    state = refreshReplayState("after_action"),
+                    state = postActionState ?: refreshState("after_action"),
                     replayAction = ReplayAction(step, action, args),
                     extraRules = checkerRules,
                     checkerBudget = checkerBudget,
@@ -562,6 +556,9 @@ object UIStepExecutor {
             "finished_at_ms" to timingResult["finished_at_ms"],
             "duration_ms" to timingResult["duration_ms"],
             "timing" to timingResult,
+            "requested_action" to replayActionSnapshot(action, initialArgs),
+            "transferred_action" to replayActionSnapshot(action, args),
+            "executed_action" to replayActionSnapshot(action, executedActionArgs),
         ).apply {
             if (remapResult.meta.isNotEmpty()) {
                 put("action_transfer", remapResult.meta)
@@ -574,6 +571,12 @@ object UIStepExecutor {
             }
             if (actionDispatchWarning.isNotEmpty()) {
                 put("action_dispatch", actionDispatchWarning)
+            }
+            if (openAppReadyWait.isNotEmpty()) {
+                put("open_app_ready_wait", openAppReadyWait)
+            }
+            if (postActionObserve.isNotEmpty()) {
+                put("post_action_observe", postActionObserve)
             }
         }
     }
@@ -603,99 +606,19 @@ object UIStepExecutor {
             shouldUseCoordinateHook(step)
         var currentState: ReplayState? = null
 
-        suspend fun replayState(reason: String): ReplayState {
-            val existing = currentState
-            if (existing != null) return existing
-            return observeReplayState(timing, reason).also { currentState = it }
-        }
+        suspend fun getState(reason: String): ReplayState =
+            currentState ?: observeReplayState(timing, reason).also { currentState = it }
 
-        suspend fun refreshReplayState(reason: String): ReplayState =
+        suspend fun refreshState(reason: String): ReplayState =
             observeReplayState(timing, reason).also { currentState = it }
 
-        val preTransferControls = timing.measure("checker_ms") {
-            if (fixedReplay) {
-                emptyList()
-            } else {
-                runCheckerPhase(
-                    phase = OmniflowCheckerRule.PHASE_PRE_TRANSFER,
-                    state = replayState("before_step"),
-                    replayAction = ReplayAction(step, action, initialArgs),
-                    extraRules = checkerRules,
-                    checkerBudget = checkerBudget,
-                )
-            }
-        }
-        if (!fixedReplay && preTransferControls.isNotEmpty()) {
-            refreshReplayState("after_pre_transfer_controls")
-        }
-        val attemptedRemapResult = timing.measure("action_transfer_ms") {
-            if (fixedReplay) {
-                StepArgsResult(initialArgs)
-            } else {
-                try {
-                    remapStepArgsForState(step, replayState("action_transfer"))
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    StepArgsResult(
-                        args = initialArgs,
-                        meta = mapOf(
-                            "applied" to false,
-                            "reason" to "action_transfer_exception",
-                            "algorithm" to "anchor_projection",
-                            "error_message" to e.message.orEmpty(),
-                        )
-                    )
-                }
-            }
-        }
-        var remapResult = recordedReplayFallbackIfNeeded(
-            transferRequested = transferRequested,
-            attempted = attemptedRemapResult,
-            initialArgs = initialArgs,
+        val (preTransferControls, preActionControls, remapResult, args) = runPreActionPhase(
+            step = step, action = action, initialArgs = initialArgs,
+            fixedReplay = fixedReplay, transferRequested = transferRequested,
+            checkerRules = checkerRules, checkerBudget = checkerBudget,
+            timing = timing, stopRequested = null,
+            getState = ::getState, refreshState = ::refreshState,
         )
-        var args = normalizeArgsMap(remapResult.args)
-        val preActionControls = timing.measure("checker_ms") {
-            if (fixedReplay) {
-                emptyList()
-            } else {
-                runCheckerPhase(
-                    phase = OmniflowCheckerRule.PHASE_PRE_ACTION,
-                    state = replayState("before_action"),
-                    replayAction = ReplayAction(step, action, args),
-                    extraRules = checkerRules,
-                    checkerBudget = checkerBudget,
-                )
-            }
-        }
-        if (!fixedReplay && preActionControls.isNotEmpty()) {
-            val refreshed = refreshReplayState("after_pre_action_controls")
-            if (transferRequested) {
-                val remappedAfterControl = timing.measure("action_transfer_ms") {
-                    try {
-                        remapStepArgsForState(step, refreshed)
-                    } catch (e: kotlinx.coroutines.CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        StepArgsResult(
-                            args = initialArgs,
-                            meta = mapOf(
-                                "applied" to false,
-                                "reason" to "action_transfer_exception",
-                                "algorithm" to "anchor_projection",
-                                "error_message" to e.message.orEmpty(),
-                            )
-                        )
-                    }
-                }
-                remapResult = recordedReplayFallbackIfNeeded(
-                    transferRequested = transferRequested,
-                    attempted = remappedAfterControl,
-                    initialArgs = initialArgs,
-                )
-                args = normalizeArgsMap(remapResult.args)
-            }
-        }
         val controlEffects = preTransferControls + preActionControls
         val checker = timing.measureOverhead("result_summary_ms") {
             replayCheckerSummary(
@@ -751,6 +674,249 @@ object UIStepExecutor {
         val message = error.message.orEmpty()
         return message.startsWith("dispatch_timeout:")
     }
+
+    private suspend fun waitForOpenAppReady(
+        expectedPackage: String,
+        timing: ReplayStepTiming,
+        stopRequested: (() -> Boolean)?,
+    ): Map<String, Any?> {
+        val normalizedExpected = expectedPackage.trim()
+        val startedAtMs = System.currentTimeMillis()
+        val settleDelayMs = OPEN_APP_READY_SETTLE_DELAY_MS
+        val timeoutMs = OPEN_APP_READY_TIMEOUT_MS
+        val pollMs = OPEN_APP_READY_POLL_MS
+        delayWithStopPolling(effectiveReplayDelayMs(settleDelayMs), stopRequested)
+        if (normalizedExpected.isEmpty()) {
+            return openAppReadyWaitMeta(
+                status = "skipped",
+                startedAtMs = startedAtMs,
+                attempts = 0,
+                expectedPackage = normalizedExpected,
+                snapshot = null,
+                reason = "missing_expected_package",
+                settleDelayMs = settleDelayMs,
+                timeoutMs = 0L,
+            )
+        }
+
+        val deadlineMs = System.currentTimeMillis() + timeoutMs.coerceAtLeast(0L)
+        val effectivePollMs = effectiveReplayDelayMs(pollMs.coerceAtLeast(1L))
+        val maxAttempts = ((timeoutMs.coerceAtLeast(0L) / pollMs.coerceAtLeast(1L)) + 1)
+            .coerceAtLeast(1L)
+        var attempts = 0
+        var lastSnapshot: BackendSnapshot? = null
+        var lastNotReadyReason = "target_package_not_foreground"
+        var lastReadiness = emptyMap<String, Any?>()
+        while (true) {
+            throwIfStopRequested(stopRequested)
+            attempts += 1
+            val snapshot = readBackendSnapshot(timing)
+            lastSnapshot = snapshot
+            if (openAppPackageMatches(snapshot, normalizedExpected)) {
+                val readiness = openAppPageReadiness(snapshot, normalizedExpected)
+                if (readiness["page_ready"] == true) {
+                    return openAppReadyWaitMeta(
+                        status = "ready",
+                        startedAtMs = startedAtMs,
+                        attempts = attempts,
+                        expectedPackage = normalizedExpected,
+                        snapshot = snapshot,
+                        reason = null,
+                        settleDelayMs = settleDelayMs,
+                        timeoutMs = timeoutMs,
+                        extra = readiness,
+                    )
+                }
+                lastNotReadyReason = readiness["page_ready_reason"]?.toString()
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "target_package_page_not_ready"
+                lastReadiness = readiness
+            }
+            val effectivePackage = snapshot.effectivePackage()
+            val transientReason = openAppTransientPageReason(snapshot)
+            if (transientReason != null || isOpenAppTransientPackage(effectivePackage)) {
+                return openAppReadyWaitMeta(
+                    status = "transient_system_page",
+                    startedAtMs = startedAtMs,
+                    attempts = attempts,
+                    expectedPackage = normalizedExpected,
+                    snapshot = snapshot,
+                    reason = transientReason ?: "system_page_after_open_app",
+                    settleDelayMs = settleDelayMs,
+                    timeoutMs = timeoutMs,
+                    extra = lastReadiness,
+                )
+            }
+
+            if (OmniflowActionRuntime.isUsingBackendForTesting) {
+                if (attempts >= maxAttempts) break
+            } else if (System.currentTimeMillis() >= deadlineMs) {
+                break
+            }
+            delayWithStopPolling(
+                delayMs = min(effectivePollMs, (deadlineMs - System.currentTimeMillis()).coerceAtLeast(0L)),
+                stopRequested = stopRequested,
+            )
+        }
+
+        val diagnostics = openAppReadyWaitMeta(
+            status = "timeout",
+            startedAtMs = startedAtMs,
+            attempts = attempts,
+            expectedPackage = normalizedExpected,
+            snapshot = lastSnapshot,
+            reason = lastNotReadyReason,
+            settleDelayMs = settleDelayMs,
+            timeoutMs = timeoutMs,
+            extra = lastReadiness,
+        )
+        if (openAppPackageMatches(lastSnapshot, normalizedExpected) &&
+            lastNotReadyReason == "target_package_visible_only_as_sparse_overlay"
+        ) {
+            return diagnostics + mapOf(
+                "status" to "sparse_overlay_passthrough",
+                "reason" to lastNotReadyReason,
+            )
+        }
+        throw ExecutionException(
+            errorCode = "OPEN_APP_NOT_READY",
+            message = "open_app did not reach target package: $normalizedExpected",
+            diagnostics = diagnostics,
+        )
+    }
+
+    private fun openAppPackageMatches(snapshot: BackendSnapshot, expectedPackage: String): Boolean {
+        val rawPackage = snapshot.rawPackage.trim()
+        val effectivePackage = snapshot.effectivePackage().trim()
+        val activityName = snapshot.activityName.trim()
+        return rawPackage == expectedPackage ||
+            effectivePackage == expectedPackage ||
+            activityName == expectedPackage ||
+            activityName.startsWith("$expectedPackage/") ||
+            activityName.startsWith("$expectedPackage.")
+    }
+
+    private fun openAppPageReadiness(
+        snapshot: BackendSnapshot,
+        expectedPackage: String,
+    ): Map<String, Any?> {
+        val xml = snapshot.xml
+        if (xml.isBlank()) {
+            if (RunLogPagePackageInference.packageFromActivity(snapshot.activityName) == expectedPackage) {
+                return mapOf(
+                    "page_ready" to true,
+                    "page_ready_reason" to "activity_match_without_xml",
+                )
+            }
+            return mapOf(
+                "page_ready" to false,
+                "page_ready_reason" to "missing_xml",
+            )
+        }
+        val page = parsePageModel(xml) ?: return mapOf(
+            "page_ready" to false,
+            "page_ready_reason" to "invalid_xml_page",
+        )
+        val rootArea = page.rootBounds.area.coerceAtLeast(1f)
+        val visibleNodes = page.nodes.filter { it.visible && it.enabled && it.area > 1f }
+        val packageNodes = visibleNodes.filter { node ->
+            nodeMatchesPackageEvidence(node, expectedPackage)
+        }
+        val hasAnyPackageEvidence = visibleNodes.any(::nodeHasAnyPackageEvidence)
+        val targetNodeCount = packageNodes.size
+        val targetInteractiveCount = packageNodes.count { it.interactive }
+        val maxTargetAreaRatio = packageNodes
+            .maxOfOrNull { (it.area / rootArea).coerceIn(0f, 1f) }
+            ?: 0f
+        val targetTextCount = packageNodes.count { nodeLabelText(it).isNotBlank() }
+        val sparseTargetOnlyOverlay =
+            targetNodeCount in 1..SPARSE_OVERLAY_MAX_VISIBLE_NODES &&
+                targetInteractiveCount == 0 &&
+                targetTextCount <= 2 &&
+                visibleNodes.size <= SPARSE_OVERLAY_MAX_VISIBLE_NODES
+
+        val targetEvidenceReady = !sparseTargetOnlyOverlay && (
+            targetNodeCount >= OPEN_APP_READY_MIN_TARGET_NODE_COUNT ||
+                maxTargetAreaRatio >= OPEN_APP_READY_MIN_TARGET_AREA_RATIO ||
+                (targetInteractiveCount > 0 &&
+                    maxTargetAreaRatio >= OPEN_APP_READY_MIN_INTERACTIVE_TARGET_AREA_RATIO) ||
+                (targetNodeCount >= 2 && targetTextCount > 0)
+            )
+        val genericXmlReady = !hasAnyPackageEvidence && visibleNodes.isNotEmpty()
+        val ready = targetEvidenceReady || genericXmlReady
+        val reason = when {
+            ready && targetEvidenceReady -> "target_page_evidence"
+            ready -> "generic_xml_without_package_evidence"
+            targetNodeCount == 0 -> "no_target_package_page_evidence"
+            else -> "target_package_visible_only_as_sparse_overlay"
+        }
+        return linkedMapOf<String, Any?>(
+            "page_ready" to ready,
+            "page_ready_reason" to reason,
+            "visible_node_count" to visibleNodes.size,
+            "target_package_node_count" to targetNodeCount,
+            "target_package_interactive_count" to targetInteractiveCount,
+            "target_package_text_count" to targetTextCount,
+            "max_target_package_area_ratio" to maxTargetAreaRatio,
+            "sparse_target_only_overlay" to sparseTargetOnlyOverlay,
+            "has_any_package_evidence" to hasAnyPackageEvidence,
+        )
+    }
+
+    private fun nodeMatchesPackageEvidence(node: UiNode, expectedPackage: String): Boolean {
+        if (expectedPackage.isBlank()) return false
+        return node.packageName == expectedPackage ||
+            node.resourceId.startsWith("$expectedPackage:")
+    }
+
+    private fun nodeHasAnyPackageEvidence(node: UiNode): Boolean =
+        node.packageName.isNotBlank() ||
+            RESOURCE_ID_PACKAGE_PREFIX_REGEX.containsMatchIn(node.resourceId)
+
+    private fun openAppTransientPageReason(snapshot: BackendSnapshot): String? {
+        val page = parsePageModel(snapshot.xml) ?: return null
+        return when {
+            looksLikeResolverDialog(page) -> "resolver_dialog_after_open_app"
+            looksLikePermissionDialog(page) -> "permission_dialog_after_open_app"
+            else -> null
+        }
+    }
+
+    private fun isOpenAppTransientPackage(packageName: String): Boolean {
+        val normalized = packageName.trim().lowercase()
+        if (normalized.isEmpty()) return false
+        return normalized in RESOLVER_PACKAGES ||
+            normalized in PERMISSION_PACKAGES ||
+            RESOLVER_PACKAGE_TERMS.any { term -> normalized.contains(term) }
+    }
+
+    private fun openAppReadyWaitMeta(
+        status: String,
+        startedAtMs: Long,
+        attempts: Int,
+        expectedPackage: String,
+        snapshot: BackendSnapshot?,
+        reason: String?,
+        settleDelayMs: Long,
+        timeoutMs: Long,
+        extra: Map<String, Any?> = emptyMap(),
+    ): Map<String, Any?> =
+        linkedMapOf<String, Any?>(
+            "status" to status,
+            "waited_ms" to (System.currentTimeMillis() - startedAtMs).coerceAtLeast(0L),
+            "settle_delay_ms" to settleDelayMs,
+            "timeout_ms" to timeoutMs,
+            "attempts" to attempts,
+            "expected_package" to expectedPackage.takeIf { it.isNotBlank() },
+            "reason" to reason?.takeIf { it.isNotBlank() },
+            "package_name" to snapshot?.rawPackage?.takeIf { it.isNotBlank() },
+            "effective_package" to snapshot?.effectivePackage()?.takeIf { it.isNotBlank() },
+            "activity_name" to snapshot?.activityName?.takeIf { it.isNotBlank() },
+            "xml_ready" to (snapshot?.xml?.isNotBlank() == true),
+            "xml_chars" to snapshot?.xml?.length,
+        ).apply {
+            putAll(extra)
+        }.filterValues { it != null }
 
     private suspend fun dispatchInputText(
         backend: OmniflowActionBackend,
@@ -1023,6 +1189,32 @@ object UIStepExecutor {
         ).filterValues { it != null }
     }
 
+    private fun postActionObserveMeta(
+        action: String,
+        startedAtMs: Long,
+        settleDelayMs: Long,
+        state: ReplayState,
+    ): Map<String, Any?> {
+        val snapshot = state.snapshot
+        val page = state.page
+        return linkedMapOf<String, Any?>(
+            "status" to "observed",
+            "action" to action,
+            "waited_ms" to (System.currentTimeMillis() - startedAtMs).coerceAtLeast(0L),
+            "settle_delay_ms" to settleDelayMs,
+            "captured_at_ms" to state.capturedAtMs,
+            "reason" to state.reason,
+            "package_name" to snapshot.rawPackage.takeIf { it.isNotBlank() },
+            "effective_package" to snapshot.effectivePackage().takeIf { it.isNotBlank() },
+            "activity_name" to snapshot.activityName.takeIf { it.isNotBlank() },
+            "xml_ready" to snapshot.xml.isNotBlank(),
+            "xml_chars" to snapshot.xml.length,
+            "xml_hash" to snapshot.xml.takeIf { it.isNotBlank() }?.let { Integer.toHexString(it.hashCode()) },
+            "visible_node_count" to page?.nodes?.count { it.visible },
+            "interactive_node_count" to page?.nodes?.count { it.visible && it.enabled && it.interactive },
+        ).filterValues { it != null }
+    }
+
     private fun inputTextAttemptFailure(attempt: Int, error: Throwable): String =
         "attempt=$attempt ${error.message ?: error::class.java.simpleName}"
 
@@ -1066,6 +1258,94 @@ object UIStepExecutor {
         } else {
             attempted
         }
+    }
+
+    private fun transferExceptionMeta(e: Exception, extraMeta: Map<String, Any?> = emptyMap()): Map<String, Any?> =
+        mapOf(
+            "applied" to false,
+            "reason" to "action_transfer_exception",
+            "algorithm" to "anchor_projection",
+            "error_message" to e.message.orEmpty(),
+        ) + extraMeta
+
+    private suspend fun safeRemapStep(
+        step: Map<String, Any?>,
+        state: ReplayState,
+        transferRequested: Boolean,
+        initialArgs: Map<String, Any?>,
+        fixedReplay: Boolean,
+        timing: ReplayStepTiming,
+        extraMeta: Map<String, Any?> = emptyMap(),
+    ): StepArgsResult {
+        val attempted = timing.measure("action_transfer_ms") {
+            if (fixedReplay) return@measure StepArgsResult(initialArgs)
+            try {
+                remapStepArgsForState(step, state)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                StepArgsResult(args = initialArgs, meta = transferExceptionMeta(e, extraMeta))
+            }
+        }
+        return recordedReplayFallbackIfNeeded(transferRequested, attempted, initialArgs)
+    }
+
+    private data class PreActionPhaseResult(
+        val preTransferControls: List<Map<String, Any?>>,
+        val preActionControls: List<Map<String, Any?>>,
+        val remapResult: StepArgsResult,
+        val args: Map<String, Any?>,
+    )
+
+    private suspend fun runPreActionPhase(
+        step: Map<String, Any?>,
+        action: String,
+        initialArgs: Map<String, Any?>,
+        fixedReplay: Boolean,
+        transferRequested: Boolean,
+        checkerRules: List<OmniflowCheckerRule>,
+        checkerBudget: CheckerTriggerBudget,
+        timing: ReplayStepTiming,
+        stopRequested: (() -> Boolean)? = null,
+        getState: suspend (String) -> ReplayState,
+        refreshState: suspend (String) -> ReplayState,
+    ): PreActionPhaseResult {
+        val preTransferControls = timing.measure("checker_ms") {
+            if (fixedReplay) emptyList()
+            else runCheckerPhase(
+                phase = OmniflowCheckerRule.PHASE_PRE_TRANSFER,
+                state = getState("before_step"),
+                replayAction = ReplayAction(step, action, initialArgs),
+                extraRules = checkerRules,
+                checkerBudget = checkerBudget,
+            )
+        }
+        if (!fixedReplay && preTransferControls.isNotEmpty()) {
+            throwIfStopRequested(stopRequested)
+            refreshState("after_pre_transfer_controls")
+        }
+        throwIfStopRequested(stopRequested)
+        var remapResult = safeRemapStep(step, getState("action_transfer"), transferRequested, initialArgs, fixedReplay, timing)
+        var args = normalizeArgsMap(remapResult.args)
+        val preActionControls = timing.measure("checker_ms") {
+            if (fixedReplay) emptyList()
+            else runCheckerPhase(
+                phase = OmniflowCheckerRule.PHASE_PRE_ACTION,
+                state = getState("before_action"),
+                replayAction = ReplayAction(step, action, args),
+                extraRules = checkerRules,
+                checkerBudget = checkerBudget,
+            )
+        }
+        if (!fixedReplay && preActionControls.isNotEmpty()) {
+            throwIfStopRequested(stopRequested)
+            val refreshed = refreshState("after_pre_action_controls")
+            if (transferRequested) {
+                remapResult = safeRemapStep(step, refreshed, transferRequested, initialArgs, fixedReplay, timing)
+                args = normalizeArgsMap(remapResult.args)
+            }
+        }
+        return PreActionPhaseResult(preTransferControls, preActionControls, remapResult, args)
     }
 
     private fun remapStepArgsInternal(
@@ -1143,6 +1423,61 @@ object UIStepExecutor {
             }
         }
         return null
+    }
+
+    private fun replayActionSnapshot(
+        action: String,
+        args: Map<String, Any?>,
+    ): Map<String, Any?> =
+        linkedMapOf<String, Any?>(
+            "tool" to action,
+            "args" to compactReplayActionArgs(args),
+        )
+
+    private fun compactReplayActionArgs(args: Map<String, Any?>): Map<String, Any?> {
+        val allowedKeys = listOf(
+            "package_name",
+            "packageName",
+            "package",
+            "target_description",
+            "text",
+            "x",
+            "y",
+            "x1",
+            "y1",
+            "x2",
+            "y2",
+            "direction",
+            "distance",
+            "duration_ms",
+            "selector",
+            "resource_id",
+            "node_resource_id",
+            "node_id",
+            "element_index",
+            "bounds",
+            "key",
+            "content",
+            "value",
+            "coordinate_space",
+        )
+        return allowedKeys.mapNotNull { key ->
+            val value = args[key] ?: return@mapNotNull null
+            val compactValue = when (value) {
+                is Number, is Boolean -> value
+                is String -> value.take(512)
+                else -> value.toString().take(512)
+            }
+            key to compactValue
+        }.toMap(LinkedHashMap())
+    }
+
+    private fun replaySafeClickNodeResourceId(resourceId: String?): String {
+        val value = resourceId?.trim().orEmpty()
+        if (value.isBlank()) return ""
+        val normalized = value.lowercase()
+        if (normalized in GENERIC_ANDROID_CLICK_RESOURCE_IDS) return ""
+        return value
     }
 
     private fun durationMs(args: Map<String, Any?>, defaultMs: Long): Long {
@@ -1696,13 +2031,16 @@ object UIStepExecutor {
     ): Map<String, Any?>? {
         if (targetLooksLikeDismiss(replayAction.args)) return null
         val page = state.page ?: return null
-        val candidate = blockingOverlayDismissCandidate(page) ?: return null
+        val candidate = blockingOverlayDismissCandidate(page)
+            ?: blockingOverlayAtActionTarget(page, replayAction)
+            ?: return null
         OmniflowActionRuntime.backend.click(candidate.centerX, candidate.centerY)
         delay(PRE_ACTION_CONTROL_DELAY_MS)
         return linkedMapOf(
             "phase" to "before_action",
             "effect" to "run_actions",
             "controller" to rule.id,
+            "condition" to OmniflowCheckerRule.COND_OVERLAY_BLOCKING,
             "action" to OobActionCodec.ACTION_CLICK,
             "x" to candidate.centerX,
             "y" to candidate.centerY,
@@ -1865,6 +2203,97 @@ object UIStepExecutor {
             }
             .maxByOrNull { it.second }
             ?.first
+    }
+
+    private fun blockingOverlayAtActionTarget(
+        page: PageModel,
+        replayAction: ReplayAction,
+    ): UiNode? {
+        if (replayAction.action !in OobActionCodec.pointTargetActions) return null
+        if (pageHasReplayActionTarget(page, replayAction)) return null
+        if (!looksLikeSparseOverlayPage(page)) return null
+        val rootArea = page.rootBounds.area.coerceAtLeast(1f)
+        return page.nodes
+            .asSequence()
+            .filter { node ->
+                node.visible &&
+                    node.enabled &&
+                    node.interactive &&
+                    node.area > 1f &&
+                    node.area / rootArea <= MAX_TARGET_OVERLAY_AREA_RATIO &&
+                    nodeLabelWithSubtreeText(node).isNotBlank() &&
+                    !recordedSourceTargetLooksLikeNode(replayAction, node) &&
+                    actionTargetHitsNode(replayAction.action, replayAction.args, node)
+            }
+            .minByOrNull { it.area }
+    }
+
+    private fun recordedSourceTargetLooksLikeNode(
+        replayAction: ReplayAction,
+        candidate: UiNode,
+    ): Boolean {
+        val x = numberArg(replayAction.args, "x")?.toFloat() ?: return false
+        val y = numberArg(replayAction.args, "y")?.toFloat() ?: return false
+        val sourceXml = sourceXmlForStep(replayAction.step)
+        if (sourceXml.isBlank()) return false
+        val sourcePage = parsePageModel(sourceXml) ?: return false
+        val sourceNode = selectPointSourceNode(sourcePage, x, y) ?: return false
+        if (sourceNode.resourceId.isNotBlank() && sourceNode.resourceId == candidate.resourceId) {
+            return true
+        }
+        if (sourceNode.text.isNotBlank() && sourceNode.text == candidate.text) {
+            return true
+        }
+        if (sourceNode.contentDesc.isNotBlank() && sourceNode.contentDesc == candidate.contentDesc) {
+            return true
+        }
+        return sourceNode.classSuffix.isNotBlank() &&
+            sourceNode.classSuffix == candidate.classSuffix &&
+            nodeLabelWithSubtreeText(sourceNode).isNotBlank() &&
+            nodeLabelWithSubtreeText(sourceNode) == nodeLabelWithSubtreeText(candidate)
+    }
+
+    private fun looksLikeSparseOverlayPage(page: PageModel): Boolean {
+        val visibleNodes = page.nodes.count { it.visible }
+        val interactiveNodes = page.nodes.count { it.visible && it.enabled && it.interactive }
+        if (visibleNodes <= SPARSE_OVERLAY_MAX_VISIBLE_NODES &&
+            interactiveNodes <= SPARSE_OVERLAY_MAX_INTERACTIVE_NODES
+        ) {
+            return true
+        }
+        val rootArea = page.rootBounds.area.coerceAtLeast(1f)
+        val fullScreenInteractiveNodes = page.nodes.count { node ->
+            node.visible && node.enabled && node.interactive &&
+                node.area / rootArea >= FULLSCREEN_INTERACTIVE_AREA_RATIO
+        }
+        return interactiveNodes <= 1 && fullScreenInteractiveNodes == 0
+    }
+
+    private fun pageHasReplayActionTarget(
+        page: PageModel,
+        replayAction: ReplayAction,
+    ): Boolean {
+        val targetResourceId = OobActionCodec.firstNonBlank(
+            stringArg(replayAction.args, "node_resource_id", "resource_id", "resource-id"),
+            stringArg(replayAction.args, "selector"),
+        ).trim()
+        if (targetResourceId.isNotBlank() && page.nodes.any { node ->
+                node.visible && node.resourceId == targetResourceId
+            }
+        ) {
+            return true
+        }
+
+        val targetDescription = stringArg(replayAction.args, "target_description", "label")
+            ?.lowercase()
+            .orEmpty()
+        if (targetDescription.isBlank()) return false
+        return page.nodes.any { node ->
+            node.visible &&
+                nodeLabelWithSubtreeText(node).let { label ->
+                    label == targetDescription || label.contains(targetDescription)
+                }
+        }
     }
 
     private fun appUpgradeDismissCandidate(page: PageModel): UiNode? {
@@ -2151,6 +2580,12 @@ object UIStepExecutor {
             .joinToString(" ")
             .lowercase()
 
+    private fun nodeLabelWithSubtreeText(node: UiNode): String =
+        listOf(nodeLabelText(node), node.subtreeText)
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+            .lowercase()
+
     private fun permissionNodeLabelText(node: UiNode): String =
         listOf(node.text, node.contentDesc, node.hintText, node.resourceTail, node.subtreeText)
             .filter { it.isNotBlank() }
@@ -2303,7 +2738,12 @@ object UIStepExecutor {
             args,
             meta = mapOf("applied" to false, "reason" to "invalid_current_page", "algorithm" to "anchor_projection")
         )
-        val mapped = remapPointWithinPages(sourcePage, targetPage, x, y)
+        val mapped = if (tool == OobActionCodec.ACTION_INPUT_TEXT) {
+            remapPointByResourceId(tool, args, sourcePage, targetPage, x, y)
+        } else {
+            null
+        }
+            ?: remapPointWithinPages(sourcePage, targetPage, x, y)
             ?: if (coordinateReplayAllowed(args)) {
                 remapPointWithinRoots(sourcePage, targetPage, x, y)
             } else {
@@ -2347,6 +2787,102 @@ object UIStepExecutor {
                 "debug" to mapped.debug,
             )
         )
+    }
+
+    private fun remapPointByResourceId(
+        tool: String,
+        args: Map<String, Any?>,
+        sourcePage: PageModel,
+        targetPage: PageModel,
+        x: Float,
+        y: Float,
+    ): PointMapping? {
+        val resourceId = stringArg(args, "node_resource_id", "resource_id", "resource-id")
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: return null
+        val sourceNode = bestResourceNodeForPoint(
+            page = sourcePage,
+            resourceId = resourceId,
+            tool = tool,
+            x = x,
+            y = y,
+            reference = null,
+        ) ?: return null
+        val targetNode = bestResourceNodeForPoint(
+            page = targetPage,
+            resourceId = resourceId,
+            tool = tool,
+            x = null,
+            y = null,
+            reference = sourceNode,
+        ) ?: return null
+        val offsetX = if (sourceNode.bounds.width > 0f) {
+            ((x - sourceNode.bounds.left) / sourceNode.bounds.width).coerceIn(0f, 1f)
+        } else {
+            0.5f
+        }
+        val offsetY = if (sourceNode.bounds.height > 0f) {
+            ((y - sourceNode.bounds.top) / sourceNode.bounds.height).coerceIn(0f, 1f)
+        } else {
+            0.5f
+        }
+        val newX = targetNode.bounds.left + targetNode.bounds.width * offsetX
+        val newY = targetNode.bounds.top + targetNode.bounds.height * offsetY
+        return PointMapping(
+            newX = targetNode.bounds.clampX(newX),
+            newY = targetNode.bounds.clampY(newY),
+            sourceNode = sourceNode,
+            targetNode = targetNode,
+            confidence = 1.0f,
+            anchorCount = 0,
+            mode = "resource_id",
+            debug = mapOf(
+                "matched_by" to listOf("resource_id"),
+                "resource_id" to resourceId,
+            ),
+        )
+    }
+
+    private fun bestResourceNodeForPoint(
+        page: PageModel,
+        resourceId: String,
+        tool: String,
+        x: Float?,
+        y: Float?,
+        reference: UiNode?,
+    ): UiNode? {
+        val tail = resourceTail(resourceId)
+        return page.nodes
+            .asSequence()
+            .filter { node ->
+                node.visible &&
+                    node.enabled &&
+                    (node.resourceId == resourceId || (tail.isNotBlank() && node.resourceTail == tail))
+            }
+            .map { node ->
+                val containsPoint = x != null && y != null && node.bounds.contains(x, y)
+                val typeScore = when (tool) {
+                    OobActionCodec.ACTION_INPUT_TEXT -> if (node.editable) 1000f else -1000f
+                    OobActionCodec.ACTION_CLICK -> if (node.clickable || node.focusable) 400f else 0f
+                    OobActionCodec.ACTION_LONG_PRESS -> if (node.longClickable || node.clickable) 400f else 0f
+                    else -> 0f
+                }
+                val pointScore = if (containsPoint) 700f else 0f
+                val referenceScore = reference?.let {
+                    var score = 0f
+                    if (node.classSuffix == it.classSuffix) score += 160f
+                    score -= abs(node.bounds.width - it.bounds.width) * 0.03f
+                    score -= abs(node.bounds.height - it.bounds.height) * 0.03f
+                    score -= abs(node.depth - it.depth) * 8f
+                    score
+                } ?: 0f
+                val areaPenalty = node.area / 100000f
+                node to (typeScore + pointScore + referenceScore - areaPenalty)
+            }
+            .filter { (_, score) -> score > -500f }
+            .maxByOrNull { it.second }
+            ?.first
     }
 
     private fun remapSwipeActionArgs(
@@ -3093,11 +3629,16 @@ object UIStepExecutor {
     private const val MIN_APP_UPGRADE_DISMISS_SCORE = 700f
     private const val KEYBOARD_OBSCURE_MARGIN_PX = 16f
     private const val ACTION_TARGET_HIT_MARGIN_PX = 24f
+    private const val MAX_TARGET_OVERLAY_AREA_RATIO = 0.45f
+    private const val SPARSE_OVERLAY_MAX_VISIBLE_NODES = 6
+    private const val SPARSE_OVERLAY_MAX_INTERACTIVE_NODES = 2
+    private const val FULLSCREEN_INTERACTIVE_AREA_RATIO = 0.65f
     private val REPLAY_STEP_PHASE_NAMES = listOf(
         "observe_ms",
         "checker_ms",
         "action_transfer_ms",
         "act_ms",
+        "open_app_ready_wait_ms",
     )
     private val GENERIC_RESOURCE_TAILS = setOf(
         "title",
@@ -3442,11 +3983,19 @@ object UIStepExecutor {
     private const val DEFAULT_CHECKER_TRIGGER_LIMIT = 1
     private const val DEFAULT_PAGE_GUARD_TRIGGER_LIMIT = 3
     private const val REPLAY_ACTION_SETTLE_DELAY_MS = 1000L
-    private const val REPLAY_TARGET_READY_TIMEOUT_MS = 5000L
+    private const val REPLAY_TARGET_READY_TIMEOUT_MS = 0L
     private const val REPLAY_TARGET_READY_POLL_MS = 500L
+    private const val OPEN_APP_READY_SETTLE_DELAY_MS = REPLAY_ACTION_SETTLE_DELAY_MS
+    private const val OPEN_APP_READY_TIMEOUT_MS = 5000L
+    private const val OPEN_APP_READY_POLL_MS = 500L
+    private const val OPEN_APP_READY_MIN_TARGET_NODE_COUNT = 3
+    private const val OPEN_APP_READY_MIN_TARGET_AREA_RATIO = 0.05f
+    private const val OPEN_APP_READY_MIN_INTERACTIVE_TARGET_AREA_RATIO = 0.02f
     private const val INPUT_TEXT_OBSERVE_RETRY_COUNT = 2
     private const val INPUT_TEXT_OBSERVE_RETRY_DELAY_MS = 250L
     private const val STOP_POLL_INTERVAL_MS = 50L
+    private val RESOURCE_ID_PACKAGE_PREFIX_REGEX =
+        Regex("""^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+:id/""")
 
     private val REPLAY_SEMANTIC_TARGET_ACTIONS = setOf(
         OobActionCodec.ACTION_CLICK,
@@ -3457,6 +4006,15 @@ object UIStepExecutor {
     private val GENERIC_TARGET_TEXT_TOKENS = setOf(
         "click", "tap", "press", "button", "view", "viewgroup", "textview",
         "imageview", "android", "widget", "点击", "按钮", "文本", "视图",
+    )
+
+    private val GENERIC_ANDROID_CLICK_RESOURCE_IDS = setOf(
+        "android:id/title",
+        "android:id/summary",
+        "android:id/text1",
+        "android:id/text2",
+        "android:id/icon",
+        "android:id/widget_frame",
     )
 
     private val ALLOW_EXACT_LABELS = setOf(

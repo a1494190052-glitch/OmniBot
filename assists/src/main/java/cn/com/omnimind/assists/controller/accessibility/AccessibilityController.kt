@@ -121,7 +121,7 @@ class AccessibilityController() {
         suspend fun inputText(
             nodeId: String, text: String
         ) {
-            val node = captureAction?.getNodeMap()?.get(nodeId)?.info
+            val node = findNodeById(nodeId)?.info
                 ?: throw IllegalArgumentException("Node with ID '$nodeId' not found.")
             actionController?.inputText(node, text)
         }
@@ -320,7 +320,7 @@ class AccessibilityController() {
         ) {
             checkAccessibilityPermissions()
             withTimeout(2000) {
-                val node = findNodeById(nodeId)
+                val node = findNodeById(nodeId, targetDescription)
                     ?: throw IllegalArgumentException("Node with ID '$nodeId' not found.")
                 val clickableNode = findActionableAncestor(
                     node = node.info,
@@ -368,7 +368,7 @@ class AccessibilityController() {
         ) {
             checkAccessibilityPermissions()
             withTimeout(3000) {
-                val node = findNodeById(nodeId)
+                val node = findNodeById(nodeId, targetDescription)
                     ?: throw IllegalArgumentException("Node with ID '$nodeId' not found.")
                 val longClickableNode = findActionableAncestor(
                     node = node.info,
@@ -389,7 +389,7 @@ class AccessibilityController() {
         ) {
             checkAccessibilityPermissions()
             withTimeout(3000) {
-                val node = findNodeById(nodeId)
+                val node = findNodeById(nodeId, targetDescription)
                     ?: throw IllegalArgumentException("Node with ID '$nodeId' not found.")
                 val editableNode = findActionableAncestor(
                     node = node.info,
@@ -664,8 +664,54 @@ class AccessibilityController() {
                 ?.node
         }
 
-        private fun findNodeById(nodeId: String): AccessibilityNode? =
-            captureAction?.getNodeMap()?.get(nodeId.trim())
+        private fun findNodeById(
+            nodeId: String,
+            targetDescription: String = ""
+        ): AccessibilityNode? {
+            val normalizedId = nodeId.trim()
+            if (normalizedId.isBlank()) return null
+            val nodeMap = captureAction?.getNodeMap() ?: return null
+
+            val targetTerms = semanticTerms(targetDescription)
+            if (targetTerms.isEmpty()) {
+                nodeMap[normalizedId]?.let { return it }
+            }
+            return nodeMap.values
+                .asSequence()
+                .filter { node ->
+                    node.info.safeViewIdResourceName() == normalizedId
+                }
+                .map { node ->
+                    val info = node.info
+                    val clickableNode = findActionableAncestor(
+                        node = info,
+                        supportsAction = { it.isEnabled && it.isClickable }
+                    )
+                    val textNode = findActionableAncestor(
+                        node = info,
+                        supportsAction = { it.isEnabled && it.isTextInputLike() }
+                    )
+                    val labelTerms = semanticTerms(nodeSemanticLabel(info))
+                    val targetOverlap = if (targetTerms.isNotEmpty() && labelTerms.isNotEmpty()) {
+                        targetTerms.intersect(labelTerms).size
+                    } else {
+                        0
+                    }
+                    val bounds = info.boundsInScreenOrNull() ?: node.bounds
+                    val area = bounds.width().coerceAtLeast(1) * bounds.height().coerceAtLeast(1)
+                    val score =
+                        (if (node.show) 500f else 0f) +
+                            (if (info.isEnabled) 300f else 0f) +
+                            (if (clickableNode != null) 180f else 0f) +
+                            (if (textNode != null) 180f else 0f) +
+                            (if (info.isFocused) 80f else 0f) +
+                            targetOverlap * 60f -
+                            area.toFloat() / 100000f
+                    SliderCandidate(node = node, score = score)
+                }
+                .maxByOrNull { it.score }
+                ?.node
+        }
 
         private fun findClickableNodeAtCoordinate(x: Float, y: Float): AccessibilityNodeInfo? {
             val px = x.toInt()
@@ -848,6 +894,12 @@ class AccessibilityController() {
             return rect.takeUnless { it.isEmpty }
         }
 
+        private fun AccessibilityNodeInfo.safeViewIdResourceName(): String =
+            runCatching { viewIdResourceName }
+                .getOrNull()
+                ?.trim()
+                .orEmpty()
+
         private fun findActionableAncestor(
             node: AccessibilityNodeInfo,
             supportsAction: (AccessibilityNodeInfo) -> Boolean
@@ -904,7 +956,7 @@ class AccessibilityController() {
                 node.text?.toString(),
                 node.contentDescription?.toString(),
                 node.hintText?.toString(),
-                node.viewIdResourceName,
+                node.safeViewIdResourceName(),
                 node.className?.toString()?.substringAfterLast('.')
             )
                 .filter { !it.isNullOrBlank() }

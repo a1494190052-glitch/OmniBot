@@ -161,6 +161,13 @@ class UIStepExecutorTest {
             assertEquals("before_action", checker["phase"])
             assertEquals(true, checker["verified"])
             assertFalse(result.containsKey("control_effects"))
+            val postActionObserve = result["post_action_observe"] as? Map<*, *>
+                ?: error("missing post action observe")
+            assertEquals("observed", postActionObserve["status"])
+            assertEquals("click", postActionObserve["action"])
+            assertEquals(true, postActionObserve["xml_ready"])
+            assertEquals(AFTER_XML.length, postActionObserve["xml_chars"])
+            assertEquals("com.example", postActionObserve["effective_package"])
             val timing = result["timing"] as? Map<*, *> ?: error("missing timing")
             assertEquals("oob_omniflow_step_executor", timing["source"])
             val phaseMs = timing["phase_ms"] as? Map<*, *> ?: error("missing phase timing")
@@ -169,6 +176,7 @@ class UIStepExecutorTest {
                 "checker_ms",
                 "action_transfer_ms",
                 "act_ms",
+                "post_action_observe_ms",
             ).forEach { phase ->
                 assertTrue("missing $phase", phaseMs.containsKey(phase))
                 assertTrue((phaseMs[phase] as Number).toLong() >= 0L)
@@ -197,8 +205,39 @@ class UIStepExecutorTest {
 
             assertEquals(true, result["success"])
             assertEquals("action_transfer", result["replay_mode"])
-            assertEquals(1, backend.currentXmlReadCount)
+            assertEquals(2, backend.currentXmlReadCount)
+            assertTrue(result.containsKey("post_action_observe"))
             assertFalse(result.containsKey("step_settle"))
+        }
+    }
+
+    @Test
+    fun `action transfer click ignores recorded generic android resource id`() = runBlocking {
+        val backend = FakeBackend(beforeXml = SOURCE_XML, afterXml = AFTER_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = UIStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "coordinate_hook" to "omniflow",
+                    "args" to mapOf(
+                        "x" to 120,
+                        "y" to 240,
+                        "target_description" to "Open",
+                        "node_resource_id" to "android:id/summary",
+                    ),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to SOURCE_XML),
+                    ),
+                ),
+                stepId = "step_generic_android_resource",
+                stepTitle = "click generic resource id",
+            )
+
+            assertEquals(true, result["success"])
+            assertEquals("action_transfer", result["replay_mode"])
+            assertEquals(1, backend.clickNodeResourceIds.size)
+            assertEquals("app:id/open", backend.clickNodeResourceIds.single())
         }
     }
 
@@ -580,8 +619,136 @@ class UIStepExecutorTest {
     }
 
     @Test
+    fun `execute open app waits until target package is foreground`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = SOURCE_XML,
+            afterXml = AFTER_XML,
+            currentPackage = "com.launcher",
+            postActionXmls = listOf(SOURCE_XML, AFTER_XML),
+            postActionPackages = listOf("com.launcher", "com.example"),
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = UIStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "open_app",
+                    "args" to mapOf("package_name" to "com.example"),
+                ),
+                stepId = "step_open_app_wait_ready",
+                stepTitle = "open app and wait",
+            )
+
+            assertEquals(true, result["success"])
+            val readyWait = result["open_app_ready_wait"] as? Map<*, *>
+                ?: error("missing open_app_ready_wait")
+            assertEquals("ready", readyWait["status"])
+            assertEquals("com.example", readyWait["expected_package"])
+            assertEquals("com.example", readyWait["effective_package"])
+            assertEquals(2, readyWait["attempts"])
+        }
+    }
+
+    @Test
+    fun `execute open app ignores sparse target package toast until page content is visible`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = SOURCE_XML,
+            afterXml = CLOCK_HOME_XML,
+            currentPackage = "com.launcher",
+            postActionXmls = listOf(STALE_DIALOG_XML, CLOCK_HOME_XML),
+            postActionPackages = listOf(
+                "com.google.android.deskclock",
+                "com.google.android.deskclock",
+            ),
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = UIStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "open_app",
+                    "args" to mapOf("package_name" to "com.google.android.deskclock"),
+                ),
+                stepId = "step_open_clock_wait_content",
+                stepTitle = "open clock and wait for app page",
+            )
+
+            assertEquals(true, result["success"])
+            val readyWait = result["open_app_ready_wait"] as? Map<*, *>
+                ?: error("missing open_app_ready_wait")
+            assertEquals("ready", readyWait["status"])
+            assertEquals(2, readyWait["attempts"])
+            assertEquals(true, readyWait["page_ready"])
+            assertEquals("target_page_evidence", readyWait["page_ready_reason"])
+            assertEquals(3, readyWait["target_package_node_count"])
+        }
+    }
+
+    @Test
+    fun `execute open app passes through persistent sparse target package overlay`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = SOURCE_XML,
+            afterXml = STALE_DIALOG_XML,
+            currentPackage = "com.launcher",
+            postActionXmls = listOf(STALE_DIALOG_XML),
+            postActionPackages = listOf("com.google.android.deskclock"),
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = UIStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "open_app",
+                    "args" to mapOf("package_name" to "com.google.android.deskclock"),
+                ),
+                stepId = "step_open_clock_sparse_overlay",
+                stepTitle = "open clock with sparse overlay",
+            )
+
+            assertEquals(true, result["success"])
+            val readyWait = result["open_app_ready_wait"] as? Map<*, *>
+                ?: error("missing open_app_ready_wait")
+            assertEquals("sparse_overlay_passthrough", readyWait["status"])
+            assertEquals(false, readyWait["page_ready"])
+            assertEquals(true, readyWait["sparse_target_only_overlay"])
+        }
+    }
+
+    @Test
+    fun `execute open app fails when target package never becomes foreground`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = SOURCE_XML,
+            afterXml = SOURCE_XML,
+            currentPackage = "com.launcher",
+            postActionPackages = listOf("com.launcher"),
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val error = try {
+                UIStepExecutor.execute(
+                    step = mapOf(
+                        "executor" to "omniflow",
+                        "tool" to "open_app",
+                        "args" to mapOf("package_name" to "com.example"),
+                    ),
+                    stepId = "step_open_app_timeout",
+                    stepTitle = "open app timeout",
+                )
+                null
+            } catch (e: UIStepExecutor.ExecutionException) {
+                e
+            }
+
+            require(error != null) { "expected OPEN_APP_NOT_READY" }
+            assertEquals("OPEN_APP_NOT_READY", error.errorCode)
+            assertEquals("timeout", error.diagnostics["status"])
+            assertEquals("com.example", error.diagnostics["expected_package"])
+        }
+    }
+
+    @Test
     fun `execute opens app with legacy packageName arg`() = runBlocking {
-        val backend = FakeBackend(beforeXml = SOURCE_XML, afterXml = AFTER_XML)
+        val backend = FakeBackend(
+            beforeXml = SOURCE_XML,
+            afterXml = AFTER_XML,
+            currentPackage = "com.example.legacy",
+        )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
             val result = UIStepExecutor.execute(
                 step = mapOf(
@@ -978,6 +1145,45 @@ class UIStepExecutorTest {
     }
 
     @Test
+    fun `omniflow loop dismisses sparse coachmark overlay covering target point`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = COACHMARK_TARGET_OVERLAY_XML,
+            afterXml = CLOCK_STOPWATCH_START_XML,
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = UIStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "coordinate_hook" to "omniflow",
+                    "args" to mapOf(
+                        "target_description" to "Start",
+                        "node_resource_id" to "com.google.android.deskclock:id/fab",
+                        "x" to 360,
+                        "y" to 944,
+                    ),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to CLOCK_STOPWATCH_START_XML),
+                    ),
+                ),
+                stepId = "step_start_stopwatch",
+                stepTitle = "click start",
+            )
+
+            assertEquals(true, result["success"])
+            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
+            val effect = controlEffects.single() as Map<*, *>
+            assertEquals("dismiss_blocking_overlay", effect["controller"])
+            assertEquals("overlay_blocking", effect["condition"])
+            assertEquals(2, backend.clickPoints.size)
+            assertEquals(360f, backend.clickPoints.first().first, 0.01f)
+            assertEquals(970f, backend.clickPoints.first().second, 0.01f)
+            assertEquals(360f, backend.clickPoints.last().first, 0.01f)
+            assertEquals(944f, backend.clickPoints.last().second, 0.01f)
+        }
+    }
+
+    @Test
     fun `global checker skips splash ad before recorded click`() = runBlocking {
         val backend = FakeBackend(beforeXml = SKIP_AD_XML, afterXml = SOURCE_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
@@ -1306,6 +1512,7 @@ class UIStepExecutorTest {
         private var inputFailureCount = 0
         val launchRequests = mutableListOf<String>()
         val clickPoints = mutableListOf<Pair<Float, Float>>()
+        val clickNodeResourceIds = mutableListOf<String>()
         val inputRequests = mutableListOf<Map<String, Any?>>()
         var focusedInputCount = 0
             private set
@@ -1319,6 +1526,16 @@ class UIStepExecutorTest {
         override suspend fun click(x: Float, y: Float) {
             clicked = true
             clickPoints += x to y
+        }
+
+        override suspend fun click(
+            x: Float,
+            y: Float,
+            targetDescription: String,
+            nodeResourceId: String,
+        ) {
+            clickNodeResourceIds += nodeResourceId
+            click(x, y)
         }
 
         override suspend fun longPress(x: Float, y: Float, durationMs: Long) {
@@ -1465,6 +1682,10 @@ class UIStepExecutorTest {
             "<hierarchy bounds=\"[0,0][720,1280]\"><node bounds=\"[199,66][640,157]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"android.view.ViewGroup\"><node bounds=\"[223,90][598,123]\" enabled=\"true\" visible-to-user=\"true\" text=\"Privacy\" class=\"android.widget.TextView\" resource-id=\"com.google.android.deskclock:id/body\"/></node></hierarchy>"
         private const val CLOCK_HOME_XML =
             "<hierarchy bounds=\"[0,0][720,1280]\"><node bounds=\"[0,0][720,1280]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.FrameLayout\"><node bounds=\"[0,176][720,1072]\" enabled=\"true\" focusable=\"true\" class=\"android.view.ViewGroup\" resource-id=\"com.google.android.deskclock:id/desk_clock_pager\"/><node bounds=\"[432,1072][576,1232]\" enabled=\"true\" clickable=\"true\" focusable=\"true\" content-desc=\"Stopwatch\" class=\"android.widget.FrameLayout\" resource-id=\"com.google.android.deskclock:id/tab_menu_stopwatch\"><node bounds=\"[433,1168][575,1209]\" enabled=\"true\" visible-to-user=\"true\" text=\"Stopwatch\" class=\"android.widget.TextView\" resource-id=\"com.google.android.deskclock:id/navigation_bar_item_small_label_view\"/></node></node></hierarchy>"
+        private const val CLOCK_STOPWATCH_START_XML =
+            "<hierarchy bounds=\"[0,0][720,1280]\"><node bounds=\"[0,0][720,1280]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.FrameLayout\"><node bounds=\"[48,84][259,140]\" enabled=\"true\" visible-to-user=\"true\" text=\"Stopwatch\" class=\"android.widget.TextView\" resource-id=\"com.google.android.deskclock:id/action_bar_title\"/><node bounds=\"[264,848][456,1040]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" content-desc=\"Start\" class=\"android.widget.Button\" resource-id=\"com.google.android.deskclock:id/fab\"/></node></hierarchy>"
+        private const val COACHMARK_TARGET_OVERLAY_XML =
+            "<hierarchy bounds=\"[0,0][720,1280]\"><node bounds=\"[64,900][656,1040]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"Set a consistent bedtime for better sleep\" class=\"android.widget.TextView\" resource-id=\"com.google.android.deskclock:id/coachmark\"/></hierarchy>"
         private const val TIMER_SETUP_XML =
             "<hierarchy bounds=\"[0,0][720,1280]\"><node bounds=\"[0,0][720,1280]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.FrameLayout\"><node bounds=\"[48,84][163,140]\" enabled=\"true\" visible-to-user=\"true\" text=\"Timer\" class=\"android.widget.TextView\" resource-id=\"com.google.android.deskclock:id/action_bar_title\"/><node bounds=\"[184,340][296,452]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"1\" class=\"android.widget.Button\" resource-id=\"com.google.android.deskclock:id/timer_setup_digit_1\"/><node bounds=\"[304,460][416,572]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"5\" class=\"android.widget.Button\" resource-id=\"com.google.android.deskclock:id/timer_setup_digit_5\"/></node></hierarchy>"
         private const val SETTINGS_APPS_XML =

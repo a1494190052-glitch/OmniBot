@@ -118,7 +118,15 @@ object LocalDeviceHttpHostManager {
     }
 
     private suspend fun executeAction(context: Context, body: Map<String, Any?>): Map<String, Any?> =
-        McpToolExecutors.executeAct(context, body) + mapOf("source" to "oob_local_device_http_host")
+        runCatching {
+            McpToolExecutors.executeAct(context, body) + mapOf("source" to "oob_local_device_http_host")
+        }.getOrElse { error ->
+            linkedMapOf(
+                "success" to false,
+                "error" to error.message.orEmpty().ifBlank { error::class.java.simpleName },
+                "source" to "oob_local_device_http_host",
+            )
+        }
 
     private fun canonicalAction(raw: String): String {
         val alias = when (raw.trim().lowercase()) {
