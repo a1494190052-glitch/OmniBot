@@ -587,7 +587,7 @@ class RunLogReusableFunctionCompilerTest {
     }
 
     @Test
-    fun `transient startup bridge click is dropped before stable app step`() {
+    fun `startup app navigation click is preserved before stable app step`() {
         val spec = compile(
             listOf(
                 card(
@@ -626,12 +626,13 @@ class RunLogReusableFunctionCompilerTest {
         )
 
         val steps = stepsFrom(spec)
-        assertEquals(listOf("open_app", "click", "finished"), steps.map { it["tool"] })
-        assertEquals("Stopwatch", (steps[1]["args"] as Map<*, *>)["target_description"])
+        assertEquals(listOf("open_app", "click", "click", "finished"), steps.map { it["tool"] })
+        assertEquals("Stopwatch tab", (steps[1]["args"] as Map<*, *>)["target_description"])
+        assertEquals("Stopwatch", (steps[2]["args"] as Map<*, *>)["target_description"])
         val source = spec["source"] as Map<*, *>
         assertEquals(4, source["replayable_card_count"])
-        assertEquals(3, source["compiled_replayable_card_count"])
-        assertEquals(1, source["transient_startup_bridge_dropped_count"])
+        assertEquals(4, source["compiled_replayable_card_count"])
+        assertEquals(0, source["transient_startup_bridge_dropped_count"])
     }
 
     @Test
@@ -932,12 +933,31 @@ class RunLogReusableFunctionCompilerTest {
         )
 
         val steps = stepsFrom(spec)
-        assertEquals(1, steps.size)
+        assertEquals(2, steps.size)
         assertEquals("input_text", steps[0]["tool"])
         val args = steps[0]["args"] as Map<*, *>
         assertEquals("hello", args["text"])
         assertFalse(args.containsKey("content"))
         assertFalse(args.containsKey("value"))
+        assertEquals("wait", steps[1]["tool"])
+        assertEquals(500, ((steps[1]["args"] as Map<*, *>)["duration_ms"] as Number).toInt())
+    }
+
+    @Test
+    fun `wait action compiles from collected time ms`() {
+        val spec = compile(
+            listOf(
+                card("wait", mapOf("time_ms" to 4500), title = "wait while recording"),
+            ),
+            runId = "run-wait-time-ms",
+        )
+
+        val step = stepsFrom(spec).single()
+        assertEquals("wait", step["tool"])
+        assertEquals("omniflow", step["executor"])
+        assertEquals(true, step["model_free"])
+        val args = step["args"] as Map<*, *>
+        assertEquals(4500, (args["time_ms"] as Number).toInt())
     }
 
     @Test
@@ -992,7 +1012,7 @@ class RunLogReusableFunctionCompilerTest {
     }
 
     @Test
-    fun `keyboard back between form inputs is dropped from fixed replay path`() {
+    fun `keyboard back between form inputs is dropped but submit back is preserved`() {
         val spec = compile(
             listOf(
                 card("input_text", mapOf("target_description" to "First name", "text" to "Alice")),
@@ -1005,7 +1025,7 @@ class RunLogReusableFunctionCompilerTest {
         )
 
         val steps = stepsFrom(spec)
-        assertEquals(listOf("input_text", "input_text", "click"), steps.map { it["tool"] })
+        assertEquals(listOf("input_text", "input_text", "press_key", "click"), steps.map { it["tool"] })
     }
 
     @Test
@@ -1162,7 +1182,7 @@ class RunLogReusableFunctionCompilerTest {
     }
 
     @Test
-    fun `click run log infers callable target parameters and materializes independently`() {
+    fun `click run log keeps target descriptions replay-only by default`() {
         val spec = compile(
             listOf(
                 card("click", mapOf("target_description" to "speed first", "x" to 120, "y" to 240)),
@@ -1173,28 +1193,19 @@ class RunLogReusableFunctionCompilerTest {
 
         val parameterSchema = parameterSchemaFrom(spec)
         val properties = parameterPropertiesFrom(parameterSchema)
-        assertTrue(properties.containsKey("speed_first"))
-        assertTrue(properties.containsKey("time_first"))
-        assertEquals(
-            listOf("$.execution.steps[0].args.target_description", "$.actions[0].args.target_description"),
-            properties.getValue("speed_first")["x_oob_bindings"],
-        )
-        assertEquals(
-            listOf("$.execution.steps[1].args.target_description", "$.actions[1].args.target_description"),
-            properties.getValue("time_first")["x_oob_bindings"],
-        )
+        assertTrue(properties.isEmpty())
 
         val actions = actionsFrom(spec)
-        assertEquals("\${speed_first}", ((actions[0] as Map<*, *>)["args"] as Map<*, *>)["target_description"])
-        assertEquals("\${time_first}", ((actions[1] as Map<*, *>)["args"] as Map<*, *>)["target_description"])
+        assertEquals("speed first", ((actions[0] as Map<*, *>)["args"] as Map<*, *>)["target_description"])
+        assertEquals("time first", ((actions[1] as Map<*, *>)["args"] as Map<*, *>)["target_description"])
 
         val changed = OobReusableFunctionStore.materialize(
             spec,
             mapOf("speed_first" to "speed second", "time_first" to "time second"),
         )
         val changedSteps = stepsFrom(changed)
-        assertEquals("speed second", (changedSteps[0]["args"] as Map<*, *>)["target_description"])
-        assertEquals("time second", (changedSteps[1]["args"] as Map<*, *>)["target_description"])
+        assertEquals("speed first", (changedSteps[0]["args"] as Map<*, *>)["target_description"])
+        assertEquals("time first", (changedSteps[1]["args"] as Map<*, *>)["target_description"])
         assertEquals(120, (changedSteps[0]["args"] as Map<*, *>)["x"])
         assertEquals(280, (changedSteps[1]["args"] as Map<*, *>)["y"])
     }
@@ -1241,6 +1252,66 @@ class RunLogReusableFunctionCompilerTest {
         assertEquals(232, rebuiltArgs["y"])
         assertEquals("app:id/first_name", rebuiltArgs["node_resource_id"])
         assertFalse(rebuiltStep.containsKey("coordinate_hook"))
+    }
+
+    @Test
+    fun `target evidence does not promote matched child resource id to executable node id`() {
+        val spec = compile(
+            listOf(
+                card(
+                    "click",
+                    mapOf(
+                        "target_description" to "device storage",
+                        "x" to 280,
+                        "y" to 938,
+                        "target_evidence" to mapOf(
+                            "label" to "sdk_gphone64_arm64 android:id/title",
+                            "resource_id" to "",
+                            "action_resource_id" to "",
+                            "matched_resource_id" to "android:id/title",
+                            "clickable" to false,
+                            "action_clickable" to true,
+                            "coordinate_source" to "interactive_parent",
+                        ),
+                    ),
+                    beforeXml = SOURCE_XML,
+                ),
+            ),
+            runId = "run-evidence-child-id",
+        )
+
+        val args = stepsFrom(spec).single()["args"] as Map<*, *>
+        assertFalse(args.containsKey("node_resource_id"))
+    }
+
+    @Test
+    fun `target evidence preserves actionable parent resource id`() {
+        val spec = compile(
+            listOf(
+                card(
+                    "click",
+                    mapOf(
+                        "target_description" to "Documents",
+                        "x" to 360,
+                        "y" to 1115,
+                        "target_evidence" to mapOf(
+                            "label" to "Documents android:id/title",
+                            "resource_id" to "com.google.android.documentsui:id/item_root",
+                            "action_resource_id" to "com.google.android.documentsui:id/item_root",
+                            "matched_resource_id" to "android:id/title",
+                            "clickable" to false,
+                            "action_clickable" to true,
+                            "coordinate_source" to "interactive_parent",
+                        ),
+                    ),
+                    beforeXml = SOURCE_XML,
+                ),
+            ),
+            runId = "run-evidence-parent-id",
+        )
+
+        val args = stepsFrom(spec).single()["args"] as Map<*, *>
+        assertEquals("com.google.android.documentsui:id/item_root", args["node_resource_id"])
     }
 
     @Test

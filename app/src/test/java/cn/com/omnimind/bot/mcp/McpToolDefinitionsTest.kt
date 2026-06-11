@@ -38,10 +38,14 @@ class McpToolDefinitionsTest {
             File("app/src/main/java/cn/com/omnimind/bot/mcp/McpRoutes.kt"),
             File("src/main/java/cn/com/omnimind/bot/mcp/McpRoutes.kt"),
         ).first { it.exists() }.readText()
+        val hasOmniFlowDispatcher =
+            "OMNIFLOW_MCP_TOOL_NAMES" in routeSource &&
+                "omniflowToolkit.executeTool" in routeSource
         val missingRoutes = McpToolDefinitions.fixedToolNames
             .filterNot { toolName ->
                 "\"$toolName\" ->" in routeSource ||
-                    functionToolRouteConstants[toolName]?.let { "$it ->" in routeSource } == true
+                    functionToolRouteConstants[toolName]?.let { "$it ->" in routeSource } == true ||
+                    (toolName in omniFlowDispatchedToolNames && hasOmniFlowDispatcher)
             }
 
         assertTrue(
@@ -63,6 +67,12 @@ class McpToolDefinitionsTest {
         OobFunctionToolNames.RUN_LOG_GET to "OobFunctionToolNames.RUN_LOG_GET",
         OobFunctionToolNames.RUN_LOG_CONVERT to "OobFunctionToolNames.RUN_LOG_CONVERT",
         RunLogReplayPolicy.TOOL_CALL_TOOL to "RunLogReplayPolicy.TOOL_CALL_TOOL",
+    )
+
+    private val omniFlowDispatchedToolNames = OobFunctionToolNames.profileTools + setOf(
+        "omniflow.recall",
+        "omniflow.ingest_run_log",
+        "omniflow.explore_replay",
     )
 
     @Test

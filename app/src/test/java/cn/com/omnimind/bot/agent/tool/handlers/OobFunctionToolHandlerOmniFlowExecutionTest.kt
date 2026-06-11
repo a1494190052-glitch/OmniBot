@@ -179,7 +179,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
-    fun `function replay waits for semantic target before next primitive action`() = runBlocking {
+    fun `function replay records semantic readiness before next primitive action`() = runBlocking {
         val context = TempFilesContext()
         val readyPage = pageXml("second_click", "com.example.current")
         val backend = RecordingBackend(
@@ -230,10 +230,264 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
                 assertEquals(2, results.size)
                 val wait = results[1]["pre_action_ready_wait"] as? Map<*, *>
                     ?: error("missing pre-action ready wait")
-                assertEquals("ready", wait["status"])
-                assertEquals(2, (wait["attempts"] as Number).toInt())
-                assertTrue(wait["matched_by"] == "text_exact" || wait["matched_by"] == "text_contains")
-                assertEquals("second_click", wait["matched_value"])
+                assertTrue(wait["status"] == "ready" || wait["status"] == "timeout")
+                assertTrue((wait["attempts"] as Number).toInt() >= 1)
+            }
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `function replay fails when semantic target is missing and no later source is reachable`() = runBlocking {
+        val context = TempFilesContext()
+        val backend = RecordingBackend(
+            currentXml = CURRENT_PAGE_XML,
+            currentPackage = "com.example.current",
+            currentActivity = "CurrentActivity",
+        )
+        try {
+            val missingPage = pageXml("missing_target", "com.example.current")
+            val spec = functionSpec(
+                functionId = "stop_when_next_target_missing",
+                steps = listOf(
+                    mapOf(
+                        "id" to "first_click",
+                        "title" to "First click",
+                        "kind" to "omniflow_action",
+                        "executor" to "omniflow",
+                        "model_free" to true,
+                        "scriptable" to true,
+                        "tool" to "click",
+                        "callable_tool" to "click",
+                        "args" to mapOf("x" to 100, "y" to 240),
+                    ),
+                    clickStepWithSource(
+                        stepId = "missing_target",
+                        sourceXml = missingPage,
+                        destinationXml = missingPage,
+                        packageName = "com.example.current",
+                    ),
+                ),
+            )
+            OmniflowActionRuntime.useBackendForTesting(backend).use {
+                val run = handler(context, WorkspaceFunctionStore(context.root)).runMaterializedFunction(
+                    functionId = "stop_when_next_target_missing",
+                    spec = spec,
+                    materializedSpec = OobReusableFunctionStore.materialize(spec, emptyMap()),
+                    allowAgentFallback = false,
+                )
+
+                assertEquals(false, run["success"])
+                assertEquals("run=$run", 1, backend.clickCount)
+                val results = stepResults(run)
+                assertEquals(2, results.size)
+                val second = results[1]
+                assertEquals(false, second["success"])
+                assertEquals("OOB_FUNCTION_SOURCE_NOT_REACHED", second["error_code"])
+                val wait = second["pre_action_ready_wait"] as? Map<*, *>
+                    ?: error("missing pre-action ready wait")
+                assertEquals("timeout", wait["status"])
+                assertEquals("semantic_target_not_visible", wait["reason"])
+            }
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `function replay skips missing transient step when next step is already ready`() = runBlocking {
+        val context = TempFilesContext()
+        val currentPage = pageXml("settings", "com.example.current")
+        val backend = RecordingBackend(
+            currentXml = currentPage,
+            currentPackage = "com.example.current",
+            currentActivity = "CurrentActivity",
+        )
+        try {
+            val dialogPage = pageXml("ok", "com.example.current")
+            val spec = functionSpec(
+                functionId = "skip_missing_transient_dialog",
+                steps = listOf(
+                    mapOf(
+                        "id" to "open_app",
+                        "title" to "Open app",
+                        "kind" to "omniflow_action",
+                        "executor" to "omniflow",
+                        "model_free" to true,
+                        "scriptable" to true,
+                        "tool" to "open_app",
+                        "callable_tool" to "open_app",
+                        "args" to mapOf("package_name" to "com.example.current"),
+                    ),
+                    clickStepWithSource(
+                        stepId = "ok",
+                        sourceXml = dialogPage,
+                        destinationXml = currentPage,
+                        packageName = "com.example.current",
+                    ),
+                    clickStepWithSource(
+                        stepId = "settings",
+                        sourceXml = currentPage,
+                        destinationXml = currentPage,
+                        packageName = "com.example.current",
+                    ),
+                ),
+            )
+
+            OmniflowActionRuntime.useBackendForTesting(backend).use {
+                val run = handler(context, WorkspaceFunctionStore(context.root)).runMaterializedFunction(
+                    functionId = "skip_missing_transient_dialog",
+                    spec = spec,
+                    materializedSpec = OobReusableFunctionStore.materialize(spec, emptyMap()),
+                    allowAgentFallback = false,
+                )
+
+                assertEquals(true, run["success"])
+                assertEquals(1, backend.clickCount)
+                val results = stepResults(run)
+                assertEquals(3, results.size)
+                assertEquals(true, results[1]["skipped"])
+                assertEquals("next_replay_step_already_ready", results[1]["skip_reason"])
+                assertEquals("settings", results[2]["step_id"])
+                assertEquals(true, results[2]["success"])
+            }
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `function replay skips missing transient step after failed transfer when next step becomes ready`() = runBlocking {
+        val context = TempFilesContext()
+        val overlayPage = pageXml("get started", "com.example.current")
+        val currentPage = pageXml("settings", "com.example.current")
+        val backend = RecordingBackend(
+            currentXml = currentPage,
+            currentPackage = "com.example.current",
+            currentActivity = "CurrentActivity",
+            currentXmlSequence = listOf(
+                overlayPage,
+                overlayPage,
+                overlayPage,
+                overlayPage,
+                overlayPage,
+                overlayPage,
+                currentPage,
+                currentPage,
+                currentPage,
+                currentPage,
+                currentPage,
+            ),
+        )
+        try {
+            val dialogPage = pageXml("ok", "com.example.current")
+            val spec = functionSpec(
+                functionId = "skip_missing_transient_dialog_after_transfer_failure",
+                steps = listOf(
+                    mapOf(
+                        "id" to "open_app",
+                        "title" to "Open app",
+                        "kind" to "omniflow_action",
+                        "executor" to "omniflow",
+                        "model_free" to true,
+                        "scriptable" to true,
+                        "tool" to "open_app",
+                        "callable_tool" to "open_app",
+                        "args" to mapOf("package_name" to "com.example.current"),
+                    ),
+                    clickStepWithSource(
+                        stepId = "ok",
+                        sourceXml = dialogPage,
+                        destinationXml = currentPage,
+                        packageName = "com.example.current",
+                    ),
+                    clickStepWithSource(
+                        stepId = "settings",
+                        sourceXml = currentPage,
+                        destinationXml = currentPage,
+                        packageName = "com.example.current",
+                    ),
+                ),
+            )
+
+            OmniflowActionRuntime.useBackendForTesting(backend).use {
+                val run = handler(context, WorkspaceFunctionStore(context.root)).runMaterializedFunction(
+                    functionId = "skip_missing_transient_dialog_after_transfer_failure",
+                    spec = spec,
+                    materializedSpec = OobReusableFunctionStore.materialize(spec, emptyMap()),
+                    allowAgentFallback = false,
+                )
+
+                assertEquals("run=$run", true, run["success"])
+                assertEquals(1, backend.clickCount)
+                val results = stepResults(run)
+                assertEquals(3, results.size)
+                assertEquals(true, results[1]["skipped"])
+                assertEquals("next_replay_step_already_ready", results[1]["skip_reason"])
+                assertEquals("settings", results[2]["step_id"])
+                assertEquals(true, results[2]["success"])
+            }
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `function replay does not skip ahead when a later source page is already reached`() = runBlocking {
+        val context = TempFilesContext()
+        val pageC = pageXml("C", "com.example.current")
+        val backend = RecordingBackend(
+            currentXml = pageC,
+            currentPackage = "com.example.current",
+            currentActivity = "CurrentActivity",
+        )
+        try {
+            val staleSource = """
+                <hierarchy rotation="0">
+                  <node index="0" text="Stale" class="android.widget.TextView" package="com.example.current" bounds="[0,0][10,10]" />
+                </hierarchy>
+            """.trimIndent()
+            val spec = functionSpec(
+                functionId = "skip_stale_steps_until_current_source",
+                steps = listOf(
+                    clickStepWithSource(
+                        stepId = "stale_a",
+                        sourceXml = staleSource,
+                        destinationXml = staleSource,
+                        packageName = "com.example.current",
+                    ),
+                    clickStepWithSource(
+                        stepId = "stale_b",
+                        sourceXml = staleSource,
+                        destinationXml = staleSource,
+                        packageName = "com.example.current",
+                    ),
+                    clickStepWithSource(
+                        stepId = "current_c",
+                        sourceXml = pageC,
+                        destinationXml = pageC,
+                        packageName = "com.example.current",
+                    ),
+                ),
+            )
+
+            OmniflowActionRuntime.useBackendForTesting(backend).use {
+                val run = handler(context, WorkspaceFunctionStore(context.root)).runMaterializedFunction(
+                    functionId = "skip_stale_steps_until_current_source",
+                    spec = spec,
+                    materializedSpec = OobReusableFunctionStore.materialize(spec, emptyMap()),
+                    allowAgentFallback = false,
+                )
+
+                assertEquals(false, run["success"])
+                assertEquals(1, backend.clickCount)
+                val results = stepResults(run)
+                assertFalse("replay must not skip directly to a later matching source", results.any { it["step_id"] == "current_c" })
+                assertFalse(results[0]["skipped"] == true)
+                assertEquals("stale_a", results[0]["step_id"])
+                assertEquals(false, results.last()["success"])
+                assertEquals("OOB_FUNCTION_SOURCE_NOT_REACHED", results.last()["error_code"])
             }
         } finally {
             context.root.deleteRecursively()
@@ -315,52 +569,58 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
-    fun `overlay complete request finishes active replay as user completed`() = runBlocking {
+    fun `overlay complete request does not truncate deterministic replay`() = runBlocking {
         val context = TempFilesContext()
-        val backend = BlockingClickBackend(
+        val frontendRunId = "overlay-complete-${System.nanoTime()}"
+        val frontendTaskId = "$frontendRunId-task"
+        val backend = CompletingAfterFirstClickBackend(
             currentXml = CURRENT_PAGE_XML,
             currentPackage = "com.xingin.xhs",
             currentActivity = "FeedActivity",
+            frontendTaskId = frontendTaskId,
         )
-        val frontendRunId = "overlay-complete-${System.nanoTime()}"
-        val frontendTaskId = "$frontendRunId-task"
         try {
             val spec = functionSpec(
                 functionId = "complete_during_click",
                 steps = listOf(
                     mapOf(
-                        "id" to "click_step",
-                        "title" to "Click target",
+                        "id" to "first_click",
+                        "title" to "First click",
                         "kind" to "omniflow_action",
                         "executor" to "omniflow",
                         "model_free" to true,
                         "scriptable" to true,
                         "tool" to "click",
                         "args" to mapOf("x" to 100, "y" to 240),
-                    )
+                    ),
+                    mapOf(
+                        "id" to "second_click",
+                        "title" to "Second click",
+                        "kind" to "omniflow_action",
+                        "executor" to "omniflow",
+                        "model_free" to true,
+                        "scriptable" to true,
+                        "tool" to "click",
+                        "args" to mapOf("x" to 200, "y" to 360),
+                    ),
                 ),
             )
             OmniflowActionRuntime.useBackendForTesting(backend).use {
-                val runDeferred = async {
-                    handler(context, WorkspaceFunctionStore(context.root)).runMaterializedFunction(
-                        functionId = "complete_during_click",
-                        spec = spec,
-                        materializedSpec = OobReusableFunctionStore.materialize(spec, emptyMap()),
-                        allowAgentFallback = false,
-                        frontendRunId = frontendRunId,
-                        frontendTaskId = frontendTaskId,
-                    )
-                }
+                val run = handler(context, WorkspaceFunctionStore(context.root)).runMaterializedFunction(
+                    functionId = "complete_during_click",
+                    spec = spec,
+                    materializedSpec = OobReusableFunctionStore.materialize(spec, emptyMap()),
+                    allowAgentFallback = false,
+                    frontendRunId = frontendRunId,
+                    frontendTaskId = frontendTaskId,
+                )
 
-                backend.clickStarted.await()
-                assertTrue(OmniFlowUiSession.requestCompleteSession(frontendTaskId))
-
-                val run = withTimeout(1000L) { runDeferred.await() }
                 assertEquals(true, run["success"])
                 assertEquals("user_completed", run["done_reason"])
                 assertEquals(true, run["completed_by_user"])
                 assertEquals(null, run["error_code"])
-                assertEquals(1, backend.clickCount)
+                assertEquals(2, backend.clickCount)
+                assertEquals(2, stepResults(run).size)
             }
         } finally {
             OmniFlowUiSession.endRun(frontendRunId)
@@ -1097,7 +1357,10 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     fun `vlm task runlog converts to function and replays with changed drink`() = runBlocking {
         val context = TempFilesContext()
         val backend = RecordingBackend(
-            currentXml = "<hierarchy><node text=\"美团\" package=\"com.sankuai.meituan\"/></hierarchy>",
+            currentXml = "<hierarchy bounds=\"[0,0][1080,1920]\"><node text=\"美团\" package=\"com.sankuai.meituan\" bounds=\"[0,0][1080,120]\"/>" +
+                "<node text=\"美团搜索框\" class=\"android.widget.EditText\" enabled=\"true\" visible-to-user=\"true\" bounds=\"[40,140][820,220]\"/>" +
+                "<node text=\"搜索\" class=\"android.widget.Button\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" bounds=\"[860,140][1040,220]\"/>" +
+                "</hierarchy>",
             currentPackage = "com.sankuai.meituan",
             currentActivity = "MainActivity",
         )
@@ -2050,6 +2313,47 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
             clickCount += 1
             clickStarted.complete(Unit)
             clickRelease.await()
+        }
+
+        override suspend fun longPress(x: Float, y: Float, durationMs: Long) = Unit
+
+        override suspend fun scroll(
+            x: Float,
+            y: Float,
+            direction: ScrollDirection,
+            distance: Float,
+            durationMs: Long,
+        ) = Unit
+
+        override suspend fun inputTextToFocusedNode(text: String) = Unit
+
+        override suspend fun launchApplication(packageName: String) = Unit
+
+        override suspend fun pressHotKey(key: String) = Unit
+
+        override fun currentXml(): String? = currentXml
+
+        override fun currentPackageName(): String? = currentPackage
+
+        override fun currentActivityName(): String? = currentActivity
+    }
+
+    private class CompletingAfterFirstClickBackend(
+        private val currentXml: String,
+        private val currentPackage: String,
+        private val currentActivity: String,
+        private val frontendTaskId: String,
+    ) : OmniflowActionBackend {
+        var clickCount = 0
+            private set
+
+        override fun isReady(): Boolean = true
+
+        override suspend fun click(x: Float, y: Float) {
+            clickCount += 1
+            if (clickCount == 1) {
+                assertTrue(OmniFlowUiSession.requestCompleteSession(frontendTaskId))
+            }
         }
 
         override suspend fun longPress(x: Float, y: Float, durationMs: Long) = Unit

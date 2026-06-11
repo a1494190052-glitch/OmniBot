@@ -130,6 +130,7 @@ object OobFunctionSchemaBuilder {
                         putFP("x", params["x"]); putFP("y", params["y"])
                         putFP("target_description", params["target_description"]); putFP("selector", params["selector"])
                         putFP("node_id", params["node_id"]); putFP("element_index", params["element_index"])
+                        putFP("node_resource_id", params["node_resource_id"]); putFP("bounds", params["bounds"])
                         if (sourceContext.isNotEmpty()) put("source_context", sourceContext)
                     }, sourceContext)
                 }

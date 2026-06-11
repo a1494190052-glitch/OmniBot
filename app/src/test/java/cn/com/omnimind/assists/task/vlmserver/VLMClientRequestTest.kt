@@ -87,6 +87,10 @@ class VLMClientRequestTest {
             blocks[2].jsonObject["image_url"]!!.jsonObject["url"]!!.jsonPrimitive.contentOrNull
         )
         assertFalse(currentUser.content.toString().contains("MARKED_IMAGE"))
+        assertEquals(384, envelope.request.maxCompletionTokens)
+        assertEquals(false, envelope.request.enableThinking)
+        assertEquals("none", envelope.request.reasoningEffort)
+        assertEquals("disabled", envelope.request.thinking?.type)
     }
 
     @Test
@@ -1041,7 +1045,7 @@ class VLMClientRequestTest {
 
         assertTrue(clickResult.success)
         val click = requireNotNull(clickResult.step).action as ClickAction
-        assertEquals(3, click.elementIndex)
+
 
         val scrollResult = client.parseVLMResponse(
             SceneChatCompletionTurn(

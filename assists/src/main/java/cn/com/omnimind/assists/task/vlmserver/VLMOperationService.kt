@@ -1496,7 +1496,6 @@ class VLMOperationService(
                     displayWidth = displayWidth,
                     displayHeight = displayHeight,
                     nodeId = action.nodeId,
-                    explicitIndex = action.elementIndex,
                     targetDescription = action.targetDescription,
                     preferEditable = false,
                     actionName = "click"
@@ -1510,7 +1509,6 @@ class VLMOperationService(
                         targetDescription = target.label.ifBlank { action.targetDescription },
                         x = target.centerX,
                         y = target.centerY,
-                        elementIndex = target.index,
                         nodeId = target.nodeId
                     ),
                     summary = appendRuntimeTag(step.summary, "indexed_element:${target.index}")
@@ -1523,7 +1521,6 @@ class VLMOperationService(
                     displayWidth = displayWidth,
                     displayHeight = displayHeight,
                     nodeId = action.nodeId,
-                    explicitIndex = action.elementIndex,
                     targetDescription = action.targetDescription,
                     preferEditable = true,
                     actionName = "input_text"
@@ -1537,7 +1534,6 @@ class VLMOperationService(
                         targetDescription = target.label.ifBlank { action.targetDescription },
                         x = target.centerX,
                         y = target.centerY,
-                        elementIndex = target.index,
                         nodeId = target.nodeId
                     ),
                     summary = appendRuntimeTag(step.summary, "indexed_element:${target.index}")
@@ -1550,7 +1546,6 @@ class VLMOperationService(
                     displayWidth = displayWidth,
                     displayHeight = displayHeight,
                     nodeId = action.nodeId,
-                    explicitIndex = action.elementIndex,
                     targetDescription = action.targetDescription,
                     preferEditable = false,
                     actionName = "long_press"
@@ -1564,7 +1559,6 @@ class VLMOperationService(
                         targetDescription = target.label.ifBlank { action.targetDescription },
                         x = target.centerX,
                         y = target.centerY,
-                        elementIndex = target.index,
                         nodeId = target.nodeId
                     ),
                     summary = appendRuntimeTag(step.summary, "indexed_element:${target.index}")
@@ -1616,7 +1610,6 @@ class VLMOperationService(
         displayWidth: Int,
         displayHeight: Int,
         nodeId: String?,
-        explicitIndex: Int?,
         targetDescription: String,
         preferEditable: Boolean,
         actionName: String
@@ -1629,17 +1622,6 @@ class VLMOperationService(
         )
         if (targetByNodeId != null) {
             return targetByNodeId
-        }
-        if (explicitIndex != null) {
-            return VLMIndexedPageContext.elementTarget(
-                currentXml = currentXml,
-                displayWidth = displayWidth,
-                displayHeight = displayHeight,
-                index = explicitIndex
-            ) ?: run {
-                OmniLog.w(Tag, "Indexed $actionName grounding failed: missing element_index=$explicitIndex")
-                null
-            }
         }
         val target = VLMIndexedPageContext.uniqueElementTargetByDescription(
             currentXml = currentXml,

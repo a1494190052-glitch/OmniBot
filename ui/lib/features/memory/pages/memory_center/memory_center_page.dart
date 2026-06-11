@@ -27,7 +27,6 @@ import 'package:ui/utils/ui.dart';
 import 'package:ui/features/memory/pages/memory_center/widgets/memory_card_list.dart';
 import 'package:ui/theme/app_text_styles.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:ui/features/task/pages/execution_history/function_library_page.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/widgets/common_app_bar.dart';
 
@@ -187,7 +186,6 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
   bool _isMem0Mutating = false;
   static const int _localMemoryTab = 0;
   static const int _cloudMemoryTab = 1;
-  static const int _commandsTab = 2;
   int _currentMemoryTab = _localMemoryTab;
   late PageController _memoryPageController;
 
@@ -481,7 +479,6 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
   }
 
   */
-
 
   String _clipSuggestionText(String text, {int maxLength = 24}) {
     if (text.length <= maxLength) {
@@ -1238,9 +1235,12 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
             AnimatedAlign(
               duration: const Duration(milliseconds: 280),
               curve: Curves.easeOutCubic,
-              alignment: Alignment(-1.0 + _currentMemoryTab.toDouble(), 0),
+              alignment: Alignment(
+                _currentMemoryTab == _localMemoryTab ? -1.0 : 1.0,
+                0,
+              ),
               child: FractionallySizedBox(
-                widthFactor: 1 / 3,
+                widthFactor: 1 / 2,
                 child: Container(
                   margin: const EdgeInsets.symmetric(horizontal: 1),
                   decoration: BoxDecoration(
@@ -1292,10 +1292,6 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
                 _buildMemoryTabButton(
                   label: context.l10n.memoryLongTermTitle,
                   tabIndex: _cloudMemoryTab,
-                ),
-                _buildMemoryTabButton(
-                  label: context.l10n.memoryCommandsTitle,
-                  tabIndex: _commandsTab,
                 ),
               ],
             ),
@@ -1461,7 +1457,6 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
               children: [
                 _buildLocalMemoryPage(filteredCards, hasLocalMemories),
                 _buildCloudMemoryPage(hasMem0Section),
-                const FunctionLibraryEmbed(),
               ],
             ),
           ),

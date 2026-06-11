@@ -83,20 +83,19 @@ object VLMIndexedPageContext {
         }
 
         return buildString {
-            appendLine("OOB indexed page evidence (compact live page summary; coordinates are 0..1000 relative):")
+            appendLine("OOB indexed evidence (0..1000 coords):")
             candidates.forEachIndexed { index, node ->
                 append("#").append(index)
-                    .append(" action=").append(node.actionHint())
-                    .append(" center=(").append(norm(node.bounds.centerX, screen.left, screen.width))
+                    .append(" ").append(node.actionHint())
+                    .append(" c=(").append(norm(node.bounds.centerX, screen.left, screen.width))
                     .append(",").append(norm(node.bounds.centerY, screen.top, screen.height)).append(")")
                     .append(" flags=").append(node.flags())
                     .append(" role=").append(node.semanticRole())
                     .append(" label=\"").append(node.displayLabel.take(MAX_LABEL_CHARS)).append("\"")
-                    .append(" why=").append(node.actionReason())
                     .appendLine()
             }
             if (focusedEditable != null) {
-                append("Focused editable: center=(")
+                append("Focused edit: c=(")
                     .append(norm(focusedEditable.bounds.centerX, screen.left, screen.width))
                     .append(",")
                     .append(norm(focusedEditable.bounds.centerY, screen.top, screen.height))
@@ -105,13 +104,13 @@ object VLMIndexedPageContext {
                     .appendLine("\"")
             }
             if (formFields.isNotEmpty()) {
-                appendLine("Form anchors:")
+                appendLine("Forms:")
                 formFields.forEachIndexed { index, node ->
                     append("F").append(index)
-                        .append(" center=(").append(norm(node.bounds.centerX, screen.left, screen.width))
+                        .append(" c=(").append(norm(node.bounds.centerX, screen.left, screen.width))
                         .append(",").append(norm(node.bounds.centerY, screen.top, screen.height)).append(")")
                         .append(" role=").append(node.formRole())
-                        .append(" action=").append(node.actionHint())
+                        .append(" ").append(node.actionHint())
                         .append(" label=\"").append(node.formLabel.take(MAX_LABEL_CHARS)).append("\"")
                     node.formValueHint.takeIf { it.isNotBlank() }?.let { valueHint ->
                         append(" value_hint=\"").append(valueHint.take(MAX_LABEL_CHARS)).append("\"")
@@ -120,14 +119,14 @@ object VLMIndexedPageContext {
                 }
             }
             if (scrollables.isNotEmpty()) {
-                appendLine("Scrollable regions:")
+                appendLine("Scroll:")
                 scrollables.forEachIndexed { index, node ->
                     val x = norm(node.bounds.centerX, screen.left, screen.width)
                     val y1 = norm(node.bounds.bottom - node.bounds.height * 0.14f, screen.top, screen.height)
                     val y2 = norm(node.bounds.top + node.bounds.height * 0.22f, screen.top, screen.height)
                     append("S").append(index)
-                        .append(" action=swipe")
-                        .append(" vertical_down=(").append(x).append(",").append(y1)
+                        .append(" swipe")
+                        .append(" down=(").append(x).append(",").append(y1)
                         .append(")->(").append(x).append(",").append(y2).append(")")
                         .append(" label=\"").append(node.displayLabel.take(MAX_LABEL_CHARS)).append("\"")
                         .appendLine()
@@ -736,19 +735,6 @@ object VLMIndexedPageContext {
             }
         }
 
-        fun actionReason(): String =
-            when {
-                editable -> if (focused) "focused_editable" else "editable"
-                checkable && checked -> "checked_toggle"
-                checkable -> "checkable_toggle"
-                clickable && displayLabel.isNotBlank() -> "clickable_label"
-                clickable -> "clickable_node"
-                focusable && displayLabel.isNotBlank() -> "focusable_label"
-                longClickable -> "long_clickable"
-                scrollable -> "scrollable_region"
-                else -> "visible_text"
-            }
-
         fun vlmCandidateScore(screen: Rect): Int {
             val screenArea = screen.area.coerceAtLeast(1f)
             val labelPresent = displayLabel.isNotBlank() && displayLabel != role
@@ -843,16 +829,16 @@ object VLMIndexedPageContext {
     private const val MIN_FORM_FIELD_AREA = 200f
     private const val MAX_ELEMENT_AREA_RATIO = 0.72f
     private const val MAX_FORM_FIELD_AREA_RATIO = 0.60f
-    private const val MAX_ELEMENTS = 12
-    private const val MAX_SCROLLABLES = 2
-    private const val MAX_FORM_FIELDS = 4
-    private const val MAX_LABEL_CHARS = 56
+    private const val MAX_ELEMENTS = 8
+    private const val MAX_SCROLLABLES = 1
+    private const val MAX_FORM_FIELDS = 3
+    private const val MAX_LABEL_CHARS = 40
     private const val MAX_RESOURCE_ID_CHARS = 96
     private const val MAX_ID_CHARS = 32
-    private const val MAX_DESCENDANT_PARTS = 8
-    private const val MAX_DESCENDANT_CHARS = 120
-    private const val MAX_SECTION_CHARS = 2_600
-    private const val MAX_CONTEXT_CHARS = 3_200
+    private const val MAX_DESCENDANT_PARTS = 5
+    private const val MAX_DESCENDANT_CHARS = 80
+    private const val MAX_SECTION_CHARS = 1_100
+    private const val MAX_CONTEXT_CHARS = 1_400
     private const val MARKED_SCREENSHOT_JPEG_QUALITY = 92
     private const val MIN_UNIQUE_MATCH_SCORE = 82
     private const val MIN_UNIQUE_MATCH_MARGIN = 8

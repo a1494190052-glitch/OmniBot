@@ -88,7 +88,7 @@ object McpRoutes {
 
             // 任务回复
             post("/mcp/v1/task/{taskId}/reply") {
-                handleLegacyTaskReply(call)
+                handleLegacyTaskReply(call, context)
             }
         }
     }
@@ -213,28 +213,17 @@ object McpRoutes {
             when (name) {
             AgentToolNames.VLM_TASK -> McpToolExecutors.executeVlmTask(context, args, serverScope)
             "task_status" -> McpToolExecutors.executeTaskStatus(args)
-            "task_reply" -> McpToolExecutors.executeTaskReply(args)
+            "task_reply" -> McpToolExecutors.executeTaskReply(context, args)
             "task_wait_unlock" -> McpToolExecutors.executeTaskWaitUnlock(context, args, serverScope)
             "get_state" -> McpToolExecutors.executeGetState(context, args)
             "act" -> McpToolExecutors.executeAct(context, args)
             "file_transfer" -> McpToolExecutors.executeFileTransfer(args)
             "agent_run" -> McpToolExecutors.executeAgentRun(context, args)
             RunLogReplayPolicy.TOOL_CALL_TOOL -> McpToolExecutors.executeOobToolCall(context, args)
-            "omniflow.recall" -> omniflowToolkit.recall(args)
-            "omniflow.ingest_run_log" -> omniflowToolkit.ingestRunLog(args)
-            "omniflow.explore_replay" -> omniflowToolkit.exploreAndReplay(args)
-            OobFunctionToolNames.FUNCTION_LIST -> omniflowToolkit.listFunctions(args)
-            OobFunctionToolNames.FUNCTION_GET -> omniflowToolkit.getFunction(args)
-            OobFunctionToolNames.FUNCTION_REGISTER -> omniflowToolkit.registerFunction(args)
-            OobFunctionToolNames.FUNCTION_UPDATE -> omniflowToolkit.updateFunction(args)
-            OobFunctionToolNames.FUNCTION_GUARD_CHECK -> omniflowToolkit.guardCheck(args)
-            OobFunctionToolNames.FUNCTION_DELETE -> omniflowToolkit.deleteFunction(args)
-            OobFunctionToolNames.FUNCTION_CLEAR -> omniflowToolkit.clearFunctions(args)
-            OobFunctionToolNames.RUN_LOG_LIST -> omniflowToolkit.listRunLogs(args)
-            OobFunctionToolNames.RUN_LOG_GET -> omniflowToolkit.getRunLog(args)
-            OobFunctionToolNames.RUN_LOG_CONVERT -> omniflowToolkit.convertRunLog(args)
             else -> {
-                if (name.isNullOrBlank()) {
+                if (isOmniflowMcpTool(name)) {
+                    omniflowToolkit.executeTool(name, args)
+                } else if (name.isNullOrBlank()) {
                     McpResponseBuilder.buildErrorText("Missing tool name")
                 } else {
                     McpResponseBuilder.buildErrorText("Unknown MCP tool: $name")
@@ -249,6 +238,16 @@ object McpRoutes {
     private fun listMcpTools(context: Context): List<Map<String, Any?>> {
         return McpToolDefinitions.fixedTools
     }
+
+    private val OMNIFLOW_MCP_TOOL_NAMES: Set<String> =
+        OobFunctionToolNames.profileTools + setOf(
+            "omniflow.recall",
+            "omniflow.ingest_run_log",
+            "omniflow.explore_replay",
+        )
+
+    private fun isOmniflowMcpTool(name: String?): Boolean =
+        !name.isNullOrBlank() && name in OMNIFLOW_MCP_TOOL_NAMES
 
     // ==================== 传统端点处理（保持兼容） ====================
 
@@ -299,7 +298,8 @@ object McpRoutes {
         )
 
     private suspend fun handleLegacyTaskReply(
-        call: io.ktor.server.application.ApplicationCall
+        call: io.ktor.server.application.ApplicationCall,
+        context: Context,
     ) {
         val taskId = call.parameters["taskId"]
         val body = call.receive<Map<String, Any?>>()
@@ -321,6 +321,15 @@ object McpRoutes {
                 HttpStatusCode.Conflict,
                 mapOf("error" to "Task is not waiting for input", "status" to state.status.name)
             )
+            return
+        }
+
+        if (state.pendingOmniFlowFunctionCall != null) {
+            val result = McpToolExecutors.executeTaskReply(
+                context = context,
+                args = mapOf("taskId" to taskId, "reply" to reply)
+            )
+            call.respond(HttpStatusCode.OK, result)
             return
         }
 

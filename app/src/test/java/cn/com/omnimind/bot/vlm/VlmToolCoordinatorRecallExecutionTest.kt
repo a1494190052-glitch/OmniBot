@@ -9,6 +9,7 @@ import cn.com.omnimind.assists.task.vlmserver.VLMPageContextRequest
 import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextProvider
 import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextProviderRegistry
 import cn.com.omnimind.assists.task.vlmserver.VLMStreamClient
+import cn.com.omnimind.bot.mcp.PendingOmniFlowFunctionCall
 import cn.com.omnimind.baselib.llm.AssistantToolCall
 import cn.com.omnimind.baselib.llm.AssistantToolCallFunction
 import cn.com.omnimind.baselib.llm.ChatCompletionMessage
@@ -57,7 +58,7 @@ class VlmToolCoordinatorRecallExecutionTest {
                 directHitFunctionId = "open_settings_function",
             ),
             progressReporter = { _, extras -> events += extras },
-            runFunction = { functionId ->
+            runFunction = { functionId, _ ->
                 mapOf(
                     "success" to true,
                     "fallback" to false,
@@ -98,7 +99,7 @@ class VlmToolCoordinatorRecallExecutionTest {
                 directHitFunctionId = "open_settings_function",
             ),
             progressReporter = { _, extras -> events += extras },
-            runFunction = {
+            runFunction = { _, _ ->
                 mapOf(
                     "success" to false,
                     "fallback" to true,
@@ -134,7 +135,7 @@ class VlmToolCoordinatorRecallExecutionTest {
                 directHitFunctionId = null,
             ),
             progressReporter = { _, _ -> },
-            runFunction = {
+            runFunction = { _, _ ->
                 called = true
                 emptyMap()
             },
@@ -197,7 +198,7 @@ class VlmToolCoordinatorRecallExecutionTest {
                 directHitFunctionId = "open_settings_function",
             ),
             progressReporter = { _, _ -> },
-            runFunction = {
+            runFunction = { _, _ ->
                 called = true
                 mapOf("success" to true)
             },
@@ -243,7 +244,7 @@ class VlmToolCoordinatorRecallExecutionTest {
                 directHitFunctionId = "open_settings_function",
             ),
             progressReporter = { _, _ -> },
-            runFunction = {
+            runFunction = { _, _ ->
                 called = true
                 mapOf(
                     "success" to true,
@@ -272,7 +273,7 @@ class VlmToolCoordinatorRecallExecutionTest {
     }
 
     @Test
-    fun `parameterized recall hit is not auto executed with empty arguments`() = runBlocking {
+    fun `parameterized recall hit waits for simple argument reply when schema is missing`() = runBlocking {
         val request = VlmTaskRequest(
             goal = "小红书查看猫猫",
             packageName = "com.xingin.xhs",
@@ -302,20 +303,23 @@ class VlmToolCoordinatorRecallExecutionTest {
                 directHitFunctionId = "xhs_search_keyword",
             ),
             progressReporter = { _, _ -> },
-            runFunction = {
+            runFunction = { _, _ ->
                 called = true
                 mapOf("success" to true)
             },
         )
 
-        assertNull(outcome)
+        assertNotNull(outcome)
+        assertEquals(VlmToolOutcomeStatus.WAITING_INPUT, outcome?.status)
         assertFalse(called)
-        assertEquals(TaskStatus.RUNNING, state.status)
-        assertTrue(state.chatMessages.last().contains("requires arguments"))
+        assertEquals(TaskStatus.WAITING_INPUT, state.status)
+        assertEquals("xhs_search_keyword", state.pendingOmniFlowFunctionCall?.functionId)
+        assertEquals(listOf("value"), state.pendingOmniFlowFunctionCall?.requiredArgumentNames)
+        assertTrue(state.waitingQuestion?.contains("xhs_search_keyword") == true)
     }
 
     @Test
-    fun `recall hit with input schema is not auto executed even without explicit requires flag`() = runBlocking {
+    fun `recall hit with input schema fills argument from goal and executes`() = runBlocking {
         val request = VlmTaskRequest(
             goal = "小红书查看猫猫",
             packageName = "com.xingin.xhs",
@@ -327,6 +331,7 @@ class VlmToolCoordinatorRecallExecutionTest {
             status = TaskStatus.RUNNING,
         )
         var called = false
+        var capturedArguments: Map<String, Any?> = emptyMap()
 
         val outcome = VlmToolCoordinator.tryExecuteRecallHitIfAllowed(
             request = request,
@@ -351,16 +356,19 @@ class VlmToolCoordinatorRecallExecutionTest {
                 directHitFunctionId = "xhs_search_keyword",
             ),
             progressReporter = { _, _ -> },
-            runFunction = {
+            runFunction = { _, arguments ->
                 called = true
+                capturedArguments = arguments
                 mapOf("success" to true)
             },
         )
 
-        assertNull(outcome)
-        assertFalse(called)
-        assertEquals(TaskStatus.RUNNING, state.status)
-        assertTrue(state.chatMessages.last().contains("requires arguments"))
+        assertNotNull(outcome)
+        assertEquals(VlmToolOutcomeStatus.FINISHED, outcome?.status)
+        assertTrue(called)
+        assertEquals("猫猫", capturedArguments["keyword"])
+        assertEquals(TaskStatus.FINISHED, state.status)
+        assertNull(state.pendingOmniFlowFunctionCall)
         val gate = VlmToolCoordinator.evaluateFunctionCacheGate(
             request = request,
             recallGuidance = VlmRecallGuidance(
@@ -379,6 +387,46 @@ class VlmToolCoordinatorRecallExecutionTest {
         )
         assertFalse(gate.allowed)
         assertEquals(VlmToolCoordinator.CACHE_GATE_REQUIRES_ARGUMENTS, gate.reason)
+    }
+
+    @Test
+    fun `pending recall function reply executes without starting another vlm task`() = runBlocking {
+        val state = TaskState(
+            taskId = "task-pending-omniflow",
+            goal = "小红书查看猫猫",
+            status = TaskStatus.WAITING_INPUT,
+            pendingOmniFlowFunctionCall = PendingOmniFlowFunctionCall(
+                functionId = "xhs_search_keyword",
+                goal = "小红书查看猫猫",
+                requiredArgumentNames = listOf("value"),
+                allArgumentNames = emptyList(),
+            ),
+        )
+        var capturedFunctionId = ""
+        var capturedArguments: Map<String, Any?> = emptyMap()
+
+        val outcome = VlmToolCoordinator.executePendingOmniFlowFunctionCall(
+            taskState = state,
+            reply = """{"keyword":"猫猫"}""",
+            runFunction = { functionId, arguments ->
+                capturedFunctionId = functionId
+                capturedArguments = arguments
+                mapOf(
+                    "success" to true,
+                    "fallback" to false,
+                    "function_id" to functionId,
+                    "actions_executed" to 1,
+                )
+            },
+        )
+
+        assertNotNull(outcome)
+        assertEquals(VlmToolOutcomeStatus.FINISHED, outcome?.status)
+        assertEquals("xhs_search_keyword", capturedFunctionId)
+        assertEquals("猫猫", capturedArguments["keyword"])
+        assertNull(state.pendingOmniFlowFunctionCall)
+        assertEquals(TaskStatus.FINISHED, state.status)
+        assertEquals("omniflow_recall_hit:xhs_search_keyword", state.executionRoute)
     }
 
     @Test

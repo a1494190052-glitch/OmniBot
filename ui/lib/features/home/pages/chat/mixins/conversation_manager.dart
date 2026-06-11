@@ -16,20 +16,11 @@ mixin ConversationManager<T extends StatefulWidget> on State<T> {
     List<ChatMessageModel> snapshotMessages,
     ConversationMode mode,
   ) async {
-    final candidates = snapshotMessages.where((message) {
-      final cardData = message.cardData;
-      return message.type == 2 && cardData?['type'] == 'deep_thinking';
-    });
+    final candidates = snapshotMessages.where(isDeepThinkingCardMessage);
     for (final message in candidates) {
-      final cardData = message.cardData;
-      if (cardData == null) continue;
-      await ConversationHistoryService.upsertConversationUiCard(
-        conversationId,
-        entryId: message.id,
-        cardData: buildPersistentDeepThinkingCardData(
-          Map<String, dynamic>.from(cardData),
-        ),
-        createdAtMillis: message.createAt.millisecondsSinceEpoch,
+      await upsertPersistentDeepThinkingUiCard(
+        conversationId: conversationId,
+        message: message,
         mode: mode,
       );
     }

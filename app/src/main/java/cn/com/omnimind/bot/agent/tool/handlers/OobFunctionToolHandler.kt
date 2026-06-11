@@ -122,7 +122,7 @@ class OobFunctionToolHandler(
         val steps = materializedSteps(materializedSpec)
         val description = spec["description"]?.toString().orEmpty()
         val stepResults = (runPayload["step_results"] as? List<*>) ?: emptyList<Any?>()
-        val allSuccess = runPayload["success"] != false
+        val allSuccess = runPayload["success"] == true
         val summary = buildString {
             append(description.ifBlank { toolName })
             append(" — ")
@@ -157,22 +157,7 @@ class OobFunctionToolHandler(
                 )
             val toolkit = OobOmniFlowToolkitService(context, store)
             val argsMap = helper.jsonObjectToMap(args).filterKeys { it != "tool_title" }
-            val payload = when (toolName) {
-                OobFunctionToolNames.FUNCTION_LIST -> toolkit.listFunctions(argsMap)
-                OobFunctionToolNames.FUNCTION_GET -> toolkit.getFunction(argsMap)
-                OobFunctionToolNames.FUNCTION_REGISTER -> toolkit.registerFunction(argsMap)
-                OobFunctionToolNames.FUNCTION_UPDATE -> toolkit.updateFunction(argsMap)
-                OobFunctionToolNames.FUNCTION_GUARD_CHECK -> toolkit.guardCheck(argsMap)
-                OobFunctionToolNames.FUNCTION_DELETE -> toolkit.deleteFunction(argsMap)
-                OobFunctionToolNames.FUNCTION_CLEAR -> toolkit.clearFunctions(argsMap)
-                OobFunctionToolNames.RUN_LOG_LIST -> toolkit.listRunLogs(argsMap)
-                OobFunctionToolNames.RUN_LOG_GET -> toolkit.getRunLog(argsMap)
-                OobFunctionToolNames.RUN_LOG_CONVERT -> toolkit.convertRunLog(argsMap)
-                else -> return cn.com.omnimind.bot.agent.ToolExecutionResult.Error(
-                    toolName,
-                    "Unknown OOB Function tool: $toolName"
-                )
-            }
+            val payload = toolkit.executeTool(toolName, argsMap)
             val payloadJson = helper.encodeLocalizedPayload(payload)
             cn.com.omnimind.bot.agent.ToolExecutionResult.ContextResult(
                 toolName = toolName,
@@ -453,7 +438,6 @@ class OobFunctionToolHandler(
         var frontendFinished = false
         val replayStopRequested = {
             frontendSession?.isStopRequested() == true ||
-                frontendSession?.isCompleteRequested() == true ||
                 toolHandle?.isManualStopRequested() == true
         }
         var frontendFinishMessage = helper.localized("任务已完成")
@@ -484,14 +468,16 @@ class OobFunctionToolHandler(
         ).also { it.putAll(OobFunctionArgumentBindingValidator.runtimeDiagnostics(materializedSpec)) }
         fun isUserCompletedReplay(): Boolean =
             frontendSession?.isUserFinishedRequested() == true &&
+                stepResults.size >= activeSteps.size &&
                 toolHandle?.isManualStopRequested() != true
         fun buildUserCompletedResult(): MutableMap<String, Any?> =
             buildResult().toMutableMap().apply {
-                put("success", true)
                 put("done_reason", "user_completed")
                 put("completed_by_user", true)
-                put("error_code", null)
-                put("error_message", "")
+                if (this["success"] == true) {
+                    put("error_code", null)
+                    put("error_message", "")
+                }
             }
         try {
         // Checker rules from the Function spec (metadata.checker_rules).
@@ -505,9 +491,6 @@ class OobFunctionToolHandler(
             val stepStartedAtMs = System.currentTimeMillis()
             frontendSession?.throwIfStopRequested()
             toolHandle?.throwIfStopRequested()
-            if (isUserCompletedReplay()) {
-                break
-            }
             val index = normalizedResumeFromStep + relativeIndex
             val stepIndex = index + 1
             val stepId = step["id"]?.toString() ?: "step_$stepIndex"
@@ -515,13 +498,13 @@ class OobFunctionToolHandler(
             val executor = step["executor"]?.toString()?.trim()?.lowercase().orEmpty()
                 .ifEmpty { RunLogReplayPolicy.EXECUTOR_AGENT }
             val callableTool = step["tool"]?.toString()?.trim().orEmpty()
+            val omniflowExecutionTool = omniflowExecutionToolForStep(step, callableTool)
             currentStepIndex = index
             currentStepId = stepId
             currentStepTool = callableTool
             currentStepExecutor = executor
             currentStepStartedAtMs = stepStartedAtMs
             frontendSession?.update("第 $stepIndex/${steps.size} 步 $stepTitle")
-            val omniflowExecutionTool = omniflowExecutionToolForStep(step, callableTool)
             if (isSkippedStep(step, callableTool)) {
                 stepResults += linkedMapOf<String, Any?>(
                     "step_id" to stepId,
@@ -586,12 +569,34 @@ class OobFunctionToolHandler(
                     val preActionReadyWait = if (index > 0) {
                         UIStepExecutor.waitForReplayActionReady(
                             step = step,
+                            recoveryStep = steps.getOrNull(index - 1),
                             stopRequested = replayStopRequested,
                         )
                     } else {
                         emptyMap()
                     }
-                    try {
+                    val blockedResult = preActionReadyBlockedStep(
+                        step = step,
+                        stepId = stepId,
+                        stepTitle = stepTitle,
+                        tool = UIStepExecutor.actionNameForStep(step),
+                        preActionReadyWait = preActionReadyWait,
+                        allowAgentFallback = allowAgentFallback,
+                    )
+                    val nextStep = activeSteps.getOrNull(relativeIndex + 1)
+                    val skipResult = skipStepIfNextStepAlreadyReady(
+                        stepId = stepId,
+                        stepTitle = stepTitle,
+                        tool = UIStepExecutor.actionNameForStep(step),
+                        preActionReadyWait = preActionReadyWait,
+                        nextStep = nextStep,
+                        stopRequested = replayStopRequested,
+                    )
+                    if (skipResult != null) {
+                        withPreActionReadyWait(skipResult, preActionReadyWait)
+                    } else if (blockedResult != null) {
+                        withPreActionReadyWait(blockedResult, preActionReadyWait)
+                    } else try {
                         val result = UIStepExecutor.execute(
                             step = step,
                             stepId = stepId,
@@ -606,8 +611,33 @@ class OobFunctionToolHandler(
                     } catch (e: Exception) {
                         val executionError = e as? UIStepExecutor.ExecutionException
                         val failReason = e.message ?: "omniflow step failed"
-                        val recovery = agentFallbackController.refetchCurrentPageForFailedStep(failReason)
-                        if (allowAgentFallback) {
+                        val postFailureSkip = skipStepIfNextStepAlreadyReady(
+                            stepId = stepId,
+                            stepTitle = stepTitle,
+                            tool = UIStepExecutor.actionNameForStep(step),
+                            preActionReadyWait = preActionReadyWait,
+                            nextStep = nextStep,
+                            stopRequested = replayStopRequested,
+                        )
+                        if (postFailureSkip != null) {
+                            withPreActionReadyWait(
+                                LinkedHashMap<String, Any?>().apply {
+                                    putAll(postFailureSkip)
+                                    put("failed_step_error_code", executionError?.errorCode)
+                                    put("failed_step_reason", failReason)
+                                    put(
+                                        "skip_phase",
+                                        "after_failed_step_next_replay_step_already_ready",
+                                    )
+                                    executionError?.diagnostics
+                                        ?.takeIf { it.isNotEmpty() }
+                                        ?.let { put("failed_step_diagnostics", it) }
+                                },
+                                preActionReadyWait,
+                            )
+                        } else {
+                            val recovery = agentFallbackController.refetchCurrentPageForFailedStep(failReason)
+                            if (allowAgentFallback) {
                             modelRequired = true
                             val fallbackResult = runResultBuilder.agentFallbackStep(
                                 stepId = stepId,
@@ -622,7 +652,7 @@ class OobFunctionToolHandler(
                                 ),
                             )
                             withPreActionReadyWait(fallbackResult, preActionReadyWait)
-                        } else {
+                            } else {
                             val failureResult = runResultBuilder.failureStep(
                                 stepId = stepId,
                                 tool = UIStepExecutor.actionNameForStep(step),
@@ -635,6 +665,7 @@ class OobFunctionToolHandler(
                                 ),
                             )
                             withPreActionReadyWait(failureResult, preActionReadyWait)
+                            }
                         }
                     }
                 }
@@ -1088,7 +1119,6 @@ class OobFunctionToolHandler(
         var frontendFinished = false
         val replayStopRequested = {
             frontendSession?.isStopRequested() == true ||
-                frontendSession?.isCompleteRequested() == true ||
                 toolHandle?.isManualStopRequested() == true
         }
         var frontendFinishMessage = helper.localized("任务已完成")
@@ -1159,13 +1189,15 @@ class OobFunctionToolHandler(
                 val successCount = stepResults.count { it["success"] != false }
                 val failedStepIndex = stepResults.firstOrNull { it["success"] == false }?.get("index")
                 val lastStepIndex = stepResults.lastOrNull()?.get("index")
+                val allSuccess = stepResults.size == activeSteps.size &&
+                    stepResults.none { it["success"] == false }
                 val currentResultStepIndex = when {
                     currentStepIndex >= 0 -> currentStepIndex
                     failedStepIndex != null -> failedStepIndex
                     lastStepIndex != null -> lastStepIndex
                     else -> null
                 }
-                put("success", failureReason == null)
+                put("success", allSuccess)
                 put("function_id", fn.id)
                 put("runner", RunLogReplayPolicy.fixedReplayRunner)
                 put("step_count", fn.executableSteps.size)
@@ -1179,7 +1211,16 @@ class OobFunctionToolHandler(
                 put("model_used", modelRequired)
                 put("model_required", modelRequired)
                 put("delegated_tool_used", delegatedToolUsed)
-                put("error_message", failureReason ?: "")
+                if (!allSuccess && failureReason == null) {
+                    put("error_code", "OOB_FUNCTION_INCOMPLETE")
+                    put(
+                        "error_message",
+                        "Function replay finished before all active steps completed: " +
+                            "${stepResults.size}/${activeSteps.size}"
+                    )
+                } else {
+                    put("error_message", failureReason ?: "")
+                }
                 put("step_results", stepResults)
                 put("run_id", auditRunId)
                 put("started_at_ms", runStartedAtMs)
@@ -1188,14 +1229,16 @@ class OobFunctionToolHandler(
             }
         fun isUserCompletedReplay(): Boolean =
             frontendSession?.isUserFinishedRequested() == true &&
+                stepResults.size >= activeSteps.size &&
                 toolHandle?.isManualStopRequested() != true
         fun buildUserCompletedResult(): LinkedHashMap<String, Any?> =
             buildResult().apply {
-                put("success", true)
                 put("done_reason", "user_completed")
                 put("completed_by_user", true)
-                put("error_code", null)
-                put("error_message", "")
+                if (this["success"] == true) {
+                    put("error_code", null)
+                    put("error_message", "")
+                }
             }
 
         try {
@@ -1204,9 +1247,6 @@ class OobFunctionToolHandler(
                 val stepStartedAtMs = System.currentTimeMillis()
                 frontendSession?.throwIfStopRequested()
                 toolHandle?.throwIfStopRequested()
-                if (isUserCompletedReplay()) {
-                    break
-                }
                 currentStepIndex = absIdx
                 currentStepId = step.id
                 currentStepTool = step.toolName
@@ -1273,14 +1313,59 @@ class OobFunctionToolHandler(
                             "source_context" to step.sourceContext,
                         )
                         val preActionReadyWait = if (absIdx > 0) {
+                            val recoveryStep = fn.executableSteps.getOrNull(absIdx - 1)
+                                ?.takeIf { RunLogReplayPolicy.omniflowActions.contains(it.toolName) }
+                                ?.let { previous ->
+                                    linkedMapOf<String, Any?>(
+                                        "id" to previous.id,
+                                        "title" to previous.title,
+                                        "tool" to previous.toolName,
+                                        "executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
+                                        "args" to previous.resolveArguments(emptyMap()),
+                                        "source_context" to previous.sourceContext,
+                                    )
+                                }
                             UIStepExecutor.waitForReplayActionReady(
                                 step = syntheticStep,
+                                recoveryStep = recoveryStep,
                                 stopRequested = replayStopRequested,
                             )
                         } else {
                             emptyMap()
                         }
-                        try {
+                        val blockedResult = preActionReadyBlockedStep(
+                            step = syntheticStep,
+                            stepId = step.id,
+                            stepTitle = step.title,
+                            tool = step.toolName,
+                            preActionReadyWait = preActionReadyWait,
+                            allowAgentFallback = allowAgentFallback,
+                        )
+                        val nextSyntheticStep = fn.executableSteps.getOrNull(absIdx + 1)
+                            ?.takeIf { RunLogReplayPolicy.omniflowActions.contains(it.toolName) }
+                            ?.let { next ->
+                                linkedMapOf<String, Any?>(
+                                    "id" to next.id,
+                                    "title" to next.title,
+                                    "tool" to next.toolName,
+                                    "executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
+                                    "args" to next.resolveArguments(emptyMap()),
+                                    "source_context" to next.sourceContext,
+                                )
+                            }
+                        val skipResult = skipStepIfNextStepAlreadyReady(
+                            stepId = step.id,
+                            stepTitle = step.title,
+                            tool = step.toolName,
+                            preActionReadyWait = preActionReadyWait,
+                            nextStep = nextSyntheticStep,
+                            stopRequested = replayStopRequested,
+                        )
+                        if (skipResult != null) {
+                            withPreActionReadyWait(skipResult, preActionReadyWait)
+                        } else if (blockedResult != null) {
+                            withPreActionReadyWait(blockedResult, preActionReadyWait)
+                        } else try {
                             val result = UIStepExecutor.execute(
                                 step = syntheticStep,
                                 stepId = step.id,
@@ -1297,10 +1382,30 @@ class OobFunctionToolHandler(
                             )
                             withPreActionReadyWait(result, preActionReadyWait)
                         } catch (e: kotlinx.coroutines.CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            val failReason = e.message ?: "omniflow step failed"
-                            if (allowAgentFallback) {
+                        throw e
+                    } catch (e: Exception) {
+                        val failReason = e.message ?: "omniflow step failed"
+                        val postFailureSkip = skipStepIfNextStepAlreadyReady(
+                            stepId = step.id,
+                            stepTitle = step.title,
+                            tool = step.toolName,
+                            preActionReadyWait = preActionReadyWait,
+                            nextStep = nextSyntheticStep,
+                            stopRequested = replayStopRequested,
+                        )
+                        if (postFailureSkip != null) {
+                            withPreActionReadyWait(
+                                LinkedHashMap<String, Any?>().apply {
+                                    putAll(postFailureSkip)
+                                    put("failed_step_reason", failReason)
+                                    put(
+                                        "skip_phase",
+                                        "after_failed_step_next_replay_step_already_ready",
+                                    )
+                                },
+                                preActionReadyWait,
+                            )
+                        } else if (allowAgentFallback) {
                                 modelRequired = true
                                 val fallbackResult = runResultBuilder.agentFallbackStep(
                                     stepId = step.id,
@@ -1317,9 +1422,9 @@ class OobFunctionToolHandler(
                                     errorCode = "OOB_OMNIFLOW_STEP_FAILED",
                                 )
                                 withPreActionReadyWait(failureResult, preActionReadyWait)
-                            }
                         }
                     }
+                }
                     // Live tool: delegate via router
                     router != null && env != null -> {
                         delegatedToolUsed = true
@@ -1580,6 +1685,61 @@ class OobFunctionToolHandler(
             putAll(result)
             put("pre_action_ready_wait", preActionReadyWait)
         }
+    }
+
+    private suspend fun skipStepIfNextStepAlreadyReady(
+        stepId: String,
+        stepTitle: String,
+        tool: String,
+        preActionReadyWait: Map<String, Any?>,
+        nextStep: Map<String, Any?>?,
+        stopRequested: (() -> Boolean)?,
+    ): Map<String, Any?>? {
+        if (!isReplaySemanticTargetMissing(preActionReadyWait) || nextStep == null) {
+            return null
+        }
+        if (!UIStepExecutor.isUIStep(nextStep)) {
+            return null
+        }
+        val nextReady = UIStepExecutor.waitForReplayActionReady(
+            step = nextStep,
+            recoveryStep = null,
+            stopRequested = stopRequested,
+            settleDelayMs = 0L,
+            targetTimeoutMs = 0L,
+        )
+        if (nextReady["status"] != "ready") {
+            return null
+        }
+        return linkedMapOf<String, Any?>(
+            "step_id" to stepId,
+            "tool" to tool,
+            "executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
+            "model_free" to true,
+            "success" to true,
+            "skipped" to true,
+            "skip_reason" to "next_replay_step_already_ready",
+            "summary" to "$stepTitle skipped because the next replay step is already ready",
+            "next_action_ready_wait" to nextReady,
+        )
+    }
+
+    private fun isReplaySemanticTargetMissing(preActionReadyWait: Map<String, Any?>): Boolean =
+        preActionReadyWait["status"] == "timeout" &&
+            preActionReadyWait["reason"] == "semantic_target_not_visible"
+
+    private fun preActionReadyBlockedStep(
+        step: Map<String, Any?>,
+        stepId: String,
+        stepTitle: String,
+        tool: String,
+        preActionReadyWait: Map<String, Any?>,
+        allowAgentFallback: Boolean,
+    ): Map<String, Any?>? {
+        // Readiness is diagnostic only. The replay path must still go through the
+        // normal checker/action-transfer/execute loop so source XML, anchors, and
+        // coordinates get one unified chance to adapt to the live page.
+        return null
     }
 
     private companion object {

@@ -8,7 +8,7 @@ package cn.com.omnimind.bot.runlog
  *
  * Three rule scopes compose in order — global rules run first, then
  * function-level rules, then node-level rules:
- *   - Global   : defined in [GLOBAL_PRE_TRANSFER] / [GLOBAL_PRE_ACTION] / [GLOBAL_POST_ACTION]
+ *   - Global   : loaded from the built-in checker rule library by phase
  *   - Function : loaded from Function spec metadata.checker_rules
  *   - Node     : loaded from UDEG node skill (future)
  *
@@ -98,57 +98,51 @@ data class OmniflowCheckerRule(
             "close_keyboard",
         )
 
-        // ── Built-in global rules ────────────────────────────────────────────
-        val GLOBAL_PRE_TRANSFER: List<OmniflowCheckerRule> = listOf(
-            OmniflowCheckerRule(
+        // ── Built-in checker rule library ─────────────────────────────────────
+        val BUILTIN_RULE_LIBRARY: List<Map<String, Any?>> = listOf(
+            checkerRuleSpec(
                 id = "confirm_resolver_always",
                 condition = COND_RESOLVER_DIALOG,
                 action = ACTION_CONFIRM_RESOLVER_ALWAYS,
                 phase = PHASE_PRE_TRANSFER,
             ),
-            OmniflowCheckerRule(
+            checkerRuleSpec(
                 id = "auto_grant_permission",
                 condition = COND_PERMISSION_DIALOG,
                 action = ACTION_ALLOW,
                 phase = PHASE_PRE_TRANSFER,
             ),
-            OmniflowCheckerRule(
+            checkerRuleSpec(
                 id = "dismiss_ad_blocking",
                 condition = COND_AD_BLOCKING,
                 action = ACTION_DISMISS,
                 phase = PHASE_PRE_TRANSFER,
             ),
-            OmniflowCheckerRule(
+            checkerRuleSpec(
                 id = "package_mismatch_recovery",
                 condition = COND_PACKAGE_MISMATCH,
                 action = ACTION_OPEN_APP,
                 phase = PHASE_PRE_TRANSFER,
             ),
-            OmniflowCheckerRule(
+            checkerRuleSpec(
                 id = "dismiss_blocking_overlay",
                 condition = COND_OVERLAY_BLOCKING,
                 action = ACTION_DISMISS,
                 phase = PHASE_PRE_TRANSFER,
             ),
-        )
-
-        val GLOBAL_PRE_ACTION: List<OmniflowCheckerRule> = listOf(
-            OmniflowCheckerRule(
+            checkerRuleSpec(
                 id = "hide_keyboard_if_obscuring",
                 condition = COND_KEYBOARD_OBSCURING,
                 action = ACTION_HIDE_KEYBOARD,
                 phase = PHASE_PRE_ACTION,
             ),
-        )
-
-        val GLOBAL_POST_ACTION: List<OmniflowCheckerRule> = listOf(
-            OmniflowCheckerRule(
+            checkerRuleSpec(
                 id = "confirm_resolver_always_after_open_app",
                 condition = COND_RESOLVER_DIALOG,
                 action = ACTION_CONFIRM_RESOLVER_ALWAYS,
                 phase = PHASE_POST_ACTION,
             ),
-            OmniflowCheckerRule(
+            checkerRuleSpec(
                 id = "dismiss_app_upgrade_prompt_after_open_app",
                 condition = COND_APP_UPGRADE_PROMPT,
                 action = ACTION_DISMISS,
@@ -156,19 +150,64 @@ data class OmniflowCheckerRule(
             ),
         )
 
+        val BUILTIN_RULES: List<OmniflowCheckerRule> =
+            BUILTIN_RULE_LIBRARY.mapNotNull(::fromMap)
+
+        fun globalRulesForPhase(phase: String): List<OmniflowCheckerRule> =
+            BUILTIN_RULES.filter { it.phase == phase && it.enabled }
+
+        val GLOBAL_PRE_TRANSFER: List<OmniflowCheckerRule>
+            get() = globalRulesForPhase(PHASE_PRE_TRANSFER)
+
+        val GLOBAL_PRE_ACTION: List<OmniflowCheckerRule>
+            get() = globalRulesForPhase(PHASE_PRE_ACTION)
+
+        val GLOBAL_POST_ACTION: List<OmniflowCheckerRule>
+            get() = globalRulesForPhase(PHASE_POST_ACTION)
+
+        private fun checkerRuleSpec(
+            id: String,
+            condition: String,
+            action: String,
+            phase: String,
+            params: Map<String, Any?> = emptyMap(),
+            enabled: Boolean = true,
+        ): Map<String, Any?> = linkedMapOf(
+            "id" to id,
+            "condition" to condition,
+            "action" to action,
+            "phase" to phase,
+            "params" to params.takeIf { it.isNotEmpty() },
+            "enabled" to enabled,
+        ).filterValues { it != null }
+
         // ── Factories ────────────────────────────────────────────────────────
 
         fun fromMap(map: Map<*, *>): OmniflowCheckerRule? {
             val id = map["id"]?.toString()?.trim().orEmpty().ifBlank { return null }
             val condition = normalizeCondition(
-                OobActionCodec.firstNonBlank(map["condition"], map["when"], map["type"])
+                OobActionCodec.firstNonBlank(
+                    checkerType(map["condition"]),
+                    checkerType(map["when"]),
+                    checkerType(map["type"]),
+                    map["condition"],
+                    map["when"],
+                    map["type"],
+                )
             ).ifBlank { return null }
             val action = normalizeAction(
-                raw = OobActionCodec.firstNonBlank(map["action"], map["then"], map["effect"]),
+                raw = OobActionCodec.firstNonBlank(
+                    checkerType(map["action"]),
+                    checkerType(map["then"]),
+                    checkerType(map["effect"]),
+                    map["action"],
+                    map["then"],
+                    map["effect"],
+                ),
                 condition = condition,
             ).ifBlank { return null }
             if (!isSupportedPair(condition, action)) return null
-            val params = OobActionCodec.mapArg(map["params"])
+            val params = checkerParams(map)
             return OmniflowCheckerRule(
                 id = id,
                 condition = condition,
@@ -184,6 +223,56 @@ data class OmniflowCheckerRule(
             val metadata = OobActionCodec.mapArg(spec["metadata"])
             val rules = OobActionCodec.listArg(metadata["checker_rules"])
             return rules.mapNotNull { OobActionCodec.mapArg(it).takeIf { rule -> rule.isNotEmpty() }?.let(::fromMap) }
+        }
+
+        fun checkerType(raw: Any?): String {
+            val map = OobActionCodec.mapArg(raw)
+            return OobActionCodec.firstNonBlank(map["type"], map["kind"], map["name"])
+        }
+
+        fun checkerParams(map: Map<*, *>): Map<String, Any?> {
+            val params = linkedMapOf<String, Any?>()
+            params.putAll(OobActionCodec.mapArg(map["params"]))
+            val condition = OobActionCodec.mapArg(map["condition"])
+            val action = OobActionCodec.mapArg(map["action"])
+            val budget = OobActionCodec.mapArg(map["budget"])
+            copyListParam(condition, params, "text_any", "text_any")
+            copyListParam(condition, params, "resource_id_any", "resource_id_any")
+            copyListParam(condition, params, "package_any", "package_any")
+            copyListParam(condition, params, "class_any", "class_any")
+            copyListParam(action, params, "text_any", "action_text_any")
+            copyListParam(action, params, "resource_id_any", "action_resource_id_any")
+            copyFirstParam(action, params, "wait_ms", "delay_ms")
+            copyFirstParam(budget, params, "max_triggers_per_run", "max_triggers")
+            copyFirstParam(budget, params, "max_triggers_per_step", "max_triggers_per_step")
+            copyFirstParam(budget, params, "cooldown_ms", "cooldown_ms")
+            copyFirstParam(map, params, "priority", "priority")
+            copyFirstParam(map, params, "source", "source")
+            return params.filterValues { value ->
+                value != null && value.toString().trim().isNotEmpty()
+            }
+        }
+
+        private fun copyFirstParam(
+            from: Map<*, *>,
+            to: MutableMap<String, Any?>,
+            fromKey: String,
+            toKey: String,
+        ) {
+            val value = from[fromKey] ?: return
+            to.putIfAbsent(toKey, value)
+        }
+
+        private fun copyListParam(
+            from: Map<*, *>,
+            to: MutableMap<String, Any?>,
+            fromKey: String,
+            toKey: String,
+        ) {
+            val values = OobActionCodec.listArg(from[fromKey]).ifEmpty {
+                OobActionCodec.firstNonBlank(from[fromKey]).takeIf { it.isNotBlank() }?.let(::listOf).orEmpty()
+            }
+            if (values.isNotEmpty()) to.putIfAbsent(toKey, values)
         }
 
         fun normalizeCondition(raw: String): String =

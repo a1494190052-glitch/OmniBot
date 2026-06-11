@@ -60,18 +60,12 @@ class OobVlmFunctionRecallProvider(
 
         val recallBlock = buildString {
             appendLine(RECALL_START_MARKER)
-            appendLine("OmniFlow tool recall for this current VLM step:")
+            appendLine("OmniFlow recall for this VLM step:")
             if (recalledFunctionIds.isNotEmpty()) {
-                appendLine("The recalled saved mobile workflows are available through call_tool this turn: ${recalledFunctionIds.joinToString(", ")}")
-                appendLine("Each recalled Function can reuse a previously successful multi-step phone workflow, such as opening a page, searching, filling a form, or saving/sending content.")
-                appendLine("If one clearly matches the user goal, call call_tool with function_id set to the listed Function id and arguments filled from the user request.")
-                appendLine("After call_tool runs, continue from the tool result, history context, and the next fresh page observe; call another tool if the goal is not done.")
+                appendLine("top_functions=${recalledFunctionIds.joinToString(", ")}")
+                appendLine("Use call_tool(function_id, arguments) only when a recalled workflow clearly matches the user goal; otherwise choose a normal GUI action.")
             }
             appendLine(guidance.guidance)
-            appendLine(
-                "Policy: these are optional saved workflow tools from fresh current-page recall. " +
-                    "They use the same call_tool action language as replay, and one call may execute a reusable multi-step phone workflow."
-            )
             append(RECALL_END_MARKER)
         }.trim()
         val merged = mergeOobVlmRecallStepGuidance(
@@ -115,7 +109,7 @@ class OobVlmFunctionRecallProvider(
     private companion object {
         private const val RECALL_START_MARKER = "[[OOB_OMNIFLOW_STEP_RECALL_START]]"
         private const val RECALL_END_MARKER = "[[OOB_OMNIFLOW_STEP_RECALL_END]]"
-        private const val MAX_STEP_SKILL_GUIDANCE_CHARS = 1_400
+        private const val MAX_STEP_SKILL_GUIDANCE_CHARS = 650
         private const val MAX_DYNAMIC_FUNCTION_TOOLS = 3
         private val recallBlockRegex = Regex(
             pattern = "\\n*\\Q$RECALL_START_MARKER\\E.*?\\Q$RECALL_END_MARKER\\E\\n*",

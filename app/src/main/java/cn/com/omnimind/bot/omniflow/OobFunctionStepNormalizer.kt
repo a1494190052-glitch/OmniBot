@@ -99,7 +99,6 @@ internal object OobFunctionStepNormalizer {
         args.putAlias("target_description", raw["target_description"], raw["targetDescription"])
         args.putAlias("selector", raw["selector"])
         args.putAlias("node_id", raw["node_id"], raw["nodeId"])
-        args.putAlias("element_index", raw["element_index"], raw["elementIndex"])
         args.putAlias("scrollable_index", raw["scrollable_index"], raw["scrollableIndex"])
         args.putAlias("direction", raw["direction"])
         args.putAlias("duration_ms", raw["duration_ms"], raw["durationMs"])

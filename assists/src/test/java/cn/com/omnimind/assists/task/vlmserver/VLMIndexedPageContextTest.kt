@@ -15,13 +15,13 @@ class VLMIndexedPageContextTest {
             displayHeight = 1280
         )
 
-        assertTrue(rendered.contains("OOB Accessibility tree / indexed page evidence"))
+        assertTrue(rendered.contains("OOB indexed evidence (0..1000 coords)"))
         assertTrue(rendered.contains("label=\"Network & internet\""))
-        assertTrue(rendered.contains("center=(430,473)"))
+        assertTrue(rendered.contains("c=(430,473)"))
         assertTrue(rendered.contains("flags=click"))
         assertFalse(rendered.contains("bounds="))
-        assertTrue(rendered.contains("Scrollable regions:"))
-        assertTrue(rendered.contains("vertical_down="))
+        assertTrue(rendered.contains("Scroll:"))
+        assertTrue(rendered.contains("down="))
     }
 
     @Test
@@ -37,9 +37,9 @@ class VLMIndexedPageContextTest {
             displayHeight = 1280
         )
 
-        assertTrue(rendered.contains("#0 center="))
-        assertTrue(rendered.contains("#17 center="))
-        assertFalse(rendered.contains("#18 center="))
+        assertTrue(rendered.contains("#0 click c="))
+        assertTrue(rendered.contains("#7 click c="))
+        assertFalse(rendered.contains("#8 click c="))
     }
 
     @Test
@@ -70,7 +70,7 @@ class VLMIndexedPageContextTest {
         )
 
         assertTrue(enriched.currentPageSummary.contains("UDEG page-match context"))
-        assertTrue(enriched.currentPageSummary.contains("OOB Accessibility tree / indexed page evidence"))
+        assertTrue(enriched.currentPageSummary.contains("OOB indexed evidence"))
         assertTrue(enriched.currentPageSummary.contains("Connected devices"))
     }
 
@@ -105,7 +105,7 @@ class VLMIndexedPageContextTest {
             displayHeight = 1280
         )
 
-        assertTrue(rendered.contains("Form anchors:"))
+        assertTrue(rendered.contains("Forms:"))
         assertTrue(rendered.contains("role=focused_editable label=\"First name\""))
         assertTrue(rendered.contains("role=editable label=\"Last name\""))
         assertTrue(rendered.contains("role=selection_row label=\"Mobile Phone\""))

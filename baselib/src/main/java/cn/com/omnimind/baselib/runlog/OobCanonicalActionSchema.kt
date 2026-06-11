@@ -45,6 +45,7 @@ object OobCanonicalActionSchema {
     const val ARG_PACKAGE_NAME = "package_name"
     const val ARG_KEY = "key"
     const val ARG_TIME_S = "time_s"
+    const val ARG_TIME_MS = "time_ms"
     const val ARG_REASON = "reason"
     const val ARG_FUNCTION_ID = "function_id"
     const val ARG_TOOL_NAME = "tool_name"
@@ -407,6 +408,12 @@ ArgSpec(
                     name = "time_s",
                     type = Type.NUMBER,
                     description = LocalizedText(zhCn = "等待秒数。", enUs = "Seconds to wait."),
+                    minimum = 0,
+                ),
+ArgSpec(
+                    name = "time_ms",
+                    type = Type.INTEGER,
+                    description = LocalizedText(zhCn = "等待毫秒数；兼容已采集轨迹。", enUs = "Milliseconds to wait; compatible with collected trajectories."),
                     minimum = 0,
                 ),
 ArgSpec(

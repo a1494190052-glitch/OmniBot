@@ -3,23 +3,13 @@ part of 'chat_page.dart';
 mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
   void _persistDeepThinkingCardIfNeeded(ChatMessageModel message) {
     final conversationId = _currentConversationId;
-    final cardData = message.cardData;
-    if (conversationId == null ||
-        isEphemeralConversation(conversationId, activeConversationModeValue) ||
-        message.type != 2 ||
-        cardData?['type'] != 'deep_thinking') {
-      return;
-    }
-    unawaited(
-      ConversationHistoryService.upsertConversationUiCard(
-        conversationId,
-        entryId: message.id,
-        cardData: buildPersistentDeepThinkingCardData(
-          Map<String, dynamic>.from(cardData!),
-        ),
-        createdAtMillis: message.createAt.millisecondsSinceEpoch,
-        mode: activeConversationModeValue,
-      ),
+    persistDeepThinkingUiCardIfNeeded(
+      conversationId: conversationId,
+      message: message,
+      mode: activeConversationModeValue,
+      isEphemeral:
+          conversationId != null &&
+          isEphemeralConversation(conversationId, activeConversationModeValue),
     );
   }
 
@@ -137,38 +127,26 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
       setState(() => _messages.removeAt(loadingIndex));
     }
 
-    final startTime = DateTime.now().millisecondsSinceEpoch;
     // Use -1 suffix to match Kotlin's first thinkingSequence, so the first
     // thinkingSnapshot updates this card in-place rather than inserting a new one.
-    final thinkingCardId = cardId ?? '$taskID-thinking-1';
-    final cardData = {
-      'type': 'deep_thinking',
-      'isLoading': isLoading ?? _isDeepThinking,
-      'thinkingContent': thinkingContent ?? '',
-      'stage': stage ?? _currentThinkingStage,
-      'taskID': taskID,
-      'cardId': thinkingCardId,
-      'startTime': startTime,
-      'endTime': null,
-      'isCollapsible': true,
-    };
+    final thinkingCardId = ChatThinkingCardMessages.cardIdForTask(
+      taskID,
+      cardId: cardId,
+    );
+    final message = ChatThinkingCardMessages.create(
+      taskId: taskID,
+      cardId: thinkingCardId,
+      thinkingContent: thinkingContent,
+      isLoading: isLoading,
+      stage: stage,
+      streamMeta: streamMeta,
+      isDeepThinking: _isDeepThinking,
+      currentThinkingStage: _currentThinkingStage,
+    );
 
     setState(() {
       _messages.removeWhere((msg) => msg.id == thinkingCardId);
-      _messages.insert(
-        0,
-        ChatMessageModel(
-          id: thinkingCardId,
-          type: 2,
-          user: 3,
-          content: {'cardData': cardData, 'id': thinkingCardId},
-          createAt: DateTime.fromMillisecondsSinceEpoch(startTime),
-          streamMeta: ensureAgentStreamMessageMeta(
-            streamMeta,
-            entryId: thinkingCardId,
-          ),
-        ),
-      );
+      _messages.insert(0, message);
     });
   }
 
@@ -182,42 +160,26 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
     Map<String, dynamic>? streamMeta,
     bool lockCompleted = true,
   }) {
-    final thinkingCardId = cardId ?? '$taskID-thinking';
+    final thinkingCardId = ChatThinkingCardMessages.cardIdForTask(
+      taskID,
+      cardId: cardId,
+    );
     final index = _messages.indexWhere((msg) => msg.id == thinkingCardId);
     if (index == -1) return;
 
     setState(() {
-      final existing = _messages[index];
-      final content = Map<String, dynamic>.from(existing.content ?? {});
-      final cardData = Map<String, dynamic>.from(content['cardData'] ?? {});
-
-      final currentStage = cardData['stage'] as int? ?? 1;
-      final targetStage = stage ?? _currentThinkingStage;
-      final newStage = (lockCompleted && currentStage == 4) ? 4 : targetStage;
-
-      final startTime = cardData['startTime'] as int?;
-      int? endTime = cardData['endTime'] as int?;
-      if (newStage == 4 && endTime == null) {
-        endTime = DateTime.now().millisecondsSinceEpoch;
-      } else if (newStage != 4 && newStage != 5) {
-        endTime = null;
-      }
-
-      cardData['thinkingContent'] = thinkingContent ?? _deepThinkingContent;
-      cardData['isLoading'] = isLoading ?? _isDeepThinking;
-      cardData['stage'] = newStage;
-      cardData['taskID'] = taskID;
-      cardData['cardId'] = thinkingCardId;
-      cardData['startTime'] = startTime;
-      cardData['endTime'] = endTime;
-
-      content['cardData'] = cardData;
-      _messages[index] = existing.copyWith(
-        content: content,
-        streamMeta: ensureAgentStreamMessageMeta(
-          streamMeta ?? existing.streamMeta,
-          entryId: thinkingCardId,
-        ),
+      _messages[index] = ChatThinkingCardMessages.update(
+        existing: _messages[index],
+        taskId: taskID,
+        cardId: thinkingCardId,
+        thinkingContent: thinkingContent,
+        isLoading: isLoading,
+        stage: stage,
+        streamMeta: streamMeta,
+        lockCompleted: lockCompleted,
+        deepThinkingContent: _deepThinkingContent,
+        isDeepThinking: _isDeepThinking,
+        currentThinkingStage: _currentThinkingStage,
       );
     });
   }
@@ -574,32 +536,18 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
       return;
     }
 
-    final content = Map<String, dynamic>.from(message.content ?? const {});
-    final nextPreviews = LinkPreviewService.instance.reconcilePreviewMaps(
-      text: message.text ?? '',
-      existing: content['linkPreviews'],
-    );
-    if (_previewMapListsEqual(content['linkPreviews'], nextPreviews)) {
+    final previewUpdate = ChatLinkPreviewMessageHelpers.reconcile(message);
+    if (!previewUpdate.didUpdate) {
       return;
     }
 
     setState(() {
-      if (nextPreviews.isEmpty) {
-        content.remove('linkPreviews');
-      } else {
-        content['linkPreviews'] = nextPreviews;
-      }
-      _messages[index] = message.copyWith(content: content);
+      _messages[index] = previewUpdate.message;
     });
 
     // 用户消息也先展示 loading 卡片，抓取完成后再回填真实预览。
-    for (final previewMap in nextPreviews) {
-      final preview = ChatLinkPreview.fromJson(previewMap);
-      if (preview.status != ChatLinkPreview.statusLoading ||
-          preview.url.isEmpty) {
-        continue;
-      }
-      unawaited(_resolveUserMessageLinkPreview(messageId, preview.url));
+    for (final url in previewUpdate.loadingUrls) {
+      unawaited(_resolveUserMessageLinkPreview(messageId, url));
     }
   }
 
@@ -619,34 +567,18 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
         return;
       }
 
-      final message = _messages[index];
-      final content = Map<String, dynamic>.from(message.content ?? const {});
-      final rawPreviews = content['linkPreviews'];
-      if (rawPreviews is! List) {
+      final updatedMessage =
+          ChatLinkPreviewMessageHelpers.replaceLoadingPreview(
+            _messages[index],
+            url: url,
+            resolved: resolved,
+          );
+      if (updatedMessage == null) {
         return;
       }
 
-      final updatedPreviews = rawPreviews
-          .whereType<Map>()
-          .map(
-            (item) => Map<String, dynamic>.from(item.cast<String, dynamic>()),
-          )
-          .map((previewMap) {
-            final preview = ChatLinkPreview.fromJson(previewMap);
-            if (preview.url != url ||
-                preview.status != ChatLinkPreview.statusLoading) {
-              return previewMap;
-            }
-            didUpdate = true;
-            return resolved.toJson();
-          })
-          .toList();
-      if (!didUpdate) {
-        return;
-      }
-
-      content['linkPreviews'] = updatedPreviews;
-      _messages[index] = message.copyWith(content: content);
+      _messages[index] = updatedMessage;
+      didUpdate = true;
     });
 
     if (!didUpdate) {
@@ -662,38 +594,6 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
         mode: activeConversationModeValue,
       );
     }
-  }
-
-  bool _previewMapListsEqual(dynamic left, List<Map<String, dynamic>> right) {
-    if (left is! List) {
-      return right.isEmpty;
-    }
-    final normalizedLeft = left
-        .whereType<Map>()
-        .map((item) => Map<String, dynamic>.from(item.cast<String, dynamic>()))
-        .toList();
-    if (normalizedLeft.length != right.length) {
-      return false;
-    }
-    for (var index = 0; index < normalizedLeft.length; index += 1) {
-      if (!_previewMapEquals(normalizedLeft[index], right[index])) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  bool _previewMapEquals(
-    Map<String, dynamic> left,
-    Map<String, dynamic> right,
-  ) {
-    return left['url'] == right['url'] &&
-        left['domain'] == right['domain'] &&
-        left['siteName'] == right['siteName'] &&
-        left['title'] == right['title'] &&
-        left['description'] == right['description'] &&
-        left['imageUrl'] == right['imageUrl'] &&
-        left['status'] == right['status'];
   }
 
   @override
@@ -1101,31 +1001,17 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
 
   @override
   void _updateThinkingCardToCancelled(String taskId) {
-    final thinkingCard = resolveAgentThinkingCardForTask(
-      _messages,
-      taskId: taskId,
-      preferredCardId: _activeRuntime?.activeThinkingCardId,
-    );
-    if (thinkingCard == null) return;
-    final thinkingCardId = thinkingCard.id;
-    final index = _messages.indexWhere((msg) => msg.id == thinkingCardId);
-    if (index == -1) return;
-
-    final cardData = Map<String, dynamic>.from(thinkingCard.cardData ?? {});
-    cardData['stage'] = 5;
-    cardData['isLoading'] = false;
-    cardData['endTime'] = DateTime.now().millisecondsSinceEpoch;
-
+    ChatMessageModel? cancelledMessage;
     setState(() {
-      _messages[index] = ChatMessageModel(
-        id: thinkingCardId,
-        type: 2,
-        user: 3,
-        content: {'cardData': cardData, 'id': thinkingCardId},
-        createAt: thinkingCard.createAt,
+      cancelledMessage = ChatThinkingCardMessages.cancelForTask(
+        _messages,
+        taskId: taskId,
+        preferredCardId: _activeRuntime?.activeThinkingCardId,
       );
     });
-    _persistDeepThinkingCardIfNeeded(_messages[index]);
+    if (cancelledMessage != null) {
+      _persistDeepThinkingCardIfNeeded(cancelledMessage!);
+    }
   }
 
   @override
@@ -1145,48 +1031,12 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
 
   void _upsertCancelledAgentRunMessage(String taskId) {
     final normalizedTaskId = taskId.trim();
-    if (normalizedTaskId.isEmpty) {
-      return;
-    }
-    final messageId = '$normalizedTaskId-cancelled';
-    final text = LegacyTextLocalizer.localize('任务已取消');
-    final streamMeta = ensureAgentStreamMessageMeta(
-      null,
-      seq: 1000000000,
-      roundIndex: 1000000000,
-      kind: 'text_snapshot',
-      parentTaskId: normalizedTaskId,
-      entryId: messageId,
-      isFinal: true,
-    );
-    final content = <String, dynamic>{
-      'text': text,
-      'id': messageId,
-      'renderMarkdown': false,
-    };
-    final existingIndex = _messages.indexWhere(
-      (message) => message.id == messageId,
-    );
+    if (normalizedTaskId.isEmpty) return;
     setState(() {
-      if (existingIndex == -1) {
-        _messages.insert(
-          0,
-          ChatMessageModel(
-            id: messageId,
-            type: 1,
-            user: 2,
-            content: content,
-            streamMeta: streamMeta,
-          ),
-        );
-      } else {
-        _messages[existingIndex] = _messages[existingIndex].copyWith(
-          content: content,
-          isLoading: false,
-          isError: false,
-          streamMeta: streamMeta,
-        );
-      }
+      ChatCardMessageHelpers.upsertCancelledAgentRunMessage(
+        _messages,
+        normalizedTaskId,
+      );
     });
     if (_currentConversationId != null) {
       _syncRuntimeSnapshotForMode(_activeMode);
@@ -1230,7 +1080,8 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
     String messageText, {
     required List<Map<String, dynamic>> attachments,
   }) async {
-    if (attachments.isNotEmpty || !_isManualRecordingCommand(messageText)) {
+    if (attachments.isNotEmpty ||
+        !ManualRecordingFlowController.isCommand(messageText)) {
       return false;
     }
     await _startManualRecordingFlow(messageText, recordDebugScreenshots: false);
@@ -1250,154 +1101,69 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
 
   @override
   Future<void> _openRunLogListFromShortcut() async {
-    GoRouterManager.push('/task/run_logs');
+    await RunLogShortcutController.openRunLogList();
   }
 
   @override
   Future<void> _openLatestRunLogFromShortcut() async {
-    if (_isAiResponding) return;
-    try {
-      final snapshot = await AssistsMessageService.getInternalRunLogs(limit: 1);
-      if (!mounted) return;
-      UtgRunLogSummary? latest;
-      for (final run in snapshot.runs) {
-        if (run.runId.trim().isNotEmpty) {
-          latest = run;
-          break;
-        }
-      }
-      if (latest == null) {
-        showToast('暂无可查看的轨迹', type: ToastType.warning);
-        return;
-      }
-      unawaited(
-        showRunLogTimelineSheet(
-          context,
-          runId: latest.runId.trim(),
-          title: latest.goal.trim().isEmpty ? '当前轨迹' : latest.goal.trim(),
-        ),
-      );
-    } catch (error) {
-      if (!mounted) return;
-      showToast(error.toString(), type: ToastType.error);
-    }
+    await RunLogShortcutController.openLatestRunLog(
+      context: context,
+      isMounted: () => mounted,
+      isBusy: _isAiResponding,
+    );
   }
 
   Future<void> _startManualRecordingFlow(
     String messageText, {
     required bool recordDebugScreenshots,
   }) async {
-    final canRecord = await ManualRecordingPermissionGuard.ensureAuthorized(
-      context,
-    );
-    if (!mounted || !canRecord) return;
-
-    _inputFocusNode.unfocus();
-    final messageIds = addUserMessage(messageText);
-    _syncUserMessageLinkPreviews(messageIds.userMessageId);
-    showToast('开始手动录制。请执行操作，结束后点小万「完成学习」。');
-    unawaited(AppStateService.exitApp());
-    try {
-      final result = await AssistsMessageService.startHumanTrajectoryLearning(
-        enableDebugScreenshots: recordDebugScreenshots,
-      );
-      if (!mounted) return;
-      _insertManualRecordingResultMessage(messageIds.aiMessageId, result);
-      final success = result['success'] == true;
-      final conversionSuccess =
-          result['conversion_success'] == true ||
-          result['conversionSuccess'] == true ||
-          (result['function_id'] ?? result['functionId'])
-              .toString()
-              .trim()
-              .isNotEmpty;
-      final runId = (result['run_id'] ?? result['runId'] ?? '').toString();
-      showToast(
-        success
-            ? (conversionSuccess
-                  ? '手动录制完成，人工 Function 已保存'
-                  : '手动录制完成，RunLog 已生成')
-            : '手动录制失败',
-        type: success ? ToastType.success : ToastType.error,
-      );
-      if (success && runId.trim().isNotEmpty && mounted) {
-        unawaited(
-          showRunLogTimelineSheet(
-            context,
-            runId: runId.trim(),
-            title: '手动录制 RunLog',
-          ),
+    await ManualRecordingFlowController.start(
+      context: context,
+      inputFocusNode: _inputFocusNode,
+      userMessageText: messageText,
+      recordDebugScreenshots: recordDebugScreenshots,
+      isMounted: () => mounted,
+      addUserMessage: (text) {
+        final ids = addUserMessage(text);
+        return ManualRecordingFlowMessageIds(
+          userMessageId: ids.userMessageId,
+          aiMessageId: ids.aiMessageId,
         );
-      }
-    } catch (error) {
-      if (!mounted) return;
-      _insertManualRecordingResultMessage(messageIds.aiMessageId, {
-        'success': false,
-        'error_message': error.toString(),
-      });
-      showToast(error.toString(), type: ToastType.error);
-    } finally {
-      if (mounted) {
+      },
+      afterUserMessageAdded: (ids) {
+        _syncUserMessageLinkPreviews(ids.userMessageId);
+      },
+      beforeNativeRecording: () {
+        unawaited(AppStateService.exitApp());
+      },
+      insertResultMessage: _insertManualRecordingResultMessage,
+      openRunLogTimeline: (runId) {
+        unawaited(
+          showRunLogTimelineSheet(context, runId: runId, title: '手动录制 RunLog'),
+        );
+      },
+      onFinally: () {
         setState(() => _isAiResponding = false);
         _syncRuntimeSnapshotForMode(_activeMode);
         unawaited(saveConversation());
-      }
-    }
-  }
-
-  bool _isManualRecordingCommand(String messageText) {
-    final normalized = messageText.trim().toLowerCase();
-    return normalized == '手动录制' ||
-        normalized == '开始手动录制' ||
-        normalized == '人工录制' ||
-        normalized == 'manual recording' ||
-        normalized == 'manual record';
+      },
+    );
   }
 
   void _insertManualRecordingResultMessage(
     String messageId,
     Map<String, dynamic> result,
   ) {
-    final success = result['success'] == true;
-    final recordingSuccess =
-        result['recording_success'] ?? result['recordingSuccess'] ?? success;
-    final conversionSuccess =
-        result['conversion_success'] ?? result['conversionSuccess'];
-    final runId = (result['run_id'] ?? result['runId'] ?? '').toString();
-    final actionCount = result['action_count'] ?? result['actionCount'] ?? 0;
-    final functionId = result['function_id'] ?? result['functionId'];
-    final functionRegistered =
-        result['function_registered'] ?? result['functionRegistered'];
-    final agentVisible = result['agent_visible'] ?? result['agentVisible'];
-    final errorMessage = result['error_message'] ?? result['errorMessage'];
-    final cardData = manualRecordingResultAgentToolCardData(
-      <String, dynamic>{
-        'type': kManualRecordingResultCardType,
-        'cardId': messageId,
-        'success': success,
-        'recordingSuccess': recordingSuccess,
-        'recording_success': recordingSuccess,
-        'conversionSuccess': conversionSuccess,
-        'conversion_success': conversionSuccess,
-        'runId': runId,
-        'run_id': runId,
-        'actionCount': actionCount,
-        'action_count': actionCount,
-        'functionId': functionId,
-        'function_id': functionId,
-        'functionRegistered': functionRegistered,
-        'function_registered': functionRegistered,
-        'agent_visible': agentVisible,
-        'summary': result['summary'],
-        'errorMessage': errorMessage,
-        'error_message': errorMessage,
-      }..removeWhere((_, value) => value == null || value.toString().isEmpty),
+    final cardData = ManualRecordingFlowController.resultCardData(
+      messageId: messageId,
+      result: result,
     );
     setState(() {
-      _messages.removeWhere((message) => message.id == messageId);
-      _messages.insert(
-        0,
-        ChatMessageModel.cardMessage(cardData, id: messageId),
+      ChatCardMessageHelpers.upsertCardMessage(
+        _messages,
+        cardId: messageId,
+        cardData: cardData,
+        moveToLatest: true,
       );
     });
   }

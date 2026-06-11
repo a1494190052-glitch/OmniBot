@@ -77,6 +77,8 @@ import cn.com.omnimind.bot.agent.AgentStreamEvent
 import cn.com.omnimind.bot.agent.AgentTextSanitizer
 import cn.com.omnimind.bot.agent.AgentModelOverride
 import cn.com.omnimind.bot.agent.AgentResult
+import cn.com.omnimind.bot.agent.AgentFinalResponse
+import cn.com.omnimind.bot.agent.AgentOutputKind
 import cn.com.omnimind.bot.agent.AgentConversationHistoryRepository
 import cn.com.omnimind.bot.agent.AgentRuntimeContextRepository
 import cn.com.omnimind.bot.agent.AgentScheduleToolBridge
@@ -86,6 +88,7 @@ import cn.com.omnimind.bot.agent.AgentToolExposurePolicy
 import cn.com.omnimind.bot.agent.AgentToolNames
 import cn.com.omnimind.bot.agent.AgentToolProgressSnapshot
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
+import cn.com.omnimind.bot.agent.AgentToolJson
 import cn.com.omnimind.bot.agent.LiveAgentBrowserSessionManager
 import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
 import cn.com.omnimind.bot.agent.OmniAgentExecutor
@@ -100,16 +103,21 @@ import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.SharedHelper
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
 import cn.com.omnimind.bot.omniflow.OobFunctionRepository
-import cn.com.omnimind.bot.omniflow.OobFunctionUpdateAgentOrchestrator
-import cn.com.omnimind.bot.omniflow.OobFunctionUpdateService
 import cn.com.omnimind.bot.runlog.OobActionCodec
+import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
 import cn.com.omnimind.bot.runlog.OobUdegNodeStore
 import cn.com.omnimind.bot.runlog.OobRunLogReplayService
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import cn.com.omnimind.bot.localmodel.LocalModelFeature
+import cn.com.omnimind.bot.mcp.McpTaskManager
+import cn.com.omnimind.bot.mcp.McpToolExecutors
 import cn.com.omnimind.bot.mcp.RemoteMcpConfigStore
+import cn.com.omnimind.bot.mcp.TaskStatus
+import cn.com.omnimind.bot.mcp.VlmTaskRequest
 import cn.com.omnimind.bot.quicklog.QuickLogService
 import cn.com.omnimind.bot.util.TaskCompletionNavigator
+import cn.com.omnimind.bot.vlm.VlmToolCoordinator
+import cn.com.omnimind.bot.vlm.VlmToolOutcomeStatus
 import cn.com.omnimind.bot.webchat.AgentRunService
 import cn.com.omnimind.bot.webchat.ConversationDomainService
 import cn.com.omnimind.bot.webchat.FlutterChatSyncBridge
@@ -137,6 +145,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -164,6 +173,12 @@ internal const val CHAT_ONLY_MODE = "chat_only"
 private const val MAX_PERSISTED_THINKING_CHARS = 16 * 1024
 private const val THINKING_TRUNCATION_NOTICE = "[Earlier reasoning omitted]\n"
 private const val IDLE_CONSOLIDATION_DELAY_MS = 2 * 60 * 1000L  // 2 min after last task finishes
+private val MANAGED_VLM_TERMINAL_STATUSES = setOf(
+    TaskStatus.FINISHED,
+    TaskStatus.ERROR,
+    TaskStatus.CANCELLED,
+)
+private val MANAGED_VLM_TERMINAL_STATUS_NAMES = MANAGED_VLM_TERMINAL_STATUSES.map { it.name }.toSet()
 
 private val chatTaskPayloadJson = Json {
     ignoreUnknownKeys = true
@@ -685,24 +700,31 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             instance.mainJob.launch {
                 runCatching {
                     val normalizedId = runOrTaskId?.trim()?.takeIf { it.isNotEmpty() }
-                    val completedVlmSession = normalizedId?.let {
-                        AgentVlmUiSession.requestCompleteSession(it)
-                    } ?: AgentVlmUiSession.requestCompleteActiveSession()
+                    val completedManagedVlmTask =
+                        instance.completeManagedVlmTasks(normalizedId, reason)
+                    val completeManagedOnly = reason == "omniflow_finished" && completedManagedVlmTask
+                    val completedVlmSession = if (completeManagedOnly) {
+                        false
+                    } else {
+                        normalizedId?.let {
+                            AgentVlmUiSession.requestCompleteSession(it)
+                        } ?: AgentVlmUiSession.requestCompleteActiveSession()
+                    }
                     val completedOmniFlowSession = normalizedId?.let {
                         OmniFlowUiSession.requestCompleteSession(it)
                     } ?: OmniFlowUiSession.requestCompleteActiveSession()
-                    val completedNativeTask = normalizedId?.let {
-                        val vlmTaskIds = AgentVlmUiSession.activeTaskIdsForRun(it)
-                            .takeIf { taskIds -> taskIds.isNotEmpty() }
-                            ?: listOf(it)
-                        vlmTaskIds.any { taskId ->
-                            AssistsUtil.Core.completeRunningTask(taskId, "任务已完成")
-                        }
-                    } ?: AssistsUtil.Core.completeRunningTask(message = "任务已完成")
+                    val completedNativeTask = if (completedManagedVlmTask) {
+                        false
+                    } else {
+                        normalizedId?.let {
+                            AssistsUtil.Core.completeRunningTask(it, "任务已完成")
+                        } ?: AssistsUtil.Core.completeRunningTask(message = "任务已完成")
+                    }
                     if (
                         normalizedId != null &&
                         !completedVlmSession &&
                         !completedOmniFlowSession &&
+                        !completedManagedVlmTask &&
                         !completedNativeTask
                     ) {
                         OmniLog.w(
@@ -810,6 +832,15 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val arguments: Map<String, Any?>
     )
 
+    private data class ManagedVlmCancellationResult(
+        val taskIds: List<String>,
+        val ownerRunIds: List<String>,
+        val cancelledOwnerRuns: Boolean
+    ) {
+        val handled: Boolean
+            get() = taskIds.isNotEmpty() || ownerRunIds.isNotEmpty() || cancelledOwnerRuns
+    }
+
     private class ActiveAgentRunContext(
         val taskId: String,
         val job: Job,
@@ -849,6 +880,13 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 activeTool?.takeIf { it.matchesCardId(cardId) }
             } ?: return false
             return handle.requestManualStop()
+        }
+
+        fun activeToolReferencesTaskIds(taskIds: Set<String>): Boolean {
+            if (taskIds.isEmpty()) return false
+            return synchronized(lock) {
+                activeTool?.referencesTaskIds(taskIds) == true
+            }
         }
 
         fun clearTool(handle: ManagedToolExecutionHandle) {
@@ -903,6 +941,27 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             }
             return synchronized(lock) {
                 cardId == normalized && !completed
+            }
+        }
+
+        fun referencesTaskIds(taskIds: Set<String>): Boolean {
+            if (taskIds.isEmpty()) return false
+            return synchronized(lock) {
+                val extras = latestSnapshot.extras
+                sequenceOf(
+                    cardId,
+                    toolCallId,
+                    extras["taskId"],
+                    extras["task_id"],
+                    extras["vlmTaskId"],
+                    extras["vlm_task_id"],
+                    extras["childRunId"],
+                    extras["child_run_id"],
+                    extras["runId"],
+                    extras["run_id"]
+                )
+                    .mapNotNull { it?.toString()?.trim()?.takeIf { value -> value.isNotEmpty() } }
+                    .any { it in taskIds }
             }
         }
 
@@ -1021,17 +1080,13 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         AgentVlmUiSession.registerRun(
             runId = taskId,
             onStopRequested = {
-                val activeVlmTaskIds = AgentVlmUiSession.activeTaskIdsForRun(taskId)
-                cancelActiveAgentRun(taskId, "agent_vlm_ui_stop")
-                if (activeVlmTaskIds.isEmpty()) {
+                val cancellation = cancelManagedVlmTasks(taskId, "agent_vlm_ui_stop")
+                if (!cancellation.handled) {
                     AssistsUtil.Core.cancelRunningTask(taskId)
-                } else {
-                    activeVlmTaskIds.forEach { childTaskId ->
-                        AssistsUtil.Core.cancelRunningTask(childTaskId)
-                    }
                 }
             },
             onCompleteRequested = {
+                completeManagedVlmTasks(taskId, "agent_vlm_ui_completed")
                 completeActiveAgentRun(taskId, "agent_vlm_ui_completed")
             }
         )
@@ -1087,6 +1142,120 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             dispatchAgentRunStateChanged("agent_run_finished")
             if (nowIdle) scheduleIdleConsolidation()
         }
+    }
+
+    private fun resolveManagedVlmTaskIds(runOrTaskId: String?): List<String> {
+        val normalizedId = runOrTaskId?.trim()?.takeIf { it.isNotEmpty() }
+        val taskIds = linkedSetOf<String>()
+        if (normalizedId == null) {
+            McpTaskManager.getActiveTasks().forEach { task ->
+                val taskId = task["taskId"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+                val status = task["status"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+                if (taskId != null && (status == null || status !in MANAGED_VLM_TERMINAL_STATUS_NAMES)) {
+                    taskIds.add(taskId)
+                }
+            }
+        } else {
+            AgentVlmUiSession.activeTaskIdsForRun(normalizedId).forEach { taskIds.add(it) }
+            McpTaskManager.resolvePendingOmniFlowClarifyTask(normalizedId)?.let { taskIds.add(it) }
+            if (McpTaskManager.getTask(normalizedId) != null) {
+                taskIds.add(normalizedId)
+            }
+        }
+        return taskIds
+            .mapNotNull { it.trim().takeIf { taskId -> taskId.isNotEmpty() } }
+            .filter { taskId ->
+                val status = McpTaskManager.getTask(taskId)?.status
+                status == null || status !in MANAGED_VLM_TERMINAL_STATUSES
+            }
+            .distinct()
+    }
+
+    private fun activeAgentRunIdsForManagedVlmTasks(
+        runOrTaskId: String?,
+        taskIds: List<String>
+    ): List<String> {
+        val runIds = linkedSetOf<String>()
+        val normalizedId = runOrTaskId?.trim()?.takeIf { it.isNotEmpty() }
+        if (normalizedId != null) {
+            synchronized(activeAgentLock) {
+                if (activeAgentRuns.containsKey(normalizedId)) {
+                    runIds.add(normalizedId)
+                }
+            }
+            AgentVlmUiSession.activeRunIdForTask(normalizedId)?.let(runIds::add)
+        }
+        AgentVlmUiSession.activeRunIdsForTaskIds(taskIds).forEach(runIds::add)
+        val normalizedTaskIds = linkedSetOf<String>().apply {
+            normalizedId?.let(::add)
+            taskIds
+                .mapNotNull { it.trim().takeIf { taskId -> taskId.isNotEmpty() } }
+                .forEach(::add)
+        }
+        if (normalizedTaskIds.isNotEmpty()) {
+            synchronized(activeAgentLock) {
+                activeAgentRuns.values
+                    .filter { it.activeToolReferencesTaskIds(normalizedTaskIds) }
+                    .map { it.taskId }
+                    .forEach(runIds::add)
+            }
+        }
+        return synchronized(activeAgentLock) {
+            runIds.filter { activeAgentRuns.containsKey(it) }.distinct()
+        }
+    }
+
+    private fun cancelActiveAgentRuns(runIds: Collection<String>, reason: String): Boolean {
+        var cancelled = false
+        runIds.forEach { runId ->
+            if (cancelActiveAgentRun(runId, reason)) {
+                cancelled = true
+            }
+        }
+        return cancelled
+    }
+
+    private fun cancelManagedVlmTasks(
+        runOrTaskId: String?,
+        reason: String
+    ): ManagedVlmCancellationResult {
+        val taskIds = resolveManagedVlmTaskIds(runOrTaskId)
+        val ownerRunIds = activeAgentRunIdsForManagedVlmTasks(runOrTaskId, taskIds)
+        taskIds.forEach { taskId ->
+            VlmToolCoordinator.cancelTask(
+                taskId = taskId,
+                scope = mainJob,
+                message = "任务已取消"
+            )
+        }
+        val cancelledOwnerRuns = cancelActiveAgentRuns(ownerRunIds, reason)
+        if (taskIds.isNotEmpty() || ownerRunIds.isNotEmpty()) {
+            OmniLog.i(
+                TAG,
+                "Cancelled managed VLM lifecycle: reason=$reason taskIds=$taskIds ownerRunIds=$ownerRunIds cancelledOwnerRuns=$cancelledOwnerRuns"
+            )
+        }
+        return ManagedVlmCancellationResult(
+            taskIds = taskIds,
+            ownerRunIds = ownerRunIds,
+            cancelledOwnerRuns = cancelledOwnerRuns
+        )
+    }
+
+    private fun completeManagedVlmTasks(runOrTaskId: String?, reason: String): Boolean {
+        val taskIds = resolveManagedVlmTaskIds(runOrTaskId)
+        val completed = taskIds.map { taskId ->
+            VlmToolCoordinator.completeTask(
+                taskId = taskId,
+                scope = mainJob,
+                message = "任务已完成"
+            )
+        }
+        val success = completed.any { it } || taskIds.isNotEmpty()
+        if (success) {
+            OmniLog.i(TAG, "Completed managed VLM task(s): reason=$reason taskIds=$taskIds")
+        }
+        return success
     }
 
     private suspend fun finishAgentVlmUiSessionIfNeeded(runId: String, message: String) {
@@ -2230,6 +2399,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             try {
                 AgentVlmUiSession.requestStopActiveSession()
                 OmniFlowUiSession.requestStopActiveSession()
+                cancelManagedVlmTasks(null, "cancelTask")
                 cancelActiveAgentRun(null, "cancelTask")
                 AssistsUtil.Core.cancelRunningTask()
                 AssistsUtil.Core.finishTask(context)
@@ -2259,10 +2429,10 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 val stoppedOmniFlowSession = taskId?.let {
                     OmniFlowUiSession.requestStopSession(it)
                 } ?: OmniFlowUiSession.requestStopActiveSession()
-                val cancelledAgentRun = taskId?.let {
-                    cancelActiveAgentRun(it, "cancelRunningTask")
-                } ?: false
-                val stoppedNativeTask = if (taskId == null) {
+                val managedVlmCancellation = cancelManagedVlmTasks(taskId, "cancelRunningTask")
+                val stoppedNativeTask = if (managedVlmCancellation.handled) {
+                    false
+                } else if (taskId == null) {
                     AssistsUtil.Core.cancelRunningTask()
                 } else {
                     AssistsUtil.Core.cancelRunningTask(taskId)
@@ -2271,7 +2441,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     taskId != null &&
                     !stoppedVlmSession &&
                     !stoppedOmniFlowSession &&
-                    !cancelledAgentRun &&
+                    !managedVlmCancellation.handled &&
                     !stoppedNativeTask
                 ) {
                     OmniLog.w(
@@ -2303,10 +2473,13 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 val completedVlmSession = taskId?.let {
                     AgentVlmUiSession.requestCompleteSession(it)
                 } ?: AgentVlmUiSession.requestCompleteActiveSession()
+                val completedManagedVlmTask = completeManagedVlmTasks(taskId, "completeRunningTask")
                 val completedAgentRun = taskId?.let {
                     completeActiveAgentRun(it, "agent_vlm_ui_completed")
                 } ?: false
-                val completedNativeTask = if (taskId == null) {
+                val completedNativeTask = if (completedManagedVlmTask) {
+                    false
+                } else if (taskId == null) {
                     AssistsUtil.Core.completeRunningTask()
                 } else {
                     AssistsUtil.Core.completeRunningTask(taskId)
@@ -2315,6 +2488,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     taskId != null &&
                     !completedOmniFlowSession &&
                     !completedVlmSession &&
+                    !completedManagedVlmTask &&
                     !completedAgentRun &&
                     !completedNativeTask
                 ) {
@@ -2381,16 +2555,52 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
      * 提供用户输入给VLM任务（响应INFO动作）
      */
     fun provideUserInputToVLMTask(call: MethodCall, result: MethodChannel.Result) {
-        try {
-            val userInput = call.argument<String>("userInput")!!
-            val success = AssistsUtil.Core.provideUserInputToVLMTask(userInput)
-            mainJob.launch(Dispatchers.Main) {
-                result.success(success)
-            }
-        } catch (e: Exception) {
-            OmniLog.e(TAG, "提供用户输入失败: ${e.message}")
-            mainJob.launch(Dispatchers.Main) {
-                result.error("PROVIDE_USER_INPUT_ERROR", e.message, null)
+        mainJob.launch {
+            try {
+                val userInput = call.argument<String>("userInput")!!
+                val pendingOmniFlowTaskId = call.argument<String>("taskId")
+                    ?.let(McpTaskManager::resolvePendingOmniFlowClarifyTask)
+                    ?: McpTaskManager.resolveUniquePendingOmniFlowClarifyTask()
+                val success = if (pendingOmniFlowTaskId != null) {
+                    val replyResult = McpToolExecutors.executeTaskReply(
+                        context,
+                        mapOf(
+                            "taskId" to pendingOmniFlowTaskId,
+                            "reply" to userInput,
+                        )
+                    )
+                    val state = McpTaskManager.getTask(pendingOmniFlowTaskId)
+                    when (state?.status) {
+                        TaskStatus.WAITING_INPUT -> state.waitingQuestion
+                            ?.takeIf { it.isNotBlank() }
+                            ?.let { question ->
+                                withContext(Dispatchers.Main) {
+                                    invokeFlutterEventSafely(
+                                        "onVLMRequestUserInput",
+                                        mapOf(
+                                            "question" to question,
+                                            "taskId" to pendingOmniFlowTaskId,
+                                        )
+                                    )
+                                }
+                            }
+                        TaskStatus.FINISHED, TaskStatus.ERROR, TaskStatus.CANCELLED -> {
+                            handleVlmTaskFinished("pending_omniflow_clarify", pendingOmniFlowTaskId)
+                        }
+                        else -> Unit
+                    }
+                    replyResult["isError"] != true && replyResult["status"] != "ERROR"
+                } else {
+                    AssistsUtil.Core.provideUserInputToVLMTask(userInput)
+                }
+                withContext(Dispatchers.Main) {
+                    result.success(success)
+                }
+            } catch (e: Exception) {
+                OmniLog.e(TAG, "提供用户输入失败: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    result.error("PROVIDE_USER_INPUT_ERROR", e.message, null)
+                }
             }
         }
     }
@@ -2493,7 +2703,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 if (taskId != null) {
                     AgentVlmUiSession.requestStopSession(taskId)
                     OmniFlowUiSession.requestStopSession(taskId)
-                    cancelActiveAgentRun(taskId, "cancelChatTask")
+                    cancelManagedVlmTasks(taskId, "cancelChatTask")
                 }
                 AssistsUtil.Core.cancelChatTask(taskId)
                 withContext(Dispatchers.Main) {
@@ -3157,6 +3367,27 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         }
     }
 
+    private suspend fun executeOmniFlowToolkitForChannel(
+        toolName: String,
+        args: Map<String, Any?>,
+        errorCode: String,
+    ): Map<String, Any?> = withContext(Dispatchers.IO) {
+        runCatching {
+            OobOmniFlowToolkitService(context).executeTool(toolName, args)
+        }.getOrElse { error ->
+            linkedMapOf(
+                "success" to false,
+                "error_code" to errorCode,
+                "error_message" to error.fullCauseMessage(),
+                "error_type" to error.javaClass.name,
+                "error_cause_chain" to error.causeChainPayload(),
+                "function_kind" to "oob_reusable_function",
+                "asset_state" to "native_local",
+                "source" to "assists_core_channel"
+            )
+        }
+    }
+
     fun registerOobReusableFunction(call: MethodCall, result: MethodChannel.Result) {
         mainJob.launch {
             val args = normalizeMethodCallMap(call.arguments)
@@ -3166,19 +3397,11 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 args.containsKey("function_id") -> args
                 else -> emptyMap()
             }
-            val payload = runCatching {
-                OobFunctionRepository(context).register(functionSpec)
-            }.getOrElse { error ->
-                linkedMapOf(
-                    "success" to false,
-                    "error_code" to "OOB_FUNCTION_REGISTER_FAILED",
-                    "error_message" to error.message.orEmpty(),
-                    "function_kind" to "oob_reusable_function",
-                    "asset_state" to "native_local",
-                    "oob_function_as_tool_enabled" to
-                        AgentToolFeatureStore.isOobFunctionAsToolEnabled(context)
-                )
-            }
+            val payload = executeOmniFlowToolkitForChannel(
+                toolName = OobFunctionToolNames.FUNCTION_REGISTER,
+                args = linkedMapOf("function_spec" to functionSpec),
+                errorCode = "OOB_FUNCTION_REGISTER_FAILED",
+            )
             withContext(Dispatchers.Main) {
                 result.success(payload)
             }
@@ -3188,26 +3411,11 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     fun updateOobFunction(call: MethodCall, result: MethodChannel.Result) {
         mainJob.launch {
             val args = normalizeMethodCallMap(call.arguments)
-            val payload = withContext(Dispatchers.IO) {
-                runCatching {
-                    val updateService = OobFunctionUpdateService(
-                        context = context,
-                        functionRepository = OobFunctionRepository(context)
-                    )
-                    OobFunctionUpdateAgentOrchestrator(updateService).updateFunction(args)
-                }.getOrElse { error ->
-                    linkedMapOf(
-                        "success" to false,
-                        "error_code" to "OOB_FUNCTION_UPDATE_FAILED",
-                        "error_message" to error.fullCauseMessage(),
-                        "error_type" to error.javaClass.name,
-                        "error_cause_chain" to error.causeChainPayload(),
-                        "function_kind" to "oob_reusable_function",
-                        "asset_state" to "native_local",
-                        "source" to "assists_core_channel"
-                    )
-                }
-            }
+            val payload = executeOmniFlowToolkitForChannel(
+                toolName = OobFunctionToolNames.FUNCTION_UPDATE,
+                args = args,
+                errorCode = "OOB_FUNCTION_UPDATE_FAILED",
+            )
             withContext(Dispatchers.Main) {
                 result.success(payload)
             }
@@ -3228,25 +3436,18 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 is String -> raw.equals("true", ignoreCase = true)
                 else -> false
             }
-            val payload = runCatching {
-                OobRunLogReplayService(context).convertRunLog(
-                    runId = runId,
-                    register = register,
-                    agentVisible = agentVisible,
-                    functionIdOverride = args["function_id"]?.toString(),
-                    nameOverride = args["name"]?.toString(),
-                    descriptionOverride = args["description"]?.toString()
-                )
-            }.getOrElse { error ->
-                linkedMapOf(
-                    "success" to false,
-                    "error_code" to "OOB_RUN_LOG_CONVERT_FAILED",
-                    "error_message" to error.message.orEmpty(),
+            val payload = executeOmniFlowToolkitForChannel(
+                toolName = OobFunctionToolNames.RUN_LOG_CONVERT,
+                args = linkedMapOf<String, Any?>(
                     "run_id" to runId,
-                    "function_kind" to "oob_reusable_function",
-                    "asset_state" to "native_local"
-                )
-            }
+                    "register" to register,
+                    "agent_visible" to agentVisible,
+                    "function_id" to args["function_id"]?.toString(),
+                    "name" to args["name"]?.toString(),
+                    "description" to args["description"]?.toString(),
+                ).filterValues { it != null },
+                errorCode = "OOB_RUN_LOG_CONVERT_FAILED",
+            )
             withContext(Dispatchers.Main) {
                 result.success(payload)
             }
@@ -3886,7 +4087,17 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         mainJob.launch {
             val args = normalizeMethodCallMap(call.arguments)
             val functionId = args["function_id"]?.toString()?.trim().orEmpty()
-            val payload = OobFunctionRepository(context).get(functionId)
+            val payload = executeOmniFlowToolkitForChannel(
+                toolName = OobFunctionToolNames.FUNCTION_GET,
+                args = linkedMapOf("function_id" to functionId),
+                errorCode = "OOB_FUNCTION_GET_FAILED",
+            ).let { response ->
+                if (response["success"] == false && response["error_code"] == "OOB_FUNCTION_NOT_FOUND") {
+                    null
+                } else {
+                    response["function"] as? Map<*, *> ?: response
+                }
+            }
             withContext(Dispatchers.Main) {
                 result.success(payload)
             }
@@ -3902,17 +4113,17 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 call.argument<Boolean>("includeHidden")
                     ?: call.argument<Boolean>("include_hidden")
                     ?: false
-            val payload = withContext(Dispatchers.IO) {
-                if (autoRegister) {
-                    runCatching { OobRunLogReplayService(context).autoRegisterRecentRunLogs(limit = 50) }
-                        .onFailure { OmniLog.w(TAG, "list OOB functions auto-register failed: ${it.message}") }
-                }
-                OobFunctionRepository(context).list(
-                    limit = limit,
-                    offset = offset,
-                    includeHidden = includeHidden
-                )
-            }
+            val payload = executeOmniFlowToolkitForChannel(
+                toolName = OobFunctionToolNames.FUNCTION_LIST,
+                args = linkedMapOf(
+                    "limit" to limit,
+                    "offset" to offset,
+                    "autoRegister" to autoRegister,
+                    "includeHidden" to includeHidden,
+                    "include_hidden" to includeHidden,
+                ),
+                errorCode = "OOB_FUNCTION_LIST_FAILED",
+            )
             withContext(Dispatchers.Main) {
                 result.success(payload)
             }
@@ -3923,17 +4134,11 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         mainJob.launch {
             val args = normalizeMethodCallMap(call.arguments)
             val functionId = args["function_id"]?.toString()?.trim().orEmpty()
-            val payload = if (functionId.isEmpty()) {
-                linkedMapOf(
-                    "success" to false,
-                            "function_id" to functionId,
-                            "deleted" to false,
-                            "error_code" to "OOB_FUNCTION_ID_EMPTY",
-                            "error_message" to "function_id is empty"
-                )
-            } else {
-                OobFunctionRepository(context).delete(functionId)
-            }
+            val payload = executeOmniFlowToolkitForChannel(
+                toolName = OobFunctionToolNames.FUNCTION_DELETE,
+                args = linkedMapOf("function_id" to functionId),
+                errorCode = "OOB_FUNCTION_DELETE_FAILED",
+            )
             withContext(Dispatchers.Main) {
                 result.success(payload)
             }
@@ -6170,6 +6375,184 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         )
     }
 
+    private fun shouldTryAgentOmniFlowRecallFastPath(
+        userMessage: String,
+        attachments: List<Map<String, Any?>>,
+        toolExposurePolicy: AgentToolExposurePolicy,
+    ): Boolean {
+        if (userMessage.isBlank() || attachments.isNotEmpty()) {
+            return false
+        }
+        if (toolExposurePolicy.isLightweightProfile()) {
+            return false
+        }
+        val allowedTools = toolExposurePolicy.effectiveAllowedTools()
+        return allowedTools == null ||
+            AgentToolNames.VLM_TASK in allowedTools ||
+            RunLogReplayPolicy.TOOL_CALL_TOOL in allowedTools
+    }
+
+    private suspend fun tryExecuteAgentOmniFlowRecallFastPath(
+        taskId: String,
+        userMessage: String,
+        attachments: List<Map<String, Any?>>,
+        currentPackageName: String?,
+        bridge: AgentTaskEventBridge,
+        agentRunContext: ActiveAgentRunContext,
+        agentRunScope: CoroutineScope,
+        toolExposurePolicy: AgentToolExposurePolicy,
+    ): Boolean {
+        if (!shouldTryAgentOmniFlowRecallFastPath(userMessage, attachments, toolExposurePolicy)) {
+            return false
+        }
+        val vlmTaskId = "agent-omniflow-$taskId"
+        val toolCallId = "$taskId-omniflow-recall"
+        val args = linkedMapOf<String, Any?>(
+            "goal" to userMessage,
+            "packageName" to currentPackageName,
+            "startFromCurrent" to true,
+            "allowOmniFlowFunctionAutoExecute" to true,
+        ).filterValues { it != null }
+        val argsJson = chatTaskPayloadJson.encodeToString(AgentToolJson.mapToJsonElement(args))
+        val argsJsonObject = AgentToolJson.mapToJsonElement(args) as? JsonObject ?: JsonObject(emptyMap())
+        var handle: AgentToolExecutionHandle? = null
+        var toolStarted = false
+        suspend fun ensureToolStarted() {
+            if (toolStarted) return
+            val toolHandle = agentRunContext.beginToolExecution(AgentToolNames.VLM_TASK, toolCallId)
+            toolHandle.bindStopAction {
+                VlmToolCoordinator.cancelTask(vlmTaskId, agentRunScope)
+            }
+            bridge.onToolCallStart(AgentToolNames.VLM_TASK, toolCallId, argsJsonObject)
+            AgentVlmUiSession.beginTask(taskId, vlmTaskId)
+            handle = toolHandle
+            toolStarted = true
+        }
+        var keepVlmUiSessionForClarify = false
+        return try {
+            val outcome = VlmToolCoordinator.tryExecuteRecallHitOnly(
+                context = context,
+                request = VlmTaskRequest(
+                    goal = userMessage,
+                    packageName = currentPackageName,
+                    skipGoHome = true,
+                    disableOmniFlowRecall = false,
+                    allowOmniFlowFunctionAutoExecute = true,
+                ),
+                scope = agentRunScope,
+                taskIdOverride = vlmTaskId,
+                progressReporter = reporter@{ progress, extras ->
+                    ensureToolStarted()
+                    val activeHandle = handle ?: return@reporter
+                    activeHandle.recordProgress(progress, extras)
+                    val streamKind = (extras["agentStreamKind"] ?: extras["kind"])
+                        ?.toString()
+                        ?.trim()
+                        .orEmpty()
+                    val traceExtras = linkedMapOf<String, Any?>().apply {
+                        putAll(extras)
+                        put("progress", progress)
+                        put("childRunId", vlmTaskId)
+                        put("child_run_id", vlmTaskId)
+                        put("parentSpanKind", AgentToolNames.VLM_TASK)
+                        put("parent_span_kind", AgentToolNames.VLM_TASK)
+                        put("cardId", activeHandle.currentCardId() ?: toolCallId)
+                        put("argsJson", argsJson)
+                    }
+                    if (
+                        streamKind == "tool_started" ||
+                        streamKind == "tool_progress" ||
+                        streamKind == "tool_completed"
+                    ) {
+                        bridge.onToolCardEvent(
+                            streamKind,
+                            traceExtras + mapOf(
+                                "spanKind" to "vlm_step",
+                                "span_kind" to "vlm_step",
+                            ),
+                        )
+                    } else {
+                        bridge.onToolCallProgress(
+                            AgentToolNames.VLM_TASK,
+                            progress,
+                            traceExtras,
+                        )
+                    }
+                },
+            ) ?: return false
+
+            ensureToolStarted()
+            val payloadJson = encodeAgentPayload(outcome.toPayload())
+            val result = when (outcome.status) {
+                VlmToolOutcomeStatus.WAITING_INPUT -> {
+                    val question = outcome.waitingQuestion
+                        ?: outcome.message.ifBlank { "请提供继续执行所需的信息。" }
+                    keepVlmUiSessionForClarify =
+                        VlmToolCoordinator.hasPendingOmniFlowFunctionCall(vlmTaskId)
+                    if (keepVlmUiSessionForClarify) {
+                        McpTaskManager.bindPendingOmniFlowClarifyTask(taskId, vlmTaskId)
+                    }
+                    bridge.onClarifyRequired(question, null)
+                    ToolExecutionResult.Clarify(question, null)
+                }
+                VlmToolOutcomeStatus.FINISHED -> ToolExecutionResult.ContextResult(
+                    toolName = AgentToolNames.VLM_TASK,
+                    summaryText = outcome.finishedContent
+                        ?: outcome.summaryText
+                        ?: outcome.message.ifBlank { "视觉任务已完成" },
+                    previewJson = payloadJson,
+                    rawResultJson = payloadJson,
+                    success = true,
+                )
+                VlmToolOutcomeStatus.ERROR,
+                VlmToolOutcomeStatus.CANCELLED -> ToolExecutionResult.Error(
+                    AgentToolNames.VLM_TASK,
+                    outcome.errorMessage ?: outcome.message.ifBlank { "视觉执行失败" },
+                )
+                VlmToolOutcomeStatus.SCREEN_LOCKED -> ToolExecutionResult.Clarify(
+                    outcome.message,
+                    null,
+                )
+                VlmToolOutcomeStatus.TIMEOUT -> ToolExecutionResult.ContextResult(
+                    toolName = AgentToolNames.VLM_TASK,
+                    summaryText = "视觉任务超时，设备上可能仍在继续执行",
+                    previewJson = payloadJson,
+                    rawResultJson = payloadJson,
+                    success = true,
+                )
+            }
+            bridge.onToolCallComplete(AgentToolNames.VLM_TASK, result)
+            val finalResult = when (result) {
+                is ToolExecutionResult.Clarify -> AgentResult.Success(
+                    response = AgentFinalResponse(),
+                    executedTools = listOf(result),
+                    outputKind = AgentOutputKind.CLARIFY.value,
+                    hasUserVisibleOutput = true,
+                )
+                is ToolExecutionResult.Error -> AgentResult.Error(result.message)
+                else -> AgentResult.Success(
+                    response = AgentFinalResponse(
+                        content = (result as? ToolExecutionResult.ContextResult)?.summaryText.orEmpty(),
+                        finishReason = "omniflow_recall_hit",
+                    ),
+                    executedTools = listOf(result),
+                    outputKind = AgentOutputKind.TOOL_RESULT.value,
+                    hasUserVisibleOutput = true,
+                )
+            }
+            bridge.onComplete(finalResult)
+            true
+        } finally {
+            handle?.complete()
+            if (toolStarted && !keepVlmUiSessionForClarify) {
+                AgentVlmUiSession.endTask(vlmTaskId)
+            }
+        }
+    }
+
+    private fun encodeAgentPayload(payload: Any?): String =
+        chatTaskPayloadJson.encodeToString(AgentToolJson.mapToJsonElement(payload))
+
     fun createAgentTask(call: MethodCall, result: MethodChannel.Result) {
         val rawCallArguments = (call.arguments as? Map<*, *>)
             ?.entries
@@ -6330,6 +6713,19 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     }
                 }
 
+                if (tryExecuteAgentOmniFlowRecallFastPath(
+                        taskId = taskId,
+                        userMessage = userMessage,
+                        attachments = runtimeAttachments,
+                        currentPackageName = currentPackageName,
+                        bridge = bridge,
+                        agentRunContext = agentRunContext,
+                        agentRunScope = agentRunScope,
+                        toolExposurePolicy = toolExposurePolicy,
+                    )
+                ) {
+                    return@launch
+                }
 
                 // 4. 执行任务
                 executor.processUserMessage(

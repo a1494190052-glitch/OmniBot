@@ -80,7 +80,6 @@ class OobVlmActionPipeline : VLMActionPipeline {
     private fun argsForAction(action: UIAction): Map<String, Any?>? = when (action) {
         is ClickAction -> linkedMapOf(
             OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION to action.targetDescription,
-            OobCanonicalActionSchema.ARG_ELEMENT_INDEX to action.elementIndex,
             OobCanonicalActionSchema.ARG_NODE_ID to action.nodeId,
             OobCanonicalActionSchema.ARG_X to action.x,
             OobCanonicalActionSchema.ARG_Y to action.y,
@@ -89,7 +88,6 @@ class OobVlmActionPipeline : VLMActionPipeline {
         is InputTextAction -> linkedMapOf(
             OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION to action.targetDescription,
             OobCanonicalActionSchema.ARG_TEXT to action.text,
-            OobCanonicalActionSchema.ARG_ELEMENT_INDEX to action.elementIndex,
             OobCanonicalActionSchema.ARG_NODE_ID to action.nodeId,
             OobCanonicalActionSchema.ARG_X to action.x,
             OobCanonicalActionSchema.ARG_Y to action.y,
@@ -108,7 +106,6 @@ class OobVlmActionPipeline : VLMActionPipeline {
 
         is LongPressAction -> linkedMapOf(
             OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION to action.targetDescription,
-            OobCanonicalActionSchema.ARG_ELEMENT_INDEX to action.elementIndex,
             OobCanonicalActionSchema.ARG_NODE_ID to action.nodeId,
             OobCanonicalActionSchema.ARG_X to action.x,
             OobCanonicalActionSchema.ARG_Y to action.y,

@@ -430,6 +430,21 @@ class AccessibilityController() {
             }
         }
 
+        suspend fun swipeCoordinate(
+            startX: Float,
+            startY: Float,
+            endX: Float,
+            endY: Float,
+            duration: Long = 500L
+        ) {
+            checkAccessibilityPermissions()
+            withTimeout(duration + 800L) {
+                val controller = actionController
+                    ?: throw IllegalStateException("Accessibility action controller is not ready")
+                controller.swipeCoordinate(startX, startY, endX, endY, duration).await()
+            }
+        }
+
         suspend fun setSliderProgressFromGesture(
             x1: Float,
             y1: Float,

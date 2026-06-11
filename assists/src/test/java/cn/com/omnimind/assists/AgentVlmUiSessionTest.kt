@@ -21,6 +21,8 @@ class AgentVlmUiSessionTest {
         assertTrue(AgentVlmUiSession.requestStopSession(childTaskId))
         assertEquals(listOf(runId), stopped)
         assertFalse(AgentVlmUiSession.requestStopSession(childTaskId))
+        assertEquals(runId, AgentVlmUiSession.activeRunIdForTask(childTaskId))
+        assertEquals(listOf(runId), AgentVlmUiSession.activeRunIdsForTaskIds(listOf(childTaskId)))
 
         val end = AgentVlmUiSession.endRun(runId)
         assertTrue(end.wasActive)
@@ -68,6 +70,7 @@ class AgentVlmUiSessionTest {
         AgentVlmUiSession.endTask(childTaskId)
 
         assertTrue(AgentVlmUiSession.activeTaskIdsForRun(runId).isEmpty())
+        assertEquals(null, AgentVlmUiSession.activeRunIdForTask(childTaskId))
         assertFalse(AgentVlmUiSession.requestStopSession(childTaskId))
         assertTrue(stopped.isEmpty())
 

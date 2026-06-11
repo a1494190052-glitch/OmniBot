@@ -3,9 +3,9 @@ package cn.com.omnimind.bot.runlog
 /**
  * Deterministic parameter inference for RunLog -> reusable Function conversion.
  *
- * Keep this small: by default user-entered input_text content and described
- * click targets become public Function arguments. Coordinates and source
- * evidence stay replay-only.
+ * Keep this small: by default only user-entered input_text content becomes a
+ * public Function argument. Coordinates, click descriptions, and source evidence
+ * stay replay-only unless an enhancement step explicitly adds semantic bindings.
  */
 object RunLogReusableFunctionParameterizer {
     data class Result(
@@ -35,19 +35,6 @@ object RunLogReusableFunctionParameterizer {
                             baseName = parameterNameForInput(step),
                             defaultValue = args[textKey]?.toString().orEmpty(),
                             descriptionPrefix = "Text",
-                        )
-                    } else {
-                        null
-                    }
-                }
-                OobActionCodec.ACTION_CLICK -> {
-                    val targetDescription = args[CLICK_TARGET_ARG]?.toString()?.trim().orEmpty()
-                    if (targetDescription.isNotEmpty()) {
-                        ParameterBindingCandidate(
-                            argPath = CLICK_TARGET_ARG,
-                            baseName = parameterNameForClickTarget(step, targetDescription),
-                            defaultValue = targetDescription,
-                            descriptionPrefix = "Click target",
                         )
                     } else {
                         null
@@ -127,19 +114,6 @@ object RunLogReusableFunctionParameterizer {
         return title.takeIf { it.isNotBlank() } ?: "input_text"
     }
 
-    private fun parameterNameForClickTarget(step: Map<String, Any?>, targetDescription: String): String {
-        val rawTitle = listOf(targetDescription, step["title"], step["summary"])
-            .map { it?.toString().orEmpty().trim() }
-            .firstOrNull { it.isNotEmpty() }
-            .orEmpty()
-        val name = rawTitle
-            .take(40)
-            .replace(Regex("[^A-Za-z0-9_]+"), "_")
-            .trim('_')
-            .lowercase()
-        return name.takeIf { it.isNotBlank() && it !in INTERNAL_PARAMETER_NAMES } ?: "click_target"
-    }
-
     private fun semanticParameterName(title: String): String? {
         val normalized = title.lowercase()
         return when {
@@ -193,10 +167,4 @@ object RunLogReusableFunctionParameterizer {
     )
 
     private val INPUT_TEXT_ARG_KEYS = listOf("text")
-    private const val CLICK_TARGET_ARG = "target_description"
-    private val INTERNAL_PARAMETER_NAMES = setOf(
-        "package_name", "package", "target_description", "target",
-        "selector", "node_id", "node_resource_id", "element_index", "scrollable_index",
-        "x", "y", "x1", "y1", "x2", "y2", "bounds", "clear", "duration_ms",
-    )
 }

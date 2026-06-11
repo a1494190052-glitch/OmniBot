@@ -14,12 +14,17 @@ import org.xml.sax.InputSource
 import java.io.StringReader
 import javax.xml.parsers.DocumentBuilderFactory
 import kotlin.math.abs
+import kotlin.math.exp
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 
 object UIStepExecutor {
     private const val MIN_ANCHOR_PROJECTION_CONFIDENCE = 0.55f
+    private val LOCAL_ANCHOR_RADIUS_RATIOS = floatArrayOf(0.12f, 0.20f, 0.35f, 0.50f, 0.75f, 1.00f)
+    private const val MIN_LOCAL_ANCHOR_SOURCE_COUNT = 3
+    private const val MAX_LOCAL_ANCHOR_SOURCE_COUNT = 12
+    private const val LOCAL_ANCHOR_DISTANCE_SIGMA = 0.25f
 
     data class StepArgsResult(
         val args: Any?,
@@ -154,7 +159,7 @@ object UIStepExecutor {
                 "controller" to rule.id,
                 "x" to candidate.centerX,
                 "y" to candidate.centerY,
-                "button_text" to nodeLabelText(candidate).takeIf { it.isNotBlank() },
+                "button_text" to nodeDisplayLabel(candidate).takeIf { it.isNotBlank() },
                 "target_element" to summarizeNode(candidate),
             ).filterValues { it != null }
 
@@ -165,8 +170,9 @@ object UIStepExecutor {
                 return base + result + mapOf("reason" to "trigger_budget_exhausted")
             }
 
-            OmniflowActionRuntime.backend.click(candidate.centerX, candidate.centerY)
-            delay(PRE_ACTION_CONTROL_DELAY_MS)
+            val clickMeta = clickDismissCandidateWithRetry(candidate) { latestPage ->
+                pageGuardCandidate(condition, latestPage)
+            }
             val trigger = checkerBudget.recordTrigger(rule)
             return base + result + mapOf(
                 "executed" to true,
@@ -174,7 +180,7 @@ object UIStepExecutor {
                 "trigger_count" to trigger.count,
                 "trigger_limit" to trigger.limit,
                 "trigger_remaining" to trigger.remaining,
-            )
+            ) + clickMeta
         }
 
         return base + mapOf(
@@ -207,6 +213,7 @@ object UIStepExecutor {
             ?: OobActionCodec.normalizeName(action)
         return normalized in OobActionCodec.executableActions &&
             normalized != OobActionCodec.ACTION_OPEN_APP &&
+            normalized != OobActionCodec.ACTION_WAIT &&
             normalized != OobActionCodec.ACTION_FINISHED
     }
 
@@ -287,7 +294,10 @@ object UIStepExecutor {
             throw IllegalStateException("OmniFlow action backend is not ready")
         }
         val fixedReplay = RunLogReplayPolicy.fixedReplayOnly
-        val initialArgs = OobActionCodec.argsForStep(step)
+        val initialArgs = replayArgsWithSemanticAliases(
+            OobActionCodec.mapArg(step["args"]),
+            OobActionCodec.argsForStep(step),
+        )
         val transferRequested = !fixedReplay &&
             action in OobActionCodec.coordinateActions &&
             shouldUseCoordinateHook(step)
@@ -312,6 +322,7 @@ object UIStepExecutor {
         var actionTransferApplied = transferRequested && remapResult.meta["applied"] == true
         var actionDispatchWarning: Map<String, Any?> = emptyMap()
         var executedActionArgs: Map<String, Any?> = emptyMap()
+        var preDispatchWait: Map<String, Any?> = emptyMap()
         var expectedOpenAppPackageName: String? = null
         val summary = timing.measure("act_ms") {
             runWithStopPolling(stopRequested) {
@@ -346,6 +357,14 @@ object UIStepExecutor {
                             transferredNodeResourceId,
                             recordedNodeResourceId,
                         )
+                        preDispatchWait = waitBeforeRecordingStopIfNeeded(
+                            action = action,
+                            args = args,
+                            step = step,
+                            state = getState("pre_dispatch_recording_wait"),
+                            timing = timing,
+                            stopRequested = stopRequested,
+                        )
                         runReplayGestureIgnoringDispatchTimeout(
                             action = action,
                             onWarning = { actionDispatchWarning = it },
@@ -371,6 +390,31 @@ object UIStepExecutor {
                             ?: throw IllegalArgumentException("long_press requires x")
                         val y = numberArg(args, "y")?.toFloat()
                             ?: throw IllegalArgumentException("long_press requires y")
+                        val targetDescription = stringArg(args, "target_description").orEmpty()
+                        val transferTargetElement = firstNonEmptyMap(
+                            remapResult.meta["target_element"],
+                            remapResult.meta["targetElement"],
+                            OobActionCodec.mapArg(remapResult.meta["debug"])["target_element"],
+                            OobActionCodec.mapArg(remapResult.meta["debug"])["targetElement"],
+                        )
+                        val transferredNodeResourceId = replaySafeClickNodeResourceId(
+                            OobActionCodec.firstNonBlank(
+                                transferTargetElement["node_resource_id"]?.toString(),
+                                transferTargetElement["resource_id"]?.toString(),
+                                transferTargetElement["resource-id"]?.toString(),
+                            )
+                        )
+                        val recordedNodeResourceId = if (remapResult.meta["applied"] == true) {
+                            ""
+                        } else {
+                            replaySafeClickNodeResourceId(
+                                stringArg(args, "node_resource_id", "resource_id", "resource-id")
+                            )
+                        }
+                        val nodeResourceId = OobActionCodec.firstNonBlank(
+                            transferredNodeResourceId,
+                            recordedNodeResourceId,
+                        )
                         runReplayGestureIgnoringDispatchTimeout(
                             action = action,
                             onWarning = { actionDispatchWarning = it },
@@ -378,14 +422,17 @@ object UIStepExecutor {
                             backend.longPress(
                                 x = x,
                                 y = y,
-                                durationMs = durationMs(args, defaultMs = 1000L)
+                                durationMs = durationMs(args, defaultMs = 1000L),
+                                targetDescription = targetDescription,
+                                nodeResourceId = nodeResourceId.orEmpty(),
                             )
                         }
                         executedActionArgs = mapOf(
                             "x" to x,
                             "y" to y,
                             "duration_ms" to durationMs(args, defaultMs = 1000L),
-                            "target_description" to stringArg(args, "target_description"),
+                            "target_description" to targetDescription.takeIf { it.isNotBlank() },
+                            "node_resource_id" to nodeResourceId,
                         ).filterValues { it != null }
                         OobActionCodec.ACTION_LONG_PRESS
                     }
@@ -396,18 +443,33 @@ object UIStepExecutor {
                             action = action,
                             onWarning = { actionDispatchWarning = it },
                         ) {
-                            backend.scrollWithContext(
-                                x = swipe.x,
-                                y = swipe.y,
-                                direction = swipe.direction,
-                                distance = swipe.distance,
-                                durationMs = durationMs(args, defaultMs = 1500L),
-                                targetDescription = stringArg(args, "target_description").orEmpty()
-                            )
+                            if (swipe.hasEndpoints) {
+                                backend.swipe(
+                                    startX = swipe.x1,
+                                    startY = swipe.y1,
+                                    endX = swipe.x2,
+                                    endY = swipe.y2,
+                                    durationMs = durationMs(args, defaultMs = 1500L),
+                                    targetDescription = stringArg(args, "target_description").orEmpty(),
+                                )
+                            } else {
+                                backend.scrollWithContext(
+                                    x = swipe.x,
+                                    y = swipe.y,
+                                    direction = swipe.direction,
+                                    distance = swipe.distance,
+                                    durationMs = durationMs(args, defaultMs = 1500L),
+                                    targetDescription = stringArg(args, "target_description").orEmpty()
+                                )
+                            }
                         }
                         executedActionArgs = mapOf(
                             "x" to swipe.x,
                             "y" to swipe.y,
+                            "x1" to swipe.x1.takeIf { swipe.hasEndpoints },
+                            "y1" to swipe.y1.takeIf { swipe.hasEndpoints },
+                            "x2" to swipe.x2.takeIf { swipe.hasEndpoints },
+                            "y2" to swipe.y2.takeIf { swipe.hasEndpoints },
                             "direction" to swipe.direction.name.lowercase(),
                             "distance" to swipe.distance,
                             "duration_ms" to durationMs(args, defaultMs = 1500L),
@@ -473,6 +535,13 @@ object UIStepExecutor {
                         action
                     }
 
+                    OobActionCodec.ACTION_WAIT -> {
+                        val waitMs = waitDurationMs(args)
+                        delayWithStopPolling(waitMs, stopRequested)
+                        executedActionArgs = mapOf("time_ms" to waitMs)
+                        action
+                    }
+
                     OobActionCodec.ACTION_FINISHED -> {
                         executedActionArgs = compactReplayActionArgs(args)
                         OobActionCodec.ACTION_FINISHED
@@ -500,7 +569,9 @@ object UIStepExecutor {
         } else {
             timing.measure("post_action_observe_ms") {
                 val startedAtMs = System.currentTimeMillis()
-                val settleDelayMs = if (action == OobActionCodec.ACTION_OPEN_APP) {
+                val settleDelayMs = if (action == OobActionCodec.ACTION_OPEN_APP ||
+                    action == OobActionCodec.ACTION_WAIT
+                ) {
                     0L
                 } else {
                     REPLAY_ACTION_SETTLE_DELAY_MS
@@ -525,12 +596,14 @@ object UIStepExecutor {
             if (fixedReplay || (action != OobActionCodec.ACTION_OPEN_APP && !hasPostActionRules)) {
                 emptyList()
             } else {
-                runCheckerPhase(
+                runCheckerPhaseUntilStable(
                     phase = OmniflowCheckerRule.PHASE_POST_ACTION,
-                    state = postActionState ?: refreshState("after_action"),
+                    initialState = postActionState ?: refreshState("after_action"),
                     replayAction = ReplayAction(step, action, args),
                     extraRules = checkerRules,
                     checkerBudget = checkerBudget,
+                    refreshState = ::refreshState,
+                    refreshReasonPrefix = "after_post_action_controls",
                 )
             }
         }
@@ -571,6 +644,9 @@ object UIStepExecutor {
             }
             if (actionDispatchWarning.isNotEmpty()) {
                 put("action_dispatch", actionDispatchWarning)
+            }
+            if (preDispatchWait.isNotEmpty()) {
+                put("pre_dispatch_wait", preDispatchWait)
             }
             if (openAppReadyWait.isNotEmpty()) {
                 put("open_app_ready_wait", openAppReadyWait)
@@ -673,6 +749,126 @@ object UIStepExecutor {
     private fun isGestureDispatchTimeout(error: Throwable): Boolean {
         val message = error.message.orEmpty()
         return message.startsWith("dispatch_timeout:")
+    }
+
+    private suspend fun waitBeforeRecordingStopIfNeeded(
+        action: String,
+        args: Map<String, Any?>,
+        step: Map<String, Any?>,
+        state: ReplayState,
+        timing: ReplayStepTiming,
+        stopRequested: (() -> Boolean)?,
+    ): Map<String, Any?> {
+        if (action != OobActionCodec.ACTION_CLICK && action != OobActionCodec.ACTION_LONG_PRESS) {
+            return emptyMap()
+        }
+        val currentXml = state.snapshot.xml
+        val targetDescription = stringArg(args, "target_description").orEmpty()
+        val nodeResourceId = stringArg(args, "node_resource_id", "resource_id", "resource-id").orEmpty()
+        if (!looksLikeRecordingStopTarget(targetDescription, nodeResourceId, step)) return emptyMap()
+
+        val sourceContext = OobActionCodec.sourceContextForStep(step)
+        val srcCtx = OobActionCodec.mapArg(sourceContext["src_ctx"])
+        val sourceXml = RunLogXmlArtifacts.pageXmlFromContext(srcCtx)
+            .ifBlank { RunLogXmlArtifacts.pageXmlFromContext(OobActionCodec.mapArg(sourceContext)) }
+        if (!looksLikeActiveRecordingPage(currentXml) && !looksLikeActiveRecordingPage(sourceXml)) {
+            return emptyMap()
+        }
+        val sourceSeconds = recordingElapsedSeconds(sourceXml)
+        val currentSeconds = recordingElapsedSeconds(currentXml)
+        val targetMs = maxOf(
+            MIN_RECORDING_STOP_READY_MS,
+            sourceSeconds?.let { it * 1000L } ?: 0L,
+        )
+        val currentMs = currentSeconds?.let { it * 1000L } ?: 0L
+        val waitMs = (targetMs - currentMs)
+            .coerceAtLeast(0L)
+            .coerceAtMost(MAX_RECORDING_STOP_READY_WAIT_MS)
+        if (waitMs <= 0L) {
+            return mapOf(
+                "reason" to "recording_stop_already_ready",
+                "source_recording_seconds" to sourceSeconds,
+                "current_recording_seconds" to currentSeconds,
+                "target_ms" to targetMs,
+                "waited_ms" to 0L,
+            ).filterValues { it != null }
+        }
+
+        val startedAtMs = System.currentTimeMillis()
+        val deadlineMs = startedAtMs + waitMs
+        var latestSeconds = currentSeconds
+        var attempts = 0
+        while (System.currentTimeMillis() < deadlineMs) {
+            throwIfStopRequested(stopRequested)
+            val remaining = deadlineMs - System.currentTimeMillis()
+            delayWithStopPolling(
+                delayMs = minOf(RECORDING_STOP_READY_POLL_MS, remaining.coerceAtLeast(0L)),
+                stopRequested = stopRequested,
+            )
+            attempts += 1
+            val snapshot = readBackendSnapshot(timing)
+            latestSeconds = recordingElapsedSeconds(snapshot.xml) ?: latestSeconds
+            if ((latestSeconds ?: 0) * 1000L >= targetMs) break
+        }
+        return mapOf(
+            "reason" to "recording_stop_min_duration",
+            "source_recording_seconds" to sourceSeconds,
+            "current_recording_seconds" to currentSeconds,
+            "latest_recording_seconds" to latestSeconds,
+            "target_ms" to targetMs,
+            "waited_ms" to (System.currentTimeMillis() - startedAtMs).coerceAtLeast(0L),
+            "attempts" to attempts,
+        ).filterValues { it != null }
+    }
+
+    private fun looksLikeActiveRecordingPage(xml: String): Boolean {
+        val text = xml.lowercase()
+        return text.contains("recording_time") ||
+            text.contains("btn_record_stop") ||
+            text.contains("recording…") ||
+            text.contains("recording...") ||
+            text.contains("recording:") ||
+            text.contains("正在录制")
+    }
+
+    private fun looksLikeRecordingStopTarget(
+        targetDescription: String,
+        nodeResourceId: String,
+        step: Map<String, Any?>,
+    ): Boolean {
+        val args = OobActionCodec.mapArg(step["args"])
+        val label = listOf(
+            targetDescription,
+            nodeResourceId,
+            args["clickPrompt"]?.toString().orEmpty(),
+            args["target_description"]?.toString().orEmpty(),
+            args["targetDescription"]?.toString().orEmpty(),
+            step["title"]?.toString().orEmpty(),
+            step["description"]?.toString().orEmpty(),
+        ).joinToString(" ").lowercase()
+        return label.contains("shutter") ||
+            label.contains("stop") ||
+            label.contains("record_stop") ||
+            label.contains("btn_record_stop") ||
+            label.contains("停止") ||
+            label.contains("保存录音")
+    }
+
+    private fun recordingElapsedSeconds(xml: String): Long? {
+        if (xml.isBlank()) return null
+        var best: Long? = null
+        RECORDING_TIME_REGEX.findAll(xml).forEach { match ->
+            val first = match.groupValues.getOrNull(1)?.toLongOrNull() ?: return@forEach
+            val second = match.groupValues.getOrNull(2)?.toLongOrNull() ?: return@forEach
+            val third = match.groupValues.getOrNull(3)?.takeIf { it.isNotBlank() }?.toLongOrNull()
+            val seconds = if (third == null) {
+                first * 60L + second
+            } else {
+                first * 3600L + second * 60L + third
+            }
+            best = max(best ?: 0L, seconds)
+        }
+        return best
     }
 
     private suspend fun waitForOpenAppReady(
@@ -950,6 +1146,7 @@ object UIStepExecutor {
 
     suspend fun waitForReplayActionReady(
         step: Map<String, Any?>,
+        recoveryStep: Map<String, Any?>? = null,
         stopRequested: (() -> Boolean)? = null,
         settleDelayMs: Long = REPLAY_ACTION_SETTLE_DELAY_MS,
         targetTimeoutMs: Long = REPLAY_TARGET_READY_TIMEOUT_MS,
@@ -957,10 +1154,10 @@ object UIStepExecutor {
     ): Map<String, Any?> {
         val startedAtMs = System.currentTimeMillis()
         val fixedDelayMs = effectiveReplayDelayMs(settleDelayMs)
-        delayWithStopPolling(fixedDelayMs, stopRequested)
 
         val action = actionNameForStep(step)
         if (action !in REPLAY_SEMANTIC_TARGET_ACTIONS) {
+            delayWithStopPolling(fixedDelayMs, stopRequested)
             return replayActionReadyWaitMeta(
                 status = "settled",
                 startedAtMs = startedAtMs,
@@ -976,6 +1173,7 @@ object UIStepExecutor {
 
         val target = replaySemanticTargetForStep(step)
         if (target.isEmpty()) {
+            delayWithStopPolling(fixedDelayMs, stopRequested)
             return replayActionReadyWaitMeta(
                 status = "settled",
                 startedAtMs = startedAtMs,
@@ -990,24 +1188,43 @@ object UIStepExecutor {
         }
 
         val timing = ReplayStepTiming()
-        val deadlineMs = System.currentTimeMillis() + targetTimeoutMs.coerceAtLeast(0L)
         val pollDelayMs = effectiveReplayDelayMs(pollMs.coerceAtLeast(1L))
         val maxAttempts = ((targetTimeoutMs.coerceAtLeast(0L) / pollMs.coerceAtLeast(1L)) + 1)
             .coerceAtLeast(1L)
         var attempts = 0
         var lastState: ReplayState? = null
-        while (true) {
+        suspend fun observeTargetReady(): ReplaySemanticTargetMatch? {
             throwIfStopRequested(stopRequested)
             attempts += 1
             val state = observeReplayState(timing, "pre_action_target_ready_$attempts")
             lastState = state
-            val match = state.page?.let { findReplaySemanticTarget(it, target) }
-            if (match != null) {
+            return state.page?.let { findReplaySemanticTarget(it, target) }
+        }
+
+        observeTargetReady()?.let { match ->
+            return replayActionReadyWaitMeta(
+                status = "ready",
+                startedAtMs = startedAtMs,
+                attempts = attempts,
+                state = lastState,
+                target = target,
+                match = match,
+                reason = null,
+                settleDelayMs = settleDelayMs,
+                targetTimeoutMs = targetTimeoutMs,
+            )
+        }
+
+        delayWithStopPolling(fixedDelayMs, stopRequested)
+
+        val deadlineMs = System.currentTimeMillis() + targetTimeoutMs.coerceAtLeast(0L)
+        while (true) {
+            observeTargetReady()?.let { match ->
                 return replayActionReadyWaitMeta(
                     status = "ready",
                     startedAtMs = startedAtMs,
                     attempts = attempts,
-                    state = state,
+                    state = lastState,
                     target = target,
                     match = match,
                     reason = null,
@@ -1015,7 +1232,6 @@ object UIStepExecutor {
                     targetTimeoutMs = targetTimeoutMs,
                 )
             }
-
             if (OmniflowActionRuntime.isUsingBackendForTesting) {
                 if (attempts >= maxAttempts) break
             } else if (System.currentTimeMillis() >= deadlineMs) {
@@ -1024,6 +1240,28 @@ object UIStepExecutor {
             delayWithStopPolling(
                 delayMs = min(pollDelayMs, (deadlineMs - System.currentTimeMillis()).coerceAtLeast(0L)),
                 stopRequested = stopRequested,
+            )
+        }
+
+        recoverReplayActionReadyWithStep(
+            recoveryStep = recoveryStep,
+            target = target,
+            timing = timing,
+            stopRequested = stopRequested,
+        )?.let { recovery ->
+            attempts += recovery.attempts
+            lastState = recovery.state
+            return replayActionReadyWaitMeta(
+                status = "ready",
+                startedAtMs = startedAtMs,
+                attempts = attempts,
+                state = lastState,
+                target = target,
+                match = recovery.match,
+                reason = null,
+                settleDelayMs = settleDelayMs,
+                targetTimeoutMs = targetTimeoutMs,
+                extra = mapOf("recovery" to recovery.meta),
             )
         }
 
@@ -1038,6 +1276,94 @@ object UIStepExecutor {
             settleDelayMs = settleDelayMs,
             targetTimeoutMs = targetTimeoutMs,
         )
+    }
+
+    private data class ReplayReadyRecoveryResult(
+        val state: ReplayState,
+        val match: ReplaySemanticTargetMatch,
+        val attempts: Int,
+        val meta: Map<String, Any?>,
+    )
+
+    private suspend fun recoverReplayActionReadyWithStep(
+        recoveryStep: Map<String, Any?>?,
+        target: ReplaySemanticTarget,
+        timing: ReplayStepTiming,
+        stopRequested: (() -> Boolean)?,
+    ): ReplayReadyRecoveryResult? {
+        if (recoveryStep == null || target.isEmpty()) return null
+        val action = actionNameForStep(recoveryStep)
+        if (action != OobActionCodec.ACTION_SWIPE) return null
+        val backend = OmniflowActionRuntime.backend
+        if (!backend.isReady()) return null
+        val args = OobActionCodec.argsForStep(recoveryStep)
+        val targetDescription = stringArg(args, "target_description").orEmpty()
+        var attempts = 0
+        var lastState: ReplayState? = null
+        val failures = mutableListOf<String>()
+        repeat(REPLAY_READY_RECOVERY_SCROLL_LIMIT) { index ->
+            throwIfStopRequested(stopRequested)
+            attempts += 1
+            val before = observeReplayState(timing, "pre_action_recovery_before_${index + 1}")
+            lastState = before
+            val swipe = try {
+                swipeSpec(args, before)
+            } catch (error: Exception) {
+                failures += error.message ?: error::class.java.simpleName
+                return@repeat
+            }
+            try {
+                runReplayGestureIgnoringDispatchTimeout(
+                    action = action,
+                    onWarning = { warning -> failures += warning["message"]?.toString().orEmpty() },
+                ) {
+                    if (swipe.hasEndpoints) {
+                        backend.swipe(
+                            startX = swipe.x1,
+                            startY = swipe.y1,
+                            endX = swipe.x2,
+                            endY = swipe.y2,
+                            durationMs = durationMs(args, defaultMs = 1500L),
+                            targetDescription = targetDescription,
+                        )
+                    } else {
+                        backend.scrollWithContext(
+                            x = swipe.x,
+                            y = swipe.y,
+                            direction = swipe.direction,
+                            distance = swipe.distance,
+                            durationMs = durationMs(args, defaultMs = 1500L),
+                            targetDescription = targetDescription,
+                        )
+                    }
+                }
+            } catch (error: Exception) {
+                failures += error.message ?: error::class.java.simpleName
+                return@repeat
+            }
+            delayWithStopPolling(
+                delayMs = effectiveReplayDelayMs(REPLAY_READY_RECOVERY_SETTLE_MS),
+                stopRequested = stopRequested,
+            )
+            val state = observeReplayState(timing, "pre_action_recovery_after_${index + 1}")
+            lastState = state
+            val match = state.page?.let { findReplaySemanticTarget(it, target) }
+            if (match != null) {
+                return ReplayReadyRecoveryResult(
+                    state = state,
+                    match = match,
+                    attempts = attempts,
+                    meta = linkedMapOf<String, Any?>(
+                        "action" to action,
+                        "attempts" to attempts,
+                        "reason" to "repeated_previous_scroll_until_target_ready",
+                        "target_texts" to target.texts.take(6).takeIf { it.isNotEmpty() },
+                        "target_resource_ids" to target.resourceIds.take(4).takeIf { it.isNotEmpty() },
+                    ).filterValues { it != null },
+                )
+            }
+        }
+        return null
     }
 
     private fun effectiveReplayDelayMs(delayMs: Long): Long =
@@ -1063,14 +1389,26 @@ object UIStepExecutor {
             rawArgs["content_desc"],
             rawArgs["contentDesc"],
             rawArgs["target_description"],
+            rawArgs["targetDescription"],
+            rawArgs["clickPrompt"],
+            rawArgs["label"],
+            rawArgs["selector"],
             args["text"],
             args["target_description"],
+            args["targetDescription"],
+            args["clickPrompt"],
+            args["label"],
+            args["selector"],
             sourceAction["text"],
             sourceAction["target_text"],
             sourceAction["targetText"],
             sourceAction["content_desc"],
             sourceAction["contentDesc"],
             sourceAction["target_description"],
+            sourceAction["targetDescription"],
+            sourceAction["clickPrompt"],
+            sourceAction["label"],
+            sourceAction["selector"],
             sourceTargetElement["text"],
             sourceTargetElement["content_desc"],
             sourceTargetElement["content-desc"],
@@ -1108,7 +1446,7 @@ object UIStepExecutor {
         val candidates = linkedSetOf(normalized)
         normalized.split(Regex("""[\s,，:：;；/|()\[\]{}<>]+"""))
             .map(::normalizeText)
-            .filter(::isMeaningfulSemanticTargetText)
+            .filter(::isMeaningfulSemanticTargetToken)
             .filterNot { it in GENERIC_TARGET_TEXT_TOKENS }
             .forEach { candidates += it }
         return candidates.toList()
@@ -1118,6 +1456,11 @@ object UIStepExecutor {
         if (text.isBlank()) return false
         if (text in GENERIC_TARGET_TEXT_TOKENS) return false
         return text.length >= 2
+    }
+
+    private fun isMeaningfulSemanticTargetToken(text: String): Boolean {
+        if (!isMeaningfulSemanticTargetText(text)) return false
+        return text.length >= 3
     }
 
     private fun findReplaySemanticTarget(
@@ -1167,6 +1510,7 @@ object UIStepExecutor {
         reason: String?,
         settleDelayMs: Long,
         targetTimeoutMs: Long,
+        extra: Map<String, Any?> = emptyMap(),
     ): Map<String, Any?> {
         val snapshot = state?.snapshot
         return linkedMapOf<String, Any?>(
@@ -1186,7 +1530,9 @@ object UIStepExecutor {
             "package_name" to snapshot?.rawPackage?.takeIf { it.isNotBlank() },
             "effective_package" to snapshot?.effectivePackage()?.takeIf { it.isNotBlank() },
             "activity_name" to snapshot?.activityName?.takeIf { it.isNotBlank() },
-        ).filterValues { it != null }
+        ).apply {
+            putAll(extra)
+        }.filterValues { it != null }
     }
 
     private fun postActionObserveMeta(
@@ -1251,7 +1597,7 @@ object UIStepExecutor {
             return attempted
         }
         val reason = attempted.meta["reason"]?.toString().orEmpty()
-        if (isHardActionTransferFailure(reason)) {
+        if (isHardActionTransferFailure(reason) && !allowsCoordinateOnlySourceReplay(attempted.meta)) {
             throw ExecutionException(
                 errorCode = "OOB_FUNCTION_SOURCE_NOT_REACHED",
                 message = "action transfer could not match the recorded source page: $reason",
@@ -1270,12 +1616,25 @@ object UIStepExecutor {
         )
     }
 
+    private fun allowsCoordinateOnlySourceReplay(meta: Map<String, Any?>): Boolean {
+        if (meta["source_reason"]?.toString() == "missing_source_element" &&
+            meta["source_page_matches_current"] == true
+        ) {
+            return true
+        }
+        return meta["reason"]?.toString() == "no_anchor_match" &&
+            meta["current_sparse_overlay_page"] == true &&
+            meta["current_privacy_notice_overlay"] == true
+    }
+
     private fun isHardActionTransferFailure(reason: String): Boolean =
         reason in setOf(
             "no_anchor_match",
             "low_confidence_anchor_projection",
+            "matcher_abstain",
             "invalid_source_page",
             "invalid_current_page",
+            "missing_source_element",
             "missing_scroll_source_element",
         )
 
@@ -1331,29 +1690,58 @@ object UIStepExecutor {
     ): PreActionPhaseResult {
         val preTransferControls = timing.measure("checker_ms") {
             if (fixedReplay) emptyList()
-            else runCheckerPhase(
+            else runCheckerPhaseUntilStable(
                 phase = OmniflowCheckerRule.PHASE_PRE_TRANSFER,
-                state = getState("before_step"),
+                initialState = getState("before_step"),
                 replayAction = ReplayAction(step, action, initialArgs),
                 extraRules = checkerRules,
                 checkerBudget = checkerBudget,
+                refreshState = refreshState,
+                refreshReasonPrefix = "after_pre_transfer_controls",
             )
         }
-        if (!fixedReplay && preTransferControls.isNotEmpty()) {
+        val transferBlockingOverlayControls = if (
+            !fixedReplay &&
+            action != OobActionCodec.ACTION_OPEN_APP &&
+            action != OobActionCodec.ACTION_FINISHED
+        ) {
+            runPreTransferBlockingOverlayIfPresent(
+                state = getState("before_transfer_overlay_check"),
+                checkerBudget = checkerBudget,
+            )
+        } else {
+            emptyList()
+        }
+        if (transferBlockingOverlayControls.isNotEmpty()) {
             throwIfStopRequested(stopRequested)
-            refreshState("after_pre_transfer_controls")
+            refreshState("after_pre_transfer_overlay_controls")
         }
         throwIfStopRequested(stopRequested)
-        var remapResult = safeRemapStep(step, getState("action_transfer"), transferRequested, initialArgs, fixedReplay, timing)
+        val allPreTransferControls = preTransferControls + transferBlockingOverlayControls
+        var remapResult = try {
+            safeRemapStep(step, getState("action_transfer"), transferRequested, initialArgs, fixedReplay, timing)
+        } catch (e: ExecutionException) {
+            if (allPreTransferControls.isEmpty()) throw e
+            throw ExecutionException(
+                errorCode = e.errorCode,
+                message = e.message ?: "OmniFlow action transfer failed after pre-transfer controls",
+                diagnostics = e.diagnostics + mapOf(
+                    "pre_transfer_control_count" to allPreTransferControls.size,
+                    "pre_transfer_control_effects" to allPreTransferControls,
+                ),
+            )
+        }
         var args = normalizeArgsMap(remapResult.args)
         val preActionControls = timing.measure("checker_ms") {
             if (fixedReplay) emptyList()
-            else runCheckerPhase(
+            else runCheckerPhaseUntilStable(
                 phase = OmniflowCheckerRule.PHASE_PRE_ACTION,
-                state = getState("before_action"),
+                initialState = getState("before_action"),
                 replayAction = ReplayAction(step, action, args),
                 extraRules = checkerRules,
                 checkerBudget = checkerBudget,
+                refreshState = refreshState,
+                refreshReasonPrefix = "after_pre_action_controls",
             )
         }
         if (!fixedReplay && preActionControls.isNotEmpty()) {
@@ -1364,7 +1752,37 @@ object UIStepExecutor {
                 args = normalizeArgsMap(remapResult.args)
             }
         }
-        return PreActionPhaseResult(preTransferControls, preActionControls, remapResult, args)
+        return PreActionPhaseResult(allPreTransferControls, preActionControls, remapResult, args)
+    }
+
+    private suspend fun runPreTransferBlockingOverlayIfPresent(
+        state: ReplayState,
+        checkerBudget: CheckerTriggerBudget,
+    ): List<Map<String, Any?>> {
+        val page = state.page ?: return emptyList()
+        val candidate = blockingOverlayDismissCandidate(page) ?: return emptyList()
+        val rule = OmniflowCheckerRule(
+            id = "dismiss_blocking_overlay",
+            condition = OmniflowCheckerRule.COND_OVERLAY_BLOCKING,
+            action = OmniflowCheckerRule.ACTION_DISMISS,
+            phase = OmniflowCheckerRule.PHASE_PRE_TRANSFER,
+        )
+        if (!checkerBudget.canTrigger(rule)) return emptyList()
+        val clickMeta = clickDismissCandidateWithRetry(candidate, ::blockingOverlayDismissCandidate)
+        val trigger = checkerBudget.recordTrigger(rule)
+        return listOf(
+            linkedMapOf(
+                "phase" to OmniflowCheckerRule.PHASE_PRE_TRANSFER,
+                "effect" to "run_actions",
+                "controller" to rule.id,
+                "condition" to OmniflowCheckerRule.COND_OVERLAY_BLOCKING,
+                "action" to OmniflowCheckerRule.ACTION_DISMISS,
+                "button_text" to nodeDisplayLabel(candidate).takeIf { it.isNotBlank() },
+                "x" to candidate.centerX,
+                "y" to candidate.centerY,
+                "target_element" to summarizeNode(candidate),
+            ).filterValues { it != null }.withCheckerTrigger(trigger) + clickMeta
+        )
     }
 
     private fun remapStepArgsInternal(
@@ -1372,7 +1790,8 @@ object UIStepExecutor {
         currentXmlOverride: String?,
     ): StepArgsResult {
         val rawArgs = step["args"]
-        val args = OobActionCodec.argsForStep(step)
+        val rawArgMap = OobActionCodec.mapArg(rawArgs)
+        val args = replayArgsWithSemanticAliases(rawArgMap, OobActionCodec.argsForStep(step))
         val coordinateReplayControls = coordinateReplayControlArgs(OobActionCodec.mapArg(rawArgs))
         if (rawArgs !is Map<*, *> && args.isEmpty()) return StepArgsResult(rawArgs)
         if (!shouldUseCoordinateHook(step)) {
@@ -1382,8 +1801,8 @@ object UIStepExecutor {
         if (tool !in OobActionCodec.coordinateActions) {
             return StepArgsResult(args)
         }
-        val sourceContext = (step["source_context"] as? Map<*, *>)
-            ?: (args["source_context"] as? Map<*, *>)
+        val sourceContext = OobActionCodec.sourceContextForStep(step)
+            .takeIf { it.isNotEmpty() }
             ?: return StepArgsResult(
             args,
             meta = mapOf("applied" to false, "reason" to "missing_source_context", "algorithm" to "anchor_projection")
@@ -1404,6 +1823,7 @@ object UIStepExecutor {
                 meta = mapOf("applied" to false, "reason" to "missing_current_xml", "algorithm" to "anchor_projection")
             )
         }
+        val pageMatchMeta = sourceCurrentPageMatchMeta(sourceXml, currentXml)
         return when (tool) {
             OobActionCodec.ACTION_CLICK,
             OobActionCodec.ACTION_LONG_PRESS,
@@ -1413,16 +1833,72 @@ object UIStepExecutor {
                 sourceXml,
                 currentXml,
                 coordinateReplayControls,
-            )
+            ).withMeta(pageMatchMeta)
             OobActionCodec.ACTION_SWIPE -> remapSwipeActionArgs(
                 tool,
                 args,
                 sourceXml,
                 currentXml,
                 coordinateReplayControls,
-            )
+            ).withMeta(pageMatchMeta)
             else -> StepArgsResult(args)
         }
+    }
+
+    private fun StepArgsResult.withMeta(extra: Map<String, Any?>): StepArgsResult {
+        if (extra.isEmpty()) return this
+        return StepArgsResult(args = args, meta = meta + extra)
+    }
+
+    private fun sourceCurrentPageMatchMeta(
+        sourceXml: String,
+        currentXml: String,
+    ): Map<String, Any?> {
+        if (sourceXml.isBlank() || currentXml.isBlank()) return emptyMap()
+        val currentPage = parsePageModel(currentXml)
+        val firstRunDismissCandidate = currentPage?.let(::firstRunPromptDismissCandidate)
+        val blockingDismissCandidate = currentPage?.let(::blockingOverlayDismissCandidate)
+        val currentHasPrivacyNotice =
+            currentPage?.nodes?.any(::hasPrivacyNoticeCue) == true ||
+                xmlHasPrivacyNoticeCue(currentXml)
+        return linkedMapOf<String, Any?>(
+            "source_page_matches_current" to (sourceXml.trim() == currentXml.trim()),
+            "source_xml_hash" to Integer.toHexString(sourceXml.hashCode()),
+            "current_xml_hash" to Integer.toHexString(currentXml.hashCode()),
+            "current_sparse_overlay_page" to currentPage?.let(::looksLikeSparseOverlayPage),
+            "current_first_run_prompt_overlay" to (firstRunDismissCandidate != null),
+            "current_blocking_overlay_candidate" to (blockingDismissCandidate != null),
+            "current_blocking_overlay_candidate_text" to blockingDismissCandidate
+                ?.let(::nodeDisplayLabel)
+                ?.takeIf { it.isNotBlank() },
+            "current_privacy_notice_overlay" to currentHasPrivacyNotice,
+        ).filterValues { it != null }
+    }
+
+    private fun replayArgsWithSemanticAliases(
+        rawArgs: Map<String, Any?>,
+        args: Map<String, Any?>,
+    ): Map<String, Any?> {
+        if (stringArg(args, "target_description")?.isNotBlank() == true) {
+            return args
+        }
+        val targetDescription = OobActionCodec.firstNonBlank(
+            stringArg(rawArgs, "target_description"),
+            stringArg(rawArgs, "targetDescription"),
+            stringArg(rawArgs, "clickPrompt"),
+            stringArg(rawArgs, "label"),
+            stringArg(rawArgs, "selector"),
+        ).trim()
+        return if (targetDescription.isBlank()) {
+            args
+        } else {
+            args + ("target_description" to targetDescription)
+        }
+    }
+
+    private fun xmlHasPrivacyNoticeCue(xml: String): Boolean {
+        val text = xml.lowercase()
+        return PRIVACY_NOTICE_TERMS.any { term -> text.contains(term) }
     }
 
 
@@ -1482,6 +1958,8 @@ object UIStepExecutor {
             "direction",
             "distance",
             "duration_ms",
+            "time_ms",
+            "time_s",
             "selector",
             "resource_id",
             "node_resource_id",
@@ -1505,6 +1983,10 @@ object UIStepExecutor {
     }
 
     private fun replaySafeClickNodeResourceId(resourceId: String?): String {
+        return ""
+    }
+
+    private fun checkerSafeClickNodeResourceId(resourceId: String?): String {
         val value = resourceId?.trim().orEmpty()
         if (value.isBlank()) return ""
         val normalized = value.lowercase()
@@ -1519,6 +2001,16 @@ object UIStepExecutor {
         return defaultMs
     }
 
+    private fun waitDurationMs(args: Map<String, Any?>): Long {
+        numberArg(args, "time_ms", "duration_ms")?.toLong()?.let {
+            return it.coerceAtLeast(0L)
+        }
+        numberArg(args, "time_s")?.toDouble()?.let {
+            return (it.coerceAtLeast(0.0) * 1000.0).toLong()
+        }
+        return DEFAULT_WAIT_ACTION_MS
+    }
+
     private fun pressKeyArg(args: Map<String, Any?>): String {
         return when (stringArg(args, "key")?.trim()?.lowercase()) {
             "back" -> "BACK"
@@ -1531,8 +2023,13 @@ object UIStepExecutor {
     private data class SwipeSpec(
         val x: Float,
         val y: Float,
+        val x1: Float,
+        val y1: Float,
+        val x2: Float,
+        val y2: Float,
         val direction: ScrollDirection,
         val distance: Float,
+        val hasEndpoints: Boolean,
     )
 
     private fun swipeSpec(
@@ -1551,7 +2048,17 @@ object UIStepExecutor {
             } else {
                 if (dx > 0) ScrollDirection.RIGHT else ScrollDirection.LEFT
             }
-            return SwipeSpec(x1, y1, direction, hypot(dx, dy))
+            return SwipeSpec(
+                x = x1,
+                y = y1,
+                x1 = x1,
+                y1 = y1,
+                x2 = x2,
+                y2 = y2,
+                direction = direction,
+                distance = hypot(dx, dy),
+                hasEndpoints = true,
+            )
         }
 
         val direction = directionArg(args)
@@ -1567,7 +2074,27 @@ object UIStepExecutor {
             ?.toFloat()
             ?.coerceAtLeast(1f)
             ?: DEFAULT_SWIPE_DISTANCE
-        return SwipeSpec(x, y, direction, distance)
+        val endX = when (direction) {
+            ScrollDirection.LEFT -> x - distance
+            ScrollDirection.RIGHT -> x + distance
+            else -> x
+        }
+        val endY = when (direction) {
+            ScrollDirection.UP -> y - distance
+            ScrollDirection.DOWN -> y + distance
+            else -> y
+        }
+        return SwipeSpec(
+            x = x,
+            y = y,
+            x1 = x,
+            y1 = y,
+            x2 = endX,
+            y2 = endY,
+            direction = direction,
+            distance = distance,
+            hasEndpoints = false,
+        )
     }
 
     private fun directionArg(args: Map<String, Any?>): ScrollDirection? {
@@ -1680,12 +2207,7 @@ object UIStepExecutor {
         if (action == OobActionCodec.ACTION_OPEN_APP && phase != OmniflowCheckerRule.PHASE_POST_ACTION) {
             return emptyList()
         }
-        val globalRules = when (phase) {
-            OmniflowCheckerRule.PHASE_PRE_TRANSFER -> OmniflowCheckerRule.GLOBAL_PRE_TRANSFER
-            OmniflowCheckerRule.PHASE_PRE_ACTION -> OmniflowCheckerRule.GLOBAL_PRE_ACTION
-            OmniflowCheckerRule.PHASE_POST_ACTION -> OmniflowCheckerRule.GLOBAL_POST_ACTION
-            else -> emptyList()
-        }
+        val globalRules = OmniflowCheckerRule.globalRulesForPhase(phase)
         val activeRules = globalRules + extraRules.filter { it.phase == phase && it.enabled }
         for (rule in activeRules) {
             if (!checkerBudget.canTrigger(rule)) continue
@@ -1695,6 +2217,32 @@ object UIStepExecutor {
             return listOf(result.withCheckerTrigger(trigger))
         }
         return emptyList()
+    }
+
+    private suspend fun runCheckerPhaseUntilStable(
+        phase: String,
+        initialState: ReplayState,
+        replayAction: ReplayAction,
+        extraRules: List<OmniflowCheckerRule>,
+        checkerBudget: CheckerTriggerBudget,
+        refreshState: suspend (String) -> ReplayState,
+        refreshReasonPrefix: String,
+    ): List<Map<String, Any?>> {
+        val effects = mutableListOf<Map<String, Any?>>()
+        var state = initialState
+        repeat(MAX_CHECKER_PHASE_CONTROL_COUNT) { index ->
+            val result = runCheckerPhase(
+                phase = phase,
+                state = state,
+                replayAction = replayAction,
+                extraRules = extraRules,
+                checkerBudget = checkerBudget,
+            )
+            if (result.isEmpty()) return effects
+            effects += result
+            state = refreshState("${refreshReasonPrefix}_${index + 1}")
+        }
+        return effects
     }
 
     private suspend fun evaluateAndExecuteRule(
@@ -2066,8 +2614,7 @@ object UIStepExecutor {
         val candidate = blockingOverlayDismissCandidate(page)
             ?: blockingOverlayAtActionTarget(page, replayAction)
             ?: return null
-        OmniflowActionRuntime.backend.click(candidate.centerX, candidate.centerY)
-        delay(PRE_ACTION_CONTROL_DELAY_MS)
+        val clickMeta = clickDismissCandidateWithRetry(candidate, ::blockingOverlayDismissCandidate)
         return linkedMapOf(
             "phase" to "before_action",
             "effect" to "run_actions",
@@ -2077,7 +2624,57 @@ object UIStepExecutor {
             "x" to candidate.centerX,
             "y" to candidate.centerY,
             "target_element" to summarizeNode(candidate),
+        ) + clickMeta
+    }
+
+    private suspend fun clickDismissCandidateWithRetry(
+        candidate: UiNode,
+        nextCandidate: (PageModel) -> UiNode?,
+    ): Map<String, Any?> {
+        var latestCandidate = candidate
+        var retryCount = 0
+        clickCheckerDismissCandidate(latestCandidate)
+        var remaining = waitForDismissCandidate(nextCandidate)
+        while (retryCount < DISMISS_CONTROL_RETRY_LIMIT) {
+            val stillBlocking = remaining ?: return mapOf(
+                "dismiss_retry_count" to retryCount,
+                "dismiss_still_blocking_after_retry" to false,
+            )
+            retryCount += 1
+            latestCandidate = stillBlocking
+            clickCheckerDismissCandidate(latestCandidate)
+            remaining = waitForDismissCandidate(nextCandidate)
+        }
+        return linkedMapOf<String, Any?>(
+            "dismiss_retry_count" to retryCount,
+            "dismiss_still_blocking_after_retry" to (remaining != null),
+            "dismiss_remaining_candidate_text" to remaining?.let(::nodeDisplayLabel)?.takeIf { it.isNotBlank() },
+            "dismiss_remaining_candidate" to remaining?.let(::summarizeNode),
+        ).filterValues { it != null }
+    }
+
+    private suspend fun clickCheckerDismissCandidate(candidate: UiNode) {
+        OmniflowActionRuntime.backend.click(
+            x = candidate.centerX,
+            y = candidate.centerY,
+            targetDescription = nodeDisplayLabel(candidate),
+            nodeResourceId = checkerSafeClickNodeResourceId(candidate.resourceId),
         )
+    }
+
+    private suspend fun waitForDismissCandidate(
+        nextCandidate: (PageModel) -> UiNode?,
+    ): UiNode? {
+        val deadline = System.currentTimeMillis() + DISMISS_CONTROL_SETTLE_TIMEOUT_MS
+        var latest: UiNode? = null
+        do {
+            val page = parsePageModel(readBackendSnapshot().xml)
+            val remaining = page?.let(nextCandidate)
+            latest = remaining
+            if (remaining == null) return null
+            delay(DISMISS_CONTROL_POLL_INTERVAL_MS)
+        } while (System.currentTimeMillis() < deadline)
+        return latest
     }
 
     private suspend fun checkerKeyboardObscuring(
@@ -2226,12 +2823,123 @@ object UIStepExecutor {
 
     private fun blockingOverlayDismissCandidate(page: PageModel): UiNode? {
         val hasOverlayCue = page.nodes.any(::hasAdOrModalCue)
-        return page.nodes
+        val explicitDismiss = page.nodes
             .asSequence()
             .filter { it.visible && it.enabled && it.area > 1f && it.interactive }
             .mapNotNull { node ->
                 val score = dismissCandidateScore(node, page.rootBounds, hasOverlayCue)
                 if (score >= MIN_DISMISS_OVERLAY_SCORE) node to score else null
+            }
+            .maxByOrNull { it.second }
+            ?.first
+        return explicitDismiss
+            ?: firstRunPromptDismissCandidate(page)
+            ?: privacyNoticeOverlayDismissCandidate(page)
+    }
+
+    private fun firstRunPromptDismissCandidate(page: PageModel): UiNode? {
+        if (!looksLikeSparseOverlayPage(page) && !looksLikeFirstRunSetupPage(page)) return null
+        val pageText = page.nodes.joinToString(" ") { nodeLabelWithSubtreeText(it) }
+        val hasFirstRunCue = FIRST_RUN_PROMPT_CUE_TERMS.any { pageText.contains(it) }
+        if (!hasFirstRunCue) return null
+        val rootArea = page.rootBounds.area.coerceAtLeast(1f)
+        return page.nodes
+            .asSequence()
+            .filter { node ->
+                node.visible &&
+                    node.enabled &&
+                    node.interactive &&
+                    node.area > 1f
+            }
+            .mapNotNull { node ->
+                val score = firstRunPromptDismissScore(node, page.rootBounds, rootArea)
+                if (score >= MIN_FIRST_RUN_PROMPT_DISMISS_SCORE) node to score else null
+            }
+            .maxByOrNull { it.second }
+            ?.first
+    }
+
+    private fun looksLikeFirstRunSetupPage(page: PageModel): Boolean {
+        val pageText = page.nodes.joinToString(" ") { nodeLabelWithSubtreeText(it) }
+        val hasFirstRunCue = FIRST_RUN_PROMPT_CUE_TERMS.any { pageText.contains(it) }
+        if (!hasFirstRunCue) return false
+        return page.nodes.any { node ->
+            node.visible &&
+                node.enabled &&
+                node.interactive &&
+                firstRunPromptSafeAdvanceLabel(node)
+        }
+    }
+
+    private fun firstRunPromptDismissScore(
+        node: UiNode,
+        rootBounds: Rect,
+        rootArea: Float,
+    ): Float {
+        val directLabels = listOf(node.text, node.contentDesc, node.hintText)
+            .map { it.lowercase() }
+            .filter { it.isNotBlank() }
+        val label = nodeLabelText(node)
+        val exact = directLabels.any { direct ->
+            FIRST_RUN_PROMPT_DISMISS_EXACT_LABELS.any { direct == it }
+        }
+        val contains = FIRST_RUN_PROMPT_DISMISS_CONTAINS_LABELS.any { label.contains(it) }
+        val safeAdvance = firstRunPromptSafeAdvanceLabel(node)
+        if (!exact && !contains && !safeAdvance) return 0f
+        if (directLabels.any(::isAccountOrAuthAdvanceLabel)) return 0f
+        if (directLabels.any { direct ->
+                FIRST_RUN_PROMPT_AFFIRMATIVE_LABELS.any { direct == it || direct.contains(it) }
+            } && !safeAdvance
+        ) {
+            return 0f
+        }
+
+        val relativeArea = node.area / rootArea
+        val bottomButton = node.centerY >= rootBounds.top + rootBounds.height * 0.55f
+        var score = 420f
+        if (exact) score += 280f
+        if (contains) score += 180f
+        if (safeAdvance) score += 240f
+        if (node.classSuffix == "button") score += 120f
+        if (node.clickable) score += 100f
+        if (bottomButton) score += 80f
+        score -= relativeArea * 80f
+        return score
+    }
+
+    private fun firstRunPromptSafeAdvanceLabel(node: UiNode): Boolean {
+        val directLabels = listOf(node.text, node.contentDesc, node.hintText)
+            .map { it.lowercase().trim() }
+            .filter { it.isNotBlank() }
+        return directLabels.any { direct ->
+            FIRST_RUN_PROMPT_SAFE_ADVANCE_EXACT_LABELS.any { direct == it }
+        }
+    }
+
+    private fun isAccountOrAuthAdvanceLabel(label: String): Boolean =
+        FIRST_RUN_PROMPT_AUTH_ADVANCE_LABELS.any { term -> label == term || label.contains(term) }
+
+    private fun privacyNoticeOverlayDismissCandidate(page: PageModel): UiNode? {
+        val hasPrivacyCue = page.nodes.any(::hasPrivacyNoticeCue)
+        if (!hasPrivacyCue || !looksLikeSparseOverlayPage(page)) return null
+        val rootArea = page.rootBounds.area.coerceAtLeast(1f)
+        return page.nodes
+            .asSequence()
+            .filter { node ->
+                node.visible &&
+                    node.enabled &&
+                    node.interactive &&
+                    node.area > 1f
+            }
+            .mapNotNull { node ->
+                val label = nodeLabelWithSubtreeText(node)
+                val hasCueOnNode = PRIVACY_NOTICE_TERMS.any { label.contains(it) }
+                val score = 360f +
+                    (if (hasCueOnNode) 420f else 0f) +
+                    (if (node.clickable) 120f else 0f) +
+                    (if (node.focusable) 60f else 0f) -
+                    (node.area / rootArea) * 100f
+                if (score >= MIN_PRIVACY_NOTICE_OVERLAY_SCORE) node to score else null
             }
             .maxByOrNull { it.second }
             ?.first
@@ -2412,7 +3120,7 @@ object UIStepExecutor {
         }
         val labelScore = when {
             DISMISS_CONTAINS_LABELS.any { label.contains(it) } -> 520f
-            DISMISS_EXACT_LABELS.any { label == it } -> 420f
+            DISMISS_EXACT_LABELS.any { label == it } -> 520f
             else -> 0f
         }
         val resourceScore = if (dismissByResource) 360f else 0f
@@ -2474,6 +3182,15 @@ object UIStepExecutor {
         val classText = node.className.lowercase()
         val resource = node.resourceId.lowercase()
         return AD_OR_MODAL_TERMS.any { term ->
+            text.contains(term) || classText.contains(term) || resource.contains(term)
+        }
+    }
+
+    private fun hasPrivacyNoticeCue(node: UiNode): Boolean {
+        val text = nodeLabelWithSubtreeText(node)
+        val classText = node.className.lowercase()
+        val resource = node.resourceId.lowercase()
+        return PRIVACY_NOTICE_TERMS.any { term ->
             text.contains(term) || classText.contains(term) || resource.contains(term)
         }
     }
@@ -2612,6 +3329,11 @@ object UIStepExecutor {
             .joinToString(" ")
             .lowercase()
 
+    private fun nodeDisplayLabel(node: UiNode): String =
+        listOf(node.text, node.contentDesc, node.hintText)
+            .firstOrNull { it.isNotBlank() }
+            ?: nodeLabelText(node)
+
     private fun nodeLabelWithSubtreeText(node: UiNode): String =
         listOf(nodeLabelText(node), node.subtreeText)
             .filter { it.isNotBlank() }
@@ -2737,6 +3459,28 @@ object UIStepExecutor {
         val debug: Map<String, Any?> = emptyMap(),
     )
 
+    private data class TargetMatchAttempt(
+        val match: TargetMatch?,
+        val debug: Map<String, Any?> = emptyMap(),
+    )
+
+    private data class LocalAnchorSourceSelection(
+        val nodes: List<UiNode>,
+        val radiusRatio: Float,
+        val allCandidateCount: Int,
+        val nonSelfCount: Int,
+    ) {
+        fun toDebugMap(): Map<String, Any?> = mapOf(
+            "mode" to "local_radius",
+            "radius_ratio" to radiusRatio,
+            "selected_source_anchor_count" to nodes.size,
+            "selected_non_self_source_anchor_count" to nonSelfCount,
+            "all_source_anchor_candidate_count" to allCandidateCount,
+            "min_local_source_anchor_count" to MIN_LOCAL_ANCHOR_SOURCE_COUNT,
+            "local_distance_sigma" to LOCAL_ANCHOR_DISTANCE_SIGMA,
+        )
+    }
+
     private data class PointMapping(
         val newX: Float,
         val newY: Float,
@@ -2776,7 +3520,8 @@ object UIStepExecutor {
         } else {
             null
         }
-            ?: remapPointWithinPages(sourcePage, targetPage, x, y)
+            ?: remapPointWithinPages(tool, sourcePage, targetPage, x, y)
+            ?: remapPointBySemanticTarget(tool, args, targetPage)
             ?: if (coordinateReplayAllowed(args, coordinateReplayControls)) {
                 remapPointWithinRoots(sourcePage, targetPage, x, y)
             } else {
@@ -2784,7 +3529,7 @@ object UIStepExecutor {
             }
             ?: return StepArgsResult(
                 args,
-                meta = mapOf("applied" to false, "reason" to "no_anchor_match", "algorithm" to "anchor_projection")
+                meta = pointRemapFailureMeta(sourcePage, targetPage, x, y)
             )
         if (mapped.mode == "omniflow_bayesian" && mapped.confidence < MIN_ANCHOR_PROJECTION_CONFIDENCE) {
             return StepArgsResult(
@@ -2821,6 +3566,76 @@ object UIStepExecutor {
             )
         )
     }
+
+    private fun remapPointBySemanticTarget(
+        tool: String,
+        args: Map<String, Any?>,
+        targetPage: PageModel,
+    ): PointMapping? {
+        if (tool != OobActionCodec.ACTION_CLICK && tool != OobActionCodec.ACTION_LONG_PRESS) {
+            return null
+        }
+        val targetTexts = listOf(
+            args["target_description"],
+            args["targetDescription"],
+            args["clickPrompt"],
+            args["label"],
+            args["selector"],
+        ).mapNotNull { value ->
+            normalizeText(value?.toString()).takeIf(::isMeaningfulSemanticTargetText)
+        }.distinct()
+        if (targetTexts.isEmpty()) return null
+        val match = findInteractivePointSemanticTarget(targetPage, targetTexts) ?: return null
+        return PointMapping(
+            newX = match.node.centerX,
+            newY = match.node.centerY,
+            sourceNode = match.node,
+            targetNode = match.node,
+            confidence = 1.0f,
+            anchorCount = 0,
+            mode = "semantic_target",
+            debug = mapOf(
+                "matched_by" to match.matchedBy,
+                "matched_value" to match.matchedValue,
+                "target_texts" to targetTexts.take(6),
+                "reason" to "source_point_missing_semantic_target",
+            ),
+        )
+    }
+
+    private fun findInteractivePointSemanticTarget(
+        page: PageModel,
+        targetTexts: List<String>,
+    ): ReplaySemanticTargetMatch? {
+        val nodes = page.nodes.filter { it.visible && it.enabled && it.interactive }
+        val texts = targetTexts.sortedByDescending { it.length }
+        for (text in texts) {
+            val exact = nodes.firstOrNull { node ->
+                nodeVisibleTexts(node).any { it == text }
+            }
+            if (exact != null) {
+                return ReplaySemanticTargetMatch(exact, "text_exact", text)
+            }
+        }
+        for (text in texts) {
+            val contains = nodes.firstOrNull { node ->
+                val labels = nodeVisibleTexts(node)
+                labels.any { label ->
+                    label.contains(text) || (text.contains(label) && label.length >= 3)
+                }
+            }
+            if (contains != null) {
+                return ReplaySemanticTargetMatch(contains, "text_contains", text)
+            }
+        }
+        return null
+    }
+
+    private fun nodeVisibleTexts(node: UiNode): List<String> =
+        listOf(node.text, node.contentDesc, node.hintText, node.subtreeText)
+            .map(::normalizeText)
+            .filter(::isMeaningfulSemanticTargetText)
+            .distinct()
 
     private fun remapPointByResourceId(
         tool: String,
@@ -3115,12 +3930,16 @@ object UIStepExecutor {
     }
 
     private fun remapPointWithinPages(
+        tool: String,
         sourcePage: PageModel,
         targetPage: PageModel,
         sourceX: Float,
         sourceY: Float,
     ): PointMapping? {
         val sourceNode = selectPointSourceNode(sourcePage, sourceX, sourceY) ?: return null
+        if (requiresConcreteSourcePoint(tool) && isPageBackgroundSourceNode(sourceNode, sourcePage)) {
+            return null
+        }
         val targetMatch = matchTargetNode(sourcePage, targetPage, sourceNode) ?: return null
         val mapped = projectPoint(sourceNode.bounds, targetMatch.node.bounds, sourceX, sourceY)
         return PointMapping(
@@ -3135,14 +3954,55 @@ object UIStepExecutor {
         )
     }
 
+    private fun requiresConcreteSourcePoint(tool: String): Boolean =
+        tool == OobActionCodec.ACTION_CLICK ||
+            tool == OobActionCodec.ACTION_LONG_PRESS ||
+            tool == OobActionCodec.ACTION_INPUT_TEXT
+
+    private fun isPageBackgroundSourceNode(node: UiNode, page: PageModel): Boolean {
+        val rootArea = page.rootBounds.area.coerceAtLeast(1f)
+        val label = nodeLabelText(node)
+        return !node.interactive &&
+            label.isBlank() &&
+            node.area >= rootArea * 0.85f
+    }
+
+    private fun pointRemapFailureMeta(
+        sourcePage: PageModel,
+        targetPage: PageModel,
+        sourceX: Float,
+        sourceY: Float,
+    ): Map<String, Any?> {
+        val sourceNode = selectPointSourceNode(sourcePage, sourceX, sourceY)
+            ?: return mapOf(
+                "applied" to false,
+                "reason" to "no_anchor_match",
+                "source_reason" to "missing_source_element",
+                "algorithm" to "anchor_projection",
+                "old" to mapOf("x" to sourceX, "y" to sourceY),
+            )
+        val attempt = matchTargetNodeAttempt(sourcePage, targetPage, sourceNode)
+        return mapOf(
+            "applied" to false,
+            "reason" to "no_anchor_match",
+            "algorithm" to "anchor_projection",
+            "old" to mapOf("x" to sourceX, "y" to sourceY),
+            "source_element" to summarizeNode(sourceNode),
+            "debug" to attempt.debug,
+        )
+    }
+
     private fun matchTargetNode(
         sourcePage: PageModel,
         targetPage: PageModel,
         sourceNode: UiNode,
-    ): TargetMatch? {
-        // Fast path: exact identity match bypasses Bayesian
-        signatureGuard(sourceNode, targetPage)?.let { return it }
+    ): TargetMatch? = matchTargetNodeAttempt(sourcePage, targetPage, sourceNode).match
 
+    private fun matchTargetNodeAttempt(
+        sourcePage: PageModel,
+        targetPage: PageModel,
+        sourceNode: UiNode,
+    ): TargetMatchAttempt {
         val srcArea = sourcePage.rootBounds.area.coerceAtLeast(1f)
         val tgtArea = targetPage.rootBounds.area.coerceAtLeast(1f)
 
@@ -3150,16 +4010,30 @@ object UIStepExecutor {
         val allTgtInfos = targetPage.nodes.map { it.toNodeInfo(tgtArea) }
         val allTgtVecs = allTgtInfos.map { OmniflowNodeMatcher.vector(it) }
 
-        val anchorSrcNodes = sourcePage.nodes.filter { isAnchorCandidate(it, sourcePage.rootBounds) }
-            .map { it.toNodeInfo(srcArea) }
+        val anchorSourceSelection = selectLocalAnchorSourceNodes(sourcePage, sourceNode)
+        val anchorSrcNodes = anchorSourceSelection.nodes.map { it.toNodeInfo(srcArea) }
         val anchorSrcVecs = anchorSrcNodes.map { OmniflowNodeMatcher.vector(it) }
         val anchorTgtIdx = targetPage.nodes.indices.filter { isAnchorCandidate(targetPage.nodes[it], targetPage.rootBounds) }
         val anchorTgtInfos = anchorTgtIdx.map { allTgtInfos[it] }
         val anchorTgtVecs = anchorTgtIdx.map { allTgtVecs[it] }
-        val anchors = OmniflowNodeMatcher.findAnchors(anchorSrcNodes, anchorSrcVecs, anchorTgtInfos, anchorTgtVecs)
+        val anchors = weightAnchorsByLocality(
+            anchors = OmniflowNodeMatcher.findAnchors(anchorSrcNodes, anchorSrcVecs, anchorTgtInfos, anchorTgtVecs),
+            sourceNode = sourceNode,
+            rootBounds = sourcePage.rootBounds,
+        )
 
         val candIdx = targetPage.nodes.indices.filter { targetPage.nodes[it].let { n -> n.visible && n.enabled && n.area > 1f } }
-        if (candIdx.isEmpty()) return null
+        if (candIdx.isEmpty()) {
+            return TargetMatchAttempt(
+                match = null,
+                debug = mapOf(
+                    "reason" to "no_candidates",
+                    "source_element" to summarizeNode(sourceNode),
+                    "anchor_count" to anchors.size,
+                    "anchor_scope" to anchorSourceSelection.toDebugMap(),
+                ),
+            )
+        }
         val candidates = candIdx.map { targetPage.nodes[it] }
         val candInfos = candIdx.map { allTgtInfos[it] }
         val candVecs = candIdx.map { allTgtVecs[it] }
@@ -3172,56 +4046,148 @@ object UIStepExecutor {
         val scaleY = targetPage.rootBounds.height / sourcePage.rootBounds.height.coerceAtLeast(1e-6f)
 
         val result = OmniflowNodeMatcher.match(srcInfo, srcVec, candInfos, candVecs, anchors, srcDiagonal, diagonal, scaleX, scaleY)
-        if (result.abstain) return null
+        if (result.abstain) {
+            return TargetMatchAttempt(
+                match = null,
+                debug = mapOf(
+                    "reason" to "matcher_abstain",
+                    "source_element" to summarizeNode(sourceNode),
+                    "anchor_count" to anchors.size,
+                    "anchor_scope" to anchorSourceSelection.toDebugMap(),
+                ) + result.debug,
+            )
+        }
 
         val bestNode = candidates[result.index]
         if (sourceNode.interactive && !bestNode.interactive) {
-            return null
+            return TargetMatchAttempt(
+                match = null,
+                debug = mapOf(
+                    "reason" to "target_not_interactive",
+                    "source_element" to summarizeNode(sourceNode),
+                    "target_element" to summarizeNode(bestNode),
+                    "anchor_count" to anchors.size,
+                    "anchor_scope" to anchorSourceSelection.toDebugMap(),
+                ) + result.debug,
+            )
         }
-        return TargetMatch(
-            node = bestNode,
-            confidence = result.confidence,
-            anchorCount = anchors.size,
-            mode = result.mode,
-            debug = mapOf(
-                "source_element" to summarizeNode(sourceNode),
-                "target_element" to summarizeNode(bestNode),
-                "anchor_count" to anchors.size,
-            ) + result.debug,
-        )
-    }
-
-    private fun signatureGuard(sourceNode: UiNode, targetPage: PageModel): TargetMatch? {
-        val resourceId = sourceNode.resourceId.takeIf { it.isNotBlank() }
-        val text = sourceNode.text.takeIf { it.isNotBlank() }
-        val contentDesc = sourceNode.contentDesc.takeIf { it.isNotBlank() }
-        if (resourceId == null && text == null && contentDesc == null) return null
-
-        val matches = targetPage.nodes.filter { t ->
-            t.visible && t.enabled && (
-                (resourceId != null && resourceId == t.resourceId) ||
-                (text != null && text == t.text) ||
-                (contentDesc != null && contentDesc == t.contentDesc))
-        }
-        if (matches.size != 1) return null
-
-        val node = matches[0]
-        return TargetMatch(
-            node = node,
-            confidence = 1f,
-            anchorCount = 0,
-            mode = "unique_action_signature",
-            debug = mapOf(
-                "source_element" to summarizeNode(sourceNode),
-                "target_element" to summarizeNode(node),
-                "matched_by" to listOfNotNull(
-                    "resource_id".takeIf { resourceId == node.resourceId },
-                    "text".takeIf { text == node.text },
-                    "content_desc".takeIf { contentDesc == node.contentDesc },
-                ),
+        val debug = mapOf(
+            "source_element" to summarizeNode(sourceNode),
+            "target_element" to summarizeNode(bestNode),
+            "anchor_count" to anchors.size,
+            "anchor_scope" to anchorSourceSelection.toDebugMap(),
+        ) + result.debug
+        return TargetMatchAttempt(
+            match = TargetMatch(
+                node = bestNode,
+                confidence = result.confidence,
+                anchorCount = anchors.size,
+                mode = result.mode,
+                debug = debug,
             ),
+            debug = debug,
         )
     }
+
+    private fun selectLocalAnchorSourceNodes(
+        page: PageModel,
+        sourceNode: UiNode,
+    ): LocalAnchorSourceSelection {
+        val allCandidates = page.nodes
+            .filter { isAnchorCandidate(it, page.rootBounds) }
+            .sortedWith(
+                compareBy<UiNode> { anchorDistanceRatio(sourceNode, it, page.rootBounds) }
+                    .thenBy { it.area }
+                    .thenBy { it.index }
+            )
+        if (allCandidates.isEmpty()) {
+            return LocalAnchorSourceSelection(
+                emptyList(),
+                radiusRatio = 0f,
+                allCandidateCount = 0,
+                nonSelfCount = 0,
+            )
+        }
+        for (radius in LOCAL_ANCHOR_RADIUS_RATIOS) {
+            val selected = allCandidates
+                .filter { anchorDistanceRatio(sourceNode, it, page.rootBounds) <= radius }
+                .take(MAX_LOCAL_ANCHOR_SOURCE_COUNT)
+            val nonSelfCount = selected.count { !sameUiNode(it, sourceNode) }
+            if (nonSelfCount >= MIN_LOCAL_ANCHOR_SOURCE_COUNT || radius == LOCAL_ANCHOR_RADIUS_RATIOS.last()) {
+                return LocalAnchorSourceSelection(
+                    nodes = selected,
+                    radiusRatio = radius,
+                    allCandidateCount = allCandidates.size,
+                    nonSelfCount = nonSelfCount,
+                )
+            }
+        }
+        val selected = allCandidates.take(MAX_LOCAL_ANCHOR_SOURCE_COUNT)
+        return LocalAnchorSourceSelection(
+            nodes = selected,
+            radiusRatio = LOCAL_ANCHOR_RADIUS_RATIOS.last(),
+            allCandidateCount = allCandidates.size,
+            nonSelfCount = selected.count { !sameUiNode(it, sourceNode) },
+        )
+    }
+
+    private fun weightAnchorsByLocality(
+        anchors: List<OmniflowNodeMatcher.Anchor>,
+        sourceNode: UiNode,
+        rootBounds: Rect,
+    ): List<OmniflowNodeMatcher.Anchor> {
+        if (anchors.isEmpty()) return emptyList()
+        return anchors.map { anchor ->
+            val distanceRatio = anchorDistanceRatio(
+                sourceX = sourceNode.bounds.centerX,
+                sourceY = sourceNode.bounds.centerY,
+                anchorX = anchor.src.centerX,
+                anchorY = anchor.src.centerY,
+                rootBounds = rootBounds,
+            )
+            val localityPrior = exp(
+                -((distanceRatio * distanceRatio) /
+                    (2.0f * LOCAL_ANCHOR_DISTANCE_SIGMA * LOCAL_ANCHOR_DISTANCE_SIGMA)).toDouble()
+            ).toFloat().coerceIn(0.05f, 1f)
+            anchor.copy(sim = (anchor.sim * localityPrior).coerceIn(0f, 1f))
+        }
+    }
+
+    private fun anchorDistanceRatio(
+        sourceNode: UiNode,
+        anchorNode: UiNode,
+        rootBounds: Rect,
+    ): Float {
+        return anchorDistanceRatio(
+            sourceX = sourceNode.bounds.centerX,
+            sourceY = sourceNode.bounds.centerY,
+            anchorX = anchorNode.bounds.centerX,
+            anchorY = anchorNode.bounds.centerY,
+            rootBounds = rootBounds,
+        )
+    }
+
+    private fun anchorDistanceRatio(
+        sourceX: Float,
+        sourceY: Float,
+        anchorX: Float,
+        anchorY: Float,
+        rootBounds: Rect,
+    ): Float {
+        val diagonal = hypot(rootBounds.width, rootBounds.height).coerceAtLeast(1f)
+        return (hypot(sourceX - anchorX, sourceY - anchorY) / diagonal)
+            .coerceAtLeast(0f)
+    }
+
+    private fun sameUiNode(left: UiNode, right: UiNode): Boolean =
+        left.index == right.index ||
+            (
+                left.bounds == right.bounds &&
+                    left.resourceId == right.resourceId &&
+                    left.text == right.text &&
+                    left.contentDesc == right.contentDesc &&
+                    left.className == right.className
+                )
 
     private fun selectPointSourceNode(
         page: PageModel,
@@ -3675,12 +4641,15 @@ object UIStepExecutor {
     }
 
     private const val PRE_ACTION_CONTROL_DELAY_MS = 1_000L
+    private const val DISMISS_CONTROL_SETTLE_TIMEOUT_MS = 2_500L
+    private const val DISMISS_CONTROL_POLL_INTERVAL_MS = 250L
     private const val DEFAULT_SCREEN_CENTER_X = 540f
     private const val DEFAULT_SCREEN_CENTER_Y = 960f
     private const val DEFAULT_SWIPE_DISTANCE = 600f
     private val BOUNDS_REGEX = Regex("""\[(-?\d+),(-?\d+)]\[(-?\d+),(-?\d+)]""")
     private const val MIN_AD_DISMISS_SCORE = 760f
     private const val MIN_DISMISS_OVERLAY_SCORE = 760f
+    private const val MIN_PRIVACY_NOTICE_OVERLAY_SCORE = 620f
     private const val MIN_APP_UPGRADE_DISMISS_SCORE = 700f
     private const val KEYBOARD_OBSCURE_MARGIN_PX = 16f
     private const val ACTION_TARGET_HIT_MARGIN_PX = 24f
@@ -3717,10 +4686,35 @@ object UIStepExecutor {
         "dialog",
         "popup",
         "modal",
+        "privacy",
+        "privacy policy",
+        "terms",
+        "terms of service",
+        "consent",
+        "notice",
         "广告",
         "推广",
         "赞助",
         "弹窗",
+        "隐私",
+        "隐私政策",
+        "用户协议",
+        "服务条款",
+        "同意",
+        "须知",
+    )
+    private val PRIVACY_NOTICE_TERMS = setOf(
+        "privacy",
+        "privacy policy",
+        "terms",
+        "terms of service",
+        "consent",
+        "notice",
+        "隐私",
+        "隐私政策",
+        "用户协议",
+        "服务条款",
+        "须知",
     )
     private val AD_LABEL_TERMS = setOf(
         "advert",
@@ -3786,8 +4780,20 @@ object UIStepExecutor {
         "skip",
         "x",
         "×",
+        "ok",
+        "got it",
+        "continue",
+        "agree",
+        "i agree",
+        "accept",
         "关闭",
         "跳过",
+        "确定",
+        "知道了",
+        "我知道了",
+        "继续",
+        "同意",
+        "接受",
     )
     private val DISMISS_CONTAINS_LABELS = setOf(
         "close ad",
@@ -3796,11 +4802,14 @@ object UIStepExecutor {
         "skip ads",
         "dismiss ad",
         "not now",
+        "got it",
+        "i agree",
         "关闭广告",
         "跳过广告",
         "关闭弹窗",
         "稍后再说",
         "以后再说",
+        "我知道了",
     )
     private val DISMISS_RESOURCE_TAILS = setOf(
         "close",
@@ -3812,6 +4821,109 @@ object UIStepExecutor {
         "skip_ad",
         "ad_close",
         "close_ad",
+    )
+    private val FIRST_RUN_PROMPT_CUE_TERMS = setOf(
+        "welcome",
+        "get started",
+        "sign in",
+        "account",
+        "google account",
+        "back up",
+        "backup",
+        "sync",
+        "organize your",
+        "personalize",
+        "set up",
+        "setup",
+        "first run",
+        "remember photo locations",
+        "tag your photos",
+        "登录",
+        "账号",
+        "帐号",
+        "账户",
+        "备份",
+        "同步",
+        "开始使用",
+        "个性化",
+        "设置",
+    )
+    private val FIRST_RUN_PROMPT_DISMISS_EXACT_LABELS = setOf(
+        "skip",
+        "not now",
+        "no thanks",
+        "no, thanks",
+        "maybe later",
+        "later",
+        "cancel",
+        "跳过",
+        "稍后再说",
+        "以后再说",
+        "下次再说",
+        "暂不",
+        "不用了",
+        "取消",
+    )
+    private val FIRST_RUN_PROMPT_DISMISS_CONTAINS_LABELS = setOf(
+        "continue without",
+        "use without",
+        "skip sign",
+        "skip setup",
+        "not now",
+        "no thanks",
+        "maybe later",
+        "稍后再说",
+        "以后再说",
+        "跳过登录",
+        "跳过设置",
+    )
+    private val FIRST_RUN_PROMPT_SAFE_ADVANCE_EXACT_LABELS = setOf(
+        "next",
+        "continue",
+        "get started",
+        "start",
+        "done",
+        "finish",
+        "save",
+        "apply",
+        "下一步",
+        "继续",
+        "开始",
+        "完成",
+        "保存",
+        "应用",
+    )
+    private val FIRST_RUN_PROMPT_AUTH_ADVANCE_LABELS = setOf(
+        "sign in",
+        "login",
+        "log in",
+        "continue with google",
+        "continue with account",
+        "google account",
+        "account",
+        "登录",
+        "账号",
+        "帐号",
+        "账户",
+    )
+    private val FIRST_RUN_PROMPT_AFFIRMATIVE_LABELS = setOf(
+        "sign in",
+        "login",
+        "log in",
+        "continue",
+        "get started",
+        "start",
+        "next",
+        "allow",
+        "enable",
+        "turn on",
+        "登录",
+        "继续",
+        "开始",
+        "下一步",
+        "允许",
+        "启用",
+        "开启",
     )
     private val APP_UPGRADE_CUE_TERMS = setOf(
         "app update",
@@ -4037,9 +5149,18 @@ object UIStepExecutor {
 
     private const val DEFAULT_CHECKER_TRIGGER_LIMIT = 1
     private const val DEFAULT_PAGE_GUARD_TRIGGER_LIMIT = 3
+    private const val MAX_CHECKER_PHASE_CONTROL_COUNT = 3
+    private const val DISMISS_CONTROL_RETRY_LIMIT = 1
+    private const val MIN_FIRST_RUN_PROMPT_DISMISS_SCORE = 520f
     private const val REPLAY_ACTION_SETTLE_DELAY_MS = 1000L
     private const val REPLAY_TARGET_READY_TIMEOUT_MS = 0L
     private const val REPLAY_TARGET_READY_POLL_MS = 500L
+    private const val REPLAY_READY_RECOVERY_SCROLL_LIMIT = 3
+    private const val REPLAY_READY_RECOVERY_SETTLE_MS = 250L
+    private const val MIN_RECORDING_STOP_READY_MS = 2500L
+    private const val MAX_RECORDING_STOP_READY_WAIT_MS = 6000L
+    private const val RECORDING_STOP_READY_POLL_MS = 250L
+    private const val DEFAULT_WAIT_ACTION_MS = 1000L
     private const val OPEN_APP_READY_SETTLE_DELAY_MS = REPLAY_ACTION_SETTLE_DELAY_MS
     private const val OPEN_APP_READY_TIMEOUT_MS = 5000L
     private const val OPEN_APP_READY_POLL_MS = 500L
@@ -4051,6 +5172,7 @@ object UIStepExecutor {
     private const val STOP_POLL_INTERVAL_MS = 50L
     private val RESOURCE_ID_PACKAGE_PREFIX_REGEX =
         Regex("""^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+:id/""")
+    private val RECORDING_TIME_REGEX = Regex("""\b(\d{1,2}):([0-5]\d)(?::([0-5]\d))?\b""")
 
     private val REPLAY_SEMANTIC_TARGET_ACTIONS = setOf(
         OobActionCodec.ACTION_CLICK,

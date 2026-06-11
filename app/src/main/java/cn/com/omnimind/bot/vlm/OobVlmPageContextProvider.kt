@@ -116,9 +116,9 @@ class OobVlmPageContextProvider(
     }
 
     private companion object {
-        private const val MAX_IDENTITY_TEXTS = 18
-        private const val MAX_REPRESENTATIVE_ELEMENTS = 12
-        private const val MAX_GUIDANCE_CHARS = 1_200
-        private const val MAX_CONTEXT_CHARS = 4_000
+        private const val MAX_IDENTITY_TEXTS = 6
+        private const val MAX_REPRESENTATIVE_ELEMENTS = 4
+        private const val MAX_GUIDANCE_CHARS = 600
+        private const val MAX_CONTEXT_CHARS = 1_400
     }
 }

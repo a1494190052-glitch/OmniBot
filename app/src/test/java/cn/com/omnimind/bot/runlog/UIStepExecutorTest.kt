@@ -112,6 +112,11 @@ class UIStepExecutorTest {
         )
         assertFalse(
             UIStepExecutor.requiresAccessibility(
+                mapOf("executor" to "omniflow", "tool" to "wait")
+            )
+        )
+        assertFalse(
+            UIStepExecutor.requiresAccessibility(
                 mapOf("executor" to "omniflow", "tool" to "finished")
             )
         )
@@ -127,6 +132,29 @@ class UIStepExecutorTest {
 
         assertFalse(UIStepExecutor.isUIStep(step))
         assertEquals("type", UIStepExecutor.actionNameForStep(step))
+    }
+
+    @Test
+    fun `execute wait action preserves collected time ms`() = runBlocking {
+        val backend = FakeBackend(beforeXml = SOURCE_XML, afterXml = AFTER_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = UIStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "wait",
+                    "args" to mapOf("time_ms" to 1),
+                ),
+                stepId = "step_wait",
+                stepTitle = "wait while recording",
+            )
+
+            assertEquals(true, result["success"])
+            assertEquals("direct_replay", result["replay_mode"])
+            val executed = result["executed_action"] as Map<*, *>
+            val args = executed["args"] as Map<*, *>
+            assertEquals(1L, (args["time_ms"] as Number).toLong())
+            assertTrue("wait should not dispatch clicks", backend.clickPoints.isEmpty())
+        }
     }
 
     @Test
@@ -186,6 +214,156 @@ class UIStepExecutorTest {
     }
 
     @Test
+    fun `execute reads source context nested under args`() = runBlocking {
+        val backend = FakeBackend(beforeXml = SOURCE_XML, afterXml = AFTER_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = UIStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "args" to mapOf(
+                        "x" to 120,
+                        "y" to 240,
+                        "source_context" to mapOf("page" to SOURCE_XML),
+                    ),
+                ),
+                stepId = "step_args_source_context",
+                stepTitle = "click with nested source context",
+            )
+
+            assertEquals(true, result["success"])
+            assertEquals("action_transfer", result["replay_mode"])
+            val transfer = result["action_transfer"] as? Map<*, *> ?: error("missing action transfer")
+            assertEquals(true, transfer["applied"])
+            assertFalse("source_context under args must not be dropped", transfer["reason"] == "missing_source_context")
+        }
+    }
+
+    @Test
+    fun `coordinate only source context can replay recorded point when current page matches source page`() = runBlocking {
+        val sparseOverlayXml =
+            """<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy xmlns="http://schemas.android.com/apk/res/android"><node id="0" class="android.widget.FrameLayout" enabled="true" bounds="[199,66][640,157]"><node id="2" class="android.view.ViewGroup" enabled="true" clickable="true" focusable="true" bounds="[199,66][640,157]"><node id="4" text="Transient banner" class="android.widget.TextView" resource-id="com.example:id/body" enabled="true" bounds="[223,90][598,123]" /></node></node></hierarchy>"""
+        val backend = FakeBackend(beforeXml = sparseOverlayXml, afterXml = AFTER_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = UIStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "args" to mapOf(
+                        "x" to 504,
+                        "y" to 1129,
+                        "source_context" to mapOf("page" to sparseOverlayXml),
+                    ),
+                ),
+                stepId = "step_sparse_coordinate_only",
+                stepTitle = "click target outside sparse overlay xml",
+            )
+
+            assertEquals(true, result["success"])
+            assertEquals("recorded_action_replay", result["replay_mode"])
+            val transfer = result["action_transfer"] as? Map<*, *> ?: error("missing action transfer")
+            assertEquals(false, transfer["applied"])
+            assertEquals("missing_source_element", transfer["source_reason"])
+            assertEquals(true, transfer["source_page_matches_current"])
+            assertEquals(true, transfer["recorded_action_args_used"])
+            assertEquals(1, backend.clickPoints.size)
+            assertEquals(504f, backend.clickPoints.single().first, 0.01f)
+            assertEquals(1129f, backend.clickPoints.single().second, 0.01f)
+        }
+    }
+
+    @Test
+    fun `missing source point can remap by click prompt semantic target`() = runBlocking {
+        val backend = FakeBackend(beforeXml = CLOCK_HOME_XML, afterXml = CLOCK_STOPWATCH_START_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val remapped = UIStepExecutor.remapStepArgs(
+                mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "args" to mapOf(
+                        "clickPrompt" to "Stopwatch",
+                        "x" to 504,
+                        "y" to 1129,
+                        "source_context" to mapOf("page" to PRIVACY_NOTICE_NO_BUTTON_XML),
+                    ),
+                )
+            )
+            assertEquals(
+                "direct remap should use clickPrompt semantic target: ${remapped.meta}",
+                true,
+                remapped.meta["applied"],
+            )
+            val result = UIStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "args" to mapOf(
+                        "clickPrompt" to "Stopwatch",
+                        "x" to 504,
+                        "y" to 1129,
+                        "source_context" to mapOf("page" to PRIVACY_NOTICE_NO_BUTTON_XML),
+                    ),
+                ),
+                stepId = "step_sparse_source_semantic_target",
+                stepTitle = "click stopwatch after sparse source page disappeared",
+            )
+
+            assertEquals(true, result["success"])
+            assertEquals("action_transfer", result["replay_mode"])
+            val transfer = result["action_transfer"] as? Map<*, *> ?: error("missing action transfer")
+            assertEquals(true, transfer["applied"])
+            assertEquals("semantic_target", transfer["mode"])
+            val debug = transfer["debug"] as? Map<*, *> ?: error("missing transfer debug")
+            assertEquals("text_exact", debug["matched_by"])
+            assertEquals("stopwatch", debug["matched_value"])
+            assertEquals(1, backend.clickPoints.size)
+            assertEquals(504f, backend.clickPoints.single().first, 0.01f)
+            assertEquals(1152f, backend.clickPoints.single().second, 0.01f)
+        }
+    }
+
+    @Test
+    fun `privacy sparse overlay can replay recorded point when source page is hidden`() = runBlocking {
+        val backend = FakeBackend(beforeXml = PRIVACY_NOTICE_NO_BUTTON_XML, afterXml = PRIVACY_NOTICE_NO_BUTTON_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = try {
+                UIStepExecutor.execute(
+                    step = mapOf(
+                        "executor" to "omniflow",
+                        "tool" to "click",
+                        "args" to mapOf(
+                            "x" to 360,
+                            "y" to 944,
+                            "target_description" to "Start",
+                            "node_resource_id" to "com.google.android.deskclock:id/fab",
+                            "source_context" to mapOf(
+                                "src_ctx" to mapOf("page" to CLOCK_STOPWATCH_START_XML),
+                            ),
+                        ),
+                    ),
+                    stepId = "step_sparse_privacy_overlay_target_hidden",
+                    stepTitle = "click target hidden behind sparse privacy overlay xml",
+                )
+            } catch (e: UIStepExecutor.ExecutionException) {
+                throw AssertionError("diagnostics=${e.diagnostics}", e)
+            }
+
+            assertEquals(true, result["success"])
+            assertEquals("recorded_action_replay", result["replay_mode"])
+            val transfer = result["action_transfer"] as? Map<*, *> ?: error("missing action transfer")
+            assertEquals(false, transfer["applied"])
+            assertEquals("no_anchor_match", transfer["reason"])
+            assertEquals(false, transfer["source_page_matches_current"])
+            assertEquals(true, transfer["current_sparse_overlay_page"])
+            assertEquals(true, transfer["current_privacy_notice_overlay"])
+            assertEquals(true, transfer["recorded_action_args_used"])
+            assertTrue("checker should attempt to dismiss privacy overlay before replay", backend.clickPoints.size >= 2)
+            assertEquals(360f, backend.clickPoints.last().first, 0.01f)
+            assertEquals(944f, backend.clickPoints.last().second, 0.01f)
+        }
+    }
+
+    @Test
     fun `action transfer reuses the replay state captured for checker`() = runBlocking {
         val backend = FakeBackend(beforeXml = SOURCE_XML, afterXml = AFTER_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
@@ -212,7 +390,47 @@ class UIStepExecutorTest {
     }
 
     @Test
-    fun `action transfer click ignores recorded generic android resource id`() = runBlocking {
+    fun `swipe replay preserves explicit start and end coordinates`() = runBlocking {
+        val backend = FakeBackend(beforeXml = SOURCE_XML, afterXml = AFTER_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = UIStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "swipe",
+                    "args" to mapOf(
+                        "x1" to 100,
+                        "y1" to 700,
+                        "x2" to 640,
+                        "y2" to 700,
+                        "duration_ms" to 1200,
+                    ),
+                ),
+                stepId = "step_swipe_endpoint",
+                stepTitle = "drag slider",
+            )
+
+            assertEquals(true, result["success"])
+            assertEquals(emptyList<Map<String, Any?>>(), backend.scrollRequests)
+            assertEquals(1, backend.swipeRequests.size)
+            assertEquals(
+                mapOf(
+                    "startX" to 100f,
+                    "startY" to 700f,
+                    "endX" to 640f,
+                    "endY" to 700f,
+                    "durationMs" to 1200L,
+                ),
+                backend.swipeRequests.single(),
+            )
+            val executed = result["executed_action"] as? Map<*, *> ?: error("missing executed action")
+            val executedArgs = executed["args"] as? Map<*, *> ?: error("missing executed args")
+            assertEquals(100f, (executedArgs["x1"] as Number).toFloat(), 0.01f)
+            assertEquals(640f, (executedArgs["x2"] as Number).toFloat(), 0.01f)
+        }
+    }
+
+    @Test
+    fun `action transfer click does not dispatch through resource id`() = runBlocking {
         val backend = FakeBackend(beforeXml = SOURCE_XML, afterXml = AFTER_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
             val result = UIStepExecutor.execute(
@@ -237,7 +455,7 @@ class UIStepExecutorTest {
             assertEquals(true, result["success"])
             assertEquals("action_transfer", result["replay_mode"])
             assertEquals(1, backend.clickNodeResourceIds.size)
-            assertEquals("app:id/open", backend.clickNodeResourceIds.single())
+            assertEquals("", backend.clickNodeResourceIds.single())
         }
     }
 
@@ -294,6 +512,45 @@ class UIStepExecutorTest {
             assertEquals("timeout", wait["status"])
             assertEquals("semantic_target_not_visible", wait["reason"])
             assertTrue((wait["attempts"] as Number).toInt() >= 1)
+        }
+    }
+
+    @Test
+    fun `wait for replay action ready repeats previous swipe until semantic target appears`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = EMPTY_PAGE_XML,
+            afterXml = SOURCE_XML,
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val wait = UIStepExecutor.waitForReplayActionReady(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "args" to mapOf("x" to 120, "y" to 240, "target_description" to "Open"),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to SOURCE_XML),
+                    ),
+                ),
+                recoveryStep = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "swipe",
+                    "args" to mapOf(
+                        "x1" to 500,
+                        "y1" to 1050,
+                        "x2" to 500,
+                        "y2" to 350,
+                        "duration_ms" to 400,
+                    ),
+                ),
+            )
+
+            assertEquals("ready", wait["status"])
+            assertEquals("text_exact", wait["matched_by"])
+            assertEquals("open", wait["matched_value"])
+            val recovery = wait["recovery"] as? Map<*, *> ?: error("missing recovery")
+            assertEquals("swipe", recovery["action"])
+            assertEquals("repeated_previous_scroll_until_target_ready", recovery["reason"])
+            assertEquals(1, backend.swipeRequests.size)
         }
     }
 
@@ -1056,7 +1313,7 @@ class UIStepExecutorTest {
             assertEquals(true, result["success"])
             assertEquals("action_transfer", result["replay_mode"])
             val transfer = result["action_transfer"] as? Map<*, *> ?: error("missing action transfer")
-            assertEquals("anchor_projection", transfer["algorithm"])
+            assertFalse(transfer["mode"] == "resource_id")
             assertFalse(transfer["mode"] == "current_node_resource_id")
             val click = backend.clickPoints.single()
             assertTrue("click should stay in the current search affordance", click.first in 480f..1120f)
@@ -1129,6 +1386,58 @@ class UIStepExecutorTest {
     }
 
     @Test
+    fun `local anchor transfer rejects global wrong projection`() = runBlocking {
+        val backend = FakeBackend(beforeXml = CAMERA_TARGET_WITHOUT_MODE_LIST_XML, afterXml = CAMERA_TARGET_WITHOUT_MODE_LIST_XML)
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val error = try {
+                UIStepExecutor.execute(
+                    step = mapOf(
+                        "executor" to "omniflow",
+                        "tool" to "click",
+                        "coordinate_hook" to "omniflow",
+                        "args" to mapOf(
+                            "target_description" to "MODE LIST",
+                            "x" to 94.5f,
+                            "y" to 48.0f,
+                        ),
+                        "source_context" to mapOf(
+                            "src_ctx" to mapOf("page" to CAMERA_SOURCE_WITH_MODE_LIST_XML),
+                        ),
+                    ),
+                    stepId = "step_camera_mode_list",
+                    stepTitle = "click camera mode list",
+                )
+                null
+            } catch (e: UIStepExecutor.ExecutionException) {
+                e
+            }
+
+            require(error != null) { "expected OOB_FUNCTION_SOURCE_NOT_REACHED" }
+            assertEquals("OOB_FUNCTION_SOURCE_NOT_REACHED", error.errorCode)
+            assertEquals("no_anchor_match", error.diagnostics["reason"])
+            val debug = error.diagnostics["debug"] as? Map<*, *> ?: error("missing debug")
+            val gate = debug["gate"] as? Map<*, *> ?: error("missing gate")
+            assertEquals("abstain", gate["decision"])
+            assertTrue("wrong global projection should not click Options", backend.clickPoints.isEmpty())
+        }
+    }
+
+    @Test
+    fun `semantic target candidates keep phrase but drop short split tokens`() {
+        val method = UIStepExecutor::class.java.getDeclaredMethod("semanticTargetTextCandidates", Any::class.java)
+        method.isAccessible = true
+
+        @Suppress("UNCHECKED_CAST")
+        val targetTexts = method.invoke(UIStepExecutor, "Switch to Video Camera") as List<String>
+
+        assertTrue(targetTexts.contains("switch to video camera"))
+        assertTrue(targetTexts.contains("switch"))
+        assertTrue(targetTexts.contains("video"))
+        assertTrue(targetTexts.contains("camera"))
+        assertFalse("short split token should not be used as a semantic target", targetTexts.contains("to"))
+    }
+
+    @Test
     fun `omniflow loop dismisses blocking overlay before recorded click`() = runBlocking {
         val backend = FakeBackend(beforeXml = AD_OVERLAY_XML, afterXml = SOURCE_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
@@ -1192,6 +1501,344 @@ class UIStepExecutorTest {
             assertEquals(970f, backend.clickPoints.first().second, 0.01f)
             assertEquals(360f, backend.clickPoints.last().first, 0.01f)
             assertEquals(944f, backend.clickPoints.last().second, 0.01f)
+        }
+    }
+
+    @Test
+    fun `global checker accepts privacy notice before recorded click`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = PRIVACY_NOTICE_XML,
+            afterXml = CLOCK_STOPWATCH_START_XML,
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = UIStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "coordinate_hook" to "omniflow",
+                    "args" to mapOf(
+                        "target_description" to "Start",
+                        "node_resource_id" to "com.google.android.deskclock:id/fab",
+                        "x" to 360,
+                        "y" to 944,
+                    ),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to CLOCK_STOPWATCH_START_XML),
+                    ),
+                ),
+                stepId = "step_privacy_notice",
+                stepTitle = "click behind privacy notice",
+            )
+
+            assertEquals(true, result["success"])
+            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
+            val effect = controlEffects.single() as Map<*, *>
+            assertEquals("dismiss_blocking_overlay", effect["controller"])
+            assertEquals("overlay_blocking", effect["condition"])
+            assertEquals(2, backend.clickPoints.size)
+            assertEquals(360f, backend.clickPoints.first().first, 0.01f)
+            assertEquals(970f, backend.clickPoints.first().second, 0.01f)
+            assertEquals(360f, backend.clickPoints.last().first, 0.01f)
+            assertEquals(944f, backend.clickPoints.last().second, 0.01f)
+        }
+    }
+
+    @Test
+    fun `global checker dismisses sparse privacy notice without explicit button`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = PRIVACY_NOTICE_NO_BUTTON_XML,
+            afterXml = CLOCK_STOPWATCH_START_XML,
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = UIStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "coordinate_hook" to "omniflow",
+                    "args" to mapOf(
+                        "target_description" to "Start",
+                        "node_resource_id" to "com.google.android.deskclock:id/fab",
+                        "x" to 360,
+                        "y" to 944,
+                    ),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to CLOCK_STOPWATCH_START_XML),
+                    ),
+                ),
+                stepId = "step_privacy_notice_no_button",
+                stepTitle = "click behind privacy notice without button",
+            )
+
+            assertEquals(true, result["success"])
+            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
+            val effect = controlEffects.single() as Map<*, *>
+            assertEquals("dismiss_blocking_overlay", effect["controller"])
+            assertEquals("overlay_blocking", effect["condition"])
+            assertEquals(2, backend.clickPoints.size)
+            val firstClick = backend.clickPoints.first()
+            assertTrue("privacy container should be clicked first", firstClick.first in 199f..640f)
+            assertTrue("privacy container should be clicked first", firstClick.second in 66f..157f)
+        }
+    }
+
+    @Test
+    fun `global checker skips first run account prompt before recorded click`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = FIRST_RUN_ACCOUNT_PROMPT_XML,
+            afterXml = CONTACTS_HOME_XML,
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = UIStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "args" to mapOf(
+                        "target_description" to "Create contact",
+                        "node_resource_id" to "com.google.android.contacts:id/floating_action_button",
+                        "x" to 616,
+                        "y" to 984,
+                    ),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to CONTACTS_HOME_XML),
+                    ),
+                ),
+                stepId = "step_contacts_create_after_first_run_prompt",
+                stepTitle = "click create contact behind first-run prompt",
+            )
+
+            assertEquals(true, result["success"])
+            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
+            val effect = controlEffects.single() as Map<*, *>
+            assertEquals("dismiss_blocking_overlay", effect["controller"])
+            assertEquals("overlay_blocking", effect["condition"])
+            assertEquals(2, backend.clickPoints.size)
+            assertEquals(401f, backend.clickPoints.first().first, 0.01f)
+            assertEquals(1168f, backend.clickPoints.first().second, 0.01f)
+            assertEquals(616f, backend.clickPoints.last().first, 0.01f)
+            assertEquals(984f, backend.clickPoints.last().second, 0.01f)
+        }
+    }
+
+    @Test
+    fun `global checker waits for first run prompt to disappear before recorded click`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = FIRST_RUN_ACCOUNT_PROMPT_XML,
+            afterXml = CONTACTS_HOME_XML,
+            postActionXmls = listOf(
+                FIRST_RUN_ACCOUNT_PROMPT_XML,
+                FIRST_RUN_ACCOUNT_PROMPT_XML,
+                CONTACTS_HOME_XML,
+            ),
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = UIStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "args" to mapOf(
+                        "target_description" to "Create contact",
+                        "node_resource_id" to "com.google.android.contacts:id/floating_action_button",
+                        "x" to 616,
+                        "y" to 984,
+                    ),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to CONTACTS_HOME_XML),
+                    ),
+                ),
+                stepId = "step_contacts_create_after_slow_first_run_prompt",
+                stepTitle = "click create contact after delayed first-run prompt dismissal",
+            )
+
+            assertEquals(true, result["success"])
+            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
+            val effect = controlEffects.single() as Map<*, *>
+            assertEquals("dismiss_blocking_overlay", effect["controller"])
+            assertEquals(0, effect["dismiss_retry_count"])
+            assertEquals(false, effect["dismiss_still_blocking_after_retry"])
+            assertEquals(2, backend.clickPoints.size)
+            assertEquals(401f, backend.clickPoints.first().first, 0.01f)
+            assertEquals(1168f, backend.clickPoints.first().second, 0.01f)
+            assertEquals(616f, backend.clickPoints.last().first, 0.01f)
+            assertEquals(984f, backend.clickPoints.last().second, 0.01f)
+        }
+    }
+
+    @Test
+    fun `global checker advances first run next prompt before recorded click`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = CAMERA_LOCATION_PROMPT_XML,
+            afterXml = CAMERA_TARGET_WITHOUT_MODE_LIST_XML,
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = UIStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "args" to mapOf(
+                        "target_description" to "Shutter",
+                        "x" to 360,
+                        "y" to 1136,
+                    ),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to CAMERA_TARGET_WITHOUT_MODE_LIST_XML),
+                    ),
+                ),
+                stepId = "step_camera_shutter_after_location_prompt",
+                stepTitle = "click shutter after camera first-run prompt",
+            )
+
+            assertEquals(true, result["success"])
+            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
+            val effect = controlEffects.single() as Map<*, *>
+            assertEquals("dismiss_blocking_overlay", effect["controller"])
+            assertEquals("overlay_blocking", effect["condition"])
+            assertEquals(2, backend.clickPoints.size)
+            assertEquals(360f, backend.clickPoints.first().first, 0.01f)
+            assertEquals(1148f, backend.clickPoints.first().second, 0.01f)
+            assertEquals(360f, backend.clickPoints.last().first, 0.01f)
+            assertEquals(1136f, backend.clickPoints.last().second, 0.01f)
+        }
+    }
+
+    @Test
+    fun `global checker resolves chained first run and permission prompts before recorded action`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = CAMERA_LOCATION_PROMPT_XML,
+            afterXml = CAMERA_TARGET_WITHOUT_MODE_LIST_XML,
+            postActionXmls = listOf(
+                PERMISSION_ALWAYS_ALLOW_DIALOG_XML,
+                PERMISSION_ALWAYS_ALLOW_DIALOG_XML,
+                CAMERA_TARGET_WITHOUT_MODE_LIST_XML,
+            ),
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = UIStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "args" to mapOf(
+                        "target_description" to "Shutter",
+                        "x" to 360,
+                        "y" to 1136,
+                    ),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to CAMERA_TARGET_WITHOUT_MODE_LIST_XML),
+                    ),
+                ),
+                stepId = "step_camera_shutter_after_chained_prompts",
+                stepTitle = "click shutter after chained first-run prompts",
+            )
+
+            assertEquals(true, result["success"])
+            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
+            assertEquals(2, controlEffects.size)
+            val controllers = controlEffects.map { (it as Map<*, *>)["controller"] }
+            assertEquals(listOf("dismiss_blocking_overlay", "auto_grant_permission"), controllers)
+            assertEquals(3, backend.clickPoints.size)
+            assertEquals(360f, backend.clickPoints.last().first, 0.01f)
+            assertEquals(1136f, backend.clickPoints.last().second, 0.01f)
+        }
+    }
+
+    @Test
+    fun `recording stop wait is not released by transient missing recording xml`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = CAMERA_RECORDING_XML,
+            afterXml = CAMERA_RECORDING_XML,
+            preActionXmls = listOf(
+                CAMERA_RECORDING_XML,
+                CAMERA_TRANSIENT_NO_RECORDING_TIME_XML,
+                CAMERA_TRANSIENT_NO_RECORDING_TIME_XML,
+                CAMERA_TRANSIENT_NO_RECORDING_TIME_XML,
+            ),
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = UIStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "args" to mapOf(
+                        "target_description" to "Shutter",
+                        "x" to 360,
+                        "y" to 1136,
+                    ),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf("page" to CAMERA_RECORDING_XML),
+                    ),
+                ),
+                stepId = "step_camera_stop_recording",
+                stepTitle = "click shutter to stop recording",
+            )
+
+            assertEquals(true, result["success"])
+            val wait = result["pre_dispatch_wait"] as? Map<*, *> ?: error("missing pre dispatch wait")
+            assertEquals("recording_stop_min_duration", wait["reason"])
+            assertTrue((wait["waited_ms"] as Number).toLong() >= 2000L)
+            assertEquals(1, backend.clickPoints.size)
+        }
+    }
+
+    @Test
+    fun `page guard advances setup apply prompt`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = AUDIO_SETUP_PROMPT_XML,
+            afterXml = AUDIO_RECORD_READY_XML,
+            currentPackage = "com.dimowner.audiorecorder",
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = UIStepExecutor.runPageGuardOnce()
+
+            assertEquals(true, result["matched"])
+            assertEquals(true, result["executed"])
+            assertEquals("overlay_blocking", result["condition"])
+            assertEquals(1, backend.clickPoints.size)
+            assertEquals(526f, backend.clickPoints.single().first, 0.01f)
+            assertEquals(1168f, backend.clickPoints.single().second, 0.01f)
+        }
+    }
+
+    @Test
+    fun `global checker can dismiss first run prompt after package recovery`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = EMPTY_PAGE_XML,
+            afterXml = CONTACTS_HOME_XML,
+            currentPackage = "com.google.android.apps.nexuslauncher",
+            postActionXmls = listOf(FIRST_RUN_ACCOUNT_PROMPT_XML, CONTACTS_HOME_XML),
+            postActionPackages = listOf("com.google.android.contacts", "com.google.android.contacts"),
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = UIStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "click",
+                    "args" to mapOf(
+                        "target_description" to "Create contact",
+                        "node_resource_id" to "com.google.android.contacts:id/floating_action_button",
+                        "x" to 616,
+                        "y" to 984,
+                    ),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf(
+                            "package_name" to "com.google.android.contacts",
+                            "page" to CONTACTS_HOME_XML,
+                        ),
+                    ),
+                ),
+                stepId = "step_contacts_create_after_package_recovery",
+                stepTitle = "click create contact after package recovery and first-run prompt",
+            )
+
+            assertEquals(true, result["success"])
+            assertEquals(listOf("com.google.android.contacts:false"), backend.launchRequests)
+            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
+            assertEquals(2, controlEffects.size)
+            val controllers = controlEffects.map { (it as Map<*, *>)["controller"] }
+            assertEquals(listOf("package_mismatch_recovery", "dismiss_blocking_overlay"), controllers)
+            assertEquals(2, backend.clickPoints.size)
+            assertEquals(401f, backend.clickPoints.first().first, 0.01f)
+            assertEquals(1168f, backend.clickPoints.first().second, 0.01f)
+            assertEquals(616f, backend.clickPoints.last().first, 0.01f)
+            assertEquals(984f, backend.clickPoints.last().second, 0.01f)
         }
     }
 
@@ -1525,6 +2172,8 @@ class UIStepExecutorTest {
         val launchRequests = mutableListOf<String>()
         val clickPoints = mutableListOf<Pair<Float, Float>>()
         val clickNodeResourceIds = mutableListOf<String>()
+        val scrollRequests = mutableListOf<Map<String, Any?>>()
+        val swipeRequests = mutableListOf<Map<String, Any?>>()
         val inputRequests = mutableListOf<Map<String, Any?>>()
         var focusedInputCount = 0
             private set
@@ -1562,6 +2211,31 @@ class UIStepExecutorTest {
             durationMs: Long,
         ) {
             clicked = true
+            scrollRequests += mapOf(
+                "x" to x,
+                "y" to y,
+                "direction" to direction,
+                "distance" to distance,
+                "durationMs" to durationMs,
+            )
+        }
+
+        override suspend fun swipe(
+            startX: Float,
+            startY: Float,
+            endX: Float,
+            endY: Float,
+            durationMs: Long,
+            targetDescription: String,
+        ) {
+            clicked = true
+            swipeRequests += mapOf(
+                "startX" to startX,
+                "startY" to startY,
+                "endX" to endX,
+                "endY" to endY,
+                "durationMs" to durationMs,
+            )
         }
 
         override suspend fun inputTextToFocusedNode(text: String) {
@@ -1696,8 +2370,30 @@ class UIStepExecutorTest {
             "<hierarchy bounds=\"[0,0][720,1280]\"><node bounds=\"[0,0][720,1280]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.FrameLayout\"><node bounds=\"[0,176][720,1072]\" enabled=\"true\" focusable=\"true\" class=\"android.view.ViewGroup\" resource-id=\"com.google.android.deskclock:id/desk_clock_pager\"/><node bounds=\"[432,1072][576,1232]\" enabled=\"true\" clickable=\"true\" focusable=\"true\" content-desc=\"Stopwatch\" class=\"android.widget.FrameLayout\" resource-id=\"com.google.android.deskclock:id/tab_menu_stopwatch\"><node bounds=\"[433,1168][575,1209]\" enabled=\"true\" visible-to-user=\"true\" text=\"Stopwatch\" class=\"android.widget.TextView\" resource-id=\"com.google.android.deskclock:id/navigation_bar_item_small_label_view\"/></node></node></hierarchy>"
         private const val CLOCK_STOPWATCH_START_XML =
             "<hierarchy bounds=\"[0,0][720,1280]\"><node bounds=\"[0,0][720,1280]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.FrameLayout\"><node bounds=\"[48,84][259,140]\" enabled=\"true\" visible-to-user=\"true\" text=\"Stopwatch\" class=\"android.widget.TextView\" resource-id=\"com.google.android.deskclock:id/action_bar_title\"/><node bounds=\"[264,848][456,1040]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" content-desc=\"Start\" class=\"android.widget.Button\" resource-id=\"com.google.android.deskclock:id/fab\"/></node></hierarchy>"
+        private const val CAMERA_SOURCE_WITH_MODE_LIST_XML =
+            "<hierarchy bounds=\"[0,0][720,1280]\"><node id=\"0\" class=\"android.widget.FrameLayout\" enabled=\"true\" bounds=\"[0,0][720,1280]\"><node id=\"14\" content-desc=\"Options\" class=\"android.widget.LinearLayout\" resource-id=\"com.android.camera2:id/mode_options_toggle\" enabled=\"true\" clickable=\"true\" focusable=\"true\" bounds=\"[599,871][696,968]\"/><node id=\"18\" content-desc=\"Shutter\" class=\"android.widget.ImageView\" resource-id=\"com.android.camera2:id/shutter_button\" enabled=\"true\" clickable=\"true\" focusable=\"true\" bounds=\"[0,992][720,1232]\"/><node id=\"20\" text=\"MODE LIST\" content-desc=\"Toggle mode list\" class=\"android.widget.Button\" resource-id=\"com.android.camera2:id/accessibility_mode_toggle_button\" enabled=\"true\" clickable=\"true\" focusable=\"true\" bounds=\"[0,0][189,96]\"/><node id=\"21\" text=\"FILMSTRIP\" content-desc=\"Toggle filmstrip\" class=\"android.widget.Button\" resource-id=\"com.android.camera2:id/accessibility_filmstrip_toggle_button\" enabled=\"true\" clickable=\"true\" focusable=\"true\" bounds=\"[189,0][377,96]\"/><node id=\"22\" text=\"Z-\" content-desc=\"Zoom out\" class=\"android.widget.Button\" resource-id=\"com.android.camera2:id/accessibility_zoom_minus_button\" clickable=\"true\" focusable=\"true\" bounds=\"[377,0][553,96]\"/><node id=\"23\" text=\"Z+\" content-desc=\"Zoom in\" class=\"android.widget.Button\" resource-id=\"com.android.camera2:id/accessibility_zoom_plus_button\" enabled=\"true\" clickable=\"true\" focusable=\"true\" bounds=\"[553,0][720,96]\"/></node></hierarchy>"
+        private const val CAMERA_TARGET_WITHOUT_MODE_LIST_XML =
+            "<hierarchy bounds=\"[0,0][720,1280]\"><node id=\"0\" class=\"android.widget.FrameLayout\" enabled=\"true\" bounds=\"[0,0][720,1280]\"><node id=\"14\" content-desc=\"Options\" class=\"android.widget.LinearLayout\" resource-id=\"com.android.camera2:id/mode_options_toggle\" enabled=\"true\" clickable=\"true\" focusable=\"true\" bounds=\"[586,919][683,1016]\"/><node id=\"18\" content-desc=\"Shutter\" class=\"android.widget.ImageView\" resource-id=\"com.android.camera2:id/shutter_button\" enabled=\"true\" clickable=\"true\" focusable=\"true\" bounds=\"[14,1040][707,1232]\"/></node></hierarchy>"
+        private const val CAMERA_RECORDING_XML =
+            "<hierarchy bounds=\"[0,0][720,1280]\"><node id=\"0\" class=\"android.widget.FrameLayout\" enabled=\"true\" bounds=\"[0,0][720,1280]\"><node id=\"12\" text=\"00:00\" class=\"android.widget.TextView\" resource-id=\"com.android.camera2:id/recording_time\" enabled=\"true\" bounds=\"[46,46][221,101]\"/><node id=\"16\" content-desc=\"Shutter\" class=\"android.widget.ImageView\" resource-id=\"com.android.camera2:id/shutter_button\" enabled=\"true\" clickable=\"true\" focusable=\"true\" bounds=\"[14,1040][707,1232]\"/></node></hierarchy>"
+        private const val CAMERA_TRANSIENT_NO_RECORDING_TIME_XML =
+            "<hierarchy bounds=\"[0,0][720,1280]\"><node id=\"0\" class=\"android.widget.FrameLayout\" enabled=\"true\" bounds=\"[0,0][720,1280]\"><node id=\"16\" content-desc=\"Shutter\" class=\"android.widget.ImageView\" resource-id=\"com.android.camera2:id/shutter_button\" enabled=\"true\" clickable=\"true\" focusable=\"true\" bounds=\"[14,1040][707,1232]\"/></node></hierarchy>"
+        private const val CAMERA_LOCATION_PROMPT_XML =
+            "<hierarchy bounds=\"[0,0][720,1280]\"><node id=\"0\" class=\"android.widget.FrameLayout\" enabled=\"true\" visible-to-user=\"true\" bounds=\"[0,0][720,1280]\"><node id=\"5\" text=\"Remember photo locations?\" class=\"android.widget.TextView\" enabled=\"true\" visible-to-user=\"true\" bounds=\"[60,56][659,121]\"/><node id=\"8\" text=\"Tag your photos and videos with the locations where they're taken.\" class=\"android.widget.CheckBox\" resource-id=\"com.android.camera2:id/check_box\" enabled=\"true\" clickable=\"true\" focusable=\"true\" checkable=\"true\" checked=\"true\" visible-to-user=\"true\" bounds=\"[56,498][664,583]\"/><node id=\"9\" text=\"NEXT\" class=\"android.widget.Button\" resource-id=\"com.android.camera2:id/confirm_button\" enabled=\"true\" clickable=\"true\" focusable=\"true\" visible-to-user=\"true\" bounds=\"[216,1100][504,1196]\"/></node></hierarchy>"
+        private const val AUDIO_SETUP_PROMPT_XML =
+            "<hierarchy bounds=\"[0,0][720,1280]\"><node id=\"0\" class=\"android.widget.FrameLayout\" enabled=\"true\" visible-to-user=\"true\" bounds=\"[0,0][720,1280]\"><node id=\"7\" text=\"Setup\" class=\"android.widget.TextView\" enabled=\"true\" visible-to-user=\"true\" bounds=\"[112,71][233,136]\"/><node id=\"14\" text=\"Recording format:\" class=\"android.widget.TextView\" resource-id=\"com.dimowner.audiorecorder:id/setting_title\" enabled=\"true\" visible-to-user=\"true\" bounds=\"[32,401][624,444]\"/><node id=\"20\" text=\"Apply\" class=\"android.widget.Button\" resource-id=\"com.dimowner.audiorecorder:id/btn_apply\" enabled=\"true\" clickable=\"true\" focusable=\"true\" visible-to-user=\"true\" bounds=\"[438,1120][614,1216]\"/></node></hierarchy>"
+        private const val AUDIO_RECORD_READY_XML =
+            "<hierarchy bounds=\"[0,0][720,1280]\"><node id=\"0\" class=\"android.widget.FrameLayout\" enabled=\"true\" visible-to-user=\"true\" bounds=\"[0,0][720,1280]\"><node id=\"6\" text=\"Audio Recorder\" class=\"android.widget.TextView\" enabled=\"true\" visible-to-user=\"true\" bounds=\"[176,72][548,137]\"/><node id=\"13\" content-desc=\"Recording: %s\" class=\"android.widget.ImageButton\" resource-id=\"com.dimowner.audiorecorder:id/btn_record\" enabled=\"true\" clickable=\"true\" focusable=\"true\" visible-to-user=\"true\" bounds=\"[276,1032][444,1200]\"/></node></hierarchy>"
         private const val COACHMARK_TARGET_OVERLAY_XML =
             "<hierarchy bounds=\"[0,0][720,1280]\"><node bounds=\"[64,900][656,1040]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"Set a consistent bedtime for better sleep\" class=\"android.widget.TextView\" resource-id=\"com.google.android.deskclock:id/coachmark\"/></hierarchy>"
+        private const val PRIVACY_NOTICE_XML =
+            "<hierarchy bounds=\"[0,0][720,1280]\"><node bounds=\"[80,420][640,1040]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.app.Dialog\" package=\"com.google.android.deskclock\" resource-id=\"com.google.android.deskclock:id/privacy_dialog\"><node bounds=\"[120,520][600,760]\" enabled=\"true\" visible-to-user=\"true\" text=\"You can find the privacy policy here.\" class=\"android.widget.TextView\" resource-id=\"com.google.android.deskclock:id/message\"/><node bounds=\"[240,900][480,1040]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"OK\" class=\"android.widget.Button\" resource-id=\"android:id/button1\"/></node></hierarchy>"
+        private const val PRIVACY_NOTICE_NO_BUTTON_XML =
+            "<hierarchy><node bounds=\"[199,66][640,157]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.FrameLayout\"><node bounds=\"[199,66][640,157]\" clickable=\"true\" focusable=\"true\" enabled=\"true\" visible-to-user=\"true\" class=\"android.view.ViewGroup\"><node bounds=\"[223,90][598,123]\" enabled=\"true\" visible-to-user=\"true\" text=\"You can find the privacy policy here\" class=\"android.widget.TextView\" resource-id=\"com.google.android.deskclock:id/body\"/></node></node></hierarchy>"
+        private const val FIRST_RUN_ACCOUNT_PROMPT_XML =
+            "<hierarchy bounds=\"[0,0][720,1280]\"><node id=\"0\" class=\"android.widget.FrameLayout\" enabled=\"true\" visible-to-user=\"true\" bounds=\"[0,0][720,1280]\"><node id=\"9\" text=\"Contacts\" class=\"android.widget.TextView\" resource-id=\"com.google.android.contacts:id/product_name\" enabled=\"true\" visible-to-user=\"true\" bounds=\"[281,88][439,136]\"/><node id=\"10\" text=\"Back up &amp; organize your contacts with Google\" class=\"android.widget.TextView\" resource-id=\"android:id/text1\" enabled=\"true\" visible-to-user=\"true\" bounds=\"[48,200][672,311]\"/><node id=\"11\" text=\"Contacts works best with a Google Account. You'll be able to safely back up and sync your contacts to your devices.\" class=\"android.widget.TextView\" resource-id=\"android:id/text2\" enabled=\"true\" visible-to-user=\"true\" bounds=\"[48,343][672,453]\"/><node id=\"13\" text=\"Skip\" class=\"android.widget.Button\" resource-id=\"android:id/button2\" enabled=\"true\" clickable=\"true\" focusable=\"true\" visible-to-user=\"true\" bounds=\"[313,1120][489,1216]\"/><node id=\"14\" text=\"Sign in\" class=\"android.widget.Button\" resource-id=\"android:id/button1\" enabled=\"true\" clickable=\"true\" focusable=\"true\" visible-to-user=\"true\" bounds=\"[489,1120][672,1216]\"/></node></hierarchy>"
+        private const val CONTACTS_HOME_XML =
+            "<hierarchy bounds=\"[0,0][720,1280]\"><node class=\"android.widget.FrameLayout\" enabled=\"true\" visible-to-user=\"true\" bounds=\"[0,0][720,1280]\"><node text=\"Contacts\" class=\"android.widget.TextView\" resource-id=\"com.google.android.contacts:id/contacts_list_header\" enabled=\"true\" visible-to-user=\"true\" bounds=\"[48,88][240,136]\"/><node text=\"Create contact\" content-desc=\"Create contact\" class=\"android.widget.ImageButton\" resource-id=\"com.google.android.contacts:id/floating_action_button\" enabled=\"true\" clickable=\"true\" focusable=\"true\" visible-to-user=\"true\" bounds=\"[560,928][672,1040]\"/></node></hierarchy>"
         private const val TIMER_SETUP_XML =
             "<hierarchy bounds=\"[0,0][720,1280]\"><node bounds=\"[0,0][720,1280]\" enabled=\"true\" visible-to-user=\"true\" class=\"android.widget.FrameLayout\"><node bounds=\"[48,84][163,140]\" enabled=\"true\" visible-to-user=\"true\" text=\"Timer\" class=\"android.widget.TextView\" resource-id=\"com.google.android.deskclock:id/action_bar_title\"/><node bounds=\"[184,340][296,452]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"1\" class=\"android.widget.Button\" resource-id=\"com.google.android.deskclock:id/timer_setup_digit_1\"/><node bounds=\"[304,460][416,572]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"5\" class=\"android.widget.Button\" resource-id=\"com.google.android.deskclock:id/timer_setup_digit_5\"/></node></hierarchy>"
         private const val SETTINGS_APPS_XML =

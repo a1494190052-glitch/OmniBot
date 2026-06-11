@@ -705,17 +705,31 @@ class OobFunctionUpdateService(
 
     private fun sanitizeCheckerRule(raw: Map<String, Any?>): Map<String, Any?>? {
         if (raw.isEmpty()) return null
-        val condition = OmniflowCheckerRule.normalizeCondition(firstNonBlank(raw["condition"], raw["when"], raw["type"]))
-        if (condition.isBlank()) return null
-        val action = OmniflowCheckerRule.normalizeAction(raw = firstNonBlank(raw["action"], raw["then"], raw["effect"]), condition = condition)
-        if (action.isBlank() || !OmniflowCheckerRule.isSupportedPair(condition, action)) return null
+        val normalized = OmniflowCheckerRule.fromMap(raw) ?: return null
         val params = mutableMapOf<String, Any?>()
-        val rp = mapArg(raw["params"])
+        val rp = normalized.params
         val pkg = firstNonBlank(rp["package_name"], rp["packageName"], raw["package_name"], raw["packageName"])
-        if (condition == OmniflowCheckerRule.COND_PACKAGE_MISMATCH && Regex("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$").matches(pkg)) params["package_name"] = pkg
+        if (normalized.condition == OmniflowCheckerRule.COND_PACKAGE_MISMATCH && Regex("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$").matches(pkg)) params["package_name"] = pkg
+        listOf(
+            "text_any",
+            "resource_id_any",
+            "package_any",
+            "class_any",
+            "action_text_any",
+            "action_resource_id_any",
+            "delay_ms",
+            "max_triggers",
+            "maxTriggers",
+            "max_triggers_per_step",
+            "cooldown_ms",
+            "source",
+            "priority",
+        ).forEach { key ->
+            rp[key]?.let { params[key] = it }
+        }
         return linkedMapOf("id" to safeCheckerRuleId(firstNonBlank(raw["id"], "function_checker")),
-            "phase" to OmniflowCheckerRule.phaseForCondition(condition), "condition" to condition,
-            "action" to action, "enabled" to boolArgOrDefault(raw["enabled"], true), "params" to params)
+            "phase" to OmniflowCheckerRule.phaseForCondition(normalized.condition), "condition" to normalized.condition,
+            "action" to normalized.action, "enabled" to normalized.enabled, "params" to params)
     }
 
     private fun mergeCheckerRules(existing: List<Any?>, additions: List<Map<String, Any?>>): List<Any?> {

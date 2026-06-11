@@ -160,8 +160,7 @@ object OobFunctionSkillProfile {
             ?: (metadata?.get("agent_reuse") as? Map<*, *>)
         val reuseWhen = agentReuse?.get("reuse_when")?.toString()?.trim().orEmpty()
         val successSignal = agentReuse?.get("success_signal")?.toString()?.trim().orEmpty()
-        val inputSchema = OobFunctionJson.mapArg(spec["inputSchema"])
-            .ifEmpty { OobFunctionSchemaBuilder.inputSchema(spec) }
+        val inputSchema = OobFunctionSchemaBuilder.inputSchema(spec)
         val params = ((inputSchema["properties"] as? Map<*, *>)?.keys ?: emptySet<Any?>())
             .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
             .take(6)

@@ -73,13 +73,20 @@ class OmniflowActionHandler(
 
         when (action) {
             OobActionCodec.ACTION_CLICK -> {
-                backend.click(x = float("x"), y = float("y"))
+                backend.click(
+                    x = float("x"),
+                    y = float("y"),
+                    targetDescription = str("target_description"),
+                    nodeResourceId = str("node_resource_id", "resource_id", "resource-id"),
+                )
             }
             OobActionCodec.ACTION_LONG_PRESS -> {
                 backend.longPress(
                     x = float("x"),
                     y = float("y"),
                     durationMs = long("duration_ms", 800L),
+                    targetDescription = str("target_description"),
+                    nodeResourceId = str("node_resource_id", "resource_id", "resource-id"),
                 )
             }
             OobActionCodec.ACTION_INPUT_TEXT -> {
@@ -110,14 +117,29 @@ class OmniflowActionHandler(
                 val direction = ScrollDirection.entries.firstOrNull {
                     it.name.equals(str("direction"), ignoreCase = true)
                 } ?: ScrollDirection.DOWN
-                backend.scrollWithContext(
-                    x = float("x"),
-                    y = float("y"),
-                    direction = direction,
-                    distance = float("distance", 300f),
-                    durationMs = long("duration_ms", 300L),
-                    targetDescription = str("target_description"),
-                )
+                val x1 = args["x1"]?.toString()?.toFloatOrNull()
+                val y1 = args["y1"]?.toString()?.toFloatOrNull()
+                val x2 = args["x2"]?.toString()?.toFloatOrNull()
+                val y2 = args["y2"]?.toString()?.toFloatOrNull()
+                if (x1 != null && y1 != null && x2 != null && y2 != null) {
+                    backend.swipe(
+                        startX = x1,
+                        startY = y1,
+                        endX = x2,
+                        endY = y2,
+                        durationMs = long("duration_ms", 300L),
+                        targetDescription = str("target_description"),
+                    )
+                } else {
+                    backend.scrollWithContext(
+                        x = float("x"),
+                        y = float("y"),
+                        direction = direction,
+                        distance = float("distance", 300f),
+                        durationMs = long("duration_ms", 300L),
+                        targetDescription = str("target_description"),
+                    )
+                }
             }
             OobActionCodec.ACTION_OPEN_APP -> {
                 backend.launchApplication(packageName = str("package_name", "packageName", "package"))

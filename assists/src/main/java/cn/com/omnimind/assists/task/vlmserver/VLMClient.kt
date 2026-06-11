@@ -5,6 +5,7 @@ import cn.com.omnimind.baselib.llm.AssistantToolCallFunction
 import cn.com.omnimind.baselib.llm.ChatCompletionMessage
 import cn.com.omnimind.baselib.llm.ChatCompletionRequest
 import cn.com.omnimind.baselib.llm.ChatCompletionStreamOptions
+import cn.com.omnimind.baselib.llm.ChatCompletionThinking
 import cn.com.omnimind.baselib.llm.ModelSceneRegistry
 import cn.com.omnimind.baselib.llm.contentText
 import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
@@ -80,13 +81,16 @@ class VLMClient(
                 model = sceneId,
                 modelOverride = modelOverride,
                 messages = messages,
-                maxCompletionTokens = 1024,
+                maxCompletionTokens = DEFAULT_MAX_COMPLETION_TOKENS,
                 temperature = 0.2,
                 stream = true,
                 streamOptions = ChatCompletionStreamOptions(includeUsage = true),
                 tools = tools,
                 toolChoice = JsonPrimitive("required"),
-                parallelToolCalls = false
+                parallelToolCalls = false,
+                enableThinking = false,
+                reasoningEffort = "none",
+                thinking = ChatCompletionThinking(type = "disabled"),
             ),
             currentUserText = currentUserText,
             dynamicFunctionToolNames = dynamicFunctionToolNames,
@@ -578,7 +582,6 @@ class VLMClient(
                 targetDescription = requireString(args, OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION),
                 x = requireFloat(args, OobCanonicalActionSchema.ARG_X),
                 y = requireFloat(args, OobCanonicalActionSchema.ARG_Y),
-                elementIndex = optionalInt(args, OobCanonicalActionSchema.ARG_ELEMENT_INDEX),
                 nodeId = optionalString(args, OobCanonicalActionSchema.ARG_NODE_ID)
             )
             OobCanonicalActionSchema.TOOL_INPUT_TEXT -> InputTextAction(
@@ -586,7 +589,6 @@ class VLMClient(
                 text = requireString(args, OobCanonicalActionSchema.ARG_TEXT),
                 x = requireFloat(args, OobCanonicalActionSchema.ARG_X),
                 y = requireFloat(args, OobCanonicalActionSchema.ARG_Y),
-                elementIndex = optionalInt(args, OobCanonicalActionSchema.ARG_ELEMENT_INDEX),
                 nodeId = optionalString(args, OobCanonicalActionSchema.ARG_NODE_ID)
             )
             OobCanonicalActionSchema.TOOL_SWIPE -> SwipeAction(
@@ -603,7 +605,6 @@ class VLMClient(
                 targetDescription = requireString(args, OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION),
                 x = requireFloat(args, OobCanonicalActionSchema.ARG_X),
                 y = requireFloat(args, OobCanonicalActionSchema.ARG_Y),
-                elementIndex = optionalInt(args, OobCanonicalActionSchema.ARG_ELEMENT_INDEX),
                 nodeId = optionalString(args, OobCanonicalActionSchema.ARG_NODE_ID)
             )
             OobCanonicalActionSchema.TOOL_OPEN_APP -> OpenAppAction(
@@ -765,7 +766,6 @@ class VLMClient(
     private fun parseCompactAdjacentArguments(raw: String): JsonObject {
         val keys = listOf(
             OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION,
-            OobCanonicalActionSchema.ARG_ELEMENT_INDEX,
             OobCanonicalActionSchema.ARG_NODE_ID,
             OobCanonicalActionSchema.ARG_NODE_RESOURCE_ID,
             OobCanonicalActionSchema.ARG_SCROLLABLE_INDEX,
@@ -1269,6 +1269,7 @@ class VLMClient(
 
     private companion object {
         private const val TAG = "VLMClient"
+        private const val DEFAULT_MAX_COMPLETION_TOKENS = 384
         private const val MAX_HISTORY_ACTION_CHARS = 160
         private const val MAX_HISTORY_RESULT_CHARS = 220
         private const val MAX_HISTORY_OBSERVATION_CHARS = 360

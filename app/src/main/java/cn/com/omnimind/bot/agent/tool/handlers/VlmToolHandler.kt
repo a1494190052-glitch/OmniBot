@@ -9,6 +9,7 @@ import cn.com.omnimind.bot.agent.AgentExecutionEnvironment
 import cn.com.omnimind.bot.agent.AgentToolExecutionHandle
 import cn.com.omnimind.bot.agent.AgentToolRegistry
 import cn.com.omnimind.bot.agent.ToolExecutionResult
+import cn.com.omnimind.bot.mcp.McpTaskManager
 import cn.com.omnimind.bot.mcp.VlmTaskRequest
 import cn.com.omnimind.bot.util.AssistsUtil
 import cn.com.omnimind.bot.vlm.VlmToolCoordinator
@@ -66,6 +67,7 @@ class VlmToolHandler(
         toolHandle: AgentToolExecutionHandle
     ): ToolExecutionResult {
         val vlmTaskId = UUID.randomUUID().toString()
+        var keepVlmUiSessionForClarify = false
         toolHandle.bindStopAction {
             VlmToolCoordinator.cancelTask(vlmTaskId, scope)
         }
@@ -171,7 +173,7 @@ class VlmToolHandler(
                     skipGoHome = safeArgs.startFromCurrent,
                     stepSkillGuidance = resolvedSkills.joinToString("\n\n") { it.stepGuidance() },
                     disableOmniFlowRecall = safeArgs.disableOmniFlowRecall,
-                    allowOmniFlowFunctionAutoExecute = false
+                    allowOmniFlowFunctionAutoExecute = !safeArgs.disableOmniFlowRecall
                 ),
                 scope = scope,
                 taskIdOverride = vlmTaskId,
@@ -227,6 +229,10 @@ class VlmToolHandler(
                 VlmToolOutcomeStatus.WAITING_INPUT -> {
                     val question = outcome.waitingQuestion ?: outcome.message.ifBlank { "请提供继续执行所需的信息。" }
                     val localizedQuestion = helper.localized(question)
+                    keepVlmUiSessionForClarify = VlmToolCoordinator.hasPendingOmniFlowFunctionCall(vlmTaskId)
+                    if (keepVlmUiSessionForClarify) {
+                        McpTaskManager.bindPendingOmniFlowClarifyTask(toolHandle.runId, vlmTaskId)
+                    }
                     callback.onClarifyRequired(localizedQuestion, null)
                     ToolExecutionResult.Clarify(localizedQuestion, null)
                 }
@@ -259,7 +265,9 @@ class VlmToolHandler(
         } catch (e: Exception) {
             ToolExecutionResult.Error(AgentToolNames.VLM_TASK, helper.localized(e.message ?: "Unknown error"))
         } finally {
-            AgentVlmUiSession.endTask(vlmTaskId)
+            if (!keepVlmUiSessionForClarify) {
+                AgentVlmUiSession.endTask(vlmTaskId)
+            }
         }
     }
 

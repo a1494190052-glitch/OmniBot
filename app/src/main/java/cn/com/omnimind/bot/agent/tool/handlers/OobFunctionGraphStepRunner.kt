@@ -48,6 +48,7 @@ class OobFunctionGraphStepRunner(
             val preActionReadyWait = if (index > 0) {
                 UIStepExecutor.waitForReplayActionReady(
                     step = primitiveStep,
+                    recoveryStep = path[index - 1],
                     stopRequested = stopRequested,
                 )
             } else {

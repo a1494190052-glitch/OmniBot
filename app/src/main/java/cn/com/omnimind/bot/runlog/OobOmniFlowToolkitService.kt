@@ -10,6 +10,7 @@ import cn.com.omnimind.bot.omniflow.OobFunctionRecallService
 import cn.com.omnimind.bot.omniflow.OobFunctionRepository
 import cn.com.omnimind.bot.omniflow.OobFunctionRunPolicy
 import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
+import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
 import cn.com.omnimind.bot.omniflow.OobFunctionUpdateAgentOrchestrator
 import cn.com.omnimind.bot.omniflow.OobFunctionUpdateService
 import cn.com.omnimind.bot.omniflow.OobFunctionRunner
@@ -46,9 +47,29 @@ class OobOmniFlowToolkitService(
     private val functionRunner = OobFunctionRunner(context, workspaceFunctionStore, functionRepository)
     private val functionRunPolicy = OobFunctionRunPolicy(functionRepository)
     private val functionUpdateService = OobFunctionUpdateService(context, functionRepository)
-    private val functionUpdateAgentOrchestrator =
+    private val functionUpdateOrchestrator =
         OobFunctionUpdateAgentOrchestrator(functionUpdateService, updateAgentRequester)
     private val explorer = OobOmniFlowExplorer(context)
+
+    suspend fun executeTool(name: String?, args: Map<String, Any?>?): Map<String, Any?> {
+        return when (name) {
+            "omniflow.recall" -> recall(args)
+            "omniflow.ingest_run_log" -> ingestRunLog(args)
+            "omniflow.explore_replay" -> exploreAndReplay(args)
+            OobFunctionToolNames.FUNCTION_LIST -> listFunctions(args)
+            OobFunctionToolNames.FUNCTION_GET -> getFunction(args)
+            OobFunctionToolNames.FUNCTION_REGISTER -> registerFunction(args)
+            OobFunctionToolNames.FUNCTION_UPDATE -> updateFunction(args)
+            OobFunctionToolNames.FUNCTION_GUARD_CHECK -> guardCheck(args)
+            OobFunctionToolNames.FUNCTION_DELETE -> deleteFunction(args)
+            OobFunctionToolNames.FUNCTION_CLEAR -> clearFunctions(args)
+            OobFunctionToolNames.RUN_LOG_LIST -> listRunLogs(args)
+            OobFunctionToolNames.RUN_LOG_GET -> getRunLog(args)
+            OobFunctionToolNames.RUN_LOG_CONVERT -> convertRunLog(args)
+            null, "" -> errorPayload(code = "TOOL_NAME_EMPTY", message = "Missing OmniFlow tool name")
+            else -> errorPayload(code = "UNKNOWN_OMNIFLOW_TOOL", message = "Unknown OmniFlow tool: $name")
+        }
+    }
 
     fun recall(args: Map<String, Any?>?): Map<String, Any?> =
         functionRecallService.recall(args)
@@ -221,12 +242,18 @@ class OobOmniFlowToolkitService(
         )
     }
 
-    fun listFunctions(args: Map<String, Any?>?): Map<String, Any?> =
-        functionRepository.list(
-            limit = intArg(args?.get("limit"), defaultValue = 100),
-            offset = intArg(args?.get("offset"), defaultValue = 0),
-            includeHidden = boolArg(args?.get("include_hidden")),
+    fun listFunctions(args: Map<String, Any?>?): Map<String, Any?> {
+        val request = args ?: emptyMap()
+        if (boolArg(request["auto_register"]) || boolArg(request["autoRegister"])) {
+            runCatching { replayService.autoRegisterRecentRunLogs(limit = 50) }
+                .onFailure { OmniLog.w(TAG, "list OOB functions auto-register failed: ${it.message}") }
+        }
+        return functionRepository.list(
+            limit = intArg(request["limit"], defaultValue = 100),
+            offset = intArg(request["offset"], defaultValue = 0),
+            includeHidden = boolArg(request["include_hidden"]) || boolArg(request["includeHidden"]),
         )
+    }
 
     fun getFunction(args: Map<String, Any?>?): Map<String, Any?> {
         val functionId = firstNonBlank(args?.get("function_id"))
@@ -418,7 +445,7 @@ class OobOmniFlowToolkitService(
     }
 
     suspend fun updateFunction(args: Map<String, Any?>?): Map<String, Any?> =
-        functionUpdateAgentOrchestrator.updateFunction(args)
+        functionUpdateOrchestrator.updateFunction(args)
 
     fun guardCheck(args: Map<String, Any?>?): Map<String, Any?> {
         val request = args ?: emptyMap()
@@ -496,7 +523,7 @@ class OobOmniFlowToolkitService(
                 frontendParent = frontendParent,
             )
         }
-        runPayload = callTiming.attachTo(runPayload)
+        runPayload = normalizeIncompleteReplay(callTiming.attachTo(runPayload))
         val fallbackMetadata = functionRunPolicy.fallbackMetadata(
             functionId = functionId,
             arguments = arguments,
@@ -586,6 +613,37 @@ class OobOmniFlowToolkitService(
             "guard" to guard,
             "result" to runPayload
         ).filterValues { it != null }
+    }
+
+    private fun normalizeIncompleteReplay(payload: Map<String, Any?>): Map<String, Any?> {
+        if (payload["success"] != true) return payload
+        val stepResults = listArg(payload["step_results"])
+        val stepCount = intArg(payload["step_count"], defaultValue = stepResults.size)
+        val activeStepCount = intArg(payload["active_step_count"], defaultValue = stepCount)
+        if (activeStepCount <= 0) return payload
+        val successStepCount = intArg(
+            payload["success_step_count"],
+            defaultValue = stepResults.count { raw -> mapArg(raw)["success"] != false },
+        )
+        val resumeFromStep = intArg(payload["resume_from_step"], defaultValue = 0).coerceAtLeast(0)
+        val completedStepCount = intArg(
+            payload["completed_step_count"],
+            defaultValue = (resumeFromStep + successStepCount).coerceAtMost(stepCount),
+        )
+        val completedAllActiveSteps = successStepCount >= activeStepCount &&
+            completedStepCount >= (resumeFromStep + activeStepCount).coerceAtMost(stepCount)
+        if (completedAllActiveSteps) return payload
+        return linkedMapOf<String, Any?>().apply {
+            putAll(payload)
+            put("success", false)
+            put("error_code", "OOB_FUNCTION_INCOMPLETE")
+            put(
+                "error_message",
+                "Function replay finished before all active steps completed: " +
+                    "$successStepCount/$activeStepCount"
+            )
+            put("incomplete_replay_normalized", true)
+        }
     }
 
     private fun functionArguments(request: Map<String, Any?>): Map<String, Any?> =

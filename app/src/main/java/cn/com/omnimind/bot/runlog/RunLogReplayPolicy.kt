@@ -88,7 +88,6 @@ object RunLogReplayPolicy {
         "status_update",
         "assistant_response",
         "get_state",
-        TOOL_WAIT,
     )
 
     fun normalizeToolName(toolName: String): String = toolName.trim().lowercase()

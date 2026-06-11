@@ -108,6 +108,7 @@ class OobCanonicalActionSchema {
   static const argPackageName = "package_name";
   static const argKey = "key";
   static const argTimeS = "time_s";
+  static const argTimeMs = "time_ms";
   static const argReason = "reason";
   static const argFunctionId = "function_id";
   static const argToolName = "tool_name";
@@ -255,6 +256,7 @@ class OobCanonicalActionSchema {
       argsTemplate: const <String, Object?>{},
       args: <OobActionArgSpec>[
         OobActionArgSpec(name: "time_s", type: OobActionArgType.number, description: OobLocalizedText(zhCn: "等待秒数。", enUs: "Seconds to wait."), minimum: 0),
+        OobActionArgSpec(name: "time_ms", type: OobActionArgType.integer, description: OobLocalizedText(zhCn: "等待毫秒数；兼容已采集轨迹。", enUs: "Milliseconds to wait; compatible with collected trajectories."), minimum: 0),
         OobActionArgSpec(name: "duration_ms", type: OobActionArgType.integer, description: OobLocalizedText(zhCn: "等待毫秒数；与 time_s 二选一。", enUs: "Milliseconds to wait; alternative to time_s."), minimum: 0),
       ],
       modelVisible: true,

@@ -5,12 +5,17 @@ import android.content.Context
 import android.content.Intent
 import android.util.Base64
 import com.google.gson.reflect.TypeToken
+import cn.com.omnimind.accessibility.service.AssistsService
+import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
+import cn.com.omnimind.bot.util.AssistsUtil
+import cn.com.omnimind.uikit.settings.CompanionOverlaySettings
 import com.google.gson.GsonBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.security.MessageDigest
 import java.io.File
@@ -50,24 +55,40 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
         val replayArguments = intent.decodeJsonMapBase64Extra("argumentsBase64")
             ?: intent.decodeJsonMapBase64Extra("replayArgumentsBase64")
             ?: emptyMap()
+        val rawFunctionSpec = intent.decodeJsonMapBase64Extra("functionSpecBase64")
+            ?: intent.decodeJsonMapBase64Extra("function_spec_base64")
+            ?: intent.readJsonMapPath(appContext, "functionSpecPath", "function_spec_path")
+            ?: emptyMap()
         val rawRunLog = intent.decodeBase64Extra("runLogBase64")
             ?.let(::decodeRunLog)
             ?: intent.readRunLogPath(appContext)
             ?: emptyMap()
+        val rawRunLogHasReplayableSteps = rawRunLog.hasReplayableSteps()
 
         scope.launch {
             val result = runCatching {
+                waitForAccessibility(appContext)
+                CompanionOverlaySettings.init(appContext)
+                CompanionOverlaySettings.dismissFloatingUi()
+                delay(300L)
                 val service = OobOmniFlowToolkitService(appContext)
                 val convertArgs = linkedMapOf<String, Any?>(
                     "run_id" to runId,
                     "register" to true,
                     "agent_visible" to agentVisible,
                 )
-                if (rawRunLog.isNotEmpty()) {
+                if (rawRunLogHasReplayableSteps) {
                     convertArgs.remove("run_id")
                     convertArgs["run_log"] = rawRunLog
                 }
-                functionId.takeIf { it.isNotBlank() }?.let {
+                val inlineFunctionId = firstNonBlank(
+                    functionId,
+                    rawFunctionSpec["function_id"],
+                    rawFunctionSpec["functionId"],
+                    rawFunctionSpec["id"],
+                    rawFunctionSpec["name"],
+                )
+                inlineFunctionId.takeIf { it.isNotBlank() }?.let {
                     convertArgs["function_id"] = it
                 }
                 name.takeIf { it.isNotBlank() }?.let {
@@ -77,21 +98,27 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                     convertArgs["description"] = it
                 }
 
-                val convert = if (rawRunLog.isNotEmpty()) {
-                    service.ingestRunLog(linkedMapOf("run_log" to rawRunLog))
-                } else {
-                    service.convertRunLog(convertArgs)
+                val convert = when {
+                    rawRunLogHasReplayableSteps -> service.ingestRunLog(linkedMapOf("run_log" to rawRunLog))
+                    rawFunctionSpec.isNotEmpty() -> linkedMapOf<String, Any?>(
+                        "success" to true,
+                        "function_id" to inlineFunctionId,
+                        "function_spec" to rawFunctionSpec,
+                        "source" to "oob_function_spec",
+                    )
+                    else -> service.convertRunLog(convertArgs)
                 }
-                val inlineFunctionSpec = if (rawRunLog.isNotEmpty()) {
-                    ((convert["result"] as? Map<*, *>)?.get("function_spec") as? Map<*, *>)
-                        ?.mapKeys { it.key?.toString().orEmpty() }
-                        ?: (convert["function_spec"] as? Map<*, *>)?.mapKeys { it.key?.toString().orEmpty() }
-                } else {
-                    null
+                val inlineFunctionSpec = when {
+                    rawRunLogHasReplayableSteps -> {
+                        ((convert["result"] as? Map<*, *>)?.get("function_spec") as? Map<*, *>)
+                            ?.mapKeys { it.key?.toString().orEmpty() }
+                            ?: (convert["function_spec"] as? Map<*, *>)?.mapKeys { it.key?.toString().orEmpty() }
+                    }
+                    rawFunctionSpec.isNotEmpty() -> rawFunctionSpec
+                    else -> null
                 }
                 val inlineRegistration = if (
                     shouldRun &&
-                    rawRunLog.isNotEmpty() &&
                     convert["success"] == true &&
                     inlineFunctionSpec != null
                 ) {
@@ -172,6 +199,8 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                             "function_id" to createdFunctionId,
                             "goal" to effectiveGoal,
                             "arguments" to replayArguments,
+                            "confirmed" to true,
+                            "frontend_parent" to "debug_replay",
                         )
                     )
                 } else {
@@ -240,9 +269,24 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
 
     companion object {
         private const val TAG = "DebugRunLogFunctionReplayReceiver"
+        private const val ACCESSIBILITY_ATTEMPTS = 300
+        private const val ACCESSIBILITY_INTERVAL_MS = 200L
         private val gson = GsonBuilder().disableHtmlEscaping().create()
         private val mapType = object : TypeToken<Map<String, Any?>>() {}.type
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    }
+
+    private suspend fun waitForAccessibility(context: Context) {
+        if (!AssistsUtil.Core.isInitialized()) {
+            AssistsUtil.Core.initCore(context)
+        }
+        repeat(ACCESSIBILITY_ATTEMPTS) {
+            if (AssistsService.instance != null && AccessibilityController.initController()) {
+                return
+            }
+            delay(ACCESSIBILITY_INTERVAL_MS)
+        }
+        error("OOB accessibility service is not bound")
     }
 
     private fun Intent?.decodeBase64Extra(name: String): String? {
@@ -312,9 +356,13 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
     }
 
     private fun Intent?.readRunLogPath(context: Context): Map<String, Any?>? {
-        val rawPath = this?.getStringExtra("runLogPath")
-            ?: this?.getStringExtra("run_log_path")
-            ?: return null
+        return readJsonMapPath(context, "runLogPath", "run_log_path")
+    }
+
+    private fun Intent?.readJsonMapPath(context: Context, vararg names: String): Map<String, Any?>? {
+        val rawPath = names.firstNotNullOfOrNull { name ->
+            this?.getStringExtra(name)?.trim()?.takeIf { it.isNotEmpty() }
+        } ?: return null
         val path = rawPath.trim().takeIf { it.isNotEmpty() } ?: return null
         return runCatching {
             val baseDir = context.filesDir.canonicalFile
@@ -322,14 +370,23 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                 if (candidate.isAbsolute) candidate else File(baseDir, path)
             }.canonicalFile
             require(file.path.startsWith(baseDir.path + File.separator)) {
-                "RunLog path must be inside app files directory"
+                "JSON path must be inside app files directory"
             }
             decodeRunLog(file.readText())
         }.getOrElse { error ->
-            OmniLog.e(TAG, "read runlog path failed: ${error.message}", error)
+            OmniLog.e(TAG, "read JSON path failed: ${error.message}", error)
             emptyMap()
         }
     }
+
+    private fun firstNonBlank(vararg values: Any?): String =
+        values.firstNotNullOfOrNull { value ->
+            value?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+        }.orEmpty()
+
+    private fun Map<String, Any?>.hasReplayableSteps(): Boolean =
+        (this["steps"] as? List<*>)?.isNotEmpty() == true ||
+            (this["cards"] as? List<*>)?.isNotEmpty() == true
 
     private fun Intent?.booleanExtra(name: String): Boolean? =
         this?.takeIf { it.hasExtra(name) }?.getBooleanExtra(name, false)

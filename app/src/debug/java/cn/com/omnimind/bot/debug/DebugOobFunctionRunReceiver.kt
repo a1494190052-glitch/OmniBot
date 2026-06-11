@@ -11,6 +11,7 @@ import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
 import cn.com.omnimind.bot.runlog.OmniflowActionRuntime
 import cn.com.omnimind.bot.runlog.RunLogPagePackageInference
 import cn.com.omnimind.bot.util.AssistsUtil
+import cn.com.omnimind.uikit.settings.CompanionOverlaySettings
 import com.google.gson.GsonBuilder
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CoroutineScope
@@ -37,6 +38,9 @@ class DebugOobFunctionRunReceiver : BroadcastReceiver() {
         scope.launch {
             val result = runCatching {
                 waitForReplayPage(appContext)
+                CompanionOverlaySettings.init(appContext)
+                CompanionOverlaySettings.dismissFloatingUi()
+                delay(300L)
                 runFunctionWithRunLogFallback(appContext, functionId, goal, arguments)
             }.getOrElse { error ->
                 linkedMapOf<String, Any?>(
@@ -103,6 +107,7 @@ class DebugOobFunctionRunReceiver : BroadcastReceiver() {
             "function_id" to functionId,
             "goal" to goal,
             "arguments" to arguments,
+            "frontend_parent" to "debug_replay",
         )
 
     private fun isFunctionNotFound(result: Map<String, Any?>): Boolean =
@@ -131,7 +136,7 @@ class DebugOobFunctionRunReceiver : BroadcastReceiver() {
         ).filterValues { it != null }
 
     private suspend fun waitForAccessibility() {
-        repeat(50) {
+        repeat(300) {
             if (AssistsService.instance != null && AccessibilityController.initController()) return
             delay(200L)
         }

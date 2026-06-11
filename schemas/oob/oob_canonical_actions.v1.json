@@ -145,6 +145,7 @@
       "prompt_guide": {"zh_cn": "- wait(time_s?): 只在页面明确处于加载、动画或等待外部状态变化时使用。", "en_us": "- wait(time_s?): Use only when the page is clearly loading, animating, or waiting for an external state change."},
       "args": [
         {"name": "time_s", "type": "number", "description": {"zh_cn": "等待秒数。", "en_us": "Seconds to wait."}, "minimum": 0},
+        {"name": "time_ms", "type": "integer", "description": {"zh_cn": "等待毫秒数；兼容已采集轨迹。", "en_us": "Milliseconds to wait; compatible with collected trajectories."}, "minimum": 0},
         {"name": "duration_ms", "type": "integer", "description": {"zh_cn": "等待毫秒数；与 time_s 二选一。", "en_us": "Milliseconds to wait; alternative to time_s."}, "minimum": 0}
       ]
     },

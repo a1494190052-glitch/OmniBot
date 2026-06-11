@@ -26,8 +26,6 @@ data class ClickAction(
     val targetDescription: String,
     var x: Float,
     var y: Float,
-    @SerialName("element_index")
-    val elementIndex: Int? = null,
     @SerialName("node_id")
     val nodeId: String? = null
 ) : UIAction()
@@ -41,8 +39,6 @@ data class InputTextAction(
     val text: String,
     var x: Float,
     var y: Float,
-    @SerialName("element_index")
-    val elementIndex: Int? = null,
     @SerialName("node_id")
     val nodeId: String? = null
 ) : UIAction()
@@ -72,8 +68,6 @@ data class LongPressAction(
     val targetDescription: String,
     var x: Float,
     var y: Float,
-    @SerialName("element_index")
-    val elementIndex: Int? = null,
     @SerialName("node_id")
     val nodeId: String? = null
 ) : UIAction()

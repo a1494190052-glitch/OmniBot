@@ -3,8 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ui/features/home/pages/chat/chat_page_models.dart';
 import 'package:ui/features/home/pages/chat/widgets/chat_empty_greeting.dart';
-import 'package:ui/features/home/pages/chat/widgets/agent_tool_activity_card.dart';
 import 'package:ui/features/home/pages/chat/widgets/chat_widgets.dart';
+import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_summary_card.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/deep_thinking_card.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_transcript.dart';
 import 'package:ui/l10n/generated/app_localizations.dart';
@@ -873,11 +873,19 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('agent-run-summary-task-2')));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
 
-    expect(find.byKey(kAgentToolDetailSheetKey), findsOneWidget);
-    expect(find.byType(AgentToolActivityCard), findsNothing);
+    expect(
+      find.byKey(const ValueKey('agent-run-process-task-2')),
+      findsOneWidget,
+    );
+    expect(find.byType(AgentToolSummaryCard), findsNWidgets(2));
     expect(find.text('点击登录按钮'), findsOneWidget);
+
+    await tester.tap(find.byType(AgentToolSummaryCard).first);
+    await tester.pumpAndSettle();
+    expect(find.byKey(kAgentToolDetailSheetKey), findsOneWidget);
   });
 
   testWidgets('process rows localize in Chinese and stay compact', (
@@ -918,26 +926,11 @@ void main() {
     final thinkingSurface = find.byKey(
       const ValueKey('agent-thinking-activity-row-task-mixed-thinking'),
     );
-    final genericSurface = find.byKey(
-      const ValueKey(
-        'agent-tool-activity-compact-surface-task-mixed-generic-activity',
-      ),
-    );
-    final researchSurface = find.byKey(
-      const ValueKey(
-        'agent-tool-activity-compact-surface-task-mixed-research-activity',
-      ),
-    );
     expect(thinkingSurface, findsOneWidget);
-    expect(genericSurface, findsOneWidget);
-    expect(researchSurface, findsOneWidget);
-    final cardWidth = tester.getSize(researchSurface).width;
+    expect(find.byType(AgentToolSummaryCard), findsNWidgets(2));
+    final cardWidth = tester.getSize(thinkingSurface).width;
     expect(cardWidth, lessThan(400 * 0.9));
-    expect(tester.getSize(thinkingSurface).width, closeTo(cardWidth, 0.01));
-    expect(tester.getSize(genericSurface).width, closeTo(cardWidth, 0.01));
     _expectUniformProcessText(tester, thinkingSurface);
-    _expectUniformProcessText(tester, genericSurface);
-    _expectUniformProcessText(tester, researchSurface);
     expect(tester.takeException(), isNull);
   });
 
@@ -972,7 +965,7 @@ void main() {
       find.byKey(const ValueKey('agent-run-process-task-repeated')),
       findsOneWidget,
     );
-    expect(find.byType(AgentToolActivityCard), findsNWidgets(2));
+    expect(find.byType(AgentToolSummaryCard), findsNWidgets(2));
     expect(tester.takeException(), isNull);
   });
 
@@ -1033,27 +1026,18 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 320));
 
+    expect(
+      find.byKey(const ValueKey('agent-run-process-task-vlm')),
+      findsOneWidget,
+    );
     expect(find.text('输入 hello'), findsOneWidget);
+    expect(find.textContaining('设置按钮'), findsOneWidget);
     expect(find.text('视觉执行'), findsNothing);
     expect(find.text('网页搜索'), findsNothing);
     expect(find.text('Visual task'), findsNothing);
 
-    expect(find.byType(AgentToolActivityCard), findsOneWidget);
-    final vlmSurface = find.byKey(
-      const ValueKey(
-        'agent-tool-activity-compact-surface-task-vlm-vlm-activity',
-      ),
-    );
-    expect(vlmSurface, findsOneWidget);
-    expect(tester.getSize(vlmSurface).width, lessThan(400 * 0.9));
-
+    expect(find.byType(AgentToolSummaryCard), findsNWidgets(2));
     expect(find.text('2 步'), findsNothing);
-    expect(find.textContaining('设置按钮'), findsNothing);
-
-    await tester.tap(vlmSurface);
-    await tester.pumpAndSettle();
-    expect(find.text('暂无步骤数据'), findsOneWidget);
-    expect(find.textContaining('没有工具调用'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -1082,24 +1066,12 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 320));
 
-    expect(find.byType(AgentToolActivityCard), findsOneWidget);
+    expect(find.byType(AgentToolSummaryCard), findsNWidgets(2));
     expect(find.text('输入 hello'), findsOneWidget);
+    expect(find.textContaining('设置按钮'), findsOneWidget);
     expect(find.text('视觉执行'), findsNothing);
     expect(find.text('2 步'), findsNothing);
-    expect(find.textContaining('设置按钮'), findsNothing);
     expect(find.text('工具调用历史'), findsNothing);
-
-    await tester.tap(
-      find.byKey(
-        const ValueKey(
-          'agent-tool-activity-compact-surface-task-vlm-vlm-activity',
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('暂无步骤数据'), findsOneWidget);
-    expect(find.textContaining('没有工具调用'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -1128,17 +1100,11 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 320));
 
-    expect(find.byType(AgentToolActivityCard), findsOneWidget);
+    expect(find.byType(AgentToolSummaryCard), findsNWidgets(2));
     expect(find.text('查看完整 RunLog'), findsNothing);
     expect(find.text('输入 hello'), findsOneWidget);
-    expect(find.textContaining('设置按钮'), findsNothing);
 
-    final surface = find.byKey(
-      const ValueKey(
-        'agent-tool-activity-compact-surface-task-vlm-vlm-activity',
-      ),
-    );
-    await tester.tap(surface);
+    await tester.tap(find.byKey(const ValueKey('agent-run-runlog-task-vlm')));
     await tester.pumpAndSettle();
 
     expect(find.text('暂无步骤数据'), findsOneWidget);
@@ -1222,6 +1188,12 @@ void main() {
       find.byKey(const ValueKey('agent-run-process-task-thinking-only')),
       findsOneWidget,
     );
+    final thinkingRow = find.byKey(
+      const ValueKey('agent-thinking-activity-row-task-thinking-only-card'),
+    );
+    expect(thinkingRow, findsOneWidget);
+    await tester.tap(thinkingRow);
+    await tester.pump();
     expect(_thinkingDetailFinder(), findsOneWidget);
     final detailText = tester.widget<Text>(_thinkingDetailFinder());
     expect(detailText.style?.fontFamily, 'monospace');
@@ -1255,13 +1227,17 @@ void main() {
     await tester.tap(
       find.byKey(const ValueKey('agent-run-summary-task-tool-only')),
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
 
-    expect(find.byKey(kAgentToolDetailSheetKey), findsOneWidget);
     expect(
       find.byKey(const ValueKey('agent-run-process-task-tool-only')),
-      findsNothing,
+      findsOneWidget,
     );
+    expect(find.byType(AgentToolSummaryCard), findsOneWidget);
+    await tester.tap(find.byType(AgentToolSummaryCard));
+    await tester.pumpAndSettle();
+    expect(find.byKey(kAgentToolDetailSheetKey), findsOneWidget);
   });
 
   testWidgets('agent run expansion can be controlled by the parent page', (

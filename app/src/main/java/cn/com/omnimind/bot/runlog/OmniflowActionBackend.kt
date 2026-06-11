@@ -29,6 +29,16 @@ interface OmniflowActionBackend {
 
     suspend fun longPress(x: Float, y: Float, durationMs: Long)
 
+    suspend fun longPress(
+        x: Float,
+        y: Float,
+        durationMs: Long,
+        targetDescription: String,
+        nodeResourceId: String,
+    ) {
+        longPress(x, y, durationMs)
+    }
+
     suspend fun scroll(
         x: Float,
         y: Float,
@@ -46,6 +56,31 @@ interface OmniflowActionBackend {
         targetDescription: String,
     ) {
         scroll(x, y, direction, distance, durationMs)
+    }
+
+    suspend fun swipe(
+        startX: Float,
+        startY: Float,
+        endX: Float,
+        endY: Float,
+        durationMs: Long,
+        targetDescription: String,
+    ) {
+        val dx = endX - startX
+        val dy = endY - startY
+        val direction = if (kotlin.math.abs(dy) > kotlin.math.abs(dx)) {
+            if (dy > 0) ScrollDirection.DOWN else ScrollDirection.UP
+        } else {
+            if (dx > 0) ScrollDirection.RIGHT else ScrollDirection.LEFT
+        }
+        scrollWithContext(
+            x = startX,
+            y = startY,
+            direction = direction,
+            distance = kotlin.math.hypot(dx, dy),
+            durationMs = durationMs,
+            targetDescription = targetDescription,
+        )
     }
 
     suspend fun inputTextToFocusedNode(text: String)
@@ -115,19 +150,22 @@ object OmniflowActionRuntime {
 
 private object AccessibilityOmniflowActionBackend : OmniflowActionBackend {
     private const val TAG = "OmniflowActionBackend"
+    private const val CLICK_EFFECT_CHECK_DELAY_MS = 180L
+    private const val PRIVILEGED_SWIPE_EFFECT_CHECK_DELAY_MS = 300L
 
     override fun isReady(): Boolean = AccessibilityController.initController()
 
     override suspend fun click(x: Float, y: Float) {
-        try {
+        val clickError = runCatching {
             AccessibilityController.clickCoordinate(x, y)
+        }.exceptionOrNull()
+        if (clickError == null) {
             return
-        } catch (error: Exception) {
-            OmniLog.w(
-                TAG,
-                "accessibility coordinate click failed, fallback to privileged tap: ${error.message}"
-            )
         }
+        OmniLog.w(
+            TAG,
+            "accessibility coordinate click failed, fallback to privileged tap: ${clickError.message}"
+        )
         if (!tryPrivilegedTap(x, y)) {
             AccessibilityController.clickCoordinate(x, y)
         }
@@ -139,33 +177,45 @@ private object AccessibilityOmniflowActionBackend : OmniflowActionBackend {
         targetDescription: String,
         nodeResourceId: String,
     ) {
-        if (nodeResourceId.isNotBlank()) {
-            val beforeXml = currentXml().orEmpty()
-            runCatching {
-                AccessibilityController.clickNodeById(nodeResourceId, targetDescription)
-            }.onSuccess {
-                delay(180)
-                val afterXml = currentXml().orEmpty()
-                if (xmlChanged(beforeXml, afterXml)) {
-                    return
-                }
-                OmniLog.w(
-                    TAG,
-                    "accessibility node click had no visible effect, fallback to tap: node=$nodeResourceId"
-                )
-            }.onFailure { error ->
-                OmniLog.w(
-                    TAG,
-                    "accessibility node click failed, fallback to tap: node=$nodeResourceId message=${error.message}"
-                )
-            }
-        }
         // Replay click coordinates are already transferred to the live page.
         click(x, y)
     }
 
     override suspend fun longPress(x: Float, y: Float, durationMs: Long) {
-        AccessibilityController.longClickCoordinate(x, y, durationMs)
+        val beforeXml = currentXml().orEmpty()
+        val longPressError = runCatching {
+            AccessibilityController.longClickCoordinate(x, y, durationMs)
+        }.exceptionOrNull()
+        if (longPressError == null) {
+            delay(CLICK_EFFECT_CHECK_DELAY_MS)
+            val afterXml = currentXml().orEmpty()
+            if (xmlChanged(beforeXml, afterXml)) {
+                return
+            }
+            OmniLog.w(
+                TAG,
+                "accessibility coordinate long press had no visible effect, fallback to privileged swipe: x=${x.toInt()} y=${y.toInt()}"
+            )
+        } else {
+            OmniLog.w(
+                TAG,
+                "accessibility coordinate long press failed, fallback to privileged swipe: ${longPressError.message}"
+            )
+        }
+        if (!tryPrivilegedSwipe(x, y, x, y, durationMs)) {
+            AccessibilityController.longClickCoordinate(x, y, durationMs)
+        }
+    }
+
+    override suspend fun longPress(
+        x: Float,
+        y: Float,
+        durationMs: Long,
+        targetDescription: String,
+        nodeResourceId: String,
+    ) {
+        // Replay long-press coordinates are already transferred to the live page.
+        longPress(x, y, durationMs)
     }
 
     override suspend fun scroll(
@@ -175,7 +225,59 @@ private object AccessibilityOmniflowActionBackend : OmniflowActionBackend {
         distance: Float,
         durationMs: Long,
     ) {
-        AccessibilityController.scrollCoordinate(x, y, direction, distance, durationMs)
+        performScroll(
+            x = x,
+            y = y,
+            direction = direction,
+            distance = distance,
+            durationMs = durationMs,
+            targetDescription = "",
+        )
+    }
+
+    private suspend fun performScroll(
+        x: Float,
+        y: Float,
+        direction: ScrollDirection,
+        distance: Float,
+        durationMs: Long,
+        targetDescription: String,
+    ) {
+        val beforeXml = currentXml().orEmpty()
+        val endpoints = scrollEndpoints(x, y, direction, distance)
+        if (trySemanticSwipe(
+                x1 = endpoints.x1,
+                y1 = endpoints.y1,
+                x2 = endpoints.x2,
+                y2 = endpoints.y2,
+                targetDescription = targetDescription,
+            )
+        ) {
+            delay(PRIVILEGED_SWIPE_EFFECT_CHECK_DELAY_MS)
+            return
+        }
+        val scrollError = runCatching {
+            AccessibilityController.scrollCoordinate(x, y, direction, distance, durationMs)
+        }.exceptionOrNull()
+        if (scrollError == null) {
+            delay(CLICK_EFFECT_CHECK_DELAY_MS)
+            val afterXml = currentXml().orEmpty()
+            if (xmlChanged(beforeXml, afterXml)) {
+                return
+            }
+            OmniLog.w(
+                TAG,
+                "accessibility scroll had no visible effect, fallback to privileged swipe: direction=$direction"
+            )
+        } else {
+            OmniLog.w(
+                TAG,
+                "accessibility scroll failed, fallback to privileged swipe: ${scrollError.message}"
+            )
+        }
+        if (!tryPrivilegedSwipeUntilChanged(beforeXml, endpoints.x1, endpoints.y1, endpoints.x2, endpoints.y2, durationMs)) {
+            AccessibilityController.scrollCoordinate(x, y, direction, distance, durationMs)
+        }
     }
 
     override suspend fun scrollWithContext(
@@ -186,7 +288,94 @@ private object AccessibilityOmniflowActionBackend : OmniflowActionBackend {
         durationMs: Long,
         targetDescription: String,
     ) {
-        scroll(x, y, direction, distance, durationMs)
+        performScroll(
+            x = x,
+            y = y,
+            direction = direction,
+            distance = distance,
+            durationMs = durationMs,
+            targetDescription = targetDescription,
+        )
+    }
+
+    override suspend fun swipe(
+        startX: Float,
+        startY: Float,
+        endX: Float,
+        endY: Float,
+        durationMs: Long,
+        targetDescription: String,
+    ) {
+        val beforeXml = currentXml().orEmpty()
+        if (trySemanticSwipe(
+                x1 = startX,
+                y1 = startY,
+                x2 = endX,
+                y2 = endY,
+                targetDescription = targetDescription,
+            )
+        ) {
+            delay(PRIVILEGED_SWIPE_EFFECT_CHECK_DELAY_MS)
+            return
+        }
+        val swipeError = runCatching {
+            AccessibilityController.swipeCoordinate(startX, startY, endX, endY, durationMs)
+        }.exceptionOrNull()
+        if (swipeError == null) {
+            delay(CLICK_EFFECT_CHECK_DELAY_MS)
+            val afterXml = currentXml().orEmpty()
+            if (xmlChanged(beforeXml, afterXml)) {
+                return
+            }
+            OmniLog.w(
+                TAG,
+                "accessibility swipe had no visible effect, fallback to privileged swipe"
+            )
+        } else {
+            OmniLog.w(
+                TAG,
+                "accessibility swipe failed, fallback to privileged swipe: ${swipeError.message}"
+            )
+        }
+        if (!tryPrivilegedSwipeUntilChanged(beforeXml, startX, startY, endX, endY, durationMs)) {
+            AccessibilityController.swipeCoordinate(startX, startY, endX, endY, durationMs)
+        }
+    }
+
+    private suspend fun trySemanticSwipe(
+        x1: Float,
+        y1: Float,
+        x2: Float,
+        y2: Float,
+        targetDescription: String,
+    ): Boolean {
+        val sliderHandled = runCatching {
+            AccessibilityController.setSliderProgressFromGesture(
+                x1 = x1,
+                y1 = y1,
+                x2 = x2,
+                y2 = y2,
+                targetDescription = targetDescription,
+            )
+        }.getOrElse { error ->
+            OmniLog.w(TAG, "semantic slider gesture failed: ${error.message}")
+            false
+        }
+        if (sliderHandled) {
+            return true
+        }
+        return runCatching {
+            AccessibilityController.scrollScrollableNodeFromGesture(
+                x1 = x1,
+                y1 = y1,
+                x2 = x2,
+                y2 = y2,
+                targetDescription = targetDescription,
+            )
+        }.getOrElse { error ->
+            OmniLog.w(TAG, "semantic scroll gesture failed: ${error.message}")
+            false
+        }
     }
 
     override suspend fun inputTextToFocusedNode(text: String) {
@@ -233,6 +422,9 @@ private object AccessibilityOmniflowActionBackend : OmniflowActionBackend {
         if (x != null && y != null) {
             click(x, y)
             delay(250)
+        }
+        if (tryPrivilegedInputText(text)) {
+            return
         }
         inputTextViaShell(text)
     }
@@ -287,15 +479,6 @@ private object AccessibilityOmniflowActionBackend : OmniflowActionBackend {
         }
     }
 
-    private fun shouldFallbackInputTextByTyping(error: Throwable): Boolean {
-        val message = error.message.orEmpty().lowercase()
-        return message.contains("input text") ||
-            message.contains("focused input") ||
-            message.contains("editable input") ||
-            message.contains("focused node") ||
-            message.contains("action_set_text")
-    }
-
     private suspend fun tryPrivilegedTap(x: Float, y: Float): Boolean {
         val privileged = runCatching {
             ShizukuCapabilityManager.get(BaseApplication.instance).tap(x, y)
@@ -310,6 +493,100 @@ private object AccessibilityOmniflowActionBackend : OmniflowActionBackend {
             )
         }
         return false
+    }
+
+    private fun shouldFallbackInputTextByTyping(error: Throwable): Boolean {
+        val message = error.message.orEmpty().lowercase()
+        return message.contains("input text") ||
+            message.contains("focused input") ||
+            message.contains("editable input") ||
+            message.contains("focused node") ||
+            message.contains("action_set_text")
+    }
+
+    private suspend fun tryPrivilegedSwipe(
+        x1: Float,
+        y1: Float,
+        x2: Float,
+        y2: Float,
+        durationMs: Long,
+    ): Boolean {
+        val privileged = runCatching {
+            ShizukuCapabilityManager.get(BaseApplication.instance).swipe(x1, y1, x2, y2, durationMs)
+        }.getOrNull()
+        if (privileged?.success == true) {
+            return true
+        }
+        if (privileged != null) {
+            OmniLog.w(
+                TAG,
+                "privileged swipe unavailable: code=${privileged.code} message=${privileged.message}"
+            )
+        }
+        return false
+    }
+
+    private suspend fun tryPrivilegedSwipeUntilChanged(
+        beforeXml: String,
+        x1: Float,
+        y1: Float,
+        x2: Float,
+        y2: Float,
+        durationMs: Long,
+    ): Boolean {
+        repeat(2) { attempt ->
+            if (!tryPrivilegedSwipe(x1, y1, x2, y2, durationMs)) {
+                return@repeat
+            }
+            delay(PRIVILEGED_SWIPE_EFFECT_CHECK_DELAY_MS)
+            val afterXml = currentXml().orEmpty()
+            if (xmlChanged(beforeXml, afterXml)) {
+                return true
+            }
+            OmniLog.w(
+                TAG,
+                "privileged swipe had no visible effect: attempt=${attempt + 1} x1=${x1.toInt()} y1=${y1.toInt()} x2=${x2.toInt()} y2=${y2.toInt()}"
+            )
+        }
+        return false
+    }
+
+    private suspend fun tryPrivilegedInputText(text: String): Boolean {
+        val privileged = runCatching {
+            ShizukuCapabilityManager.get(BaseApplication.instance).inputText(text)
+        }.getOrNull()
+        if (privileged?.success == true) {
+            return true
+        }
+        if (privileged != null) {
+            OmniLog.w(
+                TAG,
+                "privileged input text unavailable: code=${privileged.code} message=${privileged.message}"
+            )
+        }
+        return false
+    }
+
+    private data class SwipeEndpoints(
+        val x1: Float,
+        val y1: Float,
+        val x2: Float,
+        val y2: Float,
+    )
+
+    private fun scrollEndpoints(
+        x: Float,
+        y: Float,
+        direction: ScrollDirection,
+        distance: Float,
+    ): SwipeEndpoints {
+        val half = (distance / 2f).coerceAtLeast(1f)
+        return when (direction) {
+            ScrollDirection.UP -> SwipeEndpoints(x, y + half, x, y - half)
+            ScrollDirection.DOWN -> SwipeEndpoints(x, y - half, x, y + half)
+            ScrollDirection.LEFT -> SwipeEndpoints(x + half, y, x - half, y)
+            ScrollDirection.RIGHT -> SwipeEndpoints(x - half, y, x + half, y)
+        }
     }
 
     private fun xmlChanged(beforeXml: String, afterXml: String): Boolean {

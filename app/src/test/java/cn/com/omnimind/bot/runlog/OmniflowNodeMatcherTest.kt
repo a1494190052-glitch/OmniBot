@@ -135,6 +135,190 @@ class OmniflowNodeMatcherTest {
     }
 
     @Test
+    fun `findAnchors gives exact text match high sim over resource-only candidate`() {
+        val srcNode = node(
+            resourceId = "com.app/action_primary",
+            text = "Start",
+            classSuffix = "Button",
+            clickable = true,
+        )
+        val textMatch = node(
+            resourceId = "com.other/action_secondary",
+            text = "Start",
+            classSuffix = "Button",
+            clickable = true,
+            centerX = 310f,
+            centerY = 505f,
+        )
+        val resourceOnly = node(
+            resourceId = "com.app/action_primary",
+            text = "Stop",
+            classSuffix = "Button",
+            clickable = true,
+            centerX = 510f,
+            centerY = 805f,
+        )
+
+        val anchors = OmniflowNodeMatcher.findAnchors(
+            listOf(srcNode), listOf(OmniflowNodeMatcher.vector(srcNode)),
+            listOf(resourceOnly, textMatch), listOf(resourceOnly, textMatch).map(OmniflowNodeMatcher::vector),
+        )
+        val resourceOnlySim = OmniflowNodeMatcher.sim(
+            srcNode,
+            resourceOnly,
+            OmniflowNodeMatcher.vector(srcNode),
+            OmniflowNodeMatcher.vector(resourceOnly),
+        )
+
+        assertEquals(1, anchors.size)
+        assertEquals("Start", anchors.single().tgt.text)
+        assertTrue("exact text anchor should be near-certain", anchors.single().sim >= 0.96f)
+        assertTrue(
+            "same resource with conflicting text should stay below anchor threshold",
+            resourceOnlySim < OmniflowNodeMatcher.MIN_ANCHOR_SIMILARITY,
+        )
+    }
+
+    @Test
+    fun `text-conflicting resource overlap stays below high explicit gate`() {
+        val source = node(
+            resourceId = "com.app/accessibility_mode_toggle_button",
+            text = "MODE LIST",
+            contentDesc = "Toggle mode list",
+            classSuffix = "Button",
+            clickable = true,
+            focusable = true,
+            areaRatio = 0.019f,
+            centerX = 94.5f,
+            centerY = 48f,
+        )
+        val target = node(
+            resourceId = "com.app/mode_options_toggle",
+            contentDesc = "Options",
+            classSuffix = "LinearLayout",
+            clickable = true,
+            focusable = true,
+            areaRatio = 0.010f,
+            centerX = 634.5f,
+            centerY = 967.5f,
+        )
+
+        val score = OmniflowNodeMatcher.simComponents(source, target)
+
+        assertTrue("generic resource token overlap should stay weak", score.resource <= 0.15f)
+        assertTrue("label drift should be explicit in diagnostics", score.textConflict)
+        assertTrue("conflicting labels cannot be upgraded into a high explicit match", score.score < 0.50f)
+    }
+
+    @Test
+    fun `anchor transfer abstains when text-conflicting candidate has no geometric support`() {
+        val source = node(
+            resourceId = "com.app/accessibility_mode_toggle_button",
+            text = "MODE LIST",
+            contentDesc = "Toggle mode list",
+            classSuffix = "Button",
+            clickable = true,
+            focusable = true,
+            areaRatio = 0.019f,
+            centerX = 94.5f,
+            centerY = 48f,
+        )
+        val sourceOptions = node(
+            resourceId = "com.app/mode_options_toggle",
+            contentDesc = "Options",
+            classSuffix = "LinearLayout",
+            clickable = true,
+            focusable = true,
+            areaRatio = 0.010f,
+            centerX = 647.5f,
+            centerY = 919.5f,
+        )
+        val targetOptions = sourceOptions.copy(centerX = 634.5f, centerY = 967.5f)
+        val sourceShutter = node(
+            resourceId = "com.app/shutter_button",
+            contentDesc = "Shutter",
+            classSuffix = "ImageView",
+            clickable = true,
+            focusable = true,
+            areaRatio = 0.18f,
+            centerX = 360f,
+            centerY = 1112f,
+        )
+        val targetShutter = sourceShutter.copy(centerX = 360.5f, centerY = 1136f)
+
+        val candidates = listOf(targetOptions, targetShutter)
+        val result = OmniflowNodeMatcher.match(
+            src = source,
+            srcVec = OmniflowNodeMatcher.vector(source),
+            candidates = candidates,
+            candidateVecs = candidates.map(OmniflowNodeMatcher::vector),
+            anchors = listOf(
+                OmniflowNodeMatcher.Anchor(sourceOptions, targetOptions, 1f),
+                OmniflowNodeMatcher.Anchor(sourceShutter, targetShutter, 1f),
+            ),
+            srcDiagonal = 1468f,
+            pageDiagonal = 1468f,
+            scaleX = 1f,
+            scaleY = 1f,
+        )
+
+        assertTrue("wrong semantic candidate with no anchor vote should abstain", result.abstain)
+        assertEquals(-1, result.index)
+    }
+
+    @Test
+    fun `anchor transfer abstains on same resource with conflicting semantic label`() {
+        val source = node(
+            resourceId = "com.google.android.deskclock:id/fab",
+            contentDesc = "Start",
+            classSuffix = "Button",
+            clickable = true,
+            focusable = true,
+            areaRatio = 0.025f,
+            centerX = 360f,
+            centerY = 944f,
+        )
+        val wrongFab = source.copy(contentDesc = "Add city")
+        val targetAlarm = node(
+            resourceId = "com.google.android.deskclock:id/tab_menu_alarm",
+            contentDesc = "Alarm",
+            classSuffix = "FrameLayout",
+            clickable = true,
+            focusable = true,
+            centerX = 72f,
+            centerY = 1152f,
+        )
+        val sourceTimer = node(
+            resourceId = "com.google.android.deskclock:id/tab_menu_timer",
+            contentDesc = "Timer",
+            classSuffix = "FrameLayout",
+            clickable = true,
+            focusable = true,
+            centerX = 360f,
+            centerY = 1152f,
+        )
+        val targetTimer = sourceTimer.copy()
+        val candidates = listOf(wrongFab, targetAlarm)
+
+        val result = OmniflowNodeMatcher.match(
+            src = source,
+            srcVec = OmniflowNodeMatcher.vector(source),
+            candidates = candidates,
+            candidateVecs = candidates.map(OmniflowNodeMatcher::vector),
+            anchors = listOf(OmniflowNodeMatcher.Anchor(sourceTimer, targetTimer, 0.95f)),
+            srcDiagonal = 1468f,
+            pageDiagonal = 1468f,
+            scaleX = 1f,
+            scaleY = 1f,
+        )
+
+        val gate = result.debug["gate"] as Map<*, *>
+        assertTrue("same resource with conflicting label must not execute", result.abstain)
+        assertEquals(-1, result.index)
+        assertEquals("semantic_label_conflict", gate["reason"])
+    }
+
+    @Test
     fun `findAnchors returns empty when no mutual match above threshold`() {
         val a = node(text = "A", classSuffix = "Button", clickable = true)
         val b = node(classSuffix = "FrameLayout", areaRatio = 0.6f)
@@ -170,7 +354,7 @@ class OmniflowNodeMatcherTest {
     }
 
     @Test
-    fun `different-but-non-empty candidates execute best available without anchors`() {
+    fun `different-but-non-empty candidates abstain without support`() {
         val src = node(resourceId = "com.a/foo", text = "Foo", classSuffix = "Button",
             clickable = true, centerX = 100f, centerY = 100f)
         val candidates = listOf(
@@ -188,8 +372,8 @@ class OmniflowNodeMatcherTest {
             anchors = emptyList(), srcDiagonal = 2000f, pageDiagonal = 2000f, scaleX = 1f, scaleY = 1f,
         )
 
-        assertFalse("Should execute best candidate when it dominates null prior", result.abstain)
-        assertTrue(result.index in candidates.indices)
+        assertTrue("Risk gate should abstain when no candidate has enough semantic support", result.abstain)
+        assertEquals(-1, result.index)
     }
 
     @Test
@@ -212,6 +396,59 @@ class OmniflowNodeMatcherTest {
         assertTrue("Risk gate should abstain when probability is spread over many poor-fit candidates",
             result.abstain)
         assertTrue(result.pNull > result.pBest)
+    }
+
+    @Test
+    fun `low margin text-conflicting setup page candidate abstains`() {
+        val src = node(
+            resourceId = "com.dimowner.audiorecorder/btn_record",
+            contentDesc = "Recording: %s",
+            classSuffix = "ImageButton",
+            clickable = true,
+            focusable = true,
+            areaRatio = 0.03f,
+            centerX = 360f,
+            centerY = 1116f,
+        )
+        val candidates = listOf(
+            node(text = "96 kbps", classSuffix = "TextView", clickable = true,
+                centerX = 326.5f, centerY = 781f),
+            node(text = "128 kbps", classSuffix = "TextView", clickable = true,
+                centerX = 326.5f, centerY = 862f),
+            node(text = "recording format:", resourceId = "com.dimowner.audiorecorder/setting_title",
+                classSuffix = "TextView", clickable = true, centerX = 382f, centerY = 422.5f),
+        )
+        val anchors = listOf(
+            OmniflowNodeMatcher.Anchor(
+                src = node(resourceId = "com.dimowner.audiorecorder/txt_record_info",
+                    text = "0.07 Mb, M4a, 16kHz", centerX = 359.5f, centerY = 941f),
+                tgt = node(text = "16kHz", centerX = 275.5f, centerY = 619f),
+                sim = 0.60f,
+            ),
+            OmniflowNodeMatcher.Anchor(
+                src = node(resourceId = "com.dimowner.audiorecorder/btn_records_list",
+                    classSuffix = "ImageButton", clickable = true, centerX = 636f, centerY = 1116f),
+                tgt = node(resourceId = "com.dimowner.audiorecorder/setting_btn_info",
+                    classSuffix = "ImageButton", clickable = true, centerX = 718f, centerY = 420f),
+                sim = 0.40f,
+            ),
+        )
+
+        val result = OmniflowNodeMatcher.match(
+            src = src,
+            srcVec = OmniflowNodeMatcher.vector(src),
+            candidates = candidates,
+            candidateVecs = candidates.map { OmniflowNodeMatcher.vector(it) },
+            anchors = anchors,
+            srcDiagonal = 1468f,
+            pageDiagonal = 1468f,
+            scaleX = 1f,
+            scaleY = 1f,
+        )
+
+        assertTrue("Text-conflicting setup page controls must not receive the record click", result.abstain)
+        val gate = result.debug["gate"] as Map<*, *>
+        assertTrue(gate["reason"] == "semantic_label_conflict" || gate["reason"] == "low_margin")
     }
 
     @Test
@@ -253,6 +490,11 @@ class OmniflowNodeMatcherTest {
         )
         assertTrue(result.abstain)
         assertEquals(-1, result.index)
+    }
+
+    @Test
+    fun `dis returns normalized euclidean distance`() {
+        assertEquals(0.5f, OmniflowNodeMatcher.dis(0f, 0f, 3f, 4f, 10f), 1e-5f)
     }
 
     // ── Identity logit ────────────────────────────────────────────────────────

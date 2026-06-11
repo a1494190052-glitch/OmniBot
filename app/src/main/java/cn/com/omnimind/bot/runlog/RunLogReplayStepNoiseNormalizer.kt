@@ -101,11 +101,13 @@ object RunLogReplayStepNoiseNormalizer {
     }
 
     /**
-     * Drops BACK presses recorded only to dismiss the keyboard between form actions.
+     * Drops BACK presses recorded only to dismiss the keyboard between input fields.
      *
      * Replaying BACK as a fixed action is unsafe: when the keyboard is already
      * hidden, Android may show a discard/leave dialog and block the next input.
-     * Runtime checker rules own conditional keyboard dismissal.
+     * Runtime checker rules own conditional keyboard dismissal. A BACK before a
+     * click is not dropped because submit/save/send buttons may require the IME
+     * to be closed before the click is accepted.
      */
     private fun dropKeyboardDismissBackBetweenFormActions(
         steps: List<Map<String, Any?>>,
@@ -120,10 +122,7 @@ object RunLogReplayStepNoiseNormalizer {
                 next != null &&
                 replayActionForStep(previous) in inputTextActions &&
                 isBackPressStep(step) &&
-                replayActionForStep(next) in setOf(
-                    OobActionCodec.ACTION_INPUT_TEXT,
-                    OobActionCodec.ACTION_CLICK,
-                )
+                replayActionForStep(next) in inputTextActions
             ) {
                 continue
             }

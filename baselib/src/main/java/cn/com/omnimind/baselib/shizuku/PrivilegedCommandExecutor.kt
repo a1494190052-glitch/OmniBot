@@ -329,6 +329,17 @@ internal object PrivilegedCommandExecutor {
                     requireCoordinate(arguments["y"], "y")
                 )
             }
+            PrivilegedActionPolicy.ACTION_DEVICE_SWIPE -> {
+                listOf(
+                    "input",
+                    "swipe",
+                    requireCoordinate(arguments["x1"], "x1"),
+                    requireCoordinate(arguments["y1"], "y1"),
+                    requireCoordinate(arguments["x2"], "x2"),
+                    requireCoordinate(arguments["y2"], "y2"),
+                    requireDurationMs(arguments["duration_ms"], "duration_ms")
+                )
+            }
             PrivilegedActionPolicy.ACTION_DEVICE_EXPAND_NOTIFICATIONS -> {
                 listOf("cmd", "statusbar", "expand-notifications")
             }
@@ -544,6 +555,13 @@ internal object PrivilegedCommandExecutor {
             ?: throw IllegalArgumentException("$fieldName must be a number.")
         require(coordinate >= 0f && coordinate <= 10000f) { "$fieldName is out of supported screen bounds." }
         return coordinate.toInt().toString()
+    }
+
+    private fun requireDurationMs(value: String?, fieldName: String): String {
+        val duration = requireNotBlank(value, fieldName).toLongOrNull()
+            ?: throw IllegalArgumentException("$fieldName must be an integer.")
+        require(duration in 0L..60_000L) { "$fieldName is out of supported duration bounds." }
+        return duration.toString()
     }
 
     private fun requireSafeComponent(value: String) {

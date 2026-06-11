@@ -104,6 +104,50 @@ class OobFunctionParameterBindingNormalizerTest {
     }
 
     @Test
+    fun `undeclared runtime arguments are ignored instead of blocking replay`() {
+        val normalized = OobFunctionParameterBindingNormalizer.normalize(
+            mapOf(
+                "function_id" to "androidworld_file_delete",
+                "parameters" to mapOf(
+                    "type" to "object",
+                    "properties" to mapOf(
+                        "input_text" to mapOf(
+                            "type" to "string",
+                            "default" to "old.pdf",
+                            "x_oob_bindings" to listOf("$.execution.steps[0].args.text"),
+                        ),
+                    ),
+                    "required" to emptyList<String>(),
+                ),
+                "execution" to mapOf(
+                    "steps" to listOf(
+                        step("input_text", mapOf("text" to "old.pdf")),
+                    ),
+                ),
+            )
+        )
+
+        val materialized = OobReusableFunctionStore.materialize(
+            normalized,
+            mapOf(
+                "file_name" to "new.pdf",
+                "subfolder" to "Documents",
+                "noise_candidates" to listOf("noise.pdf"),
+                "seed" to 1234,
+            ),
+        )
+
+        val runtime = materialized["runtime"] as Map<*, *>
+        assertEquals(emptyList<Any?>(), runtime["unbound_arguments"])
+        val ignored = runtime["ignored_arguments"] as List<*>
+        assertEquals(
+            listOf("file_name", "subfolder", "noise_candidates", "seed"),
+            ignored.map { (it as Map<*, *>)["name"] },
+        )
+        assertTrue(OobFunctionArgumentBindingValidator.validate(materialized).success)
+    }
+
+    @Test
     fun `normalizes semantic parameter into nested function argument binding`() {
         val normalized = OobFunctionParameterBindingNormalizer.normalize(
             mapOf(

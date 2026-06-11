@@ -78,6 +78,29 @@ object AgentVlmUiSession {
         }
     }
 
+    fun activeRunIdsForTaskIds(taskIds: Collection<String>): List<String> {
+        if (taskIds.isEmpty()) return emptyList()
+        val normalizedTaskIds = taskIds
+            .mapNotNull { it.trim().takeIf { taskId -> taskId.isNotEmpty() } }
+            .toSet()
+        if (normalizedTaskIds.isEmpty()) return emptyList()
+        return synchronized(lock) {
+            normalizedTaskIds
+                .mapNotNull { taskId ->
+                    val runId = runIdByTaskId[taskId] ?: return@mapNotNull null
+                    runId.takeIf {
+                        sessionsByRunId[it]?.activeTaskIds?.contains(taskId) == true
+                    }
+                }
+                .distinct()
+        }
+    }
+
+    fun activeRunIdForTask(taskId: String?): String? {
+        val normalizedTaskId = taskId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        return activeRunIdsForTaskIds(listOf(normalizedTaskId)).firstOrNull()
+    }
+
     fun markTaskCompanionState(taskId: String?, isCompanionRunning: Boolean) {
         val normalizedTaskId = taskId?.trim()?.takeIf { it.isNotEmpty() } ?: return
         synchronized(lock) {

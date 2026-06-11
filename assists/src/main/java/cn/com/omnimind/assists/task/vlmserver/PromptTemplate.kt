@@ -139,8 +139,8 @@ object PromptTemplate {
             appendLine(
                 t(
                     locale,
-                    "遵守统一 action schema：每轮恰好一个原生 tool_call。优先把 OOB indexed page evidence 当成可执行菜单：目标出现在 #index 中时，click/input_text/long_press 必须填写 element_index；swipe 目标出现在 Sindex 中时必须填写 scrollable_index。不要凭截图估坐标，除非 evidence 没有目标。",
-                    "Follow the unified action schema: exactly one native tool_call per turn. Treat OOB indexed page evidence as the executable menu first: when the target appears as #index, click/input_text/long_press must include element_index; when a swipe target appears as Sindex, include scrollable_index. Do not estimate coordinates from the screenshot unless the target is missing from evidence."
+                    "遵守统一 action schema：每轮恰好一个原生 tool_call。swipe 目标出现在 Sindex 中时填写 scrollable_index 和 direction。坐标基于截图或 indexed evidence 给出。",
+                    "Follow the unified action schema: exactly one native tool_call per turn. For swipe when the target appears as Sindex, include scrollable_index and direction. Use coordinates from the screenshot or indexed evidence."
                 )
             )
             appendLine(
@@ -209,7 +209,7 @@ object PromptTemplate {
                 return@buildString
             }
             if (context.runningSummary.isNotBlank()) {
-                appendLine("${t(locale, "历史总结", "History summary")}: ${compactLine(context.runningSummary, 420)}")
+                appendLine("${t(locale, "历史总结", "History summary")}: ${compactLine(context.runningSummary, 240)}")
             }
             recent.forEachIndexed { offset, step ->
                 val number = context.trace.size - recent.size + offset + 1
@@ -461,9 +461,9 @@ object PromptTemplate {
 
     private const val MAX_FOCUSED_INSTALLED_APPS = 12
     private const val MAX_APP_QUERY_TERMS = 24
-    private const val MAX_PAGE_EXPLANATION_CHARS = 2_200
-    private const val MAX_RECENT_RESULT_STEPS = 4
-    private const val MAX_RECENT_RESULT_CHARS = 260
+    private const val MAX_PAGE_EXPLANATION_CHARS = 1_200
+    private const val MAX_RECENT_RESULT_STEPS = 2
+    private const val MAX_RECENT_RESULT_CHARS = 180
     private val APP_QUERY_STOP_WORDS = setOf(
         "the",
         "and",

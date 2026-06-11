@@ -300,6 +300,52 @@ void main() {
     expect(messages.single.cardData?['summary'], isEmpty);
     expect(messages.single.cardData?['status'], 'success');
   });
+
+  test('wraps MCP tool events as shared summary cards', () {
+    final messages = <ChatMessageModel>[];
+
+    _upsert(
+      messages,
+      _event(
+        kind: AgentStreamEventKind.toolStarted,
+        taskId: 'task-mcp',
+        seq: 1,
+        raw: const <String, dynamic>{
+          'toolCallId': 'mcp-call-1',
+          'toolName': 'read_file',
+          'displayName': 'Read file',
+          'toolType': 'mcp',
+          'serverName': 'filesystem',
+          'summary': 'Reading file',
+        },
+      ),
+    );
+    _upsert(
+      messages,
+      _event(
+        kind: AgentStreamEventKind.toolCompleted,
+        taskId: 'task-mcp',
+        seq: 2,
+        raw: const <String, dynamic>{
+          'toolCallId': 'mcp-call-1',
+          'toolName': 'read_file',
+          'displayName': 'Read file',
+          'toolType': 'mcp',
+          'serverName': 'filesystem',
+          'resultPreviewJson': '{"ok":true}',
+          'success': true,
+        },
+      ),
+    );
+
+    expect(messages, hasLength(1));
+    final card = messages.single.cardData!;
+    expect(card['type'], kAgentToolSummaryCardType);
+    expect(card['toolType'], 'mcp');
+    expect(card['serverName'], 'filesystem');
+    expect(card['toolName'], 'read_file');
+    expect(card['status'], 'success');
+  });
 }
 
 AgentStreamEvent _event({

@@ -322,20 +322,27 @@ object VlmRecallGuidanceBuilder {
 
     private fun requiresArguments(payload: Map<String, Any?>): Boolean {
         val raw = payload["requires_arguments"] ?: payload["requiresArguments"]
-        val explicit = when (raw) {
-            is Boolean -> raw
-            is Number -> raw.toInt() != 0
-            is String -> raw.trim().lowercase() in setOf("true", "1", "yes")
-            else -> false
+        if (raw != null) {
+            return when (raw) {
+                is Boolean -> raw
+                is Number -> raw.toInt() != 0
+                is String -> raw.trim().lowercase() in setOf("true", "1", "yes")
+                else -> false
+            }
         }
-        if (explicit) return true
         val schema = mapArg(payload["inputSchema"]).ifEmpty { mapArg(payload["input_schema"]) }
         if (schema.isEmpty()) return false
         val required = listArg(schema["required"])
             .mapNotNull { it.toString().trim().takeIf(String::isNotEmpty) }
+            .filterNot(::isInternalFunctionParamName)
         if (required.isNotEmpty()) return true
-        return mapArg(schema["properties"]).isNotEmpty()
+        return mapArg(schema["properties"]).keys.any { !isInternalFunctionParamName(it.toString()) }
     }
+
+    private fun isInternalFunctionParamName(name: String): Boolean =
+        name.trim().replace(Regex("""([a-z0-9])([A-Z])"""), "$1_$2")
+            .replace(Regex("""[^A-Za-z0-9]+"""), "_")
+            .trim('_').lowercase() in INTERNAL_FUNCTION_PARAM_NAMES
 
     private fun boolArg(vararg values: Any?): Boolean {
         values.forEach { value ->
@@ -394,11 +401,16 @@ object VlmRecallGuidanceBuilder {
         }
 
     private const val DEFAULT_RECALL_COUNT = 3
-    private const val MAX_GUIDANCE_CANDIDATES = 2
-    private const val MAX_DESCRIPTION_CHARS = 56
+    private const val MAX_GUIDANCE_CANDIDATES = 3
+    private const val MAX_DESCRIPTION_CHARS = 40
     private const val DIRECT_HIT_MIN_SCORE = 0.92
     private const val DIRECT_HIT_MIN_PAGE_SCORE = 0.90
     private const val DIRECT_HIT_MIN_TEXT_SCORE = 0.85
+    private val INTERNAL_FUNCTION_PARAM_NAMES = setOf(
+        "package_name", "package", "target_description", "target",
+        "selector", "node_id", "node_resource_id", "element_index", "scrollable_index",
+        "x", "y", "x1", "y1", "x2", "y2", "bounds", "clear", "duration_ms",
+    )
     private val AGENT_HIDDEN_RECALL_KEYS = setOf(
         "timing",
         "duration_ms",

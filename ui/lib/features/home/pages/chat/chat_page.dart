@@ -15,14 +15,13 @@ import 'package:ui/l10n/legacy_text_localizer.dart';
 import '../../../../models/conversation_model.dart';
 import '../../../../models/conversation_thread_target.dart';
 import '../../../../models/chat_startup_behavior.dart';
-import '../../../../models/chat_link_preview.dart';
 import '../../../../models/chat_message_model.dart';
 import '../../../../services/agent_stream_meta.dart';
 import '../../../../services/assists_core_service.dart';
 import '../../widgets/home_drawer.dart';
 import '../authorize/authorize_page_args.dart';
-import '../command_overlay/services/manual_recording_permission_guard.dart';
-import '../command_overlay/widgets/cards/manual_recording_result_card.dart';
+import '../command_overlay/services/manual_recording_flow_controller.dart';
+import '../command_overlay/services/run_log_shortcut_controller.dart';
 import '../command_overlay/widgets/chat_input_area.dart';
 import '../command_overlay/services/tool_card_detail_gesture_gate.dart';
 import '../common/openclaw_connection_checker.dart';
@@ -61,7 +60,7 @@ import 'package:ui/services/storage_service.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/features/home/pages/chat/utils/agent_runtime_attachment_payload.dart';
-import 'package:ui/features/home/pages/chat/utils/agent_thinking_card_locator.dart';
+import 'package:ui/features/home/pages/chat/utils/chat_card_message_helpers.dart';
 import 'package:ui/features/home/pages/chat/utils/omniflow_tool_profile_router.dart';
 import 'package:ui/features/home/pages/chat/utils/codex_slash_commands.dart';
 import 'package:ui/features/home/pages/chat/utils/deep_thinking_persistence.dart';
@@ -70,7 +69,6 @@ import 'package:ui/features/home/pages/codex/codex_remote_directory_picker.dart'
 import 'package:ui/features/home/pages/codex/codex_remote_workspace_browser.dart';
 import 'package:ui/features/task/pages/execution_history/run_log_timeline_page.dart';
 import 'package:ui/widgets/chat_drawer_gesture_guard.dart';
-import 'package:ui/widgets/oob_function_run_progress_card.dart';
 import 'package:ui/widgets/oob_function_run_progress_dialog.dart';
 
 // 导入 Mixins
@@ -1484,22 +1482,14 @@ abstract class _ChatPageStateBase extends State<ChatPage>
 
   void _handleOobFunctionRunProgressEvent(OobFunctionRunProgressEvent event) {
     if (!mounted || _activeMode != ChatPageMode.normal) return;
-    final cardId = oobFunctionRunProgressCardIdForEvent(event);
-    if (cardId.isEmpty) return;
-    final cardData = oobFunctionRunProgressCardDataForEvent(event);
-    final message = ChatMessageModel.cardMessage(cardData, id: cardId);
+    var didUpsert = false;
     setState(() {
-      final existingIndex = _messages.indexWhere(
-        (item) =>
-            item.id == cardId ||
-            (item.cardData?['cardId'] ?? '').toString() == cardId,
+      didUpsert = ChatCardMessageHelpers.upsertOobFunctionRunProgress(
+        _messages,
+        event,
       );
-      if (existingIndex == -1) {
-        _messages.insert(0, message);
-      } else {
-        _messages[existingIndex] = message;
-      }
     });
+    if (!didUpsert) return;
     _syncRuntimeSnapshotForMode(_activeMode);
     if (event.isTerminal) {
       unawaited(saveConversation());

@@ -236,20 +236,11 @@ internal object RunLogReplayStepCompiler {
         val evidence = asMap(rawArgs["target_evidence"])
         if (evidence.isEmpty()) return replayArgs
         val enriched = linkedMapOf<String, Any?>().apply { putAll(replayArgs) }
-        val label = firstNonBlank(evidence["label"])
-        val resourceId = firstNonBlank(
-            evidence["resource_id"],
-            evidence["resourceId"],
-            Regex("""[A-Za-z0-9_.]+:id/[A-Za-z0-9_.$-]+""").find(label)?.value,
-        )
+        val resourceId = executableEvidenceResourceId(evidence)
         if (resourceId.isNotBlank() && firstNonBlank(enriched["node_resource_id"]).isBlank()) {
             enriched["node_resource_id"] = resourceId
         }
-        if (firstNonBlank(enriched["element_index"]).isBlank()) {
-            firstNonBlank(evidence["index"]).takeIf { it.isNotBlank() }?.let {
-                enriched["element_index"] = it
-            }
-        }
+
         if (firstNonBlank(enriched["bounds"]).isBlank()) {
             val bounds = evidence["bounds"]
             if (bounds is List<*> && bounds.size == 4) {
@@ -261,6 +252,35 @@ internal object RunLogReplayStepCompiler {
             }
         }
         return enriched
+    }
+
+    private fun executableEvidenceResourceId(evidence: Map<String, Any?>): String {
+        val actionResourceId = firstNonBlank(
+            evidence["action_resource_id"],
+            evidence["actionResourceId"],
+        )
+        if (actionResourceId.isNotBlank()) return actionResourceId
+
+        val resourceId = firstNonBlank(evidence["resource_id"], evidence["resourceId"])
+        if (resourceId.isBlank()) return ""
+
+        val clickable = booleanEvidence(evidence["clickable"])
+        val actionClickable = booleanEvidence(evidence["action_clickable"])
+        val coordinateSource = firstNonBlank(evidence["coordinate_source"])
+
+        if (clickable || coordinateSource == "matched_node" && actionClickable) {
+            return resourceId
+        }
+        return ""
+    }
+
+    private fun booleanEvidence(value: Any?): Boolean {
+        return when (value) {
+            is Boolean -> value
+            is Number -> value.toInt() != 0
+            is String -> value.equals("true", ignoreCase = true) || value == "1"
+            else -> false
+        }
     }
 
     private fun canonicalCallToolArgs(

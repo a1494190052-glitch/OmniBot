@@ -307,6 +307,44 @@ class OmniAction(
         )
     }
 
+    fun swipeCoordinate(
+        startX: Float,
+        startY: Float,
+        endX: Float,
+        endY: Float,
+        duration: Long = SCROLL_DURATION,
+    ): CompletableFuture<Unit> {
+        OmniLog.v(TAG, "fun swipeCoordinate start=($startX,$startY) end=($endX,$endY)")
+        OmniLog.v(TAG, "Window width: $screenWidth, height: $screenHeight")
+
+        val safeStartX = startX.coerceIn(0f, screenWidth.toFloat())
+        val safeStartY = startY.coerceIn(0f, screenHeight.toFloat())
+        val safeEndX = endX.coerceIn(0f, screenWidth.toFloat())
+        val safeEndY = endY.coerceIn(0f, screenHeight.toFloat())
+        val path =
+            Path().apply {
+                moveTo(safeStartX, safeStartY)
+                lineTo(safeEndX, safeEndY)
+            }
+
+        val gestureBuilder =
+            GestureDescription
+                .Builder()
+                .addStroke(
+                    GestureDescription.StrokeDescription(
+                        path,
+                        0,
+                        duration,
+                    ),
+                )
+
+        return dispatchGestureWithTimeout(
+            gestureDescription = gestureBuilder.build(),
+            timeoutMs = duration + GESTURE_TIMEOUT_GRACE_MS,
+            timeoutLabel = "coordinate_swipe"
+        )
+    }
+
     private fun dispatchGestureWithTimeout(
         gestureDescription: GestureDescription,
         timeoutMs: Long,

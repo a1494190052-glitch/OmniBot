@@ -38,6 +38,14 @@ data class VlmTaskRequest(
     val allowOmniFlowFunctionAutoExecute: Boolean = false,
 )
 
+data class PendingOmniFlowFunctionCall(
+    val functionId: String,
+    val goal: String,
+    val arguments: Map<String, Any?> = emptyMap(),
+    val requiredArgumentNames: List<String> = emptyList(),
+    val allArgumentNames: List<String> = emptyList(),
+)
+
 /**
  * 任务状态枚举
  */
@@ -72,6 +80,7 @@ data class TaskState(
     @Volatile var missingPermissions: List<String> = emptyList(),
     @Volatile var omniflowRecall: Map<String, Any?>? = null,
     @Volatile var vlmRequest: VlmTaskRequest? = null,
+    @Volatile var pendingOmniFlowFunctionCall: PendingOmniFlowFunctionCall? = null,
     val startTime: Long = System.currentTimeMillis(),
     @Volatile var stateChanged: Boolean = false
 ) {
@@ -100,6 +109,14 @@ data class TaskState(
         "errorCode" to errorCode,
         "missingPermissions" to missingPermissions,
         "omniflowRecall" to omniflowRecall,
+        "pendingOmniFlowFunctionCall" to pendingOmniFlowFunctionCall?.let {
+            mapOf(
+                "functionId" to it.functionId,
+                "arguments" to it.arguments,
+                "requiredArgumentNames" to it.requiredArgumentNames,
+                "allArgumentNames" to it.allArgumentNames,
+            )
+        },
         "elapsedMs" to (System.currentTimeMillis() - startTime)
     )
     

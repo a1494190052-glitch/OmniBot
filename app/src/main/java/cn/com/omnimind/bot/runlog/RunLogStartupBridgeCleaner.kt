@@ -24,29 +24,7 @@ internal object RunLogStartupBridgeCleaner {
 
     fun dropTransientStartupBridgeCards(
         replayableCards: List<Map<String, Any?>>,
-    ): List<Map<String, Any?>> {
-        if (replayableCards.size < 2) return replayableCards
-        val output = mutableListOf<Map<String, Any?>>()
-        var concreteActionIndex = 0
-        replayableCards.forEachIndexed { index, card ->
-            val isConcrete = hasRecordedReplayStep(card)
-            if (isConcrete &&
-                shouldDropTransientStartupBridgeCard(
-                    cards = replayableCards,
-                    cardIndex = index,
-                    concreteActionIndex = concreteActionIndex,
-                )
-            ) {
-                concreteActionIndex += 1
-                return@forEachIndexed
-            }
-            output += card
-            if (isConcrete) {
-                concreteActionIndex += 1
-            }
-        }
-        return output
-    }
+    ): List<Map<String, Any?>> = replayableCards
 
     fun normalizeInitialOpenAppStep(
         replayableCards: List<Map<String, Any?>>,

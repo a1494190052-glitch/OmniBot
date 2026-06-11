@@ -13,6 +13,8 @@ object McpTaskManager {
     
     // 活跃任务映射表
     private val activeTasks = ConcurrentHashMap<String, TaskState>()
+
+    private val pendingOmniFlowClarifyTaskByRunId = ConcurrentHashMap<String, String>()
     
     // 最大等待时间（毫秒）
     const val MAX_WAIT_TIME_MS = 120_000L  // 2分钟
@@ -41,6 +43,43 @@ object McpTaskManager {
      * 获取任务
      */
     fun getTask(taskId: String): TaskState? = activeTasks[taskId]
+
+    fun bindPendingOmniFlowClarifyTask(runId: String?, taskId: String?) {
+        val normalizedRunId = normalizeId(runId) ?: return
+        val normalizedTaskId = normalizeId(taskId) ?: return
+        pendingOmniFlowClarifyTaskByRunId[normalizedRunId] = normalizedTaskId
+    }
+
+    fun resolvePendingOmniFlowClarifyTask(runIdOrTaskId: String?): String? {
+        val normalizedId = normalizeId(runIdOrTaskId) ?: return null
+        if (isWaitingPendingOmniFlowClarifyTask(normalizedId)) {
+            return normalizedId
+        }
+        val boundTaskId = pendingOmniFlowClarifyTaskByRunId[normalizedId]
+            ?.takeIf(::isWaitingPendingOmniFlowClarifyTask)
+        if (boundTaskId != null) {
+            return boundTaskId
+        }
+        pendingOmniFlowClarifyTaskByRunId.remove(normalizedId)
+        return null
+    }
+
+    fun resolveUniquePendingOmniFlowClarifyTask(): String? {
+        val pendingTaskIds = activeTasks.values
+            .asSequence()
+            .filter { isWaitingPendingOmniFlowClarifyTask(it.taskId) }
+            .map { it.taskId }
+            .distinct()
+            .take(2)
+            .toList()
+        return pendingTaskIds.singleOrNull()
+    }
+
+    fun clearPendingOmniFlowClarifyTask(runIdOrTaskId: String?) {
+        val normalizedId = normalizeId(runIdOrTaskId) ?: return
+        pendingOmniFlowClarifyTaskByRunId.remove(normalizedId)
+        pendingOmniFlowClarifyTaskByRunId.entries.removeIf { it.value == normalizedId }
+    }
     
     /**
      * 获取所有活跃任务
@@ -54,6 +93,7 @@ object McpTaskManager {
      */
     fun removeTask(taskId: String) {
         activeTasks.remove(taskId)
+        clearPendingOmniFlowClarifyTask(taskId)
     }
     
     /**
@@ -63,6 +103,7 @@ object McpTaskManager {
         scope.launch {
             kotlinx.coroutines.delay(delayMs)
             activeTasks.remove(taskId)
+            clearPendingOmniFlowClarifyTask(taskId)
             OmniLog.d(TAG, "Task $taskId cleaned up after delay")
         }
     }
@@ -72,9 +113,15 @@ object McpTaskManager {
      */
     fun cleanupExpiredTasks(maxAgeMs: Long = 600_000) {
         val now = System.currentTimeMillis()
-        activeTasks.entries.removeIf { (_, state) ->
-            (state.status == TaskStatus.FINISHED || state.status == TaskStatus.ERROR || state.status == TaskStatus.CANCELLED)
+        val expiredTaskIds = activeTasks.entries
+            .filter { (_, state) ->
+                (state.status == TaskStatus.FINISHED || state.status == TaskStatus.ERROR || state.status == TaskStatus.CANCELLED)
                     && (now - state.startTime) > maxAgeMs
+            }
+            .map { it.key }
+        expiredTaskIds.forEach { taskId ->
+            activeTasks.remove(taskId)
+            clearPendingOmniFlowClarifyTask(taskId)
         }
     }
     
@@ -86,6 +133,7 @@ object McpTaskManager {
             status = TaskStatus.FINISHED
             this.message = message
         }
+        clearPendingOmniFlowClarifyTask(taskId)
     }
     
     /**
@@ -121,6 +169,7 @@ object McpTaskManager {
             status = TaskStatus.ERROR
             message = error
         }
+        clearPendingOmniFlowClarifyTask(taskId)
     }
     
     /**
@@ -132,5 +181,12 @@ object McpTaskManager {
             message = "屏幕锁定，任务暂停"
             addChatMessage("[SYSTEM] Screen locked, task paused")
         }
+    }
+
+    private fun normalizeId(id: String?): String? = id?.trim()?.takeIf { it.isNotEmpty() }
+
+    private fun isWaitingPendingOmniFlowClarifyTask(taskId: String): Boolean {
+        val state = activeTasks[taskId] ?: return false
+        return state.status == TaskStatus.WAITING_INPUT && state.pendingOmniFlowFunctionCall != null
     }
 }

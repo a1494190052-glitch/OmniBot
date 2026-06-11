@@ -4,11 +4,11 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:ui/features/home/pages/chat/chat_page_models.dart';
 import 'package:ui/features/home/pages/authorize/authorize_page_args.dart';
+import 'package:ui/features/home/pages/chat/utils/chat_card_message_helpers.dart';
 import 'package:ui/features/home/pages/chat/utils/stream_text_merge.dart';
 import 'package:ui/features/home/pages/command_overlay/constants/messages.dart';
 import 'package:ui/features/home/pages/chat/mixins/agent_stream_handler.dart';
 import 'package:ui/models/agent_stream_event.dart';
-import 'package:ui/models/chat_link_preview.dart';
 import 'package:ui/features/home/pages/chat/utils/deep_thinking_persistence.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/models/chat_message_model.dart';
@@ -1741,7 +1741,8 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     if (runtime.messages.any((m) => m.id == entryId)) return;
 
     final text = (data['text'] ?? '').toString();
-    final createdAtMs = _asPositiveInt(data['createdAt']) ??
+    final createdAtMs =
+        _asPositiveInt(data['createdAt']) ??
         DateTime.now().millisecondsSinceEpoch;
     final createdAt = DateTime.fromMillisecondsSinceEpoch(createdAtMs);
     final rawAttachments = data['attachments'];
@@ -1787,12 +1788,13 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       _ => ConversationMode.normal,
     };
     try {
-      final result = await ConversationHistoryService.getConversationMessagesPaged(
-        conversationId,
-        mode: conversationMode,
-        limit: 100,
-        offset: 0,
-      );
+      final result =
+          await ConversationHistoryService.getConversationMessagesPaged(
+            conversationId,
+            mode: conversationMode,
+            limit: 100,
+            offset: 0,
+          );
       final stillMissingFromRuntime = _runtimes[runtimeKey];
       if (stillMissingFromRuntime == null) return;
       if (stillMissingFromRuntime.messages.any((m) => m.id == userEntryId)) {
@@ -2043,7 +2045,9 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     );
     final isThinkingCardTarget =
         entryId.isNotEmpty &&
-        runtime.messages.any((message) => message.id == entryId && message.type == 2);
+        runtime.messages.any(
+          (message) => message.id == entryId && message.type == 2,
+        );
     if (!isThinkingCardTarget) {
       _finalizeThinkingCard(
         runtime,
@@ -2063,8 +2067,12 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
         lockCompleted: false,
       );
     } else {
-      final messageId = entryId.isNotEmpty ? entryId : _nextAgentTextMessageId(runtime, event.taskId);
-      final index = runtime.messages.indexWhere((message) => message.id == messageId);
+      final messageId = entryId.isNotEmpty
+          ? entryId
+          : _nextAgentTextMessageId(runtime, event.taskId);
+      final index = runtime.messages.indexWhere(
+        (message) => message.id == messageId,
+      );
       if (index == -1) {
         final content = <String, dynamic>{'text': '', 'id': messageId};
         _applyAgentRetryPresentation(content, event, retryText);
@@ -2187,7 +2195,9 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
   }) {
     final entryId = (event.entryId ?? '').trim();
     final shouldMarkError = event.raw['persistAsError'] == true;
-    final errorText = (event.raw['errorText'] ?? event.errorMessage).toString().trim();
+    final errorText = (event.raw['errorText'] ?? event.errorMessage)
+        .toString()
+        .trim();
     if (entryId.isNotEmpty) {
       final index = runtime.messages.indexWhere(
         (message) => message.id == entryId,
@@ -2798,32 +2808,16 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       return;
     }
 
-    final content = Map<String, dynamic>.from(message.content ?? const {});
-    final nextPreviews = LinkPreviewService.instance.reconcilePreviewMaps(
-      text: message.text ?? '',
-      existing: content['linkPreviews'],
-    );
-    final currentPreviews = content['linkPreviews'];
-    var didUpdate = false;
-    if (!_previewMapListsEqual(currentPreviews, nextPreviews)) {
-      if (nextPreviews.isEmpty) {
-        content.remove('linkPreviews');
-      } else {
-        content['linkPreviews'] = nextPreviews;
-      }
-      runtime.messages[index] = message.copyWith(content: content);
-      didUpdate = true;
+    final previewUpdate = ChatLinkPreviewMessageHelpers.reconcile(message);
+    if (previewUpdate.didUpdate) {
+      runtime.messages[index] = previewUpdate.message;
     }
-    if (didUpdate &&
+    if (previewUpdate.didUpdate &&
         !isEphemeralRuntime(
           conversationId: runtime.conversationId,
           mode: runtime.mode,
         ) &&
-        nextPreviews.any(
-          (item) =>
-              ChatLinkPreview.fromJson(item).status !=
-              ChatLinkPreview.statusLoading,
-        )) {
+        previewUpdate.hasResolvedPreview) {
       unawaited(
         ConversationHistoryService.saveConversationMessages(
           runtime.conversationId,
@@ -2837,18 +2831,13 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     }
 
     // 先写 loading 占位，真实网页信息抓取完成后再局部回填。
-    for (final previewMap in nextPreviews) {
-      final preview = ChatLinkPreview.fromJson(previewMap);
-      if (preview.status != ChatLinkPreview.statusLoading ||
-          preview.url.isEmpty) {
-        continue;
-      }
+    for (final url in previewUpdate.loadingUrls) {
       unawaited(
         _resolveMessageLinkPreview(
           conversationId: runtime.conversationId,
           mode: runtime.mode,
           taskId: taskId,
-          url: preview.url,
+          url: url,
         ),
       );
     }
@@ -2870,34 +2859,17 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       return;
     }
 
-    final message = runtime.messages[index];
-    final content = Map<String, dynamic>.from(message.content ?? const {});
-    final rawPreviews = content['linkPreviews'];
-    if (rawPreviews is! List) {
-      return;
-    }
-
     // 只替换仍处于 loading 的同一 URL，避免覆盖历史 ready/failed 结果。
-    var changed = false;
-    final updatedPreviews = rawPreviews
-        .whereType<Map>()
-        .map((item) => Map<String, dynamic>.from(item.cast<String, dynamic>()))
-        .map((previewMap) {
-          final preview = ChatLinkPreview.fromJson(previewMap);
-          if (preview.url != url ||
-              preview.status != ChatLinkPreview.statusLoading) {
-            return previewMap;
-          }
-          changed = true;
-          return resolved.toJson();
-        })
-        .toList();
-    if (!changed) {
+    final updatedMessage = ChatLinkPreviewMessageHelpers.replaceLoadingPreview(
+      runtime.messages[index],
+      url: url,
+      resolved: resolved,
+    );
+    if (updatedMessage == null) {
       return;
     }
 
-    content['linkPreviews'] = updatedPreviews;
-    runtime.messages[index] = message.copyWith(content: content);
+    runtime.messages[index] = updatedMessage;
     notifyListeners();
     schedulePersistRuntimeConversation(
       conversationId: conversationId,
@@ -2914,38 +2886,6 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
         conversation: runtime.conversation,
       ),
     );
-  }
-
-  bool _previewMapListsEqual(dynamic left, List<Map<String, dynamic>> right) {
-    if (left is! List) {
-      return right.isEmpty;
-    }
-    final normalizedLeft = left
-        .whereType<Map>()
-        .map((item) => Map<String, dynamic>.from(item.cast<String, dynamic>()))
-        .toList();
-    if (normalizedLeft.length != right.length) {
-      return false;
-    }
-    for (var index = 0; index < normalizedLeft.length; index += 1) {
-      if (!_previewMapEquals(normalizedLeft[index], right[index])) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  bool _previewMapEquals(
-    Map<String, dynamic> left,
-    Map<String, dynamic> right,
-  ) {
-    return left['url'] == right['url'] &&
-        left['domain'] == right['domain'] &&
-        left['siteName'] == right['siteName'] &&
-        left['title'] == right['title'] &&
-        left['description'] == right['description'] &&
-        left['imageUrl'] == right['imageUrl'] &&
-        left['status'] == right['status'];
   }
 
   List<Map<String, dynamic>> _parseAttachments(dynamic raw) {
@@ -3004,34 +2944,21 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       runtime.messages.removeAt(loadingIndex);
     }
 
-    final startTime = DateTime.now().millisecondsSinceEpoch;
-    final thinkingCardId = cardId ?? '$taskId-thinking';
-    final cardData = {
-      'type': 'deep_thinking',
-      'isLoading': isLoading ?? runtime.isDeepThinking,
-      'thinkingContent': thinkingContent ?? '',
-      'stage': stage ?? runtime.currentThinkingStage,
-      'taskID': taskId,
-      'cardId': thinkingCardId,
-      'startTime': startTime,
-      'endTime': null,
-    };
-
-    runtime.messages.removeWhere((msg) => msg.id == thinkingCardId);
-    runtime.messages.insert(
-      0,
-      ChatMessageModel(
-        id: thinkingCardId,
-        type: 2,
-        user: 3,
-        content: {'cardData': cardData, 'id': thinkingCardId},
-        createAt: DateTime.fromMillisecondsSinceEpoch(startTime),
-        streamMeta: ensureAgentStreamMessageMeta(
-          streamMeta,
-          entryId: thinkingCardId,
-        ),
-      ),
+    final message = ChatThinkingCardMessages.create(
+      taskId: taskId,
+      cardId: cardId,
+      defaultCardIdSuffix: '',
+      thinkingContent: thinkingContent,
+      isLoading: isLoading,
+      stage: stage,
+      streamMeta: streamMeta,
+      includeCollapsible: false,
+      isDeepThinking: runtime.isDeepThinking,
+      currentThinkingStage: runtime.currentThinkingStage,
     );
+
+    runtime.messages.removeWhere((msg) => msg.id == message.id);
+    runtime.messages.insert(0, message);
   }
 
   String _buildContextCompactionMarkerId({
@@ -3153,42 +3080,30 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     Map<String, dynamic>? streamMeta,
     bool lockCompleted = true,
   }) {
-    final thinkingCardId = cardId ?? '$taskId-thinking';
+    final thinkingCardId = ChatThinkingCardMessages.cardIdForTask(
+      taskId,
+      cardId: cardId,
+      defaultCardIdSuffix: '',
+    );
     final index = runtime.messages.indexWhere(
       (msg) => msg.id == thinkingCardId,
     );
     if (index == -1) return;
 
-    final existing = runtime.messages[index];
-    final content = Map<String, dynamic>.from(existing.content ?? {});
-    final cardData = Map<String, dynamic>.from(content['cardData'] ?? {});
-
-    final currentStage = cardData['stage'] as int? ?? 1;
-    final targetStage = stage ?? runtime.currentThinkingStage;
-    final newStage = (lockCompleted && currentStage == 4) ? 4 : targetStage;
-
-    final startTime = cardData['startTime'] as int?;
-    int? endTime = cardData['endTime'] as int?;
-    if (newStage == 4 && endTime == null) {
-      endTime = DateTime.now().millisecondsSinceEpoch;
-    }
-
-    cardData['thinkingContent'] =
-        thinkingContent ?? runtime.deepThinkingContent;
-    cardData['isLoading'] = isLoading ?? runtime.isDeepThinking;
-    cardData['stage'] = newStage;
-    cardData['taskID'] = taskId;
-    cardData['cardId'] = thinkingCardId;
-    cardData['startTime'] = startTime;
-    cardData['endTime'] = endTime;
-
-    content['cardData'] = cardData;
-    runtime.messages[index] = existing.copyWith(
-      content: content,
-      streamMeta: ensureAgentStreamMessageMeta(
-        streamMeta ?? existing.streamMeta,
-        entryId: thinkingCardId,
-      ),
+    runtime.messages[index] = ChatThinkingCardMessages.update(
+      existing: runtime.messages[index],
+      taskId: taskId,
+      cardId: thinkingCardId,
+      thinkingContent: thinkingContent,
+      isLoading: isLoading,
+      stage: stage,
+      streamMeta: streamMeta,
+      lockCompleted: lockCompleted,
+      clearEndTimeWhenActive: false,
+      includeCollapsible: false,
+      deepThinkingContent: runtime.deepThinkingContent,
+      isDeepThinking: runtime.isDeepThinking,
+      currentThinkingStage: runtime.currentThinkingStage,
     );
   }
 
@@ -3259,28 +3174,19 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     required String mode,
     required ChatMessageModel message,
   }) {
-    if (isEphemeralRuntime(conversationId: conversationId, mode: mode)) {
-      return;
-    }
-    final cardData = message.cardData;
-    if (message.type != 2 || cardData?['type'] != 'deep_thinking') {
-      return;
-    }
-    unawaited(
-      ConversationHistoryService.upsertConversationUiCard(
-        conversationId,
-        entryId: message.id,
-        cardData: buildPersistentDeepThinkingCardData(
-          Map<String, dynamic>.from(cardData!),
-        ),
-        createdAtMillis: message.createAt.millisecondsSinceEpoch,
-        mode: _conversationModeFromRuntimeMode(
-          mode,
-          conversation: runtimeFor(
-            conversationId: conversationId,
-            mode: mode,
-          )?.conversation,
-        ),
+    persistDeepThinkingUiCardIfNeeded(
+      conversationId: conversationId,
+      message: message,
+      isEphemeral: isEphemeralRuntime(
+        conversationId: conversationId,
+        mode: mode,
+      ),
+      mode: _conversationModeFromRuntimeMode(
+        mode,
+        conversation: runtimeFor(
+          conversationId: conversationId,
+          mode: mode,
+        )?.conversation,
       ),
     );
   }

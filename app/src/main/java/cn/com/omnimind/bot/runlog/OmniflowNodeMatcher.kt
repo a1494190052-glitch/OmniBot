@@ -38,15 +38,13 @@ internal object OmniflowNodeMatcher {
 
     // ── Matching parameters ───────────────────────────────────────────────────
     const val GEOMETRIC_SIGMA = 0.15f
-    const val IDENTITY_MATCH_LOGIT = 2.5f
-    const val IDENTITY_MISMATCH_LOGIT = -1.0f
     private const val MATCH_PROBABILITY_SCALE = 8f
     private const val MIN_MATCH_SUPPORT = 0.45f
     private const val MIN_MATCH_MARGIN = 0.05f
+    private const val MIN_DIFFUSE_BEST_PROBABILITY = 0.12f
     private const val MIN_ACTION_SIMILARITY = 0.30f
+    private const val MIN_HIGH_ACTION_SIMILARITY_WITHOUT_ANCHOR = 0.90f
     private const val MIN_ANCHOR_VOTES = 1f
-    private const val VECTOR_SIMILARITY_WEIGHT = 0.85f
-    private const val IDENTITY_SIMILARITY_WEIGHT = 0.15f
     private const val ACTION_SIMILARITY_WEIGHT = 0.5f
     private const val TRANSFER_SUPPORT_WEIGHT = 0.5f
     const val MIN_ANCHOR_SIMILARITY = 0.5f
@@ -92,6 +90,36 @@ internal object OmniflowNodeMatcher {
 
     data class Anchor(val src: NodeInfo, val tgt: NodeInfo, val sim: Float)
 
+    data class ComponentScores(
+        val score: Float,
+        val text: Float,
+        val resource: Float,
+        val classType: Float,
+        val affordance: Float,
+        val structure: Float,
+        val prominence: Float,
+        val state: Float,
+        val textConflict: Boolean,
+        val resourceExact: Boolean,
+        val sourceHasText: Boolean,
+        val targetHasText: Boolean,
+    ) {
+        fun toDebugMap(): Map<String, Any?> = mapOf(
+            "score" to score,
+            "text" to text,
+            "resource" to resource,
+            "class_type" to classType,
+            "affordance" to affordance,
+            "structure" to structure,
+            "prominence" to prominence,
+            "state" to state,
+            "text_conflict" to textConflict,
+            "resource_exact" to resourceExact,
+            "source_has_text" to sourceHasText,
+            "target_has_text" to targetHasText,
+        )
+    }
+
     data class MatchResult(
         val index: Int,
         val abstain: Boolean,
@@ -118,6 +146,7 @@ internal object OmniflowNodeMatcher {
         val index: Int,
         val vectorSimilarity: Float,
         val identitySimilarity: Float,
+        val componentScores: ComponentScores,
         val actionSimilarity: Float,
         val transferScore: Float,
         val matchScore: Float,
@@ -220,7 +249,9 @@ internal object OmniflowNodeMatcher {
     ): List<Anchor> {
         if (srcNodes.isEmpty() || tgtNodes.isEmpty()) return emptyList()
         val sims = Array(srcNodes.size) { si ->
-            FloatArray(tgtNodes.size) { ti -> cosine(srcVecs[si], tgtVecs[ti]) }
+            FloatArray(tgtNodes.size) { ti ->
+                sim(srcNodes[si], tgtNodes[ti], srcVecs[si], tgtVecs[ti])
+            }
         }
         val bestTgtBySrc = IntArray(srcNodes.size) { si ->
             (0 until tgtNodes.size).maxByOrNull { sims[si][it] } ?: 0
@@ -237,6 +268,89 @@ internal object OmniflowNodeMatcher {
             }
             .sortedByDescending { it.sim }
             .take(maxCount)
+    }
+
+    @Suppress("UNUSED_PARAMETER")
+    internal fun sim(
+        source: NodeInfo,
+        target: NodeInfo,
+        sourceVector: FloatArray,
+        targetVector: FloatArray,
+    ): Float = simComponents(source, target).score
+
+    internal fun simComponents(source: NodeInfo, target: NodeInfo): ComponentScores {
+        val sourceTexts = semanticTexts(source)
+        val targetTexts = semanticTexts(target)
+        val sourceHasText = sourceTexts.isNotEmpty()
+        val targetHasText = targetTexts.isNotEmpty()
+        val bothHaveText = sourceHasText && targetHasText
+        val text = semanticTextSimilarity(sourceTexts, targetTexts)
+        val resource = resourceTailSimilarity(source, target)
+        val classType = classSimilarity(source, target)
+        val affordance = affordanceSimilarity(source, target)
+        val structure = structureSimilarity(source, target)
+        val prominence = prominenceSimilarity(source, target)
+        val state = stateSimilarity(source, target)
+        val resourceExact = source.resourceTail.isNotBlank() && source.resourceTail == target.resourceTail
+        val textConflict = bothHaveText && text < 0.30f
+
+        val score = when {
+            text >= 0.98f -> (
+                0.78f * text +
+                    0.07f * classType +
+                    0.06f * affordance +
+                    0.04f * structure +
+                    0.03f * resource +
+                    0.02f * prominence
+                )
+            bothHaveText && text >= 0.55f -> (
+                0.55f * text +
+                    0.16f * resource +
+                    0.10f * classType +
+                    0.09f * affordance +
+                    0.06f * structure +
+                    0.04f * prominence
+                )
+            textConflict && resourceExact -> minOf(
+                0.48f,
+                0.42f * resource +
+                    0.18f * classType +
+                    0.20f * affordance +
+                    0.12f * structure +
+                    0.08f * prominence
+            )
+            textConflict -> minOf(
+                0.42f,
+                0.42f * resource +
+                    0.18f * classType +
+                    0.20f * affordance +
+                    0.12f * structure +
+                    0.08f * prominence
+            )
+            else -> (
+                0.42f * resource +
+                    0.16f * classType +
+                    0.18f * affordance +
+                    0.14f * structure +
+                    0.08f * prominence +
+                    0.02f * state
+                )
+        }.coerceIn(0f, 1f)
+
+        return ComponentScores(
+            score = score,
+            text = text,
+            resource = resource,
+            classType = classType,
+            affordance = affordance,
+            structure = structure,
+            prominence = prominence,
+            state = state,
+            textConflict = textConflict,
+            resourceExact = resourceExact,
+            sourceHasText = sourceHasText,
+            targetHasText = targetHasText,
+        )
     }
 
     fun match(
@@ -258,10 +372,8 @@ internal object OmniflowNodeMatcher {
             val cand = candidates[ti]
             val vectorSimilarity = cosine(srcVec, candidateVecs[ti]).coerceIn(0f, 1f)
             val identitySimilarity = identitySimilarity(src, cand)
-            val actionSimilarity = (
-                (VECTOR_SIMILARITY_WEIGHT * vectorSimilarity) +
-                    (IDENTITY_SIMILARITY_WEIGHT * identitySimilarity)
-                ).coerceIn(0f, 1f)
+            val componentScores = simComponents(src, cand)
+            val actionSimilarity = componentScores.score.coerceIn(0f, 1f)
             val contributions = anchorContributions(
                 src = src,
                 candidate = cand,
@@ -286,6 +398,7 @@ internal object OmniflowNodeMatcher {
                 index = ti,
                 vectorSimilarity = vectorSimilarity,
                 identitySimilarity = identitySimilarity,
+                componentScores = componentScores,
                 actionSimilarity = actionSimilarity,
                 transferScore = transferScore,
                 matchScore = matchScore.coerceIn(0f, 1f),
@@ -324,7 +437,8 @@ internal object OmniflowNodeMatcher {
                 "best_match_score" to bestScore,
                 "vote_margin" to margin,
                 "gate" to gate,
-                "best_cosine" to (best?.actionSimilarity ?: 0f),
+                "best_vector_cosine" to (best?.vectorSimilarity ?: 0f),
+                "best_explicit_score_components" to best?.componentScores?.toDebugMap(),
                 "best_action_similarity" to (best?.actionSimilarity ?: 0f),
                 "best_transfer_score" to (best?.transferScore ?: 0f),
                 "best_anchor_vote_count" to (best?.anchorVoteCount ?: 0f),
@@ -333,6 +447,7 @@ internal object OmniflowNodeMatcher {
                 "candidate_count" to candidates.size,
                 "semantic_weight" to if (hasAnchorProjection) ACTION_SIMILARITY_WEIGHT else 1f,
                 "geometric_weight" to if (hasAnchorProjection) TRANSFER_SUPPORT_WEIGHT else 0f,
+                "anchor_node_votes" to anchorNodeVoteDebug(scoredCandidates, candidates),
                 "top" to scoredCandidates.sortedByDescending { it.matchScore }.take(3).map {
                     candidateDebugEntry(it, probs.getOrNull(it.index) ?: 0f)
                 },
@@ -377,19 +492,6 @@ internal object OmniflowNodeMatcher {
         if (norm > 1e-6f) for (i in from until to) vec[i] = vec[i] / norm * weight
     }
 
-    private fun identityLogit(source: NodeInfo, target: NodeInfo): Float {
-        var logit = 0f
-        if (source.resourceId.isNotBlank()) {
-            logit += if (source.resourceId == target.resourceId) IDENTITY_MATCH_LOGIT
-            else if (target.resourceId.isNotBlank()) IDENTITY_MISMATCH_LOGIT else 0f
-        }
-        val sh = stableHash(source.text); val th = stableHash(target.text)
-        if (sh != null) logit += if (sh == th) IDENTITY_MATCH_LOGIT else if (th != null) IDENTITY_MISMATCH_LOGIT else 0f
-        val sd = stableHash(source.contentDesc); val td = stableHash(target.contentDesc)
-        if (sd != null) logit += if (sd == td) IDENTITY_MATCH_LOGIT else if (td != null) IDENTITY_MISMATCH_LOGIT else 0f
-        return logit
-    }
-
     private fun anchorContributions(
         src: NodeInfo,
         candidate: NodeInfo,
@@ -403,7 +505,7 @@ internal object OmniflowNodeMatcher {
         return anchors.mapIndexed { index, anchor ->
             val predX = anchor.tgt.centerX + (src.centerX - anchor.src.centerX) * scaleX
             val predY = anchor.tgt.centerY + (src.centerY - anchor.src.centerY) * scaleY
-            val nd = hypot(predX - candidate.centerX, predY - candidate.centerY) / norm
+            val nd = dis(predX, predY, candidate.centerX, candidate.centerY, norm)
             val geometricSupport = exp(
                 -(nd * nd) / (2.0 * GEOMETRIC_SIGMA * GEOMETRIC_SIGMA)
             ).toFloat().coerceIn(0f, 1f)
@@ -450,17 +552,26 @@ internal object OmniflowNodeMatcher {
         }
         val decision: String
         val reason: String
+        val highActionSimilarity = best.actionSimilarity >= MIN_HIGH_ACTION_SIMILARITY_WITHOUT_ANCHOR
         when {
             best.matchScore < MIN_MATCH_SUPPORT -> {
                 decision = "abstain"; reason = "low_support"
             }
-            margin < MIN_MATCH_MARGIN && pBest <= pNull -> {
+            best.componentScores.textConflict && !highActionSimilarity -> {
+                decision = "abstain"; reason = "semantic_label_conflict"
+            }
+            margin < MIN_MATCH_MARGIN && !highActionSimilarity -> {
                 decision = "abstain"; reason = "low_margin"
+            }
+            pBest < MIN_DIFFUSE_BEST_PROBABILITY && !highActionSimilarity -> {
+                decision = "abstain"; reason = "diffuse_probability"
             }
             best.actionSimilarity < MIN_ACTION_SIMILARITY -> {
                 decision = "abstain"; reason = "low_action_similarity"
             }
-            hasAnchorProjection && best.anchorVoteCount < MIN_ANCHOR_VOTES -> {
+            hasAnchorProjection &&
+                best.anchorVoteCount < MIN_ANCHOR_VOTES &&
+                best.actionSimilarity < MIN_HIGH_ACTION_SIMILARITY_WITHOUT_ANCHOR -> {
                 decision = "abstain"; reason = "low_anchor_votes"
             }
             pBest <= pNull -> {
@@ -482,9 +593,53 @@ internal object OmniflowNodeMatcher {
             "p_null" to pNull,
             "min_support" to MIN_MATCH_SUPPORT,
             "min_margin" to MIN_MATCH_MARGIN,
+            "min_diffuse_best_probability" to MIN_DIFFUSE_BEST_PROBABILITY,
             "min_action_similarity" to MIN_ACTION_SIMILARITY,
             "min_anchor_votes" to if (hasAnchorProjection) MIN_ANCHOR_VOTES else 0f,
+            "min_high_action_similarity_without_anchor" to
+                if (hasAnchorProjection) MIN_HIGH_ACTION_SIMILARITY_WITHOUT_ANCHOR else 0f,
         )
+    }
+
+    private fun anchorNodeVoteDebug(
+        scores: List<CandidateScore>,
+        candidates: List<NodeInfo>,
+    ): List<Map<String, Any?>> {
+        val anchorIndexes = scores
+            .flatMap { score -> score.contributions.map { it.anchorIndex } }
+            .distinct()
+            .sorted()
+        return anchorIndexes.mapNotNull { anchorIndex ->
+            val votes = scores.mapNotNull { score ->
+                score.contributions
+                    .firstOrNull { it.anchorIndex == anchorIndex }
+                    ?.let { contribution -> score to contribution }
+            }.sortedByDescending { it.second.vote }
+            val best = votes.firstOrNull() ?: return@mapNotNull null
+            val bestScore = best.first
+            val bestContribution = best.second
+            mapOf(
+                "anchor_index" to anchorIndex,
+                "selected_candidate_index" to bestScore.index,
+                "selected_vote" to bestContribution.vote,
+                "selected_candidate" to summarizeMatcherNode(candidates[bestScore.index]),
+                "projected_source_node_center" to mapOf(
+                    "x" to bestContribution.projectedX,
+                    "y" to bestContribution.projectedY,
+                ),
+                "anchor_similarity" to bestContribution.anchorSimilarity,
+                "source_anchor" to summarizeMatcherNode(bestContribution.sourceAnchor),
+                "target_anchor" to summarizeMatcherNode(bestContribution.targetAnchor),
+                "candidate_votes" to votes.take(3).map { (score, contribution) ->
+                    mapOf(
+                        "candidate_index" to score.index,
+                        "vote" to contribution.vote,
+                        "geometric_support" to contribution.geometricSupport,
+                        "normalized_distance" to contribution.normalizedDistance,
+                    )
+                },
+            )
+        }.take(8)
     }
 
     private fun candidateDebugEntry(score: CandidateScore, probability: Float): Map<String, Any?> =
@@ -494,6 +649,7 @@ internal object OmniflowNodeMatcher {
             "match_score" to score.matchScore,
             "vector_similarity" to score.vectorSimilarity,
             "identity_similarity" to score.identitySimilarity,
+            "explicit_score_components" to score.componentScores.toDebugMap(),
             "action_similarity" to score.actionSimilarity,
             "transfer_score" to score.transferScore,
             "anchor_vote_count" to score.anchorVoteCount,
@@ -553,10 +709,160 @@ internal object OmniflowNodeMatcher {
         return (score / fields.size).coerceIn(0f, 1f)
     }
 
-    private fun stableHash(text: String): String? {
-        if (text.isBlank()) return null
-        return md5(text.lowercase().trim()).take(4).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    internal fun dis(
+        sourceX: Float,
+        sourceY: Float,
+        targetX: Float,
+        targetY: Float,
+        norm: Float,
+    ): Float = (hypot(sourceX - targetX, sourceY - targetY) / norm.coerceAtLeast(1f))
+        .coerceAtLeast(0f)
+
+    private fun semanticTextSimilarity(sourceTexts: List<String>, targetTexts: List<String>): Float {
+        if (sourceTexts.isEmpty() || targetTexts.isEmpty()) return 0f
+        return sourceTexts.maxOf { left ->
+            targetTexts.maxOf { right -> normalizedTextSimilarity(left, right) }
+        }.coerceIn(0f, 1f)
     }
+
+    private fun semanticTexts(node: NodeInfo): List<String> =
+        listOf(node.text, node.contentDesc, node.hintText)
+            .map(::normalizeSemanticText)
+            .filter { it.isNotBlank() }
+            .distinct()
+
+    private fun normalizedTextSimilarity(left: String, right: String): Float {
+        if (left.isBlank() || right.isBlank()) return 0f
+        if (left == right) return 1f
+        if (left.contains(right) || right.contains(left)) {
+            val shorter = minOf(left.length, right.length).toFloat()
+            val longer = maxOf(left.length, right.length).toFloat().coerceAtLeast(1f)
+            return (0.70f + 0.25f * (shorter / longer)).coerceIn(0f, 0.95f)
+        }
+        val leftTokens = semanticTokens(left)
+        val rightTokens = semanticTokens(right)
+        if (leftTokens.isEmpty() || rightTokens.isEmpty()) return 0f
+        val overlap = leftTokens.intersect(rightTokens).size.toFloat()
+        val union = leftTokens.union(rightTokens).size.toFloat().coerceAtLeast(1f)
+        return (overlap / union * 0.88f).coerceIn(0f, 0.88f)
+    }
+
+    private fun resourceTailSimilarity(source: NodeInfo, target: NodeInfo): Float {
+        val left = source.resourceTail
+        val right = target.resourceTail
+        if (left.isBlank() || right.isBlank()) return 0f
+        if (left == right) return if (isGenericResourceTail(left)) 0.35f else 1f
+        val leftTokens = resourceTokens(left)
+        val rightTokens = resourceTokens(right)
+        if (leftTokens.isEmpty() || rightTokens.isEmpty()) return 0f
+        val overlap = leftTokens.intersect(rightTokens).size.toFloat()
+        if (overlap <= 0f) return 0f
+        val union = leftTokens.union(rightTokens).size.toFloat().coerceAtLeast(1f)
+        val smaller = minOf(leftTokens.size, rightTokens.size).toFloat().coerceAtLeast(1f)
+        val jaccard = overlap / union
+        val coverage = overlap / smaller
+        return (0.20f * jaccard + 0.75f * coverage).coerceIn(0f, 0.90f)
+    }
+
+    private fun classSimilarity(source: NodeInfo, target: NodeInfo): Float = when {
+        source.classSuffix == target.classSuffix -> 1f
+        source.classSuffix.isButtonLike() && target.classSuffix.isButtonLike() -> 0.7f
+        source.classSuffix.isEditLike() && target.classSuffix.isEditLike() -> 0.7f
+        source.classSuffix.isScrollLike() && target.classSuffix.isScrollLike() -> 0.7f
+        source.classSuffix.isToggleLike() && target.classSuffix.isToggleLike() -> 0.7f
+        source.clickable && target.clickable -> 0.45f
+        source.focusable && target.focusable -> 0.35f
+        else -> 0f
+    }
+
+    private fun affordanceSimilarity(source: NodeInfo, target: NodeInfo): Float {
+        val pairs = listOf(
+            source.clickable to target.clickable,
+            source.longClickable to target.longClickable,
+            source.focusable to target.focusable,
+            source.editable to target.editable,
+            source.scrollable to target.scrollable,
+            source.checkable to target.checkable,
+        )
+        var score = 0f
+        for ((left, right) in pairs) {
+            score += when {
+                left == right -> 1f
+                left || right -> 0f
+                else -> 1f
+            }
+        }
+        return (score / pairs.size.coerceAtLeast(1)).coerceIn(0f, 1f)
+    }
+
+    private fun structureSimilarity(source: NodeInfo, target: NodeInfo): Float {
+        if (source.structSignature.isNotBlank() && source.structSignature == target.structSignature) {
+            return 1f
+        }
+        val leaf = if (source.isLeaf == target.isLeaf) 1f else 0f
+        val siblings = if (source.hasSiblings == target.hasSiblings) 1f else 0f
+        val depthDelta = kotlin.math.abs(source.depth - target.depth)
+        val depth = (1f - depthDelta / 6f).coerceIn(0f, 1f)
+        val classFamily = classSimilarity(source, target)
+        return (
+            0.32f * leaf +
+                0.18f * siblings +
+                0.28f * depth +
+                0.22f * classFamily
+            ).coerceIn(0f, 1f)
+    }
+
+    private fun prominenceSimilarity(source: NodeInfo, target: NodeInfo): Float {
+        val sourceArea = source.areaRatio.coerceAtLeast(1e-6f)
+        val targetArea = target.areaRatio.coerceAtLeast(1e-6f)
+        val area = minOf(sourceArea, targetArea) / maxOf(sourceArea, targetArea)
+        val sourceBucket = areaBucket(source.areaRatio)
+        val targetBucket = areaBucket(target.areaRatio)
+        val bucket = when (kotlin.math.abs(sourceBucket - targetBucket)) {
+            0 -> 1f
+            1 -> 0.65f
+            else -> 0.25f
+        }
+        return (0.55f * area + 0.45f * bucket).coerceIn(0f, 1f)
+    }
+
+    private fun stateSimilarity(source: NodeInfo, target: NodeInfo): Float {
+        val pairs = listOf(
+            source.enabled to target.enabled,
+            source.selected to target.selected,
+            source.focused to target.focused,
+        )
+        return pairs.count { it.first == it.second }.toFloat() / pairs.size.toFloat()
+    }
+
+    private fun areaBucket(areaRatio: Float): Int = when {
+        areaRatio < 0.005f -> 0
+        areaRatio < 0.02f -> 1
+        areaRatio < 0.08f -> 2
+        else -> 3
+    }
+
+    private fun normalizeSemanticText(text: String): String =
+        text.trim()
+            .lowercase()
+            .replace(Regex("\\s+"), " ")
+
+    private fun semanticTokens(text: String): Set<String> =
+        text.split(Regex("""[\s,，:：;；/|()\[\]{}<>._-]+"""))
+            .map(::normalizeSemanticText)
+            .filter { it.length >= 2 }
+            .filterNot { it in GENERIC_SEMANTIC_TOKENS }
+            .toSet()
+
+    private fun resourceTokens(text: String): Set<String> =
+        text.split(Regex("""[^a-zA-Z0-9\u4e00-\u9fff]+"""))
+            .map { it.lowercase() }
+            .filter { it.length >= 2 }
+            .filterNot { it in GENERIC_RESOURCE_TOKENS }
+            .toSet()
+
+    private fun isGenericResourceTail(tail: String): Boolean =
+        tail.lowercase() in GENERIC_RESOURCE_TOKENS
 
     private fun entropyConfidence(probs: List<Float>): Float {
         var entropy = 0.0
@@ -598,6 +904,14 @@ internal object OmniflowNodeMatcher {
 
     private val ACTION_ID_PREFIXES = listOf("btn_", "button_", "ib_", "fab_", "action_")
     private val INPUT_ID_PREFIXES = listOf("et_", "edit_", "input_", "search_", "txt_")
+    private val GENERIC_SEMANTIC_TOKENS = setOf(
+        "button", "view", "text", "image", "layout", "item", "container", "content",
+        "android", "widget", "com", "id",
+    )
+    private val GENERIC_RESOURCE_TOKENS = GENERIC_SEMANTIC_TOKENS + setOf(
+        "btn", "fab", "iv", "tv", "ll", "rl", "fl", "root", "icon", "label",
+        "action", "menu", "accessibility", "button", "toggle", "mode",
+    )
 
     // ── Backward compat stubs (used by tests / legacy callers) ────────────────
     @Deprecated("Use vector()", ReplaceWith("vector(node)"))

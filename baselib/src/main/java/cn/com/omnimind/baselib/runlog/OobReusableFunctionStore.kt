@@ -365,14 +365,7 @@ object OobReusableFunctionStore {
                 if (isInternalFunctionArgumentName(name)) {
                     ignoredArgumentStatus(name, "internal_replay_argument").also { ignoredArguments += it }
                 } else {
-                    linkedMapOf(
-                        "name" to name,
-                        "declared" to false,
-                        "binding_count" to 0,
-                        "applied_count" to 0,
-                        "applied" to false,
-                        "reason" to "argument_not_declared",
-                    )
+                    ignoredArgumentStatus(name, "argument_not_declared").also { ignoredArguments += it }
                 }
             )
         }

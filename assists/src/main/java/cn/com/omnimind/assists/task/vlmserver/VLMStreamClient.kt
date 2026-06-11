@@ -259,6 +259,14 @@ class HttpVLMStreamClient(
 
         add("default", request)
         add(
+            "no_thinking_controls",
+            request.copy(
+                enableThinking = null,
+                reasoningEffort = null,
+                thinking = null
+            )
+        )
+        add(
             "no_parallel_tool_calls",
             request.copy(parallelToolCalls = null)
         )

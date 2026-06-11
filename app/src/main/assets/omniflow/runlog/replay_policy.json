@@ -55,8 +55,7 @@
     "skills_loaded",
     "status_update",
     "assistant_response",
-    "get_state",
-    "wait"
+    "get_state"
   ],
   "agent_step_reasons": {
     "perception": "perception_only_step_without_recorded_actions",

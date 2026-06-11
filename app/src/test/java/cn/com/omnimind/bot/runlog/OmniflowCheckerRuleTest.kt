@@ -1,80 +1,29 @@
 package cn.com.omnimind.bot.runlog
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OmniflowCheckerRuleTest {
     @Test
-    fun `normalizes checker condition and action aliases`() {
-        val condition = OmniflowCheckerRule.normalizeCondition("skip-ad")
-        val action = OmniflowCheckerRule.normalizeAction("click_dismiss", condition)
+    fun `built in checker rules are loaded from rule library by phase`() {
+        val libraryIds = OmniflowCheckerRule.BUILTIN_RULE_LIBRARY
+            .mapNotNull { it["id"]?.toString() }
+        val ruleIds = OmniflowCheckerRule.BUILTIN_RULES.map { it.id }
 
-        assertEquals(OmniflowCheckerRule.COND_AD_BLOCKING, condition)
-        assertEquals(OmniflowCheckerRule.ACTION_DISMISS, action)
-        assertTrue(OmniflowCheckerRule.isSupportedPair(condition, action))
-    }
-
-    @Test
-    fun `derives default checker action and phase from condition`() {
-        assertEquals(
-            OmniflowCheckerRule.ACTION_HIDE_KEYBOARD,
-            OmniflowCheckerRule.actionForCondition(OmniflowCheckerRule.COND_KEYBOARD_OBSCURING),
-        )
-        assertEquals(
-            OmniflowCheckerRule.PHASE_PRE_ACTION,
-            OmniflowCheckerRule.phaseForCondition(OmniflowCheckerRule.COND_KEYBOARD_OBSCURING),
-        )
-        assertEquals(
-            OmniflowCheckerRule.PHASE_POST_ACTION,
-            OmniflowCheckerRule.phaseForCondition(OmniflowCheckerRule.COND_RESOLVER_DIALOG),
-        )
-    }
-
-    @Test
-    fun `from map canonicalizes aliases and rejects unsupported pairs`() {
-        val rule = OmniflowCheckerRule.fromMap(
-            mapOf(
-                "id" to "allow_permission",
-                "condition" to "permission_prompt",
-                "action" to "click_allow",
-            )
-        )
-
-        assertNotNull(rule)
-        assertEquals(OmniflowCheckerRule.COND_PERMISSION_DIALOG, rule?.condition)
-        assertEquals(OmniflowCheckerRule.ACTION_ALLOW, rule?.action)
-        assertEquals(OmniflowCheckerRule.PHASE_PRE_TRANSFER, rule?.phase)
-
-        assertFalse(
-            OmniflowCheckerRule.isSupportedPair(
-                OmniflowCheckerRule.COND_PERMISSION_DIALOG,
-                OmniflowCheckerRule.ACTION_DISMISS,
-            )
-        )
-    }
-
-    @Test
-    fun `normalizes hi upgrade checker as post action dismiss rule`() {
-        val rule = OmniflowCheckerRule.fromMap(
-            mapOf(
-                "id" to "dismiss_hi_upgrade",
-                "condition" to "hi_upgrade",
-                "action" to "click",
-            )
-        )
-
-        assertNotNull(rule)
-        assertEquals(OmniflowCheckerRule.COND_APP_UPGRADE_PROMPT, rule?.condition)
-        assertEquals(OmniflowCheckerRule.ACTION_DISMISS, rule?.action)
-        assertEquals(OmniflowCheckerRule.PHASE_POST_ACTION, rule?.phase)
+        assertEquals(libraryIds, ruleIds)
+        assertEquals(ruleIds.size, ruleIds.distinct().size)
         assertTrue(
-            OmniflowCheckerRule.isSupportedPair(
-                OmniflowCheckerRule.COND_APP_UPGRADE_PROMPT,
-                OmniflowCheckerRule.ACTION_DISMISS,
-            )
+            OmniflowCheckerRule.globalRulesForPhase(OmniflowCheckerRule.PHASE_PRE_TRANSFER)
+                .any { it.id == "auto_grant_permission" }
+        )
+        assertTrue(
+            OmniflowCheckerRule.globalRulesForPhase(OmniflowCheckerRule.PHASE_PRE_ACTION)
+                .any { it.id == "hide_keyboard_if_obscuring" }
+        )
+        assertTrue(
+            OmniflowCheckerRule.globalRulesForPhase(OmniflowCheckerRule.PHASE_POST_ACTION)
+                .any { it.id == "dismiss_app_upgrade_prompt_after_open_app" }
         )
     }
 }

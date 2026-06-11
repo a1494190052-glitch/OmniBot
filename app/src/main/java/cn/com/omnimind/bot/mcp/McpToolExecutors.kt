@@ -86,7 +86,7 @@ object McpToolExecutors {
             needSummary = shouldSummary,
             skipGoHome = startFromCurrent,
             disableOmniFlowRecall = disableOmniFlowRecall,
-            allowOmniFlowFunctionAutoExecute = false
+            allowOmniFlowFunctionAutoExecute = !disableOmniFlowRecall
         )
 
         try {
@@ -835,6 +835,7 @@ object McpToolExecutors {
      * 执行任务回复
      */
     suspend fun executeTaskReply(
+        context: Context,
         args: Map<String, Any?>?
     ): Map<String, Any?> = withContext(Dispatchers.IO) {
         val taskId = args?.get("taskId") as? String
@@ -854,6 +855,28 @@ object McpToolExecutors {
         }
         
         OmniLog.d(TAG, "Sending reply to task $taskId: $reply")
+
+        if (taskState.pendingOmniFlowFunctionCall != null) {
+            val outcome = VlmToolCoordinator.executePendingOmniFlowFunctionCall(
+                taskState = taskState,
+                reply = reply,
+                runFunction = { functionId, arguments ->
+                    OobOmniFlowToolkitService(context).runFunction(
+                        linkedMapOf(
+                            "function_id" to functionId,
+                            "goal" to taskState.goal,
+                            "arguments" to arguments,
+                            "frontend_run_id" to taskState.taskId,
+                            "frontend_task_id" to taskState.taskId,
+                            "frontend_parent" to "vlm_task",
+                        )
+                    )
+                },
+            )
+            if (outcome != null) {
+                return@withContext outcomeToMcpResponse(outcome)
+            }
+        }
         
         val success = AssistsUtil.Core.provideUserInputToVLMTask(reply)
         if (!success) {
@@ -1123,11 +1146,37 @@ object McpToolExecutors {
             if (RunLogReplayPolicy.isOmniflowToolCallTool(toolName)) toolArgs["function_id"] else null,
         )
         if (functionId.isNotEmpty()) {
+            val frontendRunId = firstNonBlank(
+                requestArgs["frontend_run_id"],
+                requestArgs["frontendRunId"],
+                requestArgs["run_id"],
+                requestArgs["runId"],
+                requestArgs["taskId"],
+                requestArgs["task_id"],
+            )
+            val frontendTaskId = firstNonBlank(
+                requestArgs["frontend_task_id"],
+                requestArgs["frontendTaskId"],
+                requestArgs["taskId"],
+                requestArgs["task_id"],
+                requestArgs["run_id"],
+                requestArgs["runId"],
+            )
+            val frontendParent = firstNonBlank(
+                requestArgs["frontend_parent"],
+                requestArgs["frontendParent"],
+                requestArgs["parent"],
+            ).ifBlank {
+                if (frontendRunId.isNotEmpty() || frontendTaskId.isNotEmpty()) "vlm_task" else ""
+            }
             return OobOmniFlowToolkitService(context).runFunction(
                 linkedMapOf(
                     "function_id" to functionId,
                     "arguments" to toolArgs,
                     "goal" to requestArgs["goal"],
+                    "frontend_run_id" to frontendRunId.takeIf { it.isNotEmpty() },
+                    "frontend_task_id" to frontendTaskId.takeIf { it.isNotEmpty() },
+                    "frontend_parent" to frontendParent.takeIf { it.isNotEmpty() },
                 )
             )
         }

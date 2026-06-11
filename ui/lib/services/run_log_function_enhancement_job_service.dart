@@ -71,6 +71,8 @@ class RunLogFunctionEnhancementJob {
       registrationResult != null &&
       registrationResult?['success'] == true &&
       (registrationResult?['saved'] == true ||
+          registrationResult?['imported'] == true ||
+          registrationResult?['registered'] == true ||
           registrationResult?['changed'] == false ||
           registrationResult?['already_exists'] == true);
 
@@ -282,95 +284,78 @@ class RunLogFunctionEnhancementJobService {
       return;
     }
     try {
-      RunLogReusableFunctionSpec enhanced;
-      if (job.phase == RunLogFunctionEnhancementJobPhase.saving &&
-          job.enhancedFunctionJson != null) {
-        enhanced = RunLogReusableFunctionSpec(
-          json: job.enhancedFunctionJson!,
-          agentPrompt:
-              job.agentPrompt ??
-              RunLogReusableFunctionConverter.buildAgentPrompt(
-                job.enhancedFunctionJson!,
-                useEnglish: job.useEnglish,
-              ),
-          aiEnhanced: job.enhancementStatus.isApplied,
-          rawAiText: job.rawAiText,
-          warning: job.warning,
-          enhancementStatus: job.enhancementStatus,
-          enhancementMessage: job.message,
-          enhancementReport: job.enhancementReport,
-        );
-      } else {
+      if (job.phase != RunLogFunctionEnhancementJobPhase.saving) {
         job = await _transition(
           job.copyWith(
             phase: RunLogFunctionEnhancementJobPhase.enhancing,
             enhancementStatus:
                 RunLogReusableFunctionEnhancementStatus.enhancing,
             message: job.useEnglish
-                ? 'Agent is refining labels, steps, parameters, and reuse metadata in the background.'
-                : 'Agent 正在后台整理名称、步骤、参数和复用元数据。',
+                ? 'Agent is enhancing description and parameters in the background.'
+                : 'Agent 正在后台增强描述和参数。',
           ),
         );
         if (_canceledJobIds.contains(jobId)) return;
-        enhanced = await RunLogReusableFunctionConverter.enhanceLabels(
-          functionJson: job.inputFunctionJson,
-          useEnglish: job.useEnglish,
+        job = await _transition(
+          job.copyWith(phase: RunLogFunctionEnhancementJobPhase.saving),
         );
-        if (_canceledJobIds.contains(jobId)) return;
       }
-
-      if (enhanced.enhancementStatus ==
-          RunLogReusableFunctionEnhancementStatus.failed) {
-        await _transition(
-          job.copyWith(
-            phase: RunLogFunctionEnhancementJobPhase.failed,
-            enhancementStatus: RunLogReusableFunctionEnhancementStatus.failed,
-            message:
-                enhanced.enhancementMessage ??
-                enhanced.warning ??
-                (job.useEnglish
-                    ? 'Agent enhancement produced no usable result. Keeping the current Function.'
-                    : 'Agent 增强未产生可用结果，当前 Function 保持原样。'),
-            rawAiText: enhanced.rawAiText,
-            warning: enhanced.warning,
-            enhancementReport: enhanced.enhancementReport,
-            error: enhanced.warning,
-          ),
-        );
-        return;
-      }
-
-      job = await _transition(
-        job.copyWith(
-          phase: RunLogFunctionEnhancementJobPhase.saving,
-          enhancementStatus: RunLogReusableFunctionEnhancementStatus.enhancing,
-          message: job.useEnglish
-              ? 'Agent generated the enhancement and is saving it to the Function library.'
-              : 'Agent 已生成增强结果，正在保存到 Function 库。',
-          enhancedFunctionJson: enhanced.json,
-          agentPrompt: enhanced.agentPrompt,
-          rawAiText: enhanced.rawAiText,
-          warning: enhanced.warning,
-          enhancementReport: enhanced.enhancementReport,
-        ),
-      );
       if (_canceledJobIds.contains(jobId)) return;
 
-      final patch = _updateFunctionPatchFromEnhancedSpec(
-        original: job.inputFunctionJson,
-        enhanced: enhanced.json,
-      );
-      final updateRunId = patch.isEmpty ? null : job.runId;
-      final saveJson = await AssistsMessageService.updateOobFunction(
+      // Delegate to the native stepwise orchestrator (run_id only, no patch).
+      // The native side makes two small focused LLM calls (description and
+      // parameters) and handles retries internally. Previously this step ran
+      // enhanceLabels in Flutter (4+ LLM calls), which failed whenever the
+      // model returned non-parseable JSON for any section.
+      var saveJson = await AssistsMessageService.updateOobFunction(
         functionId: job.functionId,
-        runId: updateRunId,
+        runId: job.runId,
         mode: 'enhance',
-        patch: patch,
         extraArgs: const <String, dynamic>{
           'source': 'run_log_function_enhancement_job',
         },
       );
       if (_canceledJobIds.contains(jobId)) return;
+      if (_isFunctionMissingForUpdate(saveJson)) {
+        final bootstrapFunction = _agentHiddenFunctionJson(
+          job.inputFunctionJson,
+        );
+        final bootstrapResult =
+            await AssistsMessageService.registerOobReusableFunction(
+              functionSpec: bootstrapFunction,
+            );
+        if (_canceledJobIds.contains(jobId)) return;
+        if (!bootstrapResult.success) {
+          await _transition(
+            job.copyWith(
+              phase: RunLogFunctionEnhancementJobPhase.failed,
+              enhancementStatus: RunLogReusableFunctionEnhancementStatus.failed,
+              message: job.useEnglish
+                  ? 'This Function was not saved yet, and automatic save before enhancement failed.'
+                  : '这个 Function 还未保存，增强前自动保存失败。',
+              registrationResult: <String, dynamic>{
+                ...bootstrapResult.rawJson,
+                'success': false,
+                'bootstrap_before_enhancement': true,
+                'update_function': saveJson,
+              },
+              error:
+                  bootstrapResult.errorMessage ??
+                  (job.useEnglish ? 'automatic save failed' : '自动保存失败'),
+            ),
+          );
+          return;
+        }
+        saveJson = await AssistsMessageService.updateOobFunction(
+          functionId: job.functionId,
+          runId: job.runId,
+          mode: 'enhance',
+          extraArgs: const <String, dynamic>{
+            'source': 'run_log_function_enhancement_job_retry_after_register',
+          },
+        );
+        if (_canceledJobIds.contains(jobId)) return;
+      }
       final updateSuccess = saveJson['success'] == true;
       final changed = saveJson['changed'] == true;
       final saved = saveJson['saved'] == true;
@@ -413,18 +398,47 @@ class RunLogFunctionEnhancementJobService {
         );
         return;
       }
+      final registeredFunction = _agentVisibleFunctionJson(updatedFunction);
+      final registerResult =
+          await AssistsMessageService.registerOobReusableFunction(
+            functionSpec: registeredFunction,
+          );
+      if (_canceledJobIds.contains(jobId)) return;
+      final registerJson = <String, dynamic>{
+        ...registerResult.rawJson,
+        'success': registerResult.success,
+        'saved': registerResult.success,
+        'changed': changed,
+        'auto_registered_after_enhancement': true,
+        'update_function': saveJson,
+      };
+      if (!registerResult.success) {
+        await _transition(
+          job.copyWith(
+            phase: RunLogFunctionEnhancementJobPhase.failed,
+            enhancementStatus: RunLogReusableFunctionEnhancementStatus.failed,
+            message: job.useEnglish
+                ? 'Agent enhanced and saved this Function, but automatic registration failed.'
+                : 'Agent 已增强并保存 Function，但自动注册失败。',
+            enhancedFunctionJson: updatedFunction,
+            registrationResult: registerJson,
+            error:
+                registerResult.errorMessage ??
+                (job.useEnglish ? 'automatic registration failed' : '自动注册失败'),
+          ),
+        );
+        return;
+      }
       final finalStatus = noSafeChange
           ? RunLogReusableFunctionEnhancementStatus.unchanged
-          : enhanced.enhancementStatus;
+          : RunLogReusableFunctionEnhancementStatus.enhanced;
       await _transition(
         job.copyWith(
           phase: RunLogFunctionEnhancementJobPhase.completed,
           enhancementStatus: finalStatus,
-          message:
-              enhanced.enhancementMessage ??
-              _statusMessage(finalStatus, job.useEnglish),
-          enhancedFunctionJson: updatedFunction,
-          registrationResult: saveJson,
+          message: _statusMessage(finalStatus, job.useEnglish),
+          enhancedFunctionJson: registeredFunction,
+          registrationResult: registerJson,
           error: null,
         ),
       );
@@ -515,16 +529,16 @@ class RunLogFunctionEnhancementJobService {
     switch (status) {
       case RunLogReusableFunctionEnhancementStatus.enhanced:
         return useEnglish
-            ? 'Agent enhancement applied and saved.'
-            : 'Agent 增强已应用并保存。';
+            ? 'Agent enhancement applied, saved, and registered.'
+            : 'Agent 增强已应用、保存并注册。';
       case RunLogReusableFunctionEnhancementStatus.partial:
         return useEnglish
-            ? 'Agent enhancement partially applied and saved.'
-            : 'Agent 增强已部分应用并保存。';
+            ? 'Agent enhancement partially applied, saved, and registered.'
+            : 'Agent 增强已部分应用、保存并注册。';
       case RunLogReusableFunctionEnhancementStatus.unchanged:
         return useEnglish
-            ? 'Agent checked this Function and found no safe change.'
-            : 'Agent 已检查，没有安全可应用的变化。';
+            ? 'Agent checked this Function, found no safe change, and registered it.'
+            : 'Agent 已检查，没有安全可应用的变化，并已注册。';
       case RunLogReusableFunctionEnhancementStatus.failed:
         return useEnglish ? 'Agent enhancement failed.' : 'Agent 增强失败。';
       case RunLogReusableFunctionEnhancementStatus.enhancing:
@@ -570,113 +584,40 @@ Map<String, dynamic>? _nullableStringKeyMap(dynamic value) {
   return map.isEmpty ? null : map;
 }
 
-Map<String, dynamic> _jsonSafeMap(dynamic value) => _stringKeyMap(value);
+Map<String, dynamic> _agentHiddenFunctionJson(Map<String, dynamic> rawJson) {
+  return _functionJsonWithAgentVisibility(rawJson, agentVisible: false);
+}
 
-Map<String, dynamic> _updateFunctionPatchFromEnhancedSpec({
-  required Map<String, dynamic> original,
-  required Map<String, dynamic> enhanced,
+Map<String, dynamic> _agentVisibleFunctionJson(Map<String, dynamic> rawJson) {
+  return _functionJsonWithAgentVisibility(rawJson, agentVisible: true);
+}
+
+Map<String, dynamic> _functionJsonWithAgentVisibility(
+  Map<String, dynamic> rawJson, {
+  required bool agentVisible,
 }) {
-  final patch = <String, dynamic>{};
-  _copyChangedString(patch, original, enhanced, 'name');
-  _copyChangedString(patch, original, enhanced, 'description');
-
-  final originalExecution = _stringKeyMap(original['execution']);
-  final enhancedExecution = _stringKeyMap(enhanced['execution']);
-  final originalSteps = _mapList(originalExecution['steps']);
-  final enhancedSteps = _mapList(enhancedExecution['steps']);
-  final stepPatches = <Map<String, dynamic>>[];
-  for (var index = 0; index < enhancedSteps.length; index++) {
-    if (index >= originalSteps.length) {
-      continue;
-    }
-    final originalStep = originalSteps[index];
-    final enhancedStep = enhancedSteps[index];
-    final stepPatch = <String, dynamic>{
-      'index': index,
-      if ((enhancedStep['id'] ?? '').toString().trim().isNotEmpty)
-        'id': enhancedStep['id'].toString(),
-    };
-    _copyChangedString(stepPatch, originalStep, enhancedStep, 'title');
-    _copyChangedString(stepPatch, originalStep, enhancedStep, 'summary');
-    _copyChangedString(stepPatch, originalStep, enhancedStep, 'description');
-    _copyChangedValue(
-      stepPatch,
-      originalStep,
-      enhancedStep,
-      'cleanup_annotation',
-    );
-    if (stepPatch.length > (stepPatch.containsKey('id') ? 2 : 1)) {
-      stepPatches.add(stepPatch);
-    }
-  }
-  if (stepPatches.isNotEmpty) {
-    patch['steps'] = stepPatches;
-  }
-
-  _copyChangedValue(patch, original, enhanced, 'parameters');
-  _copyChangedValue(patch, original, enhanced, 'agent_reuse');
-
-  final originalMetadata = _stringKeyMap(original['metadata']);
-  final enhancedMetadata = _stringKeyMap(enhanced['metadata']);
-  final metadataPatch = <String, dynamic>{};
-  for (final key in const <String>[
-    'oob_enhancement',
-    'enhancement',
-    'enhancement_status',
-    'enhancement_message',
-    'oob_step_cleanup',
-  ]) {
-    _copyChangedValue(metadataPatch, originalMetadata, enhancedMetadata, key);
-  }
-  if (metadataPatch.isNotEmpty) {
-    patch['metadata'] = metadataPatch;
-  }
-  _copyChangedValue(patch, originalMetadata, enhancedMetadata, 'checker_rules');
-  return _jsonSafeMap(patch);
+  final cloned = _stringKeyMap(rawJson);
+  cloned['agent_visible'] = agentVisible;
+  cloned['visibility'] = agentVisible ? 'agent_reusable' : 'manual_function';
+  final metadata = _stringKeyMap(cloned['metadata']);
+  cloned['metadata'] = <String, dynamic>{
+    ...metadata,
+    'agent_visible': agentVisible,
+    'visibility': agentVisible ? 'agent_reusable' : 'manual_function',
+  };
+  return cloned;
 }
 
-void _copyChangedString(
-  Map<String, dynamic> output,
-  Map<String, dynamic> original,
-  Map<String, dynamic> enhanced,
-  String key,
-) {
-  final value = (enhanced[key] ?? '').toString().trim();
-  if (value.isEmpty || value == (original[key] ?? '').toString().trim()) {
-    return;
+bool _isFunctionMissingForUpdate(Map<String, dynamic> result) {
+  final code = (result['error_code'] ?? result['errorCode'] ?? '')
+      .toString()
+      .trim();
+  if (code == 'OOB_FUNCTION_NOT_FOUND') {
+    return true;
   }
-  output[key] = value;
+  final message = _updateFunctionErrorMessage(result)?.toLowerCase() ?? '';
+  return message.contains('oob reusable function not found');
 }
-
-void _copyChangedValue(
-  Map<String, dynamic> output,
-  Map<String, dynamic> original,
-  Map<String, dynamic> enhanced,
-  String key,
-) {
-  if (!enhanced.containsKey(key)) {
-    return;
-  }
-  final value = _jsonSafe(enhanced[key]);
-  if (_jsonEquals(value, _jsonSafe(original[key]))) {
-    return;
-  }
-  output[key] = value;
-}
-
-List<Map<String, dynamic>> _mapList(dynamic value) {
-  final safe = _jsonSafe(value);
-  if (safe is! List) {
-    return const <Map<String, dynamic>>[];
-  }
-  return safe
-      .whereType<Map>()
-      .map((item) => item.map((key, value) => MapEntry(key.toString(), value)))
-      .toList(growable: false);
-}
-
-bool _jsonEquals(dynamic left, dynamic right) =>
-    jsonEncode(_jsonSafe(left)) == jsonEncode(_jsonSafe(right));
 
 String? _updateFunctionErrorMessage(Map<String, dynamic> result) {
   for (final key in const <String>[
