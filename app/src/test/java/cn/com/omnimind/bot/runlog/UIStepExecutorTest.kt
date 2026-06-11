@@ -796,6 +796,33 @@ class UIStepExecutorTest {
     }
 
     @Test
+    fun `execute open app succeeds when target package is foreground before xml is ready`() = runBlocking {
+        val backend = FakeBackend(
+            beforeXml = "",
+            afterXml = "",
+            currentPackage = "com.android.settings",
+        )
+        OmniflowActionRuntime.useBackendForTesting(backend).use {
+            val result = UIStepExecutor.execute(
+                step = mapOf(
+                    "executor" to "omniflow",
+                    "tool" to "open_app",
+                    "args" to mapOf("package_name" to "com.android.settings"),
+                ),
+                stepId = "step_open_app_package_without_xml",
+                stepTitle = "open settings",
+            )
+
+            assertEquals(true, result["success"])
+            val readyWait = result["open_app_ready_wait"] as? Map<*, *>
+                ?: error("missing open_app_ready_wait")
+            assertEquals("ready", readyWait["status"])
+            assertEquals(false, readyWait["xml_ready"])
+            assertEquals("target_package_match_without_xml", readyWait["page_ready_reason"])
+        }
+    }
+
+    @Test
     fun `open app runs resolver checker after launch`() = runBlocking {
         val backend = FakeBackend(beforeXml = SOURCE_XML, afterXml = RESOLVER_DIALOG_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {

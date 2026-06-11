@@ -140,6 +140,16 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
                 mapOf("model_required" to true)
             )
         )
+        assertTrue(
+            isOobReusableFunctionPendingModelStep(
+                mapOf("vlm_step_required" to true)
+            )
+        )
+        assertTrue(
+            isOobReusableFunctionPendingModelStep(
+                mapOf("error_code" to "OOB_VLM_CONTINUATION_REQUIRED")
+            )
+        )
         assertFalse(
             isOobReusableFunctionPendingModelStep(
                 mapOf("executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW)

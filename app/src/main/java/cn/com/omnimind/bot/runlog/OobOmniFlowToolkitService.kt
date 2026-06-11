@@ -475,6 +475,10 @@ class OobOmniFlowToolkitService(
         val frontendRunId = firstNonBlank(request["frontend_run_id"], request["frontendRunId"])
         val frontendTaskId = firstNonBlank(request["frontend_task_id"], request["frontendTaskId"])
         val frontendParent = firstNonBlank(request["frontend_parent"], request["frontendParent"])
+        val allowAgentFallback = boolArgOrDefault(
+            request["allow_agent_fallback"] ?: request["allowAgentFallback"],
+            defaultValue = true,
+        )
         val executionMode = firstNonBlank(request["execution_mode"])
             .ifBlank { "foreground" }
 
@@ -514,7 +518,7 @@ class OobOmniFlowToolkitService(
             functionRunner.execute(
                 functionId = functionId,
                 arguments = arguments,
-                allowAgentFallback = true,
+                allowAgentFallback = allowAgentFallback,
                 resumeFromStep = resumeFromStep,
                 fallbackSessionId = fallbackSessionId,
                 fallbackAttempt = fallbackAttempt,

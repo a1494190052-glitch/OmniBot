@@ -50,9 +50,6 @@ import cn.com.omnimind.baselib.llm.SceneModelOverrideStore
 import cn.com.omnimind.baselib.llm.SceneVoiceConfig
 import cn.com.omnimind.baselib.llm.SceneVoiceConfigStore
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
-import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
-import cn.com.omnimind.bot.omniflow.language.OmniflowFunctionStore
-import cn.com.omnimind.bot.runlog.OobFunctionRunLogRecorder
 import cn.com.omnimind.baselib.util.APPPackageUtil
 import cn.com.omnimind.baselib.util.ImageQuality
 import cn.com.omnimind.baselib.util.OmniLog
@@ -99,10 +96,7 @@ import cn.com.omnimind.bot.agent.UserDialog
 import cn.com.omnimind.bot.agent.WorkspaceMemoryRollupScheduler
 import cn.com.omnimind.bot.agent.WorkspaceMemoryService
 import cn.com.omnimind.bot.agent.WorkspaceScheduledTaskScheduler
-import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
-import cn.com.omnimind.bot.agent.tool.handlers.SharedHelper
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
-import cn.com.omnimind.bot.omniflow.OobFunctionRepository
 import cn.com.omnimind.bot.runlog.OobActionCodec
 import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
 import cn.com.omnimind.bot.runlog.OobUdegNodeStore
@@ -164,7 +158,6 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.ArrayDeque
-import java.util.UUID
 import kotlin.collections.mapOf
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -474,7 +467,9 @@ private const val AGENT_STREAM_META_SCHEMA_VERSION = "oob.agent_event.v1"
 
 internal fun isOobReusableFunctionPendingModelStep(step: Map<*, *>): Boolean {
     return (step["success"] == false && step["executor"]?.toString() == RunLogReplayPolicy.EXECUTOR_AGENT) ||
-        step["model_required"] == true
+        step["model_required"] == true ||
+        step["vlm_step_required"] == true ||
+        step["error_code"]?.toString() == "OOB_VLM_CONTINUATION_REQUIRED"
 }
 
 internal fun buildOobReusableFunctionVlmContinuationPayload(
@@ -4149,134 +4144,42 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         mainJob.launch {
             val args = normalizeMethodCallMap(call.arguments)
             val functionId = args["function_id"]?.toString()?.trim().orEmpty()
-            if (functionId.isEmpty()) {
-                withContext(Dispatchers.Main) {
-                    result.success(
-                        linkedMapOf(
-                            "success" to false,
-                            "goal" to "oob_reusable_function_run",
-                            "function_id" to functionId,
-                            "execution_status" to OOB_REUSABLE_EXECUTION_STATUS_FAILED,
-                            "error_code" to "OOB_FUNCTION_ID_EMPTY",
-                            "error_message" to "function_id is empty",
-                            "terminal_state" to mapOf(
-                                "status" to "error",
-                                "execution_status" to OOB_REUSABLE_EXECUTION_STATUS_FAILED
-                            )
-                        )
-                    )
-                }
-                return@launch
-            }
-
-            val workspaceFunctionStore = cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore(
-                AgentWorkspaceManager.rootDirectory(context)
-            )
-            val functionRepository = OobFunctionRepository(context, workspaceFunctionStore)
-            val spec = functionRepository.get(functionId)
-            if (spec == null) {
-                withContext(Dispatchers.Main) {
-                    result.success(
-                        linkedMapOf(
-                            "success" to false,
-                            "goal" to "oob_reusable_function_run:$functionId",
-                            "function_id" to functionId,
-                            "execution_status" to OOB_REUSABLE_EXECUTION_STATUS_FAILED,
-                            "error_code" to "OOB_FUNCTION_NOT_FOUND",
-                            "error_message" to "OOB reusable function not found: $functionId",
-                            "terminal_state" to mapOf(
-                                "status" to "error",
-                                "execution_status" to OOB_REUSABLE_EXECUTION_STATUS_FAILED
-                            )
-                        )
-                    )
-                }
-                return@launch
-            }
-
             val callArguments = normalizeCallArgumentMap(args["arguments"])
-            val missingRequired = OobReusableFunctionStore.missingRequiredArguments(
-                functionSpec = spec,
-                arguments = callArguments
-            )
-            if (missingRequired.isNotEmpty()) {
-                withContext(Dispatchers.Main) {
-                    result.success(
-                        linkedMapOf(
-                            "success" to false,
-                            "goal" to "oob_reusable_function_run:$functionId",
-                            "function_id" to functionId,
-                            "execution_status" to OOB_REUSABLE_EXECUTION_STATUS_FAILED,
-                            "error_code" to "OOB_FUNCTION_ARGUMENTS_MISSING",
-                            "error_message" to "Missing required arguments: ${missingRequired.joinToString(", ")}",
-                            "terminal_state" to mapOf(
-                                "status" to "error",
-                                "execution_status" to OOB_REUSABLE_EXECUTION_STATUS_FAILED,
-                                "runner" to "oob_agent_reusable_function"
-                            ),
-                            "context" to mapOf(
-                                "source" to "oob_reusable_function",
-                                "function_id" to functionId,
-                                "missing_required_arguments" to missingRequired
-                            )
-                        )
-                    )
-                }
-                return@launch
-            }
             val providedLocalReplayResult = normalizeProvidedLocalReplayResult(
                 args["localReplayResult"] ?: args["local_replay_result"]
             )
-            val runner = OobFunctionToolHandler(
-                context = context,
-                helper = SharedHelper(context, chatTaskPayloadJson)
-            ).apply {
-                this.workspaceFunctionStore = workspaceFunctionStore
-            }
-
-            // Prefer the typed Function path when the saved Function was compiled.
-            val irFunction = OmniflowFunctionStore.get(context, functionId)
-                ?.materialize(callArguments.mapValues { it.value?.toString() ?: "" })
-
-            // Phase 1 for direct UI calls: execute the deterministic local prefix only.
-            // Tool/data-flow/agent steps need the full Agent runtime, so the runner marks
-            // the first such step as an agent executor handoff instead of failing a synthetic tool call.
-            val materializedSpec = if (irFunction == null) {
-                OobReusableFunctionStore.materialize(spec, callArguments)
-            } else null
-
             val runPayload = providedLocalReplayResult ?: runCatching {
-                withContext(Dispatchers.Default) {
-                    if (irFunction != null) {
-                        runner.runFunction(
-                            fn = irFunction,
-                            allowAgentFallback = false,
-                            allowToolDelegationWithoutRouter = false,
-                            frontendRunId = firstNonBlankString(args["frontend_run_id"], args["frontendRunId"]),
-                            frontendTaskId = firstNonBlankString(args["taskId"], args["task_id"]),
-                            frontendParent = "oob_direct_replay",
-                        )
-                    } else {
-                        runner.runMaterializedFunction(
-                            functionId = functionId,
-                            spec = spec,
-                            materializedSpec = materializedSpec!!,
-                            allowAgentFallback = false,
-                            allowToolDelegationWithoutRouter = false,
-                            frontendRunId = firstNonBlankString(args["frontend_run_id"], args["frontendRunId"]),
-                            frontendTaskId = firstNonBlankString(args["taskId"], args["task_id"]),
-                            frontendParent = "oob_direct_replay",
-                        )
-                    }
+                val toolkitPayload = withContext(Dispatchers.IO) {
+                    OobOmniFlowToolkitService(context).runFunction(
+                        linkedMapOf<String, Any?>(
+                            "function_id" to functionId,
+                            "arguments" to callArguments,
+                            "confirmed" to true,
+                            "allow_agent_fallback" to false,
+                            "frontend_run_id" to firstNonBlankString(
+                                args["frontend_run_id"],
+                                args["frontendRunId"]
+                            ).takeIf { it.isNotEmpty() },
+                            "frontend_task_id" to firstNonBlankString(
+                                args["frontend_task_id"],
+                                args["frontendTaskId"],
+                                args["taskId"],
+                                args["task_id"]
+                            ).takeIf { it.isNotEmpty() },
+                            "frontend_parent" to "oob_direct_replay",
+                        ).filterValues { it != null }
+                    )
                 }
+                normalizeOobToolkitFunctionRunPayload(toolkitPayload)
             }.getOrElse { error ->
-                linkedMapOf(
+                linkedMapOf<String, Any?>(
                     "success" to false,
                     "function_id" to functionId,
                     "runner" to "oob_mixed_runner",
                     "step_count" to 0,
                     "success_step_count" to 0,
                     "model_used" to false,
+                    "error_code" to "OOB_FUNCTION_RUN_FAILED",
                     "error_message" to error.message.orEmpty(),
                     "step_results" to emptyList<Map<String, Any?>>()
                 )
@@ -4293,7 +4196,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 val completedCount = stepResults.indexOfFirst(::isOobReusableFunctionPendingModelStep)
                 val continuationId = firstNonBlankString(args["taskId"], args["task_id"])
                     .takeIf { it.isNotEmpty() }
-                    ?: "oob-vlm-step-${System.currentTimeMillis()}-${UUID.randomUUID()}"
+                    ?: firstNonBlankString(runPayload["fallback_session_id"]).takeIf { it.isNotEmpty() }
+                    ?: "oob-vlm-step-${System.currentTimeMillis()}"
                 val payload = buildOobReusableFunctionVlmContinuationPayload(
                     functionId = functionId,
                     continuationId = continuationId,
@@ -4309,25 +4213,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 return@launch
             }
 
-            // All steps executed locally, or local replay stopped with an
-            // explicit failure that the UI may offer to continue with Agent.
             val localSuccess = runPayload["success"] != false
-            OobReusableFunctionStore.recordRun(
-                context = context,
-                functionId = functionId,
-                success = localSuccess,
-                runId = runPayload["run_id"]?.toString(),
-                runner = runPayload["runner"]?.toString() ?: "oob_mixed_runner",
-                stepCount = (runPayload["step_count"] as? Number)?.toInt()
-                    ?: stepResults.size,
-                errorMessage = runPayload["error_message"]?.toString()
-            )
-            OobFunctionRunLogRecorder.record(
-                context = context,
-                functionId = functionId,
-                functionSpec = spec,
-                runPayload = runPayload,
-            )
             val payload = buildOobReusableFunctionLocalPayload(
                 functionId = functionId,
                 localSuccess = localSuccess,
@@ -6168,6 +6054,62 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             putIfAbsent("error_code", raw["error_code"] ?: contextPayload["error_code"])
         }
         return runPayload
+    }
+
+    private fun normalizeOobToolkitFunctionRunPayload(payload: Map<String, Any?>): Map<String, Any?> {
+        val resultPayload = normalizeMethodCallMap(payload["result"])
+        val stepResults = normalizeStepResultList(
+            payload["step_results"] ?: resultPayload["step_results"]
+        )
+        val success = payload["success"] == true
+        return LinkedHashMap<String, Any?>().apply {
+            putAll(resultPayload)
+            put("success", success)
+            put("function_id", firstNonBlankString(payload["function_id"], resultPayload["function_id"]))
+            put("run_id", firstNonBlankString(payload["run_id"], resultPayload["run_id"]))
+            put("audit_run_id", firstNonBlankString(payload["audit_run_id"], resultPayload["audit_run_id"]))
+            put("runner", firstNonBlankString(payload["runner"], resultPayload["runner"], "oob_mixed_runner"))
+            put("step_results", stepResults)
+            put("step_count", payload["step_count"] ?: resultPayload["step_count"] ?: stepResults.size)
+            put(
+                "active_step_count",
+                payload["active_step_count"] ?: resultPayload["active_step_count"]
+            )
+            put(
+                "success_step_count",
+                payload["success_step_count"] ?: resultPayload["success_step_count"]
+                    ?: stepResults.count { it["success"] != false }
+            )
+            put(
+                "completed_step_count",
+                payload["completed_step_count"] ?: resultPayload["completed_step_count"]
+            )
+            put("resume_from_step", payload["resume_from_step"] ?: resultPayload["resume_from_step"])
+            put("failed_step_index", payload["failed_step_index"] ?: resultPayload["failed_step_index"])
+            put("current_step_index", payload["current_step_index"] ?: resultPayload["current_step_index"])
+            put("current_step_number", payload["current_step_number"] ?: resultPayload["current_step_number"])
+            put("model_used", payload["model_used"] ?: resultPayload["model_used"] ?: false)
+            put("model_required", payload["model_required"] ?: resultPayload["model_required"])
+            put("delegated_tool_used", payload["delegated_tool_used"] ?: resultPayload["delegated_tool_used"])
+            put("fallback_session_id", payload["fallback_session_id"] ?: resultPayload["fallback_session_id"])
+            put("fallback_attempt", payload["fallback_attempt"] ?: resultPayload["fallback_attempt"])
+            put(
+                "fallback_unavailable_reason",
+                payload["fallback_unavailable_reason"] ?: resultPayload["fallback_unavailable_reason"]
+            )
+            put("fallback_context", payload["fallback_context"] ?: resultPayload["fallback_context"])
+            put("agent_prompt", payload["agent_prompt"] ?: resultPayload["agent_prompt"])
+            put("timing", payload["timing"] ?: resultPayload["timing"])
+            put("error_code", payload["error_code"] ?: resultPayload["error_code"])
+            put(
+                "error_message",
+                payload["error_message"] ?: resultPayload["error_message"]
+            )
+            remove("result")
+            remove("guard")
+        }.filterValues { value ->
+            value != null && !(value is String && value.isBlank())
+        }
     }
 
     private fun normalizeStepResultList(value: Any?): List<Map<String, Any?>> {

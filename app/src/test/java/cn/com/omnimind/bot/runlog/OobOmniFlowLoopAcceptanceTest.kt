@@ -705,6 +705,90 @@ class OobOmniFlowLoopAcceptanceTest {
     }
 
     @Test
+    fun `update function normalizes shared checker object schema into runtime rule`() = runBlocking {
+        val context = TempFilesContext()
+        try {
+            val toolkit = OobOmniFlowToolkitService(context, WorkspaceFunctionStore(context.root))
+            val functionId = "shared_checker_schema_update"
+            val register = toolkit.registerFunction(
+                mapOf(
+                    "functionId" to functionId,
+                    "name" to "关闭本地弹窗后继续",
+                    "description" to "用于验证 shared checker schema 会落成运行时规则",
+                    "sourcePage" to mapOf(
+                        "xml" to TAKEOUT_XML,
+                        "packageName" to "com.example.food",
+                    ),
+                    "steps" to listOf(
+                        mapOf(
+                            "action" to "click",
+                            "title" to "点击外卖",
+                            "target_description" to "外卖",
+                            "x" to 790,
+                            "y" to 140,
+                        ),
+                    ),
+                )
+            )
+            assertEquals(true, register["success"])
+
+            val update = toolkit.updateFunction(
+                mapOf(
+                    "function_id" to functionId,
+                    "mode" to "enhance",
+                    "patch" to mapOf(
+                        "metadata" to mapOf(
+                            "checker_rules" to listOf(
+                                mapOf(
+                                    "enabled" to true,
+                                    "phase" to "pre_transfer",
+                                    "condition" to mapOf(
+                                        "type" to "overlay_blocking",
+                                        "text_any" to listOf("添加到首页"),
+                                    ),
+                                    "action" to mapOf(
+                                        "type" to "dismiss",
+                                        "text_any" to listOf("关闭", "跳过"),
+                                    ),
+                                    "budget" to mapOf(
+                                        "max_triggers_per_run" to 2,
+                                        "max_triggers_per_step" to 1,
+                                    ),
+                                    "source" to "function_metadata",
+                                ),
+                            )
+                        ),
+                    ),
+                )
+            )
+
+            assertEquals(true, update["success"])
+            assertEquals(true, update["changed"])
+            assertEquals(true, update["saved"])
+
+            val stored = toolkit.getFunction(mapOf("function_id" to functionId))
+            val function = stored["function"] as Map<*, *>
+            val metadata = function["metadata"] as Map<*, *>
+            val checkerRules = metadata["checker_rules"] as List<*>
+            assertEquals(1, checkerRules.size)
+            val rule = checkerRules.single() as Map<*, *>
+            assertEquals("function_checker", rule["id"])
+            assertEquals("overlay_blocking", rule["condition"])
+            assertEquals("dismiss", rule["action"])
+            assertEquals("pre_transfer", rule["phase"])
+            assertEquals(true, rule["enabled"])
+            val params = rule["params"] as Map<*, *>
+            assertEquals(listOf("添加到首页"), params["text_any"])
+            assertEquals(listOf("关闭", "跳过"), params["action_text_any"])
+            assertEquals(2, (params["max_triggers"] as Number).toInt())
+            assertEquals(1, (params["max_triggers_per_step"] as Number).toInt())
+            assertEquals("function_metadata", params["source"])
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `update function normalizes ad checker aliases into runtime rule`() = runBlocking {
         val context = TempFilesContext()
         try {

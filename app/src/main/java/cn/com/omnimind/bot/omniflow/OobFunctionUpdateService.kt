@@ -3,7 +3,6 @@ package cn.com.omnimind.bot.omniflow
 import android.content.Context
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.boolArg
-import cn.com.omnimind.bot.omniflow.OobFunctionJson.boolArgOrDefault
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.intArg
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.listArg
@@ -705,7 +704,10 @@ class OobFunctionUpdateService(
 
     private fun sanitizeCheckerRule(raw: Map<String, Any?>): Map<String, Any?>? {
         if (raw.isEmpty()) return null
-        val normalized = OmniflowCheckerRule.fromMap(raw) ?: return null
+        val normalizedInput = mutableJsonMap(raw).apply {
+            putIfAbsent("id", "function_checker")
+        }
+        val normalized = OmniflowCheckerRule.fromMap(normalizedInput) ?: return null
         val params = mutableMapOf<String, Any?>()
         val rp = normalized.params
         val pkg = firstNonBlank(rp["package_name"], rp["packageName"], raw["package_name"], raw["packageName"])

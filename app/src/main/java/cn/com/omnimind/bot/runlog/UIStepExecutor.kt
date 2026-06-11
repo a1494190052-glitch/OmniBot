@@ -998,10 +998,12 @@ object UIStepExecutor {
     ): Map<String, Any?> {
         val xml = snapshot.xml
         if (xml.isBlank()) {
-            if (RunLogPagePackageInference.packageFromActivity(snapshot.activityName) == expectedPackage) {
+            if (snapshot.effectivePackage() == expectedPackage ||
+                RunLogPagePackageInference.packageFromActivity(snapshot.activityName) == expectedPackage
+            ) {
                 return mapOf(
                     "page_ready" to true,
-                    "page_ready_reason" to "activity_match_without_xml",
+                    "page_ready_reason" to "target_package_match_without_xml",
                 )
             }
             return mapOf(
