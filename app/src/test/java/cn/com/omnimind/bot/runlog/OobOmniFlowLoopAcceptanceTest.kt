@@ -11,6 +11,7 @@ import cn.com.omnimind.bot.mcp.RemoteMcpServerConfig
 import cn.com.omnimind.bot.mcp.RemoteMcpToolDescriptor
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
 import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
+import cn.com.omnimind.bot.omniflow.language.OmniflowFunctionStore
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
 import java.io.File
 import java.nio.file.Files
@@ -92,10 +93,6 @@ class OobOmniFlowLoopAcceptanceTest {
             val execution = stored["execution"] as? Map<*, *>
             assertEquals(2, (execution?.get("step_count") as Number).toInt())
             assertEquals(false, execution["has_agent_steps"])
-
-            val guard = toolkit.guardCheck(mapOf("functionId" to functionId))
-            assertEquals(true, guard["success"])
-            assertEquals("allow", guard["decision"])
 
             val recall = toolkit.recall(
                 mapOf(
@@ -1034,7 +1031,7 @@ class OobOmniFlowLoopAcceptanceTest {
     }
 
     @Test
-    fun `guard and replay skip get state observation steps without model continuation`() = runBlocking {
+    fun `run function skips get state observation steps without model continuation`() = runBlocking {
         val context = TempFilesContext()
         try {
             val toolkit = OobOmniFlowToolkitService(context, WorkspaceFunctionStore(context.root))
@@ -1059,14 +1056,6 @@ class OobOmniFlowLoopAcceptanceTest {
             )
             assertEquals(true, register["success"])
 
-            val guard = toolkit.guardCheck(mapOf("function_id" to functionId))
-            assertEquals(true, guard["success"])
-            assertEquals("allow", guard["decision"])
-            val stepDecisions = guard["step_decisions"] as? List<*>
-            val firstStep = stepDecisions?.firstOrNull() as? Map<*, *>
-            assertEquals("get_state", firstStep?.get("tool"))
-            assertEquals("allow", firstStep?.get("decision"))
-
             val call = toolkit.runFunction(mapOf("function_id" to functionId))
             assertEquals(true, call["success"])
             assertEquals(false, (call["result"] as? Map<*, *>)?.get("model_required"))
@@ -1074,6 +1063,191 @@ class OobOmniFlowLoopAcceptanceTest {
             val firstResult = results?.firstOrNull() as? Map<*, *>
             assertEquals(true, firstResult?.get("skipped"))
             assertEquals(true, firstResult?.get("success"))
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `run function returns compatible errors for empty missing and unknown ids`() = runBlocking {
+        val context = TempFilesContext()
+        try {
+            val toolkit = OobOmniFlowToolkitService(context, WorkspaceFunctionStore(context.root))
+
+            val emptyId = toolkit.runFunction(mapOf("function_id" to ""))
+            assertEquals(false, emptyId["success"])
+            assertEquals("OOB_FUNCTION_NOT_FOUND", emptyId["error_code"])
+            assertEquals(emptyList<Any?>(), emptyId["step_results"])
+
+            val missingId = toolkit.runFunction(mapOf("function_id" to "missing_function"))
+            assertEquals(false, missingId["success"])
+            assertEquals("OOB_FUNCTION_NOT_FOUND", missingId["error_code"])
+            assertEquals("missing_function", missingId["function_id"])
+            assertEquals(emptyList<Any?>(), missingId["step_results"])
+
+            val functionId = "required_argument_function"
+            val register = toolkit.registerFunction(
+                mapOf(
+                    "functionSpec" to mapOf(
+                        "schema_version" to "oob.reusable_function.v1",
+                        "function_id" to functionId,
+                        "name" to functionId,
+                        "parameters" to listOf(
+                            mapOf(
+                                "name" to "keyword",
+                                "type" to "string",
+                                "required" to true,
+                            )
+                        ),
+                        "execution" to mapOf(
+                            "kind" to "tool_sequence",
+                            "runner" to "oob_tool_sequence",
+                            "steps" to listOf(
+                                mapOf(
+                                    "id" to "finish",
+                                    "title" to "Finished",
+                                    "kind" to "omniflow_action",
+                                    "executor" to "omniflow",
+                                    "tool" to "finished",
+                                    "callable_tool" to "finished",
+                                    "omniflow_action" to "finished",
+                                    "args" to emptyMap<String, Any?>(),
+                                )
+                            ),
+                            "step_count" to 1,
+                        ),
+                    ),
+                )
+            )
+            assertEquals(true, register["success"])
+
+            val missingArg = toolkit.runFunction(mapOf("function_id" to functionId))
+            assertEquals(false, missingArg["success"])
+            assertEquals("OOB_FUNCTION_ARGUMENTS_MISSING", missingArg["error_code"])
+            assertEquals(listOf("keyword"), missingArg["missing_required_arguments"])
+            assertEquals(emptyList<Any?>(), missingArg["step_results"])
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `top level run function uses typed omniflow function when registered runlog saved one`() = runBlocking {
+        val context = TempFilesContext()
+        try {
+            val toolkit = OobOmniFlowToolkitService(context, WorkspaceFunctionStore(context.root))
+            val runId = "typed_top_level_runlog"
+            InternalRunLogStore.beginRun(
+                context = context,
+                runId = runId,
+                goal = "typed top level",
+                source = "test",
+                toolName = "test",
+                operationDescription = "typed top level",
+            )
+            InternalRunLogStore.upsertCard(
+                context = context,
+                runId = runId,
+                cardId = "finish_card",
+                card = mapOf(
+                    "card_id" to "finish_card",
+                    "tool_name" to "finished",
+                    "operation" to "finished",
+                    "success" to true,
+                    "android_privileged_replay_action" to "finished",
+                    "android_privileged_replay_args" to emptyMap<String, Any?>(),
+                    "result" to mapOf("success" to true),
+                ),
+            )
+            InternalRunLogStore.finishRun(
+                context = context,
+                runId = runId,
+                success = true,
+                doneReason = "finished",
+            )
+
+            val convert = toolkit.convertRunLog(
+                mapOf(
+                    "run_id" to runId,
+                    "register" to true,
+                    "function_id" to "typed_top_level_function",
+                )
+            )
+            assertEquals(true, convert["success"])
+            val functionId = convert["function_id"]?.toString().orEmpty()
+            assertNotNull(OmniflowFunctionStore.get(context, functionId))
+
+            val run = toolkit.runFunction(mapOf("function_id" to functionId))
+            assertEquals(true, run["success"])
+            val result = run["result"] as? Map<*, *>
+            assertEquals("oob_omniflow_loop", result?.get("runner"))
+            val timing = run["timing"] as? Map<*, *>
+            val phaseMs = timing?.get("phase_ms") as? Map<*, *>
+            assertTrue("typed path should be attempted", phaseMs?.containsKey("run_typed_function_ms") == true)
+            assertEquals(0L, (phaseMs?.get("run_materialized_function_ms") as Number).toLong())
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `top level run function falls back to legacy spec when typed function is absent`() = runBlocking {
+        val context = TempFilesContext()
+        try {
+            val toolkit = OobOmniFlowToolkitService(context, WorkspaceFunctionStore(context.root))
+            val runId = "legacy_fallback_runlog"
+            InternalRunLogStore.beginRun(
+                context = context,
+                runId = runId,
+                goal = "legacy fallback",
+                source = "test",
+                toolName = "test",
+                operationDescription = "legacy fallback",
+            )
+            InternalRunLogStore.upsertCard(
+                context = context,
+                runId = runId,
+                cardId = "finish_card",
+                card = mapOf(
+                    "card_id" to "finish_card",
+                    "tool_name" to "finished",
+                    "operation" to "finished",
+                    "success" to true,
+                    "android_privileged_replay_action" to "finished",
+                    "android_privileged_replay_args" to emptyMap<String, Any?>(),
+                    "result" to mapOf("success" to true),
+                ),
+            )
+            InternalRunLogStore.finishRun(
+                context = context,
+                runId = runId,
+                success = true,
+                doneReason = "finished",
+            )
+
+            val convert = toolkit.convertRunLog(
+                mapOf(
+                    "run_id" to runId,
+                    "register" to true,
+                    "function_id" to "legacy_fallback_function",
+                )
+            )
+            assertEquals(true, convert["success"])
+            val functionId = convert["function_id"]?.toString().orEmpty()
+            assertTrue(OmniflowFunctionStore.delete(context, functionId))
+
+            val run = toolkit.runFunction(mapOf("function_id" to functionId))
+            assertEquals(true, run["success"])
+            val timing = run["timing"] as? Map<*, *>
+            val phaseMs = timing?.get("phase_ms") as? Map<*, *>
+            assertTrue("typed path should still be checked", phaseMs?.containsKey("run_typed_function_ms") == true)
+            assertTrue(
+                "legacy path should run when typed function is absent",
+                ((phaseMs?.get("run_materialized_function_ms") as Number).toLong()) >= 0L
+            )
+            val stepResults = run["step_results"] as? List<*>
+            assertEquals(1, stepResults?.size)
+            assertEquals("finished", (stepResults?.single() as? Map<*, *>)?.get("tool"))
         } finally {
             context.root.deleteRecursively()
         }
@@ -1393,7 +1567,6 @@ class OobOmniFlowLoopAcceptanceTest {
             assertEquals("oob_function_execute", functionTiming?.get("source"))
             val callPhaseMs = functionTiming?.get("call_phase_ms") as? Map<*, *>
             assertNotNull(callPhaseMs)
-            assertTrue("missing call guard timing", callPhaseMs?.containsKey("guard_check_ms") == true)
             assertTrue("missing call execute timing", callPhaseMs?.containsKey("execute_function_ms") == true)
             val functionPhaseMs = functionTiming?.get("phase_ms") as? Map<*, *>
             assertNotNull(functionPhaseMs)
@@ -1402,12 +1575,16 @@ class OobOmniFlowLoopAcceptanceTest {
                 "check_arguments_ms",
                 "materialize_function_ms",
                 "create_runner_ms",
-                "run_materialized_function_ms",
+                "run_typed_function_ms",
             ).forEach { phaseName ->
                 assertTrue("missing function timing phase $phaseName", functionPhaseMs?.containsKey(phaseName) == true)
             }
+            assertTrue(
+                "typed or legacy runner phase must be present",
+                functionPhaseMs?.containsKey("run_materialized_function_ms") == true ||
+                    functionPhaseMs?.containsKey("run_typed_function_ms") == true
+            )
             assertNotNull(functionTiming?.get("startup_phase_ms") as? Map<*, *>)
-            assertNotNull(functionTiming?.get("runner_phase_ms") as? Map<*, *>)
 
             val oobResult = call["result"] as? Map<*, *>
             assertNotNull(oobResult)
@@ -1737,7 +1914,7 @@ class OobOmniFlowLoopAcceptanceTest {
     }
 
     @Test
-    fun `guard allows finished marker even when source xml contains blocked words`() = runBlocking {
+    fun `run function allows finished marker even when source xml contains blocked words`() = runBlocking {
         val context = TempFilesContext()
         try {
             val workspaceStore = WorkspaceFunctionStore(context.root)
@@ -1787,15 +1964,6 @@ class OobOmniFlowLoopAcceptanceTest {
                 )
             )
             assertEquals(true, register["success"])
-
-            val guard = toolkit.guardCheck(mapOf("function_id" to functionId))
-            assertEquals(true, guard["success"])
-            assertEquals("allow", guard["decision"])
-            assertEquals(false, guard["requires_root"])
-            val stepDecisions = guard["step_decisions"] as? List<*>
-            val step = stepDecisions?.single() as? Map<*, *>
-            assertEquals("allow", step?.get("decision"))
-            assertEquals("low", step?.get("risk_level"))
 
             val call = toolkit.runFunction(mapOf("function_id" to functionId))
             assertEquals(true, call["success"])

@@ -8,7 +8,6 @@ import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import cn.com.omnimind.bot.omniflow.OobFunctionRecallService
 import cn.com.omnimind.bot.omniflow.OobFunctionRepository
-import cn.com.omnimind.bot.omniflow.OobFunctionRunPolicy
 import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
 import cn.com.omnimind.bot.omniflow.OobFunctionUpdateAgentOrchestrator
@@ -28,8 +27,7 @@ import cn.com.omnimind.bot.runlog.OobActionCodec.mapArg
  * The service deliberately keeps the first version fixed and local: Functions
  * are registered in OOB stores, recall is deterministic, and execution runs
  * through the existing OOB replay dispatcher. External OmniFlow can replace this
- * class later behind the same Function lifecycle shape:
-     * `list/get or recall -> guard_check -> run -> run_log_convert/update_function`.
+ * class later behind the same Function lifecycle shape.
  */
 class OobOmniFlowToolkitService(
     private val context: Context,
@@ -45,7 +43,6 @@ class OobOmniFlowToolkitService(
     private val replayService = OobRunLogReplayService(context, workspaceFunctionStore, functionRepository)
     private val functionRecallService = OobFunctionRecallService(context, functionRepository)
     private val functionRunner = OobFunctionRunner(context, workspaceFunctionStore, functionRepository)
-    private val functionRunPolicy = OobFunctionRunPolicy(functionRepository)
     private val functionUpdateService = OobFunctionUpdateService(context, functionRepository)
     private val functionUpdateOrchestrator =
         OobFunctionUpdateAgentOrchestrator(functionUpdateService, updateAgentRequester)
@@ -60,7 +57,6 @@ class OobOmniFlowToolkitService(
             OobFunctionToolNames.FUNCTION_GET -> getFunction(args)
             OobFunctionToolNames.FUNCTION_REGISTER -> registerFunction(args)
             OobFunctionToolNames.FUNCTION_UPDATE -> updateFunction(args)
-            OobFunctionToolNames.FUNCTION_GUARD_CHECK -> guardCheck(args)
             OobFunctionToolNames.FUNCTION_DELETE -> deleteFunction(args)
             OobFunctionToolNames.FUNCTION_CLEAR -> clearFunctions(args)
             OobFunctionToolNames.RUN_LOG_LIST -> listRunLogs(args)
@@ -447,117 +443,32 @@ class OobOmniFlowToolkitService(
     suspend fun updateFunction(args: Map<String, Any?>?): Map<String, Any?> =
         functionUpdateOrchestrator.updateFunction(args)
 
-    fun guardCheck(args: Map<String, Any?>?): Map<String, Any?> {
-        val request = args ?: emptyMap()
-        val functionId = firstNonBlank(request["function_id"], request["functionId"])
-        val arguments = functionArguments(request)
-        return functionRunPolicy.guardCheck(functionId = functionId, arguments = arguments)
-    }
-
     suspend fun runFunction(args: Map<String, Any?>?): Map<String, Any?> {
         val callTiming = OobFunctionCallTiming()
         val request = args ?: emptyMap()
         val functionId = firstNonBlank(request["function_id"], request["functionId"])
         val arguments = functionArguments(request)
-        val dryRun = boolArg(request["dry_run"])
-        val confirmed = boolArg(request["confirmed"])
         val resumeFromStep = intArg(
             request["resume_from_step"],
-            defaultValue = 0
-        ).coerceAtLeast(0)
-        val fallbackSessionId = firstNonBlank(
-            request["fallback_session_id"],
-        )
-        val fallbackAttempt = intArg(
-            request["fallback_attempt"],
             defaultValue = 0
         ).coerceAtLeast(0)
         val frontendRunId = firstNonBlank(request["frontend_run_id"], request["frontendRunId"])
         val frontendTaskId = firstNonBlank(request["frontend_task_id"], request["frontendTaskId"])
         val frontendParent = firstNonBlank(request["frontend_parent"], request["frontendParent"])
-        val allowAgentFallback = boolArgOrDefault(
-            request["allow_agent_fallback"] ?: request["allowAgentFallback"],
-            defaultValue = true,
-        )
         val executionMode = firstNonBlank(request["execution_mode"])
             .ifBlank { "foreground" }
-        val functionSpec = callTiming.measure("load_function_spec_ms") {
-            functionRepository.get(functionId)
-        }
-        val missingRequiredArguments = functionSpec?.let { spec ->
-            callTiming.measure("check_arguments_ms") {
-                OobReusableFunctionStore.missingRequiredArguments(spec, arguments)
-            }
-        }
-        val materializedSpec = functionSpec
-            ?.takeIf { missingRequiredArguments?.isEmpty() == true }
-            ?.let { spec ->
-                callTiming.measure("materialize_function_ms") {
-                    OobReusableFunctionStore.materialize(spec, arguments)
-                }
-            }
-
-        val guard = callTiming.measure("guard_check_ms") {
-            functionRunPolicy.guardCheck(
-                functionId = functionId,
-                arguments = arguments,
-                functionSpec = functionSpec,
-                materializedSpec = materializedSpec,
-                missingRequiredArguments = missingRequiredArguments,
-            )
-        }
-        val decision = guard["decision"]?.toString().orEmpty()
-        if (dryRun) {
-            return guard + linkedMapOf(
-                "dry_run" to true,
-                "execution_mode" to executionMode,
-                "run_skipped" to true
-            )
-        }
-        if (decision == "block") {
-            return guard + linkedMapOf(
-                "success" to false,
-                "guard_decision" to decision,
-                "run_skipped" to true
-            )
-        }
-        if (decision == "needs_confirmation" && !confirmed) {
-            return guard + linkedMapOf(
-                "success" to false,
-                "guard_decision" to decision,
-                "needs_confirmation" to true,
-                "run_skipped" to true
-            )
-        }
-
         var runPayload = callTiming.measureSuspend("execute_function_ms") {
             functionRunner.execute(
                 functionId = functionId,
                 arguments = arguments,
-                allowAgentFallback = allowAgentFallback,
+                allowAgentFallback = false,
                 resumeFromStep = resumeFromStep,
-                fallbackSessionId = fallbackSessionId,
-                fallbackAttempt = fallbackAttempt,
                 frontendRunId = frontendRunId,
                 frontendTaskId = frontendTaskId,
                 frontendParent = frontendParent,
-                functionSpec = functionSpec,
-                materializedSpec = materializedSpec,
-                argumentsValidated = true,
             )
         }
         runPayload = normalizeIncompleteReplay(callTiming.attachTo(runPayload))
-        val fallbackMetadata = functionRunPolicy.fallbackMetadata(
-            functionId = functionId,
-            arguments = arguments,
-            runPayload = runPayload,
-            guard = guard,
-            requestedResumeFromStep = resumeFromStep,
-            fallbackSessionId = fallbackSessionId,
-            fallbackAttempt = fallbackAttempt,
-            functionSpec = functionSpec,
-            materializedSpec = materializedSpec,
-        )
         OobReusableFunctionStore.recordRun(
             context = context,
             functionId = functionId,
@@ -570,7 +481,6 @@ class OobOmniFlowToolkitService(
         OobFunctionRunLogRecorder.record(
             context = context,
             functionId = functionId,
-            functionSpec = functionSpec ?: emptyMap(),
             runPayload = runPayload,
         )
         val stepResults = listArg(runPayload["step_results"])
@@ -593,8 +503,8 @@ class OobOmniFlowToolkitService(
             defaultValue = stepResults.count { raw -> mapArg(raw)["success"] != false },
         )
         val stepCount = intArg(runPayload["step_count"], defaultValue = stepResults.size)
-        val failedStepIndex = runPayload["failed_step_index"] ?: fallbackMetadata["failed_step_index"]
-        val resumeFromStepResult = runPayload["resume_from_step"] ?: fallbackMetadata["resume_from_step"]
+        val failedStepIndex = runPayload["failed_step_index"]
+        val resumeFromStepResult = runPayload["resume_from_step"]
         val currentStepIndex = runPayload["current_step_index"]
             ?: failedStepIndex
             ?: stepResults.lastOrNull()?.let { mapArg(it)["index"] }
@@ -615,8 +525,6 @@ class OobOmniFlowToolkitService(
             "success_step_count" to successStepCount,
             "completed_step_count" to (runPayload["completed_step_count"] ?: successStepCount),
             "actions_executed" to successStepCount,
-            "guard_decision" to decision,
-            "risk_level" to guard["risk_level"],
             "execution_mode" to executionMode,
             "step_results" to stepResults,
             "started_at_ms" to startedAtMs.takeIf { it > 0L },
@@ -624,18 +532,16 @@ class OobOmniFlowToolkitService(
             "duration_ms" to durationMs,
             "runner_duration_ms" to durationMs,
             "timing" to timing,
-            "fallback_session_id" to fallbackMetadata["fallback_session_id"],
+            "fallback_session_id" to runPayload["fallback_session_id"],
             "failed_step_index" to failedStepIndex,
             "resume_from_step" to resumeFromStepResult,
             "current_step_index" to currentStepIndex,
             "current_step_number" to currentStepNumber,
-            "fallback_attempt" to fallbackMetadata["fallback_attempt"],
-            "fallback_unavailable_reason" to fallbackMetadata["fallback_unavailable_reason"],
-            "fallback_context" to fallbackMetadata["fallback_context"],
-            "agent_prompt" to fallbackMetadata["agent_prompt"],
-            "needs_confirmation" to false,
+            "fallback_attempt" to runPayload["fallback_attempt"],
+            "fallback_unavailable_reason" to runPayload["fallback_unavailable_reason"],
+            "error_code" to runPayload["error_code"],
             "error_message" to runPayload["error_message"],
-            "guard" to guard,
+            "missing_required_arguments" to runPayload["missing_required_arguments"],
             "result" to runPayload
         ).filterValues { it != null }
     }

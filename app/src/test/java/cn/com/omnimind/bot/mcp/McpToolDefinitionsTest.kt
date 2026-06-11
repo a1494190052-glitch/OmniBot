@@ -24,7 +24,7 @@ class McpToolDefinitionsTest {
         assertTrue(names.contains(OobFunctionToolNames.FUNCTION_GET))
         assertTrue(names.contains(OobFunctionToolNames.FUNCTION_REGISTER))
         assertTrue(names.contains(OobFunctionToolNames.FUNCTION_UPDATE))
-        assertFalse(names.contains(OobFunctionToolNames.FUNCTION_GUARD_CHECK))
+        assertFalse(names.contains("oob_function_guard_check"))
         assertTrue(names.contains(OobFunctionToolNames.FUNCTION_DELETE))
         assertTrue(names.contains(OobFunctionToolNames.FUNCTION_CLEAR))
         assertTrue(names.contains(OobFunctionToolNames.RUN_LOG_LIST))
@@ -60,7 +60,6 @@ class McpToolDefinitionsTest {
         OobFunctionToolNames.FUNCTION_GET to "OobFunctionToolNames.FUNCTION_GET",
         OobFunctionToolNames.FUNCTION_REGISTER to "OobFunctionToolNames.FUNCTION_REGISTER",
         OobFunctionToolNames.FUNCTION_UPDATE to "OobFunctionToolNames.FUNCTION_UPDATE",
-        OobFunctionToolNames.FUNCTION_GUARD_CHECK to "OobFunctionToolNames.FUNCTION_GUARD_CHECK",
         OobFunctionToolNames.FUNCTION_DELETE to "OobFunctionToolNames.FUNCTION_DELETE",
         OobFunctionToolNames.FUNCTION_CLEAR to "OobFunctionToolNames.FUNCTION_CLEAR",
         OobFunctionToolNames.RUN_LOG_LIST to "OobFunctionToolNames.RUN_LOG_LIST",

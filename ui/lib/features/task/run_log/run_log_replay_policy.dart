@@ -29,7 +29,6 @@ class RunLogReplayPolicy {
     'oob_function_get',
     'oob_function_register',
     'update_function',
-    'oob_function_guard_check',
     'oob_run_log_list',
     'oob_run_log_get',
     'oob_run_log_convert',

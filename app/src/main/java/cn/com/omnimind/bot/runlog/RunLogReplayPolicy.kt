@@ -46,7 +46,6 @@ object RunLogReplayPolicy {
         OobFunctionToolNames.FUNCTION_GET,
         OobFunctionToolNames.FUNCTION_REGISTER,
         OobFunctionToolNames.FUNCTION_UPDATE,
-        OobFunctionToolNames.FUNCTION_GUARD_CHECK,
     ) + OobFunctionToolNames.runLogTools
 
     val dataFlowTools: Set<String> = setOf(

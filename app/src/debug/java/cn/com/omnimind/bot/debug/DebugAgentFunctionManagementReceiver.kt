@@ -221,16 +221,6 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
             args = buildJsonObject {},
             callback = NoOpAgentCallback,
         )
-        records += executeAgentTool(
-            registry = registry,
-            router = router,
-            env = env,
-            toolName = "oob_function_guard_check",
-            args = buildJsonObject {
-                put("functionId", JsonPrimitive(functionId))
-            },
-            callback = NoOpAgentCallback,
-        )
         if (shouldRun) {
             records += executeAgentTool(
                 registry = registry,
@@ -249,21 +239,17 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
         val currentAfter = currentEffectivePackage(context)
         val registerRecord = records.lastOrNull { it["tool_name"] == "oob_function_register" }
         val listRecord = records.lastOrNull { it["tool_name"] == "oob_function_list" }
-        val guardRecord = records.lastOrNull { it["tool_name"] == "oob_function_guard_check" }
         val runRecord = records.lastOrNull { it["tool_name"] == RunLogReplayPolicy.TOOL_CALL_TOOL }
         val listContainsFunction = recordPayload(listRecord)["functions"].let { raw ->
             (raw as? List<*>)?.any { item ->
                 (item as? Map<*, *>)?.get("function_id")?.toString() == functionId
             } == true
         }
-        val guardDecision = recordPayload(guardRecord)["decision"]?.toString().orEmpty()
         val foregroundMatched = !shouldRun || currentAfter == targetPackage
         val success = missingTools.isEmpty() &&
             unexpectedTools.isEmpty() &&
             recordSucceeded(registerRecord) &&
             listContainsFunction &&
-            recordSucceeded(guardRecord) &&
-            guardDecision == "allow" &&
             (!shouldRun || recordSucceeded(runRecord)) &&
             foregroundMatched
 
@@ -283,7 +269,6 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
             "unexpected_tools" to unexpectedTools,
             "register_success" to recordSucceeded(registerRecord),
             "list_contains_function" to listContainsFunction,
-            "guard_decision" to guardDecision,
             "run_success" to if (shouldRun) recordSucceeded(runRecord) else null,
             "records" to records,
         ).filterValues { it != null }

@@ -8,6 +8,27 @@ import org.junit.Test
 
 class AssistsCoreManagerOobReusableFunctionPayloadTest {
     @Test
+    fun `toolkit run payload normalization keeps legacy channel fields on errors`() {
+        val payload = normalizeOobToolkitFunctionRunPayloadForChannel(
+            mapOf(
+                "success" to false,
+                "function_id" to "missing_function",
+                "error_code" to "OOB_FUNCTION_NOT_FOUND",
+                "error_message" to "OOB reusable function not found: missing_function",
+            )
+        )
+
+        assertEquals(false, payload["success"])
+        assertEquals("missing_function", payload["function_id"])
+        assertEquals(emptyList<Map<String, Any?>>(), payload["step_results"])
+        assertEquals(0, payload["step_count"])
+        assertEquals(0, payload["success_step_count"])
+        assertEquals("oob_mixed_runner", payload["runner"])
+        assertEquals(false, payload["model_used"])
+        assertEquals("OOB_FUNCTION_NOT_FOUND", payload["error_code"])
+    }
+
+    @Test
     fun `local reusable function payload reports completed local status and timing internally`() {
         val timing = mapOf(
             "duration_ms" to 21L,

@@ -186,7 +186,6 @@ class OobFunctionToolHandler(
         OobFunctionToolNames.RUN_LOG_CONVERT -> "正在转换 RunLog"
         OobFunctionToolNames.FUNCTION_DELETE -> "正在删除复用指令"
         OobFunctionToolNames.FUNCTION_CLEAR -> "正在清空复用指令"
-        OobFunctionToolNames.FUNCTION_GUARD_CHECK -> "正在检查复用指令"
         else -> "正在处理复用指令"
     }
 

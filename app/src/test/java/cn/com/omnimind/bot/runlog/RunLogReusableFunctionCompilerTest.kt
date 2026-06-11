@@ -827,7 +827,6 @@ class RunLogReusableFunctionCompilerTest {
             "oob_function_list",
             "oob_function_get",
             "oob_function_register",
-            "oob_function_guard_check",
             "oob_run_log_convert",
         )) {
             assertTrue(RunLogReplayPolicy.isAgentTool(toolName))

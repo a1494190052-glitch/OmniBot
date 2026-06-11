@@ -124,7 +124,7 @@ helper with mixed semantics.
 `OobOmniFlowToolkitService` owns the agent/MCP tool facade:
 
 - parse public tool arguments
-- expose recall, `call_tool` execution, guard, register, update, delete, and clear
+- expose recall, `call_tool` execution, register, update, delete, and clear
 - use `OobFunctionCallTiming` for Function call timing payloads
 - route all Function storage operations through `OobFunctionRepository`
 - route Function recall and direct-hit decisions through
@@ -139,7 +139,7 @@ helper with mixed semantics.
 - expose the public MCP schema for OOB tools, including Function tools
 - validate MCP arguments before dispatching into the agent/tool runtime
 - route Function execution through `call_tool(function_id, arguments)`
-- never implement Function storage, recall, update, guard, or replay policy
+- never implement Function storage, recall, update, or replay policy
 
 `OobFunctionSkillProfile` owns the native Function-management skill profile:
 
@@ -328,13 +328,13 @@ When adding or migrating a generic agent tool name:
 - share mechanical Function payload coercion with VLM recall/page-context
   guidance through `OobFunctionJson`
 
-`OobFunctionRunPolicy` owns run-time policy:
+`OobFunctionRunner` owns run-time Function execution:
 
-- guard Function steps before execution
-- classify block, confirmation, model-needed, and allow decisions
-- own the guard decision/risk vocabulary used in guard and continuation payloads
-- build compact VLM continuation results when deterministic replay cannot
-  execute the current step
+- load and materialize the requested Function
+- validate missing required arguments
+- execute fixed replay through `OobFunctionToolHandler`
+- return compact failure or VLM-continuation results when deterministic replay
+  cannot execute the current step
 - keep `Function.steps` as the only pending sequence. OmniFlow replay should
   re-localize and attempt each active step in order; it must not skip action
   steps because a terminal postcondition appears satisfied or because the page
@@ -504,8 +504,6 @@ Agent/MCP tool surface
           -> OobUdegNodeStore        # page/node recall index
       -> VLM recall/page context guidance # render Function candidates for live VLM prompts
           -> OobFunctionJson # shared value coercion for Function payloads
-      -> OobFunctionRunPolicy        # guard and VLM continuation handoff
-          -> OobFunctionJson # shared value coercion for Function payloads
       -> OobFunctionCallTiming       # call-level timing merge
       -> OobFunctionRunner           # load/materialize/execute Functions
           -> OobFunctionToolHandler  # deterministic replay and VLM continuation
@@ -573,7 +571,6 @@ Keep these pieces separate:
   target-repair patches
 - `OobFunctionRecallService`: page/node recall, ranking, direct-hit policy, and
   compact recall payload shaping
-- `OobFunctionRunPolicy`: pre-run guard and failed-run VLM continuation handoff
 - `OobFunctionCallTiming`: Function call timing payload construction
 - `RunLogReusableFunctionCompiler`: offline RunLog-to-Function assembly and
   conversion orchestration
@@ -639,13 +636,13 @@ conversion, execution, or agent patching.
 
 `OobOmniFlowToolkitService` should stay a facade. New Function behavior should
 land in one of the owned services above before adding more private helper blocks
-to the toolkit. Keep `OobFunctionRunner` intentionally small: it starts
-execution but does not own guard policy, fallback prompts, or patching.
+to the toolkit. Keep `OobFunctionRunner` intentionally small: it loads,
+materializes, and executes Functions; it does not own patching.
 
-When changing run-time safety or recovery behavior, update
-`OobFunctionRunPolicy` first and keep the public response contract stable at the
-tool facade. Do not add ad hoc guard, retry, or agent prompt helpers back into
-`OobOmniFlowToolkitService`.
+When changing run-time execution or recovery behavior, update
+`OobFunctionRunner`/`OobFunctionToolHandler` first and keep the public response
+contract stable at the tool facade. Do not add ad hoc guard, retry, or agent
+prompt helpers back into `OobOmniFlowToolkitService`.
 
 When changing Function register/update/run/recall payload handling, use
 `OobFunctionJson` for mechanical payload coercion instead of adding another
@@ -678,8 +675,8 @@ the same commit as the code change:
 
 Use canonical OOB Function tools in agent-facing docs:
 `oob_function_list`, `oob_function_get`, `oob_function_register`,
-`update_function`, `oob_function_guard_check`, `call_tool`,
-`oob_function_delete`, `oob_function_clear`, `oob_run_log_list`,
+`update_function`, `call_tool`, `oob_function_delete`, `oob_function_clear`,
+`oob_run_log_list`,
 `oob_run_log_get`, and `oob_run_log_convert`. In Kotlin, route lifecycle names
 through `OobFunctionToolNames`; route `call_tool` through `RunLogReplayPolicy`.
 

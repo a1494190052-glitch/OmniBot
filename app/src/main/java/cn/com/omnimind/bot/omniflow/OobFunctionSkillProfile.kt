@@ -28,12 +28,9 @@ object OobFunctionSkillProfile {
     private const val MAX_DYNAMIC_FUNCTION_TOOLS = 500
     private const val MAX_PROMPT_FUNCTION_CANDIDATES = 50
     private val MODEL_TOOL_NAME_REGEX = Regex("^[A-Za-z0-9_-]{1,64}$")
-    private val directFunctionToolNames: Set<String> = setOf(
-        OobFunctionToolNames.FUNCTION_GUARD_CHECK,
-    )
 
     val toolNames: Set<String> =
-        (OobFunctionToolNames.profileTools + RunLogReplayPolicy.TOOL_CALL_TOOL) - directFunctionToolNames
+        OobFunctionToolNames.profileTools + RunLogReplayPolicy.TOOL_CALL_TOOL
 
     fun isProfile(profile: String?): Boolean =
         normalizeProfile(profile) == PROFILE
@@ -309,24 +306,6 @@ object OobFunctionSkillProfile {
             put("toolType", "oob_function")
             put("description", "根据结构化 patch、用户纠错指令或 RunLog 证据分析更新一个已保存的 OOB Function。传 run_id 且不传 analysis/patch 时后台会自动分析 RunLog、生成 patch 并保存增强结果；不会执行手机操作。")
             put("parameters", mapToJsonElement(OobFunctionUpdateToolSchema.inputSchema(includeCamelCaseAliases = true)))
-        }
-    }
-
-    private val oobFunctionGuardCheckTool: JsonObject = buildJsonObject {
-        put("type", "function")
-        putJsonObject("function") {
-            put("name", OobFunctionToolNames.FUNCTION_GUARD_CHECK)
-            put("displayName", "检查复用指令")
-            put("toolType", "oob_function")
-            put("description", "执行前检查一个 OOB 复用指令的参数和运行风险。不会执行手机操作。")
-            putJsonObject("parameters") {
-                put("type", "object")
-                putJsonObject("properties") {
-                    putJsonObject("function_id") { put("type", "string") }
-                    putJsonObject("arguments") { put("type", "object") }
-                }
-                putJsonArray("required") { add("function_id") }
-            }
         }
     }
 

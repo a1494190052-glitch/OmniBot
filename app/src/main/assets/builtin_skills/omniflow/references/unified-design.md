@@ -39,9 +39,9 @@ Use these names first for Function lifecycle and online execution:
 - `oob_function_list`
 - `oob_function_get`
 
-Do not expose `oob_function_guard_check` as a normal agent-task decision. It is
-runner guard logic. Function execution is `call_tool`; new Function specs and
-agent prompts should not write another execution name.
+Do not expose a separate Function guard/check tool as a normal agent-task
+decision. Function execution is `call_tool`; new Function specs and agent
+prompts should not write another execution name.
 
 ## Recall
 

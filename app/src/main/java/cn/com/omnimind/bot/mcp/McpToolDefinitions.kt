@@ -38,7 +38,7 @@ OMNIFLOW FUNCTION REUSE:
 - Online VLM observes the current page each turn, recalls matching saved Functions, and exposes them as call_tool candidates inside the VLM task.
 - A saved Function call may execute multiple phone actions and may finish only part of the goal. After its result, VLM observes the fresh page again and chooses the next tool.
 - Parameterized Functions are valid matches. The VLM fills required arguments from the user goal before calling call_tool with function_id.
-- The outer Agent should not call hidden Function replay or guard tools. Guard checks, checker handling, action transfer, and replay safety stay inside the local runner.
+- The outer Agent should not call hidden Function replay tools. Checker handling, action transfer, and replay safety stay inside the local runner.
 - If a Function fails, the failure is returned as the tool result. The next VLM step handles the current page; the Agent should not resume hidden Function replay itself.
 
 IMPORTANT FOR SUMMARY TASKS:
@@ -505,19 +505,6 @@ BEHAVIOR:
         "name" to OobFunctionToolNames.FUNCTION_UPDATE,
         "description" to "Update one saved OOB Function from a structured patch, user correction, or RunLog evidence. Passing run_id without analysis/patch returns analysis_context and agent_prompt; saving RunLog evidence uses analysis plus an optional patch.",
         "inputSchema" to OobFunctionUpdateToolSchema.inputSchema(includeCamelCaseAliases = false)
-    )
-
-    val oobFunctionGuardCheckTool = mapOf(
-        "name" to OobFunctionToolNames.FUNCTION_GUARD_CHECK,
-        "description" to "Run preflight guard checks for one OOB reusable Function before replay.",
-        "inputSchema" to mapOf(
-            "type" to "object",
-            "properties" to mapOf(
-                "function_id" to mapOf("type" to "string", "description" to "Function id to check."),
-                "arguments" to mapOf("type" to "object", "description" to "Materialization arguments for the Function.")
-            ),
-            "required" to listOf("function_id")
-        )
     )
 
     val oobFunctionDeleteTool = mapOf(

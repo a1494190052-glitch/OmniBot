@@ -50,7 +50,6 @@ class OobFunctionCallTiming {
         val finishedAtMs = System.currentTimeMillis()
         val completedPhases = linkedMapOf<String, Long>()
         listOf(
-            "guard_check_ms",
             "execute_function_ms",
         ).forEach { phaseName ->
             completedPhases[phaseName] = phases[phaseName] ?: 0L

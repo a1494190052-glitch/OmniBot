@@ -18,9 +18,7 @@ next Function, VLM path, or other tool if work remains.
    `oob_function_delete`, and `oob_function_clear` for Function lifecycle.
 3. Use `update_function` for all Function modifications, including enhancement,
    repair, RunLog evidence analysis, checker metadata, and structural patches.
-4. Do not explicitly call `oob_function_guard_check` from a normal agent-task.
-   Guard checks are local runner logic, not a model-facing action.
-5. Use `call_tool` with `function_id` when Function execution is explicitly
+4. Use `call_tool` with `function_id` when Function execution is explicitly
    exposed. Do not invent another Function replay tool name.
 
 When recall returns a Function with `inputSchema`, treat it as candidate context

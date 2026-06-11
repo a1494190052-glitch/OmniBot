@@ -67,6 +67,7 @@ class VlmToolCoordinatorRecallExecutionTest {
                     "actions_executed" to 1,
                 )
             },
+            decisionProvider = acceptRecall(),
         )
 
         assertNotNull(outcome)
@@ -106,6 +107,7 @@ class VlmToolCoordinatorRecallExecutionTest {
                     "error" to "execution_failed",
                 )
             },
+            decisionProvider = acceptRecall(),
         )
 
         assertNull(outcome)
@@ -139,6 +141,7 @@ class VlmToolCoordinatorRecallExecutionTest {
                 called = true
                 emptyMap()
             },
+            decisionProvider = acceptRecall(),
         )
 
         assertNull(outcome)
@@ -202,6 +205,7 @@ class VlmToolCoordinatorRecallExecutionTest {
                 called = true
                 mapOf("success" to true)
             },
+            decisionProvider = acceptRecall(),
         )
 
         assertNull(outcome)
@@ -254,6 +258,7 @@ class VlmToolCoordinatorRecallExecutionTest {
                     "actions_executed" to 1,
                 )
             },
+            decisionProvider = acceptRecall(),
         )
 
         assertNotNull(outcome)
@@ -307,6 +312,10 @@ class VlmToolCoordinatorRecallExecutionTest {
                 called = true
                 mapOf("success" to true)
             },
+            decisionProvider = rejectRecall(
+                reason = "missing_required_arguments",
+                missing = listOf("value"),
+            ),
         )
 
         assertNotNull(outcome)
@@ -361,6 +370,7 @@ class VlmToolCoordinatorRecallExecutionTest {
                 capturedArguments = arguments
                 mapOf("success" to true)
             },
+            decisionProvider = acceptRecall(mapOf("keyword" to "猫猫")),
         )
 
         assertNotNull(outcome)
@@ -385,8 +395,8 @@ class VlmToolCoordinatorRecallExecutionTest {
                 directHitFunctionId = "xhs_search_keyword",
             ),
         )
-        assertFalse(gate.allowed)
-        assertEquals(VlmToolCoordinator.CACHE_GATE_REQUIRES_ARGUMENTS, gate.reason)
+        assertTrue(gate.allowed)
+        assertEquals(VlmToolCoordinator.CACHE_GATE_STRICT_HIT, gate.reason)
     }
 
     @Test
@@ -565,6 +575,29 @@ class VlmToolCoordinatorRecallExecutionTest {
             VLMRecallContextProviderRegistry.clear()
         }
     }
+
+    private fun acceptRecall(arguments: Map<String, Any?> = emptyMap()): RecallFunctionDecisionProvider =
+        { _, _, _ ->
+            RecallFunctionDecision(
+                useFunction = true,
+                arguments = arguments,
+                reason = "test_accept",
+            )
+        }
+
+    private fun rejectRecall(
+        reason: String,
+        missing: List<String> = emptyList(),
+        arguments: Map<String, Any?> = emptyMap(),
+    ): RecallFunctionDecisionProvider =
+        { _, _, _ ->
+            RecallFunctionDecision(
+                useFunction = false,
+                arguments = arguments,
+                missingRequiredArguments = missing,
+                reason = reason,
+            )
+        }
 
     private fun dynamicFunctionToolDefinition(name: String) = buildJsonObject {
         put("type", "function")

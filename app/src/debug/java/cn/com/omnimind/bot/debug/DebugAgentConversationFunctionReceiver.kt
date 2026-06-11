@@ -91,7 +91,6 @@ class DebugAgentConversationFunctionReceiver : BroadcastReceiver() {
             "allowedTools" to listOf(
                 "oob_function_register",
                 "oob_function_list",
-                "oob_function_guard_check",
                 RunLogReplayPolicy.TOOL_CALL_TOOL,
                 "oob_function_delete",
             ),

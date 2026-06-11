@@ -616,6 +616,92 @@ internal fun buildOobReusableFunctionLocalPayload(
     )
 }
 
+internal fun normalizeOobToolkitFunctionRunPayloadForChannel(payload: Map<String, Any?>): Map<String, Any?> {
+    val resultPayload = normalizeOobChannelMap(payload["result"])
+    val stepResults = normalizeOobChannelStepResultList(
+        payload["step_results"] ?: resultPayload["step_results"]
+    )
+    val success = payload["success"] == true
+    return LinkedHashMap<String, Any?>().apply {
+        putAll(resultPayload)
+        put("success", success)
+        put("function_id", firstNonBlankOobChannelString(payload["function_id"], resultPayload["function_id"]))
+        put("run_id", firstNonBlankOobChannelString(payload["run_id"], resultPayload["run_id"]))
+        put("audit_run_id", firstNonBlankOobChannelString(payload["audit_run_id"], resultPayload["audit_run_id"]))
+        put("runner", firstNonBlankOobChannelString(payload["runner"], resultPayload["runner"], "oob_mixed_runner"))
+        put("step_results", stepResults)
+        put("step_count", payload["step_count"] ?: resultPayload["step_count"] ?: stepResults.size)
+        put(
+            "active_step_count",
+            payload["active_step_count"] ?: resultPayload["active_step_count"]
+        )
+        put(
+            "success_step_count",
+            payload["success_step_count"] ?: resultPayload["success_step_count"]
+                ?: stepResults.count { it["success"] != false }
+        )
+        put(
+            "completed_step_count",
+            payload["completed_step_count"] ?: resultPayload["completed_step_count"]
+        )
+        put("resume_from_step", payload["resume_from_step"] ?: resultPayload["resume_from_step"])
+        put("failed_step_index", payload["failed_step_index"] ?: resultPayload["failed_step_index"])
+        put("current_step_index", payload["current_step_index"] ?: resultPayload["current_step_index"])
+        put("current_step_number", payload["current_step_number"] ?: resultPayload["current_step_number"])
+        put("model_used", payload["model_used"] ?: resultPayload["model_used"] ?: false)
+        put("model_required", payload["model_required"] ?: resultPayload["model_required"])
+        put("delegated_tool_used", payload["delegated_tool_used"] ?: resultPayload["delegated_tool_used"])
+        put("fallback_session_id", payload["fallback_session_id"] ?: resultPayload["fallback_session_id"])
+        put("fallback_attempt", payload["fallback_attempt"] ?: resultPayload["fallback_attempt"])
+        put(
+            "fallback_unavailable_reason",
+            payload["fallback_unavailable_reason"] ?: resultPayload["fallback_unavailable_reason"]
+        )
+        put("fallback_context", payload["fallback_context"] ?: resultPayload["fallback_context"])
+        put("agent_prompt", payload["agent_prompt"] ?: resultPayload["agent_prompt"])
+        put("timing", payload["timing"] ?: resultPayload["timing"])
+        put("error_code", payload["error_code"] ?: resultPayload["error_code"])
+        put(
+            "error_message",
+            payload["error_message"] ?: resultPayload["error_message"]
+        )
+        remove("result")
+        remove("guard")
+    }.filterValues { value ->
+        value != null && !(value is String && value.isBlank())
+    }
+}
+
+private fun normalizeOobChannelMap(value: Any?): Map<String, Any?> {
+    val raw = value as? Map<*, *> ?: return emptyMap()
+    return raw.entries.associate { (key, item) ->
+        key.toString() to normalizeOobChannelValue(item)
+    }
+}
+
+private fun normalizeOobChannelValue(value: Any?): Any? {
+    return when (value) {
+        is Map<*, *> -> normalizeOobChannelMap(value)
+        is List<*> -> value.map(::normalizeOobChannelValue)
+        else -> value
+    }
+}
+
+private fun normalizeOobChannelStepResultList(value: Any?): List<Map<String, Any?>> {
+    val rawList = value as? List<*> ?: return emptyList()
+    return rawList.mapNotNull { item ->
+        normalizeOobChannelMap(item).takeIf { it.isNotEmpty() }
+    }
+}
+
+private fun firstNonBlankOobChannelString(vararg values: Any?): String {
+    for (value in values) {
+        val text = value?.toString()?.trim().orEmpty()
+        if (text.isNotEmpty()) return text
+    }
+    return ""
+}
+
 class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     private val TAG = "[AssistsCoreManager]"
 
@@ -4154,8 +4240,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                         linkedMapOf<String, Any?>(
                             "function_id" to functionId,
                             "arguments" to callArguments,
-                            "confirmed" to true,
-                            "allow_agent_fallback" to false,
                             "frontend_run_id" to firstNonBlankString(
                                 args["frontend_run_id"],
                                 args["frontendRunId"]
@@ -6056,61 +6140,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         return runPayload
     }
 
-    private fun normalizeOobToolkitFunctionRunPayload(payload: Map<String, Any?>): Map<String, Any?> {
-        val resultPayload = normalizeMethodCallMap(payload["result"])
-        val stepResults = normalizeStepResultList(
-            payload["step_results"] ?: resultPayload["step_results"]
-        )
-        val success = payload["success"] == true
-        return LinkedHashMap<String, Any?>().apply {
-            putAll(resultPayload)
-            put("success", success)
-            put("function_id", firstNonBlankString(payload["function_id"], resultPayload["function_id"]))
-            put("run_id", firstNonBlankString(payload["run_id"], resultPayload["run_id"]))
-            put("audit_run_id", firstNonBlankString(payload["audit_run_id"], resultPayload["audit_run_id"]))
-            put("runner", firstNonBlankString(payload["runner"], resultPayload["runner"], "oob_mixed_runner"))
-            put("step_results", stepResults)
-            put("step_count", payload["step_count"] ?: resultPayload["step_count"] ?: stepResults.size)
-            put(
-                "active_step_count",
-                payload["active_step_count"] ?: resultPayload["active_step_count"]
-            )
-            put(
-                "success_step_count",
-                payload["success_step_count"] ?: resultPayload["success_step_count"]
-                    ?: stepResults.count { it["success"] != false }
-            )
-            put(
-                "completed_step_count",
-                payload["completed_step_count"] ?: resultPayload["completed_step_count"]
-            )
-            put("resume_from_step", payload["resume_from_step"] ?: resultPayload["resume_from_step"])
-            put("failed_step_index", payload["failed_step_index"] ?: resultPayload["failed_step_index"])
-            put("current_step_index", payload["current_step_index"] ?: resultPayload["current_step_index"])
-            put("current_step_number", payload["current_step_number"] ?: resultPayload["current_step_number"])
-            put("model_used", payload["model_used"] ?: resultPayload["model_used"] ?: false)
-            put("model_required", payload["model_required"] ?: resultPayload["model_required"])
-            put("delegated_tool_used", payload["delegated_tool_used"] ?: resultPayload["delegated_tool_used"])
-            put("fallback_session_id", payload["fallback_session_id"] ?: resultPayload["fallback_session_id"])
-            put("fallback_attempt", payload["fallback_attempt"] ?: resultPayload["fallback_attempt"])
-            put(
-                "fallback_unavailable_reason",
-                payload["fallback_unavailable_reason"] ?: resultPayload["fallback_unavailable_reason"]
-            )
-            put("fallback_context", payload["fallback_context"] ?: resultPayload["fallback_context"])
-            put("agent_prompt", payload["agent_prompt"] ?: resultPayload["agent_prompt"])
-            put("timing", payload["timing"] ?: resultPayload["timing"])
-            put("error_code", payload["error_code"] ?: resultPayload["error_code"])
-            put(
-                "error_message",
-                payload["error_message"] ?: resultPayload["error_message"]
-            )
-            remove("result")
-            remove("guard")
-        }.filterValues { value ->
-            value != null && !(value is String && value.isBlank())
-        }
-    }
+    private fun normalizeOobToolkitFunctionRunPayload(payload: Map<String, Any?>): Map<String, Any?> =
+        normalizeOobToolkitFunctionRunPayloadForChannel(payload)
 
     private fun normalizeStepResultList(value: Any?): List<Map<String, Any?>> {
         val rawList = value as? List<*> ?: return emptyList()

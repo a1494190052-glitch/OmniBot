@@ -43,8 +43,6 @@ by default.
 - Use `update_function` for all saved Function modifications.
 - Treat RunLogs as evidence. Do not invent RunLogs, Function ids, screenshots,
   XML, or tool results.
-- Do not call `oob_function_guard_check` explicitly. Guard checks are local
-  runner logic, not a model-facing action.
 - Do not run a low-confidence Function. Recall is candidate context until the
   current execution path exposes a concrete Function tool or runner result.
 - Mark transient obstruction handling as optional checkers, not mandatory happy

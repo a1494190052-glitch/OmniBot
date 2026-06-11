@@ -10,8 +10,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 
 /**
- * Executes a registered OOB Function after public tool facades have completed
- * argument parsing, guard checks, and response-shape decisions.
+ * Executes a registered OOB Function through the local OmniFlow runner.
  */
 class OobFunctionRunner(
     private val context: Context,
@@ -68,17 +67,25 @@ class OobFunctionRunner(
                 this.workspaceFunctionStore = workspaceFunctionStore
             }
         }
-        val typedPayload = timing.measureSuspend("run_typed_function_ms") {
-            runTypedFunctionIfAvailable(
-                runner = runner,
-                functionId = functionId,
-                arguments = arguments,
-                allowAgentFallback = allowAgentFallback,
-                resumeFromStep = resumeFromStep,
-                frontendRunId = frontendRunId,
-                frontendTaskId = frontendTaskId,
-                frontendParent = frontendParent,
-            )
+        val typedPayload = runCatching {
+            timing.measureSuspend("run_typed_function_ms") {
+                runTypedFunctionIfAvailable(
+                    runner = runner,
+                    functionId = functionId,
+                    arguments = arguments,
+                    allowAgentFallback = allowAgentFallback,
+                    resumeFromStep = resumeFromStep,
+                    frontendRunId = frontendRunId,
+                    frontendTaskId = frontendTaskId,
+                    frontendParent = frontendParent,
+                )
+            }
+        }.getOrElse { error ->
+            return@withContext errorPayload(
+                code = "OOB_CALL_TOOL_FAILED",
+                message = error.message.orEmpty(),
+                functionId = functionId
+            ).let { attachExecutionTiming(it, timing) }
         }
         val payload = typedPayload ?: runCatching {
             timing.measureSuspend("run_materialized_function_ms") {
