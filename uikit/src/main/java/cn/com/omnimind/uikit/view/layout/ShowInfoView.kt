@@ -145,7 +145,7 @@ class ShowInfoView @JvmOverloads constructor(
         catDialogShowInfoViewParams: WindowManager.LayoutParams,
         windowManager: WindowManager
     ) {
-        applyNormalActionStyle()
+        applyNormalActionStyle(stopLabel = "已完成", stopTextColor = "#16794A")
         bottomContentLayout?.visibility = VISIBLE
         ivResume?.visibility = GONE
         llResume?.visibility = VISIBLE
@@ -391,7 +391,7 @@ class ShowInfoView @JvmOverloads constructor(
         isShowTakeOver: Boolean = true,
         isShowStop: Boolean = true,
     ) {
-        applyNormalActionStyle()
+        applyNormalActionStyle(stopLabel = "停止", stopTextColor = "#C73636")
         restoreDoingContentVisibility()
         ivResume?.visibility = GONE
         llResume?.visibility = GONE
@@ -523,7 +523,7 @@ class ShowInfoView @JvmOverloads constructor(
      * 宽高从 40dp 动画到 80dp
      */
     fun readyDoingTask() {
-        applyNormalActionStyle()
+        applyNormalActionStyle(stopLabel = "停止", stopTextColor = "#C73636")
         bottomContentLayout?.visibility = VISIBLE
         ivResume?.visibility = GONE
         llResume?.visibility = GONE
@@ -541,14 +541,17 @@ class ShowInfoView @JvmOverloads constructor(
         doingAnimatorWithWH(startW, startH, endW, endH)
     }
 
-    private fun applyNormalActionStyle() {
+    private fun applyNormalActionStyle(
+        stopLabel: String = "停止",
+        stopTextColor: String = "#C73636",
+    ) {
         borderColorType = GradientBorderContainerView.BorderColor.BLUE
         llTakeOver?.setBackgroundResource(R.drawable.bg_vlm_action_takeover)
         llStop?.setBackgroundResource(R.drawable.bg_vlm_action_complete)
         llTakeOverTextView?.text = "接管"
         llTakeOverTextView?.setTextColor("#202f51".toColorInt())
-        llStopTextView?.text = "已完成"
-        llStopTextView?.setTextColor("#16794A".toColorInt())
+        llStopTextView?.text = stopLabel
+        llStopTextView?.setTextColor(stopTextColor.toColorInt())
     }
 
     private fun restoreDoingContentVisibility() {

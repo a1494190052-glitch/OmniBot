@@ -177,16 +177,7 @@ class TaskManager(
     }
 
     fun finishDoingTask() {
-        if (runningTask?.isRunning == true) {
-            if (runningTask is VLMOperationTask) {
-                (runningTask as VLMOperationTask).finishTask()
-            } else {
-                runningTask?.finishTask {
-
-                }
-            }
-
-        }
+        cancelRunningTaskMatching()
     }
 
     fun stopCompanionTask() {
@@ -194,8 +185,7 @@ class TaskManager(
     }
 
     private fun stopAllTask() {
-        if (runningTask?.isRunning == true) {
-            runningTask?.finishTask {}
+        if (cancelRunningTaskMatching()) {
             return
         }
         companionTask?.finishTask() {}
@@ -208,21 +198,13 @@ class TaskManager(
         } else {
             chatTasks[taskId]
         }
+        var cancelledChatTask = false
         if (targetChatTask?.isRunning == true) {
             targetChatTask.finishTask()
-            return
+            cancelledChatTask = true
         }
-        when (val task = runningTask) {
-            is VLMOperationTask -> {
-                if (taskId.isNullOrBlank() || task.id == taskId) {
-                    task.finishTask()
-                }
-            }
-            else -> {
-                if (taskId.isNullOrBlank() || task?.id == taskId) {
-                    task?.finishTask {}
-                }
-            }
+        if (!taskId.isNullOrBlank() || !cancelledChatTask) {
+            cancelRunningTaskMatching(taskId)
         }
     }
 
@@ -232,29 +214,37 @@ class TaskManager(
      */
     fun cancelPendingTask(taskId: String? = null): Boolean {
         OmniLog.d(TAG, "cancelPendingTask called, runningTask=$runningTask")
-        return when (val task = runningTask) {
-            is VLMOperationTask -> {
-                if (!taskId.isNullOrBlank() && task.id != taskId) {
-                    false
-                } else {
-                    OmniLog.d(TAG, "Cancelling pending VLM task")
-                    // Use finishTask to trigger onTaskStop and close ready UI (onReadyStartVLMTask)
-                    task.finishTask()
-                    true
-                }
-            }
-            else -> {
-                if (task == null) {
-                    false
-                } else if (!taskId.isNullOrBlank() && task.id != taskId) {
-                    false
-                } else {
-                    // 兜底：尝试调用 finishDoingTask
-                    finishDoingTask()
-                    true
-                }
-            }
+        return cancelRunningTaskMatching(taskId)
+    }
+
+    fun completeRunningTask(taskId: String? = null, message: String = "任务已完成"): Boolean {
+        val task = runningTask ?: return false
+        if (!taskId.isNullOrBlank() && task.id != taskId) {
+            return false
         }
+        return when (task) {
+            is VLMOperationTask -> {
+                OmniLog.d(TAG, "Completing VLM task")
+                task.completeByUser(message)
+                true
+            }
+            else -> false
+        }
+    }
+
+    private fun cancelRunningTaskMatching(taskId: String? = null): Boolean {
+        val task = runningTask ?: return false
+        if (!taskId.isNullOrBlank() && task.id != taskId) {
+            return false
+        }
+        if (task is VLMOperationTask) {
+            OmniLog.d(TAG, "Cancelling pending VLM task")
+            // Use finishTask to trigger onTaskStop and close ready UI (onReadyStartVLMTask)
+            task.finishTask()
+        } else {
+            task.finishTask {}
+        }
+        return true
     }
 
     fun startVLMOperationTask(

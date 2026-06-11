@@ -176,6 +176,10 @@ object AssistsCore {
         return stateMachine?.cancelPendingTask(taskId) ?: false
     }
 
+    fun completeRunningTask(taskId: String? = null, message: String = "任务已完成"): Boolean {
+        return stateMachine?.completeRunningTask(taskId, message) ?: false
+    }
+
     /**
      * 导航到主应用指定路由
      * 会自动清理悬浮层（半屏/对话框等），避免背景是本应用时残留

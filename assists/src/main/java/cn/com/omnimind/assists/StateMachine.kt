@@ -217,4 +217,8 @@ class StateMachine() {
         return taskManager?.cancelPendingTask(taskId) ?: false
     }
 
+    fun completeRunningTask(taskId: String? = null, message: String = "任务已完成"): Boolean {
+        return taskManager?.completeRunningTask(taskId, message) ?: false
+    }
+
 }

@@ -37,15 +37,15 @@ class CatStepLayoutApiImpl : CatStepLayoutApi {
             DraggableBallInstance.finishDoingTask("录制已取消")
             return
         }
-        if (completeActiveOmniFlowUiSession()) {
+        if (stopActiveVlmUiSession()) {
             return
         }
-        if (completeActiveVlmUiSession()) {
+        if (stopActiveOmniFlowUiSession()) {
             return
         }
-        DraggableBallInstance.finishDoingTask("任务已完成")
+        DraggableBallInstance.finishDoingTask("任务已取消")
         if (UIKit.executionTaskEventApi?.taskType == ExecutingTaskType.VLM) {
-            UIKit.executionTaskEventApi?.vlmTask?.completeByUser()
+            UIKit.executionTaskEventApi?.vlmTask?.finishTask()
         } else {
             AssistsCore.finishDoingTask()
         }
@@ -91,23 +91,29 @@ class CatStepLayoutApiImpl : CatStepLayoutApi {
         }
     }
 
-    private fun completeActiveOmniFlowUiSession(): Boolean {
-        if (!OmniFlowUiSession.requestCompleteActiveSession()) {
+    private fun stopActiveOmniFlowUiSession(): Boolean {
+        if (!OmniFlowUiSession.requestStopActiveSession()) {
             return false
         }
-        DraggableBallInstance.finishDoingTask("任务已完成")
+        DraggableBallInstance.finishDoingTask("任务已取消")
         if (!CompanionOverlaySettings.isEnabled()) {
             CompanionOverlaySettings.dismissFloatingUi()
         }
         return true
     }
 
-    private fun completeActiveVlmUiSession(): Boolean {
-        if (!AgentVlmUiSession.requestCompleteActiveSession()) {
+    private fun stopActiveVlmUiSession(): Boolean {
+        val currentTaskId = UIKit.executionTaskEventApi?.vlmTask?.id
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+        val stopped = currentTaskId?.let {
+            AgentVlmUiSession.requestStopSession(it)
+        } ?: AgentVlmUiSession.requestStopActiveSession()
+        if (!stopped) {
             return false
         }
-        DraggableBallInstance.finishDoingTask("任务已完成")
-        UIKit.executionTaskEventApi?.vlmTask?.completeByUser()
+        DraggableBallInstance.finishDoingTask("任务已取消")
+        UIKit.executionTaskEventApi?.vlmTask?.finishTask()
         if (!CompanionOverlaySettings.isEnabled()) {
             CompanionOverlaySettings.dismissFloatingUi()
         }

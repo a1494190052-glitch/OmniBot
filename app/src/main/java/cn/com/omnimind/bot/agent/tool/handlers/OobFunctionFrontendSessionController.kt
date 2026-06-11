@@ -6,6 +6,7 @@ import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
 import cn.com.omnimind.bot.manager.AssistsCoreManager
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
 import cn.com.omnimind.uikit.loader.cat.DraggableBallInstance
+import cn.com.omnimind.uikit.settings.CompanionOverlaySettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
@@ -33,8 +34,10 @@ class OobFunctionFrontendSessionController(
         frontendParent: String = "",
     ): Session? {
         if (stepCount <= 0 || callStack.isNotEmpty()) return null
-        val canUseUiOverlay = !isHeadlessJvm() && canUseMainDispatcher()
-        val embeddedInVlmTask = frontendParent.trim() == "vlm_task"
+        val frontendMode = frontendParent.trim().lowercase()
+        val suppressUiOverlay = frontendMode in HEADLESS_FRONTEND_PARENTS
+        val canUseUiOverlay = !suppressUiOverlay && !isHeadlessJvm() && canUseMainDispatcher()
+        val embeddedInVlmTask = frontendMode == "vlm_task"
         val runId = frontendRunId
             .trim()
             .takeIf { it.isNotEmpty() }
@@ -74,7 +77,9 @@ class OobFunctionFrontendSessionController(
             embeddedInVlmTask = embeddedInVlmTask,
             message = helper.localized("准备执行复用指令"),
         )
-        if (canUseUiOverlay) {
+        if (suppressUiOverlay) {
+            CompanionOverlaySettings.dismissFloatingUi()
+        } else if (canUseUiOverlay) {
             runCatching {
                 withContext(Dispatchers.Main) {
                     DraggableBallInstance.loadBall()
@@ -214,26 +219,33 @@ class OobFunctionFrontendSessionController(
                 runCatching {
                     withContext(NonCancellable + Dispatchers.Main) {
                         if (!end.wasActive) return@withContext
+                        val finishMsg = helper.localized(message.ifBlank { "任务已完成" })
                         if (embeddedInVlmTask) {
                             DraggableBallInstance.doingTask(
                                 message = helper.localized("复用指令执行完成"),
-                                subMessage = helper.localized("智能执行中"),
+                                subMessage = finishMsg,
                                 forceOnTop = true,
                                 isTouchable = true
                             )
+                            delay(OMNIFLOW_FINISH_VISIBLE_MS)
+                            DraggableBallInstance.finishDoingTask(finishMsg)
                         } else {
                             DraggableBallInstance.doingTask(
-                                message = helper.localized(message.ifBlank { "任务已完成" }),
+                                message = finishMsg,
                                 subMessage = helper.localized(label),
                                 forceOnTop = true,
                                 isTouchable = true
                             )
                             if (closeAfterMs > 0L) {
                                 delay(closeAfterMs)
-                                DraggableBallInstance.finishDoingTask(
-                                    helper.localized(message.ifBlank { "任务已完成" })
-                                )
+                                DraggableBallInstance.finishDoingTask(finishMsg)
                             }
+                        }
+                        if (embeddedInVlmTask && !stopRequested.get()) {
+                            AssistsCoreManager.requestCompleteActiveVlmTask(
+                                runOrTaskId = runId,
+                                reason = "omniflow_finished",
+                            )
                         }
                     }
                 }.onFailure {
@@ -246,7 +258,14 @@ class OobFunctionFrontendSessionController(
     private companion object {
         const val TAG = "OobFunctionFrontendSession"
         const val MAIN_DISPATCHER_PROBE_TIMEOUT_MS = 100L
+        const val OMNIFLOW_FINISH_VISIBLE_MS = 900L
         val STEP_PROGRESS_REGEX = Regex("""第\s*(\d+)\s*/\s*\d+\s*步""")
+        val HEADLESS_FRONTEND_PARENTS = setOf(
+            "debug_replay",
+            "native_replay",
+            "androidworld_validator",
+            "headless",
+        )
 
         fun dispatchRunProgress(
             status: String,

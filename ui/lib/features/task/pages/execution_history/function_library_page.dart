@@ -691,13 +691,6 @@ class _FunctionLibraryEmbedState extends State<FunctionLibraryEmbed>
     );
   }
 
-  OobFunctionRunProgressEvent? get _runningFunctionProgressEvent =>
-      _runningProgressEventFor(
-        groups: _functions,
-        runningIds: _runningIds,
-        progressBySignature: _runProgressBySignature,
-      );
-
   void _handleRunProgressEvent(OobFunctionRunProgressEvent event) {
     if (!mounted || event.functionId.isEmpty) return;
     final signature = _signatureForFunctionId(event.functionId);
@@ -777,14 +770,7 @@ class _FunctionLibraryEmbedState extends State<FunctionLibraryEmbed>
         },
       ),
     );
-    final runningEvent = _runningFunctionProgressEvent;
-    if (runningEvent == null) return list;
-    return Column(
-      children: [
-        _FunctionLibraryProgressSlot(event: runningEvent),
-        Expanded(child: list),
-      ],
-    );
+    return list;
   }
 }
 

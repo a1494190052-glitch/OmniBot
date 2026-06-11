@@ -152,6 +152,10 @@ class AssistsUtil {
             return AssistsCore.cancelPendingTask(taskId)
         }
 
+        fun completeRunningTask(taskId: String? = null, message: String = "任务已完成"): Boolean {
+            return AssistsCore.completeRunningTask(taskId, message)
+        }
+
         /**
          * 取消聊天任务
          */

@@ -677,6 +677,45 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             }
         }
 
+        fun requestCompleteActiveVlmTask(
+            runOrTaskId: String? = null,
+            reason: String = "omniflow_finished",
+        ) {
+            val instance = sharedInstance ?: return
+            instance.mainJob.launch {
+                runCatching {
+                    val normalizedId = runOrTaskId?.trim()?.takeIf { it.isNotEmpty() }
+                    val completedVlmSession = normalizedId?.let {
+                        AgentVlmUiSession.requestCompleteSession(it)
+                    } ?: AgentVlmUiSession.requestCompleteActiveSession()
+                    val completedOmniFlowSession = normalizedId?.let {
+                        OmniFlowUiSession.requestCompleteSession(it)
+                    } ?: OmniFlowUiSession.requestCompleteActiveSession()
+                    val completedNativeTask = normalizedId?.let {
+                        val vlmTaskIds = AgentVlmUiSession.activeTaskIdsForRun(it)
+                            .takeIf { taskIds -> taskIds.isNotEmpty() }
+                            ?: listOf(it)
+                        vlmTaskIds.any { taskId ->
+                            AssistsUtil.Core.completeRunningTask(taskId, "任务已完成")
+                        }
+                    } ?: AssistsUtil.Core.completeRunningTask(message = "任务已完成")
+                    if (
+                        normalizedId != null &&
+                        !completedVlmSession &&
+                        !completedOmniFlowSession &&
+                        !completedNativeTask
+                    ) {
+                        OmniLog.w(
+                            "[AssistsCoreManager]",
+                            "requestCompleteActiveVlmTask target not found: id=$normalizedId reason=$reason"
+                        )
+                    }
+                }.onFailure {
+                    OmniLog.w("[AssistsCoreManager]", "requestCompleteActiveVlmTask failed: ${it.message}")
+                }
+            }
+        }
+
         fun dispatchAgentAiConfigChanged(source: String, path: String) {
             val payload = mapOf(
                 "source" to source,
@@ -2266,12 +2305,18 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 } ?: AgentVlmUiSession.requestCompleteActiveSession()
                 val completedAgentRun = taskId?.let {
                     completeActiveAgentRun(it, "agent_vlm_ui_completed")
-                } ?: completeActiveAgentRun(null, "agent_vlm_ui_completed")
+                } ?: false
+                val completedNativeTask = if (taskId == null) {
+                    AssistsUtil.Core.completeRunningTask()
+                } else {
+                    AssistsUtil.Core.completeRunningTask(taskId)
+                }
                 if (
                     taskId != null &&
                     !completedOmniFlowSession &&
                     !completedVlmSession &&
-                    !completedAgentRun
+                    !completedAgentRun &&
+                    !completedNativeTask
                 ) {
                     OmniLog.w(
                         TAG,
@@ -2444,8 +2489,12 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     ) {
         mainJob.launch {
             try {
-                val taskId = call.argument<String>("taskId")
-                cancelActiveAgentRun(taskId, "cancelChatTask")
+                val taskId = call.argument<String>("taskId")?.trim()?.takeIf { it.isNotEmpty() }
+                if (taskId != null) {
+                    AgentVlmUiSession.requestStopSession(taskId)
+                    OmniFlowUiSession.requestStopSession(taskId)
+                    cancelActiveAgentRun(taskId, "cancelChatTask")
+                }
                 AssistsUtil.Core.cancelChatTask(taskId)
                 withContext(Dispatchers.Main) {
                     result.success("SUCCESS")

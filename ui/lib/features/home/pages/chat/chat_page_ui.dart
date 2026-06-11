@@ -18,6 +18,8 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
   static const double _kHdPadPaneCollapseMinWidthFactor = 0.72;
   final Set<String> _pendingManualAgentRetryTaskIds = <String>{};
 
+  bool get _showToolActivityStrip => false;
+
   ChatPageMode get _primaryChatMessagePageMode =>
       _activeMode == ChatPageMode.codex
       ? ChatPageMode.codex
@@ -680,22 +682,6 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     });
   }
 
-  bool _shouldShowToolActivityStripForMode({
-    required ChatPageMode mode,
-    required AgentToolActivitySnapshot snapshot,
-  }) {
-    if (mode != _activeMode ||
-        !_isInputAreaVisible ||
-        _showSlashCommandPanel ||
-        _openClawPanelExpanded) {
-      return false;
-    }
-    return shouldShowAgentToolActivitySnapshot(
-      snapshot,
-      expandedTaskIds: _expandedAgentRunTaskIdsForMode(mode),
-    );
-  }
-
   void _handleInputAreaHeightChanged(double height) {
     final normalized = height.isFinite ? height : 0.0;
     if ((_inputAreaHeight - normalized).abs() < 0.5) {
@@ -859,16 +845,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
   }) {
     final runtime = _runtimeForMode(mode);
     final resolvedMessages = runtime?.messages ?? _messagesByMode[mode]!;
-    final activeAgentTaskIds = runtime?.activeAgentTaskIds ?? const <String>{};
-    final toolActivitySnapshot = resolveAgentToolActivitySnapshot(
-      List<ChatMessageModel>.from(resolvedMessages),
-      activeTaskIds: activeAgentTaskIds,
-      preferredCompletedTaskId: _latestExpandedAgentRunTaskIdForMode(mode),
-    );
-    final showToolActivityStrip = _shouldShowToolActivityStripForMode(
-      mode: mode,
-      snapshot: toolActivitySnapshot,
-    );
+    final showToolActivityStrip = _showToolActivityStrip;
     final bottomInset = MediaQuery.maybeOf(context)?.viewInsets.bottom ?? 0.0;
     final liftEmptyGreeting =
         mode == _activeMode &&
@@ -876,7 +853,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     final homeGreetingSettings = HomeGreetingSettingsService.notifier.value;
     return ChatMessageList(
       messages: resolvedMessages,
-      activeAgentTaskIds: activeAgentTaskIds,
+      activeAgentTaskIds: runtime?.activeAgentTaskIds ?? const <String>{},
       onRetryAgentMessage: _retryFailedAgentTurn,
       expandedAgentRunTaskIds: _expandedAgentRunTaskIdsForMode(mode),
       onExpandedAgentRunTaskIdsChanged: (taskIds) {
@@ -1189,10 +1166,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
         : const <Map<String, dynamic>>[];
     final showSlashCommandStrip =
         _isInputAreaVisible && slashCommandCards.isNotEmpty;
-    final showToolActivityStrip = _shouldShowToolActivityStripForMode(
-      mode: _activeMode,
-      snapshot: toolActivitySnapshot,
-    );
+    final showToolActivityStrip = _showToolActivityStrip;
     final toolActivityCanExpand = toolActivityCards.length > 1;
     final suppressToolActivitySurfaceShadow =
         _inputFocusNode.hasFocus &&

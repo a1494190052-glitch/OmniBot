@@ -177,8 +177,8 @@
                         android:fontFamily="sans-serif"
                         android:gravity="end|center_vertical"
                         android:letterSpacing="0"
-                        android:text="已完成"
-                        android:textColor="#16794A"
+                        android:text="停止"
+                        android:textColor="#C73636"
                         android:textSize="11sp" />
 
                 </LinearLayout>

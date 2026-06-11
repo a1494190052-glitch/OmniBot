@@ -2212,7 +2212,7 @@ class _ChatBotSheetState extends State<ChatBotSheet>
         final taskId =
             _currentDispatchTaskId ??
             (_currentAiMessages.isEmpty ? null : _currentAiMessages.keys.first);
-        AssistsMessageService.cancelRunningTask(taskId: taskId);
+        unawaited(_cancelCurrentVlmTask(taskId));
         if (taskId != null) {
           _updateThinkingCardToCancelled(taskId);
           _upsertCancelledAgentRunMessage(taskId);
@@ -2220,11 +2220,10 @@ class _ChatBotSheetState extends State<ChatBotSheet>
         }
         _resetDispatchState();
       } else {
-        AssistsMessageService.cancelChatTask(
-          taskId: _currentAiMessages.keys.isEmpty
-              ? null
-              : _currentAiMessages.keys.first,
-        );
+        final taskId = _currentAiMessages.keys.isEmpty
+            ? null
+            : _currentAiMessages.keys.first;
+        unawaited(_cancelCurrentVlmTask(taskId));
       }
 
       setState(() {
@@ -2240,10 +2239,27 @@ class _ChatBotSheetState extends State<ChatBotSheet>
     }
   }
 
+  Future<void> _cancelCurrentVlmTask(String? taskId) async {
+    final normalizedTaskId = taskId?.trim();
+    if (normalizedTaskId != null && normalizedTaskId.isNotEmpty) {
+      try {
+        await AssistsMessageService.cancelChatTask(taskId: normalizedTaskId);
+      } catch (e) {
+        debugPrint('cancelChatTask($normalizedTaskId) failed: $e');
+      }
+      return;
+    }
+    try {
+      await AssistsMessageService.cancelRunningTask();
+    } catch (e) {
+      debugPrint('cancelRunningTask fallback failed: $e');
+    }
+  }
+
   void _onCancelTaskFromCard(String taskId) {
     try {
       interruptActiveToolCard();
-      AssistsMessageService.cancelRunningTask(taskId: taskId);
+      unawaited(_cancelCurrentVlmTask(taskId));
       _updateThinkingCardToCancelled(taskId);
       _upsertCancelledAgentRunMessage(taskId);
       _collapseAgentRunTrace(taskId);

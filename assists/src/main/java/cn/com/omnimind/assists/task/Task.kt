@@ -13,6 +13,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.util.Date
 
@@ -49,6 +50,10 @@ abstract class Task(open val taskChangeListener: TaskChangeListener,open val tas
     open fun finishTask(block: suspend CoroutineScope.() -> Unit) {
         cancelScope.launch {
             block.invoke(this)
+            if (this@Task::taskJob.isInitialized) {
+                taskJob.cancel()
+            }
+            taskScope.cancel()
             onTaskStop(TaskFinishType.CANCEL,"")
             onTaskDestroy()
         }
