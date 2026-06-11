@@ -481,13 +481,29 @@ class OobOmniFlowToolkitService(
         )
         val executionMode = firstNonBlank(request["execution_mode"])
             .ifBlank { "foreground" }
+        val functionSpec = callTiming.measure("load_function_spec_ms") {
+            functionRepository.get(functionId)
+        }
+        val missingRequiredArguments = functionSpec?.let { spec ->
+            callTiming.measure("check_arguments_ms") {
+                OobReusableFunctionStore.missingRequiredArguments(spec, arguments)
+            }
+        }
+        val materializedSpec = functionSpec
+            ?.takeIf { missingRequiredArguments?.isEmpty() == true }
+            ?.let { spec ->
+                callTiming.measure("materialize_function_ms") {
+                    OobReusableFunctionStore.materialize(spec, arguments)
+                }
+            }
 
         val guard = callTiming.measure("guard_check_ms") {
-            guardCheck(
-                linkedMapOf(
-                    "function_id" to functionId,
-                    "arguments" to arguments,
-                )
+            functionRunPolicy.guardCheck(
+                functionId = functionId,
+                arguments = arguments,
+                functionSpec = functionSpec,
+                materializedSpec = materializedSpec,
+                missingRequiredArguments = missingRequiredArguments,
             )
         }
         val decision = guard["decision"]?.toString().orEmpty()
@@ -525,6 +541,9 @@ class OobOmniFlowToolkitService(
                 frontendRunId = frontendRunId,
                 frontendTaskId = frontendTaskId,
                 frontendParent = frontendParent,
+                functionSpec = functionSpec,
+                materializedSpec = materializedSpec,
+                argumentsValidated = true,
             )
         }
         runPayload = normalizeIncompleteReplay(callTiming.attachTo(runPayload))
@@ -536,6 +555,8 @@ class OobOmniFlowToolkitService(
             requestedResumeFromStep = resumeFromStep,
             fallbackSessionId = fallbackSessionId,
             fallbackAttempt = fallbackAttempt,
+            functionSpec = functionSpec,
+            materializedSpec = materializedSpec,
         )
         OobReusableFunctionStore.recordRun(
             context = context,
@@ -549,7 +570,7 @@ class OobOmniFlowToolkitService(
         OobFunctionRunLogRecorder.record(
             context = context,
             functionId = functionId,
-            functionSpec = functionRepository.get(functionId) ?: emptyMap(),
+            functionSpec = functionSpec ?: emptyMap(),
             runPayload = runPayload,
         )
         val stepResults = listArg(runPayload["step_results"])

@@ -17,8 +17,14 @@ import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 class OobFunctionRunPolicy(
     private val functionRepository: OobFunctionRepository,
 ) {
-    fun guardCheck(functionId: String, arguments: Map<String, Any?>): Map<String, Any?> {
-        val spec = functionRepository.get(functionId)
+    fun guardCheck(
+        functionId: String,
+        arguments: Map<String, Any?>,
+        functionSpec: Map<String, Any?>? = null,
+        materializedSpec: Map<String, Any?>? = null,
+        missingRequiredArguments: List<String>? = null,
+    ): Map<String, Any?> {
+        val spec = functionSpec ?: functionRepository.get(functionId)
             ?: return errorPayload(
                 code = "OOB_FUNCTION_NOT_FOUND",
                 message = "OOB reusable function not found: $functionId",
@@ -26,7 +32,7 @@ class OobFunctionRunPolicy(
                 decision = DECISION_BLOCK,
                 riskLevel = RISK_HIGH
             )
-        val missing = OobReusableFunctionStore.missingRequiredArguments(spec, arguments)
+        val missing = missingRequiredArguments ?: OobReusableFunctionStore.missingRequiredArguments(spec, arguments)
         if (missing.isNotEmpty()) {
             return errorPayload(
                 code = "OOB_FUNCTION_ARGUMENTS_MISSING",
@@ -37,7 +43,7 @@ class OobFunctionRunPolicy(
             ) + linkedMapOf("missing_required_arguments" to missing)
         }
 
-        val materialized = OobReusableFunctionStore.materialize(spec, arguments)
+        val materialized = materializedSpec ?: OobReusableFunctionStore.materialize(spec, arguments)
         val stepDecisions = materializedSteps(materialized).map(::guardStep)
         val decision = aggregateDecision(stepDecisions)
         val riskLevel = aggregateRisk(stepDecisions)
@@ -69,6 +75,8 @@ class OobFunctionRunPolicy(
         requestedResumeFromStep: Int,
         fallbackSessionId: String,
         fallbackAttempt: Int,
+        functionSpec: Map<String, Any?>? = null,
+        materializedSpec: Map<String, Any?>? = null,
     ): Map<String, Any?> {
         if (runPayload["success"] == true) return emptyMap()
         val stepResults = listArg(runPayload["step_results"])
@@ -89,7 +97,12 @@ class OobFunctionRunPolicy(
         val sessionId = fallbackSessionId.ifBlank {
             "oob_fallback_${functionId.ifBlank { "unknown" }}_${System.currentTimeMillis()}"
         }
-        val materializedSteps = materializedStepsFor(functionId, arguments)
+        val materializedSteps = materializedStepsFor(
+            functionId = functionId,
+            arguments = arguments,
+            functionSpec = functionSpec,
+            materializedSpec = materializedSpec,
+        )
         val resumeFromStep = (failedStepIndex + 1).coerceAtMost(materializedSteps.size)
         val nextAttempt = fallbackAttempt + 1
         val attemptLimitReached = fallbackAttempt >= MAX_FUNCTION_FALLBACK_ATTEMPTS_PER_STEP
@@ -312,8 +325,14 @@ class OobFunctionRunPolicy(
             }
     }
 
-    private fun materializedStepsFor(functionId: String, arguments: Map<String, Any?>): List<Map<String, Any?>> {
-        val spec = functionRepository.get(functionId) ?: return emptyList()
+    private fun materializedStepsFor(
+        functionId: String,
+        arguments: Map<String, Any?>,
+        functionSpec: Map<String, Any?>?,
+        materializedSpec: Map<String, Any?>?,
+    ): List<Map<String, Any?>> {
+        materializedSpec?.let { return materializedSteps(it) }
+        val spec = functionSpec ?: functionRepository.get(functionId) ?: return emptyList()
         val materialized = runCatching { OobReusableFunctionStore.materialize(spec, arguments) }
             .getOrElse { return emptyList() }
         return materializedSteps(materialized)

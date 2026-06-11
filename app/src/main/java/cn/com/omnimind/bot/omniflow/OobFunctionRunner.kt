@@ -4,7 +4,7 @@ import android.content.Context
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
 import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.SharedHelper
-import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
+import cn.com.omnimind.bot.omniflow.language.OmniflowFunctionStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -34,10 +34,13 @@ class OobFunctionRunner(
         frontendRunId: String = "",
         frontendTaskId: String = "",
         frontendParent: String = "",
+        functionSpec: Map<String, Any?>? = null,
+        materializedSpec: Map<String, Any?>? = null,
+        argumentsValidated: Boolean = false,
     ): Map<String, Any?> = withContext(Dispatchers.Default) {
         val timing = FunctionExecutionTiming()
         val spec = timing.measure("load_function_spec_ms") {
-            functionRepository.get(functionId)
+            functionSpec ?: functionRepository.get(functionId)
         }
             ?: return@withContext errorPayload(
                 code = "OOB_FUNCTION_NOT_FOUND",
@@ -45,7 +48,7 @@ class OobFunctionRunner(
                 functionId = functionId
             ).let { attachExecutionTiming(it, timing) }
         val missing = timing.measure("check_arguments_ms") {
-            OobReusableFunctionStore.missingRequiredArguments(spec, arguments)
+            if (argumentsValidated) emptyList() else OobReusableFunctionStore.missingRequiredArguments(spec, arguments)
         }
         if (missing.isNotEmpty()) {
             return@withContext errorPayload(
@@ -55,7 +58,7 @@ class OobFunctionRunner(
             ).let { attachExecutionTiming(it + linkedMapOf("missing_required_arguments" to missing), timing) }
         }
         val materialized = timing.measure("materialize_function_ms") {
-            OobReusableFunctionStore.materialize(spec, arguments)
+            materializedSpec ?: OobReusableFunctionStore.materialize(spec, arguments)
         }
         val runner = timing.measure("create_runner_ms") {
             OobFunctionToolHandler(
@@ -65,7 +68,19 @@ class OobFunctionRunner(
                 this.workspaceFunctionStore = workspaceFunctionStore
             }
         }
-        val payload = runCatching {
+        val typedPayload = timing.measureSuspend("run_typed_function_ms") {
+            runTypedFunctionIfAvailable(
+                runner = runner,
+                functionId = functionId,
+                arguments = arguments,
+                allowAgentFallback = allowAgentFallback,
+                resumeFromStep = resumeFromStep,
+                frontendRunId = frontendRunId,
+                frontendTaskId = frontendTaskId,
+                frontendParent = frontendParent,
+            )
+        }
+        val payload = typedPayload ?: runCatching {
             timing.measureSuspend("run_materialized_function_ms") {
                 runner.runMaterializedFunction(
                     functionId = functionId,
@@ -91,6 +106,36 @@ class OobFunctionRunner(
         attachExecutionTiming(payload, timing)
     }
 
+    private suspend fun runTypedFunctionIfAvailable(
+        runner: OobFunctionToolHandler,
+        functionId: String,
+        arguments: Map<String, Any?>,
+        allowAgentFallback: Boolean,
+        resumeFromStep: Int,
+        frontendRunId: String,
+        frontendTaskId: String,
+        frontendParent: String,
+    ): Map<String, Any?>? {
+        val storedFunction = OmniflowFunctionStore.get(context, functionId) ?: return null
+        val materialized = runCatching {
+            storedFunction.materialize(stringArguments(arguments))
+        }.getOrElse {
+            return null
+        }
+        return runner.runFunction(
+            fn = materialized,
+            startIndex = resumeFromStep,
+            allowAgentFallback = allowAgentFallback,
+            allowToolDelegationWithoutRouter = false,
+            frontendRunId = frontendRunId,
+            frontendTaskId = frontendTaskId,
+            frontendParent = frontendParent,
+        )
+    }
+
+    private fun stringArguments(arguments: Map<String, Any?>): Map<String, String> =
+        arguments.mapValues { (_, value) -> value?.toString().orEmpty() }
+
     private fun attachExecutionTiming(
         payload: Map<String, Any?>,
         timing: FunctionExecutionTiming,
@@ -113,6 +158,7 @@ class OobFunctionRunner(
             "check_arguments_ms",
             "materialize_function_ms",
             "create_runner_ms",
+            "run_typed_function_ms",
         ).forEach { phaseName ->
             startupPhaseMs[phaseName] = OobFunctionJson.longArg(toolkitPhaseMs[phaseName], defaultValue = 0L)
         }
@@ -186,6 +232,7 @@ class OobFunctionRunner(
                 "check_arguments_ms",
                 "materialize_function_ms",
                 "create_runner_ms",
+                "run_typed_function_ms",
                 "run_materialized_function_ms",
             ).forEach { phaseName ->
                 completedPhases[phaseName] = phases[phaseName] ?: 0L
