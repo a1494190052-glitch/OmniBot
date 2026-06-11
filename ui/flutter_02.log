@@ -1,0 +1,98 @@
+Flutter crash report.
+Please report a bug at https://github.com/flutter/flutter/issues.
+
+## command
+
+flutter analyze lib/services/run_log_function_enhancement_job_service.dart
+
+## exception
+
+_Exception: Exception: analysis server exited with code 64 and output:
+[stderr] 
+[stderr] Project
+[stderr]   compile    Compile Dart to various formats.
+[stderr]   create     Create a new Dart project.
+[stderr]   pub        Work with packages.
+[stderr]   run        Run a Dart program.
+[stderr]   test       Run tests for a project.
+[stderr] 
+[stderr] Source code
+[stderr]   analyze    Analyze Dart code in a directory.
+[stderr]   doc        Generate API documentation for Dart projects.
+[stderr]   fix        Apply automated fixes to Dart source code.
+[stderr]   format     Idiomatically format Dart source code.
+[stderr] 
+[stderr] Tools
+[stderr]   devtools   Open DevTools (optionally connecting to an existing application).
+[stderr]   info       Show diagnostic information about the installed tooling.
+[stderr] 
+[stderr] Run "dart help <command>" for more information about a command.
+[stderr] See https://dart.dev/tools/dart-tool for detailed documentation.
+
+```
+```
+
+## flutter doctor
+
+```
+[✓] Flutter (Channel stable, 3.35.7, on macOS 15.5 24F74 darwin-arm64, locale zh-Hans-CN) [108ms]
+    • Flutter version 3.35.7 on channel stable at /Users/wuzewen/Desktop/flutter
+    • Upstream repository https://github.com/flutter/flutter.git
+    • Framework revision adc9010625 (8 个月前), 2025-10-21 14:16:03 -0400
+    • Engine revision 035316565a
+    • Dart version 3.9.2
+    • DevTools version 2.48.0
+    • Feature flags: enable-web, enable-linux-desktop, enable-macos-desktop, enable-windows-desktop, enable-android, enable-ios, cli-animations, enable-lldb-debugging
+
+[!] Android toolchain - develop for Android devices (Android SDK version 36.1.0) [385ms]
+    • Android SDK at /Users/wuzewen/Library/Android/sdk
+    • Emulator version 36.2.12.0 (build_id 14214601) (CL:N/A)
+    • Platform android-36, build-tools 36.1.0
+    • Java binary at: /Applications/Android Studio.app/Contents/jbr/Contents/Home/bin/java
+      This is the JDK bundled with the latest Android Studio installation on this machine.
+      To manually set the JDK path, use: `flutter config --jdk-dir="path/to/jdk"`.
+    • Java version OpenJDK Runtime Environment (build 21.0.8+-14018985-b1038.68)
+    ✗ Android license status unknown.
+      Run `flutter doctor --android-licenses` to accept the SDK licenses.
+      See https://flutter.dev/to/macos-android-setup for more details.
+
+[✗] Xcode - develop for iOS and macOS [96ms]
+    ✗ Xcode installation is incomplete; a full installation is necessary for iOS and macOS development.
+      Download at: https://developer.apple.com/xcode/
+      Or install Xcode via the App Store.
+      Once installed, run:
+        sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+        sudo xcodebuild -runFirstLaunch
+    ✗ CocoaPods not installed.
+        CocoaPods is a package manager for iOS or macOS platform code.
+        Without CocoaPods, plugins will not work on iOS or macOS.
+        For more info, see https://flutter.dev/to/platform-plugins
+      For installation instructions, see https://guides.cocoapods.org/using/getting-started.html#installation
+
+[✓] Chrome - develop for the web [31ms]
+    • Chrome at /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+
+[✓] Android Studio (version 2025.1) [30ms]
+    • Android Studio at /Applications/Android Studio.app/Contents
+    • Flutter plugin can be installed from:
+      🔨 https://plugins.jetbrains.com/plugin/9212-flutter
+    • Dart plugin can be installed from:
+      🔨 https://plugins.jetbrains.com/plugin/6351-dart
+    • Java version OpenJDK Runtime Environment (build 21.0.8+-14018985-b1038.68)
+
+[✓] VS Code (version 1.116.0) [29ms]
+    • VS Code at /Applications/Visual Studio Code.app/Contents
+    • Flutter extension version 3.136.0
+
+[✓] Connected device (3 available) [555ms]
+    • sdk gphone64 arm64 (mobile) • emulator-5556 • android-arm64  • Android 13 (API 33) (emulator)
+    • macOS (desktop)             • macos         • darwin-arm64   • macOS 15.5 24F74 darwin-arm64
+    • Chrome (web)                • chrome        • web-javascript • Google Chrome 149.0.7827.55
+    ! Device ABNU025605001996 is not authorized.
+      You might need to check your device for an authorization dialog.
+
+[!] Network resources [76.1s]
+    ✗ A network error occurred while checking "https://maven.google.com/": Operation timed out
+
+! Doctor found issues in 3 categories.
+```
