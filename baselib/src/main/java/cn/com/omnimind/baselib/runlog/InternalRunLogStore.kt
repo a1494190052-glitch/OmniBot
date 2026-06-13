@@ -338,6 +338,50 @@ object InternalRunLogStore {
     }
 
     @Synchronized
+    fun sourceRunSummariesForFunction(
+        context: Context,
+        functionId: String
+    ): Map<String, Any?> {
+        val normalizedFunctionId = functionId.trim()
+        if (normalizedFunctionId.isEmpty()) {
+            return linkedMapOf(
+                "success" to false,
+                "function_id" to normalizedFunctionId,
+                "source_run_ids" to emptyList<String>(),
+                "source_run_count" to 0,
+                "source_runs" to emptyList<Map<String, Any?>>(),
+                "missing_source_run_ids" to emptyList<String>(),
+                "error_code" to "FUNCTION_ID_EMPTY",
+                "error_message" to "function_id is required"
+            )
+        }
+        val sourceRunIds = OobReusableFunctionStore.sourceRunIdsForFunction(
+            context = context,
+            functionId = normalizedFunctionId
+        )
+        val sourceRuns = sourceRunIds.mapNotNull { runId ->
+            readRunLocked(context, runId)?.let { record ->
+                summaryMap(record, registeredFunctionBinding(context, record))
+            }
+        }
+        val foundRunIds = sourceRuns.mapNotNull {
+            textValue(it["run_id"]).takeIf(String::isNotEmpty)
+        }.toSet()
+        val missingRunIds = sourceRunIds.filter { it !in foundRunIds }
+        return linkedMapOf(
+            "success" to true,
+            "function_id" to normalizedFunctionId,
+            "source_run_ids" to sourceRunIds,
+            "source_run_count" to sourceRunIds.size,
+            "source_runs" to sourceRuns,
+            "source_run_summary_count" to sourceRuns.size,
+            "missing_source_run_ids" to missingRunIds,
+            "missing_source_run_count" to missingRunIds.size,
+            "provider" to PROVIDER
+        )
+    }
+
+    @Synchronized
     fun timelinePayload(context: Context, runId: String): Map<String, Any?> {
         val normalizedRunId = runId.trim()
         if (normalizedRunId.isEmpty()) {
@@ -594,15 +638,7 @@ object InternalRunLogStore {
     }
 
     private fun sourceRunIds(spec: Map<String, Any?>): List<String> {
-        val source = stringMap(spec["source"])
-        val metadata = stringMap(spec["metadata"])
-        return buildList {
-            textValue(source["run_id"]).takeIf(String::isNotEmpty)?.let(::add)
-            textValue(metadata["run_id"]).takeIf(String::isNotEmpty)?.let(::add)
-            (metadata["source_run_ids"] as? List<*>)?.forEach { raw ->
-                raw?.toString()?.trim()?.takeIf(String::isNotEmpty)?.let(::add)
-            }
-        }.distinct()
+        return OobReusableFunctionStore.sourceRunIds(spec)
     }
 
     private fun runStatus(record: InternalRunLogRecord): String {

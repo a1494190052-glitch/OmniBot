@@ -31,10 +31,23 @@ class WorkspaceFunctionStore(private val workspaceRoot: File) {
     fun register(spec: Map<String, Any?>): Map<String, Any?> {
         val functionId = OobFunctionSchemaBuilder.functionId(spec).takeIf { it.isNotEmpty() }
             ?: return mapOf("success" to false, "errorMessage" to "function_id required")
+        val existing = get(functionId)
+        val sourceRunIds = (existing?.let(OobReusableFunctionStore::sourceRunIds).orEmpty() +
+            OobReusableFunctionStore.sourceRunIds(spec)).distinct()
         val storedSpec = linkedMapOf<String, Any?>().apply {
             putAll(spec)
             put("function_id", functionId)
             putIfAbsent("name", functionId)
+            if (sourceRunIds.isNotEmpty()) {
+                put(
+                    "metadata",
+                    linkedMapOf<String, Any?>().apply {
+                        putAll(OobFunctionJson.mapArg(existing?.get("metadata")))
+                        putAll(OobFunctionJson.mapArg(spec["metadata"]))
+                        put("source_run_ids", sourceRunIds)
+                    }
+                )
+            }
         }
         val file = functionFile(functionId)
         val tmp = File(file.parentFile, "${file.name}.tmp")

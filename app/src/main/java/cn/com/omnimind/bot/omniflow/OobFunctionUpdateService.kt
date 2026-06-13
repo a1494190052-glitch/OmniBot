@@ -455,7 +455,12 @@ class OobFunctionUpdateService(
     private fun applyRunLogEvidenceAnalysis(spec: MutableMap<String, Any?>, runId: String, analysis: Map<String, Any?>): List<Map<String, Any?>> {
         val metadata = mutableJsonMap(mapArg(spec["metadata"]))
         val existing = mutableJsonMap(mapArg(metadata["oob_function_evidence"]))
-        val sourceRunIds = listArg(existing["source_run_ids"]).mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }.toMutableList()
+        val sourceRunIds = OobFunctionRepository.sourceRunIds(spec).toMutableList()
+        listArg(existing["source_run_ids"]).forEach { raw ->
+            raw?.toString()?.trim()?.takeIf(String::isNotEmpty)?.let { existingRunId ->
+                if (existingRunId !in sourceRunIds) sourceRunIds += existingRunId
+            }
+        }
         if (runId.isNotBlank() && sourceRunIds.none { it == runId }) sourceRunIds += runId
         val evidence = linkedMapOf<String, Any?>().apply {
             putAll(existing); put("schema_version", "oob.function_evidence.v1")
@@ -464,9 +469,17 @@ class OobFunctionUpdateService(
             put("source_run_ids", sourceRunIds); put("latest_analysis", mutableJsonValue(analysis))
             put("updated_at_ms", System.currentTimeMillis())
         }.filterValues { it != null }
-        if (existing == evidence) return emptyList()
+        val oldMetadataSourceRunIds = listArg(metadata["source_run_ids"])
+        metadata["source_run_ids"] = sourceRunIds
         metadata["oob_function_evidence"] = evidence; spec["metadata"] = metadata
-        return listOf(changeMap("metadata", "oob_function_evidence", existing.takeIf { it.isNotEmpty() }, evidence))
+        val changes = mutableListOf<Map<String, Any?>>()
+        if (oldMetadataSourceRunIds != sourceRunIds) {
+            changes += changeMap("metadata", "source_run_ids", oldMetadataSourceRunIds, sourceRunIds)
+        }
+        if (existing != evidence) {
+            changes += changeMap("metadata", "oob_function_evidence", existing.takeIf { it.isNotEmpty() }, evidence)
+        }
+        return changes
     }
 
     private fun appendUpdateAudit(

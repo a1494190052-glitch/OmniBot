@@ -24,16 +24,29 @@ object OobReusableFunctionStore {
         val rawSpec = sanitizeMap(functionSpec)
         val functionId = functionIdFromSpec(rawSpec)
         require(functionId.isNotEmpty()) { "function_id is empty" }
-        val spec = linkedMapOf<String, Any?>().apply {
-            putAll(rawSpec)
-            putIfAbsent("function_id", functionId)
-            putIfAbsent("name", functionId)
-        }
-
         val prefs = prefs(context)
         val key = "$SPEC_PREFIX$functionId"
         val alreadyExists = prefs.contains(key)
         val existing = get(context, functionId)
+        val incomingSourceRunIds = sourceRunIds(rawSpec)
+        val existingSourceRunIds = existing?.let(::sourceRunIds).orEmpty()
+        val mergedSourceRunIds = (existingSourceRunIds + incomingSourceRunIds).distinct()
+        val spec = linkedMapOf<String, Any?>().apply {
+            putAll(rawSpec)
+            putIfAbsent("function_id", functionId)
+            putIfAbsent("name", functionId)
+            if (mergedSourceRunIds.isNotEmpty()) {
+                put(
+                    "metadata",
+                    linkedMapOf<String, Any?>().apply {
+                        putAll(mapArg(existing?.get("metadata")))
+                        putAll(mapArg(rawSpec["metadata"]))
+                        put("source_run_ids", mergedSourceRunIds)
+                    }
+                )
+            }
+        }
+
         val now = System.currentTimeMillis().toString()
         val existingRegistry = existing?.get("_oob_registry") as? Map<*, *>
         val stored = linkedMapOf<String, Any?>().apply {
@@ -124,6 +137,14 @@ object OobReusableFunctionStore {
                 )
             }
             .toList()
+    }
+
+    @Synchronized
+    fun sourceRunIdsForFunction(context: Context, functionId: String): List<String> {
+        val normalized = functionId.trim()
+        if (normalized.isEmpty()) return emptyList()
+        val spec = get(context, normalized) ?: return emptyList()
+        return sourceRunIds(spec)
     }
 
     @Synchronized
@@ -772,24 +793,35 @@ object OobReusableFunctionStore {
         )
     }
 
-    private fun sourceRunIds(spec: Map<String, Any?>): List<String> {
-        val source = spec["source"] as? Map<*, *>
-        val metadata = spec["metadata"] as? Map<*, *>
-        return buildList {
-            source?.get("run_id")
-                ?.toString()
-                ?.trim()
-                ?.takeIf { it.isNotEmpty() }
-                ?.let(::add)
-            metadata?.get("run_id")
-                ?.toString()
-                ?.trim()
-                ?.takeIf { it.isNotEmpty() }
-                ?.let(::add)
-            (metadata?.get("source_run_ids") as? List<*>)?.forEach { raw ->
-                raw?.toString()?.trim()?.takeIf(String::isNotEmpty)?.let(::add)
-            }
-        }.distinct()
+    fun sourceRunIds(spec: Map<String, Any?>): List<String> {
+        fun MutableList<String>.addText(value: Any?) {
+            val text = value?.toString()?.trim().orEmpty()
+            if (text.isNotEmpty() && text !in this) add(text)
+        }
+
+        fun MutableList<String>.addList(value: Any?) {
+            listArg(value).forEach { addText(it) }
+        }
+
+        val source = mapArg(spec["source"])
+        val metadata = mapArg(spec["metadata"])
+        val evidence = mapArg(metadata["oob_function_evidence"])
+        val asset = mapArg(metadata["omniflow_asset"])
+        return mutableListOf<String>().apply {
+            addList(spec["source_run_ids"])
+            addText(spec["source_run_id"])
+            addList(metadata["source_run_ids"])
+            addText(source["run_id"])
+            addText(source["run_log_id"])
+            addText(source["source_run_id"])
+            addList(evidence["source_run_ids"])
+            addList(asset["source_run_ids"])
+            addText(metadata["run_id"])
+            addText(metadata["run_log_id"])
+            addText(metadata["source_run_id"])
+            addText(evidence["latest_run_id"])
+            addText(asset["source_run_id"])
+        }
     }
 
     private fun summaryMap(spec: Map<String, Any?>): Map<String, Any?> {

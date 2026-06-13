@@ -85,7 +85,12 @@ class OobFunctionRepository(
         } else {
             false
         }
-        val sourceRunIds = sourceRunIds(spec)
+        val registeredSpec = if (success) {
+            OobReusableFunctionStore.get(context, functionId)
+        } else {
+            null
+        }
+        val sourceRunIds = registeredSpec?.let(::sourceRunIds) ?: sourceRunIds(spec)
         val runLogBindings = if (success) {
             sourceRunIds.mapNotNull { runId ->
                 runCatching {
@@ -93,7 +98,7 @@ class OobFunctionRepository(
                         context = context,
                         runId = runId,
                         functionId = functionId,
-                        functionSpec = spec
+                        functionSpec = registeredSpec ?: spec
                     )
                 }.onFailure { error ->
                     OmniLog.w(
@@ -165,15 +170,28 @@ class OobFunctionRepository(
         val normalized = functionId.trim()
         if (normalized.isEmpty()) return null
         OobReusableFunctionStore.get(context, normalized)?.let { registrySpec ->
-            return OobFunctionJson.sanitizeMap(registrySpec)
+            return withSourceRunSummary(OobFunctionJson.sanitizeMap(registrySpec))
         }
         val workspaceSpec = workspaceFunctionStore.get(normalized)
         if (workspaceSpec != null) {
             runCatching { OobReusableFunctionStore.register(context, workspaceSpec) }
                 .onFailure { OmniLog.w(TAG, "sync workspace function failed: ${it.message}") }
-            return OobFunctionJson.sanitizeMap(workspaceSpec)
+            return withSourceRunSummary(OobFunctionJson.sanitizeMap(workspaceSpec))
         }
         return null
+    }
+
+    fun sourceRunIdsForFunction(functionId: String): List<String> {
+        val normalized = functionId.trim()
+        if (normalized.isEmpty()) return emptyList()
+        return get(normalized)?.let(::sourceRunIds).orEmpty()
+    }
+
+    fun sourceRunSummariesForFunction(functionId: String): Map<String, Any?> {
+        return InternalRunLogStore.sourceRunSummariesForFunction(
+            context = context,
+            functionId = functionId
+        )
     }
 
     fun delete(functionId: String): Map<String, Any?> {
@@ -244,6 +262,7 @@ class OobFunctionRepository(
         val registry = spec["_oob_registry"] as? Map<*, *>
         val source = spec["source"] as? Map<*, *>
         val runStats = registry?.get("run_stats") as? Map<*, *>
+        val sourceRunIds = sourceRunIds(spec)
         return linkedMapOf(
             "function_id" to functionIdFromSpec(spec),
             "name" to spec["name"],
@@ -268,7 +287,8 @@ class OobFunctionRepository(
             "runner" to "oob_agent_reusable_function",
             "registered_at" to registry?.get("registered_at"),
             "updated_at" to registry?.get("updated_at"),
-            "source_run_ids" to sourceRunIds(spec),
+            "source_run_ids" to sourceRunIds,
+            "source_run_count" to sourceRunIds.size,
             "source" to spec["source"],
             "run_stats" to OobFunctionJson.sanitizeValue(
                 runStats ?: emptyMap<Any?, Any?>()
@@ -277,6 +297,23 @@ class OobFunctionRepository(
                 runStats?.get("last_run") ?: emptyMap<Any?, Any?>()
             )
         )
+    }
+
+    private fun withSourceRunSummary(spec: Map<String, Any?>): Map<String, Any?> {
+        val functionId = functionIdFromSpec(spec)
+        val sourceRuns = InternalRunLogStore.sourceRunSummariesForFunction(
+            context = context,
+            functionId = functionId
+        )
+        return linkedMapOf<String, Any?>().apply {
+            putAll(spec)
+            put("source_run_ids", sourceRuns["source_run_ids"])
+            put("source_run_count", sourceRuns["source_run_count"])
+            put("source_runs", sourceRuns["source_runs"])
+            put("source_run_summary_count", sourceRuns["source_run_summary_count"])
+            put("missing_source_run_ids", sourceRuns["missing_source_run_ids"])
+            put("missing_source_run_count", sourceRuns["missing_source_run_count"])
+        }
     }
 
     private fun listSpecsPage(
@@ -378,23 +415,7 @@ class OobFunctionRepository(
         }
 
         fun sourceRunIds(spec: Map<String, Any?>): List<String> {
-            val source = spec["source"] as? Map<*, *>
-            val metadata = spec["metadata"] as? Map<*, *>
-            return buildList {
-                source?.get("run_id")
-                    ?.toString()
-                    ?.trim()
-                    ?.takeIf { it.isNotEmpty() }
-                    ?.let(::add)
-                metadata?.get("run_id")
-                    ?.toString()
-                    ?.trim()
-                    ?.takeIf { it.isNotEmpty() }
-                    ?.let(::add)
-                (metadata?.get("source_run_ids") as? List<*>)?.forEach { raw ->
-                    raw?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let(::add)
-                }
-            }.distinct()
+            return OobReusableFunctionStore.sourceRunIds(spec)
         }
 
         fun isAgentVisible(spec: Map<String, Any?>): Boolean {

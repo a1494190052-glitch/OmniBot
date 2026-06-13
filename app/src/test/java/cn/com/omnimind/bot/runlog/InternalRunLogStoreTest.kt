@@ -292,6 +292,106 @@ class InternalRunLogStoreTest {
     }
 
     @Test
+    fun `registering same function merges multiple source run ids`() {
+        val context = TempFilesContext()
+        try {
+            val firstRunId = "run-register-merge-a-${System.nanoTime()}"
+            val secondRunId = "run-register-merge-b-${System.nanoTime()}"
+            val functionId = "fn_merge_source_run_ids"
+            listOf(firstRunId, secondRunId).forEach { runId ->
+                InternalRunLogStore.beginRun(
+                    context = context,
+                    runId = runId,
+                    goal = "Open Settings",
+                    source = "vlm",
+                    toolName = "vlm"
+                )
+                InternalRunLogStore.finishRun(
+                    context = context,
+                    runId = runId,
+                    success = true,
+                    doneReason = "finished"
+                )
+            }
+
+            val workspaceStore = WorkspaceFunctionStore(File(context.root, "workspace"))
+            val repository = OobFunctionRepository(
+                context = context,
+                workspaceFunctionStore = workspaceStore
+            )
+            val baseSpec = linkedMapOf<String, Any?>(
+                "schema_version" to "oob.reusable_function.v1",
+                "function_id" to functionId,
+                "name" to "Open Settings With Multiple Runs",
+                "description" to "Same function collected from multiple source RunLogs",
+                "execution" to linkedMapOf(
+                    "kind" to "tool_sequence",
+                    "steps" to listOf(
+                        linkedMapOf(
+                            "id" to "step_1",
+                            "tool" to "open_app",
+                            "executor" to "omniflow",
+                            "args" to linkedMapOf(
+                                "package_name" to "com.android.settings"
+                            )
+                        )
+                    )
+                )
+            )
+
+            repository.register(
+                linkedMapOf<String, Any?>().apply {
+                    putAll(baseSpec)
+                    put(
+                        "metadata",
+                        linkedMapOf(
+                            "oob_function_evidence" to linkedMapOf(
+                                "source_run_ids" to listOf(firstRunId)
+                            )
+                        )
+                    )
+                }
+            )
+            val secondResult = repository.register(
+                linkedMapOf<String, Any?>().apply {
+                    putAll(baseSpec)
+                    put(
+                        "source",
+                        linkedMapOf(
+                            "kind" to "run_log",
+                            "run_id" to secondRunId
+                        )
+                    )
+                }
+            )
+
+            assertEquals(true, secondResult["success"])
+            assertEquals(2, secondResult["run_log_binding_count"])
+            val stored = repository.get(functionId)!!
+            assertEquals(listOf(firstRunId, secondRunId), OobFunctionRepository.sourceRunIds(stored))
+            val workspaceStored = workspaceStore.get(functionId)!!
+            assertEquals(listOf(firstRunId, secondRunId), OobFunctionRepository.sourceRunIds(workspaceStored))
+            assertEquals(listOf(firstRunId, secondRunId), repository.sourceRunIdsForFunction(functionId))
+            val sourceRuns = repository.sourceRunSummariesForFunction(functionId)
+            assertEquals(listOf(firstRunId, secondRunId), sourceRuns["source_run_ids"])
+            assertEquals(2, sourceRuns["source_run_count"])
+            assertEquals(2, sourceRuns["source_run_summary_count"])
+            assertEquals(emptyList<String>(), sourceRuns["missing_source_run_ids"])
+            val sourceRunSummaries = sourceRuns["source_runs"] as List<*>
+            assertEquals(listOf(firstRunId, secondRunId), sourceRunSummaries.map {
+                (it as Map<*, *>)["run_id"]
+            })
+            listOf(firstRunId, secondRunId).forEach { runId ->
+                val timeline = InternalRunLogStore.timelinePayload(context, runId)
+                assertEquals(true, timeline["registered_as_function"])
+                assertEquals(functionId, timeline["registered_function_id"])
+            }
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `timeline applies append only running card events after snapshot`() {
         val context = TempFilesContext()
         try {
