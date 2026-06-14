@@ -221,15 +221,15 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsOobFunctionAsToolTitle =>
-      'OOB reusable Functions as tools';
+      'OmniFlow Function recall';
 
   @override
   String get settingsOobFunctionAsToolSubtitle =>
-      'Let the agent call saved OOB reusable Functions as built-in tools';
+      'Use saved workflows during VLM tasks through runtime recall and replay';
 
   @override
   String get settingsOobFunctionAsToolToggleFailed =>
-      'Failed to update OOB reusable Function tool setting';
+      'Failed to update OmniFlow Function recall setting';
 
   @override
   String get settingsCopiedAddress => 'Address copied';

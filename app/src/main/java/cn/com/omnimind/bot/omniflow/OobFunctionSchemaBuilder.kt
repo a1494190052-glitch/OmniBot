@@ -8,8 +8,8 @@ import cn.com.omnimind.bot.runlog.OobActionCodec
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 
 /**
- * Builds the JSON-schema shaped argument contract used when an OOB reusable
- * Function is exposed as an agent tool.
+ * Builds the public argument contract used by runtime recall/fill before an
+ * OOB reusable Function is replayed.
  */
 object OobFunctionSchemaBuilder {
     fun inputSchema(spec: Map<String, Any?>): Map<String, Any?> {

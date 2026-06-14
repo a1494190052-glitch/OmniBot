@@ -479,19 +479,19 @@ abstract class AppLocalizations {
   /// No description provided for @settingsOobFunctionAsToolTitle.
   ///
   /// In zh, this message translates to:
-  /// **'OOB 复用指令接入工具'**
+  /// **'OmniFlow Function 召回'**
   String get settingsOobFunctionAsToolTitle;
 
   /// No description provided for @settingsOobFunctionAsToolSubtitle.
   ///
   /// In zh, this message translates to:
-  /// **'开启后 agent 可以直接调用已保存的 OOB 复用指令'**
+  /// **'VLM 任务中通过运行时召回和重放复用已保存流程'**
   String get settingsOobFunctionAsToolSubtitle;
 
   /// No description provided for @settingsOobFunctionAsToolToggleFailed.
   ///
   /// In zh, this message translates to:
-  /// **'OOB 复用指令工具开关失败'**
+  /// **'OmniFlow Function 召回开关失败'**
   String get settingsOobFunctionAsToolToggleFailed;
 
   /// No description provided for @settingsCopiedAddress.

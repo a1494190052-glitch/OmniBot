@@ -23,7 +23,8 @@ import java.io.File
 /**
  * Debug-only validation for a reusable "segment" Function loaded inside one
  * parent Function run. The default child segment is a model-free open Settings
- * action; the parent calls it through call_tool(function_id=...).
+ * action; the parent loads it through the internal replay-only Function call
+ * step, not through a model-visible tool.
  */
 class DebugOobFunctionSegmentReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {

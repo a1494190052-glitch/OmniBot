@@ -7,7 +7,6 @@ import android.util.Base64
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentToolExposurePolicy
 import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
-import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import cn.com.omnimind.bot.webchat.AgentRunService
 import cn.com.omnimind.bot.webchat.ConversationDomainService
 import com.google.gson.GsonBuilder
@@ -91,7 +90,6 @@ class DebugAgentConversationFunctionReceiver : BroadcastReceiver() {
             "allowedTools" to listOf(
                 "oob_function_register",
                 "oob_function_list",
-                RunLogReplayPolicy.TOOL_CALL_TOOL,
                 "oob_function_delete",
             ),
         )
@@ -215,7 +213,7 @@ class DebugAgentConversationFunctionReceiver : BroadcastReceiver() {
             The instruction must target package "$targetPackage" and contain exactly these steps:
             1. open_app packageName "$targetPackage"
             2. finished content "Settings opened"
-            Then list Functions, guard-check "$functionId", execute it with call_tool using function_id "$functionId", and report the function id and run success.
+            Then list Functions and report the function id. Do not execute saved Functions directly; runtime recall/replay is validated after registration.
             Do not call unrelated tools and do not ask follow-up questions.
             """.trimIndent()
     }

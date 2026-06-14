@@ -28,8 +28,8 @@ import cn.com.omnimind.bot.agent.NoOpAgentRunControl
 import cn.com.omnimind.bot.agent.SubagentDispatcher
 import cn.com.omnimind.bot.agent.ToolExecutionResult
 import cn.com.omnimind.bot.agent.WorkspaceMemoryService
+import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
 import cn.com.omnimind.bot.runlog.RunLogPagePackageInference
-import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import cn.com.omnimind.bot.util.AssistsUtil
 import com.google.gson.GsonBuilder
 import com.google.gson.reflect.TypeToken
@@ -147,7 +147,7 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
         )
         val env = DefaultAgentExecutionEnvironment(
             agentRunId = "debug-agent-function-management",
-            userMessage = "Validate OOB Function registration, listing, guard, and call_tool execution through Agent tools.",
+            userMessage = "Validate OOB Function registration and listing through Agent tools; runtime replay is checked locally after registration.",
             currentPackageName = currentBefore,
             runtimeContextRepository = AgentRuntimeContextRepository(context),
             workspaceDescriptor = workspace,
@@ -222,16 +222,24 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
             callback = NoOpAgentCallback,
         )
         if (shouldRun) {
-            records += executeAgentTool(
-                registry = registry,
-                router = router,
-                env = env,
-                toolName = RunLogReplayPolicy.TOOL_CALL_TOOL,
-                args = buildJsonObject {
-                    put("function_id", JsonPrimitive(functionId))
-                    put("goal", JsonPrimitive("Validate debug Function execution through call_tool."))
-                },
-                callback = NoOpAgentCallback,
+            val runStartedAt = System.currentTimeMillis()
+            val runPayload = OobOmniFlowToolkitService(context).runFunction(
+                mapOf(
+                    "function_id" to functionId,
+                    "goal" to "Validate debug Function execution through runtime replay.",
+                    "arguments" to emptyMap<String, Any?>(),
+                )
+            )
+            records += linkedMapOf<String, Any?>(
+                "tool_name" to "runtime_function_replay",
+                "success" to (runPayload["success"] == true),
+                "summary" to runPayload["summary"],
+                "result_type" to "RuntimeFunctionReplay",
+                "duration_ms" to (System.currentTimeMillis() - runStartedAt).coerceAtLeast(0L),
+                "started_at_ms" to runStartedAt,
+                "finished_at_ms" to System.currentTimeMillis(),
+                "args" to mapOf("function_id" to functionId),
+                "payload" to runPayload,
             )
             delay(500L)
         }
@@ -239,7 +247,7 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
         val currentAfter = currentEffectivePackage(context)
         val registerRecord = records.lastOrNull { it["tool_name"] == "oob_function_register" }
         val listRecord = records.lastOrNull { it["tool_name"] == "oob_function_list" }
-        val runRecord = records.lastOrNull { it["tool_name"] == RunLogReplayPolicy.TOOL_CALL_TOOL }
+        val runRecord = records.lastOrNull { it["tool_name"] == "runtime_function_replay" }
         val listContainsFunction = recordPayload(listRecord)["functions"].let { raw ->
             (raw as? List<*>)?.any { item ->
                 (item as? Map<*, *>)?.get("function_id")?.toString() == functionId
