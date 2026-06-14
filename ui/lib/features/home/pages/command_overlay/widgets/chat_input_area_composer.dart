@@ -51,12 +51,11 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
   @override
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
-    final composer = switch ((
-      widget.useLargeComposerStyle,
-      widget.useFrostedGlass,
-    )) {
-      (true, _) => SafeArea(child: _buildLargeComposerShell()),
-      (false, true) => SafeArea(
+    final Widget composer;
+    if (widget.useLargeComposerStyle) {
+      composer = SafeArea(child: _buildLargeComposerShell());
+    } else if (widget.useFrostedGlass) {
+      composer = SafeArea(
         child: ClipRRect(
           borderRadius: BorderRadius.circular(8),
           child: BackdropFilter(
@@ -79,8 +78,9 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
             ),
           ),
         ),
-      ),
-      (false, false) => SafeArea(
+      );
+    } else {
+      composer = SafeArea(
         child: Container(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(8),
@@ -118,8 +118,8 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
             ),
           ),
         ),
-      ),
-    };
+      );
+    }
     return NotificationListener<SizeChangedLayoutNotification>(
       onNotification: (_) {
         _reportInputHeightAfterBuild();
