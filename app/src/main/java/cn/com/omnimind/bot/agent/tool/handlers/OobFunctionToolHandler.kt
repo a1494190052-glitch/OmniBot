@@ -91,52 +91,16 @@ class OobFunctionToolHandler(
         if (RunLogReplayPolicy.isOmniflowToolCallTool(toolName)) {
             return executeModelCallTool(toolCall, args, env, callback, toolHandle)
         }
-        val spec = getSpec(toolName)
-            ?: return cn.com.omnimind.bot.agent.ToolExecutionResult.Error(
+        return if (getSpec(toolName) != null) {
+            cn.com.omnimind.bot.agent.ToolExecutionResult.Error(
+                toolName,
+                "Direct Function tool execution is disabled. Use vlm_task so OmniFlow runtime recall can select, fill, and replay the Function."
+            )
+        } else {
+            cn.com.omnimind.bot.agent.ToolExecutionResult.Error(
                 toolName, "OOB function not found: $toolName"
             )
-
-        val argsMap = helper.jsonObjectToMap(args)
-        val functionArgs = resolveCallRequest(argsMap).targetArgs
-        val missing = cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
-            .missingRequiredArguments(spec, functionArgs)
-        if (missing.isNotEmpty()) {
-            return cn.com.omnimind.bot.agent.ToolExecutionResult.Error(
-                toolName,
-                "Missing required arguments: ${missing.joinToString(", ")}"
-            )
         }
-        val materializedSpec = cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
-            .materialize(spec, functionArgs)
-
-        val runPayload = runMaterializedFunction(
-            functionId = toolName,
-            spec = spec,
-            materializedSpec = materializedSpec,
-            callback = callback,
-            toolHandle = toolHandle,
-            env = env,
-            parentToolCallId = toolCall.id,
-            toolName = toolName,
-            frontendParent = "vlm_task",
-        )
-        val steps = materializedSteps(materializedSpec)
-        val description = spec["description"]?.toString().orEmpty()
-        val stepResults = (runPayload["step_results"] as? List<*>) ?: emptyList<Any?>()
-        val allSuccess = runPayload["success"] == true
-        val summary = buildString {
-            append(description.ifBlank { toolName })
-            append(" — ")
-            append("${runPayload["success_step_count"] ?: stepResults.size}/${steps.size} 步完成")
-        }
-        val payload = helper.encodeLocalizedPayload(runPayload)
-        return cn.com.omnimind.bot.agent.ToolExecutionResult.ContextResult(
-            toolName = toolName,
-            summaryText = summary,
-            previewJson = payload,
-            rawResultJson = payload,
-            success = allSuccess
-        )
     }
 
     private suspend fun executeLifecycleTool(
@@ -230,44 +194,9 @@ class OobFunctionToolHandler(
         val functionId = callTool.functionId
 
         if (functionId.isNotEmpty()) {
-            val spec = getSpec(functionId)
-                ?: return cn.com.omnimind.bot.agent.ToolExecutionResult.Error(
-                    toolName, "OOB function not found: $functionId"
-                )
-            val missing = cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
-                .missingRequiredArguments(spec, targetArgs)
-            if (missing.isNotEmpty()) {
-                return cn.com.omnimind.bot.agent.ToolExecutionResult.Error(
-                    toolName,
-                    "Missing required arguments: ${missing.joinToString(", ")}"
-                )
-            }
-            val materialized = cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
-                .materialize(spec, targetArgs)
-            val runPayload = runMaterializedFunction(
-                functionId = functionId,
-                spec = spec,
-                materializedSpec = materialized,
-                callback = callback,
-                toolHandle = toolHandle,
-                env = env,
-                parentToolCallId = toolCall.id,
-                toolName = toolName,
-            )
-            val success = runPayload["success"] == true
-            val payload = helper.encodeLocalizedPayload(runPayload)
-            val summary = if (success) {
-                "复用指令执行完成：$functionId"
-            } else {
-                runPayload["error_message"]?.toString()?.takeIf { it.isNotBlank() }
-                    ?: "复用指令执行失败：$functionId"
-            }
-            return cn.com.omnimind.bot.agent.ToolExecutionResult.ContextResult(
-                toolName = toolName,
-                summaryText = summary,
-                previewJson = payload,
-                rawResultJson = payload,
-                success = success
+            return cn.com.omnimind.bot.agent.ToolExecutionResult.Error(
+                toolName,
+                "Direct call_tool(function_id) execution is disabled. Use vlm_task so OmniFlow runtime recall can select, fill, and replay the Function."
             )
         }
 

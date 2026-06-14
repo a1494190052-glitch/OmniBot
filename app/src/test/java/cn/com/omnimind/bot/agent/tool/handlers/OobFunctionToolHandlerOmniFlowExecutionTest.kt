@@ -32,6 +32,7 @@ import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
 import cn.com.omnimind.bot.runlog.OobUdegNodeStore
 import cn.com.omnimind.bot.runlog.OmniflowActionBackend
 import cn.com.omnimind.bot.runlog.OmniflowActionRuntime
+import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
 import cn.com.omnimind.bot.runlog.RunLogReusableFunctionCompiler
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
 import java.io.File
@@ -1694,7 +1695,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
-    fun `dynamic function tool ignores presentation metadata when binding arguments`() = runBlocking {
+    fun `direct dynamic function tool execution is rejected`() = runBlocking {
         val context = TempFilesContext()
         try {
             val store = WorkspaceFunctionStore(context.root)
@@ -1752,18 +1753,17 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
                 toolHandle = NoOpAgentRunControl.beginToolExecution("search_cat", "call_search_cat"),
             )
 
-            assertTrue(result is ToolExecutionResult.ContextResult)
-            result as ToolExecutionResult.ContextResult
-            assertEquals(true, result.success)
-            assertFalse(result.rawResultJson.contains("tool_title"))
-            assertTrue(result.rawResultJson.contains("search_query"))
+            assertTrue(result is ToolExecutionResult.Error)
+            result as ToolExecutionResult.Error
+            assertTrue(result.message.contains("Direct Function tool execution is disabled"))
+            assertTrue(result.message.contains("vlm_task"))
         } finally {
             context.root.deleteRecursively()
         }
     }
 
     @Test
-    fun `oob function run tool executes registered function with arguments`() = runBlocking {
+    fun `direct call tool function id execution is rejected`() = runBlocking {
         val context = TempFilesContext()
         val backend = RecordingBackend(
             currentXml = CURRENT_PAGE_XML,
@@ -1841,12 +1841,71 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
                     ),
                 )
 
-                assertTrue(result is ToolExecutionResult.ContextResult)
-                result as ToolExecutionResult.ContextResult
-                assertEquals(true, result.success)
+                assertTrue(result is ToolExecutionResult.Error)
+                result as ToolExecutionResult.Error
+                assertTrue(result.message.contains("Direct call_tool(function_id) execution is disabled"))
+                assertTrue(result.message.contains("vlm_task"))
+                assertEquals(emptyList<String>(), backend.inputTexts)
+            }
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `runtime runFunction still executes registered function with arguments`() = runBlocking {
+        val context = TempFilesContext()
+        val backend = RecordingBackend(
+            currentXml = CURRENT_PAGE_XML,
+            currentPackage = "com.example.current",
+            currentActivity = "MainActivity",
+        )
+        try {
+            val store = WorkspaceFunctionStore(context.root)
+            val spec = functionSpec(
+                functionId = "search_keyword_runtime",
+                steps = listOf(
+                    mapOf(
+                        "id" to "input_keyword",
+                        "title" to "Input keyword",
+                        "kind" to "omniflow_action",
+                        "executor" to "omniflow",
+                        "model_free" to true,
+                        "scriptable" to true,
+                        "tool" to "input_text",
+                        "callable_tool" to "input_text",
+                        "args" to mapOf("text" to "原始关键词"),
+                    ),
+                ),
+                extras = mapOf(
+                    "parameters" to mapOf(
+                        "type" to "object",
+                        "properties" to mapOf(
+                            "keyword" to mapOf(
+                                "type" to "string",
+                                "x_oob_bindings" to listOf(
+                                    "$.execution.steps[0].args.text",
+                                ),
+                            ),
+                        ),
+                        "required" to listOf("keyword"),
+                    ),
+                ),
+            )
+            OobReusableFunctionStore.register(context, spec)
+            assertTrue(store.register(spec)["success"] == true)
+
+            OmniflowActionRuntime.useBackendForTesting(backend).use {
+                val result = OobOmniFlowToolkitService(context, store).runFunction(
+                    mapOf(
+                        "function_id" to "search_keyword_runtime",
+                        "arguments" to mapOf("keyword" to "猫猫"),
+                    )
+                )
+
+                assertEquals(true, result["success"])
                 assertEquals(listOf("猫猫"), backend.inputTexts)
-                assertTrue(result.rawResultJson.contains("search_keyword"))
-                assertTrue(result.rawResultJson.contains("keyword"))
+                assertEquals("search_keyword_runtime", result["function_id"])
             }
         } finally {
             context.root.deleteRecursively()

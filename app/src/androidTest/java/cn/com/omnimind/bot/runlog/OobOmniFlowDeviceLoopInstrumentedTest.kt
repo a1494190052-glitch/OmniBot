@@ -3,23 +3,9 @@ package cn.com.omnimind.bot.runlog
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
-import cn.com.omnimind.baselib.llm.AssistantToolCall
-import cn.com.omnimind.baselib.llm.AssistantToolCallFunction
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
-import cn.com.omnimind.bot.agent.AgentCallback
-import cn.com.omnimind.bot.agent.AgentConversationModePolicy
-import cn.com.omnimind.bot.agent.AgentResult
-import cn.com.omnimind.bot.agent.AgentRuntimeContextRepository
 import cn.com.omnimind.bot.agent.AgentToolRegistry
-import cn.com.omnimind.bot.agent.AgentWorkspaceManager
-import cn.com.omnimind.bot.agent.DefaultAgentExecutionEnvironment
-import cn.com.omnimind.bot.agent.NoOpAgentRunControl
-import cn.com.omnimind.bot.agent.ToolExecutionResult
-import cn.com.omnimind.bot.agent.UserDialog
-import cn.com.omnimind.bot.agent.WorkspaceMemoryService
-import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
-import cn.com.omnimind.bot.agent.tool.handlers.SharedHelper
 import cn.com.omnimind.bot.mcp.McpServerManager
 import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
 import com.google.gson.Gson
@@ -28,12 +14,6 @@ import java.io.FileInputStream
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -254,35 +234,10 @@ class OobOmniFlowDeviceLoopInstrumentedTest {
                 context = context,
                 discoveredServers = emptyList(),
             )
-            val tool = registry.toolsForModel.singleOrNull {
-                it.function.name == RunLogReplayPolicy.TOOL_CALL_TOOL
-            }
-            assertNotNull(tool)
-            assertEquals(
-                "builtin",
-                registry.runtimeDescriptor(RunLogReplayPolicy.TOOL_CALL_TOOL).toolType
-            )
+            val modelToolNames = registry.toolsForModel.map { it.function.name }.toSet()
+            assertFalse(modelToolNames.contains(RunLogReplayPolicy.TOOL_CALL_TOOL))
 
-            val schema = tool!!.function.parameters
-            val properties = schema["properties"] as JsonObject
-            assertTrue(properties.containsKey("function_id"))
-            assertTrue(properties.containsKey("arguments"))
-            val required = (schema["required"] as JsonArray)
-                .map { it.jsonPrimitive.content }
-            assertTrue(required.contains("tool_title"))
-            assertFalse(required.contains("function_id"))
-
-            val changedArgs = buildJsonObject {
-                put("tool_title", JsonPrimitive("Replay recorded input"))
-                put("function_id", JsonPrimitive(functionId))
-                put("arguments", buildJsonObject {
-                    put("input_text", JsonPrimitive("deviceworld"))
-                })
-            }
-            registry.validateArguments(
-                RunLogReplayPolicy.TOOL_CALL_TOOL,
-                changedArgs,
-            )
+            val changedFunctionArgs = mapOf("input_text" to "deviceworld")
 
             @Suppress("UNCHECKED_CAST")
             val stored = requireNotNull(
@@ -290,7 +245,7 @@ class OobOmniFlowDeviceLoopInstrumentedTest {
             )
             val materialized = OobReusableFunctionStore.materialize(
                 stored,
-                mapOf("input_text" to "deviceworld"),
+                changedFunctionArgs,
             )
             val steps = ((materialized["execution"] as Map<*, *>)["steps"] as List<*>)
             val inputStep = steps.last() as Map<*, *>
@@ -298,40 +253,13 @@ class OobOmniFlowDeviceLoopInstrumentedTest {
             assertEquals("deviceworld", materializedArgs["text"])
 
             backend.launchApplication(fixturePackage)
-            val handler = OobFunctionToolHandler(
-                context = context,
-                helper = SharedHelper(
-                    context = context,
-                    json = Json {
-                        ignoreUnknownKeys = true
-                        isLenient = true
-                        encodeDefaults = false
-                    },
-                ),
-            ).apply {
-                workspaceFunctionStore = workspaceStore
-            }
-            val toolCall = AssistantToolCall(
-                id = "device_direct_toolcall",
-                function = AssistantToolCallFunction(
-                    name = RunLogReplayPolicy.TOOL_CALL_TOOL,
-                    arguments = changedArgs.toString(),
-                ),
+            val result = toolkit.runFunction(
+                mapOf(
+                    "function_id" to functionId,
+                    "arguments" to changedFunctionArgs,
+                )
             )
-            val result = handler.execute(
-                toolCall = toolCall,
-                args = changedArgs,
-                runtimeDescriptor = registry.runtimeDescriptor(RunLogReplayPolicy.TOOL_CALL_TOOL),
-                env = directExecutionEnv(context),
-                callback = NoOpCallback,
-                toolHandle = NoOpAgentRunControl.beginToolExecution(
-                    toolName = RunLogReplayPolicy.TOOL_CALL_TOOL,
-                    toolCallId = toolCall.id,
-                ),
-            )
-            assertTrue(result is ToolExecutionResult.ContextResult)
-            val contextResult = result as ToolExecutionResult.ContextResult
-            assertEquals(contextResult.rawResultJson, true, contextResult.success)
+            assertEquals(true, result["success"])
             val replayedXml = backend.currentXml().orEmpty()
             assertTrue(replayedXml, replayedXml.contains("deviceworld"))
         } finally {
@@ -625,65 +553,6 @@ class OobOmniFlowDeviceLoopInstrumentedTest {
         val right = match.groupValues[3].toFloat()
         val bottom = match.groupValues[4].toFloat()
         return ((left + right) / 2f) to ((top + bottom) / 2f)
-    }
-
-    private fun directExecutionEnv(
-        context: android.content.Context,
-    ): DefaultAgentExecutionEnvironment {
-        val workspaceManager = AgentWorkspaceManager(context)
-        val agentRunId = "device-direct-toolcall-${System.currentTimeMillis()}"
-        return DefaultAgentExecutionEnvironment(
-            agentRunId = agentRunId,
-            userMessage = "direct OOB function toolcall",
-            currentPackageName = null,
-            runtimeContextRepository = AgentRuntimeContextRepository(context),
-            workspaceDescriptor = workspaceManager.buildWorkspaceDescriptor(
-                conversationId = null,
-                agentRunId = agentRunId,
-            ),
-            resolvedSkills = emptyList(),
-            workspaceManager = workspaceManager,
-            workspaceMemoryService = WorkspaceMemoryService(context, workspaceManager),
-            conversationMode = AgentConversationModePolicy.NORMAL_MODE,
-            runControl = NoOpAgentRunControl,
-        )
-    }
-
-    private object NoOpCallback : AgentCallback {
-        override suspend fun onThinkingStart() = Unit
-
-        override suspend fun onThinkingUpdate(thinking: String) = Unit
-
-        override suspend fun onToolCallStart(
-            toolName: String,
-            toolCallId: String,
-            arguments: JsonObject,
-        ) = Unit
-
-        override suspend fun onToolCallProgress(
-            toolName: String,
-            progress: String,
-            extras: Map<String, Any?>,
-        ) = Unit
-
-        override suspend fun onToolCallComplete(
-            toolName: String,
-            result: ToolExecutionResult,
-        ) = Unit
-
-        override suspend fun onChatMessage(message: String) = Unit
-
-        override suspend fun onClarifyRequired(
-            question: String,
-            missingFields: List<String>?,
-            dialog: UserDialog?,
-        ) = Unit
-
-        override suspend fun onComplete(result: AgentResult) = Unit
-
-        override suspend fun onError(error: String) = Unit
-
-        override suspend fun onPermissionRequired(missing: List<String>) = Unit
     }
 
     private suspend fun waitForAccessibilityController(timeoutMs: Long = 10_000L): Boolean {

@@ -79,7 +79,8 @@ class VLMToolDefinitionsTest {
         assertFalse(promptGuide.contains("call_tool(function_id?, tool_name?, arguments)"))
         assertFalse(promptGuide.contains("preferred_call_tool"))
         assertFalse(promptGuide.contains("get_state("))
-        assertTrue(promptGuide.contains("Coordinates are fallback only"))
+        assertTrue(promptGuide.contains("Coordinate fields must be 0..1000 relative coordinates"))
+        assertTrue(promptGuide.contains("The system decodes coordinates to screen absolute pixels before execution"))
         assertTrue(promptGuide.contains("Use wait only when the page is clearly loading"))
     }
 
