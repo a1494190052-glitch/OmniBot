@@ -488,6 +488,12 @@ class OobFunctionRunner(
         "tool_name" to this["tool_name"],
         "model" to this["model"],
         "error" to this["error"],
+        "model_calls" to this["model_calls"],
+        "prompt_tokens" to this["prompt_tokens"],
+        "completion_tokens" to this["completion_tokens"],
+        "total_tokens" to this["total_tokens"],
+        "usage" to this["usage"],
+        "token_usage" to this["token_usage"],
         "phase_ms" to this["phase_ms"],
     ).filterValues { it != null }
 
@@ -541,6 +547,130 @@ class OobFunctionRunner(
         return normalized
     }
 
+    private fun Map<String, Any?>.withExecutionSummary(): Map<String, Any?> {
+        val normalized = linkedMapOf<String, Any?>().apply { putAll(this@withExecutionSummary) }
+        val existingSummary = OobFunctionJson.mapArg(normalized["execution_summary"])
+        val stepResults = stepResultsFromPayload(normalized)
+        val onlineFallbackSteps = OobFunctionJson.intArg(
+            existingSummary["online_fallback_steps"],
+            existingSummary["online_repair_steps"],
+            normalized["online_fallback_steps"],
+            normalized["online_repair_steps"],
+            defaultValue = stepResults.count { it.isOnlineRepairStep() },
+        )
+        val offlineSteps = OobFunctionJson.intArg(
+            existingSummary["offline_steps"],
+            defaultValue = stepResults.count { it["success"] != false && !it.isOnlineRepairStep() },
+        )
+        val onlineRepairBudget = OobFunctionJson.intArg(
+            existingSummary["online_repair_budget"],
+            existingSummary["online_fallback_budget"],
+            normalized["online_repair_budget"],
+            normalized["online_fallback_budget"],
+            defaultValue = 0,
+        )
+        val timing = OobFunctionJson.mapArg(normalized["timing"])
+        val success = normalized["success"] == true
+        val modelCalls = OobFunctionJson.longArg(
+            existingSummary["model_calls"],
+            normalized["model_calls"],
+            defaultValue = 0L,
+        ).takeIf { it > 0L } ?: normalized.inferredOnlineRepairPlannerCalls(stepResults)
+        val defaults = linkedMapOf<String, Any?>(
+            "success" to success,
+            "function_id" to OobFunctionJson.firstNonBlank(normalized["function_id"]),
+            "execution_mode" to OobFunctionJson.firstNonBlank(
+                normalized["execution_mode"],
+                if (onlineFallbackSteps > 0) "offline_online_offline" else "offline_replay",
+            ),
+            "offline_steps" to offlineSteps,
+            "online_fallback_steps" to onlineFallbackSteps,
+            "online_repair_steps" to onlineFallbackSteps,
+            "online_fallback_budget" to onlineRepairBudget,
+            "online_repair_budget" to onlineRepairBudget,
+            "online_fallback_applied" to (onlineFallbackSteps > 0),
+            "online_repair_applied" to (onlineFallbackSteps > 0),
+            "model_calls" to modelCalls,
+            "prompt_tokens" to normalized.tokenCountFromPlannerPayloads(stepResults, "prompt_tokens"),
+            "completion_tokens" to normalized.tokenCountFromPlannerPayloads(stepResults, "completion_tokens"),
+            "total_tokens" to normalized.tokenCountFromPlannerPayloads(stepResults, "total_tokens"),
+            "elapsed_ms" to OobFunctionJson.longArg(
+                existingSummary["elapsed_ms"],
+                timing["duration_ms"],
+                timing["call_duration_ms"],
+                timing["runner_duration_ms"],
+                defaultValue = 0L,
+            ),
+            "failure_reason" to if (success) null else OobFunctionJson.firstNonBlank(
+                normalized["error_code"],
+                normalized["error_message"],
+            ).takeIf { it.isNotBlank() },
+        )
+        normalized["execution_summary"] = linkedMapOf<String, Any?>().apply {
+            putAll(defaults)
+            putAll(existingSummary)
+            putIfAbsent("online_fallback_steps", this["online_repair_steps"])
+            putIfAbsent("online_repair_steps", this["online_fallback_steps"])
+            putIfAbsent("online_fallback_budget", this["online_repair_budget"])
+            putIfAbsent("online_repair_budget", this["online_fallback_budget"])
+            putIfAbsent("online_fallback_applied", this["online_repair_applied"])
+            putIfAbsent("online_repair_applied", this["online_fallback_applied"])
+        }.filterValues { it != null }
+        return normalized
+    }
+
+    private fun Map<String, Any?>.isOnlineRepairStep(): Boolean =
+        this["online_repair_applied"] == true ||
+            this["online_fallback_applied"] == true ||
+            this["executor"] == "omniflow_online_repair"
+
+    private fun Map<String, Any?>.inferredOnlineRepairPlannerCalls(
+        stepResults: List<Map<String, Any?>>,
+    ): Long {
+        if (OobFunctionJson.mapArg(this["online_repair_attempt"]).isNotEmpty()) return 1L
+        if (OobFunctionJson.mapArg(this["online_fallback_attempt"]).isNotEmpty()) return 1L
+        return if (stepResults.any {
+                it.isOnlineRepairStep() && OobFunctionJson.mapArg(it["planner"]).isNotEmpty()
+            }
+        ) {
+            1L
+        } else {
+            0L
+        }
+    }
+
+    private fun Map<String, Any?>.tokenCountFromPlannerPayloads(
+        stepResults: List<Map<String, Any?>>,
+        key: String,
+    ): Long {
+        val candidates = mutableListOf<Map<String, Any?>>()
+        candidates += this
+        candidates += OobFunctionJson.mapArg(this["usage"])
+        candidates += OobFunctionJson.mapArg(this["token_usage"])
+        candidates += OobFunctionJson.mapArg(this["llm_usage"])
+        candidates += OobFunctionJson.mapArg(this["execution_summary"])
+        OobFunctionJson.mapArg(this["online_repair_attempt"]).let { attempt ->
+            candidates += attempt
+            candidates += OobFunctionJson.mapArg(attempt["planner"])
+        }
+        OobFunctionJson.mapArg(this["online_fallback_attempt"]).let { attempt ->
+            candidates += attempt
+            candidates += OobFunctionJson.mapArg(attempt["planner"])
+        }
+        stepResults.forEach { step ->
+            candidates += step
+            OobFunctionJson.mapArg(step["planner"]).let { planner ->
+                candidates += planner
+                candidates += OobFunctionJson.mapArg(planner["usage"])
+                candidates += OobFunctionJson.mapArg(planner["token_usage"])
+                candidates += OobFunctionJson.mapArg(planner["llm_usage"])
+            }
+        }
+        return candidates.firstNotNullOfOrNull { candidate ->
+            OobFunctionJson.longArg(candidate[key], defaultValue = 0L).takeIf { it > 0L }
+        } ?: 0L
+    }
+
     private fun attachExecutionTiming(
         payload: Map<String, Any?>,
         timing: FunctionExecutionTiming,
@@ -590,7 +720,7 @@ class OobFunctionRunner(
         return linkedMapOf<String, Any?>().apply {
             putAll(payload)
             put("timing", mergedTiming)
-        }.withOmniFlowFallbackAliases()
+        }.withOmniFlowFallbackAliases().withExecutionSummary()
     }
 
     private fun errorPayload(

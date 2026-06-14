@@ -548,6 +548,7 @@ class OobOmniFlowToolkitService(
             "duration_ms" to durationMs,
             "runner_duration_ms" to durationMs,
             "timing" to timing,
+            "execution_summary" to runPayload["execution_summary"],
             "fallback_session_id" to runPayload["fallback_session_id"],
             "failed_step_index" to failedStepIndex,
             "resume_from_step" to resumeFromStepResult,
