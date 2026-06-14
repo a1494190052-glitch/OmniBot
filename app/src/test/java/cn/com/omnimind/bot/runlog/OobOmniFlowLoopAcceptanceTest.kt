@@ -2133,6 +2133,81 @@ class OobOmniFlowLoopAcceptanceTest {
     }
 
     @Test
+    fun `run function rejects online repair action with hidden function id`() = runBlocking {
+        val context = TempFilesContext()
+        val backend = RecordingOmniflowBackend(
+            initialPackage = "com.example.settings",
+            currentXml = SOURCE_XML,
+            currentActivity = "SettingsActivity",
+        )
+        val backendHandle = OmniflowActionRuntime.useBackendForTesting(backend)
+        try {
+            val toolkit = OobOmniFlowToolkitService(
+                context,
+                WorkspaceFunctionStore(context.root),
+                onlineRepairPlanner = OobFunctionOnlineRepairPlanner { _, _ ->
+                    mapOf(
+                        "success" to true,
+                        "parsed" to true,
+                        "tool_name" to "click",
+                        "action" to mapOf(
+                            "tool" to "click",
+                            "function_id" to "hidden_function",
+                            "x" to 10,
+                            "y" to 20,
+                        ),
+                    )
+                },
+            )
+            val functionId = "online_repair_hidden_function_field"
+            val register = toolkit.registerFunction(
+                mapOf(
+                    "functionSpec" to reusableFunctionSpec(
+                        functionId = functionId,
+                        name = "Reject hidden function repair",
+                        description = "一步修复只能输出普通 UI action，不能夹带 function_id。",
+                        steps = listOf(
+                            mapOf(
+                                "id" to "tool_step_requires_repair",
+                                "index" to 0,
+                                "title" to "需要在线补一步",
+                                "kind" to "agent_action",
+                                "executor" to "tool",
+                                "tool" to "tap",
+                                "callable_tool" to "tap",
+                                "model_free" to false,
+                                "scriptable" to false,
+                                "args" to mapOf("target_description" to "当前失败步骤"),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+            assertEquals(true, register["success"])
+
+            val run = toolkit.runFunction(
+                mapOf(
+                    "function_id" to functionId,
+                    "goal" to "测试一步修复不能调用隐藏 Function",
+                ),
+            )
+
+            assertEquals(false, run["success"])
+            assertTrue(backend.clicks.isEmpty())
+            assertEquals("online_repair_invalid_action", run["error_message"])
+            val result = run["result"] as? Map<*, *>
+            assertEquals("oob_function_online_repair_failed", result?.get("runner"))
+            assertEquals(true, result?.get("online_repair_required"))
+            assertEquals(false, result?.get("online_repair_available"))
+            val repairAttempt = result?.get("online_repair_attempt") as? Map<*, *>
+            assertEquals("online_repair_invalid_action", repairAttempt?.get("reason"))
+        } finally {
+            backendHandle.close()
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `run function repairs current failed step online and resumes offline replay`() = runBlocking {
         val context = TempFilesContext()
         val normalPageXml = """

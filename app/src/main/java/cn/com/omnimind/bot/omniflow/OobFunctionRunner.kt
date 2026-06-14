@@ -473,6 +473,7 @@ class OobFunctionRunner(
             if (plannerPayload["tool"] != null || plannerPayload["action_type"] != null) plannerPayload else emptyMap()
         }
         if (rawAction.isEmpty()) return null
+        if (containsHiddenFunctionCallField(rawAction)) return null
         val rawTool = OobFunctionJson.firstNonBlank(rawAction["tool"], rawAction["name"], rawAction["action_type"])
         val normalizedTool = when (rawTool.trim().lowercase()) {
             "press_back" -> OobActionCodec.ACTION_PRESS_KEY
@@ -500,6 +501,25 @@ class OobFunctionRunner(
             args["key"] = key
         }
         return normalizedTool to args
+    }
+
+    private fun containsHiddenFunctionCallField(value: Any?): Boolean {
+        return when (value) {
+            is Map<*, *> -> value.any { (rawKey, rawValue) ->
+                val key = rawKey?.toString().orEmpty()
+                if (key == "function_id" || key == "functionId") return@any true
+                if (
+                    key in HIDDEN_FUNCTION_TOOL_NAME_KEYS &&
+                    OobFunctionJson.firstNonBlank(rawValue).trim().lowercase() in HIDDEN_FUNCTION_TOOL_NAMES
+                ) {
+                    return@any true
+                }
+                containsHiddenFunctionCallField(rawValue)
+            }
+            is Iterable<*> -> value.any(::containsHiddenFunctionCallField)
+            is Array<*> -> value.any(::containsHiddenFunctionCallField)
+            else -> false
+        }
     }
 
     private fun Map<String, Any?>.compactPlannerDiagnostics(): Map<String, Any?> = linkedMapOf(
@@ -865,6 +885,22 @@ class OobFunctionRunner(
             OobActionCodec.ACTION_PRESS_KEY,
             OobActionCodec.ACTION_OPEN_APP,
             OobActionCodec.ACTION_WAIT,
+        )
+        val HIDDEN_FUNCTION_TOOL_NAME_KEYS: Set<String> = setOf(
+            "tool",
+            "tool_name",
+            "toolName",
+            "callable_tool",
+            "action_type",
+            "name",
+        )
+        val HIDDEN_FUNCTION_TOOL_NAMES: Set<String> = setOf(
+            "call_tool",
+            "call_function",
+            "execute_function",
+            "run_function",
+            "finished",
+            OobCanonicalActionSchema.TOOL_GET_STATE,
         )
     }
 }
