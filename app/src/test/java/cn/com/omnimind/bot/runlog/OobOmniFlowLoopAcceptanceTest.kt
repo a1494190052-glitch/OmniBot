@@ -10,6 +10,7 @@ import cn.com.omnimind.bot.mcp.RemoteMcpDiscoveredServer
 import cn.com.omnimind.bot.mcp.RemoteMcpServerConfig
 import cn.com.omnimind.bot.mcp.RemoteMcpToolDescriptor
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
+import cn.com.omnimind.bot.omniflow.OobFunctionOnlineRepairPlanner
 import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
 import cn.com.omnimind.bot.omniflow.language.OmniflowFunctionStore
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
@@ -2125,6 +2126,117 @@ class OobOmniFlowLoopAcceptanceTest {
             assertEquals(true, firstStep?.get("online_repair_required"))
             assertEquals(false, firstStep?.get("online_repair_available"))
             assertEquals("omniflow_online_repair", firstStep?.get("executor"))
+        } finally {
+            backendHandle.close()
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `run function repairs current failed step online and resumes offline replay`() = runBlocking {
+        val context = TempFilesContext()
+        val normalPageXml = """
+            <hierarchy bounds="[0,0][1080,1920]">
+              <node index="0" package="com.example.settings" class="android.widget.TextView" text="Network" content-desc="" resource-id="android:id/network" clickable="true" enabled="true" visible-to-user="true" bounds="[40,200][1040,320]" />
+              <node index="1" package="com.example.settings" class="android.widget.TextView" text="Display" content-desc="" resource-id="android:id/display" clickable="true" enabled="true" visible-to-user="true" bounds="[40,330][1040,450]" />
+              <node index="2" package="com.example.settings" class="android.widget.TextView" text="Sound" content-desc="" resource-id="android:id/sound" clickable="true" enabled="true" visible-to-user="true" bounds="[40,460][1040,580]" />
+              <node index="3" package="com.example.settings" class="android.widget.TextView" text="Apps" content-desc="" resource-id="android:id/apps" clickable="true" enabled="true" visible-to-user="true" bounds="[40,590][1040,710]" />
+              <node index="4" package="com.example.settings" class="android.widget.TextView" text="Storage" content-desc="" resource-id="android:id/storage" clickable="true" enabled="true" visible-to-user="true" bounds="[40,720][1040,840]" />
+              <node index="5" package="com.example.settings" class="android.widget.TextView" text="Privacy" content-desc="" resource-id="android:id/privacy" clickable="true" enabled="true" visible-to-user="true" bounds="[40,850][1040,970]" />
+              <node index="6" package="com.example.settings" class="android.widget.TextView" text="System" content-desc="" resource-id="android:id/system" clickable="true" enabled="true" visible-to-user="true" bounds="[40,980][1040,1100]" />
+            </hierarchy>
+        """.trimIndent()
+        val backend = RecordingOmniflowBackend(
+            initialPackage = "com.example.settings",
+            currentXml = normalPageXml,
+            currentActivity = "SettingsActivity",
+        )
+        val backendHandle = OmniflowActionRuntime.useBackendForTesting(backend)
+        try {
+            val repairRequests = mutableListOf<Int>()
+            val toolkit = OobOmniFlowToolkitService(
+                context,
+                WorkspaceFunctionStore(context.root),
+                onlineRepairPlanner = OobFunctionOnlineRepairPlanner { _, request ->
+                    repairRequests += request.failedStepIndex
+                    mapOf(
+                        "success" to true,
+                        "parsed" to true,
+                        "tool_name" to "click",
+                        "action" to mapOf(
+                            "tool" to "click",
+                            "target_description" to "修复当前失败步骤",
+                            "x" to 10,
+                            "y" to 20,
+                        ),
+                    )
+                },
+            )
+            val functionId = "online_repair_resume"
+            val register = toolkit.registerFunction(
+                mapOf(
+                    "functionSpec" to reusableFunctionSpec(
+                        functionId = functionId,
+                        name = "Online repair then resume",
+                        description = "第一步在线修复，第二步继续本地重放。",
+                        steps = listOf(
+                            mapOf(
+                                "id" to "tool_step_requires_repair",
+                                "index" to 0,
+                                "title" to "需要在线补一步",
+                                "kind" to "agent_action",
+                                "executor" to "tool",
+                                "tool" to "tap",
+                                "callable_tool" to "tap",
+                                "model_free" to false,
+                                "scriptable" to false,
+                                "args" to mapOf(
+                                    "target_description" to "当前失败步骤",
+                                ),
+                            ),
+                            mapOf(
+                                "id" to "offline_resume_click",
+                                "index" to 1,
+                                "title" to "继续本地点击",
+                                "kind" to "omniflow_action",
+                                "executor" to "omniflow",
+                                "omniflow_action" to "click",
+                                "local_action" to "click",
+                                "tool" to "click",
+                                "callable_tool" to "click",
+                                "model_free" to true,
+                                "scriptable" to true,
+                                "args" to mapOf(
+                                    "target_description" to "确认",
+                                    "x" to 120,
+                                    "y" to 240,
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+            assertEquals(true, register["success"])
+
+            val run = toolkit.runFunction(
+                mapOf(
+                    "function_id" to functionId,
+                    "goal" to "完成需要一次在线修复的任务",
+                ),
+            )
+
+            assertEquals(true, run["success"])
+            assertEquals(listOf(0), repairRequests)
+            assertEquals(listOf(10f to 20f, 120f to 240f), backend.clicks)
+            assertEquals(2, run["success_step_count"])
+            val result = run["result"] as? Map<*, *>
+            assertEquals("offline_online_offline", result?.get("execution_mode"))
+            assertEquals(true, result?.get("online_repair_applied"))
+            assertEquals(false, result?.get("online_repair_required"))
+            val steps = run["step_results"] as? List<*>
+            val repairStep = steps?.firstOrNull() as? Map<*, *>
+            assertEquals("omniflow_online_repair", repairStep?.get("executor"))
+            assertEquals(true, repairStep?.get("online_repair_applied"))
         } finally {
             backendHandle.close()
             context.root.deleteRecursively()

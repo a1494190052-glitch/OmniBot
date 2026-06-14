@@ -1,13 +1,56 @@
 package cn.com.omnimind.bot.omniflow
 
 import android.content.Context
+import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
 import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.SharedHelper
+import cn.com.omnimind.bot.mcp.VlmTaskRequest
 import cn.com.omnimind.bot.omniflow.language.OmniflowFunctionStore
+import cn.com.omnimind.bot.runlog.OobActionCodec
+import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
+import cn.com.omnimind.bot.runlog.UIStepExecutor
+import cn.com.omnimind.bot.vlm.VlmToolCoordinator
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+
+data class OobFunctionOnlineRepairRequest(
+    val functionId: String,
+    val goal: String,
+    val failedStepIndex: Int,
+    val failedStep: Map<String, Any?>,
+    val failedRunPayload: Map<String, Any?>,
+    val model: String = "",
+)
+
+fun interface OobFunctionOnlineRepairPlanner {
+    suspend fun plan(
+        context: Context,
+        request: OobFunctionOnlineRepairRequest,
+    ): Map<String, Any?>
+}
+
+private fun OobFunctionOnlineRepairRequest.oneStepGuidance(): String = buildString {
+    appendLine("OmniFlow one-step online repair.")
+    appendLine("Repair only the current failed Function step. Do not call a Function, do not finish the whole task, and do not re-plan the task.")
+    appendLine("Allowed actions: click, input_text, swipe, press_key(back/home), open_app, wait.")
+    appendLine("Function id: $functionId")
+    appendLine("Failed step index: $failedStepIndex")
+    appendLine("Failed step summary:")
+    appendLine(
+        linkedMapOf<String, Any?>(
+            "success" to failedStep["success"],
+            "runner" to failedStep["runner"],
+            "step_count" to failedStep["step_count"],
+            "success_step_count" to failedStep["success_step_count"],
+            "failed_step_index" to failedStep["failed_step_index"],
+            "error_code" to failedStep["error_code"],
+            "error_message" to failedStep["error_message"],
+        ).filterValues { it != null }.toString()
+    )
+}
 
 /**
  * Executes a registered OOB Function through the local OmniFlow runner.
@@ -16,6 +59,23 @@ class OobFunctionRunner(
     private val context: Context,
     private val workspaceFunctionStore: WorkspaceFunctionStore,
     private val functionRepository: OobFunctionRepository,
+    private val onlineRepairPlanner: OobFunctionOnlineRepairPlanner = OobFunctionOnlineRepairPlanner { appContext, request ->
+        coroutineScope {
+            VlmToolCoordinator.parseOnlyNextAction(
+                context = appContext,
+                request = VlmTaskRequest(
+                    goal = request.goal,
+                    model = request.model.takeIf { it.isNotBlank() },
+                    maxSteps = 1,
+                    skipGoHome = true,
+                    stepSkillGuidance = request.oneStepGuidance(),
+                    disableOmniFlowRecall = true,
+                    allowOmniFlowFunctionAutoExecute = false,
+                ),
+                scope = this,
+            ).toPayload()
+        }
+    },
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -33,6 +93,9 @@ class OobFunctionRunner(
         frontendRunId: String = "",
         frontendTaskId: String = "",
         frontendParent: String = "",
+        onlineRepairGoal: String = "",
+        onlineRepairBudget: Int = 0,
+        onlineRepairModel: String = "",
         functionSpec: Map<String, Any?>? = null,
         materializedSpec: Map<String, Any?>? = null,
         argumentsValidated: Boolean = false,
@@ -67,6 +130,7 @@ class OobFunctionRunner(
                 this.workspaceFunctionStore = workspaceFunctionStore
             }
         }
+        val onlineRepairEnabled = onlineRepairGoal.isNotBlank() && onlineRepairBudget > 0
         val typedPayload = runCatching {
             timing.measureSuspend("run_typed_function_ms") {
                 runTypedFunctionIfAvailable(
@@ -110,7 +174,28 @@ class OobFunctionRunner(
                 functionId = functionId
             )
         }
-        attachExecutionTiming(payload, timing)
+        val repairedPayload = if (onlineRepairEnabled && payload.requiresOnlineRepair()) {
+            timing.measureSuspend("online_repair_ms") {
+                runOnlineRepairAndResume(
+                    initialPayload = payload,
+                    runner = runner,
+                    functionId = functionId,
+                    spec = spec,
+                    materializedSpec = materialized,
+                    arguments = arguments,
+                    onlineRepairGoal = onlineRepairGoal,
+                    onlineRepairBudget = onlineRepairBudget,
+                    onlineRepairModel = onlineRepairModel,
+                    frontendRunId = frontendRunId,
+                    frontendTaskId = frontendTaskId,
+                    frontendParent = frontendParent,
+                    typedFunctionAvailable = typedPayload != null,
+                )
+            }
+        } else {
+            payload
+        }
+        attachExecutionTiming(repairedPayload, timing)
     }
 
     private suspend fun runTypedFunctionIfAvailable(
@@ -140,8 +225,294 @@ class OobFunctionRunner(
         )
     }
 
+    private suspend fun runOnlineRepairAndResume(
+        initialPayload: Map<String, Any?>,
+        runner: OobFunctionToolHandler,
+        functionId: String,
+        spec: Map<String, Any?>,
+        materializedSpec: Map<String, Any?>,
+        arguments: Map<String, Any?>,
+        onlineRepairGoal: String,
+        onlineRepairBudget: Int,
+        onlineRepairModel: String,
+        frontendRunId: String,
+        frontendTaskId: String,
+        frontendParent: String,
+        typedFunctionAvailable: Boolean,
+    ): Map<String, Any?> {
+        val failedStepIndex = OobFunctionJson.intArg(initialPayload["failed_step_index"], defaultValue = -1)
+        if (failedStepIndex < 0) {
+            return initialPayload.withOnlineRepairFailure(
+                reason = "online_repair_failed_step_missing",
+            )
+        }
+        val stepCount = OobFunctionJson.intArg(initialPayload["step_count"], defaultValue = 0)
+        if (failedStepIndex >= stepCount) {
+            return initialPayload.withOnlineRepairFailure(
+                reason = "online_repair_failed_step_out_of_range",
+            )
+        }
+        val initialSteps = stepResultsFromPayload(initialPayload)
+        val failedStep = initialSteps.firstOrNull {
+            OobFunctionJson.intArg(it["index"], defaultValue = -1) == failedStepIndex
+        } ?: initialSteps.getOrNull(failedStepIndex).orEmpty()
+        val repairRequest = OobFunctionOnlineRepairRequest(
+            functionId = functionId,
+            goal = onlineRepairGoal,
+            failedStepIndex = failedStepIndex,
+            failedStep = failedStep,
+            failedRunPayload = initialPayload,
+            model = onlineRepairModel,
+        )
+        val plannerPayload = runCatching {
+            onlineRepairPlanner.plan(context, repairRequest)
+        }.getOrElse { error ->
+            return initialPayload.withOnlineRepairFailure(
+                reason = "online_repair_planner_error",
+                details = mapOf("error_message" to error.message.orEmpty()),
+            )
+        }
+        val action = onlineRepairAction(plannerPayload)
+            ?: return initialPayload.withOnlineRepairFailure(
+                reason = "online_repair_invalid_action",
+                details = mapOf("planner" to plannerPayload.compactPlannerDiagnostics()),
+            )
+        val stepId = "online_repair_step_${failedStepIndex + 1}"
+        val repairStep = linkedMapOf<String, Any?>(
+            "id" to stepId,
+            "title" to "One-step online repair for step ${failedStepIndex + 1}",
+            "kind" to "omniflow_action",
+            "executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
+            "model_free" to true,
+            "scriptable" to true,
+            "tool" to action.first,
+            "callable_tool" to action.first,
+            "args" to action.second,
+        )
+        val repairStartedAtMs = System.currentTimeMillis()
+        val repairResult = runCatching {
+            UIStepExecutor.execute(
+                step = repairStep,
+                stepId = stepId,
+                stepTitle = "One-step online repair",
+                checkerRules = emptyList(),
+                checkerBudget = UIStepExecutor.CheckerTriggerBudget(),
+                stopRequested = null,
+            )
+        }.getOrElse { error ->
+            return initialPayload.withOnlineRepairFailure(
+                reason = "online_repair_action_failed",
+                details = mapOf(
+                    "error_message" to error.message.orEmpty(),
+                    "planner" to plannerPayload.compactPlannerDiagnostics(),
+                    "action" to action.toDebugMap(),
+                ),
+            )
+        }
+        if (repairResult["success"] == false) {
+            return initialPayload.withOnlineRepairFailure(
+                reason = "online_repair_action_failed",
+                details = mapOf(
+                    "planner" to plannerPayload.compactPlannerDiagnostics(),
+                    "action" to action.toDebugMap(),
+                    "result" to repairResult,
+                ),
+            )
+        }
+        val repairFinishedAtMs = System.currentTimeMillis()
+        val resumeFromStep = failedStepIndex + 1
+        val resumePayload = if (resumeFromStep >= stepCount) {
+            linkedMapOf<String, Any?>(
+                "success" to true,
+                "step_results" to emptyList<Map<String, Any?>>(),
+                "success_step_count" to 0,
+                "completed_step_count" to stepCount,
+            )
+        } else {
+            val typedResume = if (typedFunctionAvailable) {
+                runTypedFunctionIfAvailable(
+                    runner = runner,
+                    functionId = functionId,
+                    arguments = arguments,
+                    allowAgentFallback = false,
+                    resumeFromStep = resumeFromStep,
+                    frontendRunId = frontendRunId,
+                    frontendTaskId = frontendTaskId,
+                    frontendParent = frontendParent,
+                )
+            } else {
+                null
+            }
+            typedResume ?: runner.runMaterializedFunction(
+                functionId = functionId,
+                spec = spec,
+                materializedSpec = materializedSpec,
+                allowAgentFallback = false,
+                allowToolDelegationWithoutRouter = false,
+                resumeFromStep = resumeFromStep,
+                frontendRunId = frontendRunId,
+                frontendTaskId = frontendTaskId,
+                frontendParent = frontendParent,
+            )
+        }
+        val repairStepResult = linkedMapOf<String, Any?>().apply {
+            putAll(repairResult)
+            put("step_id", stepId)
+            put("index", failedStepIndex)
+            put("executor", "omniflow_online_repair")
+            put("success", true)
+            put("model_free", false)
+            put("online_repair_applied", true)
+            put("online_repair_available", true)
+            put("planner", plannerPayload.compactPlannerDiagnostics())
+            put("repair_action", action.toDebugMap())
+            put("repaired_failed_step", failedStep)
+            put("started_at_ms", repairStartedAtMs)
+            put("finished_at_ms", repairFinishedAtMs)
+            put("duration_ms", (repairFinishedAtMs - repairStartedAtMs).coerceAtLeast(0))
+        }
+        return combineOnlineRepairPayload(
+            initialPayload = initialPayload,
+            resumePayload = resumePayload,
+            repairStepResult = repairStepResult,
+            failedStepIndex = failedStepIndex,
+            stepCount = stepCount,
+            onlineRepairBudget = onlineRepairBudget,
+        )
+    }
+
+    private fun combineOnlineRepairPayload(
+        initialPayload: Map<String, Any?>,
+        resumePayload: Map<String, Any?>,
+        repairStepResult: Map<String, Any?>,
+        failedStepIndex: Int,
+        stepCount: Int,
+        onlineRepairBudget: Int,
+    ): Map<String, Any?> {
+        val prefix = stepResultsFromPayload(initialPayload).filter {
+            OobFunctionJson.intArg(it["index"], defaultValue = -1) < failedStepIndex
+        }
+        val suffix = stepResultsFromPayload(resumePayload)
+        val combinedSteps = prefix + repairStepResult + suffix
+        val success = resumePayload["success"] == true &&
+            combinedSteps.size >= stepCount &&
+            combinedSteps.none { it["success"] == false }
+        val successStepCount = combinedSteps.count { it["success"] != false }
+        return linkedMapOf<String, Any?>().apply {
+            putAll(resumePayload)
+            put("success", success)
+            put("function_id", initialPayload["function_id"] ?: resumePayload["function_id"])
+            put("runner", "oob_function_offline_online_offline")
+            put("execution_mode", "offline_online_offline")
+            put("source", initialPayload["source"] ?: resumePayload["source"])
+            put("run_source", initialPayload["run_source"] ?: resumePayload["run_source"])
+            put("step_count", stepCount)
+            put("active_step_count", initialPayload["active_step_count"] ?: stepCount)
+            put("success_step_count", successStepCount)
+            put("completed_step_count", if (success) stepCount else successStepCount)
+            put("resume_from_step", initialPayload["resume_from_step"] ?: 0)
+            put("model_used", true)
+            put("model_required", false)
+            put("online_repair_applied", true)
+            put("online_repair_steps", 1)
+            put("online_repair_budget", onlineRepairBudget)
+            put("online_repair_required", false)
+            put("online_repair_available", true)
+            put("failed_step_index", if (success) null else resumePayload["failed_step_index"])
+            put("current_step_index", if (success) stepCount - 1 else resumePayload["current_step_index"])
+            put("current_step_number", if (success) stepCount else resumePayload["current_step_number"])
+            put("error_code", if (success) null else resumePayload["error_code"])
+            put("error_message", if (success) "" else resumePayload["error_message"])
+            put("step_results", combinedSteps)
+            put("initial_replay", initialPayload.compactRunDiagnostics())
+            put("resume_replay", resumePayload.compactRunDiagnostics())
+        }
+    }
+
+    private fun Map<String, Any?>.withOnlineRepairFailure(
+        reason: String,
+        details: Map<String, Any?> = emptyMap(),
+    ): Map<String, Any?> = linkedMapOf<String, Any?>().apply {
+        putAll(this@withOnlineRepairFailure)
+        put("runner", "oob_function_online_repair_failed")
+        put("execution_mode", "offline_online_failed")
+        put("online_repair_attempt", mapOf("success" to false, "reason" to reason) + details)
+        put("online_repair_required", true)
+        put("online_repair_available", false)
+        putIfAbsent("error_code", "OOB_ONLINE_REPAIR_FAILED")
+        put("error_message", reason)
+    }
+
+    private fun stepResultsFromPayload(payload: Map<String, Any?>): List<Map<String, Any?>> =
+        OobFunctionJson.listArg(payload["step_results"]).mapNotNull { raw ->
+            OobFunctionJson.mapArg(raw).takeIf { it.isNotEmpty() }
+        }
+
+    private fun onlineRepairAction(plannerPayload: Map<String, Any?>): Pair<String, Map<String, Any?>>? {
+        val rawAction = OobFunctionJson.mapArg(plannerPayload["action"]).ifEmpty {
+            if (plannerPayload["tool"] != null || plannerPayload["action_type"] != null) plannerPayload else emptyMap()
+        }
+        if (rawAction.isEmpty()) return null
+        val rawTool = OobFunctionJson.firstNonBlank(rawAction["tool"], rawAction["name"], rawAction["action_type"])
+        val normalizedTool = when (rawTool.trim().lowercase()) {
+            "press_back" -> OobActionCodec.ACTION_PRESS_KEY
+            "press_home" -> OobActionCodec.ACTION_PRESS_KEY
+            else -> OobActionCodec.canonicalActionForName(rawTool) ?: rawTool.trim().lowercase()
+        }
+        if (normalizedTool == OobActionCodec.ACTION_FINISHED ||
+            normalizedTool == OobCanonicalActionSchema.TOOL_GET_STATE ||
+            RunLogReplayPolicy.isOmniflowToolCallTool(normalizedTool)
+        ) {
+            return null
+        }
+        if (normalizedTool !in ONLINE_REPAIR_ALLOWED_ACTIONS) return null
+        val args = linkedMapOf<String, Any?>().apply {
+            putAll(rawAction)
+            remove("tool")
+            remove("name")
+            remove("action_type")
+            if (rawTool.equals("press_back", ignoreCase = true)) put("key", "back")
+            if (rawTool.equals("press_home", ignoreCase = true)) put("key", "home")
+        }
+        if (normalizedTool == OobActionCodec.ACTION_PRESS_KEY) {
+            val key = OobFunctionJson.firstNonBlank(args["key"]).lowercase()
+            if (key !in setOf("back", "home")) return null
+            args["key"] = key
+        }
+        return normalizedTool to args
+    }
+
+    private fun Map<String, Any?>.compactPlannerDiagnostics(): Map<String, Any?> = linkedMapOf(
+        "success" to this["success"],
+        "parsed" to this["parsed"],
+        "tool_name" to this["tool_name"],
+        "model" to this["model"],
+        "error" to this["error"],
+        "phase_ms" to this["phase_ms"],
+    ).filterValues { it != null }
+
+    private fun Map<String, Any?>.compactRunDiagnostics(): Map<String, Any?> = linkedMapOf(
+        "success" to this["success"],
+        "runner" to this["runner"],
+        "step_count" to this["step_count"],
+        "success_step_count" to this["success_step_count"],
+        "failed_step_index" to this["failed_step_index"],
+        "error_code" to this["error_code"],
+        "error_message" to this["error_message"],
+    ).filterValues { it != null }
+
+    private fun Pair<String, Map<String, Any?>>.toDebugMap(): Map<String, Any?> =
+        linkedMapOf("tool" to first, "args" to second)
+
     private fun stringArguments(arguments: Map<String, Any?>): Map<String, String> =
         arguments.mapValues { (_, value) -> value?.toString().orEmpty() }
+
+    private fun Map<String, Any?>.requiresOnlineRepair(): Boolean {
+        if (this["online_repair_required"] == true) return true
+        if (stepResultsFromPayload(this).any { it["online_repair_required"] == true }) return true
+        return this["success"] == false &&
+            OobFunctionJson.intArg(this["failed_step_index"], defaultValue = -1) >= 0
+    }
 
     private fun attachExecutionTiming(
         payload: Map<String, Any?>,
@@ -258,5 +629,16 @@ class OobFunctionRunner(
 
         private fun elapsedMs(startedAtNanos: Long): Long =
             ((System.nanoTime() - startedAtNanos) / 1_000_000L).coerceAtLeast(0L)
+    }
+
+    private companion object {
+        val ONLINE_REPAIR_ALLOWED_ACTIONS: Set<String> = setOf(
+            OobActionCodec.ACTION_CLICK,
+            OobActionCodec.ACTION_INPUT_TEXT,
+            OobActionCodec.ACTION_SWIPE,
+            OobActionCodec.ACTION_PRESS_KEY,
+            OobActionCodec.ACTION_OPEN_APP,
+            OobActionCodec.ACTION_WAIT,
+        )
     }
 }
