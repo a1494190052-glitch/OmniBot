@@ -220,9 +220,9 @@ object OobFunctionSkillProfile {
     ): String {
         val suffix = when (locale) {
             PromptLocale.ZH_CN ->
-                "这是一个已保存的手机操作流程 tool，会复用过去成功执行过的一段动作，可能连续执行多步，也可能只完成用户目标的一部分；调用后根据 success/result 和下一轮 fresh observe 继续选择下一个 tool 或 finished。"
+                "这是一个 legacy 兼容描述；已保存 Function 不作为模型可见执行 tool 暴露。正常手机自动化应调用 vlm_task，由本地 runtime 完成 recall、参数填充、replay 和一步修复。"
             PromptLocale.EN_US ->
-                "This is a saved mobile workflow tool that reuses a previously successful action sequence. It may execute multiple phone actions and may complete only part of the user goal; after success/result and the next fresh observe, continue with another tool or finished."
+                "This is a legacy compatibility description; saved Functions are not exposed as model-visible execution tools. Normal phone automation should call vlm_task so the local runtime handles recall, argument fill, replay, and one-step repair."
         }
         return "${base.take(360)} $suffix".trim().take(600)
     }
