@@ -1580,6 +1580,8 @@ object VlmToolCoordinator {
         candidate: Map<String, Any?>,
         recallGuidance: VlmRecallGuidance,
     ): RecallFunctionArgumentFill {
+        // Same bounded JSON capability as one-step repair, but this does not
+        // execute a UI action and therefore does not count as a repair step.
         val allNames = functionArgumentNames(candidate)
         val requiredNames = requiredFunctionArgumentNames(candidate).ifEmpty {
             if (candidateRequiresArguments(candidate)) allNames.take(1) else emptyList()
