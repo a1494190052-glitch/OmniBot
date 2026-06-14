@@ -432,6 +432,78 @@ class VlmToolCoordinatorRecallExecutionTest {
     }
 
     @Test
+    fun `argument resolve and replay step resolve share compact resolve call metric`() = runBlocking {
+        val request = VlmTaskRequest(
+            goal = "小红书查看猫猫",
+            packageName = "com.xingin.xhs",
+            allowOmniFlowFunctionAutoExecute = true,
+        )
+        val state = TaskState(
+            taskId = "task-runtime-resolve-unified-count",
+            goal = request.goal,
+            status = TaskStatus.RUNNING,
+        )
+
+        val outcome = VlmToolCoordinator.tryExecuteRecallHitIfAllowed(
+            request = request,
+            taskState = state,
+            recallGuidance = VlmRecallGuidance(
+                decision = "hit",
+                guidance = "OmniFlow recall checked for this VLM step.",
+                payload = mapOf(
+                    "success" to true,
+                    "decision" to "hit",
+                    "hit" to mapOf(
+                        "function_id" to "xhs_search_keyword",
+                        "input_schema" to mapOf(
+                            "type" to "object",
+                            "required" to listOf("keyword"),
+                            "properties" to mapOf(
+                                "keyword" to mapOf("type" to "string")
+                            ),
+                        ),
+                    ),
+                ),
+                directHitFunctionId = "xhs_search_keyword",
+            ),
+            progressReporter = { _, _ -> },
+            runFunction = { functionId, arguments ->
+                assertEquals("xhs_search_keyword", functionId)
+                assertEquals("猫猫", arguments["keyword"])
+                mapOf(
+                    "success" to true,
+                    "fallback" to false,
+                    "function_id" to functionId,
+                    "actions_executed" to 2,
+                    "execution_summary" to mapOf(
+                        "success" to true,
+                        "function_id" to functionId,
+                        "steps" to 2,
+                        "resolve_calls" to 1,
+                        "model_calls" to 1,
+                        "tokens" to 88,
+                        "elapsed_ms" to 123,
+                    ),
+                )
+            },
+            resolveProvider = resolveRecall(mapOf("keyword" to "猫猫"), resolveCalls = 1),
+        )
+
+        assertNotNull(outcome)
+        assertEquals(VlmToolOutcomeStatus.FINISHED, outcome?.status)
+        val executionSummary = outcome?.toPayload()?.get("omniflowExecutionSummary") as Map<*, *>
+        assertEquals(true, executionSummary["success"])
+        assertEquals("xhs_search_keyword", executionSummary["function_id"])
+        assertEquals(2, executionSummary["steps"])
+        assertEquals(2, executionSummary["resolve_calls"])
+        assertEquals(1, executionSummary["model_calls"])
+        assertEquals(88, executionSummary["tokens"])
+        assertFalse(executionSummary.containsKey("repair_steps"))
+        assertFalse(executionSummary.containsKey("online_repair_steps"))
+        assertFalse(executionSummary.containsKey("fallback_agent_fill"))
+    }
+
+    @Test
     fun `runtime resolve cannot veto runtime selected recall hit`() = runBlocking {
         val request = VlmTaskRequest(
             goal = "open settings",
