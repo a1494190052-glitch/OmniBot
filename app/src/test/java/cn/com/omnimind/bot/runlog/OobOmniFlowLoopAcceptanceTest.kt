@@ -2307,10 +2307,11 @@ class OobOmniFlowLoopAcceptanceTest {
             val result = run["result"] as? Map<*, *>
             assertEquals("offline_online_offline", result?.get("execution_mode"))
             assertEquals(true, result?.get("online_repair_applied"))
-            assertEquals(true, result?.get("online_fallback_applied"))
-            assertEquals(1, result?.get("online_fallback_steps"))
+            assertEquals(1, result?.get("online_repair_steps"))
             assertEquals(false, result?.get("online_repair_required"))
-            assertEquals(false, result?.get("online_fallback_required"))
+            assertFalse(result?.containsKey("online_fallback_applied") == true)
+            assertFalse(result?.containsKey("online_fallback_steps") == true)
+            assertFalse(result?.containsKey("online_fallback_required") == true)
             val summary = requireNotNull(result?.get("execution_summary") as? Map<*, *>)
             assertEquals(true, summary["success"])
             assertEquals(functionId, summary["function_id"])
@@ -2328,13 +2329,11 @@ class OobOmniFlowLoopAcceptanceTest {
             val repairStep = steps?.firstOrNull() as? Map<*, *>
             assertEquals("omniflow_online_repair", repairStep?.get("executor"))
             assertEquals(true, repairStep?.get("online_repair_applied"))
-            assertEquals(true, repairStep?.get("online_fallback_applied"))
+            assertFalse(repairStep?.containsKey("online_fallback_applied") == true)
             val repairPayload = repairStep?.get("online_repair") as? Map<*, *>
-            val fallbackPayload = repairStep?.get("online_fallback") as? Map<*, *>
             assertEquals(true, repairPayload?.get("success"))
             assertEquals("online_repair_resumed", repairPayload?.get("reason"))
-            assertEquals(true, fallbackPayload?.get("success"))
-            assertEquals("online_fallback_resumed", fallbackPayload?.get("reason"))
+            assertFalse(repairStep?.containsKey("online_fallback") == true)
         } finally {
             backendHandle.close()
             context.root.deleteRecursively()
@@ -2446,7 +2445,7 @@ class OobOmniFlowLoopAcceptanceTest {
             val result = run["result"] as? Map<*, *>
             assertEquals("offline_online_offline", result?.get("execution_mode"))
             assertEquals(true, result?.get("online_repair_applied"))
-            assertEquals(true, result?.get("online_fallback_applied"))
+            assertFalse(result?.containsKey("online_fallback_applied") == true)
             assertEquals("OOB_ONLINE_REPAIR_NEXT_STEP_NOT_READY", result?.get("error_code"))
             val repairAttempt = result?.get("online_repair_attempt") as? Map<*, *>
             assertEquals(true, repairAttempt?.get("success"))
@@ -2463,11 +2462,9 @@ class OobOmniFlowLoopAcceptanceTest {
             val repairStep = steps?.firstOrNull() as? Map<*, *>
             assertEquals("omniflow_online_repair", repairStep?.get("executor"))
             val repairPayload = repairStep?.get("online_repair") as? Map<*, *>
-            val fallbackPayload = repairStep?.get("online_fallback") as? Map<*, *>
             assertEquals(false, repairPayload?.get("success"))
             assertEquals("online_repair_next_step_not_ready", repairPayload?.get("reason"))
-            assertEquals(false, fallbackPayload?.get("success"))
-            assertEquals("online_repair_next_step_not_ready", fallbackPayload?.get("reason"))
+            assertFalse(repairStep?.containsKey("online_fallback") == true)
             val resumedStep = steps?.getOrNull(1) as? Map<*, *>
             assertEquals(false, resumedStep?.get("success"))
         } finally {
