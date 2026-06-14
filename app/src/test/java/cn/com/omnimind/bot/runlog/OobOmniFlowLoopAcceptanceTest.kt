@@ -2221,7 +2221,7 @@ class OobOmniFlowLoopAcceptanceTest {
     }
 
     @Test
-    fun `run function repairs current failed step online and resumes offline replay`() = runBlocking {
+    fun `run function resolves current failed step and resumes offline replay`() = runBlocking {
         val context = TempFilesContext()
         val normalPageXml = """
             <hierarchy bounds="[0,0][1080,1920]">
@@ -2241,12 +2241,14 @@ class OobOmniFlowLoopAcceptanceTest {
         )
         val backendHandle = OmniflowActionRuntime.useBackendForTesting(backend)
         try {
-            val repairRequests = mutableListOf<Int>()
+            val resolveRequests = mutableListOf<Int>()
+            val resolveGoals = mutableListOf<String>()
             val toolkit = OobOmniFlowToolkitService(
                 context,
                 WorkspaceFunctionStore(context.root),
                 runtimeResolvePlanner = OobFunctionRuntimeResolvePlanner { _, request ->
-                    repairRequests += request.failedStepIndex
+                    resolveRequests += request.failedStepIndex
+                    resolveGoals += request.goal
                     mapOf(
                         "success" to true,
                         "parsed" to true,
@@ -2309,12 +2311,14 @@ class OobOmniFlowLoopAcceptanceTest {
             val run = toolkit.runFunction(
                 mapOf(
                     "function_id" to functionId,
-                    "goal" to "完成需要一次在线修复的任务",
+                    "runtime_resolve_goal" to "完成需要一次 runtime resolve 的任务",
+                    "runtime_resolve_budget" to 1,
                 ),
             )
 
             assertEquals(true, run["success"])
-            assertEquals(listOf(0), repairRequests)
+            assertEquals(listOf(0), resolveRequests)
+            assertEquals(listOf("完成需要一次 runtime resolve 的任务"), resolveGoals)
             assertEquals(listOf(10f to 20f, 120f to 240f), backend.clicks)
             assertEquals(2, run["success_step_count"])
             val result = run["result"] as? Map<*, *>

@@ -459,15 +459,34 @@ class OobOmniFlowToolkitService(
         val frontendRunId = firstNonBlank(request["frontend_run_id"], request["frontendRunId"])
         val frontendTaskId = firstNonBlank(request["frontend_task_id"], request["frontendTaskId"])
         val frontendParent = firstNonBlank(request["frontend_parent"], request["frontendParent"])
-        val onlineRepairGoal = firstNonBlank(request["online_repair_goal"], request["goal"], request["query"], request["task"])
-        val onlineRepairEnabled = onlineRepairGoal.isNotBlank() &&
-            boolArgOrDefault(request["allow_online_repair"], defaultValue = true)
-        val onlineRepairBudget = intArg(
+        val runtimeResolveGoal = firstNonBlank(
+            request["runtime_resolve_goal"],
+            request["runtimeResolveGoal"],
+            request["online_repair_goal"],
+            request["goal"],
+            request["query"],
+            request["task"],
+        )
+        val runtimeResolveAllowRaw = firstPresent(
+            request["allow_runtime_resolve"],
+            request["allowRuntimeResolve"],
+            request["allow_online_repair"],
+        )
+        val runtimeResolveEnabled = runtimeResolveGoal.isNotBlank() &&
+            boolArgOrDefault(runtimeResolveAllowRaw, defaultValue = true)
+        val runtimeResolveBudget = intArg(
+            request["runtime_resolve_budget"],
+            request["runtimeResolveBudget"],
             request["online_repair_budget"],
             request["onlineRepairBudget"],
-            defaultValue = if (onlineRepairEnabled) 1 else 0,
+            defaultValue = if (runtimeResolveEnabled) 1 else 0,
         ).coerceAtLeast(0)
-        val onlineRepairModel = firstNonBlank(request["online_repair_model"], request["model"])
+        val runtimeResolveModel = firstNonBlank(
+            request["runtime_resolve_model"],
+            request["runtimeResolveModel"],
+            request["online_repair_model"],
+            request["model"],
+        )
         val executionMode = firstNonBlank(request["execution_mode"])
             .ifBlank { "foreground" }
         var runPayload = callTiming.measureSuspend("execute_function_ms") {
@@ -479,9 +498,9 @@ class OobOmniFlowToolkitService(
                 frontendRunId = frontendRunId,
                 frontendTaskId = frontendTaskId,
                 frontendParent = frontendParent,
-                onlineRepairGoal = onlineRepairGoal,
-                onlineRepairBudget = onlineRepairBudget,
-                onlineRepairModel = onlineRepairModel,
+                runtimeResolveGoal = runtimeResolveGoal,
+                runtimeResolveBudget = runtimeResolveBudget,
+                runtimeResolveModel = runtimeResolveModel,
             )
         }
         runPayload = normalizeIncompleteReplay(callTiming.attachTo(runPayload))
@@ -806,6 +825,9 @@ class OobOmniFlowToolkitService(
     private fun materializedSteps(spec: Map<String, Any?>): List<Map<String, Any?>> {
         return OobFunctionSchemaBuilder.materializedSteps(spec)
     }
+
+    private fun firstPresent(vararg values: Any?): Any? =
+        values.firstOrNull { it != null }
 
     private fun errorPayload(
         code: String,
