@@ -101,12 +101,16 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
             OOB_REUSABLE_EXECUTION_STATUS_ONLINE_REPAIR_REQUIRED,
             payload["execution_status"]
         )
-        assertEquals("OOB_ONLINE_REPAIR_UNAVAILABLE", payload["error_code"])
+        assertEquals("OOB_RUNTIME_RESOLVE_UNAVAILABLE", payload["error_code"])
         val terminalState = payload["terminal_state"] as Map<*, *>
         assertEquals("repair-step-1", terminalState["repair_id"])
+        assertEquals(true, terminalState["runtime_resolve_required"])
+        assertEquals(false, terminalState["runtime_resolve_available"])
         assertEquals(true, terminalState["online_repair_required"])
         assertEquals(false, terminalState["online_repair_available"])
         assertEquals(1, terminalState["local_steps_completed"])
+        assertEquals(1, terminalState["resolve_calls"])
+        assertEquals(1, terminalState["runtime_resolve_steps"])
         assertEquals(1, terminalState["online_repair_steps"])
         assertEquals(2, terminalState["step_count"])
         assertEquals(1, terminalState["success_step_count"])
@@ -114,9 +118,13 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
         assertEquals(timing, terminalState["timing"])
         val context = payload["context"] as Map<*, *>
         assertEquals("repair-step-1", context["repair_id"])
+        assertEquals(true, context["runtime_resolve_required"])
+        assertEquals(false, context["runtime_resolve_available"])
         assertEquals(true, context["online_repair_required"])
         assertEquals(false, context["online_repair_available"])
         assertEquals(1, context["local_steps_completed"])
+        assertEquals(1, context["resolve_calls"])
+        assertEquals(1, context["runtime_resolve_steps"])
         assertEquals(1, context["online_repair_steps"])
         assertEquals(2, context["step_count"])
         assertEquals(1, context["success_step_count"])

@@ -39,12 +39,15 @@ class OobFunctionRunResultBuilder {
     ): Map<String, Any?> = linkedMapOf<String, Any?>(
         "step_id" to stepId,
         "tool" to tool,
-        "executor" to "omniflow_online_repair",
+        "executor" to "omniflow_runtime_resolve",
         "model_free" to true,
         "success" to false,
+        "runtime_resolve_required" to true,
+        "runtime_resolve_available" to false,
         "online_repair_required" to true,
         "online_repair_available" to false,
-        "error_code" to "OOB_ONLINE_REPAIR_UNAVAILABLE",
+        "error_code" to "OOB_RUNTIME_RESOLVE_UNAVAILABLE",
+        "runtime_resolve_reason" to prompt.takeIf { it.isNotBlank() },
         "repair_reason" to prompt.takeIf { it.isNotBlank() },
         "summary" to summary,
     ).apply {
@@ -108,9 +111,14 @@ class OobFunctionRunResultBuilder {
     ): LinkedHashMap<String, Any?> {
         val successCount = stepResults.count { it["success"] != false }
         val allSuccess = stepResults.size == activeSteps.size && stepResults.none { it["success"] == false }
-        val onlineRepairRequired = stepResults.any { it["online_repair_required"] == true }
-        val onlineRepairAvailable = !onlineRepairRequired ||
-            stepResults.any { it["online_repair_required"] == true && it["online_repair_available"] == true }
+        val runtimeResolveRequired = stepResults.any {
+            it["runtime_resolve_required"] == true || it["online_repair_required"] == true
+        }
+        val runtimeResolveAvailable = !runtimeResolveRequired ||
+            stepResults.any {
+                (it["runtime_resolve_required"] == true || it["online_repair_required"] == true) &&
+                    (it["runtime_resolve_available"] == true || it["online_repair_available"] == true)
+            }
         val failedStepIndex = stepResults.firstOrNull { it["success"] == false }?.get("index")
         val lastStepIndex = stepResults.lastOrNull()?.get("index")
         val currentStepIndex = failedStepIndex ?: lastStepIndex
@@ -124,7 +132,7 @@ class OobFunctionRunResultBuilder {
             "source" to "omniflow_replay",
             "run_source" to "omniflow_replay",
             "runner" to when {
-                onlineRepairRequired -> "oob_function_online_repair_required"
+                runtimeResolveRequired -> "oob_function_runtime_resolve_required"
                 delegatedToolUsed -> "oob_function_mixed_runner"
                 else -> RunLogReplayPolicy.fixedReplayRunner
             },
@@ -138,8 +146,10 @@ class OobFunctionRunResultBuilder {
             "fallback_attempt" to fallbackAttempt.takeIf { it > 0 },
             "model_used" to false,
             "model_required" to modelRequired,
-            "online_repair_required" to onlineRepairRequired.takeIf { it },
-            "online_repair_available" to onlineRepairAvailable.takeIf { onlineRepairRequired },
+            "runtime_resolve_required" to runtimeResolveRequired.takeIf { it },
+            "runtime_resolve_available" to runtimeResolveAvailable.takeIf { runtimeResolveRequired },
+            "online_repair_required" to runtimeResolveRequired.takeIf { it },
+            "online_repair_available" to runtimeResolveAvailable.takeIf { runtimeResolveRequired },
             "delegated_tool_used" to delegatedToolUsed,
             "failed_step_index" to failedStepIndex,
             "current_step_index" to currentStepIndex,

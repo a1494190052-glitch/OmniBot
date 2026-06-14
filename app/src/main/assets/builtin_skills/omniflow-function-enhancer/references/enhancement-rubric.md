@@ -7,7 +7,7 @@ future user can actually benefit from, and all required sections returned valid
 patches.
 
 Use `unchanged` when patches are valid but normalize to the same Function, or
-when every proposed change is too vague to improve recall or parameter filling.
+when every proposed change is too vague to improve recall or runtime resolve.
 
 Use `partial` when a useful patch was applied but one or more sections failed,
 returned invalid JSON, referenced missing step indexes, or attempted unsafe

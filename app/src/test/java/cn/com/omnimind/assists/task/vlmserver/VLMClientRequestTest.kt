@@ -361,6 +361,43 @@ class VLMClientRequestTest {
     }
 
     @Test
+    fun `openai tool action parser rejects multiple tool calls in one turn`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "vlm-test-model",
+                turn = ChatCompletionTurn(
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        toolCalls = listOf(
+                            AssistantToolCall(
+                                id = "call_1",
+                                function = AssistantToolCallFunction(
+                                    name = "click",
+                                    arguments = """{"target_description":"Settings","x":100,"y":100}"""
+                                )
+                            ),
+                            AssistantToolCall(
+                                id = "call_2",
+                                function = AssistantToolCallFunction(
+                                    name = "click",
+                                    arguments = """{"target_description":"Network","x":200,"y":200}"""
+                                )
+                            )
+                        )
+                    )
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary"
+        )
+
+        assertFalse(result.success)
+        assertTrue(result.error.orEmpty().contains("每轮只能返回一个 tool_call"))
+    }
+
+    @Test
     fun `openai tool action parser maps scroll tool call alias to swipe`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(

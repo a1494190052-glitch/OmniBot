@@ -74,7 +74,7 @@ class VLMToolDefinitionsTest {
 
         assertTrue(promptGuide.contains("wait(time_s?)"))
         assertTrue(promptGuide.contains("input_text(target_description, text, element_index?, x, y)"))
-        assertTrue(promptGuide.contains("Function recall, parameter resolve, replay, and current-step repair are handled automatically"))
+        assertTrue(promptGuide.contains("Function recall, runtime resolve, and replay are handled automatically"))
         assertTrue(promptGuide.contains("If this turn reaches the VLM, output exactly one ordinary UI action"))
         assertTrue(promptGuide.contains("do not emit call_tool, function_id, or hidden Function tools"))
         assertFalse(promptGuide.contains("call_tool(function_id?, tool_name?, arguments)"))

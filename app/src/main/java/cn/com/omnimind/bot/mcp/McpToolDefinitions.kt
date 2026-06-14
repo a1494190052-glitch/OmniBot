@@ -35,9 +35,9 @@ Use cases:
 
 OMNIFLOW FUNCTION REUSE:
 - Online VLM observes the current page, and the local runtime recalls and executes high-confidence saved Functions before ordinary VLM actions.
-- Parameterized Functions are valid matches. Parameter resolve and Function replay stay inside the local runtime.
+- Parameterized Functions are valid matches. Runtime resolve and Function replay stay inside the local runtime.
 - The outer Agent should not call hidden Function replay tools. Checker handling, action transfer, and replay safety stay inside the local runner.
-- If replay needs repair, runtime resolve may ask the VLM for only one normal UI action for the current step; it should not choose a saved Function itself.
+- If replay cannot continue locally, runtime resolve may ask the VLM for only one normal UI action for the current step; it should not choose a saved Function itself.
 
 IMPORTANT FOR SUMMARY TASKS:
 - If the user's goal is to summarize, extract key points, or produce a report (e.g., "总结/汇总/整理/概括/提炼" or "summary/recap"),
@@ -92,7 +92,7 @@ WORKFLOW:
                 "disableOmniFlowRecall" to mapOf(
                     "type" to "boolean",
                     "default" to false,
-                    "description" to "Optional flag. Default false: run OmniFlow Function recall/gate inside the local runtime after fresh VLM observe. Set true only for a strict no-recall baseline."
+                    "description" to "Optional flag. Default false: run OmniFlow Function recall, runtime resolve, and replay inside the local runtime after fresh VLM observe. Set true only for a strict no-recall baseline."
                 ),
                 "parseOnly" to mapOf(
                     "type" to "boolean",

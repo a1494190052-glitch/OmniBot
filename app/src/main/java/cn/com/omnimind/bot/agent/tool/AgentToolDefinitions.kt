@@ -211,8 +211,8 @@ object AgentToolDefinitions {
         "整理当日记忆" to "Roll Up Daily Memory",
         "分派子任务" to "Dispatch Subtasks",
         "调用工具" to "Call Tool",
-        "统一调用一个明确暴露的工具。手机 UI 自动化请调用 vlm_task；已保存 Function 的召回、参数 resolve、重放和当前步修复由本地运行时自动处理，不通过 function_id 暴露给 Agent 直接调用。" to
-            "Call one explicitly exposed tool. For phone UI automation, use vlm_task; saved Function recall, parameter resolve, replay, and current-step repair are handled by the local runtime and are not exposed to the Agent as direct function_id calls.",
+        "统一调用一个明确暴露的工具。手机 UI 自动化请调用 vlm_task；已保存 Function 的召回、runtime resolve 和重放由本地运行时自动处理，不通过 function_id 暴露给 Agent 直接调用。" to
+            "Call one explicitly exposed tool. For phone UI automation, use vlm_task; saved Function recall, runtime resolve, and replay are handled by the local runtime and are not exposed to the Agent as direct function_id calls.",
         "目标工具名，例如 vlm_task、web_search、terminal_execute。" to
             "Target tool name, for example vlm_task, web_search, or terminal_execute.",
         "传给目标工具的参数对象。" to
@@ -555,7 +555,7 @@ object AgentToolDefinitions {
             put("toolType", "builtin")
             put(
                 "description",
-                "使用视觉语言模型执行手机当前屏幕操作任务，只用于点击、滑动、输入、打开 App 或跨 App 自动化。一次 vlm_task 调用代表一次完整设备执行流程；打开 App 是该完整流程的第一步，不要先单独调用 vlm_task 打开 App、再第二次调用 vlm_task 执行后续目标。内部点击/输入/滚动会作为 vlm_step 进度持续上报。不要用于用户上传图片/截图/照片的识别、OCR、解释、总结或对比；这类图片已在多模态对话里，应该直接回答。该工具会阻塞等待到任务完成、需要用户输入、屏幕锁定或超时，再把终态结果返回给模型。每轮 fresh observe 后，本地 runtime 会进行 OmniFlow Function recall；高置信命中时由 runtime resolve 必要参数并 replay；若 replay 某一步失败，runtime 最多在线 resolve 当前失败步的一个 click/input_text/swipe/open_app/wait 等普通 UI action，然后由本地检查决定是否继续 replay。外层 Agent 不直接调用隐藏 Function replay 或 guard 工具。"
+                "使用视觉语言模型执行手机当前屏幕操作任务，只用于点击、滑动、输入、打开 App 或跨 App 自动化。一次 vlm_task 调用代表一次完整设备执行流程；打开 App 是该完整流程的第一步，不要先单独调用 vlm_task 打开 App、再第二次调用 vlm_task 执行后续目标。内部点击/输入/滚动会作为 vlm_step 进度持续上报。不要用于用户上传图片/截图/照片的识别、OCR、解释、总结或对比；这类图片已在多模态对话里，应该直接回答。该工具会阻塞等待到任务完成、需要用户输入、屏幕锁定或超时，再把终态结果返回给模型。每轮 fresh observe 后，本地 runtime 会进行 OmniFlow Function recall；高置信命中时由 runtime resolve 补齐执行所需信息并 replay，包括必要参数，或 replay 失败时最多一个当前屏幕普通 UI action。外层 Agent 不直接调用隐藏 Function replay 或 guard 工具。"
             )
             putJsonObject("parameters") {
                 put("type", "object")

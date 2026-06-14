@@ -1,4 +1,4 @@
-# Replay Failure Handling
+# Replay Runtime Resolve
 
 Use this reference when a saved Function run fails or returns incomplete local
 runner evidence.
@@ -7,7 +7,7 @@ runner evidence.
 
 1. Resolve the Function id.
 2. Inspect with `oob_function_get` if the Function is not already known.
-3. Fill required runtime parameters from the user request.
+3. Let runtime resolve supply public parameters from the user request.
 4. Execute the Function only through the currently exposed runtime path:
    `vlm_task` runtime recall/replay for online tasks, or an explicitly exposed
    internal runner in debug/management flows.
@@ -20,23 +20,27 @@ runner evidence.
 Each primitive action gets a fresh live observation. Do not infer that a later
 step is safe from an earlier page snapshot.
 
-## Failure Return To VLM
+## Failed Step Resolve
 
-If a Function returns `success=false`, do not restart the whole Function
-immediately and do not ask the outer Agent to resume hidden replay.
+If a Function returns `success=false`, do not restart the whole Function and do
+not ask the outer Agent to take over hidden replay.
 
 1. Read the failed step, failed reason, and current screen evidence from the
    returned `result` or RunLog card.
-2. Start the next VLM turn from a fresh current-page observe.
-3. Let that VLM turn choose one normal GUI tool or another exposed Function
-   tool. This is one `vlm_step`, not a separate Agent fallback loop.
-4. If the Function definition is wrong, use `update_function` with RunLog
+2. Runtime resolve may ask the model for exactly one ordinary GUI action for the
+   current failed step.
+3. Execute that action through the normal native `act` path, then perform a
+   fresh observe.
+4. Let local checker/action transfer decide whether the next Function step is
+   ready. If it is ready, resume replay from the next step. If it is not ready,
+   fail with diagnostics instead of reselecting a Function.
+5. If the Function definition is wrong, use `update_function` with RunLog
    evidence after the run.
 
-## Repair Before Retry
+## Update Before Retry
 
-If the fallback shows the Function definition is wrong, call `update_function`
-before running again. Examples:
+If runtime resolve evidence shows the Function definition is wrong, call
+`update_function` before running again. Examples:
 
 - The Function clicked "美食" but should click "外卖".
 - The target selector points to stale text.

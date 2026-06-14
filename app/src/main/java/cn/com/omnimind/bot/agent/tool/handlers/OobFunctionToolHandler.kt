@@ -94,7 +94,7 @@ class OobFunctionToolHandler(
         return if (getSpec(toolName) != null) {
             cn.com.omnimind.bot.agent.ToolExecutionResult.Error(
                 toolName,
-                "Direct Function tool execution is disabled. Use vlm_task so OmniFlow runtime recall can select, fill, and replay the Function."
+                "Direct Function tool execution is disabled. Use vlm_task so OmniFlow runtime recall can select, resolve, and replay the Function."
             )
         } else {
             cn.com.omnimind.bot.agent.ToolExecutionResult.Error(
@@ -196,7 +196,7 @@ class OobFunctionToolHandler(
         if (functionId.isNotEmpty()) {
             return cn.com.omnimind.bot.agent.ToolExecutionResult.Error(
                 toolName,
-                "Direct call_tool(function_id) execution is disabled. Use vlm_task so OmniFlow runtime recall can select, fill, and replay the Function."
+                "Direct call_tool(function_id) execution is disabled. Use vlm_task so OmniFlow runtime recall can select, resolve, and replay the Function."
             )
         }
 
@@ -571,7 +571,7 @@ class OobFunctionToolHandler(
                                 stepId = stepId,
                                 tool = UIStepExecutor.actionNameForStep(step),
                                 prompt = agentFallbackController.prompt(step, stepTitle, recovery),
-                                summary = "OmniFlow step requires one-step online repair: $stepTitle",
+                                summary = "OmniFlow step requires runtime resolve action: $stepTitle",
                                 extras = mapOf(
                                     "omniflow_fail_reason" to failReason,
                                     "failed_step_error_code" to executionError?.errorCode,
@@ -611,7 +611,7 @@ class OobFunctionToolHandler(
                         stepId = stepId,
                         tool = callableTool,
                         prompt = agentPrompt,
-                        summary = "Tool step requires one-step online repair: $stepTitle",
+                        summary = "Tool step requires runtime resolve action: $stepTitle",
                     )
                 }
 
@@ -807,7 +807,7 @@ class OobFunctionToolHandler(
                 stepId = stepId,
                 tool = agentTool.ifEmpty { "?" },
                 prompt = agentFallbackController.prompt(step, stepTitle),
-                summary = "One-step online repair required: $stepTitle",
+                summary = "Runtime resolve required for replay step: $stepTitle",
             )
         }
         return runResultBuilder.failureStep(
@@ -912,7 +912,7 @@ class OobFunctionToolHandler(
                     LinkedHashMap<String, Any?>().apply { putAll(step); put("tool", targetTool); put("args", targetArgs) },
                     stepTitle
                 ),
-                summary = "call_tool step requires one-step online repair: $stepTitle",
+                summary = "call_tool step requires runtime resolve action: $stepTitle",
             )
         }
         return runResultBuilder.failureStep(
@@ -990,25 +990,34 @@ class OobFunctionToolHandler(
         val nestedStepResults = listArg(nestedRun["step_results"])
             .mapNotNull { mapArg(it).takeIf { mapped -> mapped.isNotEmpty() } }
         val nestedOnlineRepairRequired =
+            nestedRun["runtime_resolve_required"] == true ||
             nestedRun["online_repair_required"] == true ||
                 nestedRun["fallback_context"] != null ||
-                nestedStepResults.any { it["online_repair_required"] == true }
+                nestedStepResults.any {
+                    it["runtime_resolve_required"] == true || it["online_repair_required"] == true
+                }
         val nestedOnlineRepairAvailable =
+            nestedRun["runtime_resolve_available"] == true ||
             nestedRun["online_repair_available"] == true ||
                 nestedStepResults.any {
-                    it["online_repair_required"] == true && it["online_repair_available"] == true
+                    (it["runtime_resolve_required"] == true || it["online_repair_required"] == true) &&
+                        (it["runtime_resolve_available"] == true || it["online_repair_available"] == true)
                 }
         val nestedModelRequired = nestedRun["model_required"] == true && !nestedOnlineRepairRequired
         return completeWithCard(linkedMapOf<String, Any?>(
             "step_id" to stepId, "tool" to callableTool.ifEmpty { RunLogReplayPolicy.TOOL_CALL_TOOL },
             "executor" to "omniflow_function", "model_free" to true, "success" to success,
             "model_required" to nestedModelRequired.takeIf { it },
+            "runtime_resolve_required" to nestedOnlineRepairRequired.takeIf { it },
+            "runtime_resolve_available" to nestedOnlineRepairAvailable.takeIf { nestedOnlineRepairRequired },
             "online_repair_required" to nestedOnlineRepairRequired.takeIf { it },
             "online_repair_available" to nestedOnlineRepairAvailable.takeIf { nestedOnlineRepairRequired },
             "nested_function_id" to functionId, "nested_run_id" to nestedRun["run_id"],
             "nested_runner" to nestedRun["runner"], "nested_step_count" to nestedRun["step_count"],
             "nested_success_step_count" to nestedRun["success_step_count"],
             "nested_model_required" to nestedModelRequired,
+            "nested_runtime_resolve_required" to nestedOnlineRepairRequired,
+            "nested_runtime_resolve_available" to nestedOnlineRepairAvailable,
             "nested_online_repair_required" to nestedOnlineRepairRequired,
             "nested_online_repair_available" to nestedOnlineRepairAvailable,
             "nested_failed_step_index" to nestedRun["failed_step_index"],
@@ -1133,10 +1142,13 @@ class OobFunctionToolHandler(
                 val lastStepIndex = stepResults.lastOrNull()?.get("index")
                 val allSuccess = stepResults.size == activeSteps.size &&
                     stepResults.none { it["success"] == false }
-                val onlineRepairRequired = stepResults.any { it["online_repair_required"] == true }
+                val onlineRepairRequired = stepResults.any {
+                    it["runtime_resolve_required"] == true || it["online_repair_required"] == true
+                }
                 val onlineRepairAvailable = !onlineRepairRequired ||
                     stepResults.any {
-                        it["online_repair_required"] == true && it["online_repair_available"] == true
+                        (it["runtime_resolve_required"] == true || it["online_repair_required"] == true) &&
+                            (it["runtime_resolve_available"] == true || it["online_repair_available"] == true)
                     }
                 val currentResultStepIndex = when {
                     currentStepIndex >= 0 -> currentStepIndex
@@ -1149,7 +1161,7 @@ class OobFunctionToolHandler(
                 put(
                     "runner",
                     if (onlineRepairRequired) {
-                        "oob_function_online_repair_required"
+                        "oob_function_runtime_resolve_required"
                     } else {
                         RunLogReplayPolicy.fixedReplayRunner
                     }
@@ -1165,6 +1177,8 @@ class OobFunctionToolHandler(
                 put("model_used", modelRequired)
                 put("model_required", modelRequired)
                 if (onlineRepairRequired) {
+                    put("runtime_resolve_required", true)
+                    put("runtime_resolve_available", onlineRepairAvailable)
                     put("online_repair_required", true)
                     put("online_repair_available", onlineRepairAvailable)
                 }
@@ -1220,7 +1234,7 @@ class OobFunctionToolHandler(
                                 stepId = step.id,
                                 tool = step.agentCallContext.originalTool,
                                 prompt = step.agentCallContext.reason.ifBlank { step.title },
-                                summary = "Agent step requires one-step online repair: ${step.title}",
+                                summary = "Agent step requires runtime resolve action: ${step.title}",
                             )
                         } else {
                             runResultBuilder.failureStep(
@@ -1367,7 +1381,7 @@ class OobFunctionToolHandler(
                                     stepId = step.id,
                                     tool = step.toolName,
                                     prompt = agentFallbackController.prompt(syntheticStep, step.title),
-                                    summary = "OmniFlow step requires one-step online repair: ${step.title}",
+                                    summary = "OmniFlow step requires runtime resolve action: ${step.title}",
                                 )
                                 withPreActionReadyWait(fallbackResult, preActionReadyWait)
                             } else {
@@ -1402,7 +1416,7 @@ class OobFunctionToolHandler(
                         runResultBuilder.agentFallbackStep(
                             stepId = step.id, tool = step.toolName,
                             prompt = step.title,
-                            summary = "Step requires one-step online repair: ${step.title}",
+                            summary = "Step requires runtime resolve action: ${step.title}",
                         )
                     }
                     else -> runResultBuilder.failureStep(

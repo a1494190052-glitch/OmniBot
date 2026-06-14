@@ -68,14 +68,14 @@ class VlmToolCoordinatorRecallExecutionTest {
                         "success" to true,
                         "function_id" to functionId,
                         "steps" to 1,
-                        "repair_steps" to 0,
+                        "resolve_calls" to 0,
                         "model_calls" to 0,
                         "tokens" to 0,
                         "elapsed_ms" to 42,
                     ),
                 )
             },
-            decisionProvider = acceptRecall(),
+            resolveProvider = resolveRecall(),
         )
 
         assertNotNull(outcome)
@@ -88,7 +88,8 @@ class VlmToolCoordinatorRecallExecutionTest {
         val executionSummary = outcome?.toPayload()?.get("omniflowExecutionSummary") as Map<*, *>
         assertEquals("open_settings_function", executionSummary["function_id"])
         assertEquals(1, executionSummary["steps"])
-        assertEquals(0, executionSummary["repair_steps"])
+        assertEquals(0, executionSummary["resolve_calls"])
+        assertFalse(executionSummary.containsKey("repair_steps"))
         assertEquals(0, executionSummary["model_calls"])
         assertEquals(0, executionSummary["tokens"])
         assertEquals(2, events.size)
@@ -123,7 +124,7 @@ class VlmToolCoordinatorRecallExecutionTest {
                         "success" to false,
                         "function_id" to "open_settings_function",
                         "steps" to 1,
-                        "repair_steps" to 0,
+                        "resolve_calls" to 0,
                         "model_calls" to 0,
                         "tokens" to 0,
                         "elapsed_ms" to 11,
@@ -131,7 +132,7 @@ class VlmToolCoordinatorRecallExecutionTest {
                     ),
                 )
             },
-            decisionProvider = acceptRecall(),
+            resolveProvider = resolveRecall(),
         )
 
         assertNotNull(outcome)
@@ -169,7 +170,7 @@ class VlmToolCoordinatorRecallExecutionTest {
                 called = true
                 emptyMap()
             },
-            decisionProvider = acceptRecall(),
+            resolveProvider = resolveRecall(),
         )
 
         assertNull(outcome)
@@ -234,13 +235,13 @@ class VlmToolCoordinatorRecallExecutionTest {
                 called = true
                 mapOf("success" to true)
             },
-            decisionProvider = acceptRecall(),
+            resolveProvider = resolveRecall(),
         )
 
         assertNull(outcome)
         assertEquals(false, called)
         assertEquals(TaskStatus.RUNNING, state.status)
-        val gate = VlmToolCoordinator.evaluateFunctionCacheGate(
+        val selection = VlmToolCoordinator.evaluateFunctionRuntimeSelection(
             request = request,
             recallGuidance = VlmRecallGuidance(
                 decision = "hit",
@@ -249,8 +250,8 @@ class VlmToolCoordinatorRecallExecutionTest {
                 directHitFunctionId = "open_settings_function",
             ),
         )
-        assertFalse(gate.allowed)
-        assertEquals(VlmToolCoordinator.CACHE_GATE_AUTO_EXECUTE_DISABLED, gate.reason)
+        assertFalse(selection.allowed)
+        assertEquals(VlmToolCoordinator.RUNTIME_SELECTION_AUTO_EXECUTE_DISABLED, selection.reason)
     }
 
     @Test
@@ -287,13 +288,13 @@ class VlmToolCoordinatorRecallExecutionTest {
                     "actions_executed" to 1,
                 )
             },
-            decisionProvider = acceptRecall(),
+            resolveProvider = resolveRecall(),
         )
 
         assertNotNull(outcome)
         assertEquals(true, called)
         assertEquals(TaskStatus.FINISHED, state.status)
-        val gate = VlmToolCoordinator.evaluateFunctionCacheGate(
+        val selection = VlmToolCoordinator.evaluateFunctionRuntimeSelection(
             request = request,
             recallGuidance = VlmRecallGuidance(
                 decision = "hit",
@@ -302,8 +303,8 @@ class VlmToolCoordinatorRecallExecutionTest {
                 directHitFunctionId = "open_settings_function",
             ),
         )
-        assertTrue(gate.allowed)
-        assertEquals(VlmToolCoordinator.CACHE_GATE_STRICT_HIT, gate.reason)
+        assertTrue(selection.allowed)
+        assertEquals(VlmToolCoordinator.RUNTIME_SELECTION_STRICT_HIT, selection.reason)
     }
 
     @Test
@@ -341,7 +342,7 @@ class VlmToolCoordinatorRecallExecutionTest {
                 called = true
                 mapOf("success" to true)
             },
-            decisionProvider = rejectRecall(
+            resolveProvider = rejectResolve(
                 reason = "missing_required_arguments",
                 missing = listOf("value"),
             ),
@@ -399,7 +400,7 @@ class VlmToolCoordinatorRecallExecutionTest {
                 capturedArguments = arguments
                 mapOf("success" to true)
             },
-            decisionProvider = acceptRecall(mapOf("keyword" to "猫猫")),
+            resolveProvider = resolveRecall(mapOf("keyword" to "猫猫"), resolveCalls = 1),
         )
 
         assertNotNull(outcome)
@@ -408,7 +409,9 @@ class VlmToolCoordinatorRecallExecutionTest {
         assertEquals("猫猫", capturedArguments["keyword"])
         assertEquals(TaskStatus.FINISHED, state.status)
         assertNull(state.pendingOmniFlowFunctionCall)
-        val gate = VlmToolCoordinator.evaluateFunctionCacheGate(
+        val executionSummary = outcome?.toPayload()?.get("omniflowExecutionSummary") as Map<*, *>
+        assertEquals(1, executionSummary["resolve_calls"])
+        val selection = VlmToolCoordinator.evaluateFunctionRuntimeSelection(
             request = request,
             recallGuidance = VlmRecallGuidance(
                 decision = "hit",
@@ -424,19 +427,19 @@ class VlmToolCoordinatorRecallExecutionTest {
                 directHitFunctionId = "xhs_search_keyword",
             ),
         )
-        assertTrue(gate.allowed)
-        assertEquals(VlmToolCoordinator.CACHE_GATE_STRICT_HIT, gate.reason)
+        assertTrue(selection.allowed)
+        assertEquals(VlmToolCoordinator.RUNTIME_SELECTION_STRICT_HIT, selection.reason)
     }
 
     @Test
-    fun `parameter resolve cannot veto runtime selected recall hit`() = runBlocking {
+    fun `runtime resolve cannot veto runtime selected recall hit`() = runBlocking {
         val request = VlmTaskRequest(
             goal = "open settings",
             packageName = "com.android.settings",
             allowOmniFlowFunctionAutoExecute = true,
         )
         val state = TaskState(
-            taskId = "task-runtime-gate-not-model-veto",
+            taskId = "task-runtime-selection-not-model-veto",
             goal = request.goal,
             status = TaskStatus.RUNNING,
         )
@@ -468,7 +471,7 @@ class VlmToolCoordinatorRecallExecutionTest {
                     "actions_executed" to 1,
                 )
             },
-            decisionProvider = rejectRecall(reason = "legacy_model_veto_should_be_ignored"),
+            resolveProvider = rejectResolve(reason = "legacy_model_veto_should_be_ignored"),
         )
 
         assertNotNull(outcome)
@@ -508,7 +511,7 @@ class VlmToolCoordinatorRecallExecutionTest {
                         "success" to true,
                         "function_id" to functionId,
                         "steps" to 1,
-                        "repair_steps" to 0,
+                        "resolve_calls" to 0,
                         "model_calls" to 0,
                         "tokens" to 0,
                         "elapsed_ms" to 7,
@@ -671,22 +674,26 @@ class VlmToolCoordinatorRecallExecutionTest {
         }
     }
 
-    private fun acceptRecall(arguments: Map<String, Any?> = emptyMap()): RecallFunctionDecisionProvider =
+    private fun resolveRecall(
+        arguments: Map<String, Any?> = emptyMap(),
+        resolveCalls: Int = 0,
+    ): RecallFunctionResolveProvider =
         { _, _, _ ->
-            RecallFunctionDecision(
+            RecallFunctionResolve(
                 useFunction = true,
                 arguments = arguments,
                 reason = "test_accept",
+                resolveCalls = resolveCalls,
             )
         }
 
-    private fun rejectRecall(
+    private fun rejectResolve(
         reason: String,
         missing: List<String> = emptyList(),
         arguments: Map<String, Any?> = emptyMap(),
-    ): RecallFunctionDecisionProvider =
+    ): RecallFunctionResolveProvider =
         { _, _, _ ->
-            RecallFunctionDecision(
+            RecallFunctionResolve(
                 useFunction = false,
                 arguments = arguments,
                 missingRequiredArguments = missing,

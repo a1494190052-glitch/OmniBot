@@ -1,7 +1,7 @@
 # OOB RunLog
 
 OmniFlow is the pipeline from RunLog to reusable Function matching, execution,
-UDEG recall, checker handling, action transfer, and bounded one-step online repair.
+UDEG recall, checker handling, action transfer, and bounded runtime resolve.
 Product-facing behavior is exposed through skills; this contract only defines
 the storage, conversion, and replay primitives those skills call. There is no
 separate OmniFlow runtime or controller outside the skill system.
@@ -11,7 +11,7 @@ RunLog is a runtime contract, not just a UI feature. Keep these boundaries align
 1. Native records tool cards into `InternalRunLogStore`.
 2. Flutter displays the timeline and converts cards into a reusable Function.
 3. Native stores and materializes reusable Functions through `OobReusableFunctionStore`.
-4. `OobFunctionToolHandler` replays deterministic local steps; live-context failures return compact current-step online repair evidence.
+4. `OobFunctionToolHandler` replays deterministic local steps; live-context failures return compact failed-step runtime resolve evidence.
 5. Workspace Function save must follow the same executor policy as Flutter conversion.
 
 Read `references/runlog-contract.md` before changing conversion or replay behavior.
@@ -104,7 +104,7 @@ record. Do not read only the snapshot when correctness matters.
 - Replay step runner: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolHandler.kt`
 - Replay frontend session controller: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionFrontendSessionController.kt`
 - Replay source alignment controller: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionSourceAlignmentController.kt`
-- Replay online repair context controller: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionAgentFallbackController.kt`
+- Replay failed-step runtime resolve context controller: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionAgentFallbackController.kt`
 - Replay step classifier: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionStepClassifier.kt`
 - Replay tool delegation executor: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolDelegationExecutor.kt`
 - `call_tool` step executor: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionCallToolStepExecutor.kt`
@@ -203,7 +203,7 @@ Do not hard replay `browser_use` or `web_search`; their outputs are live context
 - VLM-only logs must not become empty functions. Emit one `executor=agent` step with reason `perception_only_step_without_recorded_actions`.
 - If a VLM wrapper card is followed by concrete recorded actions, skip the perception wrapper and keep the recorded `omniflow` steps.
 - Failed recorded action cards must not count as concrete replay evidence; keep the
-  current-step online repair evidence if the only local action failed.
+  failed-step runtime resolve evidence if the only local action failed.
 - `android_privileged_action` cards that wrap a supported local UI action should
   flatten nested `arguments` into the emitted OmniFlow step args.
 - Treat legacy `type` as an import alias for `input_text`; do not emit it as a

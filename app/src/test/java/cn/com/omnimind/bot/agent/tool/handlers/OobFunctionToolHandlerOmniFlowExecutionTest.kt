@@ -745,7 +745,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
-    fun `nested call_tool propagates online repair requirement to parent run`() = runBlocking {
+    fun `nested call_tool propagates runtime resolve requirement to parent run`() = runBlocking {
         val context = TempFilesContext()
         try {
             val store = WorkspaceFunctionStore(context.root)
@@ -1533,7 +1533,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
-    fun `call_tool without function id requires online repair when router unavailable`() = runBlocking {
+    fun `call_tool without function id requires runtime resolve when router unavailable`() = runBlocking {
         val context = TempFilesContext()
         try {
             val spec = functionSpec(
@@ -1565,14 +1565,18 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
 
             assertEquals(false, run["success"])
             assertEquals(false, run["model_required"])
+            assertEquals(true, run["runtime_resolve_required"])
+            assertEquals(false, run["runtime_resolve_available"])
             assertEquals(true, run["online_repair_required"])
             assertEquals(false, run["online_repair_available"])
             val step = stepResults(run).single()
-            assertEquals("omniflow_online_repair", step["executor"])
+            assertEquals("omniflow_runtime_resolve", step["executor"])
             assertEquals("vlm_task", step["tool"])
+            assertEquals(true, step["runtime_resolve_required"])
+            assertEquals(false, step["runtime_resolve_available"])
             assertEquals(true, step["online_repair_required"])
             assertEquals(false, step["online_repair_available"])
-            assertEquals("OOB_ONLINE_REPAIR_UNAVAILABLE", step["error_code"])
+            assertEquals("OOB_RUNTIME_RESOLVE_UNAVAILABLE", step["error_code"])
         } finally {
             context.root.deleteRecursively()
         }

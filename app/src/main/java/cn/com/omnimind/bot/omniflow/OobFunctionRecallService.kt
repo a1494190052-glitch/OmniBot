@@ -145,11 +145,7 @@ class OobFunctionRecallService(
                     "strict_direct_hit" to true,
                     "direct_hit_policy" to "top1_high_confidence_margin",
                     "requires_arguments" to !isNoArgumentFunction(it.spec),
-                    "argument_fill_policy" to if (isNoArgumentFunction(it.spec)) {
-                        "no_arguments_required"
-                    } else {
-                        "agent_fill_required_arguments_from_user_goal"
-                    },
+                    "resolve_policy" to argumentResolvePolicy(it.spec),
                     "udeg_node" to it.node,
                     "node_skill_context" to it.node["node_skill_context"],
                     "function_profile" to functionProfile(it.spec),
@@ -183,7 +179,7 @@ class OobFunctionRecallService(
                 "direct_hit_min_margin" to DIRECT_HIT_MIN_MARGIN,
                 "direct_hit_requires_single_candidate" to false,
                 "direct_hit_requires_top1_margin" to true,
-                "direct_hit_allows_agent_filled_arguments" to true,
+                "direct_hit_allows_runtime_resolved_arguments" to true,
             ),
             "count" to candidates.size,
             "reason" to when {
@@ -418,11 +414,7 @@ class OobFunctionRecallService(
             "execution_scope" to "function",
             "call" to call,
             "requires_arguments" to !isNoArgumentFunction(spec),
-            "argument_fill_policy" to if (isNoArgumentFunction(spec)) {
-                "no_arguments_required"
-            } else {
-                "agent_fill_required_arguments_from_user_goal"
-            },
+            "resolve_policy" to argumentResolvePolicy(spec),
             "step_summaries" to functionSteps,
             "function_profile" to functionProfile(spec, nodeCapability),
             "function_kind" to "oob_reusable_function",
@@ -506,7 +498,9 @@ class OobFunctionRecallService(
             "recall_scope" to candidate["recall_scope"],
             "remaining_step_count" to candidate["remaining_step_count"],
             "requires_arguments" to candidate["requires_arguments"],
-            "argument_fill_policy" to candidate["argument_fill_policy"],
+            "resolve_policy" to (
+                candidate["resolve_policy"] ?: candidate["argument_fill_policy"]
+            ),
             "execution_scope" to candidate["execution_scope"],
             "call" to candidate["call"],
             "step_count" to candidate["step_count"],
@@ -717,11 +711,7 @@ class OobFunctionRecallService(
             "reason" to reason,
             "step_count" to (execution["step_count"] ?: steps.size),
             "requires_arguments" to !isNoArgumentFunction(spec),
-            "argument_fill_policy" to if (isNoArgumentFunction(spec)) {
-                "no_arguments_required"
-            } else {
-                "agent_fill_required_arguments_from_user_goal"
-            },
+            "resolve_policy" to argumentResolvePolicy(spec),
             "execution_scope" to "function",
             "call" to call,
             "has_agent_steps" to (execution["has_agent_steps"] ?: execution["requires_agent_fallback"]),
@@ -924,6 +914,13 @@ class OobFunctionRecallService(
         private fun elapsedMs(startedAtNanos: Long): Long =
             ((System.nanoTime() - startedAtNanos) / 1_000_000L).coerceAtLeast(0L)
     }
+
+    private fun argumentResolvePolicy(spec: Map<String, Any?>): String =
+        if (isNoArgumentFunction(spec)) {
+            "no_arguments_required"
+        } else {
+            "runtime_resolve_required_arguments_from_user_goal"
+        }
 
     private companion object {
         private const val DIRECT_HIT_MIN_SCORE = 0.92

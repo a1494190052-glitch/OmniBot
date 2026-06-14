@@ -8,7 +8,7 @@ import cn.com.omnimind.bot.runlog.OobActionCodec
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 
 /**
- * Builds the public argument contract used by runtime recall/fill before an
+ * Builds the public argument contract used by runtime recall/resolve before an
  * OmniFlow Function is replayed.
  */
 object OobFunctionSchemaBuilder {

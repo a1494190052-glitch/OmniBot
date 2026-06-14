@@ -7,7 +7,7 @@ why old replay concepts should not be reintroduced.
 
 ```text
 RunLog -> Function -> recall candidates -> runtime chooses high-confidence replay
-  -> runtime resolve fills parameters or one current-step GUI action when repair is needed
+  -> runtime resolve supplies parameters or one current-step GUI action when replay cannot continue locally
   -> local runner executes checker/action-transfer/replay
   -> returns success/result
   -> next turn fresh observe decides the next tool
@@ -56,7 +56,11 @@ Recall finds candidates and writes guidance for diagnostics. The local runtime
 decides whether a candidate is safe to replay; the VLM does not select or invoke
 Function assets directly.
 
-## Repair
+## Runtime Resolve
+
+Use one product and prompt concept: runtime resolve. Before replay it may return
+public Function arguments, and after a local replay miss it may return one
+ordinary UI action for the current failed step.
 
 If replay fails, runtime resolve may ask the online model for exactly one normal
 GUI action for the current failed step. After that action, the runtime observes

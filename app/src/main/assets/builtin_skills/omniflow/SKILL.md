@@ -39,7 +39,7 @@ by default.
   OmniFlow Function work.
 - Do not explicitly call hidden Function replay tools from a normal agent-task.
   Function execution is selected by runtime recall/replay inside `vlm_task`;
-  online repair may output only one ordinary UI action for the current step.
+  runtime resolve may output only one ordinary UI action for the current step.
 - Use `update_function` for all saved Function modifications.
 - Treat RunLogs as evidence. Do not invent RunLogs, Function ids, screenshots,
   XML, or tool results.

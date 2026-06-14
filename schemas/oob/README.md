@@ -33,4 +33,4 @@ Current canonical constraints:
 - `swipe` uses `duration_ms`, not `duration`, and carries `direction`.
 - `open_app` uses only `package_name`.
 - Back/Home/Enter use `press_key(key)` with `key=back|home|enter`.
-- Saved Function recall, argument filling, and replay are selected by the runtime; normal VLM/Agent output must not emit `call_tool(function_id, arguments)`.
+- Saved Function recall, runtime resolve, and replay are selected by the runtime; normal VLM/Agent output must not emit `call_tool(function_id, arguments)`.

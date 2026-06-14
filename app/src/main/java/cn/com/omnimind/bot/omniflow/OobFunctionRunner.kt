@@ -16,6 +16,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 
+/**
+ * Compatibility name for failed-step runtime resolve.
+ *
+ * Public OmniFlow wording is "runtime resolve": the runtime may either supply
+ * Function arguments before replay or ask for one ordinary UI action at the
+ * current failed replay step. Existing RunLogs/tests still use online_repair
+ * keys for the latter, so keep this wire name stable.
+ */
 data class OobFunctionOnlineRepairRequest(
     val functionId: String,
     val goal: String,
@@ -33,8 +41,8 @@ fun interface OobFunctionOnlineRepairPlanner {
 }
 
 private fun OobFunctionOnlineRepairRequest.oneStepGuidance(): String = buildString {
-    appendLine("OmniFlow one-step online repair.")
-    appendLine("Repair only the current failed Function step. Do not call a Function, do not finish the whole task, and do not re-plan the task.")
+    appendLine("OmniFlow runtime resolve for one failed replay step.")
+    appendLine("Return only one ordinary UI action for the current failed Function step. Do not call a Function, do not finish the whole task, and do not re-plan the task.")
     appendLine("Allowed actions: click, input_text, swipe, press_key(back/home), open_app, wait.")
     appendLine("Function id: $functionId")
     appendLine("Failed step index: $failedStepIndex")
@@ -175,7 +183,7 @@ class OobFunctionRunner(
             )
         }
         val repairedPayload = if (onlineRepairEnabled && payload.requiresOnlineRepair()) {
-            timing.measureSuspend("online_repair_ms") {
+            timing.measureSuspend("runtime_resolve_ms") {
                 runOnlineRepairAndResume(
                     initialPayload = payload,
                     runner = runner,
@@ -243,13 +251,13 @@ class OobFunctionRunner(
         val failedStepIndex = OobFunctionJson.intArg(initialPayload["failed_step_index"], defaultValue = -1)
         if (failedStepIndex < 0) {
             return initialPayload.withOnlineRepairFailure(
-                reason = "online_repair_failed_step_missing",
+                reason = "runtime_resolve_failed_step_missing",
             )
         }
         val stepCount = OobFunctionJson.intArg(initialPayload["step_count"], defaultValue = 0)
         if (failedStepIndex >= stepCount) {
             return initialPayload.withOnlineRepairFailure(
-                reason = "online_repair_failed_step_out_of_range",
+                reason = "runtime_resolve_failed_step_out_of_range",
             )
         }
         val initialSteps = stepResultsFromPayload(initialPayload)
@@ -268,19 +276,21 @@ class OobFunctionRunner(
             onlineRepairPlanner.plan(context, repairRequest)
         }.getOrElse { error ->
             return initialPayload.withOnlineRepairFailure(
-                reason = "online_repair_planner_error",
+                reason = "runtime_resolve_planner_error",
                 details = mapOf("error_message" to error.message.orEmpty()),
+                resolveAttempted = true,
             )
         }
         val action = onlineRepairAction(plannerPayload)
             ?: return initialPayload.withOnlineRepairFailure(
-                reason = "online_repair_invalid_action",
+                reason = "runtime_resolve_invalid_action",
                 details = mapOf("planner" to plannerPayload.compactPlannerDiagnostics()),
+                resolveAttempted = true,
             )
-        val stepId = "online_repair_step_${failedStepIndex + 1}"
+        val stepId = "runtime_resolve_step_${failedStepIndex + 1}"
         val repairStep = linkedMapOf<String, Any?>(
             "id" to stepId,
-            "title" to "One-step online repair for step ${failedStepIndex + 1}",
+            "title" to "Runtime resolve action for step ${failedStepIndex + 1}",
             "kind" to "omniflow_action",
             "executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
             "model_free" to true,
@@ -294,29 +304,31 @@ class OobFunctionRunner(
             UIStepExecutor.execute(
                 step = repairStep,
                 stepId = stepId,
-                stepTitle = "One-step online repair",
+                stepTitle = "Runtime resolve action",
                 checkerRules = emptyList(),
                 checkerBudget = UIStepExecutor.CheckerTriggerBudget(),
                 stopRequested = null,
             )
         }.getOrElse { error ->
             return initialPayload.withOnlineRepairFailure(
-                reason = "online_repair_action_failed",
+                reason = "runtime_resolve_action_failed",
                 details = mapOf(
                     "error_message" to error.message.orEmpty(),
                     "planner" to plannerPayload.compactPlannerDiagnostics(),
                     "action" to action.toDebugMap(),
                 ),
+                resolveAttempted = true,
             )
         }
         if (repairResult["success"] == false) {
             return initialPayload.withOnlineRepairFailure(
-                reason = "online_repair_action_failed",
+                reason = "runtime_resolve_action_failed",
                 details = mapOf(
                     "planner" to plannerPayload.compactPlannerDiagnostics(),
                     "action" to action.toDebugMap(),
                     "result" to repairResult,
                 ),
+                resolveAttempted = true,
             )
         }
         val repairFinishedAtMs = System.currentTimeMillis()
@@ -359,9 +371,11 @@ class OobFunctionRunner(
             putAll(repairResult)
             put("step_id", stepId)
             put("index", failedStepIndex)
-            put("executor", "omniflow_online_repair")
+            put("executor", "omniflow_runtime_resolve")
             put("success", true)
             put("model_free", false)
+            put("runtime_resolve_applied", true)
+            put("runtime_resolve_available", true)
             put("online_repair_applied", true)
             put("online_repair_available", true)
             put("planner", plannerPayload.compactPlannerDiagnostics())
@@ -400,9 +414,9 @@ class OobFunctionRunner(
         val resumeFailureReason = if (success) {
             null
         } else {
-            "online_repair_next_step_not_ready"
+            "runtime_resolve_next_step_not_ready"
         }
-        val repairReason = resumeFailureReason ?: "online_repair_resumed"
+        val repairReason = resumeFailureReason ?: "runtime_resolve_resumed"
         val resumeAttempt = linkedMapOf<String, Any?>(
             "success" to true,
             "resume_success" to (resumePayload["success"] == true),
@@ -432,6 +446,12 @@ class OobFunctionRunner(
             put("resume_from_step", initialPayload["resume_from_step"] ?: 0)
             put("model_used", true)
             put("model_required", false)
+            put("runtime_resolve_applied", true)
+            put("runtime_resolve_steps", 1)
+            put("runtime_resolve_budget", onlineRepairBudget)
+            put("runtime_resolve_required", false)
+            put("runtime_resolve_available", true)
+            put("runtime_resolve_attempt", resumeAttempt)
             put("online_repair_applied", true)
             put("online_repair_steps", 1)
             put("online_repair_budget", onlineRepairBudget)
@@ -441,7 +461,7 @@ class OobFunctionRunner(
             put("failed_step_index", if (success) null else resumePayload["failed_step_index"])
             put("current_step_index", if (success) stepCount - 1 else resumePayload["current_step_index"])
             put("current_step_number", if (success) stepCount else resumePayload["current_step_number"])
-            put("error_code", if (success) null else "OOB_ONLINE_REPAIR_NEXT_STEP_NOT_READY")
+            put("error_code", if (success) null else "OOB_RUNTIME_RESOLVE_NEXT_STEP_NOT_READY")
             put("error_message", if (success) "" else resumeFailureReason)
             put("step_results", combinedSteps)
             put("initial_replay", initialPayload.compactRunDiagnostics())
@@ -452,14 +472,26 @@ class OobFunctionRunner(
     private fun Map<String, Any?>.withOnlineRepairFailure(
         reason: String,
         details: Map<String, Any?> = emptyMap(),
+        resolveAttempted: Boolean = false,
     ): Map<String, Any?> = linkedMapOf<String, Any?>().apply {
         putAll(this@withOnlineRepairFailure)
-        put("runner", "oob_function_online_repair_failed")
+        put("runner", "oob_function_runtime_resolve_failed")
         put("execution_mode", "offline_online_failed")
+        put("runtime_resolve_attempt", mapOf("success" to false, "reason" to reason) + details)
+        put("runtime_resolve_required", true)
+        put("runtime_resolve_available", false)
         put("online_repair_attempt", mapOf("success" to false, "reason" to reason) + details)
         put("online_repair_required", true)
         put("online_repair_available", false)
-        putIfAbsent("error_code", "OOB_ONLINE_REPAIR_FAILED")
+        if (resolveAttempted) {
+            val existing = OobFunctionJson.intArg(
+                this@withOnlineRepairFailure["resolve_calls"],
+                this@withOnlineRepairFailure["runtime_resolve_calls"],
+                defaultValue = 0,
+            )
+            put("resolve_calls", maxOf(1, existing))
+        }
+        putIfAbsent("error_code", "OOB_RUNTIME_RESOLVE_FAILED")
         put("error_message", reason)
     }
 
@@ -554,31 +586,54 @@ class OobFunctionRunner(
         arguments.mapValues { (_, value) -> value?.toString().orEmpty() }
 
     private fun Map<String, Any?>.requiresOnlineRepair(): Boolean {
+        if (this["runtime_resolve_required"] == true) return true
         if (this["online_repair_required"] == true) return true
-        if (stepResultsFromPayload(this).any { it["online_repair_required"] == true }) return true
+        if (stepResultsFromPayload(this).any {
+                it["runtime_resolve_required"] == true || it["online_repair_required"] == true
+            }
+        ) return true
         return this["success"] == false &&
             OobFunctionJson.intArg(this["failed_step_index"], defaultValue = -1) >= 0
     }
 
     private fun Map<String, Any?>.withOmniFlowFallbackAliases(): Map<String, Any?> {
         val normalized = linkedMapOf<String, Any?>().apply { putAll(this@withOmniFlowFallbackAliases) }
-        fun alias(primary: String, secondary: String) {
+        fun alias(primary: String, secondary: String, removeSecondary: Boolean = false) {
             if (normalized[primary] == null && normalized[secondary] != null) {
                 normalized[primary] = normalized[secondary]
             }
-            normalized.remove(secondary)
+            if (removeSecondary) normalized.remove(secondary)
         }
-        alias("online_repair_required", "online_fallback_required")
-        alias("online_repair_available", "online_fallback_available")
-        alias("online_repair_applied", "online_fallback_applied")
-        alias("online_repair_steps", "online_fallback_steps")
-        alias("online_repair_budget", "online_fallback_budget")
-        alias("online_repair_attempt", "online_fallback_attempt")
+        alias("runtime_resolve_required", "online_fallback_required", removeSecondary = true)
+        alias("runtime_resolve_available", "online_fallback_available", removeSecondary = true)
+        alias("runtime_resolve_applied", "online_fallback_applied", removeSecondary = true)
+        alias("runtime_resolve_steps", "online_fallback_steps", removeSecondary = true)
+        alias("runtime_resolve_budget", "online_fallback_budget", removeSecondary = true)
+        alias("runtime_resolve_attempt", "online_fallback_attempt", removeSecondary = true)
+        alias("runtime_resolve_required", "online_repair_required")
+        alias("runtime_resolve_available", "online_repair_available")
+        alias("runtime_resolve_applied", "online_repair_applied")
+        alias("runtime_resolve_steps", "online_repair_steps")
+        alias("runtime_resolve_budget", "online_repair_budget")
+        alias("runtime_resolve_attempt", "online_repair_attempt")
+        alias("online_repair_required", "runtime_resolve_required")
+        alias("online_repair_available", "runtime_resolve_available")
+        alias("online_repair_applied", "runtime_resolve_applied")
+        alias("online_repair_steps", "runtime_resolve_steps")
+        alias("online_repair_budget", "runtime_resolve_budget")
+        alias("online_repair_attempt", "runtime_resolve_attempt")
 
         val repairPayload = OobFunctionJson.mapArg(normalized["online_repair"])
         val fallbackPayload = OobFunctionJson.mapArg(normalized["online_fallback"])
+        val runtimeResolvePayload = OobFunctionJson.mapArg(normalized["runtime_resolve"])
         if (fallbackPayload.isNotEmpty() && repairPayload.isEmpty()) {
             normalized["online_repair"] = fallbackPayload.withOnlineRepairReasonAlias()
+        }
+        val normalizedRepairPayload = OobFunctionJson.mapArg(normalized["online_repair"])
+        if (runtimeResolvePayload.isEmpty() && normalizedRepairPayload.isNotEmpty()) {
+            normalized["runtime_resolve"] = normalizedRepairPayload.withRuntimeResolveReasonAlias()
+        } else if (runtimeResolvePayload.isNotEmpty() && normalizedRepairPayload.isEmpty()) {
+            normalized["online_repair"] = runtimeResolvePayload
         }
         normalized.remove("online_fallback")
 
@@ -607,6 +662,7 @@ class OobFunctionRunner(
         ).filterValues { it != null }
         return linkedMapOf<String, Any?>().apply {
             putAll(this@withOnlineRepairStepPayload)
+            put("runtime_resolve", repairPayload)
             put("online_repair", repairPayload)
         }
     }
@@ -629,14 +685,45 @@ class OobFunctionRunner(
             if (repairReason.isNotBlank()) put("reason", repairReason)
         }
 
+    private fun Map<String, Any?>.withRuntimeResolveReasonAlias(): Map<String, Any?> =
+        linkedMapOf<String, Any?>().apply {
+            putAll(this@withRuntimeResolveReasonAlias)
+            val reason = OobFunctionJson.firstNonBlank(this["reason"])
+            val runtimeReason = when (reason) {
+                "online_fallback_unavailable",
+                "online_repair_unavailable" -> "runtime_resolve_unavailable"
+                "online_fallback_budget_exhausted",
+                "online_repair_budget_exhausted" -> "runtime_resolve_budget_exhausted"
+                "online_fallback_planner_error",
+                "online_repair_planner_error" -> "runtime_resolve_planner_error"
+                "online_fallback_invalid_action",
+                "online_repair_invalid_action" -> "runtime_resolve_invalid_action"
+                "online_fallback_action_transfer_failed",
+                "online_repair_action_transfer_failed" -> "runtime_resolve_action_transfer_failed"
+                "online_fallback_act_error",
+                "online_repair_act_error" -> "runtime_resolve_act_error"
+                "online_fallback_act_failed",
+                "online_repair_act_failed" -> "runtime_resolve_act_failed"
+                "online_fallback_resumed",
+                "online_repair_resumed" -> "runtime_resolve_resumed"
+                "online_repair_next_step_not_ready" -> "runtime_resolve_next_step_not_ready"
+                else -> reason
+            }
+            if (runtimeReason.isNotBlank()) put("reason", runtimeReason)
+        }
+
     private fun Map<String, Any?>.withExecutionSummary(): Map<String, Any?> {
         val normalized = linkedMapOf<String, Any?>().apply { putAll(this@withExecutionSummary) }
         val existingSummary = OobFunctionJson.mapArg(normalized["execution_summary"])
         val stepResults = stepResultsFromPayload(normalized)
-        val repairSteps = OobFunctionJson.intArg(
+        val runtimeResolveSteps = OobFunctionJson.intArg(
+            // Legacy RunLog keys are accepted as input only. Public summaries
+            // expose the unified `resolve_calls` metric instead.
+            existingSummary["runtime_resolve_steps"],
             existingSummary["repair_steps"],
             existingSummary["online_fallback_steps"],
             existingSummary["online_repair_steps"],
+            normalized["runtime_resolve_steps"],
             normalized["online_fallback_steps"],
             normalized["online_repair_steps"],
             defaultValue = stepResults.count { it.isOnlineRepairStep() },
@@ -646,9 +733,21 @@ class OobFunctionRunner(
             defaultValue = stepResults.count { it["success"] != false && !it.isOnlineRepairStep() },
         )
         val steps = OobFunctionJson.intArg(
+            normalized["success_step_count"],
+            normalized["actions_executed"],
+            normalized["completed_step_count"],
             existingSummary["steps"],
             normalized["steps"],
-            defaultValue = legacyOfflineSteps + repairSteps,
+            defaultValue = legacyOfflineSteps + runtimeResolveSteps,
+        )
+        val resolveCalls = maxOf(
+            runtimeResolveSteps,
+            OobFunctionJson.intArg(
+                existingSummary["resolve_calls"],
+                normalized["resolve_calls"],
+                normalized["runtime_resolve_calls"],
+                defaultValue = 0,
+            ),
         )
         val timing = OobFunctionJson.mapArg(normalized["timing"])
         val success = normalized["success"] == true
@@ -668,7 +767,7 @@ class OobFunctionRunner(
             "success" to success,
             "function_id" to OobFunctionJson.firstNonBlank(normalized["function_id"]),
             "steps" to steps,
-            "repair_steps" to repairSteps,
+            "resolve_calls" to resolveCalls,
             "model_calls" to modelCalls,
             "tokens" to tokens,
             "elapsed_ms" to OobFunctionJson.longArg(
@@ -687,13 +786,16 @@ class OobFunctionRunner(
     }
 
     private fun Map<String, Any?>.isOnlineRepairStep(): Boolean =
+        this["runtime_resolve_applied"] == true ||
         this["online_repair_applied"] == true ||
             this["online_fallback_applied"] == true ||
+            this["executor"] == "omniflow_runtime_resolve" ||
             this["executor"] == "omniflow_online_repair"
 
     private fun Map<String, Any?>.inferredOnlineRepairPlannerCalls(
         stepResults: List<Map<String, Any?>>,
     ): Long {
+        if (OobFunctionJson.mapArg(this["runtime_resolve_attempt"]).isNotEmpty()) return 1L
         if (OobFunctionJson.mapArg(this["online_repair_attempt"]).isNotEmpty()) return 1L
         if (OobFunctionJson.mapArg(this["online_fallback_attempt"]).isNotEmpty()) return 1L
         return if (stepResults.any {
@@ -716,6 +818,10 @@ class OobFunctionRunner(
         candidates += OobFunctionJson.mapArg(this["token_usage"])
         candidates += OobFunctionJson.mapArg(this["llm_usage"])
         candidates += OobFunctionJson.mapArg(this["execution_summary"])
+        OobFunctionJson.mapArg(this["runtime_resolve_attempt"]).let { attempt ->
+            candidates += attempt
+            candidates += OobFunctionJson.mapArg(attempt["planner"])
+        }
         OobFunctionJson.mapArg(this["online_repair_attempt"]).let { attempt ->
             candidates += attempt
             candidates += OobFunctionJson.mapArg(attempt["planner"])

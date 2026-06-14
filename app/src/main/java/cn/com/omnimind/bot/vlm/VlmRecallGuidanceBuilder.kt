@@ -19,9 +19,9 @@ data class VlmRecallGuidance(
  * Builds online VLM guidance from OOB-native OmniFlow recall.
  *
  * VLM still observes the live screen and emits ordinary UI actions when the
- * runtime does not execute a recalled Function. Saved Function recall,
- * parameter resolve, replay, and one-step repair are selected by the local
- * runtime, not exposed as model-callable Function tools.
+ * runtime does not execute a recalled Function. Saved Function recall, runtime
+ * resolve, and replay are selected by the local runtime, not exposed as
+ * model-callable Function tools.
  */
 object VlmRecallGuidanceBuilder {
     fun build(
@@ -196,7 +196,7 @@ object VlmRecallGuidanceBuilder {
                     appendLine("   function_profile: $it")
                 }
                 renderArgumentPolicy(candidate).takeIf { it.isNotBlank() }?.let {
-                    appendLine("   argument_policy: $it")
+                    appendLine("   resolve_policy: $it")
                 }
             }
             capabilityCandidates.forEachIndexed { index, capability ->
@@ -214,7 +214,7 @@ object VlmRecallGuidanceBuilder {
                     appendLine("   capability_profile: $it")
                 }
                 renderArgumentPolicy(capability).takeIf { it.isNotBlank() }?.let {
-                    appendLine("   argument_policy: $it")
+                    appendLine("   resolve_policy: $it")
                 }
             }
         }.trim()
@@ -243,7 +243,12 @@ object VlmRecallGuidanceBuilder {
 
     private fun renderArgumentPolicy(candidate: Map<String, Any?>): String {
         val requiresArguments = requiresArguments(candidate)
-        val fillPolicy = firstNonBlank(candidate["argument_fill_policy"], candidate["argumentFillPolicy"])
+        val resolvePolicy = firstNonBlank(
+            candidate["resolve_policy"],
+            candidate["resolvePolicy"],
+            candidate["argument_fill_policy"],
+            candidate["argumentFillPolicy"],
+        )
         val schema = mapArg(candidate["inputSchema"]).ifEmpty { mapArg(candidate["input_schema"]) }
         val required = listArg(schema["required"]).map { it.toString() }.toSet()
         val properties = mapArg(schema["properties"]).entries
@@ -258,7 +263,7 @@ object VlmRecallGuidanceBuilder {
             .joinToString(prefix = "{", postfix = "}", separator = ", ")
         return listOf(
             "requires_arguments=$requiresArguments",
-            "fill_policy=$fillPolicy".takeIf { fillPolicy.isNotBlank() },
+            "resolve_policy=$resolvePolicy".takeIf { resolvePolicy.isNotBlank() },
             "arguments=$properties".takeIf { properties.isNotBlank() },
         ).filterNotNull().joinToString(" ")
     }

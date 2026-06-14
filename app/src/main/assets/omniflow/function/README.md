@@ -333,15 +333,16 @@ When adding or migrating a generic agent tool name:
 - load and materialize the requested Function
 - validate missing required arguments
 - execute fixed replay through `OobFunctionToolHandler`
-- return compact failure or online-repair results when deterministic replay
+- return compact failure or runtime-resolve diagnostics when deterministic replay
   cannot execute the current step
 - keep `Function.steps` as the only pending sequence. OmniFlow replay should
   re-localize and attempt each active step in order; it must not skip action
   steps because a terminal postcondition appears satisfied or because the page
   seems to have advanced. If the current step cannot be executed, return
-  `success=false` with a compact `{success, result}` payload and
-  `online_repair_required=true`; runtime online resolve may produce only one
-  ordinary UI action for the current failed step and must not reselect a Function.
+  `success=false` with a compact `{success, result}` payload. Legacy wire payloads
+  may still carry `online_repair_required=true`, but the public concept is runtime
+  resolve: it may produce only one ordinary UI action for the current failed step
+  and must not reselect a Function.
 
 `OobFunctionRunner` owns runtime execution startup:
 
@@ -399,13 +400,13 @@ primitive local action execution:
 - keep main-thread UI calls outside the deterministic step executor
 - skip nested Function calls so only the top-level replay owns the overlay
 
-`OobFunctionAgentFallbackController` owns bounded online repair context:
+`OobFunctionAgentFallbackController` owns failed-step runtime resolve context:
 
-- build one-step repair context from the failed step, materialized args, and recovery
+- build runtime resolve context from the failed step, materialized args, and recovery
   snapshot
 - refetch the current page after deterministic replay failures
-- shape the compact `online_repair_required` result that the runtime may use for
-  one ordinary UI action
+- shape the compact failed-step payload that the runtime may use for one ordinary
+  UI action; legacy wire keys may still say `online_repair_required`
 - keep recovery text outside the replay loop; it must not start a hidden Agent or
   VLM task by itself
 
@@ -440,7 +441,7 @@ primitive local action execution:
 - resolve `call_tool` target Function/tool names and forwarded arguments
 - convert Function targets into nested reusable Function replay handoffs
 - delegate ordinary tool targets through `OobFunctionToolDelegationExecutor`
-- return online repair payloads when a live tool router is required
+- return runtime resolve payloads when a live tool router is required
 - keep `call_tool` target policy outside the main replay loop
 
 `OobFunctionNestedFunctionExecutor` owns nested reusable Function execution:
@@ -506,9 +507,9 @@ Agent/MCP tool surface
           -> OobFunctionJson # shared value coercion for Function payloads
       -> OobFunctionCallTiming       # call-level timing merge
       -> OobFunctionRunner           # load/materialize/execute Functions
-          -> OobFunctionToolHandler  # deterministic replay and online repair
+          -> OobFunctionToolHandler  # deterministic replay and runtime resolve
               -> OobFunctionFrontendSessionController # replay overlay/session
-              -> OobFunctionAgentFallbackController # recovery context/online repair
+              -> OobFunctionAgentFallbackController # recovery context/runtime resolve
               -> OobFunctionToolHandler # replay/call_tool args
               -> OobFunctionStepClassifier # replay step-shape routing
               -> OobFunctionToolDelegationExecutor # live tool delegation bridge
@@ -590,7 +591,7 @@ Keep these pieces separate:
 - `OobFunctionFrontendSessionController`: top-level replay overlay lifecycle
   and stop signal handling
 - `OobFunctionAgentFallbackController`: failed-step recovery snapshots and
-  bounded online repair context
+  bounded runtime resolve context
 - `OobFunctionToolHandler`: replay step args, `call_tool` target resolution,
   nested Function argument extraction, and metadata stripping
 - `OobFunctionStepClassifier`: skip-step detection, OmniFlow execution-tool
@@ -742,7 +743,7 @@ Use these owner rules when removing duplicated helper code:
   `OobFunctionToolHandler`. Do not move skip/fallback/delegation decisions into
   mechanical helper objects.
 - Function run result payload shape belongs in `OobFunctionRunResultBuilder`.
-  Runtime components may decide that a step failed, requires online repair,
+  Runtime components may decide that a step failed, requires runtime resolve,
   or was delegated, but they should call this owner for stable fields such as
   `step_id`, `executor`, `model_required`, `error_code`, and timing payloads
   instead of hand-building equivalent maps in each executor. Old per-step

@@ -89,13 +89,13 @@ object OobFunctionSkillProfile {
             when (locale) {
                 PromptLocale.ZH_CN -> {
                     appendLine("本轮已根据用户目标完成 OmniFlow Function recall 检查。")
-                    appendLine("- Function 是可组合的复用片段；召回、参数 resolve、重放和当前步修复由本地运行时处理。")
+                    appendLine("- Function 是可组合的复用片段；召回、runtime resolve 和重放由本地运行时处理。")
                     appendLine("- Function recall 是运行时内部流程，不是模型工具；不要尝试调用 function_recall、call_tool(function_id) 或隐藏 Function tool。")
                     appendLine("- 如需管理/查看已保存 Function，用 list/get/update/delete 工具；手机 UI 自动化继续走 vlm_task。")
                 }
                 PromptLocale.EN_US -> {
                     appendLine("OmniFlow Function recall has been checked for this user goal.")
-                    appendLine("- A Function is a saved mobile workflow segment; recall, parameter resolve, replay, and current-step repair are handled by the local runtime.")
+                    appendLine("- A Function is a saved mobile workflow segment; recall, runtime resolve, and replay are handled by the local runtime.")
                     appendLine("- Function recall is an internal runtime flow, not a model tool; do not call function_recall, call_tool(function_id), or hidden Function tools.")
                     appendLine("- Use list/get/update/delete tools to manage saved Functions. Continue phone UI automation through vlm_task.")
                 }
@@ -220,9 +220,9 @@ object OobFunctionSkillProfile {
     ): String {
         val suffix = when (locale) {
             PromptLocale.ZH_CN ->
-                "这是一个 legacy 兼容描述；已保存 Function 不作为模型可见执行 tool 暴露。正常手机自动化应调用 vlm_task，由本地 runtime 完成 recall、参数 resolve、replay 和当前步修复。"
+                "这是一个 legacy 兼容描述；已保存 Function 不作为模型可见执行 tool 暴露。正常手机自动化应调用 vlm_task，由本地 runtime 完成 recall、runtime resolve 和 replay。"
             PromptLocale.EN_US ->
-                "This is a legacy compatibility description; saved Functions are not exposed as model-visible execution tools. Normal phone automation should call vlm_task so the local runtime handles recall, parameter resolve, replay, and current-step repair."
+                "This is a legacy compatibility description; saved Functions are not exposed as model-visible execution tools. Normal phone automation should call vlm_task so the local runtime handles recall, runtime resolve, and replay."
         }
         return "${base.take(360)} $suffix".trim().take(600)
     }

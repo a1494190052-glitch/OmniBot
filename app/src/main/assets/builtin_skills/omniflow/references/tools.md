@@ -18,13 +18,15 @@ to replay a Function before ordinary VLM actions.
    `oob_function_delete`, and `oob_function_clear` for Function lifecycle.
 3. Use `update_function` for all Function modifications, including enhancement,
    repair, RunLog evidence analysis, checker metadata, and structural patches.
-4. Use `vlm_task` for online execution. Function recall, parameter resolve,
-   replay, and current-step repair are internal runtime steps, not normal
-   model-selected tools.
+4. Use `vlm_task` for online execution. Function recall, runtime resolve, and
+   replay are internal runtime steps, not normal model-selected tools.
 
 When recall returns a Function with `inputSchema`, treat it as candidate context.
-The runtime may resolve business arguments and replay it; if online repair is
-needed, the model may only produce one ordinary UI action for the current screen.
+The runtime may resolve business arguments and replay it; if replay needs help,
+the same runtime resolve path may request only one ordinary UI action for the
+current screen.
+Keep this as one runtime-owned resolve path; do not create extra model-visible
+tools for Function parameters or failed replay steps.
 
 ## MCP Diagnostic Tools
 

@@ -1,4 +1,4 @@
-# Function Enhancement And Repair
+# Function Enhancement And Correction
 
 Use this reference when improving an existing saved Function.
 
@@ -64,10 +64,12 @@ Forbidden in `enhance` mode:
 - Do not bind parameters to coordinates, bounds, width, height, screenshots,
   XML nodes, or invented JSON paths.
 
-## Repair Mode
+## Correction Mode
 
-Use `repair` when the user says the recorded Function did the wrong concrete
-action, for example "应该点「外卖」而不是点「美食」".
+Use correction when the user says the recorded Function did the wrong concrete
+action, for example "应该点「外卖」而不是点「美食」". The saved patch mode is
+still `repair` for compatibility; do not confuse this with runtime resolve
+during replay.
 
 Patch shape:
 
@@ -93,7 +95,7 @@ If more than one step matches, let `update_function` return confirmation
 candidates or call it with `dryRun=true`, then ask the user which candidate to
 save.
 
-## Structural Repair
+## Structural Correction
 
 Only add or delete executable actions when the user explicitly asks for it.
 Use `allowStructuralChange=true`.

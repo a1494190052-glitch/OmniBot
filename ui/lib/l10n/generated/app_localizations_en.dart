@@ -220,8 +220,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsMcpToggleFailed => 'Failed to toggle MCP';
 
   @override
-  String get settingsOobFunctionAsToolTitle =>
-      'OmniFlow Function recall';
+  String get settingsOobFunctionAsToolTitle => 'OmniFlow Function recall';
 
   @override
   String get settingsOobFunctionAsToolSubtitle =>

@@ -61,7 +61,7 @@ class OobVlmFunctionRecallProvider(
         val recallBlock = buildString {
             appendLine(RECALL_START_MARKER)
             appendLine("OmniFlow recall for this VLM step:")
-            appendLine("Function reuse is handled by the runtime. For this VLM step, output only a normal GUI action when fallback is needed.")
+            appendLine("Function reuse is handled by the runtime. If runtime replay is not used for this turn, output only one normal GUI action.")
             appendLine(guidance.guidance)
             append(RECALL_END_MARKER)
         }.trim()

@@ -43,7 +43,7 @@ class VlmRecallGuidanceBuilderTest {
         assertFalse(guidance.contains("fallback_policy="))
         assertFalse(guidance.contains("function=open_network_settings"))
         assertFalse(guidance.contains("open_network_settings"))
-        assertFalse(guidance.contains("argument_policy"))
+        assertFalse(guidance.contains("resolve_policy"))
         assertFalse(guidance.contains("step: 1. open_app"))
         assertFalse(guidance.contains("任务已完成"))
         assertFalse(guidance.contains("current task is complete"))
@@ -414,14 +414,14 @@ class VlmRecallGuidanceBuilderTest {
     }
 
     @Test
-    fun `parameterized hit is runtime executable after parameter resolve`() {
+    fun `parameterized hit is runtime executable after runtime resolve`() {
         val payload = mapOf(
             "success" to true,
             "decision" to "hit",
             "decision_policy" to mapOf(
                 "mode" to "direct_execution_allowed",
                 "direct_hit_requested" to true,
-                "direct_hit_allows_agent_filled_arguments" to true,
+                "direct_hit_allows_runtime_resolved_arguments" to true,
             ),
             "hit" to mapOf(
                 "function_id" to "send_message",
@@ -430,7 +430,7 @@ class VlmRecallGuidanceBuilderTest {
                 "text_score" to 0.91,
                 "strict_direct_hit" to true,
                 "requires_arguments" to true,
-                "argument_fill_policy" to "agent_fill_required_arguments_from_user_goal",
+                "resolve_policy" to "required_arguments_from_user_goal",
                 "inputSchema" to mapOf(
                     "type" to "object",
                     "properties" to mapOf(
@@ -460,13 +460,13 @@ class VlmRecallGuidanceBuilderTest {
         assertFalse(guidance.contains("send_message"))
         assertFalse(guidance.contains("preferred_call_tool"))
         assertFalse(guidance.contains("call_tool(function_id=\"send_message\""))
-        assertFalse(guidance.contains("argument_policy: requires_arguments=true"))
+        assertFalse(guidance.contains("resolve_policy: requires_arguments=true"))
         assertFalse(guidance.contains("arguments={contact:string required, message:string required}"))
         assertFalse(guidance.contains("function_profile: purpose=Send a chat message"))
 
         val debug = VlmRecallGuidanceBuilder.renderDebugGuidance(payload)
         assertTrue(debug.contains("function=send_message"))
-        assertTrue(debug.contains("argument_policy: requires_arguments=true"))
+        assertTrue(debug.contains("resolve_policy: requires_arguments=true"))
         assertTrue(debug.contains("arguments={contact:string required, message:string required}"))
         assertTrue(debug.contains("function_profile: purpose=Send a chat message"))
     }
