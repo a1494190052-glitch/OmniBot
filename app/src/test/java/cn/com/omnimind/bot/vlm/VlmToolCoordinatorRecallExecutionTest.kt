@@ -64,6 +64,15 @@ class VlmToolCoordinatorRecallExecutionTest {
                     "function_id" to functionId,
                     "run_id" to "omniflow_run_test",
                     "actions_executed" to 1,
+                    "execution_summary" to mapOf(
+                        "success" to true,
+                        "function_id" to functionId,
+                        "steps" to 1,
+                        "repair_steps" to 0,
+                        "model_calls" to 0,
+                        "tokens" to 0,
+                        "elapsed_ms" to 42,
+                    ),
                 )
             },
             decisionProvider = acceptRecall(),
@@ -76,6 +85,12 @@ class VlmToolCoordinatorRecallExecutionTest {
         assertTrue(state.finishedContent?.contains("open_settings_function") == true)
         assertTrue(state.summaryText?.contains("actions_executed=1") == true)
         assertEquals("hit", outcome?.toPayload()?.get("omniflowRecall")?.let { it as Map<*, *> }?.get("decision"))
+        val executionSummary = outcome?.toPayload()?.get("omniflowExecutionSummary") as Map<*, *>
+        assertEquals("open_settings_function", executionSummary["function_id"])
+        assertEquals(1, executionSummary["steps"])
+        assertEquals(0, executionSummary["repair_steps"])
+        assertEquals(0, executionSummary["model_calls"])
+        assertEquals(0, executionSummary["tokens"])
         assertEquals(2, events.size)
         assertEquals("FINISHED", events.last()["status"])
     }
@@ -104,6 +119,16 @@ class VlmToolCoordinatorRecallExecutionTest {
                     "success" to false,
                     "fallback" to true,
                     "error" to "execution_failed",
+                    "execution_summary" to mapOf(
+                        "success" to false,
+                        "function_id" to "open_settings_function",
+                        "steps" to 1,
+                        "repair_steps" to 0,
+                        "model_calls" to 0,
+                        "tokens" to 0,
+                        "elapsed_ms" to 11,
+                        "failure_reason" to "execution_failed",
+                    ),
                 )
             },
             decisionProvider = acceptRecall(),
@@ -114,6 +139,9 @@ class VlmToolCoordinatorRecallExecutionTest {
         assertEquals(TaskStatus.ERROR, state.status)
         assertEquals("omniflow_recall_failed:open_settings_function", state.executionRoute)
         assertTrue(state.chatMessages.last().contains("normal VLM will not reselect"))
+        val executionSummary = outcome?.toPayload()?.get("omniflowExecutionSummary") as Map<*, *>
+        assertEquals(false, executionSummary["success"])
+        assertEquals("execution_failed", executionSummary["failure_reason"])
         assertEquals(2, events.size)
         assertEquals("ERROR", events.last()["status"])
     }
@@ -476,6 +504,15 @@ class VlmToolCoordinatorRecallExecutionTest {
                     "fallback" to false,
                     "function_id" to functionId,
                     "actions_executed" to 1,
+                    "execution_summary" to mapOf(
+                        "success" to true,
+                        "function_id" to functionId,
+                        "steps" to 1,
+                        "repair_steps" to 0,
+                        "model_calls" to 0,
+                        "tokens" to 0,
+                        "elapsed_ms" to 7,
+                    ),
                 )
             },
         )
@@ -487,6 +524,9 @@ class VlmToolCoordinatorRecallExecutionTest {
         assertNull(state.pendingOmniFlowFunctionCall)
         assertEquals(TaskStatus.FINISHED, state.status)
         assertEquals("omniflow_recall_hit:xhs_search_keyword", state.executionRoute)
+        val executionSummary = outcome?.toPayload()?.get("omniflowExecutionSummary") as Map<*, *>
+        assertEquals("xhs_search_keyword", executionSummary["function_id"])
+        assertEquals(1, executionSummary["steps"])
     }
 
     @Test

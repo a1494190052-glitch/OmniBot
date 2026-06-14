@@ -79,6 +79,7 @@ data class TaskState(
     @Volatile var errorCode: String? = null,
     @Volatile var missingPermissions: List<String> = emptyList(),
     @Volatile var omniflowRecall: Map<String, Any?>? = null,
+    @Volatile var omniflowExecutionSummary: Map<String, Any?>? = null,
     @Volatile var vlmRequest: VlmTaskRequest? = null,
     @Volatile var pendingOmniFlowFunctionCall: PendingOmniFlowFunctionCall? = null,
     val startTime: Long = System.currentTimeMillis(),
@@ -109,6 +110,7 @@ data class TaskState(
         "errorCode" to errorCode,
         "missingPermissions" to missingPermissions,
         "omniflowRecall" to omniflowRecall,
+        "omniflowExecutionSummary" to omniflowExecutionSummary,
         "pendingOmniFlowFunctionCall" to pendingOmniFlowFunctionCall?.let {
             mapOf(
                 "functionId" to it.functionId,

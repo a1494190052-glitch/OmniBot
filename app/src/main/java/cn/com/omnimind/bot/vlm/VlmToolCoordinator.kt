@@ -91,6 +91,7 @@ data class VlmToolOutcome(
     val errorCode: String? = null,
     val missingPermissions: List<String> = emptyList(),
     val omniflowRecall: Map<String, Any?>? = null,
+    val omniflowExecutionSummary: Map<String, Any?>? = null,
 ) {
     fun toPayload(): Map<String, Any?> = linkedMapOf(
         "taskId" to taskId,
@@ -109,6 +110,7 @@ data class VlmToolOutcome(
         "errorCode" to errorCode,
         "missingPermissions" to missingPermissions,
         "omniflowRecall" to omniflowRecall,
+        "omniflowExecutionSummary" to omniflowExecutionSummary,
     )
 }
 
@@ -1318,6 +1320,7 @@ object VlmToolCoordinator {
                 "error_type" to error.javaClass.name,
             )
         }
+        taskState.omniflowExecutionSummary = compactOmniFlowExecutionSummary(result)
         val success = result["success"] == true && result["fallback"] != true
         if (!success) {
             val reason = recallFallbackReason(result)
@@ -1343,6 +1346,7 @@ object VlmToolCoordinator {
                     "summary" to taskState.message,
                     "function_id" to functionId,
                     "arguments" to functionArguments,
+                    "omniflowExecutionSummary" to taskState.omniflowExecutionSummary,
                     "omniflowRecallResult" to result,
                 )
             )
@@ -1384,6 +1388,7 @@ object VlmToolCoordinator {
                 "summary" to message,
                 "function_id" to functionId,
                 "arguments" to functionArguments,
+                "omniflowExecutionSummary" to taskState.omniflowExecutionSummary,
                 "omniflowRecallResult" to result,
             )
         )
@@ -1454,6 +1459,7 @@ object VlmToolCoordinator {
                 "error_type" to error.javaClass.name,
             )
         }
+        taskState.omniflowExecutionSummary = compactOmniFlowExecutionSummary(result)
         val success = result["success"] == true && result["fallback"] != true
         if (!success) {
             val reason = recallFallbackReason(result)
@@ -1476,6 +1482,7 @@ object VlmToolCoordinator {
                     "summary" to taskState.message,
                     "function_id" to pending.functionId,
                     "arguments" to arguments,
+                    "omniflowExecutionSummary" to taskState.omniflowExecutionSummary,
                     "omniflowRecallResult" to result,
                 )
             )
@@ -1517,6 +1524,7 @@ object VlmToolCoordinator {
                 "summary" to message,
                 "function_id" to pending.functionId,
                 "arguments" to arguments,
+                "omniflowExecutionSummary" to taskState.omniflowExecutionSummary,
                 "omniflowRecallResult" to result,
             )
         )
@@ -2090,7 +2098,45 @@ object VlmToolCoordinator {
             errorCode = errorCode,
             missingPermissions = missingPermissions,
             omniflowRecall = omniflowRecall,
+            omniflowExecutionSummary = omniflowExecutionSummary,
         )
+    }
+
+    private fun compactOmniFlowExecutionSummary(result: Map<String, Any?>): Map<String, Any?>? {
+        val summary = mapValue(result["execution_summary"])
+        val source = if (summary.isNotEmpty()) summary else result
+        val compact = linkedMapOf<String, Any?>(
+            "success" to (source["success"] ?: result["success"]),
+            "function_id" to firstNonBlank(source["function_id"], result["function_id"]),
+            "steps" to firstPresent(source, result, "steps", "step_count", "actions_executed"),
+            "repair_steps" to firstPresent(source, result, "repair_steps", "online_repair_steps"),
+            "model_calls" to firstPresent(source, result, "model_calls"),
+            "tokens" to firstPresent(source, result, "tokens", "total_tokens"),
+            "elapsed_ms" to firstPresent(source, result, "elapsed_ms", "duration_ms"),
+            "failure_reason" to firstNonBlank(
+                source["failure_reason"],
+                result["failure_reason"],
+                result["error_code"],
+                result["errorCode"],
+                result["error_message"],
+                result["error"],
+            ).takeIf { it.isNotBlank() },
+        ).filterValues { it != null && it.toString().isNotBlank() }
+        return compact.takeIf { it.isNotEmpty() }
+    }
+
+    private fun firstPresent(
+        primary: Map<String, Any?>,
+        secondary: Map<String, Any?>,
+        vararg keys: String,
+    ): Any? {
+        keys.forEach { key ->
+            primary[key]?.let { return it }
+        }
+        keys.forEach { key ->
+            secondary[key]?.let { return it }
+        }
+        return null
     }
 
     private fun isSummaryMessage(taskId: String): Boolean {
