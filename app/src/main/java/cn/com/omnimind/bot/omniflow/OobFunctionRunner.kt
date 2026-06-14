@@ -514,6 +514,33 @@ class OobFunctionRunner(
             OobFunctionJson.intArg(this["failed_step_index"], defaultValue = -1) >= 0
     }
 
+    private fun Map<String, Any?>.withOmniFlowFallbackAliases(): Map<String, Any?> {
+        val normalized = linkedMapOf<String, Any?>().apply { putAll(this@withOmniFlowFallbackAliases) }
+        fun alias(primary: String, secondary: String) {
+            if (normalized[secondary] == null && normalized[primary] != null) {
+                normalized[secondary] = normalized[primary]
+            }
+            if (normalized[primary] == null && normalized[secondary] != null) {
+                normalized[primary] = normalized[secondary]
+            }
+        }
+        alias("online_repair_required", "online_fallback_required")
+        alias("online_repair_available", "online_fallback_available")
+        alias("online_repair_applied", "online_fallback_applied")
+        alias("online_repair_steps", "online_fallback_steps")
+        alias("online_repair_budget", "online_fallback_budget")
+        alias("online_repair_attempt", "online_fallback_attempt")
+
+        val stepResults = OobFunctionJson.listArg(normalized["step_results"])
+        if (stepResults.isNotEmpty()) {
+            normalized["step_results"] = stepResults.map { raw ->
+                val step = OobFunctionJson.mapArg(raw)
+                if (step.isEmpty()) raw else step.withOmniFlowFallbackAliases()
+            }
+        }
+        return normalized
+    }
+
     private fun attachExecutionTiming(
         payload: Map<String, Any?>,
         timing: FunctionExecutionTiming,
@@ -563,7 +590,7 @@ class OobFunctionRunner(
         return linkedMapOf<String, Any?>().apply {
             putAll(payload)
             put("timing", mergedTiming)
-        }
+        }.withOmniFlowFallbackAliases()
     }
 
     private fun errorPayload(

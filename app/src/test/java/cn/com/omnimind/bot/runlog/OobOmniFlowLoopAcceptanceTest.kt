@@ -2232,11 +2232,15 @@ class OobOmniFlowLoopAcceptanceTest {
             val result = run["result"] as? Map<*, *>
             assertEquals("offline_online_offline", result?.get("execution_mode"))
             assertEquals(true, result?.get("online_repair_applied"))
+            assertEquals(true, result?.get("online_fallback_applied"))
+            assertEquals(1, result?.get("online_fallback_steps"))
             assertEquals(false, result?.get("online_repair_required"))
+            assertEquals(false, result?.get("online_fallback_required"))
             val steps = run["step_results"] as? List<*>
             val repairStep = steps?.firstOrNull() as? Map<*, *>
             assertEquals("omniflow_online_repair", repairStep?.get("executor"))
             assertEquals(true, repairStep?.get("online_repair_applied"))
+            assertEquals(true, repairStep?.get("online_fallback_applied"))
         } finally {
             backendHandle.close()
             context.root.deleteRecursively()
