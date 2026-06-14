@@ -2073,13 +2073,13 @@ class OobOmniFlowLoopAcceptanceTest {
         val backendHandle = OmniflowActionRuntime.useBackendForTesting(backend)
         try {
             val toolkit = OobOmniFlowToolkitService(context, WorkspaceFunctionStore(context.root))
-            val functionId = "vlm_continuation_required"
+            val functionId = "online_repair_required"
             val register = toolkit.registerFunction(
                 mapOf(
                     "functionSpec" to reusableFunctionSpec(
                         functionId = functionId,
-                        name = "VLM continuation then local click",
-                        description = "第一步需要下一轮 VLM step 处理，之后不由外层 Agent 重新选择 Function。",
+                        name = "Online repair then local click",
+                        description = "第一步需要 runner 内一步在线修复，之后不由外层 Agent 重新选择 Function。",
                         steps = listOf(
                             mapOf(
                                 "id" to "tap_takeout_with_agent",
@@ -2116,12 +2116,15 @@ class OobOmniFlowLoopAcceptanceTest {
             val run = toolkit.runFunction(mapOf("function_id" to functionId))
             assertEquals(false, run["success"])
             val result = run["result"] as? Map<*, *>
-            assertEquals(true, result?.get("model_required"))
-            assertEquals("OOB_VLM_CONTINUATION_REQUIRED", result?.get("error_code"))
+            assertEquals(false, result?.get("model_required"))
+            assertEquals(true, result?.get("online_repair_required"))
+            assertEquals(false, result?.get("online_repair_available"))
+            assertEquals("OOB_ONLINE_REPAIR_UNAVAILABLE", result?.get("error_code"))
             val stepResults = run["step_results"] as? List<*>
             val firstStep = stepResults?.firstOrNull() as? Map<*, *>
-            assertEquals(true, firstStep?.get("vlm_step_required"))
-            assertEquals("vlm_step", firstStep?.get("executor"))
+            assertEquals(true, firstStep?.get("online_repair_required"))
+            assertEquals(false, firstStep?.get("online_repair_available"))
+            assertEquals("omniflow_online_repair", firstStep?.get("executor"))
         } finally {
             backendHandle.close()
             context.root.deleteRecursively()

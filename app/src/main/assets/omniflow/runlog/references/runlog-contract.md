@@ -102,12 +102,12 @@ without `function_id` delegates to the live tool router when available.
 - Agent prompt has stale args after materialization.
 - Workspace Function save uses different rules from Flutter conversion.
 - Failed local replay card is treated as concrete replay evidence and suppresses
-  VLM continuation evidence.
+  current-step online repair evidence.
 - `android_privileged_action.arguments` stays nested and produces a model-free
   click/swipe/type step without executable top-level args.
 - Regression where a provider/exported reusable Function emits older action
   names instead of canonical `input_text/swipe/press_key`.
-- OmniFlow `go_to_node/click_node/call_tool(function_id)` accidentally becomes
+- OmniFlow `go_to_node/click_node/internal Function replay` accidentally becomes
   `executor=agent` or `executor=tool` instead of local `executor=omniflow`.
 
 ## Required Test Cases
@@ -122,6 +122,6 @@ without `function_id` delegates to the live tool router when available.
   replay actions.
 - OmniFlow graph/reusable Function calls convert and execute as local
   `executor=omniflow` steps.
-- Failed local action does not suppress VLM continuation evidence.
+- Failed local action does not suppress current-step online repair evidence.
 - `android_privileged_action` local UI wrappers flatten nested `arguments` into
   executable step args.

@@ -944,20 +944,6 @@ class VLMOperationService(
                 var processedStep = vlmResult.step!!
                 // normalizeOpenAppAction 需要判断模型类型
                 processedStep = normalizeOpenAppAction(processedStep, _context, model)
-                VLMPreferredCallToolPolicy.preferredNoArgFunctionId(_context)?.let { functionId ->
-                    if (VLMPreferredCallToolPolicy.shouldRewrite(processedStep.action, _context, functionId)) {
-                        val originalAction = processedStep.action.name
-                        processedStep = VLMPreferredCallToolPolicy.rewriteStep(processedStep, functionId)
-                        _context = _context.copy(
-                            pageDiagnostics = _context.pageDiagnostics +
-                                VLMPreferredCallToolPolicy.diagnostics(functionId, originalAction)
-                        )
-                        OmniLog.i(
-                            Tag,
-                            "preferred_call_tool rewrite original=$originalAction function_id=$functionId"
-                        )
-                    }
-                }
 
                 if (processedStep.action is FeedbackAction) {
                     val feedbackAction = processedStep.action as FeedbackAction

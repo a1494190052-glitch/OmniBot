@@ -68,7 +68,7 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
     }
 
     @Test
-    fun `vlm continuation payload keeps local prefix and pending step counts in context`() {
+    fun `online repair payload keeps local prefix and repair step counts in context`() {
         val timing = mapOf(
             "duration_ms" to 34L,
             "phase_ms" to mapOf("rank_functions_ms" to 5L)
@@ -82,9 +82,9 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
             ),
         )
 
-        val payload = buildOobReusableFunctionVlmContinuationPayload(
-            functionId = "open_settings_then_vlm",
-            continuationId = "vlm-step-1",
+        val payload = buildOobReusableFunctionOnlineRepairPayload(
+            functionId = "open_settings_then_repair",
+            repairId = "repair-step-1",
             runPayload = mapOf(
                 "runner" to "oob_mixed_runner",
                 "model_required" to true,
@@ -92,30 +92,32 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
             ),
             stepResults = stepResults,
             completedStepCount = 1,
-            pendingModelStepCount = 1,
+            onlineRepairStepCount = 1,
             argumentCount = 0
         )
 
         assertEquals(false, payload["success"])
         assertEquals(
-            OOB_REUSABLE_EXECUTION_STATUS_VLM_CONTINUATION_REQUIRED,
+            OOB_REUSABLE_EXECUTION_STATUS_ONLINE_REPAIR_REQUIRED,
             payload["execution_status"]
         )
-        assertEquals("OOB_VLM_CONTINUATION_REQUIRED", payload["error_code"])
+        assertEquals("OOB_ONLINE_REPAIR_UNAVAILABLE", payload["error_code"])
         val terminalState = payload["terminal_state"] as Map<*, *>
-        assertEquals("vlm-step-1", terminalState["continuation_id"])
-        assertEquals(true, terminalState["vlm_step_required"])
+        assertEquals("repair-step-1", terminalState["repair_id"])
+        assertEquals(true, terminalState["online_repair_required"])
+        assertEquals(false, terminalState["online_repair_available"])
         assertEquals(1, terminalState["local_steps_completed"])
-        assertEquals(1, terminalState["model_steps_pending"])
+        assertEquals(1, terminalState["online_repair_steps"])
         assertEquals(2, terminalState["step_count"])
         assertEquals(1, terminalState["success_step_count"])
         assertEquals(true, terminalState["model_required"])
         assertEquals(timing, terminalState["timing"])
         val context = payload["context"] as Map<*, *>
-        assertEquals("vlm-step-1", context["continuation_id"])
-        assertEquals(true, context["vlm_step_required"])
+        assertEquals("repair-step-1", context["repair_id"])
+        assertEquals(true, context["online_repair_required"])
+        assertEquals(false, context["online_repair_available"])
         assertEquals(1, context["local_steps_completed"])
-        assertEquals(1, context["model_steps_pending"])
+        assertEquals(1, context["online_repair_steps"])
         assertEquals(2, context["step_count"])
         assertEquals(1, context["success_step_count"])
         assertEquals(timing, context["timing"])
@@ -150,29 +152,39 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
     }
 
     @Test
-    fun `pending model step detection uses agent executor or model required`() {
+    fun `online repair step detection supports new and legacy replay markers`() {
         assertTrue(
-            isOobReusableFunctionPendingModelStep(
+            isOobReusableFunctionOnlineRepairStep(
+                mapOf("online_repair_required" to true)
+            )
+        )
+        assertTrue(
+            isOobReusableFunctionOnlineRepairStep(
+                mapOf("error_code" to "OOB_ONLINE_REPAIR_UNAVAILABLE")
+            )
+        )
+        assertTrue(
+            isOobReusableFunctionOnlineRepairStep(
                 mapOf("executor" to "agent", "success" to false)
             )
         )
         assertTrue(
-            isOobReusableFunctionPendingModelStep(
-                mapOf("model_required" to true)
-            )
-        )
-        assertTrue(
-            isOobReusableFunctionPendingModelStep(
+            isOobReusableFunctionOnlineRepairStep(
                 mapOf("vlm_step_required" to true)
             )
         )
         assertTrue(
-            isOobReusableFunctionPendingModelStep(
+            isOobReusableFunctionOnlineRepairStep(
                 mapOf("error_code" to "OOB_VLM_CONTINUATION_REQUIRED")
             )
         )
         assertFalse(
-            isOobReusableFunctionPendingModelStep(
+            isOobReusableFunctionOnlineRepairStep(
+                mapOf("model_required" to true)
+            )
+        )
+        assertFalse(
+            isOobReusableFunctionOnlineRepairStep(
                 mapOf("executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW)
             )
         )

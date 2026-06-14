@@ -16,7 +16,7 @@ class McpToolDefinitionsTest {
 
         assertTrue(names.contains(AgentToolNames.VLM_TASK))
         assertTrue(names.contains("agent_run"))
-        assertTrue(names.contains(RunLogReplayPolicy.TOOL_CALL_TOOL))
+        assertFalse(names.contains("call_tool"))
         assertTrue(names.contains("omniflow.recall"))
         assertTrue(names.contains("omniflow.ingest_run_log"))
         assertTrue(names.contains("omniflow.explore_replay"))
@@ -65,7 +65,6 @@ class McpToolDefinitionsTest {
         OobFunctionToolNames.RUN_LOG_LIST to "OobFunctionToolNames.RUN_LOG_LIST",
         OobFunctionToolNames.RUN_LOG_GET to "OobFunctionToolNames.RUN_LOG_GET",
         OobFunctionToolNames.RUN_LOG_CONVERT to "OobFunctionToolNames.RUN_LOG_CONVERT",
-        RunLogReplayPolicy.TOOL_CALL_TOOL to "RunLogReplayPolicy.TOOL_CALL_TOOL",
     )
 
     private val omniFlowDispatchedToolNames = OobFunctionToolNames.profileTools + setOf(
@@ -112,9 +111,9 @@ class McpToolDefinitionsTest {
     }
 
     @Test
-    fun callToolIsTheFunctionExecutionMcpPath() {
+    fun callToolIsInternalReplayOnlyNotPublicMcpTool() {
         val names = McpToolDefinitions.fixedTools.map { it["name"].toString() }.toSet()
-        assertTrue(names.contains(RunLogReplayPolicy.TOOL_CALL_TOOL))
+        assertFalse(names.contains("call_tool"))
         assertFalse(names.contains("omniflow" + ".call_tool"))
         assertFalse(names.contains("oob_" + "tool_call"))
     }
@@ -204,7 +203,7 @@ class McpToolDefinitionsTest {
         val properties = schema["properties"] as Map<*, *>
         val description = tool["description"]?.toString().orEmpty()
 
-        assertTrue(description.contains("page match -> UDEG node -> node skill-like decision context -> VLM/tool decision"))
+        assertTrue(description.contains("saved Function execution is selected by the local runtime"))
         assertTrue(properties.containsKey("goal"))
         assertTrue(properties.containsKey("current_package"))
         assertTrue(properties.containsKey("current_node_id"))

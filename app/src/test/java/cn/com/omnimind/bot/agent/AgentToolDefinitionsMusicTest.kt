@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -21,6 +22,19 @@ class AgentToolDefinitionsMusicTest {
             }
 
         assertTrue(toolNames.contains("music_playback_control"))
+    }
+
+    @Test
+    fun `call tool is not exposed as a normal agent tool`() {
+        val toolNames = AgentToolDefinitions.staticTools()
+            .mapNotNull { definition ->
+                ((definition["function"] as? JsonObject)
+                    ?.get("name")
+                    ?.jsonPrimitive
+                    ?.contentOrNull)
+            }
+
+        assertFalse(toolNames.contains("call_tool"))
     }
 
     @Test

@@ -194,22 +194,33 @@ data class VlmFunctionCacheGateDecision(
 )
 
 data class RecallFunctionDecision(
-    val useFunction: Boolean,
+    val useFunction: Boolean = true,
     val arguments: Map<String, Any?> = emptyMap(),
     val missingRequiredArguments: List<String> = emptyList(),
     val reason: String = "",
 ) {
     companion object {
+        fun failed(reason: String, missingRequiredArguments: List<String> = emptyList()): RecallFunctionDecision =
+            RecallFunctionDecision(
+                useFunction = true,
+                missingRequiredArguments = missingRequiredArguments,
+                reason = reason,
+            )
+
         fun reject(reason: String): RecallFunctionDecision =
             RecallFunctionDecision(useFunction = false, reason = reason)
     }
 }
+
+typealias RecallFunctionArgumentFill = RecallFunctionDecision
 
 typealias RecallFunctionDecisionProvider = suspend (
     goal: String,
     candidate: Map<String, Any?>,
     recallGuidance: VlmRecallGuidance,
 ) -> RecallFunctionDecision
+
+typealias RecallFunctionArgumentFillProvider = RecallFunctionDecisionProvider
 
 object VlmToolCoordinator {
     private const val TAG = "[VlmToolCoordinator]"
@@ -222,7 +233,6 @@ object VlmToolCoordinator {
     private const val DEFAULT_MAX_STEPS = 12
     private const val MAX_MAX_STEPS = 64
     private const val DRY_RUN_PROMPT_PREVIEW_CHARS = 6000
-    private const val MAX_PRE_RUN_RECALL_GUIDANCE_CHARS = 650
     private const val GENERIC_ARGUMENT_NAME = "value"
     private const val RECALL_DECISION_MODEL = "scene.dispatch.model"
     private val argumentJson = Json {
@@ -236,7 +246,7 @@ object VlmToolCoordinator {
     )
     internal const val CACHE_GATE_AUTO_EXECUTE_DISABLED = "auto_execute_disabled"
     internal const val CACHE_GATE_NO_STRICT_HIT = "no_strict_hit"
-    internal const val CACHE_GATE_STRICT_HIT = "strict_hit_no_arguments"
+    internal const val CACHE_GATE_STRICT_HIT = "strict_hit"
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -691,7 +701,7 @@ object VlmToolCoordinator {
             requestToolChoice = turn.requestToolChoice,
             requestParallelToolCalls = turn.requestParallelToolCalls,
             currentUserTextPreview = requestEnvelope.currentUserText.take(DRY_RUN_PROMPT_PREVIEW_CHARS),
-            pageDiagnostics = callToolFunctionDiagnostics(requestEnvelope.dynamicFunctionToolNames) +
+            pageDiagnostics = recalledFunctionDiagnostics(requestEnvelope.dynamicFunctionToolNames) +
                 workingContext.pageDiagnostics + linkedMapOf(
                 "vlm_stream_request_variant" to turn.requestVariant.orEmpty(),
                 "vlm_stream_request_had_tools" to turn.requestHadTools?.toString().orEmpty(),
@@ -1235,59 +1245,56 @@ object VlmToolCoordinator {
         val candidate = executableRecallCandidate(recallGuidance) ?: return null
         val functionId = candidate["function_id"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
             ?: return null
-        val decision = runCatching {
+        val argumentFill = runCatching {
             if (decisionProvider != null) {
                 decisionProvider(goal, candidate, recallGuidance)
             } else {
-                decideRecallFunctionUseWithSmallModel(goal, candidate, recallGuidance)
+                fillRecallFunctionArgumentsWithSmallModel(goal, candidate, recallGuidance)
             }
         }.getOrElse { error ->
-            RecallFunctionDecision.reject("decision_model_failed:${error.message.orEmpty()}")
-        }
-        if (!decision.useFunction) {
-            if (decision.missingRequiredArguments.isNotEmpty()) {
-                val pending = PendingOmniFlowFunctionCall(
-                    functionId = functionId,
-                    goal = goal,
-                    arguments = decision.arguments,
-                    requiredArgumentNames = decision.missingRequiredArguments,
-                    allArgumentNames = functionArgumentNames(candidate),
-                )
-                taskState.pendingOmniFlowFunctionCall = pending
-                taskState.status = TaskStatus.WAITING_INPUT
-                taskState.waitingQuestion = buildOmniFlowArgumentQuestion(functionId, pending)
-                taskState.message = "等待 OmniFlow Function 参数"
-                taskState.executionRoute = "omniflow_lookup_waiting_arguments:$functionId"
-                taskState.addChatMessage("[AGENT QUESTION] ${taskState.waitingQuestion}")
-                taskState.markStateChanged()
-                emitProgress(
-                    progressReporter,
-                    taskState.taskId,
-                    taskState.status,
-                    "等待参数",
-                    mapOf(
-                        "summary" to "召回 Function 命中，但需要补充参数",
-                        "function_id" to functionId,
-                        "arguments" to decision.arguments,
-                        "missingArguments" to decision.missingRequiredArguments,
-                        "argumentDecisionReason" to decision.reason,
-                    )
-                )
-                return taskState.toOutcome(
-                    status = VlmToolOutcomeStatus.WAITING_INPUT,
-                    message = taskState.waitingQuestion ?: "请补充 OmniFlow Function 参数。",
-                    waitingQuestion = taskState.waitingQuestion,
-                )
-            }
-            taskState.addChatMessage(
-                "[SYSTEM] OmniFlow recall candidate $functionId was rejected before local execution: ${decision.reason}"
+            RecallFunctionArgumentFill.failed(
+                reason = "argument_fill_model_failed:${error.message.orEmpty()}",
+                missingRequiredArguments = requiredFunctionArgumentNames(candidate),
             )
-            return null
         }
-        val functionArguments = decision.arguments
+        if (argumentFill.missingRequiredArguments.isNotEmpty()) {
+            val pending = PendingOmniFlowFunctionCall(
+                functionId = functionId,
+                goal = goal,
+                arguments = argumentFill.arguments,
+                requiredArgumentNames = argumentFill.missingRequiredArguments,
+                allArgumentNames = functionArgumentNames(candidate),
+            )
+            taskState.pendingOmniFlowFunctionCall = pending
+            taskState.status = TaskStatus.WAITING_INPUT
+            taskState.waitingQuestion = buildOmniFlowArgumentQuestion(functionId, pending)
+            taskState.message = "等待 OmniFlow Function 参数"
+            taskState.executionRoute = "omniflow_lookup_waiting_arguments:$functionId"
+            taskState.addChatMessage("[AGENT QUESTION] ${taskState.waitingQuestion}")
+            taskState.markStateChanged()
+            emitProgress(
+                progressReporter,
+                taskState.taskId,
+                taskState.status,
+                "等待参数",
+                mapOf(
+                    "summary" to "召回 Function 命中，但需要补充参数",
+                    "function_id" to functionId,
+                    "arguments" to argumentFill.arguments,
+                    "missingArguments" to argumentFill.missingRequiredArguments,
+                    "argumentFillReason" to argumentFill.reason,
+                )
+            )
+            return taskState.toOutcome(
+                status = VlmToolOutcomeStatus.WAITING_INPUT,
+                message = taskState.waitingQuestion ?: "请补充 OmniFlow Function 参数。",
+                waitingQuestion = taskState.waitingQuestion,
+            )
+        }
+        val functionArguments = argumentFill.arguments
         if (recallHitRequiresArguments(recallGuidance)) {
             taskState.addChatMessage(
-                "[SYSTEM] OmniFlow recall hit $functionId requires arguments; small decision model returned arguments before Function execution: ${functionArguments.keys.joinToString(",")}"
+                "[SYSTEM] OmniFlow recall hit $functionId requires arguments; argument fill returned fields before Function execution: ${functionArguments.keys.joinToString(",")}"
             )
         }
         emitProgress(
@@ -1300,7 +1307,7 @@ object VlmToolCoordinator {
                 "omniflowRecallDecision" to recallGuidance.decision,
                 "function_id" to functionId,
                 "arguments" to functionArguments,
-                "argumentDecisionReason" to decision.reason,
+                "argumentFillReason" to argumentFill.reason,
             )
         )
         val result = runCatching { runFunction(functionId, functionArguments) }.getOrElse { error ->
@@ -1313,37 +1320,38 @@ object VlmToolCoordinator {
         }
         val success = result["success"] == true && result["fallback"] != true
         if (!success) {
-            val fallbackGuidance = buildRecallFallbackGuidance(
-                functionId = functionId,
-                result = result
-            )
-            if (fallbackGuidance.isNotBlank()) {
-                val currentRequest = taskState.vlmRequest ?: VlmTaskRequest(
-                    goal = goal,
-                    needSummary = taskState.needSummary
-                )
-                taskState.vlmRequest = currentRequest.withRecallGuidance(fallbackGuidance)
+            val reason = recallFallbackReason(result)
+            taskState.status = TaskStatus.ERROR
+            taskState.message = "召回 Function 执行失败: $reason"
+            taskState.errorCode = firstNonBlank(result["error_code"], result["errorCode"]).ifBlank {
+                "OMNIFLOW_FUNCTION_FAILED"
             }
-            taskState.executionRoute = "vlm_with_omniflow_recall_fallback:${recallGuidance.decision}"
+            taskState.pendingOmniFlowFunctionCall = null
+            McpTaskManager.clearPendingOmniFlowClarifyTask(taskState.taskId)
+            taskState.executionRoute = "omniflow_recall_failed:$functionId"
             taskState.addChatMessage(
-                "[SYSTEM] OmniFlow recall hit $functionId could not complete locally; continuing with VLM. " +
-                    "reason=${recallFallbackReason(result)}; latest page recovery injected=${fallbackGuidance.isNotBlank()}"
+                "[SYSTEM] OmniFlow recall hit $functionId failed in local replay: $reason. " +
+                    "One-step online repair must be handled inside the Function runner; the normal VLM will not reselect or call hidden Functions."
             )
             taskState.markStateChanged()
             emitProgress(
                 progressReporter,
                 taskState.taskId,
                 taskState.status,
-                "召回回退",
+                "执行失败",
                 mapOf(
-                    "summary" to "召回 Function 未能本地完成，继续视觉执行",
+                    "summary" to taskState.message,
                     "function_id" to functionId,
                     "arguments" to functionArguments,
                     "omniflowRecallResult" to result,
-                    "omniflowRecallFallbackGuidanceInjected" to fallbackGuidance.isNotBlank(),
                 )
             )
-            return null
+            return taskState.toOutcome(
+                status = VlmToolOutcomeStatus.ERROR,
+                message = taskState.message,
+                errorMessage = taskState.message,
+                errorCode = taskState.errorCode,
+            )
         }
 
         val runId = result["run_id"]?.toString()?.trim().orEmpty()
@@ -1567,18 +1575,20 @@ object VlmToolCoordinator {
         )
     }
 
-    private suspend fun decideRecallFunctionUseWithSmallModel(
+    private suspend fun fillRecallFunctionArgumentsWithSmallModel(
         goal: String,
         candidate: Map<String, Any?>,
         recallGuidance: VlmRecallGuidance,
-    ): RecallFunctionDecision {
+    ): RecallFunctionArgumentFill {
         val allNames = functionArgumentNames(candidate)
         val requiredNames = requiredFunctionArgumentNames(candidate).ifEmpty {
             if (candidateRequiresArguments(candidate)) allNames.take(1) else emptyList()
         }
+        if (allNames.isEmpty() && !candidateRequiresArguments(candidate)) {
+            return RecallFunctionArgumentFill(reason = "no_public_arguments")
+        }
         if (candidateRequiresArguments(candidate) && allNames.isEmpty()) {
-            return RecallFunctionDecision(
-                useFunction = false,
+            return RecallFunctionArgumentFill(
                 arguments = emptyMap(),
                 missingRequiredArguments = listOf(GENERIC_ARGUMENT_NAME),
                 reason = "argument_schema_missing",
@@ -1586,50 +1596,50 @@ object VlmToolCoordinator {
         }
         val raw = HttpController.postLLMRequest(
             RECALL_DECISION_MODEL,
-            buildRecallFunctionDecisionPrompt(
+            buildRecallFunctionArgumentFillPrompt(
                 goal = goal,
                 candidate = candidate,
                 recallGuidance = recallGuidance,
             ),
             responseJsonObject = true,
         ).message
-        val decision = parseRecallFunctionDecision(raw)
-            ?: return RecallFunctionDecision.reject("decision_model_unparseable")
-        if (!decision.useFunction) return decision
+        val fill = parseRecallFunctionArgumentFill(raw)
+            ?: return RecallFunctionArgumentFill.failed(
+                reason = "argument_fill_model_unparseable",
+                missingRequiredArguments = requiredNames,
+            )
         val arguments = if (allNames.isEmpty()) {
             emptyMap()
         } else {
-            decision.arguments.filterKeys { it in allNames }
+            fill.arguments.filterKeys { it in allNames }
         }
         val missing = requiredNames.filter { name -> isBlankArgumentValue(arguments[name]) }
         return if (missing.isEmpty()) {
-            RecallFunctionDecision(
-                useFunction = true,
+            RecallFunctionArgumentFill(
                 arguments = arguments,
-                reason = decision.reason.ifBlank { "decision_model_accept" },
+                reason = fill.reason.ifBlank { "argument_fill_model_completed" },
             )
         } else {
-            RecallFunctionDecision(
-                useFunction = false,
+            RecallFunctionArgumentFill(
                 arguments = arguments,
                 missingRequiredArguments = missing,
-                reason = decision.reason.ifBlank { "missing_required_arguments" },
+                reason = fill.reason.ifBlank { "missing_required_arguments" },
             )
         }
     }
 
-    private fun buildRecallFunctionDecisionPrompt(
+    private fun buildRecallFunctionArgumentFillPrompt(
         goal: String,
         candidate: Map<String, Any?>,
         recallGuidance: VlmRecallGuidance,
     ): String = buildString {
-        appendLine("Decide whether a recalled OmniFlow Function can achieve the current user goal.")
+        appendLine("OmniFlow runtime gate already selected this Function for local replay.")
+        appendLine("Do not decide whether to use the Function. Do not reject it.")
         appendLine("Return only one JSON object with keys:")
-        appendLine("""{"use_function":true|false,"arguments":{},"reason":"short reason"}""")
-        appendLine("Use the Function only when executing it is enough to make progress toward the goal now.")
-        appendLine("If it does not match, return use_function=false.")
+        appendLine("""{"arguments":{},"missing_required_arguments":[],"reason":"short reason"}""")
         appendLine("If parameters are needed and can be inferred from the goal, put them in arguments.")
-        appendLine("If required parameters cannot be inferred, leave them missing; the app will ask the user.")
+        appendLine("If required parameters cannot be inferred, list their public names in missing_required_arguments; the app will ask the user.")
+        appendLine("Only fill public business parameters from input_schema. Never expose or invent internal fields like package_name, target_description, x, y, selector, node_id, or resource_id.")
         appendLine()
         appendLine("User goal:")
         appendLine(goal.take(1000))
@@ -1658,27 +1668,19 @@ object VlmToolCoordinator {
             .entries
             .joinToString("\n") { (key, value) -> "$key=$value" }
 
-    private fun parseRecallFunctionDecision(raw: String): RecallFunctionDecision? {
-        val decisionMap = extractJsonObjectMap(raw).takeIf { it.isNotEmpty() } ?: return null
-        val useFunction = boolValue(
-            decisionMap["use_function"]
-                ?: decisionMap["useFunction"]
-                ?: decisionMap["execute"]
-                ?: decisionMap["accepted"]
-        )
-        val arguments = mapValue(decisionMap["arguments"])
+    private fun parseRecallFunctionArgumentFill(raw: String): RecallFunctionArgumentFill? {
+        val fillMap = extractJsonObjectMap(raw).takeIf { it.isNotEmpty() } ?: return null
+        val arguments = mapValue(fillMap["arguments"])
         val reason = firstNonBlank(
-            decisionMap["reason"],
-            decisionMap["reject_reason"],
-            decisionMap["message"],
+            fillMap["reason"],
+            fillMap["message"],
         )
         val missing = listValue(
-            decisionMap["missing_required_arguments"]
-                ?: decisionMap["missingRequiredArguments"]
+            fillMap["missing_required_arguments"]
+                ?: fillMap["missingRequiredArguments"]
         )
             .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
-        return RecallFunctionDecision(
-            useFunction = useFunction,
+        return RecallFunctionArgumentFill(
             arguments = arguments,
             missingRequiredArguments = missing,
             reason = reason,
@@ -1846,18 +1848,18 @@ object VlmToolCoordinator {
                 result["result"]
                     ?: result["message"]
                     ?: result["summary"]
-                    ?: "Function tool executed."
+                    ?: "Function replay executed."
                 ),
         )
         return buildString {
-            appendLine("OmniFlow already selected and executed one Function tool before this VLM turn.")
+            appendLine("OmniFlow runtime already selected and executed one Function replay before this VLM turn.")
             appendLine("Treat this as the previous tool result, not as automatic task completion.")
             appendLine("Continue from the fresh page observation. If the user goal is now complete, call finished; otherwise choose the next tool.")
             appendLine("Do not call the same Function again unless the fresh page clearly shows it is still needed.")
             appendLine(
                 JSONObject(
                     linkedMapOf(
-                        "tool_name" to functionId,
+                        "function_id" to functionId,
                         "arguments" to arguments,
                         "tool_result" to toolResult,
                     )
@@ -1876,82 +1878,6 @@ object VlmToolCoordinator {
             }
         }
         return result
-    }
-
-    private fun buildRecallFallbackGuidance(
-        functionId: String,
-        result: Map<String, Any?>,
-    ): String {
-        val failedStep = findFailedRecallStep(result)
-        val recovery = findRecoveryPayload(result)
-        val packageName = firstNonBlank(recovery?.get("effective_package"), recovery?.get("package_name"))
-        val activityName = firstNonBlank(recovery?.get("activity_name"))
-        val reason = recallFallbackReason(result)
-        return buildString {
-            append("OmniFlow 本地重放未完成，下一步必须回到 VLM 视觉执行。")
-            append("\n失败 Function：").append(functionId)
-            append("\n失败原因：").append(reason)
-            if (failedStep != null) {
-                append("\n失败步骤：")
-                append(firstNonBlank(failedStep["step_id"], failedStep["index"], failedStep["tool"]).ifBlank { "unknown" })
-                firstNonBlank(failedStep["tool"]).takeIf { it.isNotBlank() }?.let {
-                    append(" tool=").append(it)
-                }
-                firstNonBlank(failedStep["summary"], failedStep["error_message"], failedStep["omniflow_fail_reason"])
-                    .takeIf { it.isNotBlank() }
-                    ?.let { append(" summary=").append(it.take(500)) }
-            }
-            if (packageName.isNotBlank()) append("\n失败后重新获取的当前包名：").append(packageName)
-            if (activityName.isNotBlank()) append("\n失败后重新获取的 Activity：").append(activityName)
-            val xmlChars = recovery?.get("observation_xml")?.toString()?.length ?: 0
-            append("\n失败后页面已重新观测：raw_xml_available=").append(xmlChars > 0)
-            append(" raw_xml_chars=").append(xmlChars)
-            append(" raw_xml_model_visible=false")
-            append("\n请基于最新截图和 compact indexed evidence 重新判断下一步，不要复用失败重放里的旧坐标、旧页面或旧节点。")
-        }
-    }
-
-    private fun findFailedRecallStep(result: Map<String, Any?>): Map<String, Any?>? =
-        findFailedStepInAny(result)
-
-    private fun findFailedStepInAny(raw: Any?): Map<String, Any?>? {
-        val map = mapValue(raw)
-        if (map.isEmpty()) return null
-        val nested = listOf("step_results", "steps", "path")
-            .asSequence()
-            .flatMap { key -> listValue(map[key]).asReversed().asSequence() }
-            .mapNotNull { findFailedStepInAny(it) }
-            .firstOrNull()
-        if (nested != null) return nested
-        listOf("oob_result", "result", "nested_run")
-            .asSequence()
-            .mapNotNull { key -> findFailedStepInAny(map[key]) }
-            .firstOrNull()
-            ?.let { return it }
-        return map.takeIf { it["success"] == false }
-    }
-
-    private fun findRecoveryPayload(result: Map<String, Any?>): Map<String, Any?>? {
-        val failedStepRecovery = mapValue(findFailedRecallStep(result)?.get("recovery"))
-            .takeIf { it.isNotEmpty() }
-        if (failedStepRecovery != null) return failedStepRecovery
-        return findRecoveryInAny(result)
-    }
-
-    private fun findRecoveryInAny(raw: Any?): Map<String, Any?>? {
-        val map = mapValue(raw)
-        if (map.isEmpty()) return null
-        mapValue(map["recovery"]).takeIf { it.isNotEmpty() }?.let { return it }
-        listOf("step_results", "steps", "path")
-            .asSequence()
-            .flatMap { key -> listValue(map[key]).asReversed().asSequence() }
-            .mapNotNull { findRecoveryInAny(it) }
-            .firstOrNull()
-            ?.let { return it }
-        return listOf("oob_result", "result", "nested_run")
-            .asSequence()
-            .mapNotNull { key -> findRecoveryInAny(map[key]) }
-            .firstOrNull()
     }
 
     private fun mapValue(raw: Any?): Map<String, Any?> =
@@ -2063,12 +1989,12 @@ object VlmToolCoordinator {
             is RecordAction -> linkedMapOf("tool" to name, "content" to content)
         }.filterValues { it != null }
 
-    private fun callToolFunctionDiagnostics(functionNames: Collection<String>): Map<String, String> {
+    private fun recalledFunctionDiagnostics(functionNames: Collection<String>): Map<String, String> {
         val names = functionNames.mapNotNull { it.trim().takeIf(String::isNotEmpty) }
         if (names.isEmpty()) return emptyMap()
         return linkedMapOf(
-            "omniflow_call_tool_function_count" to names.size.toString(),
-            "omniflow_call_tool_function_ids" to names.joinToString(","),
+            "omniflow_recalled_function_count" to names.size.toString(),
+            "omniflow_recalled_function_ids" to names.joinToString(","),
         )
     }
 
@@ -2201,15 +2127,4 @@ object VlmToolCoordinator {
         return false
     }
 
-    private fun VlmTaskRequest.withRecallGuidance(guidance: String): VlmTaskRequest {
-        val trimmed = guidance.trim().take(MAX_PRE_RUN_RECALL_GUIDANCE_CHARS)
-        if (trimmed.isEmpty()) return this
-        val existing = stepSkillGuidance.trim()
-        return copy(
-            stepSkillGuidance = listOf(existing, trimmed)
-                .filter { it.isNotBlank() }
-                .joinToString("\n\n")
-                .take(MAX_PRE_RUN_RECALL_GUIDANCE_CHARS)
-        )
-    }
 }

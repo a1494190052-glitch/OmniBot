@@ -35,14 +35,33 @@ class VlmRecallGuidanceBuilderTest {
             )
         )
 
-        assertTrue(guidance.contains("OmniFlow UDEG node skill-like decision context"))
-        assertTrue(guidance.contains("path=page match -> UDEG node -> node skill-like decision context -> VLM/tool decision"))
-        assertTrue(guidance.contains("tool_execution_policy=direct_execution_requested_by_caller"))
-        assertTrue(guidance.contains("tool=open_network_settings"))
-        assertTrue(guidance.contains("tool=open_network_settings"))
+        assertTrue(guidance.contains("OmniFlow recall checked for this VLM step."))
+        assertTrue(guidance.contains("function_reuse_policy=runtime_recall_replay"))
+        assertTrue(guidance.contains("model_must_not_emit_call_tool=true"))
+        assertTrue(guidance.contains("Function hits are filled and replayed locally"))
+        assertFalse(guidance.contains("function=open_network_settings"))
+        assertFalse(guidance.contains("open_network_settings"))
+        assertFalse(guidance.contains("argument_policy"))
         assertFalse(guidance.contains("step: 1. open_app"))
         assertFalse(guidance.contains("任务已完成"))
         assertFalse(guidance.contains("current task is complete"))
+
+        val debug = VlmRecallGuidanceBuilder.renderDebugGuidance(
+            mapOf(
+                "success" to true,
+                "decision" to "hit",
+                "decision_policy" to mapOf(
+                    "mode" to "direct_execution_allowed",
+                    "direct_hit_requested" to true,
+                ),
+                "hit" to mapOf(
+                    "function_id" to "open_network_settings",
+                    "score" to 0.99,
+                    "description" to "open network settings",
+                ),
+            )
+        )
+        assertTrue(debug.contains("function=open_network_settings"))
     }
 
     @Test
@@ -64,11 +83,13 @@ class VlmRecallGuidanceBuilderTest {
             )
         )
 
-        assertTrue(guidance.contains("tool_execution_policy=optional_candidates_only"))
-        assertTrue(guidance.contains("do_not_auto_execute=true"))
-        assertTrue(guidance.contains("preferred_call_tool: {\"name\":\"call_tool\",\"arguments\":{\"function_id\":\"open_network_settings\",\"arguments\":{}}}"))
-        assertTrue(guidance.contains("tool=open_network_settings"))
-        assertFalse(guidance.contains("tool_execution_policy=direct_execution_requested_by_caller"))
+        assertTrue(guidance.contains("function_reuse_policy=runtime_context_only"))
+        assertTrue(guidance.contains("model_must_choose_normal_ui_action_on_fallback=true"))
+        assertFalse(guidance.contains("preferred_call_tool"))
+        assertFalse(guidance.contains("\"name\":\"call_tool\""))
+        assertFalse(guidance.contains("function=open_network_settings"))
+        assertFalse(guidance.contains("open_network_settings"))
+        assertFalse(guidance.contains("function_reuse_policy=runtime_recall_replay"))
     }
 
     @Test
@@ -114,8 +135,9 @@ class VlmRecallGuidanceBuilderTest {
         )
 
         assertTrue(guidance.contains("decision=recall"))
-        assertTrue(guidance.contains("node 1: node_id=udeg_node_settings"))
-        assertTrue(guidance.contains("Use Settings node context before choosing actions."))
+        assertTrue(guidance.contains("page_context=matched_current_page_context_available"))
+        assertFalse(guidance.contains("node 1: node_id=udeg_node_settings"))
+        assertFalse(guidance.contains("Use Settings node context before choosing actions."))
     }
 
     @Test
@@ -149,8 +171,10 @@ class VlmRecallGuidanceBuilderTest {
             )
         )
 
-        assertTrue(guidance.contains("decision_policy: mode=node_skill_context_only"))
-        assertTrue(guidance.contains("capability 1: type=function scope=udeg_node tool=open_network_settings"))
+        assertTrue(guidance.contains("decision=recall"))
+        assertTrue(guidance.contains("function_reuse=runtime_only"))
+        assertFalse(guidance.contains("capability 1: type=function scope=udeg_node function=open_network_settings"))
+        assertFalse(guidance.contains("open_network_settings"))
         assertFalse(guidance.contains("capability_step: 1. click"))
         assertNull(
             VlmRecallGuidanceBuilder.directHitFunctionId(
@@ -192,10 +216,11 @@ class VlmRecallGuidanceBuilderTest {
             )
         )
 
-        assertTrue(guidance.contains("tool_execution_policy=optional_candidates_only"))
-        assertTrue(guidance.contains("do_not_auto_execute=true"))
-        assertTrue(guidance.contains("preferred_call_tool: {\"name\":\"call_tool\",\"arguments\":{\"function_id\":\"open_network_settings\",\"arguments\":{}}}"))
-        assertTrue(guidance.contains("1. tool=open_network_settings"))
+        assertTrue(guidance.contains("function_reuse_policy=runtime_context_only"))
+        assertTrue(guidance.contains("model_must_choose_normal_ui_action_on_fallback=true"))
+        assertFalse(guidance.contains("preferred_call_tool"))
+        assertFalse(guidance.contains("1. function=open_network_settings"))
+        assertFalse(guidance.contains("open_network_settings"))
         assertFalse(guidance.contains("step:"))
         assertFalse(guidance.contains("segment"))
         assertFalse(guidance.contains("start_step_index"))
@@ -253,13 +278,13 @@ class VlmRecallGuidanceBuilderTest {
         )
 
         assertEquals("", guidance)
-        assertFalse(guidance.contains("tool=open_settings_from_history"))
+        assertFalse(guidance.contains("function=open_settings_from_history"))
         assertFalse(guidance.contains("function_catalog"))
         assertFalse(guidance.contains("step:"))
     }
 
     @Test
-    fun `catalog function candidate renders preferred call_tool guidance`() {
+    fun `catalog function candidate renders runtime recall guidance only`() {
         val guidance = VlmRecallGuidanceBuilder.renderGuidance(
             mapOf(
                 "success" to true,
@@ -286,10 +311,12 @@ class VlmRecallGuidanceBuilderTest {
             )
         )
 
-        assertTrue(guidance.contains("preferred_call_tool"))
-        assertTrue(guidance.contains("\"name\":\"call_tool\""))
-        assertTrue(guidance.contains("open_settings_from_history"))
-        assertTrue(guidance.contains("mode=function_catalog_context"))
+        assertFalse(guidance.contains("preferred_call_tool"))
+        assertFalse(guidance.contains("\"name\":\"call_tool\""))
+        assertFalse(guidance.contains("function=open_settings_from_history"))
+        assertFalse(guidance.contains("open_settings_from_history"))
+        assertFalse(guidance.contains("mode=function_catalog_context"))
+        assertTrue(guidance.contains("function_reuse=runtime_only"))
     }
 
     @Test
@@ -385,7 +412,7 @@ class VlmRecallGuidanceBuilderTest {
     }
 
     @Test
-    fun `parameterized hit is rendered for agent filled function run but not pre-executed empty`() {
+    fun `parameterized hit is runtime executable after argument fill`() {
         val payload = mapOf(
             "success" to true,
             "decision" to "hit",
@@ -420,13 +447,26 @@ class VlmRecallGuidanceBuilderTest {
 
         val guidance = VlmRecallGuidanceBuilder.renderGuidance(payload)
 
-        assertNull(VlmRecallGuidanceBuilder.fromAgentPayload(payload, allowDirectExecutionDecision = true).directHitFunctionId)
-        assertTrue(guidance.contains("tool=send_message"))
-        assertTrue(guidance.contains("preferred_call_tool: call_tool(function_id=\"send_message\", arguments=<fill required fields from the user request>)"))
-        assertTrue(guidance.contains("argument_policy: requires_arguments=true"))
-        assertTrue(guidance.contains("arguments={contact:string required, message:string required}"))
-        assertTrue(guidance.contains("function_profile: purpose=Send a chat message"))
-        assertTrue(guidance.contains("parameterized_hits_may_be_called_by_agent_or_vlm_with_filled_arguments=true"))
+        assertEquals(
+            "send_message",
+            VlmRecallGuidanceBuilder.fromAgentPayload(
+                payload,
+                allowDirectExecutionDecision = true
+            ).directHitFunctionId
+        )
+        assertFalse(guidance.contains("function=send_message"))
+        assertFalse(guidance.contains("send_message"))
+        assertFalse(guidance.contains("preferred_call_tool"))
+        assertFalse(guidance.contains("call_tool(function_id=\"send_message\""))
+        assertFalse(guidance.contains("argument_policy: requires_arguments=true"))
+        assertFalse(guidance.contains("arguments={contact:string required, message:string required}"))
+        assertFalse(guidance.contains("function_profile: purpose=Send a chat message"))
+
+        val debug = VlmRecallGuidanceBuilder.renderDebugGuidance(payload)
+        assertTrue(debug.contains("function=send_message"))
+        assertTrue(debug.contains("argument_policy: requires_arguments=true"))
+        assertTrue(debug.contains("arguments={contact:string required, message:string required}"))
+        assertTrue(debug.contains("function_profile: purpose=Send a chat message"))
     }
 
     @Test
@@ -581,8 +621,8 @@ class VlmRecallGuidanceBuilderTest {
         val base = "existing guidance ".repeat(120)
         val recall = """
             [[OOB_OMNIFLOW_STEP_RECALL_START]]
-            preferred_call_tool: {"name":"call_tool","arguments":{"function_id":"open_bluetooth","arguments":{}}}
-            1. tool=open_bluetooth score=0.99 description=open bluetooth settings
+            function_reuse_policy=runtime_context_only
+            fallback_policy=if this turn reaches the VLM, output exactly one ordinary UI action for the current screen.
             [[OOB_OMNIFLOW_STEP_RECALL_END]]
         """.trimIndent()
 
@@ -593,8 +633,10 @@ class VlmRecallGuidanceBuilderTest {
         )
 
         assertTrue(merged.startsWith("[[OOB_OMNIFLOW_STEP_RECALL_START]]"))
-        assertTrue(merged.contains("preferred_call_tool"))
-        assertTrue(merged.contains("\"name\":\"call_tool\""))
+        assertTrue(merged.contains("fallback_policy="))
+        assertFalse(merged.contains("function=open_bluetooth"))
+        assertFalse(merged.contains("preferred_call_tool"))
+        assertFalse(merged.contains("\"name\":\"call_tool\""))
         assertTrue(merged.length <= 220)
         assertFalse(merged.startsWith("existing guidance"))
     }

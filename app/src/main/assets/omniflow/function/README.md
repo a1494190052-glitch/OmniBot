@@ -124,7 +124,8 @@ helper with mixed semantics.
 `OobOmniFlowToolkitService` owns the agent/MCP tool facade:
 
 - parse public tool arguments
-- expose recall, `call_tool` execution, register, update, delete, and clear
+- expose recall, register, update, delete, clear, RunLog conversion, and
+  internal diagnostic Function execution
 - use `OobFunctionCallTiming` for Function call timing payloads
 - route all Function storage operations through `OobFunctionRepository`
 - route Function recall and direct-hit decisions through
@@ -138,22 +139,21 @@ helper with mixed semantics.
 
 - expose the public MCP schema for OOB tools, including Function tools
 - validate MCP arguments before dispatching into the agent/tool runtime
-- route Function execution through `call_tool(function_id, arguments)`
+- route explicit diagnostic Function execution through the internal Function runner
 - never implement Function storage, recall, update, or replay policy
 
 `OobFunctionSkillProfile` owns the native Function-management skill profile:
 
 - expose the small static tool set used by `oob-function-management`
-- expose dynamic registered Functions as model tools when the feature flag is on
+- expose registered Functions as management assets, not normal VLM action tools
 - build compact prompt candidates for agent tool selection
 - never execute Functions or mutate Function specs
 
 `OobFunctionToolNames` owns canonical in-app agent tool names for Function and
 RunLog lifecycle:
 
-- define `oob_function_*`, `update_function`, `oob_run_log_*`, and `call_tool`
-  names used by the native skill profile, OOB Function handler, and MCP OOB
-  Function schema
+- define `oob_function_*`, `update_function`, and `oob_run_log_*` lifecycle
+  names used by the native skill profile and MCP OOB Function schema
 - keep replay-step executor/tool taxonomy in `RunLogReplayPolicy`
 - never own tool descriptions, schemas, execution, recall, update, or replay
   behavior
@@ -322,8 +322,8 @@ When adding or migrating a generic agent tool name:
 - read current page/package context for Function recall
 - ask `OobUdegNodeStore` for page/node matches
 - rank attached Function capabilities against the agent goal
-- expose recalled Functions as candidates/tools; normal online execution does
-  not auto-run recall hits
+- expose recalled Functions as runtime diagnostic candidates; normal VLM output
+  does not call them as tools
 - compact recall payloads for normal agent use while preserving debug mode
 - share mechanical Function payload coercion with VLM recall/page-context
   guidance through `OobFunctionJson`
@@ -333,15 +333,15 @@ When adding or migrating a generic agent tool name:
 - load and materialize the requested Function
 - validate missing required arguments
 - execute fixed replay through `OobFunctionToolHandler`
-- return compact failure or VLM-continuation results when deterministic replay
+- return compact failure or online-repair results when deterministic replay
   cannot execute the current step
 - keep `Function.steps` as the only pending sequence. OmniFlow replay should
   re-localize and attempt each active step in order; it must not skip action
   steps because a terminal postcondition appears satisfied or because the page
   seems to have advanced. If the current step cannot be executed, return
   `success=false` with a compact `{success, result}` payload and
-  `vlm_step_required=true`; the next fresh VLM step handles only the current
-  page state.
+  `online_repair_required=true`; the repair action may address only the current
+  failed step and must not reselect a Function.
 
 `OobFunctionRunner` owns runtime execution startup:
 
@@ -399,13 +399,13 @@ primitive local action execution:
 - keep main-thread UI calls outside the deterministic step executor
 - skip nested Function calls so only the top-level replay owns the overlay
 
-`OobFunctionAgentFallbackController` owns legacy VLM continuation context:
+`OobFunctionAgentFallbackController` owns bounded online repair context:
 
-- build continuation prompts from the failed step, materialized args, and recovery
+- build one-step repair context from the failed step, materialized args, and recovery
   snapshot
 - refetch the current page after deterministic replay failures
-- shape the compact `vlm_step_required` prompt/result that the next `vlm_task`
-  turn may consume
+- shape the compact `online_repair_required` result that the runtime may use for
+  one ordinary UI action
 - keep recovery text outside the replay loop; it must not start a hidden Agent or
   VLM task by itself
 
@@ -440,7 +440,7 @@ primitive local action execution:
 - resolve `call_tool` target Function/tool names and forwarded arguments
 - convert Function targets into nested reusable Function replay handoffs
 - delegate ordinary tool targets through `OobFunctionToolDelegationExecutor`
-- return VLM continuation payloads when a live tool router is required
+- return online repair payloads when a live tool router is required
 - keep `call_tool` target policy outside the main replay loop
 
 `OobFunctionNestedFunctionExecutor` owns nested reusable Function execution:
@@ -484,7 +484,7 @@ operation.
 ```text
 Agent/MCP tool surface
   -> McpToolDefinitions / McpToolExecutors # external MCP schema/argument adapter
-  -> OobFunctionSkillProfile # Function-management profile and call_tool candidates
+  -> OobFunctionSkillProfile # Function-management profile and runtime recall metadata
       -> OobFunctionSchemaBuilder # Function spec -> call_tool argument schema
   -> OobOmniFlowToolkitService
       -> OobFunctionRepository       # storage/index/source bindings
@@ -502,13 +502,13 @@ Agent/MCP tool surface
       -> OobFunctionRecallService    # page/node recall and direct-hit policy
           -> OobFunctionJson # shared value coercion for Function payloads
           -> OobUdegNodeStore        # page/node recall index
-      -> VLM recall/page context guidance # render Function candidates for live VLM prompts
+      -> VLM recall/page context guidance # render runtime-safe recall hints
           -> OobFunctionJson # shared value coercion for Function payloads
       -> OobFunctionCallTiming       # call-level timing merge
       -> OobFunctionRunner           # load/materialize/execute Functions
-          -> OobFunctionToolHandler  # deterministic replay and VLM continuation
+          -> OobFunctionToolHandler  # deterministic replay and online repair
               -> OobFunctionFrontendSessionController # replay overlay/session
-              -> OobFunctionAgentFallbackController # recovery prompt/VLM continuation
+              -> OobFunctionAgentFallbackController # recovery context/online repair
               -> OobFunctionToolHandler # replay/call_tool args
               -> OobFunctionStepClassifier # replay step-shape routing
               -> OobFunctionToolDelegationExecutor # live tool delegation bridge
@@ -589,8 +589,8 @@ Keep these pieces separate:
 - `OobFunctionToolHandler` and `UIStepExecutor`: runtime step execution
 - `OobFunctionFrontendSessionController`: top-level replay overlay lifecycle
   and stop signal handling
-- `OobFunctionAgentFallbackController`: failed-step recovery snapshots,
-  continuation prompts, and optional VLM continuation calls
+- `OobFunctionAgentFallbackController`: failed-step recovery snapshots and
+  bounded online repair context
 - `OobFunctionToolHandler`: replay step args, `call_tool` target resolution,
   nested Function argument extraction, and metadata stripping
 - `OobFunctionStepClassifier`: skip-step detection, OmniFlow execution-tool
@@ -673,12 +673,14 @@ the same commit as the code change:
   behavior currently listed here, move the ownership bullet instead of copying
   it.
 
-Use canonical OOB Function tools in agent-facing docs:
+Use canonical OOB Function management tools in agent-facing docs:
 `oob_function_list`, `oob_function_get`, `oob_function_register`,
-`update_function`, `call_tool`, `oob_function_delete`, `oob_function_clear`,
+`update_function`, `oob_function_delete`, `oob_function_clear`,
 `oob_run_log_list`,
 `oob_run_log_get`, and `oob_run_log_convert`. In Kotlin, route lifecycle names
-through `OobFunctionToolNames`; route `call_tool` through `RunLogReplayPolicy`.
+through `OobFunctionToolNames`; keep `call_tool` only as an internal replay
+bridge in `RunLogReplayPolicy`, not as a normal model-visible Function
+execution tool.
 
 ## Helper Maintenance Audit
 
@@ -740,7 +742,7 @@ Use these owner rules when removing duplicated helper code:
   `OobFunctionToolHandler`. Do not move skip/fallback/delegation decisions into
   mechanical helper objects.
 - Function run result payload shape belongs in `OobFunctionRunResultBuilder`.
-  Runtime components may decide that a step failed, requires VLM continuation,
+  Runtime components may decide that a step failed, requires online repair,
   or was delegated, but they should call this owner for stable fields such as
   `step_id`, `executor`, `model_required`, `error_code`, and timing payloads
   instead of hand-building equivalent maps in each executor. Old per-step

@@ -6,7 +6,6 @@ import cn.com.omnimind.bot.agent.AgentToolNames
 import cn.com.omnimind.bot.omniflow.OobFunctionSchemaExport
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
 import cn.com.omnimind.bot.omniflow.OobFunctionUpdateToolSchema
-import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 
 /**
  * MCP 工具定义
@@ -35,11 +34,10 @@ Use cases:
 - Perform multi-step operations across different apps
 
 OMNIFLOW FUNCTION REUSE:
-- Online VLM observes the current page each turn, recalls matching saved Functions, and exposes them as call_tool candidates inside the VLM task.
-- A saved Function call may execute multiple phone actions and may finish only part of the goal. After its result, VLM observes the fresh page again and chooses the next tool.
-- Parameterized Functions are valid matches. The VLM fills required arguments from the user goal before calling call_tool with function_id.
+- Online VLM observes the current page, and the local runtime recalls and executes high-confidence saved Functions before ordinary VLM actions.
+- Parameterized Functions are valid matches. Argument filling and Function replay stay inside the local runtime.
 - The outer Agent should not call hidden Function replay tools. Checker handling, action transfer, and replay safety stay inside the local runner.
-- If a Function fails, the failure is returned as the tool result. The next VLM step handles the current page; the Agent should not resume hidden Function replay itself.
+- If replay needs repair, VLM fallback should produce only a normal UI action for the current step; it should not choose a saved Function itself.
 
 IMPORTANT FOR SUMMARY TASKS:
 - If the user's goal is to summarize, extract key points, or produce a report (e.g., "总结/汇总/整理/概括/提炼" or "summary/recap"),
@@ -94,7 +92,7 @@ WORKFLOW:
                 "disableOmniFlowRecall" to mapOf(
                     "type" to "boolean",
                     "default" to false,
-                    "description" to "Optional flag. Default false: inject UDEG page skill and OmniFlow Function recall candidates after each fresh VLM observe. Set true only for a strict no-recall baseline."
+                    "description" to "Optional flag. Default false: run OmniFlow Function recall/gate inside the local runtime after fresh VLM observe. Set true only for a strict no-recall baseline."
                 ),
                 "parseOnly" to mapOf(
                     "type" to "boolean",
@@ -384,23 +382,9 @@ BEHAVIOR:
         )
     )
 
-    val callToolTool = mapOf(
-        "name" to RunLogReplayPolicy.TOOL_CALL_TOOL,
-        "description" to """Call one OOB capability through the normal in-app Agent runtime, or run one saved Function by function_id. For phone UI automation, use vlm_task; recalled saved Functions are selected inside vlm_task through call_tool candidates.""".trimIndent(),
-        "inputSchema" to mapOf(
-            "type" to "object",
-            "properties" to mapOf(
-                "tool_name" to mapOf("type" to "string", "description" to "OOB or MCP tool name, for example vlm_task or file_transfer."),
-                "function_id" to mapOf("type" to "string", "description" to "Saved Function id to run. Do not also set tool_name."),
-                "arguments" to mapOf("type" to "object", "description" to "Arguments to pass to the requested tool."),
-                "goal" to mapOf("type" to "string", "description" to "Optional natural-language goal when the tool requires planning or composition.")
-            )
-        )
-    )
-
     val omniflowRecallTool = mapOf(
         "name" to "omniflow.recall",
-        "description" to """Recall by the UDEG path: page match -> UDEG node -> node skill-like decision context -> VLM/tool decision. The result is candidate context for inspection and diagnostics. Online execution should use vlm_task, where recalled Functions are selected through call_tool candidates.""".trimIndent(),
+        "description" to """Recall by the UDEG path: page match -> UDEG node -> node skill-like decision context. The result is candidate context for inspection and diagnostics. Online execution should use vlm_task; saved Function execution is selected by the local runtime, not by a direct model tool call.""".trimIndent(),
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
@@ -421,14 +405,14 @@ BEHAVIOR:
 
     val omniflowIngestRunLogTool = mapOf(
         "name" to "omniflow.ingest_run_log",
-        "description" to """Convert a successful OOB RunLog into a local manual Function asset. By default this returns or saves an agent-hidden manual Function; set register=true and agent_visible=true only when explicitly publishing it as a reusable Function candidate.""".trimIndent(),
+        "description" to """Convert a successful OOB RunLog into a local manual Function asset. By default this returns or saves an agent-hidden manual Function; set register=true only when explicitly publishing it for runtime recall.""".trimIndent(),
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
                 "run_id" to mapOf("type" to "string", "description" to "Existing OOB internal RunLog id."),
                 "run_log" to mapOf("type" to "object", "description" to "Optional inline canonical run log."),
                 "register" to mapOf("type" to "boolean", "description" to "Persist the converted manual Function. Default false."),
-                "agent_visible" to mapOf("type" to "boolean", "description" to "Publish into agent-visible reusable Function recall/tool candidates. Default false."),
+                "agent_visible" to mapOf("type" to "boolean", "description" to "Compatibility flag for older callers. Function recall/replay is runtime-owned and not exposed as model-callable tools."),
                 "auto_enrich" to mapOf("type" to "boolean", "description" to "Accepted for compatibility; OOB simple mode does deterministic local import.")
             )
         )
@@ -580,7 +564,6 @@ BEHAVIOR:
             actTool,
             fileTransferTool,
             agentRunTool,
-            callToolTool,
             omniflowRecallTool,
             omniflowIngestRunLogTool,
             omniflowExploreReplayTool,

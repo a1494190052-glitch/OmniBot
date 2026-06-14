@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://omniflow.local/schemas/oob/omniflow_checker_rule.v1.json",
+  "title": "OmniFlow Checker Rule",
+  "description": "Shared checker rule contract for Function metadata.checker_rules. Native OmniFlow reads it through OmniflowCheckerRule; Python OmniFlow adapts it into the existing TriggerSpec runtime.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["id", "condition", "action"],
+  "properties": {
+    "schema_version": {
+      "const": "omniflow.checker_rule.v1"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "enabled": {
+      "type": "boolean",
+      "default": true
+    },
+    "scope": {
+      "$ref": "#/$defs/scope"
+    },
+    "phase": {
+      "$ref": "#/$defs/phase"
+    },
+    "condition": {
+      "oneOf": [
+        {"$ref": "#/$defs/condition"},
+        {"$ref": "#/$defs/condition_name"}
+      ]
+    },
+    "action": {
+      "oneOf": [
+        {"$ref": "#/$defs/action"},
+        {"$ref": "#/$defs/action_name"}
+      ]
+    },
+    "budget": {
+      "$ref": "#/$defs/budget"
+    },
+    "priority": {
+      "type": "integer"
+    },
+    "source": {
+      "type": "string",
+      "enum": ["builtin", "function_metadata", "step_metadata", "update_function", "trigger_pool", "runtime_policy"]
+    },
+    "params": {
+      "type": "object",
+      "description": "Legacy flat-rule parameters. New rules should prefer condition/action/budget fields."
+    }
+  },
+  "$defs": {
+    "phase": {
+      "type": "string",
+      "enum": ["pre_transfer", "pre_action", "post_action"]
+    },
+    "condition_name": {
+      "type": "string",
+      "enum": [
+        "overlay_blocking",
+        "ad_blocking",
+        "permission_dialog",
+        "resolver_dialog",
+        "app_upgrade_prompt",
+        "keyboard_obscuring",
+        "package_mismatch"
+      ]
+    },
+    "action_name": {
+      "type": "string",
+      "enum": [
+        "dismiss",
+        "allow",
+        "confirm_resolver_always",
+        "hide_keyboard",
+        "open_app",
+        "wait"
+      ]
+    },
+    "string_list": {
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {"type": "string"},
+          "minItems": 1
+        },
+        {
+          "type": "string",
+          "minLength": 1
+        }
+      ]
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "function_ids": {"$ref": "#/$defs/string_list"},
+        "step_indexes": {
+          "type": "array",
+          "items": {"type": "integer", "minimum": 0}
+        },
+        "action_types": {"$ref": "#/$defs/string_list"},
+        "package_names": {"$ref": "#/$defs/string_list"}
+      }
+    },
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {"$ref": "#/$defs/condition_name"},
+        "text_any": {"$ref": "#/$defs/string_list"},
+        "resource_id_any": {"$ref": "#/$defs/string_list"},
+        "package_any": {"$ref": "#/$defs/string_list"},
+        "class_any": {"$ref": "#/$defs/string_list"},
+        "xml_contains_any": {"$ref": "#/$defs/string_list"}
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {"$ref": "#/$defs/action_name"},
+        "text_any": {"$ref": "#/$defs/string_list"},
+        "resource_id_any": {"$ref": "#/$defs/string_list"},
+        "wait_ms": {"type": "integer", "minimum": 0}
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_triggers_per_run": {"type": "integer", "minimum": 0},
+        "max_triggers_per_step": {"type": "integer", "minimum": 0},
+        "cooldown_ms": {"type": "integer", "minimum": 0}
+      }
+    }
+  },
+  "examples": [
+    {
+      "schema_version": "omniflow.checker_rule.v1",
+      "id": "dismiss_optional_overlay",
+      "enabled": true,
+      "phase": "pre_transfer",
+      "condition": {
+        "type": "overlay_blocking",
+        "text_any": ["添加到首页"]
+      },
+      "action": {
+        "type": "dismiss",
+        "text_any": ["关闭"]
+      },
+      "budget": {
+        "max_triggers_per_run": 2,
+        "max_triggers_per_step": 1
+      },
+      "priority": 100,
+      "source": "function_metadata"
+    }
+  ]
+}

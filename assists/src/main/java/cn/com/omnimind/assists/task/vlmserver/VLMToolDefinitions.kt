@@ -82,6 +82,7 @@ object VLMToolDefinitions {
     fun dynamicToolsFromDefinitions(definitions: List<JsonObject>): List<ChatCompletionTool> {
         return definitions.mapNotNull { definition ->
             val function = definition["function"] as? JsonObject ?: return@mapNotNull null
+            if (isHiddenFunctionTool(function)) return@mapNotNull null
             val name = function["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
             if (name.isBlank()) return@mapNotNull null
             ChatCompletionTool(
@@ -97,12 +98,13 @@ object VLMToolDefinitions {
     }
 
     fun dynamicFunctionToolNamesFromDefinitions(definitions: List<JsonObject>): Set<String> {
-        return definitions.mapNotNullTo(linkedSetOf()) { definition ->
-            val function = definition["function"] as? JsonObject ?: return@mapNotNullTo null
-            val toolType = function["toolType"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
-            if (!toolType.equals("oob_function", ignoreCase = true)) return@mapNotNullTo null
-            function["name"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf(String::isNotEmpty)
-        }
+        return emptySet()
+    }
+
+    private fun isHiddenFunctionTool(function: JsonObject): Boolean {
+        val toolType = function["toolType"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        val modelVisible = function["model_visible"]?.jsonPrimitive?.booleanOrNull
+        return toolType.equals("oob_function", ignoreCase = true) || modelVisible == false
     }
 
     private fun sanitizeVlmDynamicFunctionParameters(parameters: JsonObject): JsonObject {
@@ -137,8 +139,8 @@ object VLMToolDefinitions {
             append(
                 t(
                     locale,
-                    "注意：每个 tool call 的 JSON 参数必须是严格合法的 object；如需调用本轮 recall 给出的复用流程，使用 call_tool(function_id, arguments)，不要把 Function id 当成单独工具名；当 step guidance 给出 preferred_call_tool 且匹配用户目标时，优先 call_tool，不要手动重复已保存路径。swipe 优先填写 scrollable_index 和 direction。坐标字段必须是 0..1000 相对坐标，分别写入 x / y / x1 / y1 / x2 / y2，不要写成 \"x\": 827, 76 这类非法格式。系统会在执行前解码为屏幕绝对像素，本地记录始终保存绝对像素。wait 只在页面明确加载、动画或等待外部状态时使用。",
-                    "Important: every tool call JSON argument value must be a strict object. To call a recalled reusable workflow for this turn, use call_tool(function_id, arguments); do not treat the Function id as a separate tool name. When step guidance provides preferred_call_tool and it matches the user goal, prefer call_tool instead of manually repeating the saved path. For swipe prefer scrollable_index plus direction. Coordinate fields must be 0..1000 relative coordinates, written into x / y / x1 / y1 / x2 / y2 as separate scalar fields. Do not emit invalid forms such as \"x\": 827, 76. The system decodes coordinates to screen absolute pixels before execution, and local records always store absolute pixels. Use wait only when the page is clearly loading, animating, or waiting for an external state change."
+                    "注意：每个 tool call 的 JSON 参数必须是严格合法的 object；Function recall、参数填写和 replay 由本地 runtime 自动处理。当前 VLM fallback 只能输出普通 UI action，不要输出 call_tool、function_id 或隐藏 Function 工具。swipe 优先填写 scrollable_index 和 direction。坐标字段必须是 0..1000 相对坐标，分别写入 x / y / x1 / y1 / x2 / y2，不要写成 \"x\": 827, 76 这类非法格式。系统会在执行前解码为屏幕绝对像素，本地记录始终保存绝对像素。wait 只在页面明确加载、动画或等待外部状态时使用。",
+                    "Important: every tool call JSON argument value must be a strict object. Function recall, argument filling, and replay are handled automatically by the local runtime. The VLM fallback for this turn must output only ordinary UI actions; do not emit call_tool, function_id, or hidden Function tools. For swipe prefer scrollable_index plus direction. Coordinate fields must be 0..1000 relative coordinates, written into x / y / x1 / y1 / x2 / y2 as separate scalar fields. Do not emit invalid forms such as \"x\": 827, 76. The system decodes coordinates to screen absolute pixels before execution, and local records always store absolute pixels. Use wait only when the page is clearly loading, animating, or waiting for an external state change."
                 )
             )
         }

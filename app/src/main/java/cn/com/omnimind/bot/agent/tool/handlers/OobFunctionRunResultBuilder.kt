@@ -39,13 +39,13 @@ class OobFunctionRunResultBuilder {
     ): Map<String, Any?> = linkedMapOf<String, Any?>(
         "step_id" to stepId,
         "tool" to tool,
-        "executor" to "vlm_step",
+        "executor" to "omniflow_online_repair",
         "model_free" to true,
         "success" to false,
-        "model_required" to true,
-        "vlm_step_required" to true,
-        "error_code" to "OOB_VLM_CONTINUATION_REQUIRED",
-        "prompt" to prompt,
+        "online_repair_required" to true,
+        "online_repair_available" to false,
+        "error_code" to "OOB_ONLINE_REPAIR_UNAVAILABLE",
+        "repair_reason" to prompt.takeIf { it.isNotBlank() },
         "summary" to summary,
     ).apply {
         putAll(extras)
@@ -108,6 +108,9 @@ class OobFunctionRunResultBuilder {
     ): LinkedHashMap<String, Any?> {
         val successCount = stepResults.count { it["success"] != false }
         val allSuccess = stepResults.size == activeSteps.size && stepResults.none { it["success"] == false }
+        val onlineRepairRequired = stepResults.any { it["online_repair_required"] == true }
+        val onlineRepairAvailable = !onlineRepairRequired ||
+            stepResults.any { it["online_repair_required"] == true && it["online_repair_available"] == true }
         val failedStepIndex = stepResults.firstOrNull { it["success"] == false }?.get("index")
         val lastStepIndex = stepResults.lastOrNull()?.get("index")
         val currentStepIndex = failedStepIndex ?: lastStepIndex
@@ -121,7 +124,7 @@ class OobFunctionRunResultBuilder {
             "source" to "omniflow_replay",
             "run_source" to "omniflow_replay",
             "runner" to when {
-                modelRequired -> "oob_function_vlm_continuation_required"
+                onlineRepairRequired -> "oob_function_online_repair_required"
                 delegatedToolUsed -> "oob_function_mixed_runner"
                 else -> RunLogReplayPolicy.fixedReplayRunner
             },
@@ -135,6 +138,8 @@ class OobFunctionRunResultBuilder {
             "fallback_attempt" to fallbackAttempt.takeIf { it > 0 },
             "model_used" to false,
             "model_required" to modelRequired,
+            "online_repair_required" to onlineRepairRequired.takeIf { it },
+            "online_repair_available" to onlineRepairAvailable.takeIf { onlineRepairRequired },
             "delegated_tool_used" to delegatedToolUsed,
             "failed_step_index" to failedStepIndex,
             "current_step_index" to currentStepIndex,

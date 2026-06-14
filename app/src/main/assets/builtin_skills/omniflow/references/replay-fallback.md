@@ -8,14 +8,14 @@ runner evidence.
 1. Resolve the Function id.
 2. Inspect with `oob_function_get` if the Function is not already known.
 3. Fill required runtime parameters from the user request.
-4. Execute the Function only through the currently exposed runtime path: usually
-   a dynamic VLM Function tool, or an explicitly exposed internal runner in
-   debug/management flows.
+4. Execute the Function only through the currently exposed runtime path:
+   `vlm_task` runtime recall/replay for online tasks, or an explicitly exposed
+   internal runner in debug/management flows.
 5. The runtime expands it into primitive actions and executes each action
    through the same `observe -> checker -> action_transfer -> execute` loop.
 6. Inspect the real result. If the user goal is complete, report it. If this
-   Function only advanced part of the goal, continue with the next Function, VLM
-   path, or other tool.
+   Function only advanced part of the goal, continue through the next runtime
+   recall/replay decision, VLM path, or other tool.
 
 Each primitive action gets a fresh live observation. Do not infer that a later
 step is safe from an earlier page snapshot.

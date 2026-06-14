@@ -18,10 +18,9 @@ data class VlmRecallGuidance(
 /**
  * Builds online VLM guidance from OOB-native OmniFlow recall.
  *
- * VLM still observes the live screen and emits concrete actions or Function
- * tool calls for recall candidates. Normal online execution treats recall as
- * context/tool exposure only; direct local execution is reserved for explicit
- * internal diagnostics and is not part of the VLM task main path.
+ * VLM still observes the live screen and emits ordinary UI actions when online
+ * fallback is needed. Saved Function recall, argument filling, and replay are
+ * selected by the local runtime, not exposed as model-callable Function tools.
  */
 object VlmRecallGuidanceBuilder {
     fun build(
@@ -105,12 +104,47 @@ object VlmRecallGuidanceBuilder {
 
         val decisionPolicy = mapArg(payload["decision_policy"])
         val directDecision = isDirectExecutionRequested(decision, decisionPolicy)
-        val directCandidatePayload = hasDirectCandidatePayload(decision, payload)
         val nodeCandidates = listArg(payload["node_candidates"]).mapNotNull { raw ->
             mapArg(raw).takeIf { it.isNotEmpty() }
         }.take(MAX_GUIDANCE_CANDIDATES)
         val candidates = candidateList(payload).take(MAX_GUIDANCE_CANDIDATES)
-        if (candidates.isEmpty() && nodeCandidates.isEmpty()) return ""
+        val capabilityCandidates = listArg(payload["capability_candidates"])
+            .mapNotNull { raw -> mapArg(raw).takeIf { it.isNotEmpty() } }
+            .take(MAX_GUIDANCE_CANDIDATES)
+        if (candidates.isEmpty() && nodeCandidates.isEmpty() && capabilityCandidates.isEmpty()) return ""
+
+        return buildString {
+            appendLine("OmniFlow recall checked for this VLM step.")
+            appendLine("decision=$decision")
+            appendLine(functionExecutionPolicyLine(directDecision))
+            appendLine("runtime_behavior=high-confidence Function hits are filled and replayed locally before ordinary VLM fallback.")
+            appendLine("fallback_policy=if this turn reaches the VLM, output exactly one ordinary UI action for the current screen.")
+            appendLine("allowed_actions=click,input_text,swipe,press_back,press_home,open_app,wait")
+            appendLine("hidden_runtime_actions=do not select saved Functions, hidden replay tools, or task-level replanning.")
+            if (nodeCandidates.isNotEmpty()) {
+                appendLine("page_context=matched_current_page_context_available")
+            }
+            if (candidates.isNotEmpty() || capabilityCandidates.isNotEmpty()) {
+                appendLine("function_reuse=runtime_only")
+            }
+        }.trim()
+    }
+
+    internal fun renderDebugGuidance(payload: Map<String, Any?>): String {
+        if (payload["success"] != true) return ""
+        val decision = payload["decision"]?.toString()?.trim().orEmpty()
+        if (decision == "miss" || decision.isBlank()) return ""
+
+        val decisionPolicy = mapArg(payload["decision_policy"])
+        val directDecision = isDirectExecutionRequested(decision, decisionPolicy)
+        val nodeCandidates = listArg(payload["node_candidates"]).mapNotNull { raw ->
+            mapArg(raw).takeIf { it.isNotEmpty() }
+        }.take(MAX_GUIDANCE_CANDIDATES)
+        val candidates = candidateList(payload).take(MAX_GUIDANCE_CANDIDATES)
+        val capabilityCandidates = listArg(payload["capability_candidates"])
+            .mapNotNull { raw -> mapArg(raw).takeIf { it.isNotEmpty() } }
+            .take(MAX_GUIDANCE_CANDIDATES)
+        if (candidates.isEmpty() && nodeCandidates.isEmpty() && capabilityCandidates.isEmpty()) return ""
 
         return buildString {
             appendLine("OmniFlow UDEG node skill-like decision context:")
@@ -121,9 +155,6 @@ object VlmRecallGuidanceBuilder {
                 val mode = firstNonBlank(decisionPolicy["mode"])
                 val requiresDecision = firstNonBlank(decisionPolicy["requires_vlm_or_tool_decision"])
                 appendLine("decision_policy: mode=$mode requires_vlm_or_tool_decision=$requiresDecision")
-            }
-            renderPreferredCallTool(candidates.firstOrNull()).takeIf { it.isNotBlank() }?.let {
-                appendLine(it)
             }
             nodeCandidates.forEachIndexed { index, node ->
                 val nodeId = node["node_id"]?.toString()?.trim().orEmpty()
@@ -159,7 +190,7 @@ object VlmRecallGuidanceBuilder {
                 val score = candidate["score"]?.toString()?.trim().orEmpty()
                 val description = firstNonBlank(candidate["description"], candidate["name"], functionId)
                     .take(MAX_DESCRIPTION_CHARS)
-                appendLine("${index + 1}. tool=$functionId score=$score description=$description")
+                appendLine("${index + 1}. function=$functionId score=$score description=$description")
                 renderFunctionProfile(candidate).takeIf { it.isNotBlank() }?.let {
                     appendLine("   function_profile: $it")
                 }
@@ -167,9 +198,6 @@ object VlmRecallGuidanceBuilder {
                     appendLine("   argument_policy: $it")
                 }
             }
-            val capabilityCandidates = listArg(payload["capability_candidates"])
-                .mapNotNull { raw -> mapArg(raw).takeIf { it.isNotEmpty() } }
-                .take(MAX_GUIDANCE_CANDIDATES)
             capabilityCandidates.forEachIndexed { index, capability ->
                 val functionId = capability["function_id"]?.toString()?.trim().orEmpty()
                 val type = capability["capability_type"]?.toString()?.trim().orEmpty()
@@ -178,7 +206,7 @@ object VlmRecallGuidanceBuilder {
                 val description = firstNonBlank(capability["description"], capability["name"], functionId)
                     .take(MAX_DESCRIPTION_CHARS)
                 appendLine(
-                    "capability ${index + 1}: type=$type scope=$scope tool=$functionId " +
+                    "capability ${index + 1}: type=$type scope=$scope function=$functionId " +
                         "score=$score description=$description"
                 )
                 renderFunctionProfile(capability).takeIf { it.isNotBlank() }?.let {
@@ -234,32 +262,6 @@ object VlmRecallGuidanceBuilder {
         ).filterNotNull().joinToString(" ")
     }
 
-    private fun renderPreferredCallTool(candidate: Map<String, Any?>?): String {
-        if (candidate == null) return ""
-        val functionId = candidate["function_id"]?.toString()?.trim().orEmpty()
-        if (functionId.isBlank()) return ""
-        val score = firstNonBlank(candidate["score"])
-        val textScore = firstNonBlank(candidate["text_score"], candidate["textScore"])
-        val requiresArguments = requiresArguments(candidate)
-        val call = if (requiresArguments) {
-            "call_tool(function_id=\"$functionId\", arguments=<fill required fields from the user request>)"
-        } else {
-            """{"name":"call_tool","arguments":{"function_id":"${jsonEscape(functionId)}","arguments":{}}}"""
-        }
-        return buildString {
-            append("preferred_call_tool: ")
-            append(call)
-            if (score.isNotBlank() || textScore.isNotBlank()) {
-                append(" score=").append(score.ifBlank { "unknown" })
-                append(" text_score=").append(textScore.ifBlank { "unknown" })
-            }
-            append("; if this top Function matches the user goal, use call_tool before manually replaying the same GUI path.")
-        }
-    }
-
-    private fun jsonEscape(value: String): String =
-        value.replace("\\", "\\\\").replace("\"", "\\\"")
-
     private fun renderDecisionContext(decisionContext: Map<String, Any?>): String {
         if (decisionContext.isEmpty()) return ""
         val role = firstNonBlank(decisionContext["role"])
@@ -291,9 +293,9 @@ object VlmRecallGuidanceBuilder {
 
     private fun functionExecutionPolicyLine(directDecision: Boolean): String =
         if (directDecision) {
-            "tool_execution_policy=direct_execution_requested_by_caller; parameterized_hits_may_be_called_by_agent_or_vlm_with_filled_arguments=true"
+            "function_reuse_policy=runtime_recall_replay; model_must_not_emit_call_tool=true"
         } else {
-            "tool_execution_policy=optional_candidates_only; do_not_auto_execute=true; require_explicit_model_tool_selection=true; recalled_tools_may_be_called_by_agent_or_vlm_with_filled_arguments=true"
+            "function_reuse_policy=runtime_context_only; model_must_choose_normal_ui_action_on_fallback=true"
         }
 
     private fun isDirectExecutionRequested(
@@ -367,7 +369,6 @@ object VlmRecallGuidanceBuilder {
         if (score < DIRECT_HIT_MIN_SCORE) return false
         if (pageSimilarity < DIRECT_HIT_MIN_PAGE_SCORE) return false
         if (textScore < DIRECT_HIT_MIN_TEXT_SCORE) return false
-        if (requiresArguments(payload)) return false
         return true
     }
 

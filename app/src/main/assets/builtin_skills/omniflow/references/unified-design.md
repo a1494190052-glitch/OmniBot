@@ -6,8 +6,8 @@ why old replay concepts should not be reintroduced.
 ## Main Path
 
 ```text
-RunLog -> Function -> recall candidates -> VLM sees recalled Functions as call_tool candidates
-  -> VLM chooses one GUI tool or call_tool(function_id, arguments)
+RunLog -> Function -> recall candidates -> runtime gate chooses high-confidence replay
+  -> VLM fallback chooses only ordinary GUI actions when replay needs repair
   -> local runner executes checker/action-transfer/replay
   -> returns success/result
   -> next turn fresh observe decides the next tool
@@ -19,10 +19,10 @@ order. It does not maintain a hidden pending queue and does not skip middle
 steps because a later page state appears satisfied.
 
 Use one vocabulary everywhere: Function, RunLog, recall, replay, checker,
-action transfer, update, and `call_tool`.
+action transfer, update, and runtime execution.
 
 Internal graph edges for callable Functions use `kind=function_call` and execute
-through `call_tool`.
+through the local Function runner.
 
 Every executable Function step should have an agent-useful title/summary,
 canonical action, arguments, and target hints when available. Step annotation is
@@ -32,7 +32,6 @@ used by recall, VLM guidance, RunLog evidence analysis, and `update_function`.
 
 Use these names first for Function lifecycle and online execution:
 
-- `call_tool` with `function_id`
 - `vlm_task`
 - `update_function`
 - `oob_run_log_convert`
@@ -40,8 +39,9 @@ Use these names first for Function lifecycle and online execution:
 - `oob_function_get`
 
 Do not expose a separate Function guard/check tool as a normal agent-task
-decision. Function execution is `call_tool`; new Function specs and agent
-prompts should not write another execution name.
+decision. Online Function execution is runtime recall/replay inside `vlm_task`;
+new Function specs and agent prompts should not write another model-callable
+execution name.
 
 ## Recall
 
@@ -49,19 +49,20 @@ Recall is local candidate retrieval. It should usually take milliseconds to tens
 of milliseconds. It writes candidate Functions into current-page context or
 guidance. It does not call the VLM model and does not execute a Function.
 
-Parameterized Function candidates are valid. The VLM fills arguments from the
-user goal according to the recalled Function tool schema.
+Parameterized Function candidates are valid. The runtime fills public business
+arguments from the user goal before replay.
 
-Recall finds candidates and writes guidance/tool definitions. The VLM decides
-whether a candidate matches by selecting that Function id as a native tool.
+Recall finds candidates and writes guidance for diagnostics. The local runtime
+gate decides whether a candidate is safe to replay; the VLM does not select or
+invoke Function assets directly.
 
 ## Fallback
 
 If replay fails, return `success=false` and a compact `result` with the failed
 step and current page evidence. The next online VLM turn does one fresh observe
-and chooses the next GUI or Function tool. Do not ask the outer Agent to resume
-hidden replay. If the saved Function is wrong, call `update_function` later with
-RunLog evidence.
+and chooses only a normal GUI action for the current failed step. Do not ask the
+outer Agent to resume hidden replay. If the saved Function is wrong, call
+`update_function` later with RunLog evidence.
 
 ## update_function
 

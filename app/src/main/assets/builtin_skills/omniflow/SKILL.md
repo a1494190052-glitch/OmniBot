@@ -38,13 +38,13 @@ by default.
 - Prefer `oob_function_*`, `oob_run_log_*`, and `update_function` for in-app
   OOB Function work.
 - Do not explicitly call hidden Function replay tools from a normal agent-task.
-  Function execution should be selected by VLM task dynamic tools or delegated to
-  the local Function runner when that runner is explicitly exposed.
+  Function execution is selected by runtime recall/replay inside `vlm_task`;
+  online fallback should output ordinary UI actions only.
 - Use `update_function` for all saved Function modifications.
 - Treat RunLogs as evidence. Do not invent RunLogs, Function ids, screenshots,
   XML, or tool results.
 - Do not run a low-confidence Function. Recall is candidate context until the
-  current execution path exposes a concrete Function tool or runner result.
+  local runtime gate selects a concrete Function replay or returns a runner result.
 - Mark transient obstruction handling as optional checkers, not mandatory happy
   path actions.
 - Do not add, delete, or reorder executable steps unless the user explicitly

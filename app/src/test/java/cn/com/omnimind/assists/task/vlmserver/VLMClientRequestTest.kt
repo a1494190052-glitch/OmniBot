@@ -122,7 +122,7 @@ class VLMClientRequestTest {
     }
 
     @Test
-    fun `operation request exposes recalled functions through call tool only`() {
+    fun `operation request hides recalled function tools from normal vlm`() {
         val client = VLMClient(
             systemPromptBuilder = { "system prompt" },
             turnPromptBuilder = { context, _ -> context.overallTask }
@@ -139,9 +139,9 @@ class VLMClientRequestTest {
 
         val toolNames = envelope.request.tools.orEmpty().map { it.function.name }
         assertTrue(toolNames.contains("click"))
-        assertTrue(toolNames.contains("call_tool"))
+        assertFalse(toolNames.contains("call_tool"))
         assertFalse(toolNames.contains("debug_agent_function_open_settings"))
-        assertTrue(envelope.dynamicFunctionToolNames.contains("debug_agent_function_open_settings"))
+        assertTrue(envelope.dynamicFunctionToolNames.isEmpty())
         assertEquals(toolNames, envelope.toolNames)
         assertEquals("required", envelope.request.toolChoice!!.jsonPrimitive.contentOrNull)
         assertTrue(envelope.systemPromptChars > 0)
@@ -430,7 +430,7 @@ class VLMClientRequestTest {
     }
 
     @Test
-    fun `openai tool action parser supports call tool function invocation`() {
+    fun `openai tool action parser rejects call tool function invocation`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(
             SceneChatCompletionTurn(
@@ -455,15 +455,12 @@ class VLMClientRequestTest {
             modelOrScene = "scene.vlm.operation.primary"
         )
 
-        assertTrue(result.success)
-        val action = requireNotNull(result.step).action as FunctionRunAction
-        assertEquals("call_tool", action.name)
-        assertEquals("xiaohongshu_search", action.functionId)
-        assertEquals("美食", action.arguments["keyword"]!!.jsonPrimitive.contentOrNull)
+        assertFalse(result.success)
+        assertTrue(result.error.orEmpty().contains("call_tool is an internal runtime action"))
     }
 
     @Test
-    fun `openai tool action parser keeps recalled function id inside call tool`() {
+    fun `openai tool action parser rejects recalled function id inside call tool`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(
             SceneChatCompletionTurn(
@@ -488,10 +485,8 @@ class VLMClientRequestTest {
             modelOrScene = "scene.vlm.operation.primary"
         )
 
-        assertTrue(result.success)
-        val action = requireNotNull(result.step).action as FunctionRunAction
-        assertEquals("xhs_search_keyword", action.functionId)
-        assertEquals("猫猫", action.arguments["keyword"]!!.jsonPrimitive.contentOrNull)
+        assertFalse(result.success)
+        assertTrue(result.error.orEmpty().contains("call_tool is an internal runtime action"))
     }
 
     @Test
@@ -765,7 +760,7 @@ class VLMClientRequestTest {
     }
 
     @Test
-    fun `text fallback tool parser supports inline call tool json`() {
+    fun `text fallback tool parser rejects inline call tool json`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(
             SceneChatCompletionTurn(
@@ -785,14 +780,12 @@ class VLMClientRequestTest {
             modelOrScene = "scene.vlm.operation.primary"
         )
 
-        assertTrue(result.success)
-        val action = requireNotNull(result.step).action as FunctionRunAction
-        assertEquals("xhs_search_keyword", action.functionId)
-        assertEquals("猫猫", action.arguments["keyword"]!!.jsonPrimitive.contentOrNull)
+        assertFalse(result.success)
+        assertTrue(result.error.orEmpty().contains("call_tool is an internal runtime action"))
     }
 
     @Test
-    fun `text fallback tool parser supports call tool invocation syntax`() {
+    fun `text fallback tool parser rejects call tool invocation syntax`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(
             SceneChatCompletionTurn(
@@ -812,10 +805,8 @@ class VLMClientRequestTest {
             modelOrScene = "scene.vlm.operation.primary"
         )
 
-        assertTrue(result.success)
-        val action = requireNotNull(result.step).action as FunctionRunAction
-        assertEquals("xhs_search_keyword", action.functionId)
-        assertEquals("美食", action.arguments["keyword"]!!.jsonPrimitive.contentOrNull)
+        assertFalse(result.success)
+        assertTrue(result.error.orEmpty().contains("call_tool is an internal runtime action"))
     }
 
     @Test
@@ -960,7 +951,7 @@ class VLMClientRequestTest {
     }
 
     @Test
-    fun `text fallback tool parser supports qwen json object after tool call marker`() {
+    fun `text fallback tool parser rejects qwen call tool marker`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(
             SceneChatCompletionTurn(
@@ -983,9 +974,8 @@ class VLMClientRequestTest {
             modelOrScene = "scene.vlm.operation.primary"
         )
 
-        assertTrue(result.error.orEmpty(), result.success)
-        val action = requireNotNull(result.step).action as FunctionRunAction
-        assertEquals("oob_cmd_vlm_task_582f9485", action.functionId)
+        assertFalse(result.success)
+        assertTrue(result.error.orEmpty().contains("call_tool is an internal runtime action"))
     }
 
     @Test

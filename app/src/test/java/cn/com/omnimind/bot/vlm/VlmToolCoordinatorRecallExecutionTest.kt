@@ -1,6 +1,5 @@
 package cn.com.omnimind.bot.vlm
 
-import cn.com.omnimind.assists.task.vlmserver.FunctionRunAction
 import cn.com.omnimind.assists.task.vlmserver.SceneChatCompletionTurn
 import cn.com.omnimind.assists.task.vlmserver.UIContext
 import cn.com.omnimind.assists.task.vlmserver.VLMCurrentPageSnapshot
@@ -82,7 +81,7 @@ class VlmToolCoordinatorRecallExecutionTest {
     }
 
     @Test
-    fun `direct recall hit falls back to VLM when function needs fallback`() = runBlocking {
+    fun `direct recall hit reports error when local replay fails`() = runBlocking {
         val state = TaskState(
             taskId = "task-recall-fallback",
             goal = "open settings",
@@ -110,12 +109,13 @@ class VlmToolCoordinatorRecallExecutionTest {
             decisionProvider = acceptRecall(),
         )
 
-        assertNull(outcome)
-        assertEquals(TaskStatus.RUNNING, state.status)
-        assertEquals("vlm_with_omniflow_recall_fallback:hit", state.executionRoute)
-        assertTrue(state.chatMessages.last().contains("continuing with VLM"))
+        assertNotNull(outcome)
+        assertEquals(VlmToolOutcomeStatus.ERROR, outcome?.status)
+        assertEquals(TaskStatus.ERROR, state.status)
+        assertEquals("omniflow_recall_failed:open_settings_function", state.executionRoute)
+        assertTrue(state.chatMessages.last().contains("normal VLM will not reselect"))
         assertEquals(2, events.size)
-        assertEquals("RUNNING", events.last()["status"])
+        assertEquals("ERROR", events.last()["status"])
     }
 
     @Test
@@ -169,20 +169,21 @@ class VlmToolCoordinatorRecallExecutionTest {
     }
 
     @Test
-    fun `vlm requests default to recall context without function auto execution`() {
+    fun `vlm requests default to runtime recall auto execution`() {
         val request = VlmTaskRequest(
             goal = "open settings",
             packageName = "com.android.settings",
         )
 
-        assertEquals(false, request.allowOmniFlowFunctionAutoExecute)
+        assertEquals(true, request.allowOmniFlowFunctionAutoExecute)
     }
 
     @Test
-    fun `recall hit is not executed unless request explicitly allows auto execution`() = runBlocking {
+    fun `recall hit is not executed when auto execution is explicitly disabled`() = runBlocking {
         val request = VlmTaskRequest(
             goal = "open settings",
             packageName = "com.android.settings",
+            allowOmniFlowFunctionAutoExecute = false,
         )
         val state = TaskState(
             taskId = "task-default-context-only",
@@ -296,7 +297,7 @@ class VlmToolCoordinatorRecallExecutionTest {
             taskState = state,
             recallGuidance = VlmRecallGuidance(
                 decision = "hit",
-                guidance = "tool=xhs_search_keyword argument_policy: requires_arguments=true arguments={keyword:string required}",
+                guidance = "OmniFlow recall checked for this VLM step.",
                 payload = mapOf(
                     "success" to true,
                     "decision" to "hit",
@@ -347,7 +348,7 @@ class VlmToolCoordinatorRecallExecutionTest {
             taskState = state,
             recallGuidance = VlmRecallGuidance(
                 decision = "hit",
-                guidance = "tool=xhs_search_keyword arguments={keyword:string required}",
+                guidance = "OmniFlow recall checked for this VLM step.",
                 payload = mapOf(
                     "success" to true,
                     "decision" to "hit",
@@ -383,7 +384,7 @@ class VlmToolCoordinatorRecallExecutionTest {
             request = request,
             recallGuidance = VlmRecallGuidance(
                 decision = "hit",
-                guidance = "tool=xhs_search_keyword argument_policy: requires_arguments=true arguments={keyword:string required}",
+                guidance = "OmniFlow recall checked for this VLM step.",
                 payload = mapOf(
                     "success" to true,
                     "decision" to "hit",
@@ -397,6 +398,55 @@ class VlmToolCoordinatorRecallExecutionTest {
         )
         assertTrue(gate.allowed)
         assertEquals(VlmToolCoordinator.CACHE_GATE_STRICT_HIT, gate.reason)
+    }
+
+    @Test
+    fun `argument filler cannot veto runtime gated recall hit`() = runBlocking {
+        val request = VlmTaskRequest(
+            goal = "open settings",
+            packageName = "com.android.settings",
+            allowOmniFlowFunctionAutoExecute = true,
+        )
+        val state = TaskState(
+            taskId = "task-runtime-gate-not-model-veto",
+            goal = request.goal,
+            status = TaskStatus.RUNNING,
+        )
+        var called = false
+
+        val outcome = VlmToolCoordinator.tryExecuteRecallHitIfAllowed(
+            request = request,
+            taskState = state,
+            recallGuidance = VlmRecallGuidance(
+                decision = "hit",
+                guidance = "OmniFlow recall checked for this VLM step.",
+                payload = mapOf(
+                    "success" to true,
+                    "decision" to "hit",
+                    "hit" to mapOf(
+                        "function_id" to "open_settings_function",
+                        "requires_arguments" to false,
+                    ),
+                ),
+                directHitFunctionId = "open_settings_function",
+            ),
+            progressReporter = { _, _ -> },
+            runFunction = { _, _ ->
+                called = true
+                mapOf(
+                    "success" to true,
+                    "fallback" to false,
+                    "function_id" to "open_settings_function",
+                    "actions_executed" to 1,
+                )
+            },
+            decisionProvider = rejectRecall(reason = "legacy_model_veto_should_be_ignored"),
+        )
+
+        assertNotNull(outcome)
+        assertEquals(VlmToolOutcomeStatus.FINISHED, outcome?.status)
+        assertTrue(called)
+        assertEquals(TaskStatus.FINISHED, state.status)
     }
 
     @Test
@@ -444,7 +494,6 @@ class VlmToolCoordinatorRecallExecutionTest {
         val goal = "小红书查看猫猫"
         val warmMemory = """
             Warm memory:
-            - 已保存 Function: xhs_search_keyword
             - 能力: 小红书搜索关键词
             - 参数: keyword
             - 适用目标: 小红书查看/搜索某个关键词
@@ -456,7 +505,6 @@ class VlmToolCoordinatorRecallExecutionTest {
                     val memory = request.context.stepSkillGuidance
                     val hit = activeGoal.contains("小红书") &&
                         activeGoal.contains("猫猫") &&
-                        memory.contains("xhs_search_keyword") &&
                         memory.contains("小红书搜索关键词")
                     if (!hit) {
                         return request.context.copy(
@@ -468,9 +516,14 @@ class VlmToolCoordinatorRecallExecutionTest {
                     }
                     return request.context.copy(
                         stepSkillGuidance = request.context.stepSkillGuidance + "\n" +
-                            "OmniFlow function recall candidates for this current VLM step:\n" +
-                            "1. tool=xhs_search_keyword score=0.98 description=小红书搜索关键词\n" +
-                            "   argument_policy: requires_arguments=true arguments={keyword:string required}",
+                            "[[OOB_OMNIFLOW_STEP_RECALL_START]]\n" +
+                            "OmniFlow recall checked for this VLM step.\n" +
+                            "function_reuse_policy=runtime_context_only\n" +
+                            "runtime_behavior=high-confidence Function hits are filled and replayed locally before ordinary VLM fallback.\n" +
+                            "fallback_policy=if this turn reaches the VLM, output exactly one ordinary UI action for the current screen.\n" +
+                            "allowed_actions=click,input_text,swipe,press_back,press_home,open_app,wait\n" +
+                            "hidden_runtime_actions=do not select saved Functions, hidden replay tools, or task-level replanning.\n" +
+                            "[[OOB_OMNIFLOW_STEP_RECALL_END]]",
                         dynamicToolDefinitions = listOf(dynamicFunctionToolDefinition("xhs_search_keyword")),
                         pageDiagnostics = request.context.pageDiagnostics + mapOf(
                             "omniflow_recall_injected" to "true",
@@ -500,16 +553,16 @@ class VlmToolCoordinatorRecallExecutionTest {
                         turn = ChatCompletionTurn(
                             message = ChatCompletionMessage(
                                 role = "assistant",
-                                content = JsonPrimitive("""{"observation":"命中复用指令","thought":"调用搜索 Function","summary":""}"""),
+                                content = JsonPrimitive("""{"observation":"命中复用指令","thought":"改为普通 UI 点击","summary":""}"""),
                                 toolCalls = listOf(
                                     AssistantToolCall(
-	                                        id = "call_1",
-	                                        function = AssistantToolCallFunction(
-	                                            name = "call_tool",
-	                                            arguments = """{"function_id":"xhs_search_keyword","arguments":{"keyword":"猫猫"}}"""
-	                                        )
-	                                    )
-                                )
+		                                        id = "call_1",
+		                                        function = AssistantToolCallFunction(
+		                                            name = "click",
+		                                            arguments = """{"target_description":"搜索","x":500,"y":500}"""
+		                                        )
+                                    )
+	                                )
                             )
                         )
                     )
@@ -537,7 +590,7 @@ class VlmToolCoordinatorRecallExecutionTest {
                     turnPromptBuilder = { ctx, _ ->
                         listOf(
                             "goal=${ctx.activeGoal()}",
-                            "warm_memory=${ctx.stepSkillGuidance.substringBefore("OmniFlow function recall candidates")}",
+                            "warm_memory=${ctx.stepSkillGuidance.substringBefore("[[OOB_OMNIFLOW_STEP_RECALL_START]]")}",
                             "current_page_summary=${ctx.currentPageSummary}",
                             "step_skill_guidance=${ctx.stepSkillGuidance}",
                             "first_step_guidance=${ctx.firstStepGuidance}",
@@ -547,18 +600,19 @@ class VlmToolCoordinatorRecallExecutionTest {
             )
 
             assertTrue(result.success)
-            assertEquals("call_tool", result.toolName)
-            assertTrue(requestToolNames.contains("call_tool"))
+            assertEquals("click", result.toolName)
+            assertFalse(requestToolNames.contains("call_tool"))
             assertFalse(requestToolNames.contains("xhs_search_keyword"))
             assertTrue(requestToolNames.contains("click"))
             assertTrue(result.screenshotIncluded)
             assertTrue(promptText.contains("goal=$goal"))
             assertTrue(promptText.contains("Warm memory:"))
-            assertTrue(promptText.contains("xhs_search_keyword"))
-            assertTrue(promptText.contains("call_tool"))
-            assertTrue(promptText.contains("arguments={keyword:string required}"))
-            assertEquals("1", result.pageDiagnostics["omniflow_call_tool_function_count"])
-            assertEquals("xhs_search_keyword", result.pageDiagnostics["omniflow_call_tool_function_ids"])
+            assertFalse(promptText.contains("call_tool("))
+            assertFalse(promptText.contains("xhs_search_keyword"))
+            assertFalse(promptText.contains("arguments={keyword:string required}"))
+            assertTrue(promptText.contains("Function hits are filled and replayed locally"))
+            assertNull(result.pageDiagnostics["omniflow_call_tool_function_count"])
+            assertNull(result.pageDiagnostics["omniflow_call_tool_function_ids"])
             assertEquals("true", result.pageDiagnostics["omniflow_recall_injected"])
             assertEquals("xhs_search_keyword", result.pageDiagnostics["omniflow_recall_hit_function_id"])
             assertEquals("warm_memory_goal_match", result.pageDiagnostics["omniflow_recall_hit_reason"])
@@ -567,10 +621,11 @@ class VlmToolCoordinatorRecallExecutionTest {
             assertTrue(result.phaseMs.containsKey("function_recall_ms"))
             assertTrue(result.phaseMs.containsKey("vlm_stream_ms"))
             val action = requireNotNull(result.action)
-            assertEquals("xhs_search_keyword", action["function_id"])
-            val parsedAction = requireNotNull(result.action)
-            val args = parsedAction["arguments"] as Map<*, *>
-            assertEquals("猫猫", args["keyword"])
+            assertEquals("click", action["tool"])
+            assertEquals("搜索", action["target_description"])
+            assertEquals(500.0f, action["x"])
+            assertEquals(500.0f, action["y"])
+            assertFalse(action.containsKey("function_id"))
         } finally {
             VLMRecallContextProviderRegistry.clear()
         }

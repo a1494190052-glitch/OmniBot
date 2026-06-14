@@ -5,9 +5,8 @@ import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
 import cn.com.omnimind.bot.runlog.UIStepExecutor
 
 /**
- * Builds legacy recovery context for replay failures. The replay handler
- * decides when model continuation is required; this controller owns
- * prompt/recovery shaping for the next fresh VLM step.
+ * Builds recovery context for a bounded one-step repair inside the Function
+ * runner. It must not be surfaced as an outer Agent continuation path.
  */
 class OobFunctionAgentFallbackController {
     fun prompt(
@@ -49,7 +48,7 @@ class OobFunctionAgentFallbackController {
             if (packageName.isNotBlank()) append("\n当前包名：$packageName")
             if (activityName.isNotBlank()) append("\n当前 Activity：$activityName")
             if (xml.isNotBlank()) append("\n当前页面 XML（截断）：\n").append(xml)
-            append("\n请基于这个最新页面继续，不要沿用失败步骤里的旧坐标或旧页面。")
+            append("\n请只修复当前失败步骤，不要重新选择 Function 或接管整条任务。")
         }
     }
 

@@ -3,7 +3,6 @@ package cn.com.omnimind.bot.agent
 import cn.com.omnimind.baselib.shizuku.ShizukuBackend
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
 import cn.com.omnimind.baselib.i18n.PromptLocale
-import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonArray
@@ -212,14 +211,12 @@ object AgentToolDefinitions {
         "整理当日记忆" to "Roll Up Daily Memory",
         "分派子任务" to "Dispatch Subtasks",
         "调用工具" to "Call Tool",
-        "统一调用一个 OOB 工具，或通过 function_id 运行一个已保存的本地 Function 片段。Function 是可组合的复用片段，不要求一次覆盖完整用户目标；调用后要根据结果继续选择下一个 Function、VLM、网页、终端、文件或记忆工具。" to
-            "Call one OOB tool, or run one saved local Function by function_id when that capability is explicitly exposed. A Function is a saved mobile workflow tool; after the result, choose the next Function, VLM, web, terminal, file, or memory tool as needed.",
-        "目标工具名，例如 vlm_task、web_search、terminal_execute。传 function_id 时可留空。" to
-            "Target tool name, for example vlm_task, web_search, or terminal_execute. Leave empty when function_id is provided.",
-        "已保存 Function 的 id。传入后会走本地 Function runner，运行这一个复用片段，而不是把 Function id 当成独立工具名。" to
-            "Saved Function id. When provided and exposed by the current runtime, this runs that saved Function through the local runner instead of treating the Function id as a separate tool name.",
-        "传给目标工具或 Function 片段的参数对象。" to
-            "Arguments object passed to the target tool or Function.",
+        "统一调用一个明确暴露的 OOB 工具。手机 UI 自动化请调用 vlm_task；已保存 Function 的召回、参数填充和重放由本地运行时自动处理，不通过 function_id 暴露给 Agent 直接调用。" to
+            "Call one explicitly exposed OOB tool. For phone UI automation, use vlm_task; saved Function recall, argument filling, and replay are handled by the local runtime and are not exposed to the Agent as direct function_id calls.",
+        "目标工具名，例如 vlm_task、web_search、terminal_execute。" to
+            "Target tool name, for example vlm_task, web_search, or terminal_execute.",
+        "传给目标工具的参数对象。" to
+            "Arguments object passed to the target tool.",
         "可选自然语言目标，用于记录或需要规划的工具。" to
             "Optional natural-language goal for tracing or tools that require planning.",
         "查询设备已安装应用列表。需要应用包名或确认应用是否已安装时优先调用。" to
@@ -550,40 +547,6 @@ object AgentToolDefinitions {
         }
     }
 
-    val callToolTool: JsonObject = buildJsonObject {
-        put("type", "function")
-        putJsonObject("function") {
-            put("name", RunLogReplayPolicy.TOOL_CALL_TOOL)
-            put("displayName", "调用工具")
-            put("toolType", "builtin")
-            put(
-                "description",
-                "统一调用一个 OOB 工具，或通过 function_id 运行一个已保存的本地 Function 片段。Function 是可组合的复用片段，不要求一次覆盖完整用户目标；调用后要根据结果继续选择下一个 Function、VLM、网页、终端、文件或记忆工具。"
-            )
-            putJsonObject("parameters") {
-                put("type", "object")
-                putJsonObject("properties") {
-                    putJsonObject("tool_name") {
-                        put("type", "string")
-                        put("description", "目标工具名，例如 vlm_task、web_search、terminal_execute。传 function_id 时可留空。")
-                    }
-                    putJsonObject("function_id") {
-                        put("type", "string")
-                        put("description", "已保存 Function 的 id。传入后会走本地 Function runner，运行这一个复用片段，而不是把 Function id 当成独立工具名。")
-                    }
-                    putJsonObject("arguments") {
-                        put("type", "object")
-                        put("description", "传给目标工具或 Function 片段的参数对象。")
-                    }
-                    putJsonObject("goal") {
-                        put("type", "string")
-                        put("description", "可选自然语言目标，用于记录或需要规划的工具。")
-                    }
-                }
-            }
-        }
-    }
-
     val vlmTaskTool: JsonObject = buildJsonObject {
         put("type", "function")
         putJsonObject("function") {
@@ -592,7 +555,7 @@ object AgentToolDefinitions {
             put("toolType", "builtin")
             put(
                 "description",
-                "使用视觉语言模型执行手机当前屏幕操作任务，只用于点击、滑动、输入、打开 App 或跨 App 自动化。一次 vlm_task 调用代表一次完整设备执行流程；打开 App 是该完整流程的第一步，不要先单独调用 vlm_task 打开 App、再第二次调用 vlm_task 执行后续目标。内部点击/输入/滚动会作为 vlm_step 进度持续上报。不要用于用户上传图片/截图/照片的识别、OCR、解释、总结或对比；这类图片已在多模态对话里，应该直接回答。该工具会阻塞等待到任务完成、需要用户输入、屏幕锁定或超时，再把终态结果返回给模型。若需要最终整理文本，必须设置 needSummary=true。在线 VLM 每轮 fresh observe 后会注入当前页面信息和已召回的 saved Function tools；这些 Function 与 click/input_text/swipe 一样是本轮真实 native model tools，由 VLM 原生 tool_call 显式选择并填写参数。Function 执行成功或失败后，下一轮仍基于新的 fresh observe 和工具结果继续判断；外层 Agent 不接管隐藏 Function replay 或 guard 工具。"
+                "使用视觉语言模型执行手机当前屏幕操作任务，只用于点击、滑动、输入、打开 App 或跨 App 自动化。一次 vlm_task 调用代表一次完整设备执行流程；打开 App 是该完整流程的第一步，不要先单独调用 vlm_task 打开 App、再第二次调用 vlm_task 执行后续目标。内部点击/输入/滚动会作为 vlm_step 进度持续上报。不要用于用户上传图片/截图/照片的识别、OCR、解释、总结或对比；这类图片已在多模态对话里，应该直接回答。该工具会阻塞等待到任务完成、需要用户输入、屏幕锁定或超时，再把终态结果返回给模型。若需要最终整理文本，必须设置 needSummary=true。在线 VLM 每轮 fresh observe 后，本地 runtime 会进行 OmniFlow Function recall；高置信命中时由 runtime 填参数并 replay，普通 VLM fallback 只能输出 click/input_text/swipe/open_app/wait 等 UI action。外层 Agent 不直接调用隐藏 Function replay 或 guard 工具。"
             )
             putJsonObject("parameters") {
                 put("type", "object")
@@ -629,7 +592,7 @@ object AgentToolDefinitions {
                     putJsonObject("disableOmniFlowRecall") {
                         put("type", "boolean")
                         put("default", false)
-                        put("description", "可选，默认 false。false 时每轮 fresh observe 后注入 UDEG page skill 和 OmniFlow Function recall 候选；只有要严格裸跑 baseline 时才设为 true。")
+                        put("description", "可选，默认 false。false 时每轮 fresh observe 后由本地 runtime 执行 OmniFlow Function recall/gate；只有要严格裸跑 baseline 时才设为 true。")
                     }
                     putJsonObject("parseOnly") {
                         put("type", "boolean")
@@ -2349,7 +2312,6 @@ object AgentToolDefinitions {
 
     private val builtinToolDefinitions: List<JsonObject> = listOf(
         contextAppsQueryTool,
-        callToolTool,
         vlmTaskTool,
         imagePickerTool,
         notificationSendTool,

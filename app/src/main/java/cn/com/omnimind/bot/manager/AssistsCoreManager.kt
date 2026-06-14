@@ -460,47 +460,49 @@ private fun extractTextPayload(raw: JsonElement?): String {
 }
 
 internal const val OOB_REUSABLE_EXECUTION_STATUS_COMPLETED_LOCAL = "completed_local"
-internal const val OOB_REUSABLE_EXECUTION_STATUS_VLM_CONTINUATION_REQUIRED =
-    "vlm_continuation_required"
+internal const val OOB_REUSABLE_EXECUTION_STATUS_ONLINE_REPAIR_REQUIRED =
+    "online_repair_required"
 internal const val OOB_REUSABLE_EXECUTION_STATUS_FAILED = "failed"
 private const val AGENT_STREAM_META_SCHEMA_VERSION = "oob.agent_event.v1"
 
-internal fun isOobReusableFunctionPendingModelStep(step: Map<*, *>): Boolean {
-    return (step["success"] == false && step["executor"]?.toString() == RunLogReplayPolicy.EXECUTOR_AGENT) ||
-        step["model_required"] == true ||
+internal fun isOobReusableFunctionOnlineRepairStep(step: Map<*, *>): Boolean {
+    return step["online_repair_required"] == true ||
+        step["error_code"]?.toString() == "OOB_ONLINE_REPAIR_UNAVAILABLE" ||
+        (step["success"] == false && step["executor"]?.toString() == RunLogReplayPolicy.EXECUTOR_AGENT) ||
         step["vlm_step_required"] == true ||
         step["error_code"]?.toString() == "OOB_VLM_CONTINUATION_REQUIRED"
 }
 
-internal fun buildOobReusableFunctionVlmContinuationPayload(
+internal fun buildOobReusableFunctionOnlineRepairPayload(
     functionId: String,
-    continuationId: String,
+    repairId: String,
     runPayload: Map<String, Any?>,
     stepResults: List<Map<*, *>>,
     completedStepCount: Int,
-    pendingModelStepCount: Int,
+    onlineRepairStepCount: Int,
     argumentCount: Int,
 ): Map<String, Any?> {
-    val executionStatus = OOB_REUSABLE_EXECUTION_STATUS_VLM_CONTINUATION_REQUIRED
+    val executionStatus = OOB_REUSABLE_EXECUTION_STATUS_ONLINE_REPAIR_REQUIRED
     val stepCount = (runPayload["step_count"] as? Number)?.toInt() ?: stepResults.size
     val successStepCount = stepResults.count { it["success"] != false }
     val timing = runPayload["timing"]
     val runner = runPayload["runner"] ?: "oob_mixed_runner"
-    val pendingStepIndex = pendingModelStepCount.takeIf { it > 0 }?.let {
-        stepResults.firstOrNull(::isOobReusableFunctionPendingModelStep)?.get("index")
+    val repairStepIndex = onlineRepairStepCount.takeIf { it > 0 }?.let {
+        stepResults.firstOrNull(::isOobReusableFunctionOnlineRepairStep)?.get("index")
     }
-    val currentStepIndex = runPayload["current_step_index"] ?: pendingStepIndex
+    val currentStepIndex = runPayload["current_step_index"] ?: repairStepIndex
     val currentStepNumber = runPayload["current_step_number"]
         ?: (currentStepIndex as? Number)?.toInt()?.plus(1)
     val sharedExecutionMeta = linkedMapOf<String, Any?>(
-        "taskId" to continuationId,
-        "continuation_id" to continuationId,
-        "vlm_step_required" to true,
+        "taskId" to repairId,
+        "repair_id" to repairId,
+        "online_repair_required" to true,
+        "online_repair_available" to false,
         "source" to "omniflow_replay",
         "run_source" to "omniflow_replay",
         "runner" to runner,
         "local_steps_completed" to completedStepCount,
-        "model_steps_pending" to pendingModelStepCount,
+        "online_repair_steps" to onlineRepairStepCount,
         "step_count" to stepCount,
         "active_step_count" to runPayload["active_step_count"],
         "success_step_count" to successStepCount,
@@ -519,11 +521,11 @@ internal fun buildOobReusableFunctionVlmContinuationPayload(
         "goal" to "oob_reusable_function_run:$functionId",
         "function_id" to functionId,
         "execution_status" to executionStatus,
-        "error_code" to "OOB_VLM_CONTINUATION_REQUIRED",
-        "error_message" to "Function replay stopped before a model-required step; continue with one fresh vlm_step.",
+        "error_code" to "OOB_ONLINE_REPAIR_UNAVAILABLE",
+        "error_message" to "Function replay stopped at a step that requires one-step online repair inside the Function runner.",
         "timing" to timing,
         "terminal_state" to linkedMapOf<String, Any?>(
-            "status" to OOB_REUSABLE_EXECUTION_STATUS_VLM_CONTINUATION_REQUIRED,
+            "status" to OOB_REUSABLE_EXECUTION_STATUS_ONLINE_REPAIR_REQUIRED,
             "execution_status" to executionStatus
         ).apply {
             putAll(sharedExecutionMeta)
@@ -650,6 +652,14 @@ internal fun normalizeOobToolkitFunctionRunPayloadForChannel(payload: Map<String
         put("current_step_number", payload["current_step_number"] ?: resultPayload["current_step_number"])
         put("model_used", payload["model_used"] ?: resultPayload["model_used"] ?: false)
         put("model_required", payload["model_required"] ?: resultPayload["model_required"])
+        put(
+            "online_repair_required",
+            payload["online_repair_required"] ?: resultPayload["online_repair_required"]
+        )
+        put(
+            "online_repair_available",
+            payload["online_repair_available"] ?: resultPayload["online_repair_available"]
+        )
         put("delegated_tool_used", payload["delegated_tool_used"] ?: resultPayload["delegated_tool_used"])
         put("fallback_session_id", payload["fallback_session_id"] ?: resultPayload["fallback_session_id"])
         put("fallback_attempt", payload["fallback_attempt"] ?: resultPayload["fallback_attempt"])
@@ -4271,24 +4281,24 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
 
             val stepResults = (runPayload["step_results"] as? List<*>)
                 ?.filterIsInstance<Map<*, *>>() ?: emptyList()
-            val pendingModelSteps = stepResults.filter(::isOobReusableFunctionPendingModelStep)
+            val onlineRepairSteps = stepResults.filter(::isOobReusableFunctionOnlineRepairStep)
 
-            // Direct UI replay executes the deterministic local prefix. If the
-            // next step needs model reasoning, return a compact result and let
-            // the caller continue through vlm_task; do not start a hidden Agent.
-            if (pendingModelSteps.isNotEmpty()) {
-                val completedCount = stepResults.indexOfFirst(::isOobReusableFunctionPendingModelStep)
-                val continuationId = firstNonBlankString(args["taskId"], args["task_id"])
+            // Direct UI replay executes the deterministic local prefix. If a
+            // step needs online repair, report that requirement instead of
+            // starting a hidden Agent or handing the rest of the task to VLM.
+            if (onlineRepairSteps.isNotEmpty()) {
+                val completedCount = stepResults.indexOfFirst(::isOobReusableFunctionOnlineRepairStep)
+                val repairId = firstNonBlankString(args["taskId"], args["task_id"])
                     .takeIf { it.isNotEmpty() }
                     ?: firstNonBlankString(runPayload["fallback_session_id"]).takeIf { it.isNotEmpty() }
-                    ?: "oob-vlm-step-${System.currentTimeMillis()}"
-                val payload = buildOobReusableFunctionVlmContinuationPayload(
+                    ?: "oob-online-repair-${System.currentTimeMillis()}"
+                val payload = buildOobReusableFunctionOnlineRepairPayload(
                     functionId = functionId,
-                    continuationId = continuationId,
+                    repairId = repairId,
                     runPayload = runPayload,
                     stepResults = stepResults,
                     completedStepCount = completedCount,
-                    pendingModelStepCount = pendingModelSteps.size,
+                    onlineRepairStepCount = onlineRepairSteps.size,
                     argumentCount = callArguments.size,
                 )
                 withContext(Dispatchers.Main) {
@@ -6361,8 +6371,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         }
         val allowedTools = toolExposurePolicy.effectiveAllowedTools()
         return allowedTools == null ||
-            AgentToolNames.VLM_TASK in allowedTools ||
-            RunLogReplayPolicy.TOOL_CALL_TOOL in allowedTools
+            AgentToolNames.VLM_TASK in allowedTools
     }
 
     private suspend fun tryExecuteAgentOmniFlowRecallFastPath(

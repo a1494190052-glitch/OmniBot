@@ -46,9 +46,9 @@ class OobVlmFunctionRecallProvider(
         val recalledFunctionIds = recalledFunctions.mapNotNull { candidate ->
             candidate["function_id"]?.toString()?.trim()?.takeIf(String::isNotEmpty)
         }
-        diagnostics["omniflow_call_tool_function_count"] = recalledFunctionIds.size.toString()
+        diagnostics["omniflow_recalled_function_count"] = recalledFunctionIds.size.toString()
         if (recalledFunctionIds.isNotEmpty()) {
-            diagnostics["omniflow_call_tool_function_ids"] = recalledFunctionIds.joinToString(",")
+            diagnostics["omniflow_recalled_function_ids"] = recalledFunctionIds.joinToString(",")
         }
         if (guidance.guidance.isBlank()) {
             return baseContext.copy(
@@ -61,10 +61,7 @@ class OobVlmFunctionRecallProvider(
         val recallBlock = buildString {
             appendLine(RECALL_START_MARKER)
             appendLine("OmniFlow recall for this VLM step:")
-            if (recalledFunctionIds.isNotEmpty()) {
-                appendLine("top_functions=${recalledFunctionIds.joinToString(", ")}")
-                appendLine("Use call_tool(function_id, arguments) only when a recalled workflow clearly matches the user goal; otherwise choose a normal GUI action.")
-            }
+            appendLine("Function reuse is handled by the runtime. For this VLM step, output only a normal GUI action when fallback is needed.")
             appendLine(guidance.guidance)
             append(RECALL_END_MARKER)
         }.trim()

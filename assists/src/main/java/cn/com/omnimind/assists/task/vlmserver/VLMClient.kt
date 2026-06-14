@@ -102,9 +102,8 @@ class VLMClient(
 
     private fun UIContext.withDynamicFunctionCallToolGuidance(functionNames: Set<String>): UIContext {
         if (functionNames.isEmpty()) return this
-        if (stepSkillGuidance.contains("call_tool")) return this
-        val hint = "Recalled Functions for this turn: ${functionNames.joinToString(", ")}. " +
-            "Use call_tool(function_id, arguments) to run one; do not call Function ids as separate tools."
+        val hint = "Recalled Functions for this turn are handled by the local runtime. " +
+            "Output only ordinary UI actions; do not emit call_tool, function_id, or Function ids."
         val mergedGuidance = listOf(stepSkillGuidance.trim(), hint)
             .filter(String::isNotBlank)
             .joinToString("\n\n")
@@ -566,10 +565,7 @@ class VLMClient(
     ): UIAction {
         val rawToolName = toolCall.function.name
         if (rawToolName in dynamicFunctionToolNames) {
-            return FunctionRunAction(
-                functionId = rawToolName,
-                arguments = parseLooseArguments(toolCall.function.arguments)
-            )
+            throw IllegalArgumentException("Function tool calls are handled by runtime recall, not by VLM output: $rawToolName")
         }
         val toolName = OobCanonicalActionSchema.canonicalToolName(rawToolName)
             ?: if (rawToolName.equals("scroll", ignoreCase = true)) OobCanonicalActionSchema.TOOL_SWIPE else rawToolName
@@ -620,10 +616,8 @@ class VLMClient(
             OobCanonicalActionSchema.TOOL_GET_STATE -> GetStateAction(
                 reason = optionalString(args, OobCanonicalActionSchema.ARG_REASON).orEmpty()
             )
-            OobCanonicalActionSchema.TOOL_CALL_TOOL -> FunctionRunAction(
-                functionId = requireCallToolTarget(args),
-                toolName = optionalString(args, OobCanonicalActionSchema.ARG_TOOL_NAME),
-                arguments = (args[OobCanonicalActionSchema.ARG_ARGUMENTS] as? JsonObject) ?: buildJsonObject {}
+            OobCanonicalActionSchema.TOOL_CALL_TOOL -> throw IllegalArgumentException(
+                "call_tool is an internal runtime action and cannot be emitted by the VLM"
             )
             OobCanonicalActionSchema.TOOL_FINISHED -> FinishedAction(
                 content = optionalString(args, OobCanonicalActionSchema.ARG_CONTENT).orEmpty()

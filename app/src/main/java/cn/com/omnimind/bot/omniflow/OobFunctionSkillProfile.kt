@@ -7,7 +7,6 @@ import cn.com.omnimind.bot.agent.AgentToolDefinitions
 import cn.com.omnimind.bot.agent.AgentToolJson.mapToJsonElement
 import cn.com.omnimind.bot.agent.config.AgentToolFeatureStore
 import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
-import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
@@ -30,7 +29,7 @@ object OobFunctionSkillProfile {
     private val MODEL_TOOL_NAME_REGEX = Regex("^[A-Za-z0-9_-]{1,64}$")
 
     val toolNames: Set<String> =
-        OobFunctionToolNames.profileTools + RunLogReplayPolicy.TOOL_CALL_TOOL
+        OobFunctionToolNames.profileTools
 
     fun isProfile(profile: String?): Boolean =
         normalizeProfile(profile) == PROFILE
@@ -44,9 +43,7 @@ object OobFunctionSkillProfile {
         }
 
     fun runtimeToolDefinitions(locale: PromptLocale): List<JsonObject> =
-        functionRuntimeToolDefinitions.map { definition ->
-            AgentToolDefinitions.decorateToolDefinition(definition, locale)
-        }
+        emptyList()
 
     fun dynamicFunctionToolDefinitions(
         context: Context,
@@ -91,20 +88,17 @@ object OobFunctionSkillProfile {
         return buildString {
             when (locale) {
                 PromptLocale.ZH_CN -> {
-                    appendLine("本轮已根据用户目标自动召回 OmniFlow Function 候选（候选摘要，不是完整 spec）：")
-                    appendLine("- Function 是可组合的复用片段，不要求一次覆盖完整用户目标；运行后根据结果继续选择下一个 Function、VLM 或其他工具。")
-                    appendLine("- Function recall 是运行时内部步骤，不是模型工具；不要尝试调用 function_recall。")
-                    appendLine("- 如需查看候选详情，用 `${OobFunctionToolNames.FUNCTION_GET}`；如需执行，用 `${RunLogReplayPolicy.TOOL_CALL_TOOL}` 并传 function_id。")
+                    appendLine("本轮已根据用户目标完成 OmniFlow Function recall 检查。")
+                    appendLine("- Function 是可组合的复用片段；召回、参数填充和重放由本地运行时处理。")
+                    appendLine("- Function recall 是运行时内部 gate，不是模型工具；不要尝试调用 function_recall、call_tool(function_id) 或隐藏 Function tool。")
+                    appendLine("- 如需管理/查看已保存 Function，用 list/get/update/delete 工具；手机 UI 自动化继续走 vlm_task。")
                 }
                 PromptLocale.EN_US -> {
-                    appendLine("OmniFlow Function candidates recalled automatically for this user goal (summaries, not full specs):")
-                    appendLine("- A Function is a saved mobile workflow tool, not necessarily the whole user goal; after running it, continue with the next Function, VLM, or other tool as needed.")
-                    appendLine("- Function recall is an internal runtime step, not a model tool; do not try to call function_recall.")
-                    appendLine("- Use `${OobFunctionToolNames.FUNCTION_GET}` to inspect a candidate. To execute it, call `${RunLogReplayPolicy.TOOL_CALL_TOOL}` with function_id.")
+                    appendLine("OmniFlow Function recall has been checked for this user goal.")
+                    appendLine("- A Function is a saved mobile workflow segment; recall, argument filling, and replay are handled by the local runtime.")
+                    appendLine("- Function recall is an internal runtime gate, not a model tool; do not call function_recall, call_tool(function_id), or hidden Function tools.")
+                    appendLine("- Use list/get/update/delete tools to manage saved Functions. Continue phone UI automation through vlm_task.")
                 }
-            }
-            candidates.forEachIndexed { index, spec ->
-                appendLine(formatPromptCandidate(index + 1, spec, locale))
             }
         }.trim()
     }
@@ -395,7 +389,6 @@ object OobFunctionSkillProfile {
     }
 
     private val functionManagementToolDefinitions: List<JsonObject> = listOf(
-        AgentToolDefinitions.callToolTool,
         oobFunctionListTool,
         oobFunctionGetTool,
         oobFunctionRegisterTool,
@@ -405,10 +398,6 @@ object OobFunctionSkillProfile {
         oobRunLogListTool,
         oobRunLogGetTool,
         oobRunLogConvertTool,
-    )
-
-    private val functionRuntimeToolDefinitions: List<JsonObject> = listOf(
-        oobFunctionGetTool,
     )
 
 }

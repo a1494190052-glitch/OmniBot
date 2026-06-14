@@ -2,13 +2,9 @@ package cn.com.omnimind.assists.task.vlmserver
 
 import cn.com.omnimind.baselib.i18n.PromptLocale
 import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
-import kotlinx.serialization.json.add
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -27,27 +23,13 @@ class VLMToolDefinitionsTest {
         assertFalse(toolNames.contains("type"))
         assertTrue(toolNames.contains("swipe"))
         assertFalse(toolNames.contains("get_state"))
-        assertTrue(toolNames.contains("call_tool"))
+        assertFalse(toolNames.contains("call_tool"))
         assertTrue(toolNames.contains("finished"))
         assertTrue(toolNames.containsAll(
             OobCanonicalActionSchema.modelVisibleTools
                 .map { it.name }
                 .filterNot { it == "get_state" }
         ))
-    }
-
-    @Test
-    fun `call tool exposes function target and arguments`() {
-        val tool = VLMToolDefinitions.tools(PromptLocale.EN_US)
-            .single { it.function.name == "call_tool" }
-        val parameters = tool.function.parameters
-        val properties = parameters["properties"]!!.jsonObject
-        val required = parameters["required"]!!.jsonArray.map { it.jsonPrimitive.content }
-
-        assertTrue(properties.containsKey("function_id"))
-        assertTrue(properties.containsKey("tool_name"))
-        assertTrue(properties.containsKey("arguments"))
-        assertTrue(required.contains("arguments"))
     }
 
     @Test
@@ -63,7 +45,7 @@ class VLMToolDefinitionsTest {
     }
 
     @Test
-    fun `argument validation rejects non schema aliases`() {
+    fun `argument validation rejects hidden tools and non schema aliases`() {
         assertThrows(IllegalArgumentException::class.java) {
             VLMToolDefinitions.validateArguments(
                 "call_tool",
@@ -92,10 +74,10 @@ class VLMToolDefinitionsTest {
 
         assertTrue(promptGuide.contains("wait(time_s?)"))
         assertTrue(promptGuide.contains("input_text(target_description, text, element_index?, x, y)"))
-        assertTrue(promptGuide.contains("call_tool(function_id?, tool_name?, arguments)"))
-        assertTrue(promptGuide.contains("recalled reusable workflow"))
-        assertTrue(promptGuide.contains("preferred_call_tool"))
-        assertTrue(promptGuide.contains("instead of manually replaying the same path"))
+        assertTrue(promptGuide.contains("Function recall, argument filling, and replay are handled automatically"))
+        assertTrue(promptGuide.contains("do not emit call_tool, function_id, or hidden Function tools"))
+        assertFalse(promptGuide.contains("call_tool(function_id?, tool_name?, arguments)"))
+        assertFalse(promptGuide.contains("preferred_call_tool"))
         assertFalse(promptGuide.contains("get_state("))
         assertTrue(promptGuide.contains("Coordinates are fallback only"))
         assertTrue(promptGuide.contains("Use wait only when the page is clearly loading"))

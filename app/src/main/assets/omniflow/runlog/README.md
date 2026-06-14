@@ -1,7 +1,7 @@
 # OOB RunLog
 
 OmniFlow is the pipeline from RunLog to reusable Function matching, execution,
-UDEG recall, checker handling, action transfer, and VLM continuation.
+UDEG recall, checker handling, action transfer, and bounded one-step online repair.
 Product-facing behavior is exposed through skills; this contract only defines
 the storage, conversion, and replay primitives those skills call. There is no
 separate OmniFlow runtime or controller outside the skill system.
@@ -11,7 +11,7 @@ RunLog is a runtime contract, not just a UI feature. Keep these boundaries align
 1. Native records tool cards into `InternalRunLogStore`.
 2. Flutter displays the timeline and converts cards into a reusable Function.
 3. Native stores and materializes reusable Functions through `OobReusableFunctionStore`.
-4. `OobFunctionToolHandler` replays deterministic local steps; live-context failures return a compact VLM continuation result.
+4. `OobFunctionToolHandler` replays deterministic local steps; live-context failures return compact current-step online repair evidence.
 5. Workspace Function save must follow the same executor policy as Flutter conversion.
 
 Read `references/runlog-contract.md` before changing conversion or replay behavior.
@@ -104,7 +104,7 @@ record. Do not read only the snapshot when correctness matters.
 - Replay step runner: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolHandler.kt`
 - Replay frontend session controller: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionFrontendSessionController.kt`
 - Replay source alignment controller: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionSourceAlignmentController.kt`
-- Replay VLM continuation controller: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionAgentFallbackController.kt`
+- Replay online repair context controller: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionAgentFallbackController.kt`
 - Replay step classifier: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionStepClassifier.kt`
 - Replay tool delegation executor: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolDelegationExecutor.kt`
 - `call_tool` step executor: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionCallToolStepExecutor.kt`
@@ -165,10 +165,11 @@ owners; keep Kotlin code and tests pointing at `OobFunctionToolNames`,
 Replay tool names such as `call_tool`, `go_to_node`, and `oob.agent.run` also
 live in `RunLogReplayPolicy` when they are used by Function compilation,
 schema materialization, recall, or replay routing.
-Agent-facing docs and tools should present saved Function execution through
-`call_tool(function_id, arguments)` inside `vlm_task` or the generic agent
-tool path. UDEG edge-kind names and diagnostic counter keys remain
-graph-storage vocabulary owned by `OobUdegNodeStore`.
+Agent-facing docs and tools should present saved Function reuse as runtime
+recall plus local replay inside `vlm_task`; ordinary VLM/Agent output must not
+emit `call_tool(function_id, arguments)` or hidden Function tools. UDEG
+edge-kind names and diagnostic counter keys remain graph-storage vocabulary
+owned by `OobUdegNodeStore`.
 Canonical in-app Function and RunLog management tool names such as
 `oob_function_list`, `oob_function_get`, `oob_function_register`,
 `update_function`, and `oob_run_log_convert` live in `OobFunctionToolNames`;
@@ -182,14 +183,15 @@ When a new generic agent tool affects replay, `RunLogReplayPolicy` may classify
 the `AgentToolNames` constant, but it should not redefine the string. If the
 tool is only a live agent capability and does not appear in reusable replay
 steps, leave RunLog policy unchanged.
-Agent-facing docs should name the OOB Function tools first. Function execution
-always goes through `call_tool(function_id, arguments)`.
+Agent-facing docs should name the OOB Function lifecycle tools first. Function
+execution for online tasks goes through local runtime recall/replay; normal VLM
+output should stay in ordinary UI actions.
 
 - `executor=omniflow`: deterministic local replay only. Allowed actions are
   the OOB local set: `click`, `long_press`, `input_text`, `swipe`, `open_app`,
   `press_key`, `wait`, and `finished`. OOB-native
   OmniFlow graph/function calls such as `go_to_node`, `click_node`, and
-  `call_tool` with `function_id` also use this executor and are dispatched by
+  internal Function replay calls also use this executor and are dispatched by
   `OobFunctionToolHandler`.
 - `executor=tool`: direct tool call only when a live `AgentToolRouter` exists and the tool output is not live data needed by later steps.
 - `executor=agent`: live planning or perception. Use for VLM-only cards, `browser_use`, `web_search`, memory lookup, and RunLog lookup.
@@ -201,7 +203,7 @@ Do not hard replay `browser_use` or `web_search`; their outputs are live context
 - VLM-only logs must not become empty functions. Emit one `executor=agent` step with reason `perception_only_step_without_recorded_actions`.
 - If a VLM wrapper card is followed by concrete recorded actions, skip the perception wrapper and keep the recorded `omniflow` steps.
 - Failed recorded action cards must not count as concrete replay evidence; keep the
-  VLM continuation evidence if the only local action failed.
+  current-step online repair evidence if the only local action failed.
 - `android_privileged_action` cards that wrap a supported local UI action should
   flatten nested `arguments` into the emitted OmniFlow step args.
 - Treat legacy `type` as an import alias for `input_text`; do not emit it as a
