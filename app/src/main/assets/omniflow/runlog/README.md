@@ -166,7 +166,7 @@ Replay tool names such as `call_tool`, `go_to_node`, and `oob.agent.run` also
 live in `RunLogReplayPolicy` when they are used by Function compilation,
 schema materialization, recall, or replay routing.
 Agent-facing docs and tools should present saved Function reuse as runtime
-recall plus local replay inside `vlm_task`; ordinary VLM/Agent output must not
+recall plus local resolve/replay inside `vlm_task`; ordinary VLM/Agent output must not
 emit `call_tool(function_id, arguments)` or hidden Function tools. UDEG
 edge-kind names and diagnostic counter keys remain graph-storage vocabulary
 owned by `OobUdegNodeStore`.
@@ -184,7 +184,7 @@ the `AgentToolNames` constant, but it should not redefine the string. If the
 tool is only a live agent capability and does not appear in reusable replay
 steps, leave RunLog policy unchanged.
 Agent-facing docs should name the OmniFlow Function lifecycle tools first. Function
-execution for online tasks goes through local runtime recall/replay; normal VLM
+execution for online tasks goes through local runtime recall/resolve/replay; normal VLM
 output should stay in ordinary UI actions.
 
 - `executor=omniflow`: deterministic local replay only. Allowed actions are

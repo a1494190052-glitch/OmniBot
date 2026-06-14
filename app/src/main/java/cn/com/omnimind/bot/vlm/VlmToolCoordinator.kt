@@ -1296,7 +1296,7 @@ object VlmToolCoordinator {
         val functionArguments = argumentFill.arguments
         if (recallHitRequiresArguments(recallGuidance)) {
             taskState.addChatMessage(
-                "[SYSTEM] OmniFlow recall hit $functionId requires arguments; argument fill returned fields before Function execution: ${functionArguments.keys.joinToString(",")}"
+                "[SYSTEM] OmniFlow recall hit $functionId requires arguments; parameter resolve returned fields before Function execution: ${functionArguments.keys.joinToString(",")}"
             )
         }
         emitProgress(
@@ -1643,13 +1643,13 @@ object VlmToolCoordinator {
         candidate: Map<String, Any?>,
         recallGuidance: VlmRecallGuidance,
     ): String = buildString {
-        appendLine("OmniFlow runtime gate already selected this Function for local replay.")
+        appendLine("OmniFlow runtime already selected this Function for local replay.")
         appendLine("Do not decide whether to use the Function. Do not reject it.")
         appendLine("Return only one JSON object with keys:")
         appendLine("""{"arguments":{},"missing_required_arguments":[],"reason":"short reason"}""")
         appendLine("If parameters are needed and can be inferred from the goal, put them in arguments.")
         appendLine("If required parameters cannot be inferred, list their public names in missing_required_arguments; the app will ask the user.")
-        appendLine("Only fill public business parameters from input_schema. Never expose or invent internal fields like package_name, target_description, x, y, selector, node_id, or resource_id.")
+        appendLine("Resolve only public business parameters from input_schema. Never expose or invent internal fields like package_name, target_description, x, y, selector, node_id, or resource_id.")
         appendLine()
         appendLine("User goal:")
         appendLine(goal.take(1000))

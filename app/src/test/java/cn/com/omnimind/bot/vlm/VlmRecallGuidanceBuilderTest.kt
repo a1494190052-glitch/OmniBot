@@ -38,7 +38,7 @@ class VlmRecallGuidanceBuilderTest {
         assertTrue(guidance.contains("OmniFlow recall checked for this VLM step."))
         assertTrue(guidance.contains("function_reuse_policy=runtime_recall_replay"))
         assertTrue(guidance.contains("model_must_not_emit_call_tool=true"))
-        assertTrue(guidance.contains("Function hits are filled and replayed locally"))
+        assertTrue(guidance.contains("Function hits are resolved and replayed locally"))
         assertTrue(guidance.contains("online_action_policy="))
         assertFalse(guidance.contains("fallback_policy="))
         assertFalse(guidance.contains("function=open_network_settings"))
@@ -86,7 +86,7 @@ class VlmRecallGuidanceBuilderTest {
         )
 
         assertTrue(guidance.contains("function_reuse_policy=runtime_context_only"))
-        assertTrue(guidance.contains("model_must_choose_normal_ui_action_on_fallback=true"))
+        assertTrue(guidance.contains("model_must_choose_normal_ui_action=true"))
         assertFalse(guidance.contains("preferred_call_tool"))
         assertFalse(guidance.contains("\"name\":\"call_tool\""))
         assertFalse(guidance.contains("function=open_network_settings"))
@@ -219,7 +219,7 @@ class VlmRecallGuidanceBuilderTest {
         )
 
         assertTrue(guidance.contains("function_reuse_policy=runtime_context_only"))
-        assertTrue(guidance.contains("model_must_choose_normal_ui_action_on_fallback=true"))
+        assertTrue(guidance.contains("model_must_choose_normal_ui_action=true"))
         assertFalse(guidance.contains("preferred_call_tool"))
         assertFalse(guidance.contains("1. function=open_network_settings"))
         assertFalse(guidance.contains("open_network_settings"))
@@ -414,7 +414,7 @@ class VlmRecallGuidanceBuilderTest {
     }
 
     @Test
-    fun `parameterized hit is runtime executable after argument fill`() {
+    fun `parameterized hit is runtime executable after parameter resolve`() {
         val payload = mapOf(
             "success" to true,
             "decision" to "hit",

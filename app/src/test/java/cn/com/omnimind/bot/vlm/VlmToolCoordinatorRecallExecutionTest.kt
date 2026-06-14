@@ -429,7 +429,7 @@ class VlmToolCoordinatorRecallExecutionTest {
     }
 
     @Test
-    fun `argument filler cannot veto runtime gated recall hit`() = runBlocking {
+    fun `parameter resolve cannot veto runtime selected recall hit`() = runBlocking {
         val request = VlmTaskRequest(
             goal = "open settings",
             packageName = "com.android.settings",
@@ -559,7 +559,7 @@ class VlmToolCoordinatorRecallExecutionTest {
                             "[[OOB_OMNIFLOW_STEP_RECALL_START]]\n" +
                             "OmniFlow recall checked for this VLM step.\n" +
                             "function_reuse_policy=runtime_context_only\n" +
-                            "runtime_behavior=high-confidence Function hits are filled and replayed locally before ordinary VLM actions.\n" +
+                            "runtime_behavior=high-confidence Function hits are resolved and replayed locally before ordinary VLM actions.\n" +
                             "online_action_policy=if this turn reaches the VLM, output exactly one ordinary UI action for the current screen.\n" +
                             "allowed_actions=click,input_text,swipe,press_back,press_home,open_app,wait\n" +
                             "hidden_runtime_actions=do not select saved Functions, hidden replay tools, or task-level replanning.\n" +
@@ -650,7 +650,7 @@ class VlmToolCoordinatorRecallExecutionTest {
             assertFalse(promptText.contains("call_tool("))
             assertFalse(promptText.contains("xhs_search_keyword"))
             assertFalse(promptText.contains("arguments={keyword:string required}"))
-            assertTrue(promptText.contains("Function hits are filled and replayed locally"))
+            assertTrue(promptText.contains("Function hits are resolved and replayed locally"))
             assertNull(result.pageDiagnostics["omniflow_call_tool_function_count"])
             assertNull(result.pageDiagnostics["omniflow_call_tool_function_ids"])
             assertEquals("true", result.pageDiagnostics["omniflow_recall_injected"])

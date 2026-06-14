@@ -340,8 +340,8 @@ When adding or migrating a generic agent tool name:
   steps because a terminal postcondition appears satisfied or because the page
   seems to have advanced. If the current step cannot be executed, return
   `success=false` with a compact `{success, result}` payload and
-  `online_repair_required=true`; the repair action may address only the current
-  failed step and must not reselect a Function.
+  `online_repair_required=true`; runtime online resolve may produce only one
+  ordinary UI action for the current failed step and must not reselect a Function.
 
 `OobFunctionRunner` owns runtime execution startup:
 

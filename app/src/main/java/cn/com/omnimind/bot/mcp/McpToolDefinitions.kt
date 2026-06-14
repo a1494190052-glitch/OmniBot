@@ -35,9 +35,9 @@ Use cases:
 
 OMNIFLOW FUNCTION REUSE:
 - Online VLM observes the current page, and the local runtime recalls and executes high-confidence saved Functions before ordinary VLM actions.
-- Parameterized Functions are valid matches. Argument filling and Function replay stay inside the local runtime.
+- Parameterized Functions are valid matches. Parameter resolve and Function replay stay inside the local runtime.
 - The outer Agent should not call hidden Function replay tools. Checker handling, action transfer, and replay safety stay inside the local runner.
-- If replay needs repair, VLM fallback should produce only a normal UI action for the current step; it should not choose a saved Function itself.
+- If replay needs repair, runtime resolve may ask the VLM for only one normal UI action for the current step; it should not choose a saved Function itself.
 
 IMPORTANT FOR SUMMARY TASKS:
 - If the user's goal is to summarize, extract key points, or produce a report (e.g., "总结/汇总/整理/概括/提炼" or "summary/recap"),

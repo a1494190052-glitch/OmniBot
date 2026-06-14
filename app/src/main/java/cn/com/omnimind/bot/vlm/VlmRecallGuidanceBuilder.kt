@@ -20,7 +20,7 @@ data class VlmRecallGuidance(
  *
  * VLM still observes the live screen and emits ordinary UI actions when the
  * runtime does not execute a recalled Function. Saved Function recall,
- * argument filling, replay, and one-step repair are selected by the local
+ * parameter resolve, replay, and one-step repair are selected by the local
  * runtime, not exposed as model-callable Function tools.
  */
 object VlmRecallGuidanceBuilder {
@@ -118,7 +118,7 @@ object VlmRecallGuidanceBuilder {
             appendLine("OmniFlow recall checked for this VLM step.")
             appendLine("decision=$decision")
             appendLine(functionExecutionPolicyLine(directDecision))
-            appendLine("runtime_behavior=high-confidence Function hits are filled and replayed locally before ordinary VLM actions.")
+            appendLine("runtime_behavior=high-confidence Function hits are resolved and replayed locally before ordinary VLM actions.")
             appendLine("online_action_policy=if this turn reaches the VLM, output exactly one ordinary UI action for the current screen.")
             appendLine("allowed_actions=click,input_text,swipe,press_back,press_home,open_app,wait")
             appendLine("hidden_runtime_actions=do not select saved Functions, hidden replay tools, or task-level replanning.")
@@ -296,7 +296,7 @@ object VlmRecallGuidanceBuilder {
         if (directDecision) {
             "function_reuse_policy=runtime_recall_replay; model_must_not_emit_call_tool=true"
         } else {
-            "function_reuse_policy=runtime_context_only; model_must_choose_normal_ui_action_on_fallback=true"
+            "function_reuse_policy=runtime_context_only; model_must_choose_normal_ui_action=true"
         }
 
     private fun isDirectExecutionRequested(

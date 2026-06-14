@@ -6,8 +6,8 @@ why old replay concepts should not be reintroduced.
 ## Main Path
 
 ```text
-RunLog -> Function -> recall candidates -> runtime gate chooses high-confidence replay
-  -> VLM fallback chooses only ordinary GUI actions when replay needs repair
+RunLog -> Function -> recall candidates -> runtime chooses high-confidence replay
+  -> runtime resolve fills parameters or one current-step GUI action when repair is needed
   -> local runner executes checker/action-transfer/replay
   -> returns success/result
   -> next turn fresh observe decides the next tool
@@ -49,20 +49,20 @@ Recall is local candidate retrieval. It should usually take milliseconds to tens
 of milliseconds. It writes candidate Functions into current-page context or
 guidance. It does not call the VLM model and does not execute a Function.
 
-Parameterized Function candidates are valid. The runtime fills public business
-arguments from the user goal before replay.
+Parameterized Function candidates are valid. The runtime resolves public
+business arguments from the user goal before replay.
 
 Recall finds candidates and writes guidance for diagnostics. The local runtime
-gate decides whether a candidate is safe to replay; the VLM does not select or
-invoke Function assets directly.
+decides whether a candidate is safe to replay; the VLM does not select or invoke
+Function assets directly.
 
-## Fallback
+## Repair
 
-If replay fails, return `success=false` and a compact `result` with the failed
-step and current page evidence. The next online VLM turn does one fresh observe
-and chooses only a normal GUI action for the current failed step. Do not ask the
-outer Agent to resume hidden replay. If the saved Function is wrong, call
-`update_function` later with RunLog evidence.
+If replay fails, runtime resolve may ask the online model for exactly one normal
+GUI action for the current failed step. After that action, the runtime observes
+again and local checker/action-transfer decides whether replay can resume. Do
+not ask the outer Agent to resume hidden replay. If the saved Function is wrong,
+call `update_function` later with RunLog evidence.
 
 ## update_function
 
