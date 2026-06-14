@@ -467,7 +467,7 @@ internal const val OOB_REUSABLE_EXECUTION_STATUS_ONLINE_REPAIR_REQUIRED =
 internal const val OOB_REUSABLE_EXECUTION_STATUS_FAILED = "failed"
 private const val AGENT_STREAM_META_SCHEMA_VERSION = "oob.agent_event.v1"
 
-internal fun isOobReusableFunctionOnlineRepairStep(step: Map<*, *>): Boolean {
+internal fun isOobReusableFunctionRuntimeResolveStep(step: Map<*, *>): Boolean {
     return step["runtime_resolve_required"] == true ||
         step["online_repair_required"] == true ||
         step["error_code"]?.toString() == "OOB_RUNTIME_RESOLVE_UNAVAILABLE" ||
@@ -477,13 +477,17 @@ internal fun isOobReusableFunctionOnlineRepairStep(step: Map<*, *>): Boolean {
         step["error_code"]?.toString() == "OOB_VLM_CONTINUATION_REQUIRED"
 }
 
-internal fun buildOobReusableFunctionOnlineRepairPayload(
+@Deprecated("Use isOobReusableFunctionRuntimeResolveStep.")
+internal fun isOobReusableFunctionOnlineRepairStep(step: Map<*, *>): Boolean =
+    isOobReusableFunctionRuntimeResolveStep(step)
+
+internal fun buildOobReusableFunctionRuntimeResolvePayload(
     functionId: String,
     repairId: String,
     runPayload: Map<String, Any?>,
     stepResults: List<Map<*, *>>,
     completedStepCount: Int,
-    onlineRepairStepCount: Int,
+    runtimeResolveStepCount: Int,
     argumentCount: Int,
 ): Map<String, Any?> {
     val executionStatus = OOB_REUSABLE_EXECUTION_STATUS_RUNTIME_RESOLVE_REQUIRED
@@ -491,8 +495,8 @@ internal fun buildOobReusableFunctionOnlineRepairPayload(
     val successStepCount = stepResults.count { it["success"] != false }
     val timing = runPayload["timing"]
     val runner = runPayload["runner"] ?: "oob_mixed_runner"
-    val repairStepIndex = onlineRepairStepCount.takeIf { it > 0 }?.let {
-        stepResults.firstOrNull(::isOobReusableFunctionOnlineRepairStep)?.get("index")
+    val repairStepIndex = runtimeResolveStepCount.takeIf { it > 0 }?.let {
+        stepResults.firstOrNull(::isOobReusableFunctionRuntimeResolveStep)?.get("index")
     }
     val currentStepIndex = runPayload["current_step_index"] ?: repairStepIndex
     val currentStepNumber = runPayload["current_step_number"]
@@ -508,9 +512,9 @@ internal fun buildOobReusableFunctionOnlineRepairPayload(
         "run_source" to "omniflow_replay",
         "runner" to runner,
         "local_steps_completed" to completedStepCount,
-        "resolve_calls" to onlineRepairStepCount,
-        "runtime_resolve_steps" to onlineRepairStepCount,
-        "online_repair_steps" to onlineRepairStepCount,
+        "resolve_calls" to runtimeResolveStepCount,
+        "runtime_resolve_steps" to runtimeResolveStepCount,
+        "online_repair_steps" to runtimeResolveStepCount,
         "step_count" to stepCount,
         "active_step_count" to runPayload["active_step_count"],
         "success_step_count" to successStepCount,
@@ -549,6 +553,26 @@ internal fun buildOobReusableFunctionOnlineRepairPayload(
         }
     )
 }
+
+@Deprecated("Use buildOobReusableFunctionRuntimeResolvePayload.")
+internal fun buildOobReusableFunctionOnlineRepairPayload(
+    functionId: String,
+    repairId: String,
+    runPayload: Map<String, Any?>,
+    stepResults: List<Map<*, *>>,
+    completedStepCount: Int,
+    onlineRepairStepCount: Int,
+    argumentCount: Int,
+): Map<String, Any?> =
+    buildOobReusableFunctionRuntimeResolvePayload(
+        functionId = functionId,
+        repairId = repairId,
+        runPayload = runPayload,
+        stepResults = stepResults,
+        completedStepCount = completedStepCount,
+        runtimeResolveStepCount = onlineRepairStepCount,
+        argumentCount = argumentCount,
+    )
 
 internal fun buildOobReusableFunctionLocalPayload(
     functionId: String,
@@ -4301,24 +4325,24 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
 
             val stepResults = (runPayload["step_results"] as? List<*>)
                 ?.filterIsInstance<Map<*, *>>() ?: emptyList()
-            val onlineRepairSteps = stepResults.filter(::isOobReusableFunctionOnlineRepairStep)
+            val runtimeResolveSteps = stepResults.filter(::isOobReusableFunctionRuntimeResolveStep)
 
             // Direct UI replay executes the deterministic local prefix. If a
             // step needs runtime resolve action, report that requirement instead
             // of starting a hidden Agent or handing the rest of the task to VLM.
-            if (onlineRepairSteps.isNotEmpty()) {
-                val completedCount = stepResults.indexOfFirst(::isOobReusableFunctionOnlineRepairStep)
+            if (runtimeResolveSteps.isNotEmpty()) {
+                val completedCount = stepResults.indexOfFirst(::isOobReusableFunctionRuntimeResolveStep)
                 val repairId = firstNonBlankString(args["taskId"], args["task_id"])
                     .takeIf { it.isNotEmpty() }
                     ?: firstNonBlankString(runPayload["fallback_session_id"]).takeIf { it.isNotEmpty() }
-                    ?: "oob-online-repair-${System.currentTimeMillis()}"
-                val payload = buildOobReusableFunctionOnlineRepairPayload(
+                    ?: "oob-runtime-resolve-${System.currentTimeMillis()}"
+                val payload = buildOobReusableFunctionRuntimeResolvePayload(
                     functionId = functionId,
                     repairId = repairId,
                     runPayload = runPayload,
                     stepResults = stepResults,
                     completedStepCount = completedCount,
-                    onlineRepairStepCount = onlineRepairSteps.size,
+                    runtimeResolveStepCount = runtimeResolveSteps.size,
                     argumentCount = callArguments.size,
                 )
                 withContext(Dispatchers.Main) {

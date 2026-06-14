@@ -10,7 +10,7 @@ import cn.com.omnimind.bot.mcp.RemoteMcpDiscoveredServer
 import cn.com.omnimind.bot.mcp.RemoteMcpServerConfig
 import cn.com.omnimind.bot.mcp.RemoteMcpToolDescriptor
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
-import cn.com.omnimind.bot.omniflow.OobFunctionOnlineRepairPlanner
+import cn.com.omnimind.bot.omniflow.OobFunctionRuntimeResolvePlanner
 import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
 import cn.com.omnimind.bot.omniflow.language.OmniflowFunctionStore
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
@@ -2149,7 +2149,7 @@ class OobOmniFlowLoopAcceptanceTest {
             val toolkit = OobOmniFlowToolkitService(
                 context,
                 WorkspaceFunctionStore(context.root),
-                onlineRepairPlanner = OobFunctionOnlineRepairPlanner { _, _ ->
+                runtimeResolvePlanner = OobFunctionRuntimeResolvePlanner { _, _ ->
                     mapOf(
                         "success" to true,
                         "parsed" to true,
@@ -2245,7 +2245,7 @@ class OobOmniFlowLoopAcceptanceTest {
             val toolkit = OobOmniFlowToolkitService(
                 context,
                 WorkspaceFunctionStore(context.root),
-                onlineRepairPlanner = OobFunctionOnlineRepairPlanner { _, request ->
+                runtimeResolvePlanner = OobFunctionRuntimeResolvePlanner { _, request ->
                     repairRequests += request.failedStepIndex
                     mapOf(
                         "success" to true,
@@ -2385,7 +2385,7 @@ class OobOmniFlowLoopAcceptanceTest {
             val toolkit = OobOmniFlowToolkitService(
                 context,
                 WorkspaceFunctionStore(context.root),
-                onlineRepairPlanner = OobFunctionOnlineRepairPlanner { _, request ->
+                runtimeResolvePlanner = OobFunctionRuntimeResolvePlanner { _, request ->
                     repairRequests += request.failedStepIndex
                     mapOf(
                         "success" to true,

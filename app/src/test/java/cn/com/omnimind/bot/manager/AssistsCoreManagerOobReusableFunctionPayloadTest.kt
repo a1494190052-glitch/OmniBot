@@ -68,7 +68,7 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
     }
 
     @Test
-    fun `online repair payload keeps local prefix and repair step counts in context`() {
+    fun `runtime resolve payload keeps local prefix and resolve step counts in context`() {
         val timing = mapOf(
             "duration_ms" to 34L,
             "phase_ms" to mapOf("rank_functions_ms" to 5L)
@@ -82,7 +82,7 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
             ),
         )
 
-        val payload = buildOobReusableFunctionOnlineRepairPayload(
+        val payload = buildOobReusableFunctionRuntimeResolvePayload(
             functionId = "open_settings_then_repair",
             repairId = "repair-step-1",
             runPayload = mapOf(
@@ -92,7 +92,7 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
             ),
             stepResults = stepResults,
             completedStepCount = 1,
-            onlineRepairStepCount = 1,
+            runtimeResolveStepCount = 1,
             argumentCount = 0
         )
 
@@ -160,39 +160,39 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
     }
 
     @Test
-    fun `online repair step detection supports new and legacy replay markers`() {
+    fun `runtime resolve step detection supports new and legacy replay markers`() {
         assertTrue(
-            isOobReusableFunctionOnlineRepairStep(
+            isOobReusableFunctionRuntimeResolveStep(
                 mapOf("online_repair_required" to true)
             )
         )
         assertTrue(
-            isOobReusableFunctionOnlineRepairStep(
+            isOobReusableFunctionRuntimeResolveStep(
                 mapOf("error_code" to "OOB_ONLINE_REPAIR_UNAVAILABLE")
             )
         )
         assertTrue(
-            isOobReusableFunctionOnlineRepairStep(
+            isOobReusableFunctionRuntimeResolveStep(
                 mapOf("executor" to "agent", "success" to false)
             )
         )
         assertTrue(
-            isOobReusableFunctionOnlineRepairStep(
+            isOobReusableFunctionRuntimeResolveStep(
                 mapOf("vlm_step_required" to true)
             )
         )
         assertTrue(
-            isOobReusableFunctionOnlineRepairStep(
+            isOobReusableFunctionRuntimeResolveStep(
                 mapOf("error_code" to "OOB_VLM_CONTINUATION_REQUIRED")
             )
         )
         assertFalse(
-            isOobReusableFunctionOnlineRepairStep(
+            isOobReusableFunctionRuntimeResolveStep(
                 mapOf("model_required" to true)
             )
         )
         assertFalse(
-            isOobReusableFunctionOnlineRepairStep(
+            isOobReusableFunctionRuntimeResolveStep(
                 mapOf("executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW)
             )
         )

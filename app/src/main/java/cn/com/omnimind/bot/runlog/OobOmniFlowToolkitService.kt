@@ -9,7 +9,7 @@ import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import cn.com.omnimind.bot.omniflow.OobFunctionRecallService
 import cn.com.omnimind.bot.omniflow.OobFunctionRepository
 import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
-import cn.com.omnimind.bot.omniflow.OobFunctionOnlineRepairPlanner
+import cn.com.omnimind.bot.omniflow.OobFunctionRuntimeResolvePlanner
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
 import cn.com.omnimind.bot.omniflow.OobFunctionUpdateAgentOrchestrator
 import cn.com.omnimind.bot.omniflow.OobFunctionUpdateService
@@ -35,7 +35,7 @@ class OobOmniFlowToolkitService(
     private val workspaceFunctionStore: WorkspaceFunctionStore = WorkspaceFunctionStore(
         AgentWorkspaceManager.rootDirectory(context)
     ),
-    private val onlineRepairPlanner: OobFunctionOnlineRepairPlanner? = null,
+    private val runtimeResolvePlanner: OobFunctionRuntimeResolvePlanner? = null,
     private val updateAgentRequester: suspend (prompt: String, responseJsonObject: Boolean) -> String? =
         { prompt, responseJsonObject ->
             OobFunctionUpdateAgentOrchestrator.requestAgentAnalysis(prompt, responseJsonObject)
@@ -44,7 +44,7 @@ class OobOmniFlowToolkitService(
     private val functionRepository = OobFunctionRepository(context, workspaceFunctionStore)
     private val replayService = OobRunLogReplayService(context, workspaceFunctionStore, functionRepository)
     private val functionRecallService = OobFunctionRecallService(context, functionRepository)
-    private val functionRunner = onlineRepairPlanner?.let { planner ->
+    private val functionRunner = runtimeResolvePlanner?.let { planner ->
         OobFunctionRunner(context, workspaceFunctionStore, functionRepository, planner)
     } ?: OobFunctionRunner(context, workspaceFunctionStore, functionRepository)
     private val functionUpdateService = OobFunctionUpdateService(context, functionRepository)
