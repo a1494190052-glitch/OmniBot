@@ -564,6 +564,9 @@ class VLMClient(
         dynamicFunctionToolNames: Set<String>
     ): UIAction {
         val rawToolName = toolCall.function.name
+        if (isInternalRuntimeToolName(rawToolName)) {
+            throw IllegalArgumentException(INTERNAL_CALL_TOOL_ERROR)
+        }
         if (rawToolName in dynamicFunctionToolNames) {
             throw IllegalArgumentException("Function tool calls are handled by runtime recall, not by VLM output: $rawToolName")
         }
@@ -616,9 +619,7 @@ class VLMClient(
             OobCanonicalActionSchema.TOOL_GET_STATE -> GetStateAction(
                 reason = optionalString(args, OobCanonicalActionSchema.ARG_REASON).orEmpty()
             )
-            OobCanonicalActionSchema.TOOL_CALL_TOOL -> throw IllegalArgumentException(
-                "call_tool is an internal runtime action and cannot be emitted by the VLM"
-            )
+            OobCanonicalActionSchema.TOOL_CALL_TOOL -> throw IllegalArgumentException(INTERNAL_CALL_TOOL_ERROR)
             OobCanonicalActionSchema.TOOL_FINISHED -> FinishedAction(
                 content = optionalString(args, OobCanonicalActionSchema.ARG_CONTENT).orEmpty()
             )
@@ -711,7 +712,7 @@ class VLMClient(
         val markerName = marker.groups[1]?.value.orEmpty()
         val tail = compactQwenToolTail(content, marker, markerName)
         if (tail.isBlank()) return null
-        val knownNames = toolNames(dynamicFunctionToolNames)
+        val knownNames = textParseToolNames(dynamicFunctionToolNames)
             .flatMap { name ->
                 if (name == OobCanonicalActionSchema.TOOL_SWIPE) listOf(name, "scroll") else listOf(name)
             }
@@ -991,7 +992,7 @@ class VLMClient(
         content: String,
         dynamicFunctionToolNames: Set<String>
     ): AssistantToolCall? {
-        toolNames(dynamicFunctionToolNames).forEach { toolName ->
+        textParseToolNames(dynamicFunctionToolNames).forEach { toolName ->
             var searchStart = 0
             while (searchStart < content.length) {
                 val nameIndex = content.indexOf(toolName, startIndex = searchStart, ignoreCase = false)
@@ -1059,7 +1060,7 @@ class VLMClient(
         val closeTagIndex = content.indexOf("</tool_call>", ignoreCase = true)
         if (closeTagIndex < 0) return null
         val prefix = content.take(closeTagIndex)
-        val name = toolNames(dynamicFunctionToolNames)
+        val name = textParseToolNames(dynamicFunctionToolNames)
             .firstOrNull { toolName ->
                 Regex("""(?<![A-Za-z0-9_])${Regex.escape(toolName)}(?![A-Za-z0-9_])""")
                     .containsMatchIn(prefix)
@@ -1100,10 +1101,24 @@ class VLMClient(
         return toolNames(dynamicFunctionToolNames).firstOrNull { it == normalized }
     }
 
+    private fun isInternalRuntimeToolName(name: String): Boolean {
+        val normalized = name.trim()
+            .removePrefix("functions.")
+            .removePrefix("function.")
+            .trim()
+            .lowercase()
+        return normalized == OobCanonicalActionSchema.TOOL_CALL_TOOL
+    }
+
     private fun toolNames(dynamicFunctionToolNames: Set<String> = emptySet()): Set<String> =
         OobCanonicalActionSchema.modelVisibleTools.mapTo(linkedSetOf()) { it.name }.apply {
             remove(OobCanonicalActionSchema.TOOL_GET_STATE)
             addAll(dynamicFunctionToolNames)
+        }
+
+    private fun textParseToolNames(dynamicFunctionToolNames: Set<String> = emptySet()): Set<String> =
+        toolNames(dynamicFunctionToolNames).toMutableSet().apply {
+            add(OobCanonicalActionSchema.TOOL_CALL_TOOL)
         }
 
     private fun extractTopLevelObject(raw: String): String? {
@@ -1269,6 +1284,8 @@ class VLMClient(
         private const val MAX_HISTORY_OBSERVATION_CHARS = 360
         private const val MAX_TOOL_RESULT_CHARS = 900
         private const val MAX_TOOL_RESULT_VISIBLE_TEXTS = 12
+        private const val INTERNAL_CALL_TOOL_ERROR =
+            "call_tool is an internal runtime action and cannot be emitted by the VLM"
         private val TOOL_CALL_TAG_REGEX = Regex("""(?is)<tool_call>\s*(.*?)\s*</tool_call>""")
         private val ARG_PAIR_REGEX = Regex(
             """(?is)<arg_key>\s*([^<]+?)\s*</arg_key>\s*<arg_value>\s*(.*?)\s*(?=</arg_value>|</tool_call>|```|$)(?:</arg_value>)?"""

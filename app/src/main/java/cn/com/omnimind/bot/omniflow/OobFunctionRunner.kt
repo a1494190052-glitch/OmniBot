@@ -398,6 +398,19 @@ class OobFunctionRunner(
             combinedSteps.size >= stepCount &&
             combinedSteps.none { it["success"] == false }
         val successStepCount = combinedSteps.count { it["success"] != false }
+        val resumeFailureReason = if (success) {
+            null
+        } else {
+            "online_repair_next_step_not_ready"
+        }
+        val resumeAttempt = linkedMapOf<String, Any?>(
+            "success" to true,
+            "resume_success" to (resumePayload["success"] == true),
+            "resume_from_step" to (failedStepIndex + 1),
+            "failure_reason" to resumeFailureReason,
+            "resume_error_code" to resumePayload["error_code"],
+            "resume_error_message" to resumePayload["error_message"],
+        ).filterValues { it != null }
         return linkedMapOf<String, Any?>().apply {
             putAll(resumePayload)
             put("success", success)
@@ -418,11 +431,12 @@ class OobFunctionRunner(
             put("online_repair_budget", onlineRepairBudget)
             put("online_repair_required", false)
             put("online_repair_available", true)
+            put("online_repair_attempt", resumeAttempt)
             put("failed_step_index", if (success) null else resumePayload["failed_step_index"])
             put("current_step_index", if (success) stepCount - 1 else resumePayload["current_step_index"])
             put("current_step_number", if (success) stepCount else resumePayload["current_step_number"])
-            put("error_code", if (success) null else resumePayload["error_code"])
-            put("error_message", if (success) "" else resumePayload["error_message"])
+            put("error_code", if (success) null else "OOB_ONLINE_REPAIR_NEXT_STEP_NOT_READY")
+            put("error_message", if (success) "" else resumeFailureReason)
             put("step_results", combinedSteps)
             put("initial_replay", initialPayload.compactRunDiagnostics())
             put("resume_replay", resumePayload.compactRunDiagnostics())
