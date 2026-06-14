@@ -85,8 +85,10 @@ class ExecutionStep {
   /// 从 run_log step 创建
   factory ExecutionStep.fromRunLogStep(int index, Map<String, dynamic> step) {
     final toolCall = (step['tool_call'] as Map<dynamic, dynamic>?) ?? {};
-    final compileResult =
-        (step['compile_result'] as Map<dynamic, dynamic>?) ?? {};
+    final recallResult =
+        (step['recall_result'] as Map<dynamic, dynamic>?) ??
+        (step['compile_result'] as Map<dynamic, dynamic>?) ??
+        {};
     final params =
         (toolCall['params'] as Map<dynamic, dynamic>?)?.map(
           (k, v) => MapEntry(k.toString(), v),
@@ -94,7 +96,7 @@ class ExecutionStep {
         {};
 
     // 解析复用/规划信息
-    final functionId = compileResult['function_id']?.toString().trim();
+    final functionId = recallResult['function_id']?.toString().trim();
     ExecutionRouteKind executionRouteKind = ExecutionRouteKind.none;
     if (functionId != null && functionId.isNotEmpty) {
       executionRouteKind = ExecutionRouteKind.hit;

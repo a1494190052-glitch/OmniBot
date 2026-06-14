@@ -6857,6 +6857,8 @@ class _RunLogStepSnapshot {
     final function = _asStringKeyMap(toolCall['function']);
     final params = _extractParams(card, toolCall, function);
     final compileResult = _firstPresentValue(card, const [
+      'recall_result',
+      'recallResult',
       'compile_result',
       'compileResult',
       'route_result',

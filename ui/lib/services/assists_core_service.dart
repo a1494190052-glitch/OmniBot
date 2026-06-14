@@ -1290,17 +1290,28 @@ class UtgRunLogSummary {
       finishedAt: (raw['finished_at'] ?? '').toString(),
       durationMs: raw['duration_ms'] as num?,
       toolName: (raw['tool_name'] ?? '').toString(),
-      executionStatus: (raw['execution_status'] ?? raw['compile_status'] ?? '')
-          .toString(),
+      executionStatus:
+          (raw['execution_status'] ??
+                  raw['recall_status'] ??
+                  raw['compile_status'] ??
+                  '')
+              .toString(),
       executionFunctionId:
-          (raw['execution_function_id'] ?? raw['compile_function_id'] ?? '')
+          (raw['execution_function_id'] ??
+                  raw['recall_function_id'] ??
+                  raw['compile_function_id'] ??
+                  '')
               .toString(),
       executionMode: (raw['execution_mode'] ?? raw['compile_mode'] ?? '')
           .toString(),
       actFunctionId: (raw['act_function_id'] ?? '').toString(),
       source: (raw['source'] ?? '').toString(),
       executionSummary: _userVisibleExecutionText(
-        (raw['execution_summary'] ?? raw['compile_summary'] ?? '').toString(),
+        (raw['execution_summary'] ??
+                raw['recall_summary'] ??
+                raw['compile_summary'] ??
+                '')
+            .toString(),
       ),
       operationDescription: (raw['operation_description'] ?? '').toString(),
       selectorLabel: (raw['selector_label'] ?? '').toString(),

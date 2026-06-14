@@ -42,4 +42,22 @@ void main() {
     expect(summary.executionMode, 'offline');
     expect(summary.executionSummary, 'reuse hit');
   });
+
+  test('UtgRunLogSummary prefers recall fields over legacy compile fields', () {
+    final summary = UtgRunLogSummary.fromMap(<String, dynamic>{
+      'run_id': 'run-3',
+      'goal': '打开设置',
+      'success': true,
+      'recall_status': 'hit',
+      'compile_status': 'legacy_hit',
+      'recall_function_id': 'fn_recall',
+      'compile_function_id': 'fn_old',
+      'recall_summary': 'recall hit',
+      'compile_summary': 'legacy summary',
+    });
+
+    expect(summary.executionStatus, 'hit');
+    expect(summary.executionFunctionId, 'fn_recall');
+    expect(summary.executionSummary, 'recall hit');
+  });
 }
