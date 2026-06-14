@@ -28,7 +28,7 @@ Do not use this skill for uploaded-image Q&A, static document analysis, generic 
 1. Start `vlm_task` for the user goal. The native runtime records an Internal RunLog with tool cards, token usage, timing, observations, and completion status.
 2. Use RunLog evidence to inspect what actually happened. Prefer recorded observations and action results over guessed state.
 3. Convert high-signal RunLogs into reusable OmniFlow Functions only when the task has stable intent, repeatable UI targets, and clear parameters.
-4. Register or update Functions through the OOB Function tools. Keep Function specs small, parameterized, and tied to observed UI evidence.
+4. Register or update Functions through the OmniFlow Function tools. Keep Function specs small, parameterized, and tied to observed UI evidence.
 5. Replay registered Functions when the current package and page evidence match. Fall back to live VLM execution when guards fail, targets are missing, or user intent diverges.
 
 ## Validation

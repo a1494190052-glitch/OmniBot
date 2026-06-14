@@ -53,7 +53,7 @@ private fun OobFunctionOnlineRepairRequest.oneStepGuidance(): String = buildStri
 }
 
 /**
- * Executes a registered OOB Function through the local OmniFlow runner.
+ * Executes a registered OmniFlow Function through the local runner.
  */
 class OobFunctionRunner(
     private val context: Context,
@@ -106,7 +106,7 @@ class OobFunctionRunner(
         }
             ?: return@withContext errorPayload(
                 code = "OOB_FUNCTION_NOT_FOUND",
-                message = "OOB reusable function not found: $functionId",
+                message = "OmniFlow function not found: $functionId",
                 functionId = functionId
             ).let { attachExecutionTiming(it, timing) }
         val missing = timing.measure("check_arguments_ms") {

@@ -243,6 +243,21 @@ class McpToolDefinitionsTest {
         assertTrue(properties.containsKey("allowedTools"))
         val toolProfile = properties["toolProfile"] as Map<*, *>
         assertEquals(listOf("function_management"), toolProfile["enum"])
+        val profileDescription = toolProfile["description"].toString()
+        assertTrue(profileDescription.contains("OmniFlow Functions"))
+        assertFalse(profileDescription.contains("OOB Functions"))
+    }
+
+    @Test
+    fun functionManagementDescriptionsUseRuntimeOwnedOmniFlowLanguage() {
+        val descriptions = McpToolDefinitions.fixedTools
+            .filter { (it["name"] as? String) in OobFunctionToolNames.profileTools }
+            .joinToString("\n") { it["description"].toString() }
+
+        assertTrue(descriptions.contains("OmniFlow Function"))
+        assertFalse(descriptions.contains("OOB Function"))
+        assertFalse(descriptions.contains("OOB reusable"))
+        assertFalse(descriptions.contains("direct deterministic replay"))
     }
 
     @Test

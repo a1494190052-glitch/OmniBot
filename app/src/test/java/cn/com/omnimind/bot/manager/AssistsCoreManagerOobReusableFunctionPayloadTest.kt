@@ -14,7 +14,7 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
                 "success" to false,
                 "function_id" to "missing_function",
                 "error_code" to "OOB_FUNCTION_NOT_FOUND",
-                "error_message" to "OOB reusable function not found: missing_function",
+                "error_message" to "OmniFlow function not found: missing_function",
             )
         )
 

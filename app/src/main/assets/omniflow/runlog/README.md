@@ -183,7 +183,7 @@ When a new generic agent tool affects replay, `RunLogReplayPolicy` may classify
 the `AgentToolNames` constant, but it should not redefine the string. If the
 tool is only a live agent capability and does not appear in reusable replay
 steps, leave RunLog policy unchanged.
-Agent-facing docs should name the OOB Function lifecycle tools first. Function
+Agent-facing docs should name the OmniFlow Function lifecycle tools first. Function
 execution for online tasks goes through local runtime recall/replay; normal VLM
 output should stay in ordinary UI actions.
 
@@ -297,7 +297,7 @@ Direct UI execution is two phase:
 2. If a tool/data-flow/agent step is reached, return `needs_agent=true` and start an Agent task with the remaining function spec.
 
 Agent runtime execution may delegate normal tools through the router, but data-flow/perception-only steps should still be planned by Agent instead of blindly calling the original tool.
-OmniFlow reusable Function calls are resolved against the local OOB reusable
+OmniFlow reusable Function calls are resolved against the local compatible
 Function stores and execute recursively with a bounded call stack. OmniFlow graph calls
 execute explicit `path` entries or UTG edges by lowering them to supported
 primitive local actions.

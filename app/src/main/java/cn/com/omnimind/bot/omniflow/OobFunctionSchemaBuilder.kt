@@ -9,7 +9,7 @@ import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 
 /**
  * Builds the public argument contract used by runtime recall/fill before an
- * OOB reusable Function is replayed.
+ * OmniFlow Function is replayed.
  */
 object OobFunctionSchemaBuilder {
     fun inputSchema(spec: Map<String, Any?>): Map<String, Any?> {

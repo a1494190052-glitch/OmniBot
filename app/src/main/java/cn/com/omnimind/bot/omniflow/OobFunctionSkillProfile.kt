@@ -233,7 +233,7 @@ object OobFunctionSkillProfile {
             put("name", OobFunctionToolNames.FUNCTION_LIST)
             put("displayName", "列出复用指令")
             put("toolType", "oob_function")
-            put("description", "列出本机已注册的 OOB 复用指令。用于查看可选 Function 候选；不会执行任何手机操作。")
+            put("description", "列出本机已注册的 OmniFlow 复用指令。用于查看可选 Function 候选；不会执行任何手机操作。")
             putJsonObject("parameters") {
                 put("type", "object")
                 putJsonObject("properties") {
@@ -252,7 +252,7 @@ object OobFunctionSkillProfile {
             put("name", OobFunctionToolNames.FUNCTION_GET)
             put("displayName", "查看复用指令")
             put("toolType", "oob_function")
-            put("description", "读取一个 OOB 复用指令的结构化 Function spec，用于确认步骤、参数和来源。不会执行手机操作。")
+            put("description", "读取一个 OmniFlow 复用指令的结构化 Function spec，用于确认步骤、参数和来源。不会执行手机操作。")
             putJsonObject("parameters") {
                 put("type", "object")
                 putJsonObject("properties") {
@@ -272,7 +272,7 @@ object OobFunctionSkillProfile {
             put("name", OobFunctionToolNames.FUNCTION_REGISTER)
             put("displayName", "注册复用指令")
             put("toolType", "oob_function")
-            put("description", "注册或更新一个 OOB 复用指令。优先使用轻量字段 function_id/name/description/steps；只有已有完整底层结构时才传 function_spec。")
+            put("description", "注册或更新一个 OmniFlow 复用指令。优先使用轻量字段 function_id/name/description/steps；只有已有完整底层结构时才传 function_spec。")
             putJsonObject("parameters") {
                 put("type", "object")
                 putJsonObject("properties") {
@@ -298,7 +298,7 @@ object OobFunctionSkillProfile {
             put("name", OobFunctionToolNames.FUNCTION_UPDATE)
             put("displayName", "更新复用指令")
             put("toolType", "oob_function")
-            put("description", "根据结构化 patch、用户纠错指令或 RunLog 证据分析更新一个已保存的 OOB Function。传 run_id 且不传 analysis/patch 时后台会自动分析 RunLog、生成 patch 并保存增强结果；不会执行手机操作。")
+            put("description", "根据结构化 patch、用户纠错指令或 RunLog 证据分析更新一个已保存的 OmniFlow Function。传 run_id 且不传 analysis/patch 时后台会自动分析 RunLog、生成 patch 并保存增强结果；不会执行手机操作。")
             put("parameters", mapToJsonElement(OobFunctionUpdateToolSchema.inputSchema(includeCamelCaseAliases = true)))
         }
     }
@@ -309,7 +309,7 @@ object OobFunctionSkillProfile {
             put("name", OobFunctionToolNames.FUNCTION_DELETE)
             put("displayName", "删除复用指令")
             put("toolType", "oob_function")
-            put("description", "删除一个 OOB 复用指令。")
+            put("description", "删除一个 OmniFlow 复用指令。")
             putJsonObject("parameters") {
                 put("type", "object")
                 putJsonObject("properties") {
@@ -326,7 +326,7 @@ object OobFunctionSkillProfile {
             put("name", OobFunctionToolNames.FUNCTION_CLEAR)
             put("displayName", "清空复用指令")
             put("toolType", "oob_function")
-            put("description", "清空所有 OOB 复用指令。只有用户明确要求清空全部时使用，必须传 confirm=true。")
+            put("description", "清空所有 OmniFlow 复用指令。只有用户明确要求清空全部时使用，必须传 confirm=true。")
             putJsonObject("parameters") {
                 put("type", "object")
                 putJsonObject("properties") {

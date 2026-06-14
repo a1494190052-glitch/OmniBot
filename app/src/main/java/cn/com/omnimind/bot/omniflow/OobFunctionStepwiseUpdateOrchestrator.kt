@@ -87,7 +87,7 @@ class OobFunctionStepwiseUpdateOrchestrator(
         val current = OobFunctionJson.firstNonBlank(spec["description"])
         val stepLines = stepSummaryLines(steps)
         val prompt = buildString {
-            appendLine("为下面的 OOB Function 写一句准确、简洁的中文描述（不超过 40 字）。")
+            appendLine("为下面的 OmniFlow Function 写一句准确、简洁的中文描述（不超过 40 字）。")
             appendLine()
             if (name.isNotBlank()) appendLine("名称: $name")
             if (current.isNotBlank()) appendLine("当前描述: $current")
@@ -112,7 +112,7 @@ class OobFunctionStepwiseUpdateOrchestrator(
         val name = OobFunctionJson.firstNonBlank(spec["name"])
         val description = OobFunctionJson.firstNonBlank(spec["description"])
         val prompt = buildString {
-            appendLine("分析下面 OOB Function，找出每次调用时会变化的输入值（如搜索词、消息文本、金额等），将它们定义为参数并说明绑定到哪些步骤的哪个字段。")
+            appendLine("分析下面 OmniFlow Function，找出每次调用时会变化的输入值（如搜索词、消息文本、金额等），将它们定义为参数并说明绑定到哪些步骤的哪个字段。")
             appendLine("不要将包名、坐标、UI 目标描述列为参数。同一参数可绑定多个步骤（全链路复用）。若无需参数，输出空数组。")
             appendLine()
             if (name.isNotBlank()) appendLine("名称: $name")

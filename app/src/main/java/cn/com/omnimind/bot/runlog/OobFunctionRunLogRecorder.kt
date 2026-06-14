@@ -4,7 +4,7 @@ import android.content.Context
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 
 /**
- * Persists an executed OOB Function payload as an InternalRunLog timeline.
+ * Persists an executed OmniFlow Function payload as an InternalRunLog timeline.
  *
  * Function execution already returns structured `step_results`; this adapter
  * records them under the same `run_id` that Function management stores as

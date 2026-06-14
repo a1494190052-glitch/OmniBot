@@ -12,7 +12,7 @@ import cn.com.omnimind.bot.runlog.OobUdegNodeStore
 import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
 
 /**
- * Single owner for OOB Function storage and index synchronization.
+ * Single owner for OmniFlow Function storage and index synchronization.
  *
  * RunLog services should compile evidence into Function specs; toolkit services should expose
  * agent/MCP APIs. All Function CRUD, workspace/registry mirroring, UDEG references, and tool

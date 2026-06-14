@@ -36,7 +36,7 @@ by default.
   `success` and `result`, then continue with the next Function, VLM path, or
   other tool when the goal remains unfinished.
 - Prefer `oob_function_*`, `oob_run_log_*`, and `update_function` for in-app
-  OOB Function work.
+  OmniFlow Function work.
 - Do not explicitly call hidden Function replay tools from a normal agent-task.
   Function execution is selected by runtime recall/replay inside `vlm_task`;
   online fallback should output ordinary UI actions only.

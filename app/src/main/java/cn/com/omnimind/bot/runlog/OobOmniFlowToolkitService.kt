@@ -261,7 +261,7 @@ class OobOmniFlowToolkitService(
         if (spec == null) {
             return errorPayload(
                 code = "OOB_FUNCTION_NOT_FOUND",
-                message = "OOB reusable function not found: $functionId",
+                message = "OmniFlow function not found: $functionId",
                 functionId = functionId
             )
         }
@@ -288,7 +288,7 @@ class OobOmniFlowToolkitService(
         if (!confirmed) {
             return errorPayload(
                 code = "OOB_FUNCTION_CLEAR_CONFIRMATION_REQUIRED",
-                message = "Set confirm=true to clear all registered OOB Functions"
+                message = "Set confirm=true to clear all registered OmniFlow Functions"
             )
         }
         return functionRepository.clear()
@@ -327,7 +327,7 @@ class OobOmniFlowToolkitService(
         if (rawSteps.isEmpty()) return emptyMap()
         val now = System.currentTimeMillis().toString()
         val rawFunctionId = firstNonBlank(request["function_id"], request["functionId"], request["id"])
-        val name = firstNonBlank(request["name"], request["title"], rawFunctionId).ifBlank { "OOB reusable function" }
+        val name = firstNonBlank(request["name"], request["title"], rawFunctionId).ifBlank { "OmniFlow reusable function" }
         val description = firstNonBlank(request["description"], request["goal"], request["summary"], name)
         val functionId = rawFunctionId.ifBlank {
             val seed = "$name $description".lowercase().replace(Regex("[^a-z0-9]+"), "_")

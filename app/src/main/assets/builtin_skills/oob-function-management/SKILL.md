@@ -3,7 +3,7 @@ name: oob-function-management
 description: Compatibility entry for OmniFlow Function management. Use for RunLog registration, "把上一条 runlog 注册了", "保存为复用指令", "转换轨迹", update_function, list/get/delete reusable functions, variable-parameter Functions, and function_management profile prompts.
 ---
 
-# OOB Function Management
+# OmniFlow Function Management
 
 This is a compatibility entry for the focused `function_management` tool
 profile and old prompts. The canonical layered skill is `omniflow`.

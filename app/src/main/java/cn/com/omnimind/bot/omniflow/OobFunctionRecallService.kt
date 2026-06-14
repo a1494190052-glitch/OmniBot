@@ -13,7 +13,7 @@ import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import kotlin.math.roundToInt
 
 /**
- * Owns OOB Function recall policy: current-page matching, UDEG capability
+ * Owns OmniFlow Function recall policy: current-page matching, UDEG capability
  * ranking, direct-hit decisions, and agent-facing compact payloads.
  */
 class OobFunctionRecallService(

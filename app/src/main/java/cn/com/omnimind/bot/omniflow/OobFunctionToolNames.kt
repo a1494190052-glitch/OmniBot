@@ -1,7 +1,7 @@
 package cn.com.omnimind.bot.omniflow
 
 /**
- * Canonical in-app agent tool names for OOB Function and RunLog lifecycle.
+ * Canonical in-app agent tool names for OmniFlow Function and RunLog lifecycle.
  *
  * Legacy external `omniflow.*` MCP names are adapter compatibility and stay in
  * the MCP layer. Replay-step tool taxonomy stays in RunLogReplayPolicy.

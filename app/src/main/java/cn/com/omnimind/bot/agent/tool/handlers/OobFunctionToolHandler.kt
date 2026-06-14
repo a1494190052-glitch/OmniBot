@@ -136,7 +136,7 @@ class OobFunctionToolHandler(
         } catch (e: Exception) {
             cn.com.omnimind.bot.agent.ToolExecutionResult.Error(
                 toolName,
-                helper.localized(e.message ?: "OOB Function tool failed")
+                helper.localized(e.message ?: "OmniFlow Function tool failed")
             )
         }
     }
@@ -971,7 +971,7 @@ class OobFunctionToolHandler(
         emitStarted()
         if (functionId.isEmpty()) return completeWithCard(failStep("OOB_FUNCTION_ID_MISSING", "$stepTitle missing function_id"))
         val nestedSpec = getSpec(functionId)
-            ?: return completeWithCard(failStep("OOB_FUNCTION_NOT_FOUND", "OOB reusable function not found: $functionId",
+            ?: return completeWithCard(failStep("OOB_FUNCTION_NOT_FOUND", "OmniFlow function not found: $functionId",
                 mapOf("nested_function_id" to functionId)))
         val missing = OobReusableFunctionStore.missingRequiredArguments(nestedSpec, nestedArguments)
         if (missing.isNotEmpty()) return completeWithCard(failStep("OOB_FUNCTION_ARGUMENTS_MISSING",

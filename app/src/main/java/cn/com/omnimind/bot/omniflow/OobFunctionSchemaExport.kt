@@ -47,7 +47,7 @@ object OobFunctionSchemaExport {
 
     private val reusableFunctionSchema: Map<String, Any?>
         get() = obj(
-            description = "Saved OOB reusable Function. Execution fields are preserved by enhancement; update_function owns safe patches.",
+            description = "Saved OmniFlow Function. Execution fields are preserved by enhancement; update_function owns safe patches.",
             properties = linkedMapOf(
                 "schema_version" to constString("oob.reusable_function.v1"),
                 "function_id" to string("Stable Function id."),

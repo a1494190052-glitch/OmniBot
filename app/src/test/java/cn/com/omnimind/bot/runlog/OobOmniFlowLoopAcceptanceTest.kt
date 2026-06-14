@@ -352,7 +352,7 @@ class OobOmniFlowLoopAcceptanceTest {
             ) { prompt, responseJsonObject ->
                 modelCalls += 1
                 requestedJsonObject = responseJsonObject
-                assertTrue(prompt.contains("Analyze this OOB Function"))
+                assertTrue(prompt.contains("Analyze this OmniFlow Function"))
                 """
                 ```json
                 {
@@ -428,7 +428,7 @@ class OobOmniFlowLoopAcceptanceTest {
             assertEquals(1, modelCalls)
             assertEquals(true, requestedJsonObject)
             val initial = update["agent_analysis_initial"] as Map<*, *>
-            assertTrue(initial["agent_prompt"].toString().contains("Analyze this OOB Function"))
+            assertTrue(initial["agent_prompt"].toString().contains("Analyze this OmniFlow Function"))
             val contextPayload = initial["analysis_context"] as Map<*, *>
             assertEquals(functionId, contextPayload["function_id"])
             assertEquals(runId, (contextPayload["runlog"] as Map<*, *>)["run_id"])

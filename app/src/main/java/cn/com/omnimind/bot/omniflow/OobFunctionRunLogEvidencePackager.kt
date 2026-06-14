@@ -53,7 +53,7 @@ class OobFunctionRunLogEvidencePackager {
         val runLog = mapArg(context["runlog"])
         val runId = firstNonBlank(runLog["run_id"])
         return """
-            Analyze this OOB Function with the provided RunLog evidence, then call update_function again with analysis and the smallest safe patch.
+            Analyze this OmniFlow Function with the provided RunLog evidence, then call update_function again with analysis and the smallest safe patch.
 
             Required workflow:
             1. Compare function.steps with runlog.cards.

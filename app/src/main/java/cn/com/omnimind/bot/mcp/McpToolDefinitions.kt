@@ -357,7 +357,7 @@ BEHAVIOR:
                 ),
                 "taskId" to mapOf(
                     "type" to "string",
-                    "description" to "Optional stable task id for correlation. If omitted, OOB generates one."
+                    "description" to "Optional stable task id for correlation. If omitted, the runtime generates one."
                 ),
                 "attachments" to mapOf(
                     "type" to "array",
@@ -370,7 +370,7 @@ BEHAVIOR:
                 "toolProfile" to mapOf(
                     "type" to "string",
                     "enum" to listOf("function_management"),
-                    "description" to "Optional focused tool exposure profile. Use function_management when the Agent only needs to list, inspect, register, convert, update, or delete OOB Functions; this keeps regular Agent behavior unchanged while reducing tool-schema tokens."
+                    "description" to "Optional focused tool exposure profile. Use function_management when the Agent only needs to list, inspect, register, convert, update, or delete OmniFlow Functions; this keeps regular Agent behavior unchanged while reducing tool-schema tokens."
                 ),
                 "allowedTools" to mapOf(
                     "type" to "array",
@@ -391,7 +391,7 @@ BEHAVIOR:
                 "goal" to mapOf("type" to "string", "description" to "Natural-language task goal."),
                 "current_package" to mapOf("type" to "string", "description" to "Optional foreground Android package for scope matching."),
                 "current_node_id" to mapOf("type" to "string", "description" to "Optional current page/node id for future OmniFlow compatibility."),
-                "current_xml" to mapOf("type" to "string", "description" to "Optional live accessibility XML. When omitted, OOB captures the foreground page and page-matches it to a UDEG node."),
+                "current_xml" to mapOf("type" to "string", "description" to "Optional live accessibility XML. When omitted, OmniFlow captures the foreground page and page-matches it to a UDEG node."),
                 "k" to mapOf("type" to "integer", "description" to "Maximum candidates to return. Default 8."),
                 "include_debug" to mapOf(
                     "type" to "boolean",
@@ -405,22 +405,22 @@ BEHAVIOR:
 
     val omniflowIngestRunLogTool = mapOf(
         "name" to "omniflow.ingest_run_log",
-        "description" to """Convert a successful OOB RunLog into a local manual Function asset. By default this returns or saves an agent-hidden manual Function; set register=true only when explicitly publishing it for runtime recall.""".trimIndent(),
+        "description" to """Convert a successful OmniFlow RunLog into a local manual Function asset. By default this returns or saves an agent-hidden manual Function; set register=true only when explicitly publishing it for runtime recall.""".trimIndent(),
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
-                "run_id" to mapOf("type" to "string", "description" to "Existing OOB internal RunLog id."),
+                "run_id" to mapOf("type" to "string", "description" to "Existing OmniFlow RunLog id."),
                 "run_log" to mapOf("type" to "object", "description" to "Optional inline canonical run log."),
                 "register" to mapOf("type" to "boolean", "description" to "Persist the converted manual Function. Default false."),
                 "agent_visible" to mapOf("type" to "boolean", "description" to "Compatibility flag for older callers. Function recall/replay is runtime-owned and not exposed as model-callable tools."),
-                "auto_enrich" to mapOf("type" to "boolean", "description" to "Accepted for compatibility; OOB simple mode does deterministic local import.")
+                "auto_enrich" to mapOf("type" to "boolean", "description" to "Accepted for compatibility; OmniFlow simple mode does deterministic local import.")
             )
         )
     )
 
     val omniflowExploreReplayTool = mapOf(
         "name" to "omniflow.explore_replay",
-        "description" to """Run OOB-native exploratory UI crawling, persist the path as a UTG-backed RunLog, convert it into a reusable Function, then optionally replay that Function through the existing local runner.""".trimIndent(),
+        "description" to """Run OmniFlow-native exploratory UI crawling, persist the path as a UTG-backed RunLog, convert it into a reusable Function, then optionally replay that Function through the existing local runner.""".trimIndent(),
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
@@ -442,7 +442,7 @@ BEHAVIOR:
 
     val oobFunctionListTool = mapOf(
         "name" to OobFunctionToolNames.FUNCTION_LIST,
-        "description" to "List registered OOB reusable Functions available for direct deterministic replay.",
+        "description" to "List registered OmniFlow Functions available for runtime recall and replay.",
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
@@ -453,7 +453,7 @@ BEHAVIOR:
 
     val oobFunctionGetTool = mapOf(
         "name" to OobFunctionToolNames.FUNCTION_GET,
-        "description" to "Read one registered OOB reusable Function by id.",
+        "description" to "Read one registered OmniFlow Function by id.",
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
@@ -465,7 +465,7 @@ BEHAVIOR:
 
     val oobFunctionRegisterTool = mapOf(
         "name" to OobFunctionToolNames.FUNCTION_REGISTER,
-        "description" to "Register or update one OOB reusable Function. Prefer the simple shape {function_id,name,description,steps,source_page}; pass function_spec only when you already have a full oob.reusable_function.v1 spec. Registration never auto-executes the Function.",
+        "description" to "Register or update one OmniFlow Function. Prefer the simple shape {function_id,name,description,steps,source_page}; pass function_spec only when you already have a full oob.reusable_function.v1 spec. Registration never auto-executes the Function.",
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
@@ -487,13 +487,13 @@ BEHAVIOR:
 
     val updateFunctionTool = mapOf(
         "name" to OobFunctionToolNames.FUNCTION_UPDATE,
-        "description" to "Update one saved OOB Function from a structured patch, user correction, or RunLog evidence. Passing run_id without analysis/patch returns analysis_context and agent_prompt; saving RunLog evidence uses analysis plus an optional patch.",
+        "description" to "Update one saved OmniFlow Function from a structured patch, user correction, or RunLog evidence. Passing run_id without analysis/patch returns analysis_context and agent_prompt; saving RunLog evidence uses analysis plus an optional patch.",
         "inputSchema" to OobFunctionUpdateToolSchema.inputSchema(includeCamelCaseAliases = false)
     )
 
     val oobFunctionDeleteTool = mapOf(
         "name" to OobFunctionToolNames.FUNCTION_DELETE,
-        "description" to "Delete one registered OOB reusable Function from Workspace, local registry, and UDEG node references.",
+        "description" to "Delete one registered OmniFlow Function from Workspace, local registry, and UDEG node references.",
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
@@ -505,7 +505,7 @@ BEHAVIOR:
 
     val oobFunctionClearTool = mapOf(
         "name" to OobFunctionToolNames.FUNCTION_CLEAR,
-        "description" to "Clear all registered OOB reusable Functions and detach all Function references from UDEG node skills. Requires confirm=true.",
+        "description" to "Clear all registered OmniFlow Functions and detach all Function references from UDEG node skills. Requires confirm=true.",
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
@@ -517,7 +517,7 @@ BEHAVIOR:
 
     val oobRunLogListTool = mapOf(
         "name" to OobFunctionToolNames.RUN_LOG_LIST,
-        "description" to "List recent OOB internal RunLogs that can be inspected or converted to Functions.",
+        "description" to "List recent OmniFlow RunLogs that can be inspected or converted to Functions.",
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
@@ -528,7 +528,7 @@ BEHAVIOR:
 
     val oobRunLogGetTool = mapOf(
         "name" to OobFunctionToolNames.RUN_LOG_GET,
-        "description" to "Read one OOB internal RunLog timeline payload by id.",
+        "description" to "Read one OmniFlow RunLog timeline payload by id.",
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
@@ -540,7 +540,7 @@ BEHAVIOR:
 
     val oobRunLogConvertTool = mapOf(
         "name" to OobFunctionToolNames.RUN_LOG_CONVERT,
-        "description" to "Convert one successful OOB RunLog into a reusable Function and optionally register it.",
+        "description" to "Convert one successful OmniFlow RunLog into a reusable Function and optionally register it.",
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
@@ -585,7 +585,7 @@ BEHAVIOR:
         get() = mapOf(
             "uri" to OobFunctionSchemaExport.RESOURCE_URI,
             "name" to "OmniFlow Function Management Schemas",
-            "description" to "Exported JSON schema bundle for OOB Function, update_function, enhancement reports, replay policy, and MCP tool inputs.",
+            "description" to "Exported JSON schema bundle for OmniFlow Function, update_function, enhancement reports, replay policy, and MCP tool inputs.",
             "mimeType" to "application/json",
         )
 

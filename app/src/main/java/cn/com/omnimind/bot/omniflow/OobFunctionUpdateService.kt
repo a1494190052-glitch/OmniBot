@@ -15,7 +15,7 @@ import cn.com.omnimind.bot.runlog.OmniflowCheckerRule
 import cn.com.omnimind.bot.runlog.OobStepRoleClassifier
 
 /**
- * Applies agent-provided updates to registered OOB Functions.
+ * Applies agent-provided updates to registered OmniFlow Functions.
  * Consolidates OobFunctionStructuralPatchApplier, OobFunctionMetadataPatchApplier,
  * and OobFunctionCheckerPatchService into a single self-contained service.
  */
@@ -50,7 +50,7 @@ class OobFunctionUpdateService(
         val original = functionRepository.get(functionId)
             ?: return errorPayload(
                 code = "OOB_FUNCTION_NOT_FOUND",
-                message = "OOB reusable function not found: $functionId",
+                message = "OmniFlow function not found: $functionId",
                 functionId = functionId
             )
         val requestedMode = firstNonBlank(request["mode"], request["operation"]).lowercase().ifBlank { "enhance" }

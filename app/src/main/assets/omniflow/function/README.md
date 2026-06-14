@@ -1,6 +1,6 @@
-# OOB Function Backend
+# OmniFlow Function Backend
 
-This document records the backend ownership rules for OOB reusable Functions.
+This document records the backend ownership rules for OmniFlow reusable Functions.
 It is intentionally about core logic only; Flutter cards and display behavior
 belong in UI documentation.
 
@@ -153,7 +153,7 @@ helper with mixed semantics.
 RunLog lifecycle:
 
 - define `oob_function_*`, `update_function`, and `oob_run_log_*` lifecycle
-  names used by the native skill profile and MCP OOB Function schema
+  names used by the native skill profile and MCP OmniFlow Function schema
 - keep replay-step executor/tool taxonomy in `RunLogReplayPolicy`
 - never own tool descriptions, schemas, execution, recall, update, or replay
   behavior
@@ -164,7 +164,7 @@ RunLog lifecycle:
   `android_privileged_action`
 - share those names across agent tool definitions, handlers, MCP adapters,
   agent run-log card construction, and RunLog classifiers
-- never own OOB Function lifecycle names or replay execution taxonomy such as
+- never own OmniFlow Function lifecycle names or replay execution taxonomy such as
   `call_tool`
 
 When adding or migrating a generic agent tool name:
@@ -673,7 +673,7 @@ the same commit as the code change:
   behavior currently listed here, move the ownership bullet instead of copying
   it.
 
-Use canonical OOB Function management tools in agent-facing docs:
+Use canonical OmniFlow Function management tools in agent-facing docs:
 `oob_function_list`, `oob_function_get`, `oob_function_register`,
 `update_function`, `oob_function_delete`, `oob_function_clear`,
 `oob_run_log_list`,

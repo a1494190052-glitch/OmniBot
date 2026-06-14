@@ -1,4 +1,4 @@
 interface:
-  display_name: "OOB Function Management"
+  display_name: "OmniFlow Function Management"
   short_description: "Manage RunLogs and reusable Functions from chat"
   default_prompt: "Use $oob-function-management to register the previous RunLog, convert a trajectory into a reusable Function, list or inspect saved Functions, update a Function, or execute a selected reusable Function with parameters."

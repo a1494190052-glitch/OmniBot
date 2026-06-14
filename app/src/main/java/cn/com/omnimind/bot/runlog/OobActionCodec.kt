@@ -3,7 +3,7 @@ package cn.com.omnimind.bot.runlog
 import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
 
 /**
- * Canonical action parser for OOB Function steps.
+ * Canonical action parser for OmniFlow Function steps.
  *
  * This is the single place where action/tool names are mapped into the compact
  * action vocabulary consumed by replay, UDEG, and update_function.
