@@ -635,23 +635,22 @@ class OobFunctionRunner(
         val normalized = linkedMapOf<String, Any?>().apply { putAll(this@withExecutionSummary) }
         val existingSummary = OobFunctionJson.mapArg(normalized["execution_summary"])
         val stepResults = stepResultsFromPayload(normalized)
-        val onlineFallbackSteps = OobFunctionJson.intArg(
+        val repairSteps = OobFunctionJson.intArg(
+            existingSummary["repair_steps"],
             existingSummary["online_fallback_steps"],
             existingSummary["online_repair_steps"],
             normalized["online_fallback_steps"],
             normalized["online_repair_steps"],
             defaultValue = stepResults.count { it.isOnlineRepairStep() },
         )
-        val offlineSteps = OobFunctionJson.intArg(
+        val legacyOfflineSteps = OobFunctionJson.intArg(
             existingSummary["offline_steps"],
             defaultValue = stepResults.count { it["success"] != false && !it.isOnlineRepairStep() },
         )
-        val onlineRepairBudget = OobFunctionJson.intArg(
-            existingSummary["online_repair_budget"],
-            existingSummary["online_fallback_budget"],
-            normalized["online_repair_budget"],
-            normalized["online_fallback_budget"],
-            defaultValue = 0,
+        val steps = OobFunctionJson.intArg(
+            existingSummary["steps"],
+            normalized["steps"],
+            defaultValue = legacyOfflineSteps + repairSteps,
         )
         val timing = OobFunctionJson.mapArg(normalized["timing"])
         val success = normalized["success"] == true
@@ -660,24 +659,20 @@ class OobFunctionRunner(
             normalized["model_calls"],
             defaultValue = 0L,
         ).takeIf { it > 0L } ?: normalized.inferredOnlineRepairPlannerCalls(stepResults)
-        val defaults = linkedMapOf<String, Any?>(
+        val tokens = OobFunctionJson.longArg(
+            existingSummary["tokens"],
+            existingSummary["total_tokens"],
+            normalized["tokens"],
+            normalized["total_tokens"],
+            defaultValue = normalized.tokenCountFromPlannerPayloads(stepResults, "total_tokens"),
+        )
+        normalized["execution_summary"] = linkedMapOf<String, Any?>(
             "success" to success,
             "function_id" to OobFunctionJson.firstNonBlank(normalized["function_id"]),
-            "execution_mode" to OobFunctionJson.firstNonBlank(
-                normalized["execution_mode"],
-                if (onlineFallbackSteps > 0) "offline_online_offline" else "offline_replay",
-            ),
-            "offline_steps" to offlineSteps,
-            "online_fallback_steps" to onlineFallbackSteps,
-            "online_repair_steps" to onlineFallbackSteps,
-            "online_fallback_budget" to onlineRepairBudget,
-            "online_repair_budget" to onlineRepairBudget,
-            "online_fallback_applied" to (onlineFallbackSteps > 0),
-            "online_repair_applied" to (onlineFallbackSteps > 0),
+            "steps" to steps,
+            "repair_steps" to repairSteps,
             "model_calls" to modelCalls,
-            "prompt_tokens" to normalized.tokenCountFromPlannerPayloads(stepResults, "prompt_tokens"),
-            "completion_tokens" to normalized.tokenCountFromPlannerPayloads(stepResults, "completion_tokens"),
-            "total_tokens" to normalized.tokenCountFromPlannerPayloads(stepResults, "total_tokens"),
+            "tokens" to tokens,
             "elapsed_ms" to OobFunctionJson.longArg(
                 existingSummary["elapsed_ms"],
                 timing["duration_ms"],
@@ -689,17 +684,7 @@ class OobFunctionRunner(
                 normalized["error_code"],
                 normalized["error_message"],
             ).takeIf { it.isNotBlank() },
-        )
-        normalized["execution_summary"] = linkedMapOf<String, Any?>().apply {
-            putAll(defaults)
-            putAll(existingSummary)
-            putIfAbsent("online_fallback_steps", this["online_repair_steps"])
-            putIfAbsent("online_repair_steps", this["online_fallback_steps"])
-            putIfAbsent("online_fallback_budget", this["online_repair_budget"])
-            putIfAbsent("online_repair_budget", this["online_fallback_budget"])
-            putIfAbsent("online_fallback_applied", this["online_repair_applied"])
-            putIfAbsent("online_repair_applied", this["online_fallback_applied"])
-        }.filterValues { it != null }
+        ).filterValues { it != null }
         return normalized
     }
 
