@@ -2,6 +2,7 @@ package cn.com.omnimind.bot.agent.tool.handlers
 
 import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
+import cn.com.omnimind.bot.omniflow.OobFunctionJson.listArg
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
 import cn.com.omnimind.bot.omniflow.language.OmniflowFunction
 import cn.com.omnimind.bot.omniflow.language.OmniflowFunctionStore
@@ -1057,8 +1058,8 @@ class OobFunctionToolHandler(
             frontendParent = frontendParent,
         )
         val success = nestedRun["success"] == true
-        val nestedStepResults = OobFunctionJson.listArg(nestedRun["step_results"])
-            .mapNotNull { OobFunctionJson.mapArg(it).takeIf { mapped -> mapped.isNotEmpty() } }
+        val nestedStepResults = listArg(nestedRun["step_results"])
+            .mapNotNull { mapArg(it).takeIf { mapped -> mapped.isNotEmpty() } }
         val nestedOnlineRepairRequired =
             nestedRun["online_repair_required"] == true ||
                 nestedRun["fallback_context"] != null ||
