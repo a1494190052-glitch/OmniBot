@@ -18,9 +18,10 @@ data class VlmRecallGuidance(
 /**
  * Builds online VLM guidance from OOB-native OmniFlow recall.
  *
- * VLM still observes the live screen and emits ordinary UI actions when online
- * fallback is needed. Saved Function recall, argument filling, and replay are
- * selected by the local runtime, not exposed as model-callable Function tools.
+ * VLM still observes the live screen and emits ordinary UI actions when the
+ * runtime does not execute a recalled Function. Saved Function recall,
+ * argument filling, replay, and one-step repair are selected by the local
+ * runtime, not exposed as model-callable Function tools.
  */
 object VlmRecallGuidanceBuilder {
     fun build(
@@ -117,8 +118,8 @@ object VlmRecallGuidanceBuilder {
             appendLine("OmniFlow recall checked for this VLM step.")
             appendLine("decision=$decision")
             appendLine(functionExecutionPolicyLine(directDecision))
-            appendLine("runtime_behavior=high-confidence Function hits are filled and replayed locally before ordinary VLM fallback.")
-            appendLine("fallback_policy=if this turn reaches the VLM, output exactly one ordinary UI action for the current screen.")
+            appendLine("runtime_behavior=high-confidence Function hits are filled and replayed locally before ordinary VLM actions.")
+            appendLine("online_action_policy=if this turn reaches the VLM, output exactly one ordinary UI action for the current screen.")
             appendLine("allowed_actions=click,input_text,swipe,press_back,press_home,open_app,wait")
             appendLine("hidden_runtime_actions=do not select saved Functions, hidden replay tools, or task-level replanning.")
             if (nodeCandidates.isNotEmpty()) {

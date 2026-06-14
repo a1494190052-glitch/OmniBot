@@ -39,6 +39,8 @@ class VlmRecallGuidanceBuilderTest {
         assertTrue(guidance.contains("function_reuse_policy=runtime_recall_replay"))
         assertTrue(guidance.contains("model_must_not_emit_call_tool=true"))
         assertTrue(guidance.contains("Function hits are filled and replayed locally"))
+        assertTrue(guidance.contains("online_action_policy="))
+        assertFalse(guidance.contains("fallback_policy="))
         assertFalse(guidance.contains("function=open_network_settings"))
         assertFalse(guidance.contains("open_network_settings"))
         assertFalse(guidance.contains("argument_policy"))
@@ -622,7 +624,7 @@ class VlmRecallGuidanceBuilderTest {
         val recall = """
             [[OOB_OMNIFLOW_STEP_RECALL_START]]
             function_reuse_policy=runtime_context_only
-            fallback_policy=if this turn reaches the VLM, output exactly one ordinary UI action for the current screen.
+            online_action_policy=if this turn reaches the VLM, output exactly one ordinary UI action for the current screen.
             [[OOB_OMNIFLOW_STEP_RECALL_END]]
         """.trimIndent()
 
@@ -633,7 +635,7 @@ class VlmRecallGuidanceBuilderTest {
         )
 
         assertTrue(merged.startsWith("[[OOB_OMNIFLOW_STEP_RECALL_START]]"))
-        assertTrue(merged.contains("fallback_policy="))
+        assertTrue(merged.contains("online_action_policy="))
         assertFalse(merged.contains("function=open_bluetooth"))
         assertFalse(merged.contains("preferred_call_tool"))
         assertFalse(merged.contains("\"name\":\"call_tool\""))

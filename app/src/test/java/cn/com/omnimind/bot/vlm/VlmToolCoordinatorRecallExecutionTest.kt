@@ -519,8 +519,8 @@ class VlmToolCoordinatorRecallExecutionTest {
                             "[[OOB_OMNIFLOW_STEP_RECALL_START]]\n" +
                             "OmniFlow recall checked for this VLM step.\n" +
                             "function_reuse_policy=runtime_context_only\n" +
-                            "runtime_behavior=high-confidence Function hits are filled and replayed locally before ordinary VLM fallback.\n" +
-                            "fallback_policy=if this turn reaches the VLM, output exactly one ordinary UI action for the current screen.\n" +
+                            "runtime_behavior=high-confidence Function hits are filled and replayed locally before ordinary VLM actions.\n" +
+                            "online_action_policy=if this turn reaches the VLM, output exactly one ordinary UI action for the current screen.\n" +
                             "allowed_actions=click,input_text,swipe,press_back,press_home,open_app,wait\n" +
                             "hidden_runtime_actions=do not select saved Functions, hidden replay tools, or task-level replanning.\n" +
                             "[[OOB_OMNIFLOW_STEP_RECALL_END]]",
