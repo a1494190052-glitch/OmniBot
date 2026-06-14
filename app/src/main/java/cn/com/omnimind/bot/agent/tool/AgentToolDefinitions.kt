@@ -211,8 +211,8 @@ object AgentToolDefinitions {
         "整理当日记忆" to "Roll Up Daily Memory",
         "分派子任务" to "Dispatch Subtasks",
         "调用工具" to "Call Tool",
-        "统一调用一个明确暴露的 OOB 工具。手机 UI 自动化请调用 vlm_task；已保存 Function 的召回、参数填充和重放由本地运行时自动处理，不通过 function_id 暴露给 Agent 直接调用。" to
-            "Call one explicitly exposed OOB tool. For phone UI automation, use vlm_task; saved Function recall, argument filling, and replay are handled by the local runtime and are not exposed to the Agent as direct function_id calls.",
+        "统一调用一个明确暴露的工具。手机 UI 自动化请调用 vlm_task；已保存 Function 的召回、参数填充和重放由本地运行时自动处理，不通过 function_id 暴露给 Agent 直接调用。" to
+            "Call one explicitly exposed tool. For phone UI automation, use vlm_task; saved Function recall, argument filling, and replay are handled by the local runtime and are not exposed to the Agent as direct function_id calls.",
         "目标工具名，例如 vlm_task、web_search、terminal_execute。" to
             "Target tool name, for example vlm_task, web_search, or terminal_execute.",
         "传给目标工具的参数对象。" to
