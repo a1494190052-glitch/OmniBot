@@ -393,16 +393,16 @@ class OobFunctionRunner(
             OobFunctionJson.intArg(it["index"], defaultValue = -1) < failedStepIndex
         }
         val suffix = stepResultsFromPayload(resumePayload)
-        val combinedSteps = prefix + repairStepResult + suffix
+        val rawCombinedSteps = prefix + repairStepResult + suffix
         val success = resumePayload["success"] == true &&
-            combinedSteps.size >= stepCount &&
-            combinedSteps.none { it["success"] == false }
-        val successStepCount = combinedSteps.count { it["success"] != false }
+            rawCombinedSteps.size >= stepCount &&
+            rawCombinedSteps.none { it["success"] == false }
         val resumeFailureReason = if (success) {
             null
         } else {
             "online_repair_next_step_not_ready"
         }
+        val repairReason = resumeFailureReason ?: "online_repair_resumed"
         val resumeAttempt = linkedMapOf<String, Any?>(
             "success" to true,
             "resume_success" to (resumePayload["success"] == true),
@@ -411,6 +411,12 @@ class OobFunctionRunner(
             "resume_error_code" to resumePayload["error_code"],
             "resume_error_message" to resumePayload["error_message"],
         ).filterValues { it != null }
+        val repairStepWithPayload = repairStepResult.withOnlineRepairStepPayload(
+            reason = repairReason,
+            resumeAttempt = resumeAttempt,
+        )
+        val combinedSteps = prefix + repairStepWithPayload + suffix
+        val successStepCount = combinedSteps.count { it["success"] != false }
         return linkedMapOf<String, Any?>().apply {
             putAll(resumePayload)
             put("success", success)
@@ -551,6 +557,14 @@ class OobFunctionRunner(
         alias("online_repair_budget", "online_fallback_budget")
         alias("online_repair_attempt", "online_fallback_attempt")
 
+        val repairPayload = OobFunctionJson.mapArg(normalized["online_repair"])
+        val fallbackPayload = OobFunctionJson.mapArg(normalized["online_fallback"])
+        if (repairPayload.isNotEmpty() && fallbackPayload.isEmpty()) {
+            normalized["online_fallback"] = repairPayload.withOnlineFallbackReasonAlias()
+        } else if (fallbackPayload.isNotEmpty() && repairPayload.isEmpty()) {
+            normalized["online_repair"] = fallbackPayload.withOnlineRepairReasonAlias()
+        }
+
         val stepResults = OobFunctionJson.listArg(normalized["step_results"])
         if (stepResults.isNotEmpty()) {
             normalized["step_results"] = stepResults.map { raw ->
@@ -560,6 +574,62 @@ class OobFunctionRunner(
         }
         return normalized
     }
+
+    private fun Map<String, Any?>.withOnlineRepairStepPayload(
+        reason: String,
+        resumeAttempt: Map<String, Any?>,
+    ): Map<String, Any?> {
+        val repairPayload = linkedMapOf<String, Any?>(
+            "success" to (resumeAttempt["resume_success"] == true),
+            "reason" to reason,
+            "resume_success" to resumeAttempt["resume_success"],
+            "resume_from_step" to resumeAttempt["resume_from_step"],
+            "failure_reason" to resumeAttempt["failure_reason"],
+            "planner" to this["planner"],
+            "action" to this["repair_action"],
+        ).filterValues { it != null }
+        return linkedMapOf<String, Any?>().apply {
+            putAll(this@withOnlineRepairStepPayload)
+            put("online_repair", repairPayload)
+            put("online_fallback", repairPayload.withOnlineFallbackReasonAlias())
+        }
+    }
+
+    private fun Map<String, Any?>.withOnlineFallbackReasonAlias(): Map<String, Any?> =
+        linkedMapOf<String, Any?>().apply {
+            putAll(this@withOnlineFallbackReasonAlias)
+            val reason = OobFunctionJson.firstNonBlank(this["reason"])
+            val fallbackReason = when (reason) {
+                "online_repair_unavailable" -> "online_fallback_unavailable"
+                "online_repair_budget_exhausted" -> "online_fallback_budget_exhausted"
+                "online_repair_planner_error" -> "online_fallback_planner_error"
+                "online_repair_invalid_action" -> "online_fallback_invalid_action"
+                "online_repair_action_transfer_failed" -> "online_fallback_action_transfer_failed"
+                "online_repair_act_error" -> "online_fallback_act_error"
+                "online_repair_act_failed" -> "online_fallback_act_failed"
+                "online_repair_resumed" -> "online_fallback_resumed"
+                else -> reason
+            }
+            if (fallbackReason.isNotBlank()) put("reason", fallbackReason)
+        }
+
+    private fun Map<String, Any?>.withOnlineRepairReasonAlias(): Map<String, Any?> =
+        linkedMapOf<String, Any?>().apply {
+            putAll(this@withOnlineRepairReasonAlias)
+            val reason = OobFunctionJson.firstNonBlank(this["reason"])
+            val repairReason = when (reason) {
+                "online_fallback_unavailable" -> "online_repair_unavailable"
+                "online_fallback_budget_exhausted" -> "online_repair_budget_exhausted"
+                "online_fallback_planner_error" -> "online_repair_planner_error"
+                "online_fallback_invalid_action" -> "online_repair_invalid_action"
+                "online_fallback_action_transfer_failed" -> "online_repair_action_transfer_failed"
+                "online_fallback_act_error" -> "online_repair_act_error"
+                "online_fallback_act_failed" -> "online_repair_act_failed"
+                "online_fallback_resumed" -> "online_repair_resumed"
+                else -> reason
+            }
+            if (repairReason.isNotBlank()) put("reason", repairReason)
+        }
 
     private fun Map<String, Any?>.withExecutionSummary(): Map<String, Any?> {
         val normalized = linkedMapOf<String, Any?>().apply { putAll(this@withExecutionSummary) }
