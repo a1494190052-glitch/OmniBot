@@ -449,7 +449,14 @@ class OobFunctionRunner(
             put("model_used", true)
             put("model_required", false)
             put("runtime_resolve_applied", true)
-            put("runtime_resolve_steps", 1)
+            put("resolve_calls", maxOf(
+                1,
+                OobFunctionJson.intArg(
+                    initialPayload["resolve_calls"],
+                    resumePayload["resolve_calls"],
+                    defaultValue = 0,
+                ),
+            ))
             put("runtime_resolve_budget", runtimeResolveBudget)
             put("runtime_resolve_required", false)
             put("runtime_resolve_available", true)
@@ -748,6 +755,8 @@ class OobFunctionRunner(
                 normalized["error_message"],
             ).takeIf { it.isNotBlank() },
         ).filterValues { it != null }
+        normalized.remove("runtime_resolve_calls")
+        normalized.remove("runtime_resolve_steps")
         return normalized
     }
 

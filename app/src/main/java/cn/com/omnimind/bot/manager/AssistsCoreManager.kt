@@ -509,7 +509,6 @@ internal fun buildOobReusableFunctionRuntimeResolvePayload(
         "runner" to runner,
         "local_steps_completed" to completedStepCount,
         "resolve_calls" to runtimeResolveStepCount,
-        "runtime_resolve_steps" to runtimeResolveStepCount,
         "step_count" to stepCount,
         "active_step_count" to runPayload["active_step_count"],
         "success_step_count" to successStepCount,

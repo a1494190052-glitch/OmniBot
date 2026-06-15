@@ -2323,8 +2323,9 @@ class OobOmniFlowLoopAcceptanceTest {
             val result = run["result"] as? Map<*, *>
             assertEquals("replay_with_runtime_resolve", result?.get("execution_mode"))
             assertEquals(true, result?.get("runtime_resolve_applied"))
-            assertEquals(1, result?.get("runtime_resolve_steps"))
+            assertEquals(1, result?.get("resolve_calls"))
             assertEquals(false, result?.get("runtime_resolve_required"))
+            assertFalse(result?.containsKey("runtime_resolve_steps") == true)
             assertFalse(result?.containsKey("online_repair_applied") == true)
             assertFalse(result?.containsKey("online_repair_steps") == true)
             assertFalse(result?.containsKey("online_repair_required") == true)
