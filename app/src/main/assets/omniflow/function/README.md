@@ -339,10 +339,10 @@ When adding or migrating a generic agent tool name:
   re-localize and attempt each active step in order; it must not skip action
   steps because a terminal postcondition appears satisfied or because the page
   seems to have advanced. If the current step cannot be executed, return
-  `success=false` with a compact `{success, result}` payload. Legacy wire payloads
-  may still carry `online_repair_required=true`, but the public concept is runtime
-  resolve: it may produce only one ordinary UI action for the current failed step
-  and must not reselect a Function.
+  `success=false` with a compact `{success, result}` payload. The public concept
+  is runtime resolve: it may produce only one ordinary UI action for the current
+  failed step and must not reselect a Function. Legacy wire payload names remain
+  implementation compatibility only.
 
 `OobFunctionRunner` owns runtime execution startup:
 
@@ -406,7 +406,7 @@ primitive local action execution:
   snapshot
 - refetch the current page after deterministic replay failures
 - shape the compact failed-step payload that the runtime may use for one ordinary
-  UI action; legacy wire keys may still say `online_repair_required`
+  UI action; legacy wire keys are compatibility details, not public concepts
 - keep recovery text outside the replay loop; it must not start a hidden Agent or
   VLM task by itself
 

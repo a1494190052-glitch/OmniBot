@@ -1,13 +1,13 @@
-# Replay Runtime Resolve
+# Replay Resolve
 
 Use this reference when a saved Function run fails or returns incomplete local
 runner evidence.
 
 ## Normal Function Execution
 
-1. Resolve the Function id.
+1. Let recall select a compatible saved Function.
 2. Inspect with `oob_function_get` if the Function is not already known.
-3. Let runtime resolve supply public parameters from the user request.
+3. Let the same runtime resolve path supply public parameters from the user request.
 4. Execute the Function only through the currently exposed runtime path:
    `vlm_task` runtime recall/replay for online tasks, or an explicitly exposed
    internal runner in debug/management flows.
@@ -20,14 +20,14 @@ runner evidence.
 Each primitive action gets a fresh live observation. Do not infer that a later
 step is safe from an earlier page snapshot.
 
-## Failed Step Resolve
+## Failed Step
 
 If a Function returns `success=false`, do not restart the whole Function and do
 not ask the outer Agent to take over hidden replay.
 
 1. Read the failed step, failed reason, and current screen evidence from the
    returned `result` or RunLog card.
-2. Runtime resolve may ask the model for exactly one ordinary GUI action for the
+2. The same runtime resolve path may ask the model for exactly one ordinary GUI action for the
    current failed step.
 3. Execute that action through the normal native `act` path, then perform a
    fresh observe.

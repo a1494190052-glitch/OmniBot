@@ -1588,8 +1588,8 @@ object VlmToolCoordinator {
         candidate: Map<String, Any?>,
         recallGuidance: VlmRecallGuidance,
     ): RuntimeResolveResult {
-        // Same bounded JSON capability as current-step action resolve, but this
-        // does not execute a UI action and therefore does not count as an executed resolve step.
+        // Same bounded JSON capability as current-step action resolve. It
+        // counts as a resolve call, but not as an executed UI action.
         val allNames = functionArgumentNames(candidate)
         val requiredNames = requiredFunctionArgumentNames(candidate).ifEmpty {
             if (candidateRequiresArguments(candidate)) allNames.take(1) else emptyList()
