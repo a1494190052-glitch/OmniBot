@@ -62,6 +62,8 @@ class AgentToolDefinitionsMusicTest {
         val vlmTool = AgentToolDefinitions.staticTools(PromptLocale.EN_US)
             .first { ((it["function"] as JsonObject)["name"]?.jsonPrimitive?.contentOrNull) == "vlm_task" }
         val function = vlmTool["function"] as JsonObject
+        val parameters = function["parameters"] as JsonObject
+        val properties = parameters["properties"] as JsonObject
         val description = function["description"]?.jsonPrimitive?.contentOrNull.orEmpty()
 
         assertTrue(description.contains("One `vlm_task` call represents one complete device execution flow"))
@@ -70,6 +72,9 @@ class AgentToolDefinitionsMusicTest {
         assertTrue(description.contains("must not directly call hidden Function replay or guard tools"))
         assertFalse(description.contains("使用视觉语言模型"))
         assertFalse(description.contains("function_id"))
+        assertFalse(properties.containsKey("disableOmniFlowRecall"))
+        assertFalse(properties.containsKey("parseOnly"))
+        assertFalse(properties.containsKey("allowOmniFlowFunctionAutoExecute"))
     }
 
     @Test

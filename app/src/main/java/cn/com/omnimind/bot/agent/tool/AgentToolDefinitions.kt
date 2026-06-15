@@ -589,16 +589,6 @@ object AgentToolDefinitions {
                         put("type", "boolean")
                         put("description", "仅在用户明确要求从当前页面继续时设为 true。")
                     }
-                    putJsonObject("disableOmniFlowRecall") {
-                        put("type", "boolean")
-                        put("default", false)
-                        put("description", "可选，默认 false。false 时每轮 fresh observe 后由本地 runtime 执行 OmniFlow Function recall/resolve/replay；只有要严格裸跑 baseline 时才设为 true。")
-                    }
-                    putJsonObject("parseOnly") {
-                        put("type", "boolean")
-                        put("default", false)
-                        put("description", "诊断参数。设为 true 时只让真实 VLM 基于当前页面规划并解析下一步 tool call，不执行任何手机操作或复用指令。普通执行不要设置。")
-                    }
                 }
                 putJsonArray("required") {
                     add("goal")

@@ -229,6 +229,8 @@ class McpToolDefinitionsTest {
         assertTrue(properties.containsKey("startFromCurrent"))
         assertTrue(properties.containsKey("needSummary"))
         assertFalse(properties.containsKey("allowOmniFlowFunctionAutoExecute"))
+        assertFalse(properties.containsKey("disableOmniFlowRecall"))
+        assertFalse(properties.containsKey("parseOnly"))
     }
 
     @Test
