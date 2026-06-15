@@ -252,7 +252,6 @@ object OobFunctionRunLogRecorder {
             }
             if (recallKind.isNotEmpty()) {
                 put("recall_kind", recallKind)
-                put("compile_kind", recallKind)
             }
             put("success", success)
             put("status", if (success) "success" else "error")
@@ -266,7 +265,6 @@ object OobFunctionRunLogRecorder {
                     "title" to title.takeIf { it.isNotEmpty() },
                     "tool_name" to toolName.takeIf { it.isNotEmpty() },
                     "recall_kind" to recallKind.takeIf { it.isNotEmpty() },
-                    "compile_kind" to recallKind.takeIf { it.isNotEmpty() },
                     "success" to success,
                     "status" to if (success) "success" else "error",
                     "duration_ms" to durationMs,

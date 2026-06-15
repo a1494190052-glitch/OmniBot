@@ -71,14 +71,14 @@ class OobFunctionRunLogRecorderTest {
             assertEquals(2, cards.size)
             val first = cards.first() as Map<*, *>
             assertEquals("open_app", first["tool_name"])
-	            assertEquals("Open Settings app", first["summary"])
-	            assertEquals("success", first["status"])
-	            assertEquals("hit", first["recall_kind"])
-	            assertEquals("hit", first["compile_kind"])
-	            val header = first["header"] as Map<*, *>
-	            assertEquals("hit", header["recall_kind"])
-	            assertEquals("hit", header["compile_kind"])
-	            assertTrue((first["duration_ms"] as Number).toLong() >= 300L)
+            assertEquals("Open Settings app", first["summary"])
+            assertEquals("success", first["status"])
+            assertEquals("hit", first["recall_kind"])
+            assertEquals(null, first["compile_kind"])
+            val header = first["header"] as Map<*, *>
+            assertEquals("hit", header["recall_kind"])
+            assertEquals(null, header["compile_kind"])
+            assertTrue((first["duration_ms"] as Number).toLong() >= 300L)
         } finally {
             context.root.deleteRecursively()
         }

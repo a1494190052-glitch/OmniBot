@@ -97,7 +97,7 @@ class HumanTrajectoryLearningSessionTest {
         val meta = sourceContext["_oob_meta"] as Map<*, *>
 
         assertEquals("manual_recording", card["recall_kind"])
-        assertEquals("manual_recording", card["compile_kind"])
+        assertEquals(null, card["compile_kind"])
         assertEquals("human_trajectory", card["source"])
         assertEquals("com.android.settings", card["package_name"])
         assertEquals(250L, card["duration_ms"])

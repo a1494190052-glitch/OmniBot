@@ -502,7 +502,6 @@ open class VLMOperationTask(
             "finished_at_ms" to action.finishedAtMs,
             "package_name" to action.packageName,
             "recall_kind" to "manual_recording",
-            "compile_kind" to "manual_recording",
             "source" to "human_takeover",
             "event_context" to action.eventContext.takeIf { it.isNotEmpty() },
             "source_context" to sourceContext.takeIf { it.isNotEmpty() },
@@ -689,7 +688,6 @@ open class VLMOperationTask(
             "token_usage" to tokenUsage,
             "token_usage_attempts" to tokenUsageAttempts.takeIf { it.isNotEmpty() },
             "recall_kind" to "vlm_step",
-            "compile_kind" to "vlm_step",
             "tool_call" to linkedMapOf(
                 "id" to cardId,
                 "name" to step.action.name,
@@ -782,8 +780,7 @@ open class VLMOperationTask(
                     "data" to actionResultData,
                     "action_result_data" to actionResultData,
                     "function_result" to actionResultData.takeIf { step.action is FunctionRunAction },
-                    "recall_kind" to "vlm_step",
-                    "compile_kind" to "vlm_step"
+                    "recall_kind" to "vlm_step"
                 ).filterValues { it != null }
             ).toString()
         }.getOrDefault("{}")
@@ -834,8 +831,7 @@ open class VLMOperationTask(
             "span_kind" to "vlm_step",
             "parentSpanKind" to "vlm_task",
             "parent_span_kind" to "vlm_task",
-            "recall_kind" to "vlm_step",
-            "compile_kind" to "vlm_step"
+            "recall_kind" to "vlm_step"
         ).filterValues { it != null }
         try {
             onMessagePushListener?.onVlmToolEvent(payload)

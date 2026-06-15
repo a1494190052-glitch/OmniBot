@@ -2294,8 +2294,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             "arguments" to argsJson,
             "result" to resultValue,
             "raw_result_json" to payload["rawResultJson"],
-            "recall_kind" to recallKind,
-            "compile_kind" to recallKind
+            "recall_kind" to recallKind
         ).apply {
             if (childRunId.isNotBlank()) {
                 put("child_run_id", childRunId)
@@ -2455,8 +2454,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             "arguments" to JSONObject(mapOf("kind" to "assistant_response")).toString(),
             "result" to result,
             "output" to normalizedText,
-            "recall_kind" to "assistant_text",
-            "compile_kind" to "assistant_text"
+            "recall_kind" to "assistant_text"
         )
     }
 
@@ -4034,7 +4032,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             "package_name" to payload["package_name"],
             "activity_name" to payload["activity_name"],
             "recall_kind" to "manual_recording_evidence",
-            "compile_kind" to "manual_recording_evidence",
             "source" to "human_trajectory",
             "asset_refs" to artifactRefs.takeIf { it.isNotEmpty() },
             "tool_call" to linkedMapOf(
