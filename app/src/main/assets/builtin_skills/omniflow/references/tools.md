@@ -26,7 +26,7 @@ The runtime may resolve business arguments and replay it; if replay needs help,
 the same runtime resolve path may request only one ordinary UI action for the
 current screen.
 Keep this as one runtime-owned resolve path; do not create extra model-visible
-tools for Function parameters or failed replay steps.
+tools or names for Function parameters or failed replay steps.
 
 ## MCP Diagnostic Tools
 

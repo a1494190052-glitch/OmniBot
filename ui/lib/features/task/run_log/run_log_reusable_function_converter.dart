@@ -234,7 +234,10 @@ Map<String, dynamic> _withEnhancementMetadata(
 
 bool _sectionReportFailed(Map<String, dynamic> report) {
   final status = (report['status'] ?? '').toString().trim();
-  if (status == 'parsed' || status == 'repaired' || status == 'empty_patch') {
+  if (status == 'parsed' ||
+      status == 'corrected' ||
+      status == 'repaired' ||
+      status == 'empty_patch') {
     return false;
   }
   return report['accepted'] != true;
@@ -976,7 +979,7 @@ class RunLogReusableFunctionConverter {
     final rawTexts = <String>[
       if ((raw ?? '').trim().isNotEmpty) '[$partName]\n${raw!.trim()}',
     ];
-    var repaired = false;
+    var corrected = false;
     if (aiJson == null && (raw ?? '').trim().isNotEmpty) {
       final repairRaw = await _postFunctionEnhancementChat(
         text: _buildLabelEnhancementPartRepairPrompt(
@@ -991,7 +994,7 @@ class RunLogReusableFunctionConverter {
         rawTexts.add('[$partName repair]\n${repairRaw!.trim()}');
       }
       aiJson = _extractJsonObject(repairRaw ?? '');
-      repaired = aiJson != null;
+      corrected = aiJson != null;
     }
     final status = aiJson == null
         ? (raw ?? '').trim().isEmpty
@@ -999,8 +1002,8 @@ class RunLogReusableFunctionConverter {
               : 'invalid_json'
         : aiJson.isEmpty
         ? 'empty_patch'
-        : repaired
-        ? 'repaired'
+        : corrected
+        ? 'corrected'
         : 'parsed';
     return _LabelEnhancementPatchResult(
       json: aiJson,
@@ -1013,6 +1016,7 @@ class RunLogReusableFunctionConverter {
         'status': status,
         'accepted':
             status == 'parsed' ||
+            status == 'corrected' ||
             status == 'repaired' ||
             status == 'empty_patch',
         'patch_keys': aiJson?.keys.toList(growable: false) ?? const <String>[],

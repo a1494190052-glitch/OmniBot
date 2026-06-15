@@ -108,7 +108,7 @@ object OobFunctionSchemaExport {
                         properties = linkedMapOf(
                             "part" to string("Request part, for example header, step_0, parameters, or agent_reuse."),
                             "section" to string("Logical section."),
-                            "status" to string("parsed, repaired, empty_patch, no_response, invalid_json, error, changed, or unchanged."),
+                            "status" to string("parsed, corrected, empty_patch, no_response, invalid_json, error, changed, or unchanged."),
                             "accepted" to boolean("Whether this section may contribute to the merge."),
                             "chunk_index" to integer("Zero-based chunk index for step prompts."),
                             "chunk_count" to integer("Total chunk count for step prompts."),

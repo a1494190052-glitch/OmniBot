@@ -10,7 +10,7 @@ import java.io.StringReader
 import javax.xml.parsers.DocumentBuilderFactory
 
 /**
- * Matches a repaired target text against the recorded source XML for a Function
+ * Matches an updated target text against the recorded source XML for a Function
  * step. update_function owns the patch; this matcher owns XML parsing/scoring.
  */
 class OobFunctionTargetSourceMatcher {

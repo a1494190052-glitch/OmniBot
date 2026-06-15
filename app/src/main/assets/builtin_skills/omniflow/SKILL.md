@@ -1,20 +1,20 @@
 ---
 name: omniflow
-description: OmniFlow reusable Android GUI workflow skill. Use when the user wants to reuse, run, register, repair, enhance, analyze, or debug OOB RunLogs and saved Functions, including update_function, RunLog evidence, replay results, checker design, action cleanup, "应该点 A 而不是 B", "保存为复用指令", "增强 function", and ad/popup optional checkers.
+description: OmniFlow reusable Android GUI workflow skill. Use when the user wants to reuse, register, update, enhance, analyze, or debug OOB RunLogs and saved Functions, including update_function, RunLog evidence, replay results, checker design, action cleanup, "应该点 A 而不是 B", "保存为复用指令", "增强 function", and ad/popup optional checkers.
 ---
 
 # OmniFlow
 
 Use OmniFlow for reusable Android GUI behavior in OOB: converting RunLogs into
-Functions, managing saved Functions, enhancing or repairing Functions, replaying
-Functions, and learning from replay evidence.
+Functions, managing saved Functions, enhancing or correcting Functions, replaying
+Functions through runtime recall/resolve, and learning from replay evidence.
 
 Native Kotlin/MCP code provides storage, replay, UDEG indexing, and tool
 backends. The agent behavior belongs in this skill and its references.
 
 ## Route The Task
 
-- Overall Function replay architecture, recall, fallback, or over-design
+- Overall Function replay architecture, recall, runtime resolve, or over-design
   cleanup: read `references/unified-design.md`.
 - Function lifecycle or chat management: read `references/function-management.md`.
 - Function enhancement, repair, or step labeling: read `references/function-enhancement.md`.
@@ -39,7 +39,9 @@ by default.
   OmniFlow Function work.
 - Do not explicitly call hidden Function replay tools from a normal agent-task.
   Function execution is selected by runtime recall/replay inside `vlm_task`;
-  runtime resolve may output only one ordinary UI action for the current step.
+  runtime resolve is the single internal model-assist path. It may fill public
+  Function parameters before replay or output only one ordinary UI action for
+  the current failed step.
 - Use `update_function` for all saved Function modifications.
 - Treat RunLogs as evidence. Do not invent RunLogs, Function ids, screenshots,
   XML, or tool results.

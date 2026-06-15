@@ -62,6 +62,9 @@ Use one product and prompt concept: runtime resolve. Before replay it may return
 public Function arguments, and after a local replay miss it may return one
 ordinary UI action for the current failed step.
 
+Do not split this into separate parameter-fill and step-repair concepts. The
+caller only observes one `resolve_calls` counter and one replay result.
+
 If replay fails, runtime resolve may ask the online model for exactly one normal
 GUI action for the current failed step. After that action, the runtime observes
 again and local checker/action-transfer decides whether replay can resume. Do

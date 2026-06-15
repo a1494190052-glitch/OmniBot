@@ -438,8 +438,8 @@ class OobFunctionRunner(
             putAll(resumePayload)
             put("success", success)
             put("function_id", initialPayload["function_id"] ?: resumePayload["function_id"])
-            put("runner", "oob_function_offline_online_offline")
-            put("execution_mode", "offline_online_offline")
+            put("runner", "omniflow_function")
+            put("execution_mode", "replay_with_runtime_resolve")
             put("source", initialPayload["source"] ?: resumePayload["source"])
             put("run_source", initialPayload["run_source"] ?: resumePayload["run_source"])
             put("step_count", stepCount)
@@ -472,8 +472,8 @@ class OobFunctionRunner(
         resolveAttempted: Boolean = false,
     ): Map<String, Any?> = linkedMapOf<String, Any?>().apply {
         putAll(this@withRuntimeResolveFailure)
-        put("runner", "oob_function_runtime_resolve_failed")
-        put("execution_mode", "offline_online_failed")
+        put("runner", "omniflow_function")
+        put("execution_mode", "runtime_resolve_failed")
         put("runtime_resolve_attempt", mapOf("success" to false, "reason" to reason) + details)
         put("runtime_resolve_required", true)
         put("runtime_resolve_available", false)
