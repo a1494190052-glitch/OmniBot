@@ -208,6 +208,7 @@ object OobFunctionSkillProfile {
                 put("name", JsonPrimitive(functionId))
                 put("displayName", JsonPrimitive(displayName))
                 put("toolType", JsonPrimitive("oob_function"))
+                put("model_visible", JsonPrimitive(false))
                 put("description", JsonPrimitive(toolDescription))
                 put("parameters", parameters)
             })

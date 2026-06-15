@@ -16,7 +16,9 @@ import cn.com.omnimind.bot.omniflow.language.OmniflowFunctionStore
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
 import java.io.File
 import java.nio.file.Files
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -49,6 +51,30 @@ class OobOmniFlowLoopAcceptanceTest {
 
             assertFalse(registry.toolsForModel.map { it.function.name }.contains("mcp__remote_server__remote_echo"))
             assertEquals("builtin", registry.runtimeDescriptor("mcp__remote_server__remote_echo").toolType)
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `agent tool registry does not expose explicitly hidden dynamic tools`() {
+        val context = TempFilesContext()
+        try {
+            val registry = AgentToolRegistry(
+                context,
+                discoveredServers = emptyList(),
+                dynamicDefinitions = listOf(
+                    toolDefinition("ordinary_dynamic_tool"),
+                    toolDefinition("saved_function_tool", toolType = "oob_function", modelVisible = false),
+                    toolDefinition("hidden_dynamic_tool", modelVisible = false),
+                ),
+            )
+
+            val names = registry.toolsForModel.map { it.function.name }.toSet()
+
+            assertTrue(names.contains("ordinary_dynamic_tool"))
+            assertFalse(names.contains("saved_function_tool"))
+            assertFalse(names.contains("hidden_dynamic_tool"))
         } finally {
             context.root.deleteRecursively()
         }
@@ -2759,6 +2785,24 @@ class OobOmniFlowLoopAcceptanceTest {
             "arguments" to emptyMap<String, Any?>(),
         ),
     )
+
+    private fun toolDefinition(
+        name: String,
+        toolType: String = "dynamic",
+        modelVisible: Boolean? = null,
+    ) = buildJsonObject {
+        put("type", "function")
+        put("function", buildJsonObject {
+            put("name", name)
+            put("description", "test dynamic tool")
+            put("toolType", toolType)
+            if (modelVisible != null) put("model_visible", modelVisible)
+            put("parameters", buildJsonObject {
+                put("type", "object")
+                put("properties", buildJsonObject {})
+            })
+        })
+    }
 
     private class RecordingOmniflowBackend(
         initialPackage: String,

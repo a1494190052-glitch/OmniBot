@@ -103,7 +103,7 @@ class AgentToolRegistry(
             )
         )
 
-        runtimeDefinitions.addAll(dynamicDefinitions)
+        runtimeDefinitions.addAll(dynamicDefinitions.filterNot(::isModelHiddenDynamicTool))
 
         val conversationFilteredDefinitions = AgentConversationModePolicy
             .filterToolDefinitionsForConversationMode(runtimeDefinitions, conversationMode)
@@ -196,8 +196,13 @@ class AgentToolRegistry(
                             profile = toolProfile,
                             toolType = toolType
                         )
-                    )
+                )
         }
+    }
+
+    private fun isModelHiddenDynamicTool(definition: JsonObject): Boolean {
+        val function = definition["function"] as? JsonObject ?: return false
+        return function["model_visible"]?.jsonPrimitive?.booleanOrNull == false
     }
 
     override fun runtimeDescriptor(toolName: String): RuntimeToolDescriptor {
