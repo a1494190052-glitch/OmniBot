@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "oob.project.market.v1",
+  "items": [
+    {
+      "componentId": "daily-review-card",
+      "name": "Daily Review Card",
+      "version": "0.1.0",
+      "type": "widget",
+      "description": "A configurable Xiaowan card for daily review prompts.",
+      "downloadUrl": "https://example.invalid/components/daily-review-card-0.1.0.zip",
+      "manifestSha256": "",
+      "capabilities": [
+        "local_config",
+        "prompt_template"
+      ],
+      "dataPolicySummary": {
+        "uploadsUserData": false,
+        "uploadsRuntimeData": false
+      }
+    }
+  ]
+}

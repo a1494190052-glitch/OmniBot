@@ -74,6 +74,65 @@ class SkillRuntimeBehaviorTest {
     }
 
     @Test
+    fun resolveMatchesProjectSandboxForComponentMarketPrompt() {
+        val matches = SkillTriggerMatcher.resolveMatches(
+            userMessage = "把这个小万组件打包上传到 project 沙盒市场，下载时不能包含用户数据",
+            entries = listOf(
+                entry(
+                    id = "oob-project-sandbox",
+                    description = "Package, review, publish, or install sandboxed Omnibot Project components. Use when the user asks to upload/download/share a Xiaowan component, publish an app to a Project market, or create a no-user-data configurable component package."
+                )
+            )
+        )
+
+        assertTrue(matches.any { it.entry.id == "oob-project-sandbox" })
+    }
+
+    @Test
+    fun builtinProjectSandboxSkillKeepsNoUserDataContract() {
+        val skillDir = File("src/main/assets/builtin_skills/oob-project-sandbox")
+        val skillText = File(skillDir, "SKILL.md").readText()
+        val policyText = File(skillDir, "references/market-sandbox-policy.md").readText()
+        val exampleManifest = File(
+            skillDir,
+            "assets/example_package/oob_project_component_manifest.v1.json"
+        ).readText()
+
+        assertTrue(skillText.contains("Never upload user data"))
+        assertTrue(policyText.contains("dataPolicy.uploadsUserData"))
+        assertTrue(policyText.contains("data/**"))
+        assertTrue(policyText.contains("logs/**"))
+        assertTrue(exampleManifest.contains("\"uploadsUserData\": false"))
+        assertTrue(exampleManifest.contains("\"uploadsRuntimeData\": false"))
+        assertFalse(exampleManifest.contains("\"uploadsUserData\": true"))
+        assertTrue(File(skillDir, "scripts/validate_component_package.py").isFile)
+    }
+
+    @Test
+    fun projectSandboxExamplePackageValidates() {
+        val skillDir = File("src/main/assets/builtin_skills/oob-project-sandbox")
+        val script = File(skillDir, "scripts/validate_component_package.py")
+        val packageRoot = File(skillDir, "assets/example_package")
+        val manifest = File(packageRoot, "oob_project_component_manifest.v1.json")
+        val market = File(skillDir, "assets/example_market.json")
+        val process = ProcessBuilder(
+            "python3",
+            script.path,
+            "--manifest",
+            manifest.path,
+            "--root",
+            packageRoot.path,
+            "--market",
+            market.path
+        )
+            .redirectErrorStream(true)
+            .start()
+        val output = process.inputStream.bufferedReader().readText()
+        assertEquals(output, 0, process.waitFor())
+        assertTrue(output.contains("PASS"))
+    }
+
+    @Test
     fun resolveMatchesHatchPetFromStructuredChinesePetPrompt() {
         val matches = SkillTriggerMatcher.resolveMatches(
             userMessage = """

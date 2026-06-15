@@ -29,6 +29,16 @@
       "hasReferences": false,
       "hasAssets": false,
       "hasEvals": false
+    },
+    {
+      "id": "oob-project-sandbox",
+      "name": "oob-project-sandbox",
+      "description": "Package, review, publish, or install sandboxed Omnibot Project components. Use when the user asks to upload/download/share a Xiaowan component, publish an app to a Project market, or create a no-user-data configurable component package.",
+      "assetPath": "builtin_skills/oob-project-sandbox",
+      "hasScripts": true,
+      "hasReferences": true,
+      "hasAssets": true,
+      "hasEvals": false
     }
   ]
 }

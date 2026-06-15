@@ -1,0 +1,61 @@
+{
+  "schemaVersion": "oob.project.component.v1",
+  "componentId": "daily-review-card",
+  "name": "Daily Review Card",
+  "version": "0.1.0",
+  "type": "widget",
+  "description": "A configurable Xiaowan card for daily review prompts.",
+  "author": {
+    "name": "Omnibot"
+  },
+  "entry": {
+    "kind": "config",
+    "path": "component.json"
+  },
+  "files": [
+    {
+      "path": "component.json",
+      "role": "config",
+      "required": true
+    },
+    {
+      "path": "README.md",
+      "role": "docs",
+      "required": true
+    }
+  ],
+  "capabilities": [
+    "local_config",
+    "prompt_template"
+  ],
+  "permissions": [],
+  "configuration": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "default": "Daily Review"
+        },
+        "prompt": {
+          "type": "string",
+          "default": "Summarize today's important work."
+        }
+      }
+    }
+  },
+  "dataPolicy": {
+    "uploadsUserData": false,
+    "uploadsRuntimeData": false,
+    "storesDataLocally": false,
+    "localDataSchema": null,
+    "excludedPaths": [
+      "data/**",
+      "logs/**",
+      "cache/**",
+      ".env",
+      "*.jks",
+      "*.keystore"
+    ]
+  }
+}

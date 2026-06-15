@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://omnimind.ai/schemas/oob_project_market.v1.json",
+  "title": "OOB Project Sandbox Market Index",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "items"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "oob.project.market.v1"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "componentId",
+          "name",
+          "version",
+          "type",
+          "downloadUrl",
+          "dataPolicySummary"
+        ],
+        "properties": {
+          "componentId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "downloadUrl": {
+            "type": "string"
+          },
+          "manifestSha256": {
+            "type": "string"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dataPolicySummary": {
+            "type": "object",
+            "required": [
+              "uploadsUserData",
+              "uploadsRuntimeData"
+            ],
+            "properties": {
+              "uploadsUserData": {
+                "const": false
+              },
+              "uploadsRuntimeData": {
+                "const": false
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
