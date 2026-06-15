@@ -356,7 +356,8 @@ class VlmToolCoordinatorRecallExecutionTest {
         assertEquals(TaskStatus.WAITING_INPUT, state.status)
         assertEquals("xhs_search_keyword", state.pendingOmniFlowFunctionCall?.functionId)
         assertEquals(listOf("value"), state.pendingOmniFlowFunctionCall?.requiredArgumentNames)
-        assertTrue(state.waitingQuestion?.contains("xhs_search_keyword") == true)
+        assertTrue(state.waitingQuestion?.contains("复用指令") == true)
+        assertFalse(state.waitingQuestion?.contains("xhs_search_keyword") == true)
     }
 
     @Test

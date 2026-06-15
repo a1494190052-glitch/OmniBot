@@ -15,6 +15,10 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
                 "function_id" to "missing_function",
                 "error_code" to "OOB_FUNCTION_NOT_FOUND",
                 "error_message" to "OmniFlow function not found: missing_function",
+                "fallback_session_id" to "legacy-fallback-session",
+                "fallback_attempt" to 1,
+                "fallback_unavailable_reason" to "legacy-fallback-disabled",
+                "fallback_context" to mapOf("step" to 2),
             )
         )
 
@@ -26,6 +30,14 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
         assertEquals("oob_mixed_runner", payload["runner"])
         assertEquals(false, payload["model_used"])
         assertEquals("OOB_FUNCTION_NOT_FOUND", payload["error_code"])
+        assertEquals("legacy-fallback-session", payload["runtime_resolve_session_id"])
+        assertEquals(1, payload["runtime_resolve_attempt"])
+        assertEquals("legacy-fallback-disabled", payload["runtime_resolve_unavailable_reason"])
+        assertEquals(mapOf("step" to 2), payload["runtime_resolve_context"])
+        assertFalse(payload.containsKey("fallback_session_id"))
+        assertFalse(payload.containsKey("fallback_attempt"))
+        assertFalse(payload.containsKey("fallback_unavailable_reason"))
+        assertFalse(payload.containsKey("fallback_context"))
     }
 
     @Test
@@ -114,6 +126,8 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
         assertEquals(true, terminalState["model_required"])
         assertEquals(timing, terminalState["timing"])
         assertFalse(terminalState.containsKey("repair_id"))
+        assertFalse(terminalState.containsKey("fallback_session_id"))
+        assertFalse(terminalState.containsKey("fallback_attempt"))
         assertFalse(terminalState.containsKey("online_repair_required"))
         assertFalse(terminalState.containsKey("online_repair_available"))
         assertFalse(terminalState.containsKey("online_repair_steps"))
@@ -128,6 +142,8 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
         assertEquals(1, context["success_step_count"])
         assertEquals(timing, context["timing"])
         assertFalse(context.containsKey("repair_id"))
+        assertFalse(context.containsKey("fallback_session_id"))
+        assertFalse(context.containsKey("fallback_attempt"))
         assertFalse(context.containsKey("online_repair_required"))
         assertFalse(context.containsKey("online_repair_available"))
         assertFalse(context.containsKey("online_repair_steps"))

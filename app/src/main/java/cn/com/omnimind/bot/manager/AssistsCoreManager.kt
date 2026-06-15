@@ -690,13 +690,26 @@ internal fun normalizeOobToolkitFunctionRunPayloadForChannel(payload: Map<String
                 ?: payload["online_repair_available"] ?: resultPayload["online_repair_available"]
         )
         put("delegated_tool_used", payload["delegated_tool_used"] ?: resultPayload["delegated_tool_used"])
-        put("fallback_session_id", payload["fallback_session_id"] ?: resultPayload["fallback_session_id"])
-        put("fallback_attempt", payload["fallback_attempt"] ?: resultPayload["fallback_attempt"])
         put(
-            "fallback_unavailable_reason",
-            payload["fallback_unavailable_reason"] ?: resultPayload["fallback_unavailable_reason"]
+            "runtime_resolve_session_id",
+            payload["runtime_resolve_session_id"] ?: resultPayload["runtime_resolve_session_id"]
+                ?: payload["fallback_session_id"] ?: resultPayload["fallback_session_id"]
         )
-        put("fallback_context", payload["fallback_context"] ?: resultPayload["fallback_context"])
+        put(
+            "runtime_resolve_attempt",
+            payload["runtime_resolve_attempt"] ?: resultPayload["runtime_resolve_attempt"]
+                ?: payload["fallback_attempt"] ?: resultPayload["fallback_attempt"]
+        )
+        put(
+            "runtime_resolve_unavailable_reason",
+            payload["runtime_resolve_unavailable_reason"] ?: resultPayload["runtime_resolve_unavailable_reason"]
+                ?: payload["fallback_unavailable_reason"] ?: resultPayload["fallback_unavailable_reason"]
+        )
+        put(
+            "runtime_resolve_context",
+            payload["runtime_resolve_context"] ?: resultPayload["runtime_resolve_context"]
+                ?: payload["fallback_context"] ?: resultPayload["fallback_context"]
+        )
         put("agent_prompt", payload["agent_prompt"] ?: resultPayload["agent_prompt"])
         put("timing", payload["timing"] ?: resultPayload["timing"])
         put("error_code", payload["error_code"] ?: resultPayload["error_code"])
@@ -4319,6 +4332,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 val completedCount = stepResults.indexOfFirst(::isOobReusableFunctionRuntimeResolveStep)
                 val resolveId = firstNonBlankString(args["taskId"], args["task_id"])
                     .takeIf { it.isNotEmpty() }
+                    ?: firstNonBlankString(runPayload["runtime_resolve_session_id"]).takeIf { it.isNotEmpty() }
                     ?: firstNonBlankString(runPayload["fallback_session_id"]).takeIf { it.isNotEmpty() }
                     ?: "oob-runtime-resolve-${System.currentTimeMillis()}"
                 val payload = buildOobReusableFunctionRuntimeResolvePayload(

@@ -997,6 +997,7 @@ class OobFunctionToolHandler(
         val nestedRuntimeResolveRequired =
             nestedRun["runtime_resolve_required"] == true ||
             nestedRun["online_repair_required"] == true ||
+                nestedRun["runtime_resolve_context"] != null ||
                 nestedRun["fallback_context"] != null ||
                 nestedStepResults.any {
                     it["runtime_resolve_required"] == true || it["online_repair_required"] == true
@@ -1023,7 +1024,9 @@ class OobFunctionToolHandler(
             "nested_runtime_resolve_available" to nestedRuntimeResolveAvailable,
             "nested_failed_step_index" to nestedRun["failed_step_index"],
             "nested_resume_from_step" to nestedRun["resume_from_step"],
-            "nested_fallback_context" to nestedRun["fallback_context"],
+            "nested_runtime_resolve_context" to (
+                nestedRun["runtime_resolve_context"] ?: nestedRun["fallback_context"]
+            ),
             "nested_agent_prompt" to nestedRun["agent_prompt"],
             "step_results" to nestedRun["step_results"], "timing" to nestedRun["timing"],
             "error_code" to nestedRun["error_code"],

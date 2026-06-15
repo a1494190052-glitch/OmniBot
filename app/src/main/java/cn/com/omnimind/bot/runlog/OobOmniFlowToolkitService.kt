@@ -582,13 +582,20 @@ class OobOmniFlowToolkitService(
             "runner_duration_ms" to durationMs,
             "timing" to timing,
             "execution_summary" to executionSummary,
-            "fallback_session_id" to runPayload["fallback_session_id"],
+            "runtime_resolve_session_id" to (
+                runPayload["runtime_resolve_session_id"] ?: runPayload["fallback_session_id"]
+            ),
             "failed_step_index" to failedStepIndex,
             "resume_from_step" to resumeFromStepResult,
             "current_step_index" to currentStepIndex,
             "current_step_number" to currentStepNumber,
-            "fallback_attempt" to runPayload["fallback_attempt"],
-            "fallback_unavailable_reason" to runPayload["fallback_unavailable_reason"],
+            "runtime_resolve_attempt" to (
+                runPayload["runtime_resolve_attempt"] ?: runPayload["fallback_attempt"]
+            ),
+            "runtime_resolve_unavailable_reason" to (
+                runPayload["runtime_resolve_unavailable_reason"]
+                    ?: runPayload["fallback_unavailable_reason"]
+            ),
             "error_code" to runPayload["error_code"],
             "error_message" to runPayload["error_message"],
             "missing_required_arguments" to runPayload["missing_required_arguments"],
