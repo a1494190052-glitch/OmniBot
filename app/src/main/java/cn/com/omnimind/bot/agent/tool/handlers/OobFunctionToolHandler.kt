@@ -668,6 +668,7 @@ class OobFunctionToolHandler(
         timing.recordElapsed("result_build_ms", resultBuildStartedAt)
         val runFinishedAtMs = System.currentTimeMillis()
         resultPayload["timing"] = timing.finish(runFinishedAtMs)
+        runResultBuilder.withExecutionSummary(resultPayload)
         val allSuccess = resultPayload["success"] == true
         frontendFinishMessage = helper.localized(if (allSuccess) "任务已完成" else "任务执行失败")
         frontendCloseAfterMs = if (allSuccess) {
@@ -684,6 +685,7 @@ class OobFunctionToolHandler(
                 frontendCloseAfterMs = FRONTEND_SUCCESS_POPUP_VISIBLE_MS
                 val resultPayload = buildUserCompletedResult()
                 resultPayload["timing"] = timing.finish()
+                runResultBuilder.withExecutionSummary(resultPayload)
                 frontendSession?.finish(frontendFinishMessage, closeAfterMs = frontendCloseAfterMs)
                 frontendFinished = true
                 return resultPayload
@@ -717,6 +719,7 @@ class OobFunctionToolHandler(
             resultPayload["error_code"] = "OOB_FUNCTION_STOPPED"
             resultPayload["error_message"] = frontendFinishMessage
             resultPayload["timing"] = timing.finish()
+            runResultBuilder.withExecutionSummary(resultPayload)
             frontendSession?.finish(frontendFinishMessage, closeAfterMs = frontendCloseAfterMs)
             frontendFinished = true
             return resultPayload
@@ -726,6 +729,7 @@ class OobFunctionToolHandler(
                 frontendCloseAfterMs = FRONTEND_SUCCESS_POPUP_VISIBLE_MS
                 val resultPayload = buildUserCompletedResult()
                 resultPayload["timing"] = timing.finish()
+                runResultBuilder.withExecutionSummary(resultPayload)
                 frontendSession?.finish(frontendFinishMessage, closeAfterMs = frontendCloseAfterMs)
                 frontendFinished = true
                 return resultPayload
@@ -760,6 +764,7 @@ class OobFunctionToolHandler(
                 resultPayload["error_code"] = "OOB_FUNCTION_STOPPED"
                 resultPayload["error_message"] = frontendFinishMessage
                 resultPayload["timing"] = timing.finish()
+                runResultBuilder.withExecutionSummary(resultPayload)
                 frontendSession?.finish(frontendFinishMessage, closeAfterMs = frontendCloseAfterMs)
                 frontendFinished = true
                 return resultPayload
@@ -989,37 +994,33 @@ class OobFunctionToolHandler(
         val success = nestedRun["success"] == true
         val nestedStepResults = listArg(nestedRun["step_results"])
             .mapNotNull { mapArg(it).takeIf { mapped -> mapped.isNotEmpty() } }
-        val nestedOnlineRepairRequired =
+        val nestedRuntimeResolveRequired =
             nestedRun["runtime_resolve_required"] == true ||
             nestedRun["online_repair_required"] == true ||
                 nestedRun["fallback_context"] != null ||
                 nestedStepResults.any {
                     it["runtime_resolve_required"] == true || it["online_repair_required"] == true
                 }
-        val nestedOnlineRepairAvailable =
+        val nestedRuntimeResolveAvailable =
             nestedRun["runtime_resolve_available"] == true ||
             nestedRun["online_repair_available"] == true ||
                 nestedStepResults.any {
                     (it["runtime_resolve_required"] == true || it["online_repair_required"] == true) &&
                         (it["runtime_resolve_available"] == true || it["online_repair_available"] == true)
                 }
-        val nestedModelRequired = nestedRun["model_required"] == true && !nestedOnlineRepairRequired
+        val nestedModelRequired = nestedRun["model_required"] == true && !nestedRuntimeResolveRequired
         return completeWithCard(linkedMapOf<String, Any?>(
             "step_id" to stepId, "tool" to callableTool.ifEmpty { RunLogReplayPolicy.TOOL_CALL_TOOL },
             "executor" to "omniflow_function", "model_free" to true, "success" to success,
             "model_required" to nestedModelRequired.takeIf { it },
-            "runtime_resolve_required" to nestedOnlineRepairRequired.takeIf { it },
-            "runtime_resolve_available" to nestedOnlineRepairAvailable.takeIf { nestedOnlineRepairRequired },
-            "online_repair_required" to nestedOnlineRepairRequired.takeIf { it },
-            "online_repair_available" to nestedOnlineRepairAvailable.takeIf { nestedOnlineRepairRequired },
+            "runtime_resolve_required" to nestedRuntimeResolveRequired.takeIf { it },
+            "runtime_resolve_available" to nestedRuntimeResolveAvailable.takeIf { nestedRuntimeResolveRequired },
             "nested_function_id" to functionId, "nested_run_id" to nestedRun["run_id"],
             "nested_runner" to nestedRun["runner"], "nested_step_count" to nestedRun["step_count"],
             "nested_success_step_count" to nestedRun["success_step_count"],
             "nested_model_required" to nestedModelRequired,
-            "nested_runtime_resolve_required" to nestedOnlineRepairRequired,
-            "nested_runtime_resolve_available" to nestedOnlineRepairAvailable,
-            "nested_online_repair_required" to nestedOnlineRepairRequired,
-            "nested_online_repair_available" to nestedOnlineRepairAvailable,
+            "nested_runtime_resolve_required" to nestedRuntimeResolveRequired,
+            "nested_runtime_resolve_available" to nestedRuntimeResolveAvailable,
             "nested_failed_step_index" to nestedRun["failed_step_index"],
             "nested_resume_from_step" to nestedRun["resume_from_step"],
             "nested_fallback_context" to nestedRun["fallback_context"],
@@ -1142,10 +1143,10 @@ class OobFunctionToolHandler(
                 val lastStepIndex = stepResults.lastOrNull()?.get("index")
                 val allSuccess = stepResults.size == activeSteps.size &&
                     stepResults.none { it["success"] == false }
-                val onlineRepairRequired = stepResults.any {
+                val runtimeResolveRequired = stepResults.any {
                     it["runtime_resolve_required"] == true || it["online_repair_required"] == true
                 }
-                val onlineRepairAvailable = !onlineRepairRequired ||
+                val runtimeResolveAvailable = !runtimeResolveRequired ||
                     stepResults.any {
                         (it["runtime_resolve_required"] == true || it["online_repair_required"] == true) &&
                             (it["runtime_resolve_available"] == true || it["online_repair_available"] == true)
@@ -1160,7 +1161,7 @@ class OobFunctionToolHandler(
                 put("function_id", fn.id)
                 put(
                     "runner",
-                    if (onlineRepairRequired) {
+                    if (runtimeResolveRequired) {
                         "oob_function_runtime_resolve_required"
                     } else {
                         RunLogReplayPolicy.fixedReplayRunner
@@ -1176,11 +1177,9 @@ class OobFunctionToolHandler(
                 put("current_step_number", (currentResultStepIndex as? Number)?.toInt()?.plus(1))
                 put("model_used", modelRequired)
                 put("model_required", modelRequired)
-                if (onlineRepairRequired) {
+                if (runtimeResolveRequired) {
                     put("runtime_resolve_required", true)
-                    put("runtime_resolve_available", onlineRepairAvailable)
-                    put("online_repair_required", true)
-                    put("online_repair_available", onlineRepairAvailable)
+                    put("runtime_resolve_available", runtimeResolveAvailable)
                 }
                 put("delegated_tool_used", delegatedToolUsed)
                 if (!allSuccess && failureReason == null) {
@@ -1198,7 +1197,7 @@ class OobFunctionToolHandler(
                 put("started_at_ms", runStartedAtMs)
                 put("finished_at_ms", finishedAtMs)
                 startPreparation.goToResult?.let { put("pre_function_go_to", it) }
-            }
+            }.also { runResultBuilder.withExecutionSummary(it) }
         fun isUserCompletedReplay(): Boolean =
             frontendSession?.isUserFinishedRequested() == true &&
                 stepResults.size >= activeSteps.size &&
@@ -1498,6 +1497,7 @@ class OobFunctionToolHandler(
             val resultPayload = buildResult()
             resultPayload["error_code"] = "OOB_FUNCTION_STOPPED"
             resultPayload["error_message"] = frontendFinishMessage
+            runResultBuilder.withExecutionSummary(resultPayload)
             frontendSession?.finish(frontendFinishMessage, closeAfterMs = frontendCloseAfterMs)
             frontendFinished = true
             return resultPayload
@@ -1539,6 +1539,7 @@ class OobFunctionToolHandler(
                 val resultPayload = buildResult()
                 resultPayload["error_code"] = "OOB_FUNCTION_STOPPED"
                 resultPayload["error_message"] = frontendFinishMessage
+                runResultBuilder.withExecutionSummary(resultPayload)
                 frontendSession?.finish(frontendFinishMessage, closeAfterMs = frontendCloseAfterMs)
                 frontendFinished = true
                 return resultPayload

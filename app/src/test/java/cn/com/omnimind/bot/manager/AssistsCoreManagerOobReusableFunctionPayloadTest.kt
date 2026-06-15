@@ -84,7 +84,7 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
 
         val payload = buildOobReusableFunctionRuntimeResolvePayload(
             functionId = "open_settings_then_repair",
-            repairId = "repair-step-1",
+            resolveId = "resolve-step-1",
             runPayload = mapOf(
                 "runner" to "oob_mixed_runner",
                 "model_required" to true,
@@ -98,37 +98,39 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
 
         assertEquals(false, payload["success"])
         assertEquals(
-            OOB_REUSABLE_EXECUTION_STATUS_ONLINE_REPAIR_REQUIRED,
+            OOB_REUSABLE_EXECUTION_STATUS_RUNTIME_RESOLVE_REQUIRED,
             payload["execution_status"]
         )
         assertEquals("OOB_RUNTIME_RESOLVE_UNAVAILABLE", payload["error_code"])
         val terminalState = payload["terminal_state"] as Map<*, *>
-        assertEquals("repair-step-1", terminalState["repair_id"])
+        assertEquals("resolve-step-1", terminalState["resolve_id"])
         assertEquals(true, terminalState["runtime_resolve_required"])
         assertEquals(false, terminalState["runtime_resolve_available"])
-        assertEquals(true, terminalState["online_repair_required"])
-        assertEquals(false, terminalState["online_repair_available"])
         assertEquals(1, terminalState["local_steps_completed"])
         assertEquals(1, terminalState["resolve_calls"])
         assertEquals(1, terminalState["runtime_resolve_steps"])
-        assertEquals(1, terminalState["online_repair_steps"])
         assertEquals(2, terminalState["step_count"])
         assertEquals(1, terminalState["success_step_count"])
         assertEquals(true, terminalState["model_required"])
         assertEquals(timing, terminalState["timing"])
+        assertFalse(terminalState.containsKey("repair_id"))
+        assertFalse(terminalState.containsKey("online_repair_required"))
+        assertFalse(terminalState.containsKey("online_repair_available"))
+        assertFalse(terminalState.containsKey("online_repair_steps"))
         val context = payload["context"] as Map<*, *>
-        assertEquals("repair-step-1", context["repair_id"])
+        assertEquals("resolve-step-1", context["resolve_id"])
         assertEquals(true, context["runtime_resolve_required"])
         assertEquals(false, context["runtime_resolve_available"])
-        assertEquals(true, context["online_repair_required"])
-        assertEquals(false, context["online_repair_available"])
         assertEquals(1, context["local_steps_completed"])
         assertEquals(1, context["resolve_calls"])
         assertEquals(1, context["runtime_resolve_steps"])
-        assertEquals(1, context["online_repair_steps"])
         assertEquals(2, context["step_count"])
         assertEquals(1, context["success_step_count"])
         assertEquals(timing, context["timing"])
+        assertFalse(context.containsKey("repair_id"))
+        assertFalse(context.containsKey("online_repair_required"))
+        assertFalse(context.containsKey("online_repair_available"))
+        assertFalse(context.containsKey("online_repair_steps"))
     }
 
     @Test

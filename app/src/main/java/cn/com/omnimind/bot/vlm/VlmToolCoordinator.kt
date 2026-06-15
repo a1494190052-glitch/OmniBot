@@ -195,7 +195,11 @@ data class VlmFunctionRuntimeSelectionDecision(
     val functionId: String? = null,
 )
 
-data class RecallFunctionResolve(
+data class RuntimeResolveResult(
+    /**
+     * Legacy compatibility only. Runtime-selected Function hits cannot be vetoed
+     * by the resolve model; the field is intentionally ignored by the caller.
+     */
     val useFunction: Boolean = true,
     val arguments: Map<String, Any?> = emptyMap(),
     val missingRequiredArguments: List<String> = emptyList(),
@@ -203,23 +207,29 @@ data class RecallFunctionResolve(
     val resolveCalls: Int = 0,
 ) {
     companion object {
-        fun failed(reason: String, missingRequiredArguments: List<String> = emptyList()): RecallFunctionResolve =
-            RecallFunctionResolve(
+        fun failed(reason: String, missingRequiredArguments: List<String> = emptyList()): RuntimeResolveResult =
+            RuntimeResolveResult(
                 useFunction = true,
                 missingRequiredArguments = missingRequiredArguments,
                 reason = reason,
             )
 
-        fun reject(reason: String): RecallFunctionResolve =
-            RecallFunctionResolve(useFunction = false, reason = reason)
+        fun reject(reason: String): RuntimeResolveResult =
+            RuntimeResolveResult(useFunction = false, reason = reason)
     }
 }
 
-typealias RecallFunctionResolveProvider = suspend (
+@Deprecated("Use RuntimeResolveResult.")
+typealias RecallFunctionResolve = RuntimeResolveResult
+
+typealias RuntimeResolveProvider = suspend (
     goal: String,
     candidate: Map<String, Any?>,
     recallGuidance: VlmRecallGuidance,
-) -> RecallFunctionResolve
+) -> RuntimeResolveResult
+
+@Deprecated("Use RuntimeResolveProvider.")
+typealias RecallFunctionResolveProvider = RuntimeResolveProvider
 
 object VlmToolCoordinator {
     private const val TAG = "[VlmToolCoordinator]"
@@ -355,9 +365,9 @@ object VlmToolCoordinator {
                 progressReporter,
                 taskId,
                 taskState.status,
-                    "召回增强",
+                    "OmniFlow 召回",
                     mapOf(
-                    "summary" to "已准备 OmniFlow 诊断；在线 VLM 每轮 fresh observe 后注入 Function recall 与 UDEG page skill",
+                    "summary" to "已完成 fresh observe 与 Function recall；命中时由本地 runtime resolve/replay 接管，否则继续普通 VLM 执行",
                     "omniflowRecallDecision" to recallGuidance.decision,
                     "omniflowRecall" to recallGuidance.payload,
                 )
@@ -465,7 +475,7 @@ object VlmToolCoordinator {
         )
         taskState.vlmRequest = recallBaseRequest
         taskState.omniflowRecall = recallGuidance.payload.takeIf { it.isNotEmpty() }
-        taskState.executionRoute = "agent_omniflow_recall_hit:${recallGuidance.decision}"
+        taskState.executionRoute = "omniflow_recall_hit:${recallGuidance.decision}"
         taskState.message = "命中 OmniFlow Function"
         taskState.markStateChanged()
         emitProgress(
@@ -474,7 +484,7 @@ object VlmToolCoordinator {
             taskState.status,
             "召回命中",
             mapOf(
-                "summary" to "Agent recall 命中，跳过 Agent LLM，直接执行 OmniFlow Function",
+                "summary" to "OmniFlow recall 命中；由本地 runtime resolve/replay 执行 Function",
                 "omniflowRecallDecision" to recallGuidance.decision,
                 "omniflowRecall" to recallGuidance.payload,
             ),
@@ -1239,7 +1249,7 @@ object VlmToolCoordinator {
         recallGuidance: VlmRecallGuidance,
         progressReporter: VlmToolProgressReporter,
         runFunction: suspend (String, Map<String, Any?>) -> Map<String, Any?>,
-        resolveProvider: RecallFunctionResolveProvider? = null,
+        resolveProvider: RuntimeResolveProvider? = null,
     ): VlmToolOutcome? {
         val candidate = executableRecallCandidate(recallGuidance) ?: return null
         val functionId = candidate["function_id"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
@@ -1251,7 +1261,7 @@ object VlmToolCoordinator {
                 resolveRecallFunctionArgumentsWithSmallModel(goal, candidate, recallGuidance)
             }
         }.getOrElse { error ->
-            RecallFunctionResolve.failed(
+            RuntimeResolveResult.failed(
                 reason = "runtime_resolve_model_failed:${error.message.orEmpty()}",
                 missingRequiredArguments = requiredFunctionArgumentNames(candidate),
             ).copy(resolveCalls = 1)
@@ -1344,7 +1354,6 @@ object VlmToolCoordinator {
                     "function_id" to functionId,
                     "arguments" to functionArguments,
                     "omniflowExecutionSummary" to taskState.omniflowExecutionSummary,
-                    "omniflowRecallResult" to result,
                 )
             )
             return taskState.toOutcome(
@@ -1386,7 +1395,6 @@ object VlmToolCoordinator {
                 "function_id" to functionId,
                 "arguments" to functionArguments,
                 "omniflowExecutionSummary" to taskState.omniflowExecutionSummary,
-                "omniflowRecallResult" to result,
             )
         )
         return taskState.toOutcome(VlmToolOutcomeStatus.FINISHED)
@@ -1480,7 +1488,6 @@ object VlmToolCoordinator {
                     "function_id" to pending.functionId,
                     "arguments" to arguments,
                     "omniflowExecutionSummary" to taskState.omniflowExecutionSummary,
-                    "omniflowRecallResult" to result,
                 )
             )
             return taskState.toOutcome(
@@ -1522,7 +1529,6 @@ object VlmToolCoordinator {
                 "function_id" to pending.functionId,
                 "arguments" to arguments,
                 "omniflowExecutionSummary" to taskState.omniflowExecutionSummary,
-                "omniflowRecallResult" to result,
             )
         )
         return taskState.toOutcome(VlmToolOutcomeStatus.FINISHED)
@@ -1534,7 +1540,7 @@ object VlmToolCoordinator {
         recallGuidance: VlmRecallGuidance,
         progressReporter: VlmToolProgressReporter,
         runFunction: suspend (String, Map<String, Any?>) -> Map<String, Any?>,
-        resolveProvider: RecallFunctionResolveProvider? = null,
+        resolveProvider: RuntimeResolveProvider? = null,
     ): VlmToolOutcome? {
         val selection = evaluateFunctionRuntimeSelection(request, recallGuidance)
         if (!selection.allowed) {
@@ -1584,7 +1590,7 @@ object VlmToolCoordinator {
         goal: String,
         candidate: Map<String, Any?>,
         recallGuidance: VlmRecallGuidance,
-    ): RecallFunctionResolve {
+    ): RuntimeResolveResult {
         // Same bounded JSON capability as current-step action resolve, but this
         // does not execute a UI action and therefore does not count as an executed resolve step.
         val allNames = functionArgumentNames(candidate)
@@ -1592,10 +1598,10 @@ object VlmToolCoordinator {
             if (candidateRequiresArguments(candidate)) allNames.take(1) else emptyList()
         }
         if (allNames.isEmpty() && !candidateRequiresArguments(candidate)) {
-            return RecallFunctionResolve(reason = "no_public_arguments")
+            return RuntimeResolveResult(reason = "no_public_arguments")
         }
         if (candidateRequiresArguments(candidate) && allNames.isEmpty()) {
-            return RecallFunctionResolve(
+            return RuntimeResolveResult(
                 arguments = emptyMap(),
                 missingRequiredArguments = listOf(GENERIC_ARGUMENT_NAME),
                 reason = "argument_schema_missing",
@@ -1611,7 +1617,7 @@ object VlmToolCoordinator {
             responseJsonObject = true,
         ).message
         val resolved = parseRecallFunctionArgumentResolve(raw)
-            ?: return RecallFunctionResolve.failed(
+            ?: return RuntimeResolveResult.failed(
                 reason = "runtime_resolve_model_unparseable",
                 missingRequiredArguments = requiredNames,
             ).copy(resolveCalls = 1)
@@ -1622,13 +1628,13 @@ object VlmToolCoordinator {
         }
         val missing = requiredNames.filter { name -> isBlankArgumentValue(arguments[name]) }
         return if (missing.isEmpty()) {
-            RecallFunctionResolve(
+            RuntimeResolveResult(
                 arguments = arguments,
                 reason = resolved.reason.ifBlank { "runtime_resolve_model_completed" },
                 resolveCalls = 1,
             )
         } else {
-            RecallFunctionResolve(
+            RuntimeResolveResult(
                 arguments = arguments,
                 missingRequiredArguments = missing,
                 reason = resolved.reason.ifBlank { "missing_required_arguments" },
@@ -1677,7 +1683,7 @@ object VlmToolCoordinator {
             .entries
             .joinToString("\n") { (key, value) -> "$key=$value" }
 
-    private fun parseRecallFunctionArgumentResolve(raw: String): RecallFunctionResolve? {
+    private fun parseRecallFunctionArgumentResolve(raw: String): RuntimeResolveResult? {
         val resolveMap = extractJsonObjectMap(raw).takeIf { it.isNotEmpty() } ?: return null
         val arguments = mapValue(resolveMap["arguments"])
         val reason = firstNonBlank(
@@ -1689,7 +1695,7 @@ object VlmToolCoordinator {
                 ?: resolveMap["missingRequiredArguments"]
         )
             .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
-        return RecallFunctionResolve(
+        return RuntimeResolveResult(
             arguments = arguments,
             missingRequiredArguments = missing,
             reason = reason,
@@ -2104,22 +2110,35 @@ object VlmToolCoordinator {
     private fun compactOmniFlowExecutionSummary(result: Map<String, Any?>): Map<String, Any?>? {
         val summary = mapValue(result["execution_summary"])
         val source = if (summary.isNotEmpty()) summary else result
+        val success = source["success"] ?: result["success"]
         val compact = linkedMapOf<String, Any?>(
-            "success" to (source["success"] ?: result["success"]),
+            "success" to success,
             "function_id" to firstNonBlank(source["function_id"], result["function_id"]),
             "steps" to firstPresent(source, result, "steps", "step_count", "actions_executed"),
-            "resolve_calls" to firstPresent(source, result, "resolve_calls", "runtime_resolve_calls", "repair_steps", "online_repair_steps"),
+            "resolve_calls" to firstPresent(
+                source,
+                result,
+                "resolve_calls",
+                "runtime_resolve_calls",
+                // Legacy input aliases only; compact output stays `resolve_calls`.
+                "repair_steps",
+                "online_repair_steps",
+            ),
             "model_calls" to firstPresent(source, result, "model_calls"),
             "tokens" to firstPresent(source, result, "tokens", "total_tokens"),
             "elapsed_ms" to firstPresent(source, result, "elapsed_ms", "duration_ms"),
-            "failure_reason" to firstNonBlank(
-                source["failure_reason"],
-                result["failure_reason"],
-                result["error_code"],
-                result["errorCode"],
-                result["error_message"],
-                result["error"],
-            ).takeIf { it.isNotBlank() },
+            "failure_reason" to if (success == true) {
+                null
+            } else {
+                firstNonBlank(
+                    source["failure_reason"],
+                    result["failure_reason"],
+                    result["error_code"],
+                    result["errorCode"],
+                    result["error_message"],
+                    result["error"],
+                ).takeIf { it.isNotBlank() }
+            },
         ).filterValues { it != null && it.toString().isNotBlank() }
         return compact.takeIf { it.isNotEmpty() }
     }

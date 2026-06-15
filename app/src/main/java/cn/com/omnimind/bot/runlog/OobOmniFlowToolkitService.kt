@@ -538,6 +538,20 @@ class OobOmniFlowToolkitService(
             defaultValue = stepResults.count { raw -> mapArg(raw)["success"] != false },
         )
         val stepCount = intArg(runPayload["step_count"], defaultValue = stepResults.size)
+        val executionSummary = mapArg(runPayload["execution_summary"]).ifEmpty {
+            linkedMapOf<String, Any?>(
+                "success" to (runPayload["success"] == true),
+                "function_id" to functionId,
+                "steps" to successStepCount,
+                "resolve_calls" to intArg(runPayload["resolve_calls"], defaultValue = 0),
+                "model_calls" to intArg(runPayload["model_calls"], defaultValue = 0),
+                "tokens" to intArg(runPayload["tokens"], runPayload["total_tokens"], defaultValue = 0),
+                "elapsed_ms" to durationMs,
+                "failure_reason" to runPayload["error_message"]?.toString()?.takeIf {
+                    runPayload["success"] != true && it.isNotBlank()
+                },
+            ).filterValues { it != null }
+        }
         val failedStepIndex = runPayload["failed_step_index"]
         val resumeFromStepResult = runPayload["resume_from_step"]
         val currentStepIndex = runPayload["current_step_index"]
@@ -567,7 +581,7 @@ class OobOmniFlowToolkitService(
             "duration_ms" to durationMs,
             "runner_duration_ms" to durationMs,
             "timing" to timing,
-            "execution_summary" to runPayload["execution_summary"],
+            "execution_summary" to executionSummary,
             "fallback_session_id" to runPayload["fallback_session_id"],
             "failed_step_index" to failedStepIndex,
             "resume_from_step" to resumeFromStepResult,

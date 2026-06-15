@@ -94,6 +94,8 @@ class VlmToolCoordinatorRecallExecutionTest {
         assertEquals(0, executionSummary["tokens"])
         assertEquals(2, events.size)
         assertEquals("FINISHED", events.last()["status"])
+        assertFalse(events.last().containsKey("omniflowRecallResult"))
+        assertTrue(events.last().containsKey("omniflowExecutionSummary"))
     }
 
     @Test
@@ -749,9 +751,9 @@ class VlmToolCoordinatorRecallExecutionTest {
     private fun resolveRecall(
         arguments: Map<String, Any?> = emptyMap(),
         resolveCalls: Int = 0,
-    ): RecallFunctionResolveProvider =
+    ): RuntimeResolveProvider =
         { _, _, _ ->
-            RecallFunctionResolve(
+            RuntimeResolveResult(
                 useFunction = true,
                 arguments = arguments,
                 reason = "test_accept",
@@ -763,9 +765,9 @@ class VlmToolCoordinatorRecallExecutionTest {
         reason: String,
         missing: List<String> = emptyList(),
         arguments: Map<String, Any?> = emptyMap(),
-    ): RecallFunctionResolveProvider =
+    ): RuntimeResolveProvider =
         { _, _, _ ->
-            RecallFunctionResolve(
+            RuntimeResolveResult(
                 useFunction = false,
                 arguments = arguments,
                 missingRequiredArguments = missing,

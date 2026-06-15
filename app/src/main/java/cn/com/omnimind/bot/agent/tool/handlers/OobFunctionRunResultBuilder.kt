@@ -44,11 +44,8 @@ class OobFunctionRunResultBuilder {
         "success" to false,
         "runtime_resolve_required" to true,
         "runtime_resolve_available" to false,
-        "online_repair_required" to true,
-        "online_repair_available" to false,
         "error_code" to "OOB_RUNTIME_RESOLVE_UNAVAILABLE",
         "runtime_resolve_reason" to prompt.takeIf { it.isNotBlank() },
-        "repair_reason" to prompt.takeIf { it.isNotBlank() },
         "summary" to summary,
     ).apply {
         putAll(extras)
@@ -91,6 +88,7 @@ class OobFunctionRunResultBuilder {
         ).apply {
             putAll(extras)
             ensureFailureProgressFields(this, spec)
+            withExecutionSummary(this)
         }
     }
 
@@ -148,8 +146,6 @@ class OobFunctionRunResultBuilder {
             "model_required" to modelRequired,
             "runtime_resolve_required" to runtimeResolveRequired.takeIf { it },
             "runtime_resolve_available" to runtimeResolveAvailable.takeIf { runtimeResolveRequired },
-            "online_repair_required" to runtimeResolveRequired.takeIf { it },
-            "online_repair_available" to runtimeResolveAvailable.takeIf { runtimeResolveRequired },
             "delegated_tool_used" to delegatedToolUsed,
             "failed_step_index" to failedStepIndex,
             "current_step_index" to currentStepIndex,
@@ -174,10 +170,16 @@ class OobFunctionRunResultBuilder {
             }
             if (phaseMs.isNotEmpty()) put("phase_ms", phaseMs)
         }
-        return linkedMapOf<String, Any?>().apply {
+        val mergedPayload = linkedMapOf<String, Any?>().apply {
             putAll(payload)
             put("timing", mergedTiming)
         }
+        return withExecutionSummary(mergedPayload)
+    }
+
+    fun withExecutionSummary(payload: MutableMap<String, Any?>): MutableMap<String, Any?> {
+        payload["execution_summary"] = compactExecutionSummary(payload)
+        return payload
     }
 
     class Timing(
@@ -266,6 +268,47 @@ class OobFunctionRunResultBuilder {
         }
     }
 
+    private fun compactExecutionSummary(payload: Map<String, Any?>): Map<String, Any?> {
+        val timing = mapArg(payload["timing"])
+        val stepResults = listArg(payload["step_results"])
+            .mapNotNull { raw -> mapArg(raw).takeIf { it.isNotEmpty() } }
+        val success = payload["success"] == true
+        val steps = listOf(
+            positiveInt(payload["actions_executed"]),
+            positiveInt(payload["completed_step_count"]),
+            positiveInt(payload["success_step_count"]),
+            stepResults.count { it["success"] != false }.takeIf { it > 0 },
+        ).firstOrNull { it != null } ?: 0
+        val resolveCalls = listOf(
+            positiveInt(payload["resolve_calls"]),
+            stepResults.count { step ->
+                step["runtime_resolve_executed"] == true ||
+                    step["runtime_resolve_applied"] == true ||
+                    step["executor"] == "omniflow_runtime_resolve" ||
+                    mapArg(step["runtime_resolve"])["success"] == true
+            }.takeIf { it > 0 },
+        ).firstOrNull { it != null } ?: 0
+        val elapsedMs = listOf(
+            nonNegativeLong(timing["call_duration_ms"]),
+            nonNegativeLong(timing["duration_ms"]),
+            nonNegativeLong(timing["runner_duration_ms"]),
+            nonNegativeLong(payload["duration_ms"]),
+            elapsedFromBounds(payload["started_at_ms"], payload["finished_at_ms"]),
+        ).firstOrNull { it != null } ?: 0L
+        return linkedMapOf<String, Any?>(
+            "success" to success,
+            "function_id" to payload["function_id"]?.toString().orEmpty(),
+            "steps" to steps,
+            "resolve_calls" to resolveCalls,
+            "model_calls" to (positiveInt(payload["model_calls"]) ?: 0),
+            "tokens" to (positiveInt(payload["tokens"]) ?: positiveInt(payload["total_tokens"]) ?: 0),
+            "elapsed_ms" to elapsedMs,
+            "failure_reason" to payload["error_message"]?.toString()?.takeIf {
+                !success && it.isNotBlank()
+            },
+        ).filterValues { it != null }
+    }
+
     private fun firstFailedStepIndex(stepResults: List<Map<String, Any?>>): Int? =
         stepResults.firstOrNull { it["success"] == false }?.let(::stepIndex)
 
@@ -295,6 +338,22 @@ class OobFunctionRunResultBuilder {
             is String -> value.trim().toIntOrNull()
             else -> null
         }
+
+    private fun nonNegativeLong(value: Any?): Long? =
+        longValue(value)?.takeIf { it >= 0L }
+
+    private fun longValue(value: Any?): Long? =
+        when (value) {
+            is Number -> value.toLong()
+            is String -> value.trim().toLongOrNull()
+            else -> null
+        }
+
+    private fun elapsedFromBounds(startedAtMs: Any?, finishedAtMs: Any?): Long? {
+        val started = nonNegativeLong(startedAtMs) ?: return null
+        val finished = nonNegativeLong(finishedAtMs) ?: return null
+        return (finished - started).coerceAtLeast(0L)
+    }
 
     private fun stepCountFromSpec(spec: Map<String, Any?>): Int {
         val execution = mapArg(spec["execution"])
