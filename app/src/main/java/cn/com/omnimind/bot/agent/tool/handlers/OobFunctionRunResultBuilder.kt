@@ -297,7 +297,6 @@ class OobFunctionRunResultBuilder {
         ).firstOrNull { it != null } ?: 0L
         return linkedMapOf<String, Any?>(
             "success" to success,
-            "function_id" to payload["function_id"]?.toString().orEmpty(),
             "steps" to steps,
             "resolve_calls" to resolveCalls,
             "model_calls" to (positiveInt(payload["model_calls"]) ?: 0),

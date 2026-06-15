@@ -2334,7 +2334,7 @@ class OobOmniFlowLoopAcceptanceTest {
             assertFalse(result?.containsKey("online_fallback_required") == true)
             val summary = requireNotNull(result?.get("execution_summary") as? Map<*, *>)
             assertEquals(true, summary["success"])
-            assertEquals(functionId, summary["function_id"])
+            assertFalse(summary.containsKey("function_id"))
             assertEquals(2, (summary["steps"] as Number).toInt())
             assertEquals(1, (summary["resolve_calls"] as Number).toInt())
             assertEquals(1, (summary["model_calls"] as Number).toInt())
@@ -2346,6 +2346,7 @@ class OobOmniFlowLoopAcceptanceTest {
             assertFalse(summary.containsKey("total_tokens"))
             val topLevelSummary = requireNotNull(run["execution_summary"] as? Map<*, *>)
             assertEquals(summary, topLevelSummary)
+            assertFalse(topLevelSummary.containsKey("function_id"))
             val steps = run["step_results"] as? List<*>
             val resolveStep = steps?.firstOrNull() as? Map<*, *>
             assertEquals("omniflow_runtime_resolve", resolveStep?.get("executor"))

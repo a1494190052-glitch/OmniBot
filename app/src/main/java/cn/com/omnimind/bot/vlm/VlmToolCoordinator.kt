@@ -2106,7 +2106,6 @@ object VlmToolCoordinator {
         val success = source["success"] ?: result["success"]
         val compact = linkedMapOf<String, Any?>(
             "success" to success,
-            "function_id" to firstNonBlank(source["function_id"], result["function_id"]),
             "steps" to firstPresent(source, result, "steps", "step_count", "actions_executed"),
             "resolve_calls" to firstPresent(
                 source,

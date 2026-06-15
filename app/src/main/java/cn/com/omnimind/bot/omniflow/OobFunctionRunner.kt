@@ -19,9 +19,10 @@ import kotlinx.serialization.json.Json
 /**
  * Runtime-owned small model resolve request.
  *
- * OmniFlow uses the same bounded resolve concept for Function argument filling
- * and for one failed replay step. This request is the failed-step form; legacy
- * wire payloads may still contain online_repair keys for compatibility.
+ * OmniFlow uses the same bounded runtime resolve path for public Function
+ * parameters before replay and one ordinary UI action for the current failed
+ * replay step. This request is the failed-step form; legacy wire payloads may
+ * still contain online_repair keys for compatibility.
  */
 data class OobFunctionRuntimeResolveRequest(
     val functionId: String,
@@ -738,7 +739,6 @@ class OobFunctionRunner(
         )
         normalized["execution_summary"] = linkedMapOf<String, Any?>(
             "success" to success,
-            "function_id" to OobFunctionJson.firstNonBlank(normalized["function_id"]),
             "steps" to steps,
             "resolve_calls" to resolveCalls,
             "model_calls" to modelCalls,

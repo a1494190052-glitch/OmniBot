@@ -66,7 +66,6 @@ class VlmToolCoordinatorRecallExecutionTest {
                     "actions_executed" to 1,
                     "execution_summary" to mapOf(
                         "success" to true,
-                        "function_id" to functionId,
                         "steps" to 1,
                         "resolve_calls" to 0,
                         "model_calls" to 0,
@@ -86,7 +85,7 @@ class VlmToolCoordinatorRecallExecutionTest {
         assertTrue(state.summaryText?.contains("actions_executed=1") == true)
         assertEquals("hit", outcome?.toPayload()?.get("omniflowRecall")?.let { it as Map<*, *> }?.get("decision"))
         val executionSummary = outcome?.toPayload()?.get("omniflowExecutionSummary") as Map<*, *>
-        assertEquals("open_settings_function", executionSummary["function_id"])
+        assertFalse(executionSummary.containsKey("function_id"))
         assertEquals(1, executionSummary["steps"])
         assertEquals(0, executionSummary["resolve_calls"])
         assertFalse(executionSummary.containsKey("repair_steps"))
@@ -480,7 +479,6 @@ class VlmToolCoordinatorRecallExecutionTest {
                     "actions_executed" to 2,
                     "execution_summary" to mapOf(
                         "success" to true,
-                        "function_id" to functionId,
                         "steps" to 2,
                         "resolve_calls" to 1,
                         "model_calls" to 1,
@@ -496,7 +494,7 @@ class VlmToolCoordinatorRecallExecutionTest {
         assertEquals(VlmToolOutcomeStatus.FINISHED, outcome?.status)
         val executionSummary = outcome?.toPayload()?.get("omniflowExecutionSummary") as Map<*, *>
         assertEquals(true, executionSummary["success"])
-        assertEquals("xhs_search_keyword", executionSummary["function_id"])
+        assertFalse(executionSummary.containsKey("function_id"))
         assertEquals(2, executionSummary["steps"])
         assertEquals(2, executionSummary["resolve_calls"])
         assertEquals(1, executionSummary["model_calls"])
@@ -584,7 +582,6 @@ class VlmToolCoordinatorRecallExecutionTest {
                     "actions_executed" to 1,
                     "execution_summary" to mapOf(
                         "success" to true,
-                        "function_id" to functionId,
                         "steps" to 1,
                         "resolve_calls" to 0,
                         "model_calls" to 0,
@@ -603,7 +600,7 @@ class VlmToolCoordinatorRecallExecutionTest {
         assertEquals(TaskStatus.FINISHED, state.status)
         assertEquals("omniflow_recall_hit:xhs_search_keyword", state.executionRoute)
         val executionSummary = outcome?.toPayload()?.get("omniflowExecutionSummary") as Map<*, *>
-        assertEquals("xhs_search_keyword", executionSummary["function_id"])
+        assertFalse(executionSummary.containsKey("function_id"))
         assertEquals(1, executionSummary["steps"])
     }
 
