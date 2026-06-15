@@ -462,7 +462,6 @@ class OobOmniFlowToolkitService(
         val runtimeResolveGoal = firstNonBlank(
             request["runtime_resolve_goal"],
             request["runtimeResolveGoal"],
-            request["online_repair_goal"],
             request["goal"],
             request["query"],
             request["task"],
@@ -470,21 +469,17 @@ class OobOmniFlowToolkitService(
         val runtimeResolveAllowRaw = firstPresent(
             request["allow_runtime_resolve"],
             request["allowRuntimeResolve"],
-            request["allow_online_repair"],
         )
         val runtimeResolveEnabled = runtimeResolveGoal.isNotBlank() &&
             boolArgOrDefault(runtimeResolveAllowRaw, defaultValue = true)
         val runtimeResolveBudget = intArg(
             request["runtime_resolve_budget"],
             request["runtimeResolveBudget"],
-            request["online_repair_budget"],
-            request["onlineRepairBudget"],
             defaultValue = if (runtimeResolveEnabled) 1 else 0,
         ).coerceAtLeast(0)
         val runtimeResolveModel = firstNonBlank(
             request["runtime_resolve_model"],
             request["runtimeResolveModel"],
-            request["online_repair_model"],
             request["model"],
         )
         val executionMode = firstNonBlank(request["execution_mode"])
@@ -582,20 +577,13 @@ class OobOmniFlowToolkitService(
             "runner_duration_ms" to durationMs,
             "timing" to timing,
             "execution_summary" to executionSummary,
-            "runtime_resolve_session_id" to (
-                runPayload["runtime_resolve_session_id"] ?: runPayload["fallback_session_id"]
-            ),
+            "runtime_resolve_session_id" to runPayload["runtime_resolve_session_id"],
             "failed_step_index" to failedStepIndex,
             "resume_from_step" to resumeFromStepResult,
             "current_step_index" to currentStepIndex,
             "current_step_number" to currentStepNumber,
-            "runtime_resolve_attempt" to (
-                runPayload["runtime_resolve_attempt"] ?: runPayload["fallback_attempt"]
-            ),
-            "runtime_resolve_unavailable_reason" to (
-                runPayload["runtime_resolve_unavailable_reason"]
-                    ?: runPayload["fallback_unavailable_reason"]
-            ),
+            "runtime_resolve_attempt" to runPayload["runtime_resolve_attempt"],
+            "runtime_resolve_unavailable_reason" to runPayload["runtime_resolve_unavailable_reason"],
             "error_code" to runPayload["error_code"],
             "error_message" to runPayload["error_message"],
             "missing_required_arguments" to runPayload["missing_required_arguments"],

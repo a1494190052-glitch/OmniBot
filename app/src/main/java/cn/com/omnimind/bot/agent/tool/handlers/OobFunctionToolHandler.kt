@@ -996,18 +996,14 @@ class OobFunctionToolHandler(
             .mapNotNull { mapArg(it).takeIf { mapped -> mapped.isNotEmpty() } }
         val nestedRuntimeResolveRequired =
             nestedRun["runtime_resolve_required"] == true ||
-            nestedRun["online_repair_required"] == true ||
                 nestedRun["runtime_resolve_context"] != null ||
-                nestedRun["fallback_context"] != null ||
                 nestedStepResults.any {
-                    it["runtime_resolve_required"] == true || it["online_repair_required"] == true
+                    it["runtime_resolve_required"] == true
                 }
         val nestedRuntimeResolveAvailable =
             nestedRun["runtime_resolve_available"] == true ||
-            nestedRun["online_repair_available"] == true ||
                 nestedStepResults.any {
-                    (it["runtime_resolve_required"] == true || it["online_repair_required"] == true) &&
-                        (it["runtime_resolve_available"] == true || it["online_repair_available"] == true)
+                    it["runtime_resolve_required"] == true && it["runtime_resolve_available"] == true
                 }
         val nestedModelRequired = nestedRun["model_required"] == true && !nestedRuntimeResolveRequired
         return completeWithCard(linkedMapOf<String, Any?>(
@@ -1024,9 +1020,7 @@ class OobFunctionToolHandler(
             "nested_runtime_resolve_available" to nestedRuntimeResolveAvailable,
             "nested_failed_step_index" to nestedRun["failed_step_index"],
             "nested_resume_from_step" to nestedRun["resume_from_step"],
-            "nested_runtime_resolve_context" to (
-                nestedRun["runtime_resolve_context"] ?: nestedRun["fallback_context"]
-            ),
+            "nested_runtime_resolve_context" to nestedRun["runtime_resolve_context"],
             "nested_agent_prompt" to nestedRun["agent_prompt"],
             "step_results" to nestedRun["step_results"], "timing" to nestedRun["timing"],
             "error_code" to nestedRun["error_code"],
@@ -1147,12 +1141,11 @@ class OobFunctionToolHandler(
                 val allSuccess = stepResults.size == activeSteps.size &&
                     stepResults.none { it["success"] == false }
                 val runtimeResolveRequired = stepResults.any {
-                    it["runtime_resolve_required"] == true || it["online_repair_required"] == true
+                    it["runtime_resolve_required"] == true
                 }
                 val runtimeResolveAvailable = !runtimeResolveRequired ||
                     stepResults.any {
-                        (it["runtime_resolve_required"] == true || it["online_repair_required"] == true) &&
-                            (it["runtime_resolve_available"] == true || it["online_repair_available"] == true)
+                        it["runtime_resolve_required"] == true && it["runtime_resolve_available"] == true
                     }
                 val currentResultStepIndex = when {
                     currentStepIndex >= 0 -> currentStepIndex

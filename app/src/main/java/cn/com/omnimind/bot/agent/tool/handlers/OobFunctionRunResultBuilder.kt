@@ -110,12 +110,11 @@ class OobFunctionRunResultBuilder {
         val successCount = stepResults.count { it["success"] != false }
         val allSuccess = stepResults.size == activeSteps.size && stepResults.none { it["success"] == false }
         val runtimeResolveRequired = stepResults.any {
-            it["runtime_resolve_required"] == true || it["online_repair_required"] == true
+            it["runtime_resolve_required"] == true
         }
         val runtimeResolveAvailable = !runtimeResolveRequired ||
             stepResults.any {
-                (it["runtime_resolve_required"] == true || it["online_repair_required"] == true) &&
-                    (it["runtime_resolve_available"] == true || it["online_repair_available"] == true)
+                it["runtime_resolve_required"] == true && it["runtime_resolve_available"] == true
             }
         val failedStepIndex = stepResults.firstOrNull { it["success"] == false }?.get("index")
         val lastStepIndex = stepResults.lastOrNull()?.get("index")

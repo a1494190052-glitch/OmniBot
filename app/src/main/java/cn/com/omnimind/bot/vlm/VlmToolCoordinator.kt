@@ -196,11 +196,6 @@ data class VlmFunctionRuntimeSelectionDecision(
 )
 
 data class RuntimeResolveResult(
-    /**
-     * Legacy compatibility only. Runtime-selected Function hits cannot be vetoed
-     * by the resolve model; the field is intentionally ignored by the caller.
-     */
-    val useFunction: Boolean = true,
     val arguments: Map<String, Any?> = emptyMap(),
     val missingRequiredArguments: List<String> = emptyList(),
     val reason: String = "",
@@ -209,27 +204,17 @@ data class RuntimeResolveResult(
     companion object {
         fun failed(reason: String, missingRequiredArguments: List<String> = emptyList()): RuntimeResolveResult =
             RuntimeResolveResult(
-                useFunction = true,
                 missingRequiredArguments = missingRequiredArguments,
                 reason = reason,
             )
-
-        fun reject(reason: String): RuntimeResolveResult =
-            RuntimeResolveResult(useFunction = false, reason = reason)
     }
 }
-
-@Deprecated("Use RuntimeResolveResult.")
-typealias RecallFunctionResolve = RuntimeResolveResult
 
 typealias RuntimeResolveProvider = suspend (
     goal: String,
     candidate: Map<String, Any?>,
     recallGuidance: VlmRecallGuidance,
 ) -> RuntimeResolveResult
-
-@Deprecated("Use RuntimeResolveProvider.")
-typealias RecallFunctionResolveProvider = RuntimeResolveProvider
 
 object VlmToolCoordinator {
     private const val TAG = "[VlmToolCoordinator]"
@@ -1322,13 +1307,12 @@ object VlmToolCoordinator {
         val result = runCatching { runFunction(functionId, functionArguments) }.getOrElse { error ->
             linkedMapOf<String, Any?>(
                 "success" to false,
-                "fallback" to true,
                 "error" to error.message.orEmpty(),
                 "error_type" to error.javaClass.name,
             )
         }.withRuntimeResolveCalls(argumentResolve.resolveCalls)
         taskState.omniflowExecutionSummary = compactOmniFlowExecutionSummary(result)
-        val success = result["success"] == true && result["fallback"] != true
+        val success = result["success"] == true
         if (!success) {
             val reason = recallFallbackReason(result)
             taskState.status = TaskStatus.ERROR
@@ -1456,13 +1440,12 @@ object VlmToolCoordinator {
         val result = runCatching { runFunction(pending.functionId, arguments) }.getOrElse { error ->
             linkedMapOf<String, Any?>(
                 "success" to false,
-                "fallback" to true,
                 "error" to error.message.orEmpty(),
                 "error_type" to error.javaClass.name,
             )
         }
         taskState.omniflowExecutionSummary = compactOmniFlowExecutionSummary(result)
-        val success = result["success"] == true && result["fallback"] != true
+        val success = result["success"] == true
         if (!success) {
             val reason = recallFallbackReason(result)
             taskState.status = TaskStatus.ERROR
@@ -1938,7 +1921,6 @@ object VlmToolCoordinator {
         listOf(
             result["error"],
             result["error_message"],
-            (result["control"] as? Map<*, *>)?.get("fallback_reason"),
             result["phase"],
         ).firstNotNullOfOrNull { value ->
             value?.toString()?.trim()?.takeIf { it.isNotEmpty() }
@@ -2112,9 +2094,6 @@ object VlmToolCoordinator {
                 result,
                 "resolve_calls",
                 "runtime_resolve_calls",
-                // Legacy input aliases only; compact output stays `resolve_calls`.
-                "repair_steps",
-                "online_repair_steps",
             ),
             "model_calls" to firstPresent(source, result, "model_calls"),
             "tokens" to firstPresent(source, result, "tokens", "total_tokens"),

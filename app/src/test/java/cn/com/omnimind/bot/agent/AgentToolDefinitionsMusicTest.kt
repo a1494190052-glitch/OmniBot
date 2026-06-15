@@ -68,7 +68,10 @@ class AgentToolDefinitionsMusicTest {
 
         assertTrue(description.contains("One `vlm_task` call represents one complete device execution flow"))
         assertTrue(description.contains("OmniFlow Function recall"))
-        assertTrue(description.contains("runtime resolve and replay"))
+        assertTrue(description.contains("high-confidence hits enter replay"))
+        assertTrue(description.contains("same bounded runtime resolve path"))
+        assertTrue(description.contains("public arguments are missing"))
+        assertTrue(description.contains("current replay step cannot continue locally"))
         assertTrue(description.contains("must not directly call hidden Function replay or guard tools"))
         assertFalse(description.contains("使用视觉语言模型"))
         assertFalse(description.contains("function_id"))

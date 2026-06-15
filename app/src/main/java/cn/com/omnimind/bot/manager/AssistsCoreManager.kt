@@ -467,17 +467,11 @@ private const val AGENT_STREAM_META_SCHEMA_VERSION = "oob.agent_event.v1"
 
 internal fun isOobReusableFunctionRuntimeResolveStep(step: Map<*, *>): Boolean {
     return step["runtime_resolve_required"] == true ||
-        step["online_repair_required"] == true ||
         step["error_code"]?.toString() == "OOB_RUNTIME_RESOLVE_UNAVAILABLE" ||
-        step["error_code"]?.toString() == "OOB_ONLINE_REPAIR_UNAVAILABLE" ||
         (step["success"] == false && step["executor"]?.toString() == RunLogReplayPolicy.EXECUTOR_AGENT) ||
         step["vlm_step_required"] == true ||
         step["error_code"]?.toString() == "OOB_VLM_CONTINUATION_REQUIRED"
 }
-
-@Deprecated("Use isOobReusableFunctionRuntimeResolveStep.")
-internal fun isOobReusableFunctionOnlineRepairStep(step: Map<*, *>): Boolean =
-    isOobReusableFunctionRuntimeResolveStep(step)
 
 internal fun buildOobReusableFunctionRuntimeResolvePayload(
     functionId: String,
@@ -547,26 +541,6 @@ internal fun buildOobReusableFunctionRuntimeResolvePayload(
         }
     )
 }
-
-@Deprecated("Use buildOobReusableFunctionRuntimeResolvePayload.")
-internal fun buildOobReusableFunctionOnlineRepairPayload(
-    functionId: String,
-    repairId: String,
-    runPayload: Map<String, Any?>,
-    stepResults: List<Map<*, *>>,
-    completedStepCount: Int,
-    onlineRepairStepCount: Int,
-    argumentCount: Int,
-): Map<String, Any?> =
-    buildOobReusableFunctionRuntimeResolvePayload(
-        functionId = functionId,
-        resolveId = repairId,
-        runPayload = runPayload,
-        stepResults = stepResults,
-        completedStepCount = completedStepCount,
-        runtimeResolveStepCount = onlineRepairStepCount,
-        argumentCount = argumentCount,
-    )
 
 internal fun buildOobReusableFunctionLocalPayload(
     functionId: String,
@@ -681,33 +655,27 @@ internal fun normalizeOobToolkitFunctionRunPayloadForChannel(payload: Map<String
         put(
             "runtime_resolve_required",
             payload["runtime_resolve_required"] ?: resultPayload["runtime_resolve_required"]
-                ?: payload["online_repair_required"] ?: resultPayload["online_repair_required"]
         )
         put(
             "runtime_resolve_available",
             payload["runtime_resolve_available"] ?: resultPayload["runtime_resolve_available"]
-                ?: payload["online_repair_available"] ?: resultPayload["online_repair_available"]
         )
         put("delegated_tool_used", payload["delegated_tool_used"] ?: resultPayload["delegated_tool_used"])
         put(
             "runtime_resolve_session_id",
             payload["runtime_resolve_session_id"] ?: resultPayload["runtime_resolve_session_id"]
-                ?: payload["fallback_session_id"] ?: resultPayload["fallback_session_id"]
         )
         put(
             "runtime_resolve_attempt",
             payload["runtime_resolve_attempt"] ?: resultPayload["runtime_resolve_attempt"]
-                ?: payload["fallback_attempt"] ?: resultPayload["fallback_attempt"]
         )
         put(
             "runtime_resolve_unavailable_reason",
             payload["runtime_resolve_unavailable_reason"] ?: resultPayload["runtime_resolve_unavailable_reason"]
-                ?: payload["fallback_unavailable_reason"] ?: resultPayload["fallback_unavailable_reason"]
         )
         put(
             "runtime_resolve_context",
             payload["runtime_resolve_context"] ?: resultPayload["runtime_resolve_context"]
-                ?: payload["fallback_context"] ?: resultPayload["fallback_context"]
         )
         put("agent_prompt", payload["agent_prompt"] ?: resultPayload["agent_prompt"])
         put("timing", payload["timing"] ?: resultPayload["timing"])
@@ -4334,7 +4302,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 val resolveId = firstNonBlankString(args["taskId"], args["task_id"])
                     .takeIf { it.isNotEmpty() }
                     ?: firstNonBlankString(runPayload["runtime_resolve_session_id"]).takeIf { it.isNotEmpty() }
-                    ?: firstNonBlankString(runPayload["fallback_session_id"]).takeIf { it.isNotEmpty() }
                     ?: "oob-runtime-resolve-${System.currentTimeMillis()}"
                 val payload = buildOobReusableFunctionRuntimeResolvePayload(
                     functionId = functionId,

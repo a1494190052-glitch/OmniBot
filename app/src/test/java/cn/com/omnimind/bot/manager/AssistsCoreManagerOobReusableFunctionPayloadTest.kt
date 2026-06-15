@@ -8,17 +8,17 @@ import org.junit.Test
 
 class AssistsCoreManagerOobReusableFunctionPayloadTest {
     @Test
-    fun `toolkit run payload normalization keeps legacy channel fields on errors`() {
+    fun `toolkit run payload normalization keeps runtime resolve channel fields on errors`() {
         val payload = normalizeOobToolkitFunctionRunPayloadForChannel(
             mapOf(
                 "success" to false,
                 "function_id" to "missing_function",
                 "error_code" to "OOB_FUNCTION_NOT_FOUND",
                 "error_message" to "OmniFlow function not found: missing_function",
-                "fallback_session_id" to "legacy-fallback-session",
-                "fallback_attempt" to 1,
-                "fallback_unavailable_reason" to "legacy-fallback-disabled",
-                "fallback_context" to mapOf("step" to 2),
+                "runtime_resolve_session_id" to "runtime-resolve-session",
+                "runtime_resolve_attempt" to 1,
+                "runtime_resolve_unavailable_reason" to "runtime-resolve-disabled",
+                "runtime_resolve_context" to mapOf("step" to 2),
             )
         )
 
@@ -30,14 +30,10 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
         assertEquals("oob_mixed_runner", payload["runner"])
         assertEquals(false, payload["model_used"])
         assertEquals("OOB_FUNCTION_NOT_FOUND", payload["error_code"])
-        assertEquals("legacy-fallback-session", payload["runtime_resolve_session_id"])
+        assertEquals("runtime-resolve-session", payload["runtime_resolve_session_id"])
         assertEquals(1, payload["runtime_resolve_attempt"])
-        assertEquals("legacy-fallback-disabled", payload["runtime_resolve_unavailable_reason"])
+        assertEquals("runtime-resolve-disabled", payload["runtime_resolve_unavailable_reason"])
         assertEquals(mapOf("step" to 2), payload["runtime_resolve_context"])
-        assertFalse(payload.containsKey("fallback_session_id"))
-        assertFalse(payload.containsKey("fallback_attempt"))
-        assertFalse(payload.containsKey("fallback_unavailable_reason"))
-        assertFalse(payload.containsKey("fallback_context"))
     }
 
     @Test
@@ -178,15 +174,10 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
     }
 
     @Test
-    fun `runtime resolve step detection supports new and legacy replay markers`() {
+    fun `runtime resolve step detection supports current replay markers`() {
         assertTrue(
             isOobReusableFunctionRuntimeResolveStep(
-                mapOf("online_repair_required" to true)
-            )
-        )
-        assertTrue(
-            isOobReusableFunctionRuntimeResolveStep(
-                mapOf("error_code" to "OOB_ONLINE_REPAIR_UNAVAILABLE")
+                mapOf("runtime_resolve_required" to true)
             )
         )
         assertTrue(

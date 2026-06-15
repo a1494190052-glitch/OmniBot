@@ -60,7 +60,6 @@ class VlmToolCoordinatorRecallExecutionTest {
             runFunction = { functionId, _ ->
                 mapOf(
                     "success" to true,
-                    "fallback" to false,
                     "function_id" to functionId,
                     "run_id" to "omniflow_run_test",
                     "actions_executed" to 1,
@@ -119,7 +118,6 @@ class VlmToolCoordinatorRecallExecutionTest {
             runFunction = { _, _ ->
                 mapOf(
                     "success" to false,
-                    "fallback" to true,
                     "error" to "execution_failed",
                     "execution_summary" to mapOf(
                         "success" to false,
@@ -283,7 +281,6 @@ class VlmToolCoordinatorRecallExecutionTest {
                 called = true
                 mapOf(
                     "success" to true,
-                    "fallback" to false,
                     "function_id" to "open_settings_function",
                     "run_id" to "omniflow_run_test",
                     "actions_executed" to 1,
@@ -343,7 +340,7 @@ class VlmToolCoordinatorRecallExecutionTest {
                 called = true
                 mapOf("success" to true)
             },
-            resolveProvider = rejectResolve(
+            resolveProvider = resolveMissingArguments(
                 reason = "missing_required_arguments",
                 missing = listOf("value"),
             ),
@@ -474,7 +471,6 @@ class VlmToolCoordinatorRecallExecutionTest {
                 assertEquals("猫猫", arguments["keyword"])
                 mapOf(
                     "success" to true,
-                    "fallback" to false,
                     "function_id" to functionId,
                     "actions_executed" to 2,
                     "execution_summary" to mapOf(
@@ -505,14 +501,14 @@ class VlmToolCoordinatorRecallExecutionTest {
     }
 
     @Test
-    fun `runtime resolve cannot veto runtime selected recall hit`() = runBlocking {
+    fun `runtime resolve with no public arguments executes selected recall hit`() = runBlocking {
         val request = VlmTaskRequest(
             goal = "open settings",
             packageName = "com.android.settings",
             allowOmniFlowFunctionAutoExecute = true,
         )
         val state = TaskState(
-            taskId = "task-runtime-selection-not-model-veto",
+            taskId = "task-runtime-selection-no-args",
             goal = request.goal,
             status = TaskStatus.RUNNING,
         )
@@ -539,12 +535,11 @@ class VlmToolCoordinatorRecallExecutionTest {
                 called = true
                 mapOf(
                     "success" to true,
-                    "fallback" to false,
                     "function_id" to "open_settings_function",
                     "actions_executed" to 1,
                 )
             },
-            resolveProvider = rejectResolve(reason = "legacy_model_veto_should_be_ignored"),
+            resolveProvider = resolveRecall(reason = "no_public_arguments"),
         )
 
         assertNotNull(outcome)
@@ -577,7 +572,6 @@ class VlmToolCoordinatorRecallExecutionTest {
                 capturedArguments = arguments
                 mapOf(
                     "success" to true,
-                    "fallback" to false,
                     "function_id" to functionId,
                     "actions_executed" to 1,
                     "execution_summary" to mapOf(
@@ -749,24 +743,23 @@ class VlmToolCoordinatorRecallExecutionTest {
     private fun resolveRecall(
         arguments: Map<String, Any?> = emptyMap(),
         resolveCalls: Int = 0,
+        reason: String = "test_accept",
     ): RuntimeResolveProvider =
         { _, _, _ ->
             RuntimeResolveResult(
-                useFunction = true,
                 arguments = arguments,
-                reason = "test_accept",
+                reason = reason,
                 resolveCalls = resolveCalls,
             )
         }
 
-    private fun rejectResolve(
+    private fun resolveMissingArguments(
         reason: String,
         missing: List<String> = emptyList(),
         arguments: Map<String, Any?> = emptyMap(),
     ): RuntimeResolveProvider =
         { _, _, _ ->
             RuntimeResolveResult(
-                useFunction = false,
                 arguments = arguments,
                 missingRequiredArguments = missing,
                 reason = reason,
