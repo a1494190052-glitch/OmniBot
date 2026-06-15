@@ -163,10 +163,10 @@ tool names directly. Do not treat those JSON literals as competing Kotlin
 owners; keep Kotlin code and tests pointing at `OobFunctionToolNames`,
 `AgentToolNames`, or `RunLogReplayPolicy` as appropriate.
 Replay tool names such as `call_tool`, `go_to_node`, and `oob.agent.run` also
-live in `RunLogReplayPolicy` when they are used by Function compilation,
-schema materialization, recall, or replay routing.
+live in `RunLogReplayPolicy` when they are used by stored RunLog import,
+Function schema materialization, recall, or replay routing.
 Agent-facing docs and tools should present saved Function reuse as runtime
-recall plus local resolve/replay inside `vlm_task`; ordinary VLM/Agent output must not
+recall plus runtime resolve/replay inside `vlm_task`; ordinary VLM/Agent output must not
 emit `call_tool(function_id, arguments)` or hidden Function tools. UDEG
 edge-kind names and diagnostic counter keys remain graph-storage vocabulary
 owned by `OobUdegNodeStore`.

@@ -202,7 +202,7 @@ class OobFunctionToolHandler(
 
         if (targetTool.isEmpty()) {
             return cn.com.omnimind.bot.agent.ToolExecutionResult.Error(
-                toolName, "call_tool requires tool_name or function_id"
+                toolName, "call_tool requires tool_name. Direct function_id execution is disabled; use vlm_task for phone UI automation."
             )
         }
         if (RunLogReplayPolicy.isOmniflowToolCallTool(targetTool)) {
@@ -252,8 +252,8 @@ class OobFunctionToolHandler(
         allowToolDelegationWithoutRouter: Boolean = false,
         callStack: List<String> = emptyList(),
         resumeFromStep: Int = 0,
-        fallbackSessionId: String = "",
-        fallbackAttempt: Int = 0,
+        runtimeResolveSessionId: String = "",
+        runtimeResolveAttempt: Int = 0,
         frontendRunId: String = "",
         frontendTaskId: String = "",
         frontendParent: String = "",
@@ -388,8 +388,8 @@ class OobFunctionToolHandler(
             activeSteps = activeSteps,
             stepResults = stepResults,
             normalizedResumeFromStep = normalizedResumeFromStep,
-            fallbackSessionId = fallbackSessionId,
-            fallbackAttempt = fallbackAttempt,
+            runtimeResolveSessionId = runtimeResolveSessionId,
+            runtimeResolveAttempt = runtimeResolveAttempt,
             modelRequired = modelRequired,
             delegatedToolUsed = delegatedToolUsed,
             allowAgentFallback = allowAgentFallback,

@@ -88,8 +88,9 @@ OOB-native OmniFlow execution:
 - `click_node`
 - `call_tool`
 
-Graph tools and `call_tool` entries with `function_id` convert to
-`executor=omniflow`, not `executor=agent`. Graph tools execute embedded
+Stored RunLog graph tools and legacy `call_tool` entries with `function_id`
+convert to `executor=omniflow`, not `executor=agent`. This is an import/replay
+normalization rule, not an Agent/VLM output format. Graph tools execute embedded
 `path`/UTG edge data through the local primitive action executor. `call_tool`
 without `function_id` delegates to the live tool router when available.
 
