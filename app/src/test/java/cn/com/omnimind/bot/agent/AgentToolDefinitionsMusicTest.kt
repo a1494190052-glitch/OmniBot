@@ -58,6 +58,21 @@ class AgentToolDefinitionsMusicTest {
     }
 
     @Test
+    fun `english vlm task description exposes omniflow runtime path`() {
+        val vlmTool = AgentToolDefinitions.staticTools(PromptLocale.EN_US)
+            .first { ((it["function"] as JsonObject)["name"]?.jsonPrimitive?.contentOrNull) == "vlm_task" }
+        val function = vlmTool["function"] as JsonObject
+        val description = function["description"]?.jsonPrimitive?.contentOrNull.orEmpty()
+
+        assertTrue(description.contains("One `vlm_task` call represents one complete device execution flow"))
+        assertTrue(description.contains("OmniFlow Function recall"))
+        assertTrue(description.contains("runtime resolve and replay"))
+        assertTrue(description.contains("must not directly call hidden Function replay or guard tools"))
+        assertFalse(description.contains("使用视觉语言模型"))
+        assertFalse(description.contains("function_id"))
+    }
+
+    @Test
     fun `browser get cookies keywords schema declares a concrete type`() {
         val browserTool = AgentToolDefinitions.staticTools(PromptLocale.ZH_CN)
             .first { ((it["function"] as JsonObject)["name"]?.jsonPrimitive?.contentOrNull) == "browser_use" }
