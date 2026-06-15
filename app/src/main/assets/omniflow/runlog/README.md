@@ -11,7 +11,7 @@ RunLog is a runtime contract, not just a UI feature. Keep these boundaries align
 1. Native records tool cards into `InternalRunLogStore`.
 2. Flutter displays the timeline and converts cards into a reusable Function.
 3. Native stores and materializes reusable Functions through `OobReusableFunctionStore`.
-4. `OobFunctionToolHandler` replays deterministic local steps; live-context failures return compact failed-step runtime resolve evidence.
+4. `OobFunctionToolHandler` replays deterministic local steps; runtime resolve is the single bounded model-assisted path, used before replay for public Function arguments and after a live-context miss for one current-step UI action.
 5. Workspace Function save must follow the same executor policy as Flutter conversion.
 
 Read `references/runlog-contract.md` before changing conversion or replay behavior.

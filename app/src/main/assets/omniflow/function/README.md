@@ -340,7 +340,8 @@ When adding or migrating a generic agent tool name:
   steps because a terminal postcondition appears satisfied or because the page
   seems to have advanced. If the current step cannot be executed, return
   `success=false` with a compact `{success, result}` payload. The public concept
-  is runtime resolve: it may produce only one ordinary UI action for the current
+  is runtime resolve: before replay it may fill only public Function arguments;
+  during replay it may produce only one ordinary UI action for the current
   failed step and must not reselect a Function. Legacy wire payload names remain
   implementation compatibility only.
 
