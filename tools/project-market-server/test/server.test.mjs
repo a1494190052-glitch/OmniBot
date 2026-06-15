@@ -283,3 +283,119 @@ test('serves project management API over HTTP', async () => {
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test('uploads and downloads sandbox apps through built-in server store', async () => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'oob-project-market-'));
+  const localStore = new ProjectMarketStore({
+    storeRoot: path.join(tempRoot, 'local'),
+    validatorPath,
+  });
+  const serverStore = new ProjectMarketStore({
+    storeRoot: path.join(tempRoot, 'server'),
+    validatorPath,
+  });
+  await localStore.ensureReady();
+  await serverStore.ensureReady();
+  await localStore.createProject({
+    componentId: 'server-sync-card',
+    name: 'Server Sync Card',
+    version: '0.1.0',
+    type: 'widget',
+    description: 'A sandbox app used to verify server sync.',
+  });
+
+  const uploaded = await serverStore.copyProjectFrom(localStore, {
+    componentId: 'server-sync-card',
+    version: '0.1.0',
+    overwrite: true,
+  });
+  assert.equal(uploaded.item.componentId, 'server-sync-card');
+  const serverMarket = await serverStore.listProjects('http://127.0.0.1:17331', {
+    archiveRoutePrefix: '/api/server/projects',
+  });
+  assert.equal(
+    serverMarket.items[0].downloadUrl,
+    'http://127.0.0.1:17331/api/server/projects/server-sync-card/0.1.0/archive'
+  );
+
+  await localStore.removeProject({
+    componentId: 'server-sync-card',
+    version: '0.1.0',
+  });
+  const downloaded = await localStore.copyProjectFrom(serverStore, {
+    componentId: 'server-sync-card',
+    version: '0.1.0',
+    overwrite: true,
+  });
+  assert.equal(downloaded.item.name, 'Server Sync Card');
+  const localMarket = await localStore.listProjects();
+  assert.deepEqual(
+    localMarket.items.map((item) => `${item.componentId}@${item.version}`),
+    ['server-sync-card@0.1.0']
+  );
+});
+
+test('serves built-in server upload and download API over HTTP', async () => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'oob-project-market-'));
+  const localStore = new ProjectMarketStore({
+    storeRoot: path.join(tempRoot, 'local'),
+    validatorPath,
+  });
+  const serverStore = new ProjectMarketStore({
+    storeRoot: path.join(tempRoot, 'server'),
+    validatorPath,
+  });
+  await localStore.ensureReady();
+  await serverStore.ensureReady();
+  await localStore.createProject({
+    componentId: 'api-server-card',
+    name: 'API Server Card',
+    version: '0.1.0',
+    type: 'widget',
+    description: 'A sandbox app used to verify server APIs.',
+  });
+  const server = createProjectMarketServer(localStore, { serverStore });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address();
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const upload = await fetch(`${baseUrl}/api/server/upload`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        componentId: 'api-server-card',
+        version: '0.1.0',
+        overwrite: true,
+      }),
+    }).then((res) => res.json());
+    assert.equal(upload.ok, true);
+    assert.match(upload.item.downloadUrl, /\/api\/server\/projects\/api-server-card\/0\.1\.0\/archive$/);
+
+    await localStore.removeProject({
+      componentId: 'api-server-card',
+      version: '0.1.0',
+    });
+
+    const download = await fetch(`${baseUrl}/api/server/download`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        componentId: 'api-server-card',
+        version: '0.1.0',
+        overwrite: true,
+      }),
+    }).then((res) => res.json());
+    assert.equal(download.ok, true);
+    assert.equal(download.item.componentId, 'api-server-card');
+
+    const archive = await fetch(`${baseUrl}/api/server/projects/api-server-card/0.1.0/archive`);
+    assert.equal(archive.status, 200);
+    assert.equal(archive.headers.get('content-type'), 'application/zip');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

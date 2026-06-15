@@ -52,6 +52,7 @@ Options:
   --host <host>          Listen host. Defaults to 127.0.0.1.
   --port <port>          Listen port. Defaults to 17331.
   --store <path>         Storage root. Defaults to ~/.omnibot/project-market-server.
+  --server-store <path>  Built-in server storage root. Defaults to <store>/builtin-server.
   --python <path>        Python executable. Defaults to python3.
   --validator <path>     Project package validator path.
   -h, --help             Show this help.`);
@@ -75,6 +76,7 @@ function parseArgs(args) {
     host: process.env.OMNIBOT_PROJECT_MARKET_HOST || '127.0.0.1',
     port: Number(process.env.OMNIBOT_PROJECT_MARKET_PORT || 17331),
     storeRoot: process.env.OMNIBOT_PROJECT_MARKET_STORE || defaultStoreRoot,
+    serverStoreRoot: process.env.OMNIBOT_PROJECT_MARKET_SERVER_STORE || '',
     python: process.env.PYTHON || 'python3',
     validatorPath: process.env.OMNIBOT_PROJECT_MARKET_VALIDATOR || defaultValidatorPath,
   };
@@ -88,6 +90,7 @@ function parseArgs(args) {
       '--host': 'host',
       '--port': 'port',
       '--store': 'storeRoot',
+      '--server-store': 'serverStoreRoot',
       '--python': 'python',
       '--validator': 'validatorPath',
     };
@@ -106,6 +109,9 @@ function parseArgs(args) {
     throw new Error('port must be an integer between 1 and 65535');
   }
   options.storeRoot = expandHomePath(options.storeRoot);
+  options.serverStoreRoot = hasText(options.serverStoreRoot)
+    ? expandHomePath(options.serverStoreRoot)
+    : path.join(options.storeRoot, 'builtin-server');
   options.validatorPath = path.resolve(expandHomePath(options.validatorPath));
   return options;
 }
@@ -308,6 +314,10 @@ async function listPackageFiles(packageDir) {
   return results;
 }
 
+async function copyPackageDirectory(sourceDir, targetDir) {
+  await fsp.cp(sourceDir, targetDir, { recursive: true });
+}
+
 async function createZipArchive({ python, sourceDir, archivePath }) {
   const script = [
     'import os, sys, zipfile',
@@ -356,12 +366,14 @@ export class ProjectMarketStore {
     return market;
   }
 
-  async listProjects(requestOrigin = '') {
+  async listProjects(requestOrigin = '', { archiveRoutePrefix = '/api/projects' } = {}) {
     const market = await this.readMarket();
     return {
       storeRoot: this.storeRoot,
       schemaVersion: market.schemaVersion,
-      items: market.items.map((item) => this.withDownloadUrl(item, requestOrigin)),
+      items: market.items.map((item) =>
+        this.withDownloadUrl(item, requestOrigin, archiveRoutePrefix)
+      ),
     };
   }
 
@@ -729,7 +741,7 @@ export class ProjectMarketStore {
     }
     await removePath(targetDir);
     await fsp.mkdir(path.dirname(targetDir), { recursive: true });
-    await fsp.cp(sourceDir, targetDir, { recursive: true });
+    await copyPackageDirectory(sourceDir, targetDir);
     const manifestPath = path.join(targetDir, componentManifestFile);
     const manifest = await readJson(manifestPath);
     manifest.componentId = nextComponentId;
@@ -747,6 +759,28 @@ export class ProjectMarketStore {
       componentId: nextComponentId,
       version: targetVersion,
     });
+  }
+
+  async copyProjectFrom(sourceStore, { componentId, version, overwrite = false }) {
+    if (!hasText(componentId) || !hasText(version)) {
+      throw new Error('componentId and version are required');
+    }
+    const sourceDir = sourceStore.packageDir(componentId, version);
+    if (!(await pathExists(sourceDir))) {
+      const error = new Error(`${componentId}@${version} does not exist`);
+      error.statusCode = 404;
+      throw error;
+    }
+    const targetDir = this.packageDir(componentId, version);
+    if (!overwrite && (await pathExists(targetDir))) {
+      const error = new Error(`${componentId}@${version} already exists`);
+      error.statusCode = 409;
+      throw error;
+    }
+    await removePath(targetDir);
+    await fsp.mkdir(path.dirname(targetDir), { recursive: true });
+    await copyPackageDirectory(sourceDir, targetDir);
+    return this.rebuildProject({ componentId, version });
   }
 
   async upsertMarketItem(item) {
@@ -789,8 +823,9 @@ export class ProjectMarketStore {
     return path.join(this.archivesRoot, `${safeName(componentId)}-${safeName(version)}.zip`);
   }
 
-  withDownloadUrl(item, requestOrigin = '') {
+  withDownloadUrl(item, requestOrigin = '', archiveRoutePrefix = '/api/projects') {
     const clone = structuredClone(item);
+    clone.downloadUrl = `${archiveRoutePrefix}/${encodeURIComponent(clone.componentId)}/${encodeURIComponent(clone.version)}/archive`;
     if (requestOrigin && String(clone.downloadUrl || '').startsWith('/')) {
       clone.downloadUrl = `${requestOrigin}${clone.downloadUrl}`;
     }
@@ -870,7 +905,7 @@ async function serveStatic(req, res, pathname) {
   }
 }
 
-export function createProjectMarketServer(store) {
+export function createProjectMarketServer(store, { serverStore } = {}) {
   return http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url || '/', 'http://127.0.0.1');
@@ -881,6 +916,7 @@ export function createProjectMarketServer(store) {
           ok: true,
           service: 'omnibot-project-market',
           storeRoot: store.storeRoot,
+          serverStoreRoot: serverStore?.storeRoot || null,
         });
         return;
       }
@@ -895,6 +931,37 @@ export function createProjectMarketServer(store) {
 
       if (req.method === 'GET' && pathname === '/api/market') {
         const market = await store.listProjects(requestOrigin(req));
+        sendJson(res, 200, {
+          schemaVersion: market.schemaVersion,
+          items: market.items,
+        });
+        return;
+      }
+
+      if (req.method === 'GET' && pathname === '/api/server/projects') {
+        if (!serverStore) {
+          const error = new Error('built-in server store is not configured');
+          error.statusCode = 503;
+          throw error;
+        }
+        sendJson(res, 200, {
+          ok: true,
+          ...(await serverStore.listProjects(requestOrigin(req), {
+            archiveRoutePrefix: '/api/server/projects',
+          })),
+        });
+        return;
+      }
+
+      if (req.method === 'GET' && pathname === '/api/server/market') {
+        if (!serverStore) {
+          const error = new Error('built-in server store is not configured');
+          error.statusCode = 503;
+          throw error;
+        }
+        const market = await serverStore.listProjects(requestOrigin(req), {
+          archiveRoutePrefix: '/api/server/projects',
+        });
         sendJson(res, 200, {
           schemaVersion: market.schemaVersion,
           items: market.items,
@@ -977,6 +1044,50 @@ export function createProjectMarketServer(store) {
         return;
       }
 
+      if (req.method === 'POST' && pathname === '/api/server/upload') {
+        if (!serverStore) {
+          const error = new Error('built-in server store is not configured');
+          error.statusCode = 503;
+          throw error;
+        }
+        const body = await readRequestJson(req);
+        const result = await serverStore.copyProjectFrom(store, {
+          componentId: body.componentId,
+          version: body.version,
+          overwrite: body.overwrite !== false,
+        });
+        sendJson(res, 201, {
+          ok: true,
+          item: serverStore.withDownloadUrl(
+            result.item,
+            requestOrigin(req),
+            '/api/server/projects'
+          ),
+          validation: result.validation,
+        });
+        return;
+      }
+
+      if (req.method === 'POST' && pathname === '/api/server/download') {
+        if (!serverStore) {
+          const error = new Error('built-in server store is not configured');
+          error.statusCode = 503;
+          throw error;
+        }
+        const body = await readRequestJson(req);
+        const result = await store.copyProjectFrom(serverStore, {
+          componentId: body.componentId,
+          version: body.version,
+          overwrite: body.overwrite !== false,
+        });
+        sendJson(res, 201, {
+          ok: true,
+          item: store.withDownloadUrl(result.item, requestOrigin(req)),
+          validation: result.validation,
+        });
+        return;
+      }
+
       const detailMatch = pathname.match(/^\/api\/projects\/([^/]+)\/([^/]+)$/);
       if (req.method === 'GET' && detailMatch) {
         const componentId = decodeURIComponent(detailMatch[1]);
@@ -993,6 +1104,27 @@ export function createProjectMarketServer(store) {
         const componentId = decodeURIComponent(archiveMatch[1]);
         const version = decodeURIComponent(archiveMatch[2]);
         const archivePath = store.archivePath(componentId, version);
+        const stat = await fsp.stat(archivePath);
+        res.writeHead(200, {
+          'content-type': 'application/zip',
+          'content-length': stat.size,
+          'content-disposition': `attachment; filename="${safeName(componentId)}-${safeName(version)}.zip"`,
+          'cache-control': 'no-store',
+        });
+        fs.createReadStream(archivePath).pipe(res);
+        return;
+      }
+
+      const serverArchiveMatch = pathname.match(/^\/api\/server\/projects\/([^/]+)\/([^/]+)\/archive$/);
+      if (req.method === 'GET' && serverArchiveMatch) {
+        if (!serverStore) {
+          const error = new Error('built-in server store is not configured');
+          error.statusCode = 503;
+          throw error;
+        }
+        const componentId = decodeURIComponent(serverArchiveMatch[1]);
+        const version = decodeURIComponent(serverArchiveMatch[2]);
+        const archivePath = serverStore.archivePath(componentId, version);
         const stat = await fsp.stat(archivePath);
         res.writeHead(200, {
           'content-type': 'application/zip',
@@ -1024,8 +1156,13 @@ export async function main(argv = process.argv.slice(2)) {
     return null;
   }
   const store = new ProjectMarketStore(options);
+  const serverStore = new ProjectMarketStore({
+    ...options,
+    storeRoot: options.serverStoreRoot,
+  });
   await store.ensureReady();
-  const server = createProjectMarketServer(store);
+  await serverStore.ensureReady();
+  const server = createProjectMarketServer(store, { serverStore });
   await new Promise((resolve) => {
     server.listen(options.port, options.host, resolve);
   });
@@ -1033,6 +1170,7 @@ export async function main(argv = process.argv.slice(2)) {
   const port = typeof address === 'object' && address ? address.port : options.port;
   console.log(`Project market server: http://${options.host}:${port}`);
   console.log(`Storage: ${store.storeRoot}`);
+  console.log(`Built-in server storage: ${serverStore.storeRoot}`);
   return server;
 }
 

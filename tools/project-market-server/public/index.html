@@ -121,6 +121,17 @@
             <div id="projectList" class="projectList"></div>
           </section>
 
+          <section class="panel listPanel">
+            <div class="panelHeader">
+              <div>
+                <h2>Built-in Server Apps</h2>
+                <p id="serverRoot" class="muted"></p>
+              </div>
+              <button type="button" id="refreshServerButton">Refresh Server</button>
+            </div>
+            <div id="serverList" class="projectList"></div>
+          </section>
+
           <form id="editorPanel" class="panel editorPanel" hidden>
             <div class="panelHeader">
               <div>
@@ -171,6 +182,7 @@
             <div class="editorFooter">
               <div class="actions">
                 <button type="submit" class="primary">Save and Build</button>
+                <button type="button" id="uploadServerButton">Upload to Server</button>
                 <button type="button" id="rebuildButton">Rebuild</button>
                 <button type="button" id="removeSelectedButton">Remove</button>
               </div>

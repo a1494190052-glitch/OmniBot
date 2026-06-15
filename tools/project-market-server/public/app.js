@@ -3,16 +3,20 @@ const formStatus = document.querySelector('#formStatus');
 const createStatus = document.querySelector('#createStatus');
 const editorStatus = document.querySelector('#editorStatus');
 const storeRoot = document.querySelector('#storeRoot');
+const serverRoot = document.querySelector('#serverRoot');
 const projectList = document.querySelector('#projectList');
+const serverList = document.querySelector('#serverList');
 const fileList = document.querySelector('#fileList');
 const createForm = document.querySelector('#createForm');
 const importForm = document.querySelector('#importForm');
 const editorPanel = document.querySelector('#editorPanel');
 const validateButton = document.querySelector('#validateButton');
 const refreshButton = document.querySelector('#refreshButton');
+const refreshServerButton = document.querySelector('#refreshServerButton');
 const rebuildButton = document.querySelector('#rebuildButton');
 const cloneButton = document.querySelector('#cloneButton');
 const removeSelectedButton = document.querySelector('#removeSelectedButton');
+const uploadServerButton = document.querySelector('#uploadServerButton');
 const manifestPath = document.querySelector('#manifestPath');
 const packageRoot = document.querySelector('#packageRoot');
 const createComponentId = document.querySelector('#createComponentId');
@@ -220,10 +224,96 @@ function renderProjects(items) {
   }
 }
 
+function renderServerProjects(items) {
+  serverList.innerHTML = '';
+  if (!items.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'No server apps';
+    serverList.append(empty);
+    return;
+  }
+
+  for (const item of items) {
+    const row = document.createElement('article');
+    row.className = 'projectItem';
+
+    const main = document.createElement('div');
+    const title = document.createElement('div');
+    title.className = 'projectTitle';
+    const name = document.createElement('strong');
+    name.textContent = item.name || item.componentId;
+    const version = document.createElement('span');
+    version.className = 'muted';
+    version.textContent = `${item.componentId}@${item.version}`;
+    title.append(name, version);
+
+    const description = document.createElement('p');
+    description.className = 'muted';
+    description.textContent = item.description || 'No description';
+
+    const meta = document.createElement('div');
+    meta.className = 'projectMeta';
+    for (const tagText of [item.type, ...(item.capabilities || [])].filter(Boolean)) {
+      const tag = document.createElement('span');
+      tag.className = 'tag';
+      tag.textContent = tagText;
+      meta.append(tag);
+    }
+
+    main.append(title, description, meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'projectActions';
+
+    const downloadLocal = document.createElement('button');
+    downloadLocal.type = 'button';
+    downloadLocal.textContent = 'Download Local';
+    downloadLocal.addEventListener('click', async () => {
+      downloadLocal.disabled = true;
+      setStatus(editorStatus, 'Downloading from server');
+      try {
+        const payload = await api('/api/server/download', {
+          method: 'POST',
+          body: JSON.stringify({
+            componentId: item.componentId,
+            version: item.version,
+            overwrite: true,
+          }),
+        });
+        setStatus(editorStatus, `${payload.item.componentId}@${payload.item.version} downloaded`, 'ok');
+        await loadProjects();
+        await loadProjectDetails(payload.item.componentId, payload.item.version);
+      } catch (error) {
+        setStatus(editorStatus, formatError(error), 'error');
+      } finally {
+        downloadLocal.disabled = false;
+      }
+    });
+
+    const archive = document.createElement('a');
+    archive.className = 'buttonLink';
+    archive.href = item.downloadUrl;
+    archive.download = `${item.componentId}-${item.version}.zip`;
+    archive.textContent = 'Archive';
+
+    actions.append(downloadLocal, archive);
+    row.append(main, actions);
+    serverList.append(row);
+  }
+}
+
 async function loadProjects() {
   const payload = await api('/api/projects');
   storeRoot.textContent = payload.storeRoot;
   renderProjects(payload.items || []);
+  return payload.items || [];
+}
+
+async function loadServerProjects() {
+  const payload = await api('/api/server/projects');
+  serverRoot.textContent = payload.storeRoot;
+  renderServerProjects(payload.items || []);
   return payload.items || [];
 }
 
@@ -342,6 +432,26 @@ rebuildButton.addEventListener('click', async () => {
   }
 });
 
+uploadServerButton.addEventListener('click', async () => {
+  uploadServerButton.disabled = true;
+  setStatus(editorStatus, 'Uploading to server');
+  try {
+    const payload = await api('/api/server/upload', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...selectedIdentity(),
+        overwrite: true,
+      }),
+    });
+    setStatus(editorStatus, `${payload.item.componentId}@${payload.item.version} uploaded`, 'ok');
+    await loadServerProjects();
+  } catch (error) {
+    setStatus(editorStatus, formatError(error), 'error');
+  } finally {
+    uploadServerButton.disabled = false;
+  }
+});
+
 cloneButton.addEventListener('click', async () => {
   cloneButton.disabled = true;
   setStatus(editorStatus, 'Cloning');
@@ -392,5 +502,15 @@ refreshButton.addEventListener('click', async () => {
   }
 });
 
+refreshServerButton.addEventListener('click', async () => {
+  refreshServerButton.disabled = true;
+  try {
+    await loadServerProjects();
+  } finally {
+    refreshServerButton.disabled = false;
+  }
+});
+
 await checkHealth();
 await loadProjects();
+await loadServerProjects();

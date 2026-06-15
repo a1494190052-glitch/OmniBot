@@ -101,6 +101,20 @@ The local server can validate, import, store, list, remove, and build downloadab
 
 The local management UI supports creating configurable component drafts, editing manifest metadata, editing the declared entry config file, rebuilding archives, cloning versions, deleting local packages, and downloading the generated zip. Every write path must re-run validation and roll back if validation fails.
 
+The same server also exposes a built-in server market store. Use it for the first upload/download loop:
+
+- upload: local editable sandbox app -> built-in server market store
+- download: built-in server market store -> local editable sandbox app
+- archive: both stores can serve validated zip packages
+
+Default server storage:
+
+```text
+~/.omnibot/project-market-server/builtin-server/
+```
+
+Upload/download must never include user data; both directions validate and rebuild before updating the target market index.
+
 ## Data Rule
 
 Never upload user data. A component may define a local data schema, but the package must not contain real records.

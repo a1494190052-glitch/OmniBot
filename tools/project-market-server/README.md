@@ -23,11 +23,19 @@ Options:
 npm start -- --host 127.0.0.1 --port 17331 --store ~/.omnibot/project-market-server
 ```
 
+Built-in server storage can be set separately:
+
+```bash
+npm start -- --server-store ~/.omnibot/project-market-builtin-server
+```
+
 ## API
 
 - `GET /api/health`
 - `GET /api/projects`
 - `GET /api/market`
+- `GET /api/server/projects`
+- `GET /api/server/market`
 - `POST /api/validate`
 - `POST /api/projects/create`
 - `POST /api/projects/import`
@@ -36,7 +44,10 @@ npm start -- --host 127.0.0.1 --port 17331 --store ~/.omnibot/project-market-ser
 - `POST /api/projects/rebuild`
 - `POST /api/projects/clone`
 - `POST /api/projects/remove`
+- `POST /api/server/upload`
+- `POST /api/server/download`
 - `GET /api/projects/<componentId>/<version>/archive`
+- `GET /api/server/projects/<componentId>/<version>/archive`
 
 `POST /api/projects/import` accepts:
 
@@ -89,6 +100,28 @@ npm start -- --host 127.0.0.1 --port 17331 --store ~/.omnibot/project-market-ser
 
 If validation fails, the edit is rolled back.
 
+`POST /api/server/upload` publishes a locally stored sandbox app to the built-in server store:
+
+```json
+{
+  "componentId": "daily-review-card",
+  "version": "0.1.0",
+  "overwrite": true
+}
+```
+
+`POST /api/server/download` pulls a sandbox app from the built-in server store back into local editable storage:
+
+```json
+{
+  "componentId": "daily-review-card",
+  "version": "0.1.0",
+  "overwrite": true
+}
+```
+
+Both directions validate and rebuild the package before updating the target market index.
+
 ## Local Build
 
 Importing a package also builds the local archive:
@@ -114,6 +147,8 @@ The local UI supports:
 - clone a component to a new version
 - remove a stored component
 - download the generated zip archive
+- upload a validated local sandbox app to the built-in server store
+- download a built-in server sandbox app back to local editable storage
 
 All write paths re-run the Project sandbox validator before the market index is updated.
 
@@ -131,6 +166,9 @@ Layout:
 market.json
 packages/<component-id>/<version>/
 archives/<component-id>-<version>.zip
+builtin-server/
 ```
 
 The market index can later be backed by an authenticated server or object storage. The package validation rules should remain the same on both local and remote storage.
+
+The built-in server store uses the same layout under `<store>/builtin-server` by default. It represents the first server-side storage boundary for shared sandbox apps; it is still local-first and does not upload user data.

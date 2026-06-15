@@ -98,7 +98,9 @@ It provides:
 
 - static web UI at `http://127.0.0.1:17331`
 - local HTTP API for create/validate/import/list/detail/edit/rebuild/clone/remove/download
+- built-in server HTTP API for upload/download/list/archive
 - disk-backed market storage
+- separate built-in server storage
 - local zip archive build
 - no arbitrary package execution
 - no user-data upload
@@ -107,6 +109,12 @@ Default storage:
 
 ```text
 ~/.omnibot/project-market-server/
+```
+
+Default built-in server storage:
+
+```text
+~/.omnibot/project-market-server/builtin-server/
 ```
 
 This answers the first implementation question: yes, Project can have a small frontend/backend first. The backend can store existing Project component packages as validated archives and a market index. The initial server is local-first, but the API shape can be reused for a remote authenticated service later.
@@ -121,8 +129,11 @@ The local management surface supports:
 - rebuild the downloadable archive
 - clone a component to a new version
 - delete local stored packages
+- upload a local sandbox app to built-in server storage
+- download a built-in server sandbox app back to local editable storage
 
 Every edit path re-runs validation and rolls back on failure.
+Every upload/download path re-runs validation before updating the target market index.
 
 Local compile should start as package build:
 
@@ -133,6 +144,16 @@ Local compile should start as package build:
 5. update market index
 
 Do not compile arbitrary uploaded code, Android plugins, or APKs until sandboxing, signing, review, and execution permissions are defined.
+
+The built-in server boundary is intentionally simple:
+
+1. local editable sandbox store
+2. built-in server market store
+3. explicit upload from local to server
+4. explicit download from server to local
+5. zip archives served from both stores
+
+This gives the product a real upload/download loop now, while keeping future authenticated remote storage interchangeable.
 
 ### Phase 3: Market Surface
 
