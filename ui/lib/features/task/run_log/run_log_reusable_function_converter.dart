@@ -2811,6 +2811,10 @@ class _RunLogActionSnapshot {
       args: args,
       result: _extractResult(card),
       route: _firstNonBlank([
+        header['recall_kind'],
+        header['recallKind'],
+        card['recall_kind'],
+        card['recallKind'],
         header['compile_kind'],
         header['compileKind'],
         card['compile_kind'],

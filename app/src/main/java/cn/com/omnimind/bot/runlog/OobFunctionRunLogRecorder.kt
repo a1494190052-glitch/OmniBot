@@ -214,7 +214,9 @@ object OobFunctionRunLogRecorder {
             ?: (finishedAtMs - startedAtMs).takeIf { startedAtMs > 0L && finishedAtMs >= startedAtMs }
         val success = boolValue(step["success"]) ?: true
         val executor = OobActionCodec.firstNonBlank(step["executor"])
-        val compileKind = OobActionCodec.firstNonBlank(
+        val recallKind = OobActionCodec.firstNonBlank(
+            step["recall_kind"],
+            step["recallKind"],
             step["compile_kind"],
             step["compileKind"],
             if (executor == "omniflow") "hit" else executor,
@@ -248,7 +250,10 @@ object OobFunctionRunLogRecorder {
                 put("title", title)
                 put("summary", title)
             }
-            if (compileKind.isNotEmpty()) put("compile_kind", compileKind)
+            if (recallKind.isNotEmpty()) {
+                put("recall_kind", recallKind)
+                put("compile_kind", recallKind)
+            }
             put("success", success)
             put("status", if (success) "success" else "error")
             if (startedAtMs > 0L) put("started_at_ms", startedAtMs)
@@ -260,7 +265,8 @@ object OobFunctionRunLogRecorder {
                     "step_index" to stepIndex,
                     "title" to title.takeIf { it.isNotEmpty() },
                     "tool_name" to toolName.takeIf { it.isNotEmpty() },
-                    "compile_kind" to compileKind.takeIf { it.isNotEmpty() },
+                    "recall_kind" to recallKind.takeIf { it.isNotEmpty() },
+                    "compile_kind" to recallKind.takeIf { it.isNotEmpty() },
                     "success" to success,
                     "status" to if (success) "success" else "error",
                     "duration_ms" to durationMs,

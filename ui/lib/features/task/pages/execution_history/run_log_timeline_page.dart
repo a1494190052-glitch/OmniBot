@@ -6903,7 +6903,11 @@ class _RunLogStepSnapshot {
       card['operationDescription'],
       toolName,
     ]);
-    final compileKind = _firstNonBlank([
+    final recallKind = _firstNonBlank([
+      header['recall_kind'],
+      header['recallKind'],
+      card['recall_kind'],
+      card['recallKind'],
       header['compile_kind'],
       header['compileKind'],
       card['compile_kind'],
@@ -6959,7 +6963,7 @@ class _RunLogStepSnapshot {
       title: title,
       toolName: toolName,
       toolCallId: toolCallId,
-      compileKind: compileKind,
+      compileKind: recallKind,
       success: success,
       durationMs: durationMs,
       packageName: packageName,
@@ -7631,6 +7635,8 @@ Set<String> _runLogSourceEvidence(_RunLogStepSnapshot snapshot) {
           'selectionsource',
           'recording_source',
           'recordingsource',
+          'recall_kind',
+          'recallkind',
           'compile_kind',
           'compilekind',
           'tool_type',
@@ -7932,7 +7938,12 @@ bool _timelineCardLooksLikeVlm(Map<String, dynamic> card) {
   final values = <String>[
     _firstNonBlank([card['tool_type'], card['toolType']]),
     _firstNonBlank([card['source'], card['run_source'], card['runSource']]),
-    _firstNonBlank([card['compile_kind'], card['compileKind']]),
+    _firstNonBlank([
+      card['recall_kind'],
+      card['recallKind'],
+      card['compile_kind'],
+      card['compileKind'],
+    ]),
     _firstNonBlank([card['span_kind'], card['spanKind']]),
     _firstNonBlank([header['tool_type'], header['toolType']]),
     _firstNonBlank([
@@ -7940,7 +7951,12 @@ bool _timelineCardLooksLikeVlm(Map<String, dynamic> card) {
       header['run_source'],
       header['runSource'],
     ]),
-    _firstNonBlank([header['compile_kind'], header['compileKind']]),
+    _firstNonBlank([
+      header['recall_kind'],
+      header['recallKind'],
+      header['compile_kind'],
+      header['compileKind'],
+    ]),
     _firstNonBlank([header['span_kind'], header['spanKind']]),
     _firstNonBlank([
       toolCall['name'],
@@ -8252,9 +8268,11 @@ Map<String, dynamic> _runLogCardFromFunctionStep(
   );
   final result = _functionStepResult(normalized);
   final isVlm = _functionStepLooksLikeVlm(normalized, toolName);
-  final compileKind = isVlm
+  final recallKind = isVlm
       ? 'vlm_step'
       : _firstNonBlank([
+          normalized['recall_kind'],
+          normalized['recallKind'],
           normalized['compile_kind'],
           normalized['compileKind'],
           normalized['executor'] == 'omniflow' ? 'hit' : null,
@@ -8286,7 +8304,8 @@ Map<String, dynamic> _runLogCardFromFunctionStep(
     'step_index': fallbackIndex,
     if (title.isNotEmpty) 'title': title,
     if (title.isNotEmpty) 'summary': title,
-    if (compileKind.isNotEmpty) 'compile_kind': compileKind,
+    if (recallKind.isNotEmpty) 'recall_kind': recallKind,
+    if (recallKind.isNotEmpty) 'compile_kind': recallKind,
     if (isVlm) ...<String, dynamic>{
       'source': 'vlm',
       'tool_type': 'vlm',
@@ -8299,7 +8318,8 @@ Map<String, dynamic> _runLogCardFromFunctionStep(
       'step_index': fallbackIndex,
       if (title.isNotEmpty) 'title': title,
       if (toolName.isNotEmpty) 'tool_name': toolName,
-      if (compileKind.isNotEmpty) 'compile_kind': compileKind,
+      if (recallKind.isNotEmpty) 'recall_kind': recallKind,
+      if (recallKind.isNotEmpty) 'compile_kind': recallKind,
       'success': _asBool(normalized['success']) ?? true,
       if (durationMs != null) 'duration_ms': durationMs,
       if (isVlm) ...<String, dynamic>{
@@ -8314,7 +8334,8 @@ Map<String, dynamic> _runLogCardFromFunctionStep(
       if (args != null) 'arguments': args,
     },
     if (!_isEmptyJsonValue(result)) 'result': result,
-    'compile_result': _functionStepCompileResult(normalized),
+    'recall_result': _functionStepRecallResult(normalized),
+    'compile_result': _functionStepRecallResult(normalized),
     'function_step': normalized,
   }, fallbackIndex);
 }
@@ -8345,7 +8366,7 @@ dynamic _functionStepResult(Map<String, dynamic> step) {
   );
 }
 
-Map<String, dynamic> _functionStepCompileResult(Map<String, dynamic> step) {
+Map<String, dynamic> _functionStepRecallResult(Map<String, dynamic> step) {
   return <String, dynamic>{
     if (step.containsKey('kind')) 'kind': step['kind'],
     if (step.containsKey('executor')) 'executor': step['executor'],
@@ -8375,7 +8396,12 @@ bool _functionStepLooksLikeVlm(Map<String, dynamic> step, String toolName) {
     toolName,
     _firstNonBlank([step['tool_type'], step['toolType']]),
     _firstNonBlank([step['source'], step['run_source'], step['runSource']]),
-    _firstNonBlank([step['compile_kind'], step['compileKind']]),
+    _firstNonBlank([
+      step['recall_kind'],
+      step['recallKind'],
+      step['compile_kind'],
+      step['compileKind'],
+    ]),
     _firstNonBlank([step['kind']]),
     _firstNonBlank([step['executor']]),
     _firstNonBlank([

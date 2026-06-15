@@ -1,7 +1,7 @@
 // 执行相关的通用数据模型
 // 用于统一 Function 和 RunLog 的展示
 
-/// Reuse/planning kind from legacy payload keys.
+/// Function recall route kind, with legacy payload key compatibility.
 enum ExecutionRouteKind {
   hit, // 复用已有技能
   miss, // VLM 执行
@@ -95,7 +95,7 @@ class ExecutionStep {
         ) ??
         {};
 
-    // 解析复用/规划信息
+    // 解析 Function recall 信息，兼容历史 compile payload。
     final functionId = recallResult['function_id']?.toString().trim();
     ExecutionRouteKind executionRouteKind = ExecutionRouteKind.none;
     if (functionId != null && functionId.isNotEmpty) {
@@ -106,7 +106,7 @@ class ExecutionStep {
 
     // 兼容旧的 API 返回标签，但对 UI/复制内容只暴露执行语义。
     final apiExecutionLabel = _userVisibleExecutionText(
-      step['compile_label']?.toString(),
+      (step['recall_label'] ?? step['compile_label'])?.toString(),
     );
 
     return ExecutionStep(

@@ -304,11 +304,13 @@ bool _isDetailedVlmStep(_ToolActivityCandidate candidate) {
   if (spanKind == 'vlm_step') {
     return true;
   }
-  final compileKind = AgentToolCardPolicy.firstNonBlank(<Object?>[
+  final recallKind = AgentToolCardPolicy.firstNonBlank(<Object?>[
+    candidate.cardData['recall_kind'],
+    candidate.cardData['recallKind'],
     candidate.cardData['compile_kind'],
     candidate.cardData['compileKind'],
   ]).toLowerCase();
-  if (compileKind == 'vlm_step') {
+  if (recallKind == 'vlm_step') {
     return true;
   }
   return candidate.cardData['toolName']?.toString().trim() != 'vlm_task';
@@ -329,11 +331,13 @@ bool _isVlmTaskWrapper(_ToolActivityCandidate candidate) {
   if (toolName != 'vlm_task') {
     return false;
   }
-  final compileKind = AgentToolCardPolicy.firstNonBlank(<Object?>[
+  final recallKind = AgentToolCardPolicy.firstNonBlank(<Object?>[
+    candidate.cardData['recall_kind'],
+    candidate.cardData['recallKind'],
     candidate.cardData['compile_kind'],
     candidate.cardData['compileKind'],
   ]).toLowerCase();
-  return compileKind != 'vlm_step';
+  return recallKind != 'vlm_step';
 }
 
 class _ToolActivityCandidate {

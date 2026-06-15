@@ -593,6 +593,7 @@ object HumanTrajectoryLearningSession {
             "started_at_ms" to action.startedAtMs,
             "finished_at_ms" to action.finishedAtMs,
             "package_name" to action.packageName,
+            "recall_kind" to "manual_recording",
             "compile_kind" to "manual_recording",
             "source" to "human_trajectory",
             "event_context" to action.eventContext.takeIf { it.isNotEmpty() },

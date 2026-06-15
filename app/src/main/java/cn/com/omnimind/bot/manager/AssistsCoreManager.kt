@@ -2236,7 +2236,9 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         ).ifBlank {
             if (isVlmWrapper) AgentToolNames.VLM_TASK else ""
         }
-        val compileKind = firstNonBlankString(
+        val recallKind = firstNonBlankString(
+            payload["recall_kind"],
+            payload["recallKind"],
             payload["compile_kind"],
             payload["compileKind"]
         ).ifBlank { "agent_tool" }
@@ -2292,7 +2294,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             "arguments" to argsJson,
             "result" to resultValue,
             "raw_result_json" to payload["rawResultJson"],
-            "compile_kind" to compileKind
+            "recall_kind" to recallKind,
+            "compile_kind" to recallKind
         ).apply {
             if (childRunId.isNotBlank()) {
                 put("child_run_id", childRunId)
@@ -2306,7 +2309,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 put("span_kind", spanKind)
                 put("spanKind", spanKind)
             }
-            if (compileKind == "vlm_step") {
+            if (recallKind == "vlm_step") {
                 put("source", "vlm")
                 payload["token_usage"]?.let { put("token_usage", it) }
                 payload["tokenUsage"]?.let { if (!containsKey("token_usage")) put("token_usage", it) }
@@ -2452,6 +2455,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             "arguments" to JSONObject(mapOf("kind" to "assistant_response")).toString(),
             "result" to result,
             "output" to normalizedText,
+            "recall_kind" to "assistant_text",
             "compile_kind" to "assistant_text"
         )
     }
@@ -4029,6 +4033,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             "finished_at_ms" to capturedAtMs,
             "package_name" to payload["package_name"],
             "activity_name" to payload["activity_name"],
+            "recall_kind" to "manual_recording_evidence",
             "compile_kind" to "manual_recording_evidence",
             "source" to "human_trajectory",
             "asset_refs" to artifactRefs.takeIf { it.isNotEmpty() },

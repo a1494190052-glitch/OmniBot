@@ -46,7 +46,12 @@ object ManualRecordingRunLogRecovery {
     }
 
     fun isManualReplayActionCard(card: Map<String, Any?>): Boolean {
-        val compileKind = firstNonBlank(card["compile_kind"], card["compileKind"]).lowercase()
+        val compileKind = firstNonBlank(
+            card["recall_kind"],
+            card["recallKind"],
+            card["compile_kind"],
+            card["compileKind"]
+        ).lowercase()
         val toolType = firstNonBlank(card["tool_type"], card["toolType"]).lowercase()
         if (compileKind != "manual_recording" && toolType != "manual_recording") {
             return false

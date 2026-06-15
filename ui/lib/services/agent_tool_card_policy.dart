@@ -194,7 +194,9 @@ class AgentToolCardPolicy {
     if (toolTypeLower == 'browser' || toolNameLower == 'browser_use') {
       return AgentToolActivityKind.browser;
     }
-    final compileKind = firstNonBlank(<Object?>[
+    final recallKind = firstNonBlank(<Object?>[
+      cardData['recall_kind'],
+      cardData['recallKind'],
       cardData['compile_kind'],
       cardData['compileKind'],
     ]).toLowerCase();
@@ -217,8 +219,8 @@ class AgentToolCardPolicy {
         toolNameLower == 'vlm_task' ||
         spanKind == 'vlm_task' ||
         spanKind == 'vlm_step' ||
-        compileKind == 'vlm_step' ||
-        compileKind == 'vlm' ||
+        recallKind == 'vlm_step' ||
+        recallKind == 'vlm' ||
         selectionSource == 'vlm') {
       return AgentToolActivityKind.vlm;
     }
