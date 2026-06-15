@@ -400,7 +400,7 @@ primitive local action execution:
 - keep main-thread UI calls outside the deterministic step executor
 - skip nested Function calls so only the top-level replay owns the overlay
 
-`OobFunctionAgentFallbackController` owns failed-step runtime resolve context:
+`OobFunctionRuntimeResolveContextController` owns failed-step runtime resolve context:
 
 - build runtime resolve context from the failed step, materialized args, and recovery
   snapshot
@@ -509,7 +509,7 @@ Agent/MCP tool surface
       -> OobFunctionRunner           # load/materialize/execute Functions
           -> OobFunctionToolHandler  # deterministic replay and runtime resolve
               -> OobFunctionFrontendSessionController # replay overlay/session
-              -> OobFunctionAgentFallbackController # recovery context/runtime resolve
+              -> OobFunctionRuntimeResolveContextController # recovery context/runtime resolve
               -> OobFunctionToolHandler # replay/call_tool args
               -> OobFunctionStepClassifier # replay step-shape routing
               -> OobFunctionToolDelegationExecutor # live tool delegation bridge
@@ -590,7 +590,7 @@ Keep these pieces separate:
 - `OobFunctionToolHandler` and `UIStepExecutor`: runtime step execution
 - `OobFunctionFrontendSessionController`: top-level replay overlay lifecycle
   and stop signal handling
-- `OobFunctionAgentFallbackController`: failed-step recovery snapshots and
+- `OobFunctionRuntimeResolveContextController`: failed-step recovery snapshots and
   bounded runtime resolve context
 - `OobFunctionToolHandler`: replay step args, `call_tool` target resolution,
   nested Function argument extraction, and metadata stripping

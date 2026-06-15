@@ -94,7 +94,7 @@ internal object RunLogReplayStepCompiler {
                 )
             }
             RunLogReplayPolicy.isAgentTool(normalizedToolName) -> {
-                val fallbackPrompt = agentFallbackPrompt(title, toolName, args)
+                val runtimeResolvePrompt = runtimeResolvePrompt(title, toolName, args)
                 nullableMap(
                     "title" to title,
                     "kind" to "agent_call",
@@ -108,7 +108,7 @@ internal object RunLogReplayStepCompiler {
                     "agent_call" to linkedMapOf(
                         "tool" to RunLogReplayPolicy.TOOL_AGENT_RUN,
                         "args" to linkedMapOf(
-                            "prompt" to fallbackPrompt,
+                            "prompt" to runtimeResolvePrompt,
                             "original_tool" to toolName,
                             "original_args" to args,
                         ),
@@ -116,7 +116,7 @@ internal object RunLogReplayStepCompiler {
                     ),
                     "fallback" to linkedMapOf(
                         "tool" to RunLogReplayPolicy.TOOL_AGENT_RUN,
-                        "prompt" to fallbackPrompt,
+                        "prompt" to runtimeResolvePrompt,
                     ),
                     "observed_result" to result.takeUnless(::isEmptyJsonValue),
                 )
@@ -500,12 +500,12 @@ internal object RunLogReplayStepCompiler {
             vector.elementCount
     }
 
-    private fun agentFallbackPrompt(
+    private fun runtimeResolvePrompt(
         title: String,
         toolName: String,
         args: Map<String, Any?>,
     ): String {
-        return "Re-plan this step from the current screen: $title " +
+        return "Resolve only this step from the current screen: $title " +
             "(original tool: $toolName, args: ${toJson(args)})"
     }
 }

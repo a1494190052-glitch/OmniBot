@@ -30,7 +30,7 @@ class OobFunctionRunResultBuilder {
         putAll(extras)
     }
 
-    fun agentFallbackStep(
+    fun runtimeResolveRequiredStep(
         stepId: String,
         tool: String,
         prompt: String,

@@ -8,7 +8,7 @@ import cn.com.omnimind.bot.runlog.UIStepExecutor
  * Builds recovery context for failed-step runtime resolve inside the Function
  * runner. It must not be surfaced as an outer Agent continuation path.
  */
-class OobFunctionAgentFallbackController {
+class OobFunctionRuntimeResolveContextController {
     fun prompt(
         step: Map<String, Any?>,
         stepTitle: String,

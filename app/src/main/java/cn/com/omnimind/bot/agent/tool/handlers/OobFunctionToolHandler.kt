@@ -30,8 +30,8 @@ class OobFunctionToolHandler(
     private val graphStepRunner: OobFunctionGraphStepRunner = OobFunctionGraphStepRunner(),
     private val frontendSessionController: OobFunctionFrontendSessionController =
         OobFunctionFrontendSessionController(helper),
-    private val agentFallbackController: OobFunctionAgentFallbackController =
-        OobFunctionAgentFallbackController(),
+    private val runtimeResolveContextController: OobFunctionRuntimeResolveContextController =
+        OobFunctionRuntimeResolveContextController(),
     private val nestedCallCardPresenter: OobFunctionNestedCallCardPresenter =
         OobFunctionNestedCallCardPresenter(helper),
     private val runResultBuilder: OobFunctionRunResultBuilder =
@@ -565,34 +565,34 @@ class OobFunctionToolHandler(
                                 preActionReadyWait,
                             )
                         } else {
-                            val recovery = agentFallbackController.refetchCurrentPageForFailedStep(failReason)
+                            val recovery = runtimeResolveContextController.refetchCurrentPageForFailedStep(failReason)
                             if (allowAgentFallback) {
-                            val fallbackResult = runResultBuilder.agentFallbackStep(
-                                stepId = stepId,
-                                tool = UIStepExecutor.actionNameForStep(step),
-                                prompt = agentFallbackController.prompt(step, stepTitle, recovery),
-                                summary = "OmniFlow step requires runtime resolve action: $stepTitle",
-                                extras = mapOf(
-                                    "omniflow_fail_reason" to failReason,
-                                    "failed_step_error_code" to executionError?.errorCode,
-                                    "diagnostics" to executionError?.diagnostics?.takeIf { it.isNotEmpty() },
-                                    "recovery" to recovery,
-                                ),
-                            )
-                            withPreActionReadyWait(fallbackResult, preActionReadyWait)
+                                val runtimeResolveResult = runResultBuilder.runtimeResolveRequiredStep(
+                                    stepId = stepId,
+                                    tool = UIStepExecutor.actionNameForStep(step),
+                                    prompt = runtimeResolveContextController.prompt(step, stepTitle, recovery),
+                                    summary = "OmniFlow step requires runtime resolve action: $stepTitle",
+                                    extras = mapOf(
+                                        "omniflow_fail_reason" to failReason,
+                                        "failed_step_error_code" to executionError?.errorCode,
+                                        "diagnostics" to executionError?.diagnostics?.takeIf { it.isNotEmpty() },
+                                        "recovery" to recovery,
+                                    ),
+                                )
+                                withPreActionReadyWait(runtimeResolveResult, preActionReadyWait)
                             } else {
-                            val failureResult = runResultBuilder.failureStep(
-                                stepId = stepId,
-                                tool = UIStepExecutor.actionNameForStep(step),
-                                executor = RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
-                                summary = failReason,
-                                errorCode = executionError?.errorCode ?: "OOB_OMNIFLOW_STEP_FAILED",
-                                extras = mapOf(
-                                    "diagnostics" to executionError?.diagnostics?.takeIf { it.isNotEmpty() },
-                                    "recovery" to recovery,
-                                ),
-                            )
-                            withPreActionReadyWait(failureResult, preActionReadyWait)
+                                val failureResult = runResultBuilder.failureStep(
+                                    stepId = stepId,
+                                    tool = UIStepExecutor.actionNameForStep(step),
+                                    executor = RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
+                                    summary = failReason,
+                                    errorCode = executionError?.errorCode ?: "OOB_OMNIFLOW_STEP_FAILED",
+                                    extras = mapOf(
+                                        "diagnostics" to executionError?.diagnostics?.takeIf { it.isNotEmpty() },
+                                        "recovery" to recovery,
+                                    ),
+                                )
+                                withPreActionReadyWait(failureResult, preActionReadyWait)
                             }
                         }
                     }
@@ -606,8 +606,8 @@ class OobFunctionToolHandler(
 
                 executor == RunLogReplayPolicy.EXECUTOR_TOOL && callableTool.isNotEmpty() &&
                     !allowToolDelegationWithoutRouter -> {
-                    val agentPrompt = agentFallbackController.prompt(step, stepTitle)
-                    runResultBuilder.agentFallbackStep(
+                    val agentPrompt = runtimeResolveContextController.prompt(step, stepTitle)
+                    runResultBuilder.runtimeResolveRequiredStep(
                         stepId = stepId,
                         tool = callableTool,
                         prompt = agentPrompt,
@@ -646,7 +646,7 @@ class OobFunctionToolHandler(
                     modelRequired = true
                 }
                 if (!timedStepResult.containsKey("recovery")) {
-                    timedStepResult["recovery"] = agentFallbackController.refetchCurrentPageForFailedStep(
+                    timedStepResult["recovery"] = runtimeResolveContextController.refetchCurrentPageForFailedStep(
                         timedStepResult["summary"]?.toString() ?: "step failed"
                     )
                 }
@@ -808,10 +808,10 @@ class OobFunctionToolHandler(
                 }
         }
         if (allowAgentFallback) {
-            return runResultBuilder.agentFallbackStep(
+            return runResultBuilder.runtimeResolveRequiredStep(
                 stepId = stepId,
                 tool = agentTool.ifEmpty { "?" },
-                prompt = agentFallbackController.prompt(step, stepTitle),
+                prompt = runtimeResolveContextController.prompt(step, stepTitle),
                 summary = "Runtime resolve required for replay step: $stepTitle",
             )
         }
@@ -911,9 +911,9 @@ class OobFunctionToolHandler(
             }
         }
         if (allowAgentFallback && !allowToolDelegationWithoutRouter) {
-            return runResultBuilder.agentFallbackStep(
+            return runResultBuilder.runtimeResolveRequiredStep(
                 stepId = stepId, tool = targetTool,
-                prompt = agentFallbackController.prompt(
+                prompt = runtimeResolveContextController.prompt(
                     LinkedHashMap<String, Any?>().apply { putAll(step); put("tool", targetTool); put("args", targetArgs) },
                     stepTitle
                 ),
@@ -1232,7 +1232,7 @@ class OobFunctionToolHandler(
                     // agent_call step: needs VLM if local dispatch unavailable
                     step.agentCallContext != null && !canDispatchLocally(step.toolName) -> {
                         if (allowAgentFallback) {
-                            runResultBuilder.agentFallbackStep(
+                            runResultBuilder.runtimeResolveRequiredStep(
                                 stepId = step.id,
                                 tool = step.agentCallContext.originalTool,
                                 prompt = step.agentCallContext.reason.ifBlank { step.title },
@@ -1379,21 +1379,21 @@ class OobFunctionToolHandler(
                                 preActionReadyWait,
                             )
                         } else if (allowAgentFallback) {
-                                val fallbackResult = runResultBuilder.agentFallbackStep(
-                                    stepId = step.id,
-                                    tool = step.toolName,
-                                    prompt = agentFallbackController.prompt(syntheticStep, step.title),
-                                    summary = "OmniFlow step requires runtime resolve action: ${step.title}",
-                                )
-                                withPreActionReadyWait(fallbackResult, preActionReadyWait)
-                            } else {
-                                val failureResult = runResultBuilder.failureStep(
-                                    stepId = step.id, tool = step.toolName,
-                                    executor = RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
-                                    summary = failReason,
-                                    errorCode = "OOB_OMNIFLOW_STEP_FAILED",
-                                )
-                                withPreActionReadyWait(failureResult, preActionReadyWait)
+                            val runtimeResolveResult = runResultBuilder.runtimeResolveRequiredStep(
+                                stepId = step.id,
+                                tool = step.toolName,
+                                prompt = runtimeResolveContextController.prompt(syntheticStep, step.title),
+                                summary = "OmniFlow step requires runtime resolve action: ${step.title}",
+                            )
+                            withPreActionReadyWait(runtimeResolveResult, preActionReadyWait)
+                        } else {
+                            val failureResult = runResultBuilder.failureStep(
+                                stepId = step.id, tool = step.toolName,
+                                executor = RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
+                                summary = failReason,
+                                errorCode = "OOB_OMNIFLOW_STEP_FAILED",
+                            )
+                            withPreActionReadyWait(failureResult, preActionReadyWait)
                         }
                     }
                 }
@@ -1415,7 +1415,7 @@ class OobFunctionToolHandler(
                         )
                     }
                     allowAgentFallback -> {
-                        runResultBuilder.agentFallbackStep(
+                        runResultBuilder.runtimeResolveRequiredStep(
                             stepId = step.id, tool = step.toolName,
                             prompt = step.title,
                             summary = "Step requires runtime resolve action: ${step.title}",
