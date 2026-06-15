@@ -40,6 +40,8 @@ Read only what is needed:
 
 Use `scripts/validate_component_package.py` before recommending upload or install.
 
+When the user asks for a local market server or local package build, use the repo tool at `tools/project-market-server/`.
+
 ## Package Flow
 
 1. Identify the single component boundary.
@@ -79,6 +81,25 @@ For download:
 3. Validate before install.
 4. Show capabilities and permissions to the user.
 5. Install into the sandbox path. Do not execute code during install.
+
+## Local Market Server
+
+For local frontend/backend testing from this repository:
+
+```sh
+cd tools/project-market-server
+npm start
+```
+
+Default URL:
+
+```text
+http://127.0.0.1:17331
+```
+
+The local server can validate, import, store, list, remove, and build downloadable zip archives for Project component packages. Treat this as package build only; do not use it to compile arbitrary code or execute uploaded packages.
+
+The local management UI supports creating configurable component drafts, editing manifest metadata, editing the declared entry config file, rebuilding archives, cloning versions, deleting local packages, and downloading the generated zip. Every write path must re-run validation and roll back if validation fails.
 
 ## Data Rule
 

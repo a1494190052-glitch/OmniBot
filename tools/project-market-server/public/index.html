@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Project Market</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Omnibot</p>
+          <h1>Project Market</h1>
+        </div>
+        <div id="serverStatus" class="status">Checking</div>
+      </header>
+
+      <section class="workspace">
+        <section class="sideStack">
+          <form id="createForm" class="panel">
+            <div class="panelHeader">
+              <h2>Create Project</h2>
+              <button type="submit" class="primary">Create</button>
+            </div>
+
+            <label>
+              <span>Component ID</span>
+              <input id="createComponentId" type="text" autocomplete="off" placeholder="daily-review-card" required>
+            </label>
+
+            <div class="twoCol">
+              <label>
+                <span>Name</span>
+                <input id="createName" type="text" autocomplete="off" placeholder="Daily Review Card" required>
+              </label>
+              <label>
+                <span>Version</span>
+                <input id="createVersion" type="text" autocomplete="off" value="0.1.0" required>
+              </label>
+            </div>
+
+            <label>
+              <span>Type</span>
+              <select id="createType">
+                <option value="widget">widget</option>
+                <option value="skill">skill</option>
+                <option value="workflow">workflow</option>
+                <option value="template_app">template_app</option>
+                <option value="asset_bundle">asset_bundle</option>
+                <option value="display">display</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Description</span>
+              <textarea id="createDescription" rows="3" placeholder="A configurable Xiaowan component."></textarea>
+            </label>
+
+            <label>
+              <span>Capabilities</span>
+              <input id="createCapabilities" type="text" autocomplete="off" placeholder="local_config, prompt_template">
+            </label>
+
+            <label>
+              <span>Initial component.json</span>
+              <textarea id="createComponentJson" rows="7">{
+  "title": "Daily Review",
+  "prompt": "Summarize today's important work."
+}</textarea>
+            </label>
+
+            <p id="createStatus" class="muted">Creates a local package and builds a zip archive.</p>
+          </form>
+
+          <form id="importForm" class="panel">
+            <div class="panelHeader">
+              <h2>Import Existing</h2>
+              <button type="submit" class="primary">Import</button>
+            </div>
+
+            <label>
+              <span>Manifest path</span>
+              <input
+                id="manifestPath"
+                name="manifestPath"
+                type="text"
+                autocomplete="off"
+                placeholder="/path/to/oob_project_component_manifest.v1.json"
+                required
+              >
+            </label>
+
+            <label>
+              <span>Package root</span>
+              <input
+                id="packageRoot"
+                name="packageRoot"
+                type="text"
+                autocomplete="off"
+                placeholder="/path/to/package-root"
+              >
+            </label>
+
+            <div class="actions">
+              <button type="button" id="validateButton">Validate</button>
+              <span id="formStatus" class="muted">No package selected</span>
+            </div>
+          </form>
+        </section>
+
+        <section class="mainStack">
+          <section class="panel listPanel">
+            <div class="panelHeader">
+              <div>
+                <h2>Stored Projects</h2>
+                <p id="storeRoot" class="muted"></p>
+              </div>
+              <button type="button" id="refreshButton">Refresh</button>
+            </div>
+            <div id="projectList" class="projectList"></div>
+          </section>
+
+          <form id="editorPanel" class="panel editorPanel" hidden>
+            <div class="panelHeader">
+              <div>
+                <h2 id="editorTitle">Project Editor</h2>
+                <p id="editorSubtitle" class="muted"></p>
+              </div>
+              <a id="editorDownload" class="buttonLink" href="#" download>Download</a>
+            </div>
+
+            <div class="editorGrid">
+              <label>
+                <span>Name</span>
+                <input id="editName" type="text" autocomplete="off" required>
+              </label>
+              <label>
+                <span>Type</span>
+                <select id="editType">
+                  <option value="widget">widget</option>
+                  <option value="skill">skill</option>
+                  <option value="workflow">workflow</option>
+                  <option value="template_app">template_app</option>
+                  <option value="asset_bundle">asset_bundle</option>
+                  <option value="display">display</option>
+                </select>
+              </label>
+            </div>
+
+            <label>
+              <span>Description</span>
+              <textarea id="editDescription" rows="3"></textarea>
+            </label>
+
+            <label>
+              <span>Capabilities</span>
+              <input id="editCapabilities" type="text" autocomplete="off">
+            </label>
+
+            <label>
+              <span>Configuration JSON</span>
+              <textarea id="editConfiguration" rows="9" spellcheck="false"></textarea>
+            </label>
+
+            <label>
+              <span id="entryLabel">Entry file</span>
+              <textarea id="editEntryContent" rows="10" spellcheck="false"></textarea>
+            </label>
+
+            <div class="editorFooter">
+              <div class="actions">
+                <button type="submit" class="primary">Save and Build</button>
+                <button type="button" id="rebuildButton">Rebuild</button>
+                <button type="button" id="removeSelectedButton">Remove</button>
+              </div>
+              <span id="editorStatus" class="muted">No project selected</span>
+            </div>
+
+            <div class="cloneRow">
+              <label>
+                <span>Clone to version</span>
+                <input id="cloneVersion" type="text" autocomplete="off" placeholder="0.1.1">
+              </label>
+              <button type="button" id="cloneButton">Clone Version</button>
+            </div>
+
+            <section class="fileSection">
+              <h3>Package Files</h3>
+              <div id="fileList" class="fileList"></div>
+            </section>
+          </form>
+        </section>
+      </section>
+    </main>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

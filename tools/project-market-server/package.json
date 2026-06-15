@@ -1,0 +1,35 @@
+{
+  "name": "@omnimind/project-market-server",
+  "version": "0.1.0",
+  "description": "Local Project sandbox market server for Omnibot component packages.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "omnibot-project-market": "server.mjs"
+  },
+  "files": [
+    "README.md",
+    "server.mjs",
+    "public"
+  ],
+  "keywords": [
+    "omnibot",
+    "project",
+    "market",
+    "sandbox"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/omnimind-ai/OpenOmniBot.git",
+    "directory": "tools/project-market-server"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "check": "node --check server.mjs",
+    "test": "node --test test/*.test.mjs",
+    "pack:dry": "npm pack --dry-run"
+  }
+}
