@@ -2200,7 +2200,7 @@ class OobOmniFlowLoopAcceptanceTest {
             assertTrue(backend.clicks.isEmpty())
             assertEquals("runtime_resolve_invalid_action", run["error_message"])
             val result = run["result"] as? Map<*, *>
-            assertEquals("oob_function_runtime_resolve_failed", result?.get("runner"))
+            assertEquals("omniflow_function", result?.get("runner"))
             assertEquals(true, result?.get("runtime_resolve_required"))
             assertEquals(false, result?.get("runtime_resolve_available"))
             assertFalse(result?.containsKey("online_repair_required") == true)
@@ -2321,7 +2321,7 @@ class OobOmniFlowLoopAcceptanceTest {
             assertEquals(listOf(10f to 20f, 120f to 240f), backend.clicks)
             assertEquals(2, run["success_step_count"])
             val result = run["result"] as? Map<*, *>
-            assertEquals("offline_online_offline", result?.get("execution_mode"))
+            assertEquals("replay_with_runtime_resolve", result?.get("execution_mode"))
             assertEquals(true, result?.get("runtime_resolve_applied"))
             assertEquals(1, result?.get("runtime_resolve_steps"))
             assertEquals(false, result?.get("runtime_resolve_required"))
@@ -2465,7 +2465,7 @@ class OobOmniFlowLoopAcceptanceTest {
             assertEquals("OOB_RUNTIME_RESOLVE_NEXT_STEP_NOT_READY", run["error_code"])
             assertEquals("runtime_resolve_next_step_not_ready", run["error_message"])
             val result = run["result"] as? Map<*, *>
-            assertEquals("offline_online_offline", result?.get("execution_mode"))
+            assertEquals("replay_with_runtime_resolve", result?.get("execution_mode"))
             assertEquals(true, result?.get("runtime_resolve_applied"))
             assertFalse(result?.containsKey("online_repair_applied") == true)
             assertFalse(result?.containsKey("online_fallback_applied") == true)

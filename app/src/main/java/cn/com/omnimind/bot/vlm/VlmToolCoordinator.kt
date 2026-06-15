@@ -1276,7 +1276,7 @@ object VlmToolCoordinator {
             )
             taskState.pendingOmniFlowFunctionCall = pending
             taskState.status = TaskStatus.WAITING_INPUT
-            taskState.waitingQuestion = buildOmniFlowArgumentQuestion(functionId, pending)
+            taskState.waitingQuestion = buildOmniFlowArgumentQuestion(pending)
             taskState.message = "等待 OmniFlow Function 参数"
             taskState.executionRoute = "omniflow_lookup_waiting_arguments:$functionId"
             taskState.addChatMessage("[AGENT QUESTION] ${taskState.waitingQuestion}")
@@ -1414,10 +1414,7 @@ object VlmToolCoordinator {
             val nextPending = pending.copy(arguments = arguments, requiredArgumentNames = missing)
             taskState.pendingOmniFlowFunctionCall = nextPending
             taskState.status = TaskStatus.WAITING_INPUT
-            taskState.waitingQuestion = buildOmniFlowArgumentQuestion(
-                pending.functionId,
-                nextPending
-            )
+            taskState.waitingQuestion = buildOmniFlowArgumentQuestion(nextPending)
             taskState.message = "等待 OmniFlow Function 参数"
             taskState.addChatMessage("[AGENT QUESTION] ${taskState.waitingQuestion}")
             taskState.markStateChanged()
@@ -1666,7 +1663,6 @@ object VlmToolCoordinator {
 
     private fun candidateForDecisionPrompt(candidate: Map<String, Any?>): String =
         linkedMapOf<String, Any?>(
-            "function_id" to candidate["function_id"],
             "name" to candidate["name"],
             "title" to candidate["title"],
             "description" to candidate["description"],
@@ -1836,16 +1832,15 @@ object VlmToolCoordinator {
     }
 
     private fun buildOmniFlowArgumentQuestion(
-        functionId: String,
         pending: PendingOmniFlowFunctionCall,
     ): String {
         val missing = pending.requiredArgumentNames.filter { it != GENERIC_ARGUMENT_NAME }
         return if (missing.isEmpty()) {
-            "命中 OmniFlow Function $functionId，需要补充参数。请直接回复参数 JSON，例如 {\"keyword\":\"猫猫\"}。"
+            "命中 OmniFlow 复用指令，需要补充参数。请直接回复参数 JSON，例如 {\"keyword\":\"猫猫\"}。"
         } else if (missing.size == 1) {
-            "命中 OmniFlow Function $functionId，请补充参数 `${missing.single()}`。可直接回复值，或回复 JSON。"
+            "命中 OmniFlow 复用指令，请补充参数 `${missing.single()}`。可直接回复值，或回复 JSON。"
         } else {
-            "命中 OmniFlow Function $functionId，请补充参数：${missing.joinToString(", ")}。请用 JSON 回复。"
+            "命中 OmniFlow 复用指令，请补充参数：${missing.joinToString(", ")}。请用 JSON 回复。"
         }
     }
 
@@ -1853,7 +1848,6 @@ object VlmToolCoordinator {
         value == null || value.toString().trim().isBlank()
 
     private fun buildFunctionToolResultGuidance(
-        functionId: String,
         arguments: Map<String, Any?>,
         result: Map<String, Any?>,
     ): String {
@@ -1874,7 +1868,6 @@ object VlmToolCoordinator {
             appendLine(
                 JSONObject(
                     linkedMapOf(
-                        "function_id" to functionId,
                         "arguments" to arguments,
                         "tool_result" to toolResult,
                     )

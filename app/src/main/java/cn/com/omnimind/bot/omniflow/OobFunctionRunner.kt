@@ -49,7 +49,6 @@ private fun OobFunctionRuntimeResolveRequest.oneStepGuidance(): String = buildSt
     appendLine("OmniFlow runtime resolve for one failed replay step.")
     appendLine("Return only one ordinary UI action for the current failed Function step. Do not call a Function, do not finish the whole task, and do not re-plan the task.")
     appendLine("Allowed actions: click, input_text, swipe, press_key(back/home), open_app, wait.")
-    appendLine("Function id: $functionId")
     appendLine("Failed step index: $failedStepIndex")
     appendLine("Failed step summary:")
     appendLine(
