@@ -7,6 +7,8 @@ import cn.com.omnimind.bot.agent.workspace.memory.LongTermMemoryIndex
 import cn.com.omnimind.bot.agent.workspace.memory.MemoryRetrievalPipeline
 import cn.com.omnimind.bot.agent.workspace.memory.TurnMemoryLoadTracker
 import cn.com.omnimind.bot.mcp.RemoteMcpDiscoveryRegistry
+import cn.com.omnimind.bot.workbench.WorkbenchDisplayLayoutContext
+import cn.com.omnimind.bot.workbench.WorkbenchProjectStore
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -249,6 +251,10 @@ class OmniAgentExecutor(
             historyMessages.removeAt(historyMessages.lastIndex)
         }
         val messages = mutableListOf<cn.com.omnimind.baselib.llm.ChatCompletionMessage>()
+        val locale = AppLocaleManager.resolvePromptLocale(context)
+        val activeWorkbenchProjectContext = runCatching {
+            WorkbenchProjectStore(context).activeProjectPromptContext()
+        }.getOrNull()
         val systemPrompt = AgentSystemPrompt.build(
             workspace = workspaceDescriptor,
             installedSkills = installedSkills,
@@ -256,7 +262,11 @@ class OmniAgentExecutor(
             skillsRootAndroidPath = skillsRootAndroidPath,
             resolvedSkills = resolvedSkills,
             memoryContext = memoryContext,
-            locale = AppLocaleManager.resolvePromptLocale(context)
+            activeWorkbenchProjectContext = activeWorkbenchProjectContext,
+            workbenchDisplayLayoutContext = activeWorkbenchProjectContext?.let {
+                WorkbenchDisplayLayoutContext.promptSection(context, locale)
+            },
+            locale = locale
         )
         messages.add(
             cn.com.omnimind.baselib.llm.ChatCompletionMessage(
@@ -264,7 +274,7 @@ class OmniAgentExecutor(
                 content = buildCachedSystemPromptContent(systemPrompt)
             )
         )
-        messages.add(buildCurrentTimeContextMessage(AppLocaleManager.resolvePromptLocale(context)))
+        messages.add(buildCurrentTimeContextMessage(locale))
         messages.addAll(historyMessages)
         buildPrefetchedMemoryAttachment(prefetchedMemoryHits)?.let { messages.add(it) }
         messages.add(buildCurrentUserMessage(userMessage, attachments))

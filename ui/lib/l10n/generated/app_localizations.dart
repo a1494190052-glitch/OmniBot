@@ -3835,6 +3835,1443 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'好好和今天说晚安～'**
   String get homeDrawerLateNightSub2;
+
+  /// No description provided for @workbenchTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'工作台'**
+  String get workbenchTitle;
+
+  /// No description provided for @workbenchWorkspaceTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'工作区'**
+  String get workbenchWorkspaceTitle;
+
+  /// No description provided for @workbenchWorkspaceOpenWorkbench.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开工作台'**
+  String get workbenchWorkspaceOpenWorkbench;
+
+  /// No description provided for @workbenchWorkspaceOpenProjectConsole.
+  ///
+  /// In zh, this message translates to:
+  /// **'进入管理'**
+  String get workbenchWorkspaceOpenProjectConsole;
+
+  /// No description provided for @workbenchWorkspaceWorkMode.
+  ///
+  /// In zh, this message translates to:
+  /// **'文件'**
+  String get workbenchWorkspaceWorkMode;
+
+  /// No description provided for @workbenchWorkspaceProjectMode.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目'**
+  String get workbenchWorkspaceProjectMode;
+
+  /// No description provided for @workbenchWorkspaceProjectFrontendsTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目窗口'**
+  String get workbenchWorkspaceProjectFrontendsTitle;
+
+  /// No description provided for @workbenchWorkspaceProjectFrontendsSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'开启项目模式后，这里像子窗口一样直接承载当前激活项目的 OOB 原生前端。'**
+  String get workbenchWorkspaceProjectFrontendsSubtitle;
+
+  /// No description provided for @workbenchWorkspaceProjectFrontendsEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂无项目前端。回到对话里描述需求后，Agent 会通过工作台创建可显示的项目。'**
+  String get workbenchWorkspaceProjectFrontendsEmpty;
+
+  /// No description provided for @workbenchWorkspaceProjectOpenFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开项目前端失败'**
+  String get workbenchWorkspaceProjectOpenFailed;
+
+  /// No description provided for @workbenchWorkspaceProjectUnsupportedDisplay.
+  ///
+  /// In zh, this message translates to:
+  /// **'这个显示页暂不支持内嵌窗口显示，请用右上角打开为完整页面。'**
+  String get workbenchWorkspaceProjectUnsupportedDisplay;
+
+  /// No description provided for @workbenchWorkspaceGuideTooltip.
+  ///
+  /// In zh, this message translates to:
+  /// **'查看项目工作台说明'**
+  String get workbenchWorkspaceGuideTooltip;
+
+  /// No description provided for @workbenchWorkspaceGuideClose.
+  ///
+  /// In zh, this message translates to:
+  /// **'关闭说明'**
+  String get workbenchWorkspaceGuideClose;
+
+  /// No description provided for @workbenchWorkspaceGuideTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目工作台怎么工作'**
+  String get workbenchWorkspaceGuideTitle;
+
+  /// No description provided for @workbenchWorkspaceGuideIntro.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目模式不是新的聊天页，而是 OOB 里用来承载 vibe project 的原生工作台。它把生成前端、项目工具、工作区文件、Skill 和持久化数据连成一个可继续编辑的单位。'**
+  String get workbenchWorkspaceGuideIntro;
+
+  /// No description provided for @workbenchWorkspaceGuideFlowTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'交互链路'**
+  String get workbenchWorkspaceGuideFlowTitle;
+
+  /// No description provided for @workbenchWorkspaceGuideFlowPrompt.
+  ///
+  /// In zh, this message translates to:
+  /// **'提示词 + Skill 拆解需求'**
+  String get workbenchWorkspaceGuideFlowPrompt;
+
+  /// No description provided for @workbenchWorkspaceGuideFlowProject.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目注册表记录容器'**
+  String get workbenchWorkspaceGuideFlowProject;
+
+  /// No description provided for @workbenchWorkspaceGuideFlowApi.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目工具注册业务能力'**
+  String get workbenchWorkspaceGuideFlowApi;
+
+  /// No description provided for @workbenchWorkspaceGuideFlowDisplay.
+  ///
+  /// In zh, this message translates to:
+  /// **'Flutter 显示页展示业务前端'**
+  String get workbenchWorkspaceGuideFlowDisplay;
+
+  /// No description provided for @workbenchWorkspaceGuideFlowPersist.
+  ///
+  /// In zh, this message translates to:
+  /// **'data/ + logs/ 持久化 AI 与 UI 调用'**
+  String get workbenchWorkspaceGuideFlowPersist;
+
+  /// No description provided for @workbenchWorkspaceGuideProjectTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目绑定什么'**
+  String get workbenchWorkspaceGuideProjectTitle;
+
+  /// No description provided for @workbenchWorkspaceGuideProjectBody.
+  ///
+  /// In zh, this message translates to:
+  /// **'一个项目会绑定目标、Skill、工作区文件、显示页列表、项目工具、数据和日志。它不是 MCP 工具列表，也不是随手生成的 HTML。'**
+  String get workbenchWorkspaceGuideProjectBody;
+
+  /// No description provided for @workbenchWorkspaceGuideFrontendTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'前端怎么显示'**
+  String get workbenchWorkspaceGuideFrontendTitle;
+
+  /// No description provided for @workbenchWorkspaceGuideFrontendBody.
+  ///
+  /// In zh, this message translates to:
+  /// **'生成前端是 OOB 原生 Flutter 显示页。工作区切到项目后，不再显示大型管理列表，而是像浏览器子窗口一样直接承载当前激活项目的首页；一个项目可以有多个显示页，可用小菜单切换。'**
+  String get workbenchWorkspaceGuideFrontendBody;
+
+  /// No description provided for @workbenchWorkspaceGuideBackendTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'后端怎么被调用'**
+  String get workbenchWorkspaceGuideBackendTitle;
+
+  /// No description provided for @workbenchWorkspaceGuideBackendBody.
+  ///
+  /// In zh, this message translates to:
+  /// **'后端能力注册为项目工具，例如 todo.add、todo.finish。AI 层和前端按钮都调用同一条 workbenchApiCall(projectId, toolId, inputs)，项目创建、导出、删除等控制接口不会混进业务工具。'**
+  String get workbenchWorkspaceGuideBackendBody;
+
+  /// No description provided for @workbenchWorkspaceGuideDataTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'数据怎么流'**
+  String get workbenchWorkspaceGuideDataTitle;
+
+  /// No description provided for @workbenchWorkspaceGuideDataBody.
+  ///
+  /// In zh, this message translates to:
+  /// **'调用会经过 Flutter -> MethodChannel -> OOB native executor，然后写入项目的 data/ 和 logs/。前端刷新、AI 调用统计和重启后的状态都来自这份持久化数据。'**
+  String get workbenchWorkspaceGuideDataBody;
+
+  /// No description provided for @workbenchWorkspaceGuideVibeTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'怎么继续改'**
+  String get workbenchWorkspaceGuideVibeTitle;
+
+  /// No description provided for @workbenchWorkspaceGuideVibeBody.
+  ///
+  /// In zh, this message translates to:
+  /// **'要继续 vibe coding，回到首页大输入框说需求。工作台 Skill 会判断是创建新项目、扩充项目工具、调整显示页，还是对当前项目做热更新。'**
+  String get workbenchWorkspaceGuideVibeBody;
+
+  /// No description provided for @workbenchWorkspaceGuideExtendTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'扩充后端工具'**
+  String get workbenchWorkspaceGuideExtendTitle;
+
+  /// No description provided for @workbenchWorkspaceGuideExtendBody.
+  ///
+  /// In zh, this message translates to:
+  /// **'新增能力时先定义 toolId、输入输出 schema、executorKind、持久化文件和前端触发位置，再通过工作台接口注册项目工具；不要手写 registry 文件。'**
+  String get workbenchWorkspaceGuideExtendBody;
+
+  /// No description provided for @workbenchWorkspaceProjectApiStats.
+  ///
+  /// In zh, this message translates to:
+  /// **'{apiCount} 个工具 · 已执行 {executionCount} 次'**
+  String workbenchWorkspaceProjectApiStats(
+    Object apiCount,
+    Object executionCount,
+  );
+
+  /// No description provided for @workbenchSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'一个 OOB 原生项目示例，用来验证项目工具注册、状态持久化和工作台内显示。'**
+  String get workbenchSubtitle;
+
+  /// No description provided for @workbenchVibeSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'提示词生成的原生前端、项目工具和工作区文件在 OOB 内保持关联。'**
+  String get workbenchVibeSubtitle;
+
+  /// No description provided for @workbenchProjectDisplay.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目显示'**
+  String get workbenchProjectDisplay;
+
+  /// No description provided for @workbenchProjectSection.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目'**
+  String get workbenchProjectSection;
+
+  /// No description provided for @workbenchProjectIdLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目 ID'**
+  String get workbenchProjectIdLabel;
+
+  /// No description provided for @workbenchRouteLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'页面路径'**
+  String get workbenchRouteLabel;
+
+  /// No description provided for @workbenchSpacePathLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'Space 路径'**
+  String get workbenchSpacePathLabel;
+
+  /// No description provided for @workbenchPageIdsLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'页面'**
+  String get workbenchPageIdsLabel;
+
+  /// No description provided for @workbenchDevelopmentMode.
+  ///
+  /// In zh, this message translates to:
+  /// **'开发模式'**
+  String get workbenchDevelopmentMode;
+
+  /// No description provided for @workbenchProjectRegistryPath.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目注册表'**
+  String get workbenchProjectRegistryPath;
+
+  /// No description provided for @workbenchApiRegistryPath.
+  ///
+  /// In zh, this message translates to:
+  /// **'工具注册表'**
+  String get workbenchApiRegistryPath;
+
+  /// No description provided for @workbenchProjectFilePath.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目文件'**
+  String get workbenchProjectFilePath;
+
+  /// No description provided for @workbenchDataFilePath.
+  ///
+  /// In zh, this message translates to:
+  /// **'数据文件'**
+  String get workbenchDataFilePath;
+
+  /// No description provided for @workbenchLogFilePath.
+  ///
+  /// In zh, this message translates to:
+  /// **'工具日志'**
+  String get workbenchLogFilePath;
+
+  /// No description provided for @workbenchBackendTools.
+  ///
+  /// In zh, this message translates to:
+  /// **'后端工具'**
+  String get workbenchBackendTools;
+
+  /// No description provided for @workbenchFrontendBinding.
+  ///
+  /// In zh, this message translates to:
+  /// **'前后端绑定'**
+  String get workbenchFrontendBinding;
+
+  /// No description provided for @workbenchCallApi.
+  ///
+  /// In zh, this message translates to:
+  /// **'调用工具'**
+  String get workbenchCallApi;
+
+  /// No description provided for @workbenchGeneratedFrontend.
+  ///
+  /// In zh, this message translates to:
+  /// **'生成的前端'**
+  String get workbenchGeneratedFrontend;
+
+  /// No description provided for @workbenchGeneratedFrontendSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开提示词生成页面应该挂载的 OOB 原生预览容器。它和 AI 层共用同一组项目工具与持久化数据。'**
+  String get workbenchGeneratedFrontendSubtitle;
+
+  /// No description provided for @workbenchOpenGeneratedFrontend.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开生成前端'**
+  String get workbenchOpenGeneratedFrontend;
+
+  /// No description provided for @workbenchPreviewClose.
+  ///
+  /// In zh, this message translates to:
+  /// **'关闭预览'**
+  String get workbenchPreviewClose;
+
+  /// No description provided for @workbenchToolList.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目工具'**
+  String get workbenchToolList;
+
+  /// No description provided for @workbenchProjectControlSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'这里只展示已注册的业务工具。项目创建和打开仍属于 OOB 工作台控制面。'**
+  String get workbenchProjectControlSubtitle;
+
+  /// No description provided for @workbenchOpenWorkspace.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开工作区'**
+  String get workbenchOpenWorkspace;
+
+  /// No description provided for @workbenchApiEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂无工具'**
+  String get workbenchApiEmpty;
+
+  /// No description provided for @workbenchToolListDefaultTodo.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目工具点击了同一个后端'**
+  String get workbenchToolListDefaultTodo;
+
+  /// No description provided for @workbenchToolExecutionCount.
+  ///
+  /// In zh, this message translates to:
+  /// **'已执行 {count} 次'**
+  String workbenchToolExecutionCount(Object count);
+
+  /// No description provided for @workbenchProjectDefaultEntity.
+  ///
+  /// In zh, this message translates to:
+  /// **'条目'**
+  String get workbenchProjectDefaultEntity;
+
+  /// No description provided for @workbenchProjectCreateTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'新增 {entity}'**
+  String workbenchProjectCreateTitle(Object entity);
+
+  /// No description provided for @workbenchProjectInputHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'输入 {entity} 名称'**
+  String workbenchProjectInputHint(Object entity);
+
+  /// No description provided for @workbenchProjectItemsTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'{entity} 列表'**
+  String workbenchProjectItemsTitle(Object entity);
+
+  /// No description provided for @workbenchProjectEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂无 {entity}'**
+  String workbenchProjectEmpty(Object entity);
+
+  /// No description provided for @workbenchProjectActiveItems.
+  ///
+  /// In zh, this message translates to:
+  /// **'进行中'**
+  String get workbenchProjectActiveItems;
+
+  /// No description provided for @workbenchProjectArchivedItems.
+  ///
+  /// In zh, this message translates to:
+  /// **'已归档'**
+  String get workbenchProjectArchivedItems;
+
+  /// No description provided for @workbenchProjectEditAction.
+  ///
+  /// In zh, this message translates to:
+  /// **'编辑'**
+  String get workbenchProjectEditAction;
+
+  /// No description provided for @workbenchProjectEditTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'编辑条目'**
+  String get workbenchProjectEditTitle;
+
+  /// No description provided for @workbenchProjectArchiveAction.
+  ///
+  /// In zh, this message translates to:
+  /// **'归档'**
+  String get workbenchProjectArchiveAction;
+
+  /// No description provided for @workbenchProjectMissingCreateApi.
+  ///
+  /// In zh, this message translates to:
+  /// **'这个项目没有可用的新增工具'**
+  String get workbenchProjectMissingCreateApi;
+
+  /// No description provided for @workbenchProjectMissingUpdateApi.
+  ///
+  /// In zh, this message translates to:
+  /// **'这个项目没有可用的编辑工具'**
+  String get workbenchProjectMissingUpdateApi;
+
+  /// No description provided for @workbenchProjectMissingArchiveApi.
+  ///
+  /// In zh, this message translates to:
+  /// **'这个项目没有可用的归档工具'**
+  String get workbenchProjectMissingArchiveApi;
+
+  /// No description provided for @workbenchProjectInputRequired.
+  ///
+  /// In zh, this message translates to:
+  /// **'请先输入 {entity}'**
+  String workbenchProjectInputRequired(Object entity);
+
+  /// No description provided for @workbenchProjectItemCreated.
+  ///
+  /// In zh, this message translates to:
+  /// **'{entity} 已新增'**
+  String workbenchProjectItemCreated(Object entity);
+
+  /// No description provided for @workbenchProjectItemUpdated.
+  ///
+  /// In zh, this message translates to:
+  /// **'{entity} 已保存'**
+  String workbenchProjectItemUpdated(Object entity);
+
+  /// No description provided for @workbenchProjectItemArchived.
+  ///
+  /// In zh, this message translates to:
+  /// **'{entity} 已归档'**
+  String workbenchProjectItemArchived(Object entity);
+
+  /// No description provided for @workbenchLoadFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'加载失败'**
+  String get workbenchLoadFailed;
+
+  /// No description provided for @workbenchUnknownTool.
+  ///
+  /// In zh, this message translates to:
+  /// **'工作台工具执行失败'**
+  String get workbenchUnknownTool;
+
+  /// No description provided for @workbenchStatusOpen.
+  ///
+  /// In zh, this message translates to:
+  /// **'等待处理'**
+  String get workbenchStatusOpen;
+
+  /// No description provided for @workbenchStatusFinished.
+  ///
+  /// In zh, this message translates to:
+  /// **'已归档'**
+  String get workbenchStatusFinished;
+
+  /// No description provided for @workbenchAssistantName.
+  ///
+  /// In zh, this message translates to:
+  /// **'小万'**
+  String get workbenchAssistantName;
+
+  /// No description provided for @workbenchAssistantTooltip.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开小万'**
+  String get workbenchAssistantTooltip;
+
+  /// No description provided for @workbenchAssistantPromptHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'说出你想实时调整的地方'**
+  String get workbenchAssistantPromptHint;
+
+  /// No description provided for @workbenchAssistantSend.
+  ///
+  /// In zh, this message translates to:
+  /// **'热更新当前项目'**
+  String get workbenchAssistantSend;
+
+  /// No description provided for @workbenchAssistantApplied.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目已热更新'**
+  String get workbenchAssistantApplied;
+
+  /// No description provided for @workbenchAssistantPromptRequired.
+  ///
+  /// In zh, this message translates to:
+  /// **'请先输入要调整的内容'**
+  String get workbenchAssistantPromptRequired;
+
+  /// No description provided for @workbenchAssistantNoProject.
+  ///
+  /// In zh, this message translates to:
+  /// **'请先选择一个项目'**
+  String get workbenchAssistantNoProject;
+
+  /// No description provided for @workbenchAssistantHotUpdateFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目热更新失败'**
+  String get workbenchAssistantHotUpdateFailed;
+
+  /// No description provided for @workbenchProjectModeTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目'**
+  String get workbenchProjectModeTitle;
+
+  /// No description provided for @workbenchFlutterDisplay.
+  ///
+  /// In zh, this message translates to:
+  /// **'Flutter 显示页'**
+  String get workbenchFlutterDisplay;
+
+  /// No description provided for @workbenchFlutterEvalTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'Flutter 运行页'**
+  String get workbenchFlutterEvalTitle;
+
+  /// No description provided for @workbenchFlutterEvalNoSource.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前项目还没有可运行的 Flutter 源码。请在 frontend/flutter/lib/main.dart 定义 OobProjectWidget。'**
+  String get workbenchFlutterEvalNoSource;
+
+  /// No description provided for @workbenchFlutterEvalRuntimeFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'Flutter 源码暂不可运行，请回到输入框让小万修复这个页面。'**
+  String get workbenchFlutterEvalRuntimeFailed;
+
+  /// No description provided for @workbenchProjectSwitcher.
+  ///
+  /// In zh, this message translates to:
+  /// **'切换项目'**
+  String get workbenchProjectSwitcher;
+
+  /// No description provided for @workbenchProjectGenerateTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目容器'**
+  String get workbenchProjectGenerateTitle;
+
+  /// No description provided for @workbenchProjectGenerateSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'这里只选择和打开项目容器。创建、编辑和热更新继续回到首页大输入框，由当前激活的项目 toolbox 承接。'**
+  String get workbenchProjectGenerateSubtitle;
+
+  /// No description provided for @workbenchProjectPromptHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'回到首页输入项目需求'**
+  String get workbenchProjectPromptHint;
+
+  /// No description provided for @workbenchProjectDefaultPrompt.
+  ///
+  /// In zh, this message translates to:
+  /// **'我想创建一个简单的 todolist 管理系统，要求可以增加 todo，归档 todo'**
+  String get workbenchProjectDefaultPrompt;
+
+  /// No description provided for @workbenchProjectGenerateButton.
+  ///
+  /// In zh, this message translates to:
+  /// **'回到首页继续'**
+  String get workbenchProjectGenerateButton;
+
+  /// No description provided for @workbenchInputProjectTooltip.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开项目工作台'**
+  String get workbenchInputProjectTooltip;
+
+  /// No description provided for @workbenchGeneratedTodoProjectName.
+  ///
+  /// In zh, this message translates to:
+  /// **'Todo List 工作台'**
+  String get workbenchGeneratedTodoProjectName;
+
+  /// No description provided for @workbenchPromptSeedAddTodo.
+  ///
+  /// In zh, this message translates to:
+  /// **'验证可以增加 todo'**
+  String get workbenchPromptSeedAddTodo;
+
+  /// No description provided for @workbenchPromptSeedArchiveTodo.
+  ///
+  /// In zh, this message translates to:
+  /// **'验证可以归档 todo'**
+  String get workbenchPromptSeedArchiveTodo;
+
+  /// No description provided for @workbenchProjectPlanTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'拆分计划'**
+  String get workbenchProjectPlanTitle;
+
+  /// No description provided for @workbenchProjectPlanProject.
+  ///
+  /// In zh, this message translates to:
+  /// **'创建项目注册和可编辑工作区'**
+  String get workbenchProjectPlanProject;
+
+  /// No description provided for @workbenchProjectPlanFrontend.
+  ///
+  /// In zh, this message translates to:
+  /// **'生成 OOB 原生 Flutter 前端'**
+  String get workbenchProjectPlanFrontend;
+
+  /// No description provided for @workbenchProjectPlanApi.
+  ///
+  /// In zh, this message translates to:
+  /// **'注册 AI/UI 共用项目工具'**
+  String get workbenchProjectPlanApi;
+
+  /// No description provided for @workbenchProjectPlanData.
+  ///
+  /// In zh, this message translates to:
+  /// **'写入持久化数据和工具日志'**
+  String get workbenchProjectPlanData;
+
+  /// No description provided for @workbenchUseMode.
+  ///
+  /// In zh, this message translates to:
+  /// **'使用模式'**
+  String get workbenchUseMode;
+
+  /// No description provided for @workbenchDebugMode.
+  ///
+  /// In zh, this message translates to:
+  /// **'Debug 模式'**
+  String get workbenchDebugMode;
+
+  /// No description provided for @workbenchDisplaysTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'页面'**
+  String get workbenchDisplaysTitle;
+
+  /// No description provided for @workbenchDisplayCount.
+  ///
+  /// In zh, this message translates to:
+  /// **'{count} 个前端'**
+  String workbenchDisplayCount(Object count);
+
+  /// No description provided for @workbenchUnnamedDisplay.
+  ///
+  /// In zh, this message translates to:
+  /// **'未命名前端'**
+  String get workbenchUnnamedDisplay;
+
+  /// No description provided for @workbenchOpenDisplay.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开这个前端'**
+  String get workbenchOpenDisplay;
+
+  /// No description provided for @workbenchDebugDisplay.
+  ///
+  /// In zh, this message translates to:
+  /// **'调试这个前端'**
+  String get workbenchDebugDisplay;
+
+  /// No description provided for @workbenchProjectCurrentTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目使用台'**
+  String get workbenchProjectCurrentTitle;
+
+  /// No description provided for @workbenchProjectCurrentSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'默认打开前端会回到首页；调试打开会回到工作台。热更新通过首页大输入框和当前激活项目完成。'**
+  String get workbenchProjectCurrentSubtitle;
+
+  /// No description provided for @workbenchProjectModeCreateTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'Vibe 项目入口'**
+  String get workbenchProjectModeCreateTitle;
+
+  /// No description provided for @workbenchProjectModeSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'这里只显示项目和当前激活项。'**
+  String get workbenchProjectModeSubtitle;
+
+  /// No description provided for @workbenchProjectActiveTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前项目'**
+  String get workbenchProjectActiveTitle;
+
+  /// No description provided for @workbenchProjectActiveEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'尚未激活项目'**
+  String get workbenchProjectActiveEmpty;
+
+  /// No description provided for @workbenchProjectListTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目'**
+  String get workbenchProjectListTitle;
+
+  /// No description provided for @workbenchProjectDetailTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目'**
+  String get workbenchProjectDetailTitle;
+
+  /// No description provided for @workbenchProjectModeCreateButton.
+  ///
+  /// In zh, this message translates to:
+  /// **'去首页创建'**
+  String get workbenchProjectModeCreateButton;
+
+  /// No description provided for @workbenchProjectCreateFromHome.
+  ///
+  /// In zh, this message translates to:
+  /// **'回到首页输入框，直接说创建项目或描述你想做的页面。'**
+  String get workbenchProjectCreateFromHome;
+
+  /// No description provided for @workbenchProjectModeProjectsTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前工具'**
+  String get workbenchProjectModeProjectsTitle;
+
+  /// No description provided for @workbenchProjectApiForProject.
+  ///
+  /// In zh, this message translates to:
+  /// **'工具'**
+  String get workbenchProjectApiForProject;
+
+  /// No description provided for @workbenchProjectModeOpen.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开项目'**
+  String get workbenchProjectModeOpen;
+
+  /// No description provided for @workbenchProjectModeEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂无工作台项目'**
+  String get workbenchProjectModeEmpty;
+
+  /// No description provided for @workbenchProjectModeLoadFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目模式加载失败'**
+  String get workbenchProjectModeLoadFailed;
+
+  /// No description provided for @workbenchProjectPromptRequired.
+  ///
+  /// In zh, this message translates to:
+  /// **'请先输入项目需求'**
+  String get workbenchProjectPromptRequired;
+
+  /// No description provided for @workbenchProjectGenerated.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目已生成'**
+  String get workbenchProjectGenerated;
+
+  /// No description provided for @workbenchDeleteProject.
+  ///
+  /// In zh, this message translates to:
+  /// **'删除项目'**
+  String get workbenchDeleteProject;
+
+  /// No description provided for @workbenchDeleteProjectTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'删除项目'**
+  String get workbenchDeleteProjectTitle;
+
+  /// No description provided for @workbenchDeleteProjectMessage.
+  ///
+  /// In zh, this message translates to:
+  /// **'确定删除 {projectId}？它会移除项目注册、业务工具注册和工作区项目文件。'**
+  String workbenchDeleteProjectMessage(Object projectId);
+
+  /// No description provided for @workbenchDeleteProjectCancel.
+  ///
+  /// In zh, this message translates to:
+  /// **'取消'**
+  String get workbenchDeleteProjectCancel;
+
+  /// No description provided for @workbenchDeleteProjectConfirm.
+  ///
+  /// In zh, this message translates to:
+  /// **'删除'**
+  String get workbenchDeleteProjectConfirm;
+
+  /// No description provided for @workbenchDeleteProjectFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目删除失败'**
+  String get workbenchDeleteProjectFailed;
+
+  /// No description provided for @workbenchProjectDeleted.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目已删除'**
+  String get workbenchProjectDeleted;
+
+  /// No description provided for @workbenchProjectIdRequired.
+  ///
+  /// In zh, this message translates to:
+  /// **'请输入项目 ID'**
+  String get workbenchProjectIdRequired;
+
+  /// No description provided for @workbenchProjectCreated.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目已创建'**
+  String get workbenchProjectCreated;
+
+  /// No description provided for @workbenchProjectInfoTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目信息'**
+  String get workbenchProjectInfoTitle;
+
+  /// No description provided for @workbenchProjectInfoDisplayTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'显示入口'**
+  String get workbenchProjectInfoDisplayTitle;
+
+  /// No description provided for @workbenchProjectInfoSourceTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'源码规格'**
+  String get workbenchProjectInfoSourceTitle;
+
+  /// No description provided for @workbenchProjectInfoSourceValue.
+  ///
+  /// In zh, this message translates to:
+  /// **'README.md / frontend/page_spec.json / backend/api_spec.json'**
+  String get workbenchProjectInfoSourceValue;
+
+  /// No description provided for @workbenchProjectInfoRuntimeTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'运行态'**
+  String get workbenchProjectInfoRuntimeTitle;
+
+  /// No description provided for @workbenchProjectInfoRuntimeValue.
+  ///
+  /// In zh, this message translates to:
+  /// **'data/todos.json / logs/api_calls.jsonl'**
+  String get workbenchProjectInfoRuntimeValue;
+
+  /// No description provided for @workbenchDebugToolsTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'调试工具'**
+  String get workbenchDebugToolsTitle;
+
+  /// No description provided for @workbenchDebugHotUpdate.
+  ///
+  /// In zh, this message translates to:
+  /// **'悬浮小万实时修改当前项目'**
+  String get workbenchDebugHotUpdate;
+
+  /// No description provided for @workbenchDebugHotUpdateHomeInput.
+  ///
+  /// In zh, this message translates to:
+  /// **'回到首页大输入框描述修改，Agent 会带着当前项目 toolbox 执行热更新'**
+  String get workbenchDebugHotUpdateHomeInput;
+
+  /// No description provided for @workbenchDebugFloatingXiaowan.
+  ///
+  /// In zh, this message translates to:
+  /// **'悬浮小万可以带上当前前端上下文，选择页面信息后调用 workbench_project_hot_update 迭代这个项目。'**
+  String get workbenchDebugFloatingXiaowan;
+
+  /// No description provided for @workbenchDebugVlmInput.
+  ///
+  /// In zh, this message translates to:
+  /// **'VLM 输入也可以附带当前显示页、可见状态、选中控件或截图摘要，作为 frontendContext 交给项目 Skill。'**
+  String get workbenchDebugVlmInput;
+
+  /// No description provided for @workbenchDebugContextProject.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目 {projectId}'**
+  String workbenchDebugContextProject(Object projectId);
+
+  /// No description provided for @workbenchDebugContextDisplay.
+  ///
+  /// In zh, this message translates to:
+  /// **'显示页 {displayId}'**
+  String workbenchDebugContextDisplay(Object displayId);
+
+  /// No description provided for @workbenchDebugContextRoute.
+  ///
+  /// In zh, this message translates to:
+  /// **'页面路径 {route}'**
+  String workbenchDebugContextRoute(Object route);
+
+  /// No description provided for @workbenchDebugVlmTest.
+  ///
+  /// In zh, this message translates to:
+  /// **'根据 VLM 模拟人类操作测试'**
+  String get workbenchDebugVlmTest;
+
+  /// No description provided for @workbenchDebugComingSoon.
+  ///
+  /// In zh, this message translates to:
+  /// **'待接入'**
+  String get workbenchDebugComingSoon;
+
+  /// No description provided for @workbenchAnnotationTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'标注画布'**
+  String get workbenchAnnotationTitle;
+
+  /// No description provided for @workbenchAnnotationDrawMode.
+  ///
+  /// In zh, this message translates to:
+  /// **'画笔'**
+  String get workbenchAnnotationDrawMode;
+
+  /// No description provided for @workbenchAnnotationBrowseMode.
+  ///
+  /// In zh, this message translates to:
+  /// **'浏览页面'**
+  String get workbenchAnnotationBrowseMode;
+
+  /// No description provided for @workbenchAnnotationUndo.
+  ///
+  /// In zh, this message translates to:
+  /// **'撤销'**
+  String get workbenchAnnotationUndo;
+
+  /// No description provided for @workbenchAnnotationClear.
+  ///
+  /// In zh, this message translates to:
+  /// **'清空'**
+  String get workbenchAnnotationClear;
+
+  /// No description provided for @workbenchAnnotationApply.
+  ///
+  /// In zh, this message translates to:
+  /// **'应用标注'**
+  String get workbenchAnnotationApply;
+
+  /// No description provided for @workbenchAnnotationApplying.
+  ///
+  /// In zh, this message translates to:
+  /// **'应用中'**
+  String get workbenchAnnotationApplying;
+
+  /// No description provided for @workbenchAnnotationPromptHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'补充修改说明，例如：把这里改成主按钮'**
+  String get workbenchAnnotationPromptHint;
+
+  /// No description provided for @workbenchAnnotationNoStrokes.
+  ///
+  /// In zh, this message translates to:
+  /// **'先在页面上画出要修改的区域'**
+  String get workbenchAnnotationNoStrokes;
+
+  /// No description provided for @workbenchAnnotationNoShape.
+  ///
+  /// In zh, this message translates to:
+  /// **'未标注'**
+  String get workbenchAnnotationNoShape;
+
+  /// No description provided for @workbenchAnnotationShapeCount.
+  ///
+  /// In zh, this message translates to:
+  /// **'已标注 {count} 笔'**
+  String workbenchAnnotationShapeCount(Object count);
+
+  /// No description provided for @workbenchAnnotationDefaultPrompt.
+  ///
+  /// In zh, this message translates to:
+  /// **'根据画布标注调整当前项目前端。'**
+  String get workbenchAnnotationDefaultPrompt;
+
+  /// No description provided for @workbenchAnnotationHotUpdateSuccess.
+  ///
+  /// In zh, this message translates to:
+  /// **'已把标注应用到项目'**
+  String get workbenchAnnotationHotUpdateSuccess;
+
+  /// No description provided for @workbenchAnnotationHotUpdateFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'标注热更新失败'**
+  String get workbenchAnnotationHotUpdateFailed;
+
+  /// No description provided for @workbenchExportProjectPackage.
+  ///
+  /// In zh, this message translates to:
+  /// **'导出分发包'**
+  String get workbenchExportProjectPackage;
+
+  /// No description provided for @workbenchProjectExportFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目导出失败'**
+  String get workbenchProjectExportFailed;
+
+  /// No description provided for @workbenchProjectExported.
+  ///
+  /// In zh, this message translates to:
+  /// **'已导出 {packageName}'**
+  String workbenchProjectExported(Object packageName);
+
+  /// No description provided for @workbenchProjectExportPath.
+  ///
+  /// In zh, this message translates to:
+  /// **'导出位置：{path}'**
+  String workbenchProjectExportPath(Object path);
+
+  /// No description provided for @workbenchAndroidAssetsTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'应用'**
+  String get workbenchAndroidAssetsTitle;
+
+  /// No description provided for @workbenchAndroidSourceHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'输入 APK 或 Android 项目路径，例如 /workspace/apps/demo.apk'**
+  String get workbenchAndroidSourceHint;
+
+  /// No description provided for @workbenchAndroidIngestButton.
+  ///
+  /// In zh, this message translates to:
+  /// **'导入到当前项目'**
+  String get workbenchAndroidIngestButton;
+
+  /// No description provided for @workbenchAndroidSourceRequired.
+  ///
+  /// In zh, this message translates to:
+  /// **'请输入 Android 应用或项目路径'**
+  String get workbenchAndroidSourceRequired;
+
+  /// No description provided for @workbenchAndroidIngestFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'Android 资产导入失败'**
+  String get workbenchAndroidIngestFailed;
+
+  /// No description provided for @workbenchAndroidIngested.
+  ///
+  /// In zh, this message translates to:
+  /// **'已导入 {name}'**
+  String workbenchAndroidIngested(Object name);
+
+  /// No description provided for @workbenchAndroidAssetsEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂无导入的 Android 应用或项目'**
+  String get workbenchAndroidAssetsEmpty;
+
+  /// No description provided for @workbenchProjectActivateFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目激活失败'**
+  String get workbenchProjectActivateFailed;
+
+  /// No description provided for @workbenchProjectActivated.
+  ///
+  /// In zh, this message translates to:
+  /// **'已激活 {projectName}'**
+  String workbenchProjectActivated(Object projectName);
+
+  /// No description provided for @workbenchProjectDeactivateFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目取消激活失败'**
+  String get workbenchProjectDeactivateFailed;
+
+  /// No description provided for @workbenchProjectDeactivated.
+  ///
+  /// In zh, this message translates to:
+  /// **'已取消激活项目'**
+  String get workbenchProjectDeactivated;
+
+  /// No description provided for @workbenchActivateProject.
+  ///
+  /// In zh, this message translates to:
+  /// **'激活项目'**
+  String get workbenchActivateProject;
+
+  /// No description provided for @workbenchDeactivateProject.
+  ///
+  /// In zh, this message translates to:
+  /// **'取消激活'**
+  String get workbenchDeactivateProject;
+
+  /// No description provided for @workbenchEditProjectLabels.
+  ///
+  /// In zh, this message translates to:
+  /// **'编辑名称'**
+  String get workbenchEditProjectLabels;
+
+  /// No description provided for @workbenchProjectNameLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'名称'**
+  String get workbenchProjectNameLabel;
+
+  /// No description provided for @workbenchProjectShortNameLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'简写'**
+  String get workbenchProjectShortNameLabel;
+
+  /// No description provided for @workbenchSaveProjectLabels.
+  ///
+  /// In zh, this message translates to:
+  /// **'保存'**
+  String get workbenchSaveProjectLabels;
+
+  /// No description provided for @workbenchProjectNameRequired.
+  ///
+  /// In zh, this message translates to:
+  /// **'请输入名称'**
+  String get workbenchProjectNameRequired;
+
+  /// No description provided for @workbenchProjectLabelsUpdated.
+  ///
+  /// In zh, this message translates to:
+  /// **'已保存'**
+  String get workbenchProjectLabelsUpdated;
+
+  /// No description provided for @workbenchProjectLabelsUpdateFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'保存失败'**
+  String get workbenchProjectLabelsUpdateFailed;
+
+  /// No description provided for @workbenchProjectMoreActions.
+  ///
+  /// In zh, this message translates to:
+  /// **'更多操作'**
+  String get workbenchProjectMoreActions;
+
+  /// No description provided for @workbenchActiveProject.
+  ///
+  /// In zh, this message translates to:
+  /// **'已激活'**
+  String get workbenchActiveProject;
+
+  /// No description provided for @workbenchInactiveProject.
+  ///
+  /// In zh, this message translates to:
+  /// **'未激活'**
+  String get workbenchInactiveProject;
+
+  /// No description provided for @workbenchContinueInHome.
+  ///
+  /// In zh, this message translates to:
+  /// **'激活项目'**
+  String get workbenchContinueInHome;
+
+  /// No description provided for @workbenchProjectHelpTooltip.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目工作台说明'**
+  String get workbenchProjectHelpTooltip;
+
+  /// No description provided for @workbenchProjectHelpTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目工作台'**
+  String get workbenchProjectHelpTitle;
+
+  /// No description provided for @workbenchProjectHelpHomeInput.
+  ///
+  /// In zh, this message translates to:
+  /// **'创建、编辑和热更新都在首页大输入框里完成。'**
+  String get workbenchProjectHelpHomeInput;
+
+  /// No description provided for @workbenchProjectHelpSelect.
+  ///
+  /// In zh, this message translates to:
+  /// **'这里选择一个项目，把它激活为 Agent 当前工作环境。'**
+  String get workbenchProjectHelpSelect;
+
+  /// No description provided for @workbenchProjectHelpDisplays.
+  ///
+  /// In zh, this message translates to:
+  /// **'每个项目可以有多个 Flutter 前端显示页，从这里打开容器。'**
+  String get workbenchProjectHelpDisplays;
+
+  /// No description provided for @workbenchProjectHelpApis.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目工具是当前项目的业务 toolbox，和 MCP tools 分开管理。'**
+  String get workbenchProjectHelpApis;
+
+  /// No description provided for @workbenchActiveProjectChip.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目：{projectName}'**
+  String workbenchActiveProjectChip(Object projectName);
+
+  /// No description provided for @workbenchProjectSummaryGeneric.
+  ///
+  /// In zh, this message translates to:
+  /// **'管理 {entityName} 记录，并保留状态和快捷操作。'**
+  String workbenchProjectSummaryGeneric(Object entityName);
+
+  /// No description provided for @workbenchAndroidAssetCount.
+  ///
+  /// In zh, this message translates to:
+  /// **'{count} 个 Android 资产'**
+  String workbenchAndroidAssetCount(Object count);
+
+  /// No description provided for @workbenchProjectItemCount.
+  ///
+  /// In zh, this message translates to:
+  /// **'{activeCount} 条进行中 / {archivedCount} 条归档'**
+  String workbenchProjectItemCount(Object activeCount, Object archivedCount);
+
+  /// No description provided for @workbenchApiCount.
+  ///
+  /// In zh, this message translates to:
+  /// **'{count} 个工具'**
+  String workbenchApiCount(Object count);
+
+  /// No description provided for @workbenchPhilosophyBadge.
+  ///
+  /// In zh, this message translates to:
+  /// **'了解工作台'**
+  String get workbenchPhilosophyBadge;
+
+  /// No description provided for @workbenchPhilosophyClose.
+  ///
+  /// In zh, this message translates to:
+  /// **'关闭'**
+  String get workbenchPhilosophyClose;
+
+  /// No description provided for @workbenchPhilosophyTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'AI 产品展示工作台'**
+  String get workbenchPhilosophyTitle;
+
+  /// No description provided for @workbenchPhilosophyTagline.
+  ///
+  /// In zh, this message translates to:
+  /// **'让 AI 的结果立刻变成可看、可点、可继续修改的界面'**
+  String get workbenchPhilosophyTagline;
+
+  /// No description provided for @workbenchPhilosophySubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'Workbench 不是模板生成器，而是 AI 产品的展示与运行层。Agent 产出的报告、数据、状态和操作会落到 Project 中，通过 HTML、Markdown 或 Flutter 显示，并通过 Project API 连接手机能力与持久化数据。'**
+  String get workbenchPhilosophySubtitle;
+
+  /// No description provided for @workbenchPhilosophyPillarsTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前核心闭环'**
+  String get workbenchPhilosophyPillarsTitle;
+
+  /// No description provided for @workbenchPhilosophyComposable.
+  ///
+  /// In zh, this message translates to:
+  /// **'显示层'**
+  String get workbenchPhilosophyComposable;
+
+  /// No description provided for @workbenchPhilosophyComposableDesc.
+  ///
+  /// In zh, this message translates to:
+  /// **'HTML / Markdown / Flutter 都是 Project Display，用来承载 AI 输出'**
+  String get workbenchPhilosophyComposableDesc;
+
+  /// No description provided for @workbenchPhilosophyAIDriven.
+  ///
+  /// In zh, this message translates to:
+  /// **'交互层'**
+  String get workbenchPhilosophyAIDriven;
+
+  /// No description provided for @workbenchPhilosophyAIDrivenDesc.
+  ///
+  /// In zh, this message translates to:
+  /// **'用户点击、填写、选择后，通过 Project API 触发下一步 Agent 或工具'**
+  String get workbenchPhilosophyAIDrivenDesc;
+
+  /// No description provided for @workbenchPhilosophyMobileNative.
+  ///
+  /// In zh, this message translates to:
+  /// **'能力层'**
+  String get workbenchPhilosophyMobileNative;
+
+  /// No description provided for @workbenchPhilosophyMobileNativeDesc.
+  ///
+  /// In zh, this message translates to:
+  /// **'需要操控手机、读屏、文件、脚本时，再走 OOB 原生能力'**
+  String get workbenchPhilosophyMobileNativeDesc;
+
+  /// No description provided for @workbenchPhilosophyStrengthsTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'三件事'**
+  String get workbenchPhilosophyStrengthsTitle;
+
+  /// No description provided for @workbenchPhilosophyBackendTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'Project API'**
+  String get workbenchPhilosophyBackendTitle;
+
+  /// No description provided for @workbenchPhilosophyBackendDesc.
+  ///
+  /// In zh, this message translates to:
+  /// **'白名单工具、持久化数据、运行日志和手机能力统一挂到 Project 上'**
+  String get workbenchPhilosophyBackendDesc;
+
+  /// No description provided for @workbenchPhilosophyFrontendTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'Display'**
+  String get workbenchPhilosophyFrontendTitle;
+
+  /// No description provided for @workbenchPhilosophyFrontendDesc.
+  ///
+  /// In zh, this message translates to:
+  /// **'普通交互 UI 默认 HTML；报告用 Markdown / HTML；Flutter 保留为容器和受限补充'**
+  String get workbenchPhilosophyFrontendDesc;
+
+  /// No description provided for @workbenchPhilosophyRuntimeTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'Hot update'**
+  String get workbenchPhilosophyRuntimeTitle;
+
+  /// No description provided for @workbenchPhilosophyRuntimeDesc.
+  ///
+  /// In zh, this message translates to:
+  /// **'用户一句话或一次选区标注后，AI 只改必要的前端文件或 API，右侧立即刷新'**
+  String get workbenchPhilosophyRuntimeDesc;
+
+  /// No description provided for @workbenchPhilosophyHowToTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'使用方式'**
+  String get workbenchPhilosophyHowToTitle;
+
+  /// No description provided for @workbenchPhilosophyStep1Label.
+  ///
+  /// In zh, this message translates to:
+  /// **'生成'**
+  String get workbenchPhilosophyStep1Label;
+
+  /// No description provided for @workbenchPhilosophyStep1Desc.
+  ///
+  /// In zh, this message translates to:
+  /// **'Agent 创建 Project，写入 API 与显示文件'**
+  String get workbenchPhilosophyStep1Desc;
+
+  /// No description provided for @workbenchPhilosophyStep2Label.
+  ///
+  /// In zh, this message translates to:
+  /// **'查看'**
+  String get workbenchPhilosophyStep2Label;
+
+  /// No description provided for @workbenchPhilosophyStep2Desc.
+  ///
+  /// In zh, this message translates to:
+  /// **'右侧 Workspace 直接预览 HTML / Markdown / Flutter'**
+  String get workbenchPhilosophyStep2Desc;
+
+  /// No description provided for @workbenchPhilosophyStep3Label.
+  ///
+  /// In zh, this message translates to:
+  /// **'修改'**
+  String get workbenchPhilosophyStep3Label;
+
+  /// No description provided for @workbenchPhilosophyStep3Desc.
+  ///
+  /// In zh, this message translates to:
+  /// **'用悬浮输入或标注提出修改，Project 热更新'**
+  String get workbenchPhilosophyStep3Desc;
+
+  /// No description provided for @workbenchPhilosophyActivateHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'激活项目后，右侧 Workspace 显示它的 Display；继续输入或标注会作为上下文传给 hot update。'**
+  String get workbenchPhilosophyActivateHint;
 }
 
 class _AppLocalizationsDelegate

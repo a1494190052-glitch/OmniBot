@@ -12,6 +12,8 @@ object AgentSystemPrompt {
         skillsRootAndroidPath: String,
         resolvedSkills: List<ResolvedSkillContext>,
         memoryContext: WorkspaceMemoryPromptContext?,
+        activeWorkbenchProjectContext: String? = null,
+        workbenchDisplayLayoutContext: String? = null,
         locale: PromptLocale = AppLocaleManager.currentPromptLocale()
     ): String {
         val visibleInstalledSkills = installedSkills.filter { skill ->
@@ -135,6 +137,47 @@ object AgentSystemPrompt {
             enUS = "Workspace memory is unavailable, so continue without memory context for this turn."
         ).resolve(locale)
 
+        val activeWorkbenchProjectText = activeWorkbenchProjectContext
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+        val workbenchProjectSection = activeWorkbenchProjectText?.let { contextText ->
+            when (locale) {
+                PromptLocale.ZH_CN -> """
+                    OOB Project 当前上下文：
+                    $contextText
+
+                    OOB Project 使用规则：
+                    - Project 是小万内置运行时承载的数据、前端 Display、后端 Project Tools、交互桥接层。
+                    - 处理 Project 创建、更新、打开、导出或业务操作前，优先调用 `skills_read(skillId="oob-project")` 读取完整规则。
+                    - 业务数据操作必须使用 `workbench_api_call` 调 Project Tool；前端或源码改动使用 `workbench_project_hot_update` / `workbench_project_update`。
+                    - 不要直接改 registry、api registry 或 active_project.json；让 Workbench control tools 写入。
+                """.trimIndent()
+                PromptLocale.EN_US -> """
+                    Active OOB Project context:
+                    $contextText
+
+                    OOB Project rules:
+                    - A Project is Xiaowan's built-in runtime layer connecting data, frontend Display, backend Project Tools, and interaction bridge.
+                    - Before creating, updating, opening, exporting, or operating a Project, prefer `skills_read(skillId="oob-project")` for the full rules.
+                    - Business data operations must use `workbench_api_call` against Project Tools; frontend/source changes use `workbench_project_hot_update` / `workbench_project_update`.
+                    - Do not edit registries, API registries, or active_project.json directly; let Workbench control tools persist them.
+                """.trimIndent()
+            }
+        } ?: ""
+        val workbenchLayoutSection = if (activeWorkbenchProjectText == null) {
+            ""
+        } else {
+            workbenchDisplayLayoutContext
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?: when (locale) {
+                    PromptLocale.ZH_CN ->
+                        "当前没有 Workbench Display 实测布局；生成响应式窄屏页面，并在 App 上报布局后用 hot update 修正。"
+                    PromptLocale.EN_US ->
+                        "No measured Workbench Display layout is available; generate a responsive narrow viewport and refine it with hot update after the app reports layout."
+                }
+        }
+
         return when (locale) {
             PromptLocale.ZH_CN -> """
                 你是在 Alpine 工作环境内的 AI Agent，你同时能通过工具调用操作用户的手机。
@@ -186,6 +229,9 @@ object AgentSystemPrompt {
                 - 记忆工具统一使用 `memory_*`；短期记忆写入 `memory_write_daily`，长期记忆写入 `memory_upsert_longterm`，检索使用 `memory_search`，整理使用 `memory_rollup_day`。
                 - 允许在用户明确授权时更新 `.omnibot/agent/SOUL.md`，并在回复中说明更新点与原因。
                 - `schedule_task_*`、`alarm_*`、`calendar_*`、`memory_*`、`subagent_dispatch`、`mcp__*`、`terminal_execute`、`android_privileged_action`、`android_privileged_session_*`、`terminal_session_*` 调用后先等待工具结果，再决定下一步。
+
+                $workbenchProjectSection
+                $workbenchLayoutSection
 
                 Skills：
                 - 已安装 skills 根目录（shell）: $skillsRootShellPath
@@ -248,6 +294,9 @@ object AgentSystemPrompt {
                 - Use `memory_*` for memory operations: `memory_write_daily` for short-term memory, `memory_upsert_longterm` for long-term memory, `memory_search` for retrieval, and `memory_rollup_day` for rollups.
                 - You may update `.omnibot/agent/SOUL.md` when the user clearly authorizes it, and you must explain what changed and why.
                 - After calling `schedule_task_*`, `alarm_*`, `calendar_*`, `memory_*`, `subagent_dispatch`, `mcp__*`, `terminal_execute`, `android_privileged_action`, `android_privileged_session_*`, or `terminal_session_*`, wait for the tool result before deciding the next step.
+
+                $workbenchProjectSection
+                $workbenchLayoutSection
 
                 Skills:
                 - Installed skills root (shell): $skillsRootShellPath

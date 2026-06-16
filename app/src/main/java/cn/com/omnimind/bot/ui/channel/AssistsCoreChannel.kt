@@ -210,6 +210,12 @@ class AssistsCoreChannel {
                 "retryAgentTask" -> {
                     assistsCoreManager!!.retryAgentTask(call, result)
                 }
+                "agentRunList" -> {
+                    assistsCoreManager!!.agentRunList(call, result)
+                }
+                "captureWorkbenchAnnotationAttachment" -> {
+                    assistsCoreManager!!.captureWorkbenchAnnotationAttachment(call, result)
+                }
                 "isCompanionTaskRunning" -> {
                     assistsCoreManager!!.isCompanionTaskRunning( call, result)
                 }
@@ -309,6 +315,60 @@ class AssistsCoreChannel {
                 }
                 "navigateToMainEngineRoute" -> {
                     assistsCoreManager!!.navigateToMainEngineRoute(call, result)
+                }
+                "workbenchProjectCreate" -> {
+                    assistsCoreManager!!.workbenchProjectCreate(call, result)
+                }
+                "workbenchProjectGet" -> {
+                    assistsCoreManager!!.workbenchProjectGet(call, result)
+                }
+                "workbenchProjectUpdate" -> {
+                    assistsCoreManager!!.workbenchProjectUpdate(call, result)
+                }
+                "workbenchProjectList" -> {
+                    assistsCoreManager!!.workbenchProjectList(call, result)
+                }
+                "workbenchProjectOpen" -> {
+                    assistsCoreManager!!.workbenchProjectOpen(call, result)
+                }
+                "workbenchProjectActivate" -> {
+                    assistsCoreManager!!.workbenchProjectActivate(call, result)
+                }
+                "workbenchProjectActiveGet" -> {
+                    assistsCoreManager!!.workbenchProjectActiveGet(call, result)
+                }
+                "workbenchFrontendContextSet" -> {
+                    assistsCoreManager!!.workbenchFrontendContextSet(call, result)
+                }
+                "workbenchFrontendContextGet" -> {
+                    assistsCoreManager!!.workbenchFrontendContextGet(call, result)
+                }
+                "workbenchProjectDeactivate" -> {
+                    assistsCoreManager!!.workbenchProjectDeactivate(call, result)
+                }
+                "workbenchProjectDelete" -> {
+                    assistsCoreManager!!.workbenchProjectDelete(call, result)
+                }
+                "workbenchProjectExport" -> {
+                    assistsCoreManager!!.workbenchProjectExport(call, result)
+                }
+                "workbenchProjectHotUpdate" -> {
+                    assistsCoreManager!!.workbenchProjectHotUpdate(call, result)
+                }
+                "workbenchProjectIngestAndroid" -> {
+                    assistsCoreManager!!.workbenchProjectIngestAndroid(call, result)
+                }
+                "workbenchProjectIngestOss" -> {
+                    assistsCoreManager!!.workbenchProjectIngestOss(call, result)
+                }
+                "workbenchProjectProgressGet" -> {
+                    assistsCoreManager!!.workbenchProjectProgressGet(call, result)
+                }
+                "workbenchApiList" -> {
+                    assistsCoreManager!!.workbenchApiList(call, result)
+                }
+                "workbenchApiCall" -> {
+                    assistsCoreManager!!.workbenchApiCall(call, result)
                 }
                 "reopenChatBotAfterAuth" -> {
                     assistsCoreManager!!.reopenChatBotAfterAuth(result)

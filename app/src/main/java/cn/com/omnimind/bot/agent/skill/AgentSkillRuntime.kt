@@ -17,6 +17,7 @@ private const val OFFICIAL_SOURCE = "official"
 private const val USER_SOURCE = "user"
 private const val INSTALL_STATE_INSTALLED = "installed"
 private const val INSTALL_STATE_REMOVED_BUILTIN = "removed_builtin"
+private val PROJECT_RELATED_BUILTIN_SKILL_IDS = setOf("oob-project")
 private const val SKILL_REGISTRY_FILE_NAME = ".skill_registry.json"
 private const val OFFICIAL_SKILLS_GITHUB_REPOSITORY_URL = "https://github.com/omnimind-ai/OmniBotSkills"
 private const val OFFICIAL_SKILLS_CNB_REPOSITORY_URL = "https://cnb.cool/o.a/OmniBotSkills"
@@ -310,6 +311,15 @@ class SkillIndexService(
             )
         )
         return entry.copy(enabled = enabled)
+    }
+
+    fun setProjectRelatedBuiltinSkillsEnabled(enabled: Boolean): List<SkillIndexEntry> {
+        seedBuiltinSkillsIfNeeded()
+        return PROJECT_RELATED_BUILTIN_SKILL_IDS.mapNotNull { skillId ->
+            runCatching {
+                setSkillEnabled(skillId, enabled)
+            }.getOrNull()
+        }
     }
 
     fun deleteSkill(skillId: String): Boolean {

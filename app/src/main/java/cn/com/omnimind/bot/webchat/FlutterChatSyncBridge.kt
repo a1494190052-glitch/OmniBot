@@ -55,6 +55,21 @@ object FlutterChatSyncBridge {
         )
     }
 
+    fun dispatchWorkbenchProjectUpdated(
+        projectId: String,
+        updatedPaths: List<String> = emptyList(),
+        reason: String = "project_updated",
+        items: List<Map<String, Any?>>? = null
+    ) {
+        val args = linkedMapOf<String, Any?>(
+            "projectId" to projectId,
+            "updatedPaths" to updatedPaths,
+            "reason" to reason
+        )
+        if (items != null) args["items"] = items
+        dispatch(method = "workbenchProjectUpdated", arguments = args)
+    }
+
     /**
      * 把一条已经落库的外部用户消息（IM/微信/Telegram 等）直接推送给 Flutter 端，
      * 让 runtime 立刻插入到 messages 列表里。

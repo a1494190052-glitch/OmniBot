@@ -1991,4 +1991,808 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get homeDrawerLateNightSub2 => '好好和今天说晚安～';
+
+  @override
+  String get workbenchTitle => '工作台';
+
+  @override
+  String get workbenchWorkspaceTitle => '工作区';
+
+  @override
+  String get workbenchWorkspaceOpenWorkbench => '打开工作台';
+
+  @override
+  String get workbenchWorkspaceOpenProjectConsole => '进入管理';
+
+  @override
+  String get workbenchWorkspaceWorkMode => '文件';
+
+  @override
+  String get workbenchWorkspaceProjectMode => '项目';
+
+  @override
+  String get workbenchWorkspaceProjectFrontendsTitle => '项目窗口';
+
+  @override
+  String get workbenchWorkspaceProjectFrontendsSubtitle =>
+      '开启项目模式后，这里像子窗口一样直接承载当前激活项目的 OOB 原生前端。';
+
+  @override
+  String get workbenchWorkspaceProjectFrontendsEmpty =>
+      '暂无项目前端。回到对话里描述需求后，Agent 会通过工作台创建可显示的项目。';
+
+  @override
+  String get workbenchWorkspaceProjectOpenFailed => '打开项目前端失败';
+
+  @override
+  String get workbenchWorkspaceProjectUnsupportedDisplay =>
+      '这个显示页暂不支持内嵌窗口显示，请用右上角打开为完整页面。';
+
+  @override
+  String get workbenchWorkspaceGuideTooltip => '查看项目工作台说明';
+
+  @override
+  String get workbenchWorkspaceGuideClose => '关闭说明';
+
+  @override
+  String get workbenchWorkspaceGuideTitle => '项目工作台怎么工作';
+
+  @override
+  String get workbenchWorkspaceGuideIntro =>
+      '项目模式不是新的聊天页，而是 OOB 里用来承载 vibe project 的原生工作台。它把生成前端、项目工具、工作区文件、Skill 和持久化数据连成一个可继续编辑的单位。';
+
+  @override
+  String get workbenchWorkspaceGuideFlowTitle => '交互链路';
+
+  @override
+  String get workbenchWorkspaceGuideFlowPrompt => '提示词 + Skill 拆解需求';
+
+  @override
+  String get workbenchWorkspaceGuideFlowProject => '项目注册表记录容器';
+
+  @override
+  String get workbenchWorkspaceGuideFlowApi => '项目工具注册业务能力';
+
+  @override
+  String get workbenchWorkspaceGuideFlowDisplay => 'Flutter 显示页展示业务前端';
+
+  @override
+  String get workbenchWorkspaceGuideFlowPersist =>
+      'data/ + logs/ 持久化 AI 与 UI 调用';
+
+  @override
+  String get workbenchWorkspaceGuideProjectTitle => '项目绑定什么';
+
+  @override
+  String get workbenchWorkspaceGuideProjectBody =>
+      '一个项目会绑定目标、Skill、工作区文件、显示页列表、项目工具、数据和日志。它不是 MCP 工具列表，也不是随手生成的 HTML。';
+
+  @override
+  String get workbenchWorkspaceGuideFrontendTitle => '前端怎么显示';
+
+  @override
+  String get workbenchWorkspaceGuideFrontendBody =>
+      '生成前端是 OOB 原生 Flutter 显示页。工作区切到项目后，不再显示大型管理列表，而是像浏览器子窗口一样直接承载当前激活项目的首页；一个项目可以有多个显示页，可用小菜单切换。';
+
+  @override
+  String get workbenchWorkspaceGuideBackendTitle => '后端怎么被调用';
+
+  @override
+  String get workbenchWorkspaceGuideBackendBody =>
+      '后端能力注册为项目工具，例如 todo.add、todo.finish。AI 层和前端按钮都调用同一条 workbenchApiCall(projectId, toolId, inputs)，项目创建、导出、删除等控制接口不会混进业务工具。';
+
+  @override
+  String get workbenchWorkspaceGuideDataTitle => '数据怎么流';
+
+  @override
+  String get workbenchWorkspaceGuideDataBody =>
+      '调用会经过 Flutter -> MethodChannel -> OOB native executor，然后写入项目的 data/ 和 logs/。前端刷新、AI 调用统计和重启后的状态都来自这份持久化数据。';
+
+  @override
+  String get workbenchWorkspaceGuideVibeTitle => '怎么继续改';
+
+  @override
+  String get workbenchWorkspaceGuideVibeBody =>
+      '要继续 vibe coding，回到首页大输入框说需求。工作台 Skill 会判断是创建新项目、扩充项目工具、调整显示页，还是对当前项目做热更新。';
+
+  @override
+  String get workbenchWorkspaceGuideExtendTitle => '扩充后端工具';
+
+  @override
+  String get workbenchWorkspaceGuideExtendBody =>
+      '新增能力时先定义 toolId、输入输出 schema、executorKind、持久化文件和前端触发位置，再通过工作台接口注册项目工具；不要手写 registry 文件。';
+
+  @override
+  String workbenchWorkspaceProjectApiStats(
+    Object apiCount,
+    Object executionCount,
+  ) {
+    return '$apiCount 个工具 · 已执行 $executionCount 次';
+  }
+
+  @override
+  String get workbenchSubtitle => '一个 OOB 原生项目示例，用来验证项目工具注册、状态持久化和工作台内显示。';
+
+  @override
+  String get workbenchVibeSubtitle => '提示词生成的原生前端、项目工具和工作区文件在 OOB 内保持关联。';
+
+  @override
+  String get workbenchProjectDisplay => '项目显示';
+
+  @override
+  String get workbenchProjectSection => '项目';
+
+  @override
+  String get workbenchProjectIdLabel => '项目 ID';
+
+  @override
+  String get workbenchRouteLabel => '页面路径';
+
+  @override
+  String get workbenchSpacePathLabel => 'Space 路径';
+
+  @override
+  String get workbenchPageIdsLabel => '页面';
+
+  @override
+  String get workbenchDevelopmentMode => '开发模式';
+
+  @override
+  String get workbenchProjectRegistryPath => '项目注册表';
+
+  @override
+  String get workbenchApiRegistryPath => '工具注册表';
+
+  @override
+  String get workbenchProjectFilePath => '项目文件';
+
+  @override
+  String get workbenchDataFilePath => '数据文件';
+
+  @override
+  String get workbenchLogFilePath => '工具日志';
+
+  @override
+  String get workbenchBackendTools => '后端工具';
+
+  @override
+  String get workbenchFrontendBinding => '前后端绑定';
+
+  @override
+  String get workbenchCallApi => '调用工具';
+
+  @override
+  String get workbenchGeneratedFrontend => '生成的前端';
+
+  @override
+  String get workbenchGeneratedFrontendSubtitle =>
+      '打开提示词生成页面应该挂载的 OOB 原生预览容器。它和 AI 层共用同一组项目工具与持久化数据。';
+
+  @override
+  String get workbenchOpenGeneratedFrontend => '打开生成前端';
+
+  @override
+  String get workbenchPreviewClose => '关闭预览';
+
+  @override
+  String get workbenchToolList => '项目工具';
+
+  @override
+  String get workbenchProjectControlSubtitle =>
+      '这里只展示已注册的业务工具。项目创建和打开仍属于 OOB 工作台控制面。';
+
+  @override
+  String get workbenchOpenWorkspace => '打开工作区';
+
+  @override
+  String get workbenchApiEmpty => '暂无工具';
+
+  @override
+  String get workbenchToolListDefaultTodo => '项目工具点击了同一个后端';
+
+  @override
+  String workbenchToolExecutionCount(Object count) {
+    return '已执行 $count 次';
+  }
+
+  @override
+  String get workbenchProjectDefaultEntity => '条目';
+
+  @override
+  String workbenchProjectCreateTitle(Object entity) {
+    return '新增 $entity';
+  }
+
+  @override
+  String workbenchProjectInputHint(Object entity) {
+    return '输入 $entity 名称';
+  }
+
+  @override
+  String workbenchProjectItemsTitle(Object entity) {
+    return '$entity 列表';
+  }
+
+  @override
+  String workbenchProjectEmpty(Object entity) {
+    return '暂无 $entity';
+  }
+
+  @override
+  String get workbenchProjectActiveItems => '进行中';
+
+  @override
+  String get workbenchProjectArchivedItems => '已归档';
+
+  @override
+  String get workbenchProjectEditAction => '编辑';
+
+  @override
+  String get workbenchProjectEditTitle => '编辑条目';
+
+  @override
+  String get workbenchProjectArchiveAction => '归档';
+
+  @override
+  String get workbenchProjectMissingCreateApi => '这个项目没有可用的新增工具';
+
+  @override
+  String get workbenchProjectMissingUpdateApi => '这个项目没有可用的编辑工具';
+
+  @override
+  String get workbenchProjectMissingArchiveApi => '这个项目没有可用的归档工具';
+
+  @override
+  String workbenchProjectInputRequired(Object entity) {
+    return '请先输入 $entity';
+  }
+
+  @override
+  String workbenchProjectItemCreated(Object entity) {
+    return '$entity 已新增';
+  }
+
+  @override
+  String workbenchProjectItemUpdated(Object entity) {
+    return '$entity 已保存';
+  }
+
+  @override
+  String workbenchProjectItemArchived(Object entity) {
+    return '$entity 已归档';
+  }
+
+  @override
+  String get workbenchLoadFailed => '加载失败';
+
+  @override
+  String get workbenchUnknownTool => '工作台工具执行失败';
+
+  @override
+  String get workbenchStatusOpen => '等待处理';
+
+  @override
+  String get workbenchStatusFinished => '已归档';
+
+  @override
+  String get workbenchAssistantName => '小万';
+
+  @override
+  String get workbenchAssistantTooltip => '打开小万';
+
+  @override
+  String get workbenchAssistantPromptHint => '说出你想实时调整的地方';
+
+  @override
+  String get workbenchAssistantSend => '热更新当前项目';
+
+  @override
+  String get workbenchAssistantApplied => '项目已热更新';
+
+  @override
+  String get workbenchAssistantPromptRequired => '请先输入要调整的内容';
+
+  @override
+  String get workbenchAssistantNoProject => '请先选择一个项目';
+
+  @override
+  String get workbenchAssistantHotUpdateFailed => '项目热更新失败';
+
+  @override
+  String get workbenchProjectModeTitle => '项目';
+
+  @override
+  String get workbenchFlutterDisplay => 'Flutter 显示页';
+
+  @override
+  String get workbenchFlutterEvalTitle => 'Flutter 运行页';
+
+  @override
+  String get workbenchFlutterEvalNoSource =>
+      '当前项目还没有可运行的 Flutter 源码。请在 frontend/flutter/lib/main.dart 定义 OobProjectWidget。';
+
+  @override
+  String get workbenchFlutterEvalRuntimeFailed =>
+      'Flutter 源码暂不可运行，请回到输入框让小万修复这个页面。';
+
+  @override
+  String get workbenchProjectSwitcher => '切换项目';
+
+  @override
+  String get workbenchProjectGenerateTitle => '项目容器';
+
+  @override
+  String get workbenchProjectGenerateSubtitle =>
+      '这里只选择和打开项目容器。创建、编辑和热更新继续回到首页大输入框，由当前激活的项目 toolbox 承接。';
+
+  @override
+  String get workbenchProjectPromptHint => '回到首页输入项目需求';
+
+  @override
+  String get workbenchProjectDefaultPrompt =>
+      '我想创建一个简单的 todolist 管理系统，要求可以增加 todo，归档 todo';
+
+  @override
+  String get workbenchProjectGenerateButton => '回到首页继续';
+
+  @override
+  String get workbenchInputProjectTooltip => '打开项目工作台';
+
+  @override
+  String get workbenchGeneratedTodoProjectName => 'Todo List 工作台';
+
+  @override
+  String get workbenchPromptSeedAddTodo => '验证可以增加 todo';
+
+  @override
+  String get workbenchPromptSeedArchiveTodo => '验证可以归档 todo';
+
+  @override
+  String get workbenchProjectPlanTitle => '拆分计划';
+
+  @override
+  String get workbenchProjectPlanProject => '创建项目注册和可编辑工作区';
+
+  @override
+  String get workbenchProjectPlanFrontend => '生成 OOB 原生 Flutter 前端';
+
+  @override
+  String get workbenchProjectPlanApi => '注册 AI/UI 共用项目工具';
+
+  @override
+  String get workbenchProjectPlanData => '写入持久化数据和工具日志';
+
+  @override
+  String get workbenchUseMode => '使用模式';
+
+  @override
+  String get workbenchDebugMode => 'Debug 模式';
+
+  @override
+  String get workbenchDisplaysTitle => '页面';
+
+  @override
+  String workbenchDisplayCount(Object count) {
+    return '$count 个前端';
+  }
+
+  @override
+  String get workbenchUnnamedDisplay => '未命名前端';
+
+  @override
+  String get workbenchOpenDisplay => '打开这个前端';
+
+  @override
+  String get workbenchDebugDisplay => '调试这个前端';
+
+  @override
+  String get workbenchProjectCurrentTitle => '项目使用台';
+
+  @override
+  String get workbenchProjectCurrentSubtitle =>
+      '默认打开前端会回到首页；调试打开会回到工作台。热更新通过首页大输入框和当前激活项目完成。';
+
+  @override
+  String get workbenchProjectModeCreateTitle => 'Vibe 项目入口';
+
+  @override
+  String get workbenchProjectModeSubtitle => '这里只显示项目和当前激活项。';
+
+  @override
+  String get workbenchProjectActiveTitle => '当前项目';
+
+  @override
+  String get workbenchProjectActiveEmpty => '尚未激活项目';
+
+  @override
+  String get workbenchProjectListTitle => '项目';
+
+  @override
+  String get workbenchProjectDetailTitle => '项目';
+
+  @override
+  String get workbenchProjectModeCreateButton => '去首页创建';
+
+  @override
+  String get workbenchProjectCreateFromHome => '回到首页输入框，直接说创建项目或描述你想做的页面。';
+
+  @override
+  String get workbenchProjectModeProjectsTitle => '当前工具';
+
+  @override
+  String get workbenchProjectApiForProject => '工具';
+
+  @override
+  String get workbenchProjectModeOpen => '打开项目';
+
+  @override
+  String get workbenchProjectModeEmpty => '暂无工作台项目';
+
+  @override
+  String get workbenchProjectModeLoadFailed => '项目模式加载失败';
+
+  @override
+  String get workbenchProjectPromptRequired => '请先输入项目需求';
+
+  @override
+  String get workbenchProjectGenerated => '项目已生成';
+
+  @override
+  String get workbenchDeleteProject => '删除项目';
+
+  @override
+  String get workbenchDeleteProjectTitle => '删除项目';
+
+  @override
+  String workbenchDeleteProjectMessage(Object projectId) {
+    return '确定删除 $projectId？它会移除项目注册、业务工具注册和工作区项目文件。';
+  }
+
+  @override
+  String get workbenchDeleteProjectCancel => '取消';
+
+  @override
+  String get workbenchDeleteProjectConfirm => '删除';
+
+  @override
+  String get workbenchDeleteProjectFailed => '项目删除失败';
+
+  @override
+  String get workbenchProjectDeleted => '项目已删除';
+
+  @override
+  String get workbenchProjectIdRequired => '请输入项目 ID';
+
+  @override
+  String get workbenchProjectCreated => '项目已创建';
+
+  @override
+  String get workbenchProjectInfoTitle => '项目信息';
+
+  @override
+  String get workbenchProjectInfoDisplayTitle => '显示入口';
+
+  @override
+  String get workbenchProjectInfoSourceTitle => '源码规格';
+
+  @override
+  String get workbenchProjectInfoSourceValue =>
+      'README.md / frontend/page_spec.json / backend/api_spec.json';
+
+  @override
+  String get workbenchProjectInfoRuntimeTitle => '运行态';
+
+  @override
+  String get workbenchProjectInfoRuntimeValue =>
+      'data/todos.json / logs/api_calls.jsonl';
+
+  @override
+  String get workbenchDebugToolsTitle => '调试工具';
+
+  @override
+  String get workbenchDebugHotUpdate => '悬浮小万实时修改当前项目';
+
+  @override
+  String get workbenchDebugHotUpdateHomeInput =>
+      '回到首页大输入框描述修改，Agent 会带着当前项目 toolbox 执行热更新';
+
+  @override
+  String get workbenchDebugFloatingXiaowan =>
+      '悬浮小万可以带上当前前端上下文，选择页面信息后调用 workbench_project_hot_update 迭代这个项目。';
+
+  @override
+  String get workbenchDebugVlmInput =>
+      'VLM 输入也可以附带当前显示页、可见状态、选中控件或截图摘要，作为 frontendContext 交给项目 Skill。';
+
+  @override
+  String workbenchDebugContextProject(Object projectId) {
+    return '项目 $projectId';
+  }
+
+  @override
+  String workbenchDebugContextDisplay(Object displayId) {
+    return '显示页 $displayId';
+  }
+
+  @override
+  String workbenchDebugContextRoute(Object route) {
+    return '页面路径 $route';
+  }
+
+  @override
+  String get workbenchDebugVlmTest => '根据 VLM 模拟人类操作测试';
+
+  @override
+  String get workbenchDebugComingSoon => '待接入';
+
+  @override
+  String get workbenchAnnotationTitle => '标注画布';
+
+  @override
+  String get workbenchAnnotationDrawMode => '画笔';
+
+  @override
+  String get workbenchAnnotationBrowseMode => '浏览页面';
+
+  @override
+  String get workbenchAnnotationUndo => '撤销';
+
+  @override
+  String get workbenchAnnotationClear => '清空';
+
+  @override
+  String get workbenchAnnotationApply => '应用标注';
+
+  @override
+  String get workbenchAnnotationApplying => '应用中';
+
+  @override
+  String get workbenchAnnotationPromptHint => '补充修改说明，例如：把这里改成主按钮';
+
+  @override
+  String get workbenchAnnotationNoStrokes => '先在页面上画出要修改的区域';
+
+  @override
+  String get workbenchAnnotationNoShape => '未标注';
+
+  @override
+  String workbenchAnnotationShapeCount(Object count) {
+    return '已标注 $count 笔';
+  }
+
+  @override
+  String get workbenchAnnotationDefaultPrompt => '根据画布标注调整当前项目前端。';
+
+  @override
+  String get workbenchAnnotationHotUpdateSuccess => '已把标注应用到项目';
+
+  @override
+  String get workbenchAnnotationHotUpdateFailed => '标注热更新失败';
+
+  @override
+  String get workbenchExportProjectPackage => '导出分发包';
+
+  @override
+  String get workbenchProjectExportFailed => '项目导出失败';
+
+  @override
+  String workbenchProjectExported(Object packageName) {
+    return '已导出 $packageName';
+  }
+
+  @override
+  String workbenchProjectExportPath(Object path) {
+    return '导出位置：$path';
+  }
+
+  @override
+  String get workbenchAndroidAssetsTitle => '应用';
+
+  @override
+  String get workbenchAndroidSourceHint =>
+      '输入 APK 或 Android 项目路径，例如 /workspace/apps/demo.apk';
+
+  @override
+  String get workbenchAndroidIngestButton => '导入到当前项目';
+
+  @override
+  String get workbenchAndroidSourceRequired => '请输入 Android 应用或项目路径';
+
+  @override
+  String get workbenchAndroidIngestFailed => 'Android 资产导入失败';
+
+  @override
+  String workbenchAndroidIngested(Object name) {
+    return '已导入 $name';
+  }
+
+  @override
+  String get workbenchAndroidAssetsEmpty => '暂无导入的 Android 应用或项目';
+
+  @override
+  String get workbenchProjectActivateFailed => '项目激活失败';
+
+  @override
+  String workbenchProjectActivated(Object projectName) {
+    return '已激活 $projectName';
+  }
+
+  @override
+  String get workbenchProjectDeactivateFailed => '项目取消激活失败';
+
+  @override
+  String get workbenchProjectDeactivated => '已取消激活项目';
+
+  @override
+  String get workbenchActivateProject => '激活项目';
+
+  @override
+  String get workbenchDeactivateProject => '取消激活';
+
+  @override
+  String get workbenchEditProjectLabels => '编辑名称';
+
+  @override
+  String get workbenchProjectNameLabel => '名称';
+
+  @override
+  String get workbenchProjectShortNameLabel => '简写';
+
+  @override
+  String get workbenchSaveProjectLabels => '保存';
+
+  @override
+  String get workbenchProjectNameRequired => '请输入名称';
+
+  @override
+  String get workbenchProjectLabelsUpdated => '已保存';
+
+  @override
+  String get workbenchProjectLabelsUpdateFailed => '保存失败';
+
+  @override
+  String get workbenchProjectMoreActions => '更多操作';
+
+  @override
+  String get workbenchActiveProject => '已激活';
+
+  @override
+  String get workbenchInactiveProject => '未激活';
+
+  @override
+  String get workbenchContinueInHome => '激活项目';
+
+  @override
+  String get workbenchProjectHelpTooltip => '项目工作台说明';
+
+  @override
+  String get workbenchProjectHelpTitle => '项目工作台';
+
+  @override
+  String get workbenchProjectHelpHomeInput => '创建、编辑和热更新都在首页大输入框里完成。';
+
+  @override
+  String get workbenchProjectHelpSelect => '这里选择一个项目，把它激活为 Agent 当前工作环境。';
+
+  @override
+  String get workbenchProjectHelpDisplays => '每个项目可以有多个 Flutter 前端显示页，从这里打开容器。';
+
+  @override
+  String get workbenchProjectHelpApis =>
+      '项目工具是当前项目的业务 toolbox，和 MCP tools 分开管理。';
+
+  @override
+  String workbenchActiveProjectChip(Object projectName) {
+    return '项目：$projectName';
+  }
+
+  @override
+  String workbenchProjectSummaryGeneric(Object entityName) {
+    return '管理 $entityName 记录，并保留状态和快捷操作。';
+  }
+
+  @override
+  String workbenchAndroidAssetCount(Object count) {
+    return '$count 个 Android 资产';
+  }
+
+  @override
+  String workbenchProjectItemCount(Object activeCount, Object archivedCount) {
+    return '$activeCount 条进行中 / $archivedCount 条归档';
+  }
+
+  @override
+  String workbenchApiCount(Object count) {
+    return '$count 个工具';
+  }
+
+  @override
+  String get workbenchPhilosophyBadge => '了解工作台';
+
+  @override
+  String get workbenchPhilosophyClose => '关闭';
+
+  @override
+  String get workbenchPhilosophyTitle => 'AI 产品展示工作台';
+
+  @override
+  String get workbenchPhilosophyTagline => '让 AI 的结果立刻变成可看、可点、可继续修改的界面';
+
+  @override
+  String get workbenchPhilosophySubtitle =>
+      'Workbench 不是模板生成器，而是 AI 产品的展示与运行层。Agent 产出的报告、数据、状态和操作会落到 Project 中，通过 HTML、Markdown 或 Flutter 显示，并通过 Project API 连接手机能力与持久化数据。';
+
+  @override
+  String get workbenchPhilosophyPillarsTitle => '当前核心闭环';
+
+  @override
+  String get workbenchPhilosophyComposable => '显示层';
+
+  @override
+  String get workbenchPhilosophyComposableDesc =>
+      'HTML / Markdown / Flutter 都是 Project Display，用来承载 AI 输出';
+
+  @override
+  String get workbenchPhilosophyAIDriven => '交互层';
+
+  @override
+  String get workbenchPhilosophyAIDrivenDesc =>
+      '用户点击、填写、选择后，通过 Project API 触发下一步 Agent 或工具';
+
+  @override
+  String get workbenchPhilosophyMobileNative => '能力层';
+
+  @override
+  String get workbenchPhilosophyMobileNativeDesc =>
+      '需要操控手机、读屏、文件、脚本时，再走 OOB 原生能力';
+
+  @override
+  String get workbenchPhilosophyStrengthsTitle => '三件事';
+
+  @override
+  String get workbenchPhilosophyBackendTitle => 'Project API';
+
+  @override
+  String get workbenchPhilosophyBackendDesc =>
+      '白名单工具、持久化数据、运行日志和手机能力统一挂到 Project 上';
+
+  @override
+  String get workbenchPhilosophyFrontendTitle => 'Display';
+
+  @override
+  String get workbenchPhilosophyFrontendDesc =>
+      '普通交互 UI 默认 HTML；报告用 Markdown / HTML；Flutter 保留为容器和受限补充';
+
+  @override
+  String get workbenchPhilosophyRuntimeTitle => 'Hot update';
+
+  @override
+  String get workbenchPhilosophyRuntimeDesc =>
+      '用户一句话或一次选区标注后，AI 只改必要的前端文件或 API，右侧立即刷新';
+
+  @override
+  String get workbenchPhilosophyHowToTitle => '使用方式';
+
+  @override
+  String get workbenchPhilosophyStep1Label => '生成';
+
+  @override
+  String get workbenchPhilosophyStep1Desc => 'Agent 创建 Project，写入 API 与显示文件';
+
+  @override
+  String get workbenchPhilosophyStep2Label => '查看';
+
+  @override
+  String get workbenchPhilosophyStep2Desc =>
+      '右侧 Workspace 直接预览 HTML / Markdown / Flutter';
+
+  @override
+  String get workbenchPhilosophyStep3Label => '修改';
+
+  @override
+  String get workbenchPhilosophyStep3Desc => '用悬浮输入或标注提出修改，Project 热更新';
+
+  @override
+  String get workbenchPhilosophyActivateHint =>
+      '激活项目后，右侧 Workspace 显示它的 Display；继续输入或标注会作为上下文传给 hot update。';
 }

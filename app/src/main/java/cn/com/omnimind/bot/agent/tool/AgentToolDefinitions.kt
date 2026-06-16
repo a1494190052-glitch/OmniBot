@@ -2082,6 +2082,468 @@ object AgentToolDefinitions {
         }
     }
 
+    val workbenchProjectCreateTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_create")
+            put("displayName", "创建 Workbench Project")
+            put("toolType", "workbench")
+            put("description", "创建 OOB Project。Project 是由数据、前端 Display、后端 Project Tools 和交互层组成的小应用。默认使用 htmlFiles 生成可即时运行的应用界面。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("projectId") {
+                        put("type", "string")
+                        put("description", "稳定 Project id，例如 oob-workbench-expense-tracker。")
+                    }
+                    putJsonObject("name") {
+                        put("type", "string")
+                        put("description", "用户可见 Project 名称。")
+                    }
+                    putJsonObject("prompt") {
+                        put("type", "string")
+                        put("description", "用户原始需求，用于后续迭代。")
+                    }
+                    putJsonObject("entityName") {
+                        put("type", "string")
+                        put("description", "Project 管理的业务实体名，例如 Note、Expense、Habit。")
+                    }
+                    putJsonObject("description") {
+                        put("type", "string")
+                        put("description", "应用视角的一句话说明。")
+                    }
+                    putJsonObject("initialItems") {
+                        put("type", "array")
+                        put("description", "可选初始数据，写入 Project data/items.json。")
+                    }
+                    putJsonObject("apis") {
+                        put("type", "array")
+                        put("description", "可选 Project Tool 列表，每项可含 apiId/toolId/displayName/inputSchema/outputSchema/run。")
+                    }
+                    putJsonObject("htmlFiles") {
+                        put("type", "array")
+                        put("description", "可选 HTML/CSS/JS Display 文件，路径限定在 frontend/html/。每项包含 path/content。")
+                    }
+                    putJsonObject("flutterFiles") {
+                        put("type", "array")
+                        put("description", "可选受限 flutter_eval Display 文件，路径限定在 frontend/flutter/。")
+                    }
+                    putJsonObject("markdownFiles") {
+                        put("type", "array")
+                        put("description", "可选 Markdown Display 文件，路径限定在 frontend/markdown/。")
+                    }
+                }
+                putJsonArray("required") {
+                    add("projectId")
+                }
+            }
+        }
+    }
+
+    val workbenchProjectListTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_list")
+            put("displayName", "列出 Workbench Project")
+            put("toolType", "workbench")
+            put("description", "列出已注册的 OOB Project。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {}
+            }
+        }
+    }
+
+    val workbenchProjectGetTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_get")
+            put("displayName", "读取 Workbench Project")
+            put("toolType", "workbench")
+            put("description", "读取指定 OOB Project 的 Display、数据、Project Tools 和运行状态。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("projectId") {
+                        put("type", "string")
+                        put("description", "Project id。")
+                    }
+                }
+                putJsonArray("required") {
+                    add("projectId")
+                }
+            }
+        }
+    }
+
+    val workbenchProjectUpdateTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_update")
+            put("displayName", "更新 Workbench Project")
+            put("toolType", "workbench")
+            put("description", "迭代已有 OOB Project，更新名称、Display、Project Tools、HTML/Flutter/Markdown 源码或局部 HTML patch。优先更新已有 Project，不为同一需求重复创建。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("projectId") {
+                        put("type", "string")
+                        put("description", "要更新的 Project id。")
+                    }
+                    putJsonObject("name") {
+                        put("type", "string")
+                        put("description", "可选展示名称。")
+                    }
+                    putJsonObject("shortName") {
+                        put("type", "string")
+                        put("description", "可选短名。")
+                    }
+                    putJsonObject("description") {
+                        put("type", "string")
+                        put("description", "可选应用说明。")
+                    }
+                    putJsonObject("displays") {
+                        put("type", "array")
+                        put("description", "可选 Display 定义。")
+                    }
+                    putJsonObject("apis") {
+                        put("type", "array")
+                        put("description", "可选 Project Tool 定义。")
+                    }
+                    putJsonObject("htmlFiles") {
+                        put("type", "array")
+                        put("description", "可选 HTML/CSS/JS 文件，路径限定在 frontend/html/。")
+                    }
+                    putJsonObject("flutterFiles") {
+                        put("type", "array")
+                        put("description", "可选 flutter_eval 文件，路径限定在 frontend/flutter/。")
+                    }
+                    putJsonObject("markdownFiles") {
+                        put("type", "array")
+                        put("description", "可选 Markdown 文件，路径限定在 frontend/markdown/。")
+                    }
+                    putJsonObject("htmlPatches") {
+                        put("type", "array")
+                        put("description", "可选局部 HTML 文本替换 patch，每项含 path/oldText/newText/replaceAll。")
+                    }
+                    putJsonObject("prompt") {
+                        put("type", "string")
+                        put("description", "用户本次迭代需求。")
+                    }
+                }
+                putJsonArray("required") {
+                    add("projectId")
+                }
+            }
+        }
+    }
+
+    val workbenchApiListTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_api_list")
+            put("displayName", "列出 Project Tool")
+            put("toolType", "workbench")
+            put("description", "列出 Project 内部可调用的业务工具，不包含 Project 控制面工具。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("projectId") {
+                        put("type", "string")
+                        put("description", "可选 Project id。")
+                    }
+                }
+            }
+        }
+    }
+
+    val workbenchApiCallTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_api_call")
+            put("displayName", "调用 Project Tool")
+            put("toolType", "workbench")
+            put("description", "调用 Project 注册的业务工具，打通前端交互、后端执行和持久化数据。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("projectId") {
+                        put("type", "string")
+                        put("description", "Project id。")
+                    }
+                    putJsonObject("apiId") {
+                        put("type", "string")
+                        put("description", "Project Tool id，例如 item.create、item.list、item.archive。")
+                    }
+                    putJsonObject("inputs") {
+                        put("type", "object")
+                        put("description", "Project Tool 输入对象。")
+                    }
+                }
+                putJsonArray("required") {
+                    add("projectId")
+                    add("apiId")
+                    add("inputs")
+                }
+            }
+        }
+    }
+
+    val workbenchProjectExportTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_export")
+            put("displayName", "导出 Workbench Project")
+            put("toolType", "workbench")
+            put("description", "把 OOB Project 导出为 zip 包，包含配置、源码、数据、日志和 oob-project skill 契约。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("projectId") {
+                        put("type", "string")
+                        put("description", "Project id。")
+                    }
+                }
+                putJsonArray("required") {
+                    add("projectId")
+                }
+            }
+        }
+    }
+
+    val workbenchProjectOpenTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_open")
+            put("displayName", "打开 Workbench Project")
+            put("toolType", "workbench")
+            put("description", "打开指定 Project 的业务 Display。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("projectId") {
+                        put("type", "string")
+                        put("description", "Project id。")
+                    }
+                }
+                putJsonArray("required") {
+                    add("projectId")
+                }
+            }
+        }
+    }
+
+    val workbenchProjectActivateTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_activate")
+            put("displayName", "激活 Workbench Project")
+            put("toolType", "workbench")
+            put("description", "把指定 Project 设为当前 Agent 工作环境。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("projectId") {
+                        put("type", "string")
+                        put("description", "Project id。")
+                    }
+                }
+                putJsonArray("required") {
+                    add("projectId")
+                }
+            }
+        }
+    }
+
+    val workbenchProjectActiveGetTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_active_get")
+            put("displayName", "读取当前 Workbench Project")
+            put("toolType", "workbench")
+            put("description", "读取当前激活的 Project。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {}
+            }
+        }
+    }
+
+    val workbenchProjectDeactivateTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_deactivate")
+            put("displayName", "取消激活 Workbench Project")
+            put("toolType", "workbench")
+            put("description", "取消当前 active Project，不删除 Project。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {}
+            }
+        }
+    }
+
+    val workbenchProjectDeleteTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_delete")
+            put("displayName", "删除 Workbench Project")
+            put("toolType", "workbench")
+            put("description", "删除 Project 注册记录、业务工具记录和 workspace 文件。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("projectId") {
+                        put("type", "string")
+                        put("description", "Project id。")
+                    }
+                }
+                putJsonArray("required") {
+                    add("projectId")
+                }
+            }
+        }
+    }
+
+    val workbenchProjectHotUpdateTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_hot_update")
+            put("displayName", "热更新 Workbench Project")
+            put("toolType", "workbench")
+            put("description", "根据用户在 Project 页面上的反馈生成一次热更新请求，返回可用于继续迭代的上下文。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("projectId") {
+                        put("type", "string")
+                        put("description", "Project id。")
+                    }
+                    putJsonObject("prompt") {
+                        put("type", "string")
+                        put("description", "用户希望修改或补充的内容。")
+                    }
+                    putJsonObject("frontendContext") {
+                        put("type", "object")
+                        put("description", "可选当前前端上下文，如 route、displayId、visibleState、selectedElement、workbenchLayout。")
+                        put("additionalProperties", true)
+                    }
+                }
+                putJsonArray("required") {
+                    add("projectId")
+                    add("prompt")
+                }
+            }
+        }
+    }
+
+    val workbenchProjectIngestAndroidTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_ingest_android")
+            put("displayName", "导入 Android 资产")
+            put("toolType", "workbench")
+            put("description", "把 APK 或 Android 项目目录导入到已有 Project。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("projectId") {
+                        put("type", "string")
+                        put("description", "Project id。")
+                    }
+                    putJsonObject("sourcePath") {
+                        put("type", "string")
+                        put("description", "APK 文件或 Android 项目目录路径。")
+                    }
+                    putJsonObject("sourceKind") {
+                        put("type", "string")
+                        putJsonArray("enum") {
+                            add("apk")
+                            add("android_project")
+                        }
+                    }
+                    putJsonObject("displayName") {
+                        put("type", "string")
+                        put("description", "可选资产展示名。")
+                    }
+                }
+                putJsonArray("required") {
+                    add("projectId")
+                    add("sourcePath")
+                }
+            }
+        }
+    }
+
+    val workbenchProjectIngestOssTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_ingest_oss")
+            put("displayName", "导入 OSS/GitHub 源码")
+            put("toolType", "workbench")
+            put("description", "把 GitHub/OSS URL 或本地源码目录登记/导入到已有 Project。只传 URL 时登记 fetch-required 元数据，不直接联网拉取。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("projectId") {
+                        put("type", "string")
+                        put("description", "Project id。")
+                    }
+                    putJsonObject("sourceUrl") {
+                        put("type", "string")
+                        put("description", "可选 GitHub 或 git 仓库 URL。")
+                    }
+                    putJsonObject("sourcePath") {
+                        put("type", "string")
+                        put("description", "可选已下载源码目录或文件路径。")
+                    }
+                    putJsonObject("sourceKind") {
+                        put("type", "string")
+                        putJsonArray("enum") {
+                            add("oss_repo")
+                            add("github_repo")
+                            add("local_source")
+                        }
+                    }
+                    putJsonObject("ref") {
+                        put("type", "string")
+                        put("description", "可选分支、tag 或 commit。")
+                    }
+                    putJsonObject("displayName") {
+                        put("type", "string")
+                        put("description", "可选源码展示名。")
+                    }
+                }
+                putJsonArray("required") {
+                    add("projectId")
+                }
+            }
+        }
+    }
+
+    val workbenchProjectProgressGetTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "workbench_project_progress_get")
+            put("displayName", "读取 Project 进度")
+            put("toolType", "workbench")
+            put("description", "读取 Project 创建、导入和更新进度。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("projectId") {
+                        put("type", "string")
+                        put("description", "可选 Project id。")
+                    }
+                    putJsonObject("limit") {
+                        put("type", "integer")
+                        put("description", "可选事件数量，默认 50。")
+                    }
+                }
+            }
+        }
+    }
+
     private val builtinToolDefinitions: List<JsonObject> = listOf(
         contextAppsQueryTool,
         vlmTaskTool,
@@ -2140,6 +2602,25 @@ object AgentToolDefinitions {
         subagentDispatchTool
     )
 
+    private val workbenchToolDefinitions: List<JsonObject> = listOf(
+        workbenchProjectCreateTool,
+        workbenchProjectListTool,
+        workbenchProjectGetTool,
+        workbenchProjectUpdateTool,
+        workbenchApiListTool,
+        workbenchApiCallTool,
+        workbenchProjectExportTool,
+        workbenchProjectOpenTool,
+        workbenchProjectActivateTool,
+        workbenchProjectActiveGetTool,
+        workbenchProjectDeactivateTool,
+        workbenchProjectDeleteTool,
+        workbenchProjectHotUpdateTool,
+        workbenchProjectIngestAndroidTool,
+        workbenchProjectIngestOssTool,
+        workbenchProjectProgressGetTool
+    )
+
     fun builtinTools(locale: PromptLocale = currentLocale()): List<JsonObject> =
         builtinToolDefinitions.map { decorateToolDefinition(it, locale) }
 
@@ -2161,6 +2642,14 @@ object AgentToolDefinitions {
     fun subagentTools(locale: PromptLocale = currentLocale()): List<JsonObject> =
         subagentToolDefinitions.map { decorateToolDefinition(it, locale) }
 
+    fun workbenchTools(locale: PromptLocale = currentLocale()): List<JsonObject> =
+        workbenchToolDefinitions.map { decorateToolDefinition(it, locale) }
+
     fun staticTools(locale: PromptLocale = currentLocale()): List<JsonObject> =
-        builtinTools(locale) + scheduleTools(locale) + alarmTools(locale) + calendarTools(locale) + musicTools(locale)
+        builtinTools(locale) +
+            scheduleTools(locale) +
+            alarmTools(locale) +
+            calendarTools(locale) +
+            musicTools(locale) +
+            workbenchTools(locale)
 }

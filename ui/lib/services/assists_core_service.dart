@@ -290,6 +290,12 @@ class AssistsMessageService {
   static final StreamController<Map<String, dynamic>>
   _browserSessionSnapshotChangedController =
       StreamController<Map<String, dynamic>>.broadcast();
+  static final StreamController<Map<String, dynamic>>
+  _workbenchProjectUpdatedController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  static final StreamController<Map<String, dynamic>>
+  _agentRunStateChangedController =
+      StreamController<Map<String, dynamic>>.broadcast();
   // IM/WeChat/Telegram 等外部入口直推的用户消息：
   // 原生侧在写库后立刻 invokeMethod 发过来，runtime 直接插入气泡，
   // 不依赖 messagesChanged + DB reload 的事件链。
@@ -313,6 +319,10 @@ class AssistsMessageService {
       _conversationMessagesChangedController.stream;
   static Stream<Map<String, dynamic>> get browserSessionSnapshotChangedStream =>
       _browserSessionSnapshotChangedController.stream;
+  static Stream<Map<String, dynamic>> get workbenchProjectUpdatedStream =>
+      _workbenchProjectUpdatedController.stream;
+  static Stream<Map<String, dynamic>> get agentRunStateChangedStream =>
+      _agentRunStateChangedController.stream;
 
   static void initialize() {
     assistCore.setMethodCallHandler(_handleMethod);
@@ -379,6 +389,20 @@ class AssistsMessageService {
           break;
         case 'onBrowserSessionSnapshotUpdated':
           _browserSessionSnapshotChangedController.add(
+            Map<String, dynamic>.from(
+              (call.arguments as Map?) ?? const <String, dynamic>{},
+            ),
+          );
+          break;
+        case 'workbenchProjectUpdated':
+          _workbenchProjectUpdatedController.add(
+            Map<String, dynamic>.from(
+              (call.arguments as Map?) ?? const <String, dynamic>{},
+            ),
+          );
+          break;
+        case 'onAgentRunStateChanged':
+          _agentRunStateChangedController.add(
             Map<String, dynamic>.from(
               (call.arguments as Map?) ?? const <String, dynamic>{},
             ),
@@ -732,6 +756,26 @@ class AssistsMessageService {
     }
   }
 
+  /// 查询后端当前正在执行的 Agent 任务。
+  static Future<List<Map<String, dynamic>>> listActiveAgentRuns() async {
+    try {
+      final result = await assistCore.invokeMethod<Map<dynamic, dynamic>>(
+        'agentRunList',
+      );
+      final runs = (result?['runs'] as List?) ?? const [];
+      return runs
+          .whereType<Map>()
+          .map(
+            (item) => item.map((key, value) => MapEntry(key.toString(), value)),
+          )
+          .toList(growable: false);
+    } on Exception catch (e) {
+      final message = e is PlatformException ? e.message : e.toString();
+      print('查询运行中 Agent 失败: $message');
+      return const [];
+    }
+  }
+
   /// 停止当前 Agent 正在执行的工具调用，但不终止整轮 Agent 响应
   static Future<bool> stopAgentToolCall({
     required String taskId,
@@ -861,6 +905,30 @@ class AssistsMessageService {
     } on PlatformException catch (e) {
       print('createChatTask failed: ${e.message}');
       return false;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> captureWorkbenchAnnotationAttachment({
+    required double canvasWidth,
+    required double canvasHeight,
+    required List<Map<String, dynamic>> drawingPaths,
+    String source = 'workbench_annotation_canvas',
+  }) async {
+    try {
+      final result = await assistCore.invokeMethod<Map<dynamic, dynamic>>(
+        'captureWorkbenchAnnotationAttachment',
+        {
+          'canvasWidth': canvasWidth,
+          'canvasHeight': canvasHeight,
+          'drawingPaths': drawingPaths,
+          'source': source,
+        },
+      );
+      if (result == null) return null;
+      return result.map((key, value) => MapEntry(key.toString(), value));
+    } on PlatformException catch (e) {
+      print('捕获 Workbench 标注截图失败: ${e.message}');
+      return null;
     }
   }
 

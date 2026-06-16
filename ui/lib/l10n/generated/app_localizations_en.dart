@@ -2115,4 +2115,840 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get homeDrawerLateNightSub2 => 'Say good night to today';
+
+  @override
+  String get workbenchTitle => 'Workbench';
+
+  @override
+  String get workbenchWorkspaceTitle => 'Workspace';
+
+  @override
+  String get workbenchWorkspaceOpenWorkbench => 'Open Workbench';
+
+  @override
+  String get workbenchWorkspaceOpenProjectConsole => 'Open Project console';
+
+  @override
+  String get workbenchWorkspaceWorkMode => 'Work';
+
+  @override
+  String get workbenchWorkspaceProjectMode => 'Project';
+
+  @override
+  String get workbenchWorkspaceProjectFrontendsTitle => 'Project window';
+
+  @override
+  String get workbenchWorkspaceProjectFrontendsSubtitle =>
+      'After Project mode is enabled, this area hosts the active Project\'s OOB-native frontend like an embedded child window.';
+
+  @override
+  String get workbenchWorkspaceProjectFrontendsEmpty =>
+      'No Project frontends yet. Describe the project in chat and the Agent can create a visible Workbench Project.';
+
+  @override
+  String get workbenchWorkspaceProjectOpenFailed =>
+      'Failed to open Project frontend';
+
+  @override
+  String get workbenchWorkspaceProjectUnsupportedDisplay =>
+      'This Display is not supported in the embedded Project window yet. Open it as a full page from the top-right action.';
+
+  @override
+  String get workbenchWorkspaceGuideTooltip => 'View Project Workbench guide';
+
+  @override
+  String get workbenchWorkspaceGuideClose => 'Close guide';
+
+  @override
+  String get workbenchWorkspaceGuideTitle => 'How Project Workbench works';
+
+  @override
+  String get workbenchWorkspaceGuideIntro =>
+      'Project mode is not another chat page. It is the native OOB workbench for vibe projects, linking generated frontends, Project Tools, Workspace files, skills, and persistent data into one editable unit.';
+
+  @override
+  String get workbenchWorkspaceGuideFlowTitle => 'Interaction flow';
+
+  @override
+  String get workbenchWorkspaceGuideFlowPrompt =>
+      'Prompt + Skill split the requirement';
+
+  @override
+  String get workbenchWorkspaceGuideFlowProject =>
+      'Project registry records the container';
+
+  @override
+  String get workbenchWorkspaceGuideFlowApi =>
+      'Project Tools register business capabilities';
+
+  @override
+  String get workbenchWorkspaceGuideFlowDisplay =>
+      'Flutter Display renders the business frontend';
+
+  @override
+  String get workbenchWorkspaceGuideFlowPersist =>
+      'data/ + logs/ persist AI and UI calls';
+
+  @override
+  String get workbenchWorkspaceGuideProjectTitle => 'What a Project binds';
+
+  @override
+  String get workbenchWorkspaceGuideProjectBody =>
+      'A Project binds the goal, skill, Workspace files, Display list, Project Tools, data, and logs. It is not an MCP tool list and it is not a loose generated HTML page.';
+
+  @override
+  String get workbenchWorkspaceGuideFrontendTitle =>
+      'How the frontend is shown';
+
+  @override
+  String get workbenchWorkspaceGuideFrontendBody =>
+      'The generated frontend is an OOB-native Flutter Display. After Workspace switches to Project mode, it no longer shows a large manager list; it hosts the active Project home like an embedded browser window. One Project can own multiple Displays, selected from the small menu.';
+
+  @override
+  String get workbenchWorkspaceGuideBackendTitle => 'How the backend is called';
+
+  @override
+  String get workbenchWorkspaceGuideBackendBody =>
+      'Backend capabilities are registered as Project Tools, such as todo.add and todo.finish. The AI layer and frontend buttons call the same workbenchApiCall(projectId, toolId, inputs) path. Project create, export, and delete remain control APIs and do not mix into business tools.';
+
+  @override
+  String get workbenchWorkspaceGuideDataTitle => 'How data flows';
+
+  @override
+  String get workbenchWorkspaceGuideDataBody =>
+      'A call goes through Flutter -> MethodChannel -> OOB native executor, then writes to the Project data/ and logs/. Frontend refreshes, AI execution stats, and state after restart all come from this persisted data.';
+
+  @override
+  String get workbenchWorkspaceGuideVibeTitle => 'How to keep editing';
+
+  @override
+  String get workbenchWorkspaceGuideVibeBody =>
+      'To continue vibe coding, go back to the main Home input and describe the change. The Workbench Skill decides whether to create a new Project, extend Project Tools, adjust Displays, or hot update the current Project.';
+
+  @override
+  String get workbenchWorkspaceGuideExtendTitle => 'Extending backend tools';
+
+  @override
+  String get workbenchWorkspaceGuideExtendBody =>
+      'When adding a capability, define toolId, input/output schemas, executorKind, persistence files, and the frontend trigger first. Then register the Project Tool through Workbench interfaces; do not hand-edit registry files.';
+
+  @override
+  String workbenchWorkspaceProjectApiStats(
+    Object apiCount,
+    Object executionCount,
+  ) {
+    return '$apiCount tools · $executionCount executions';
+  }
+
+  @override
+  String get workbenchSubtitle =>
+      'A native OOB project example that registers Project Tools, persists state, and renders inside the Workbench.';
+
+  @override
+  String get workbenchVibeSubtitle =>
+      'Prompt-built native frontend, Project Tools, and workspace files stay connected inside OOB.';
+
+  @override
+  String get workbenchProjectDisplay => 'Project Display';
+
+  @override
+  String get workbenchProjectSection => 'Project';
+
+  @override
+  String get workbenchProjectIdLabel => 'Project ID';
+
+  @override
+  String get workbenchRouteLabel => 'Screen Path';
+
+  @override
+  String get workbenchSpacePathLabel => 'Space path';
+
+  @override
+  String get workbenchPageIdsLabel => 'Pages';
+
+  @override
+  String get workbenchDevelopmentMode => 'Development mode';
+
+  @override
+  String get workbenchProjectRegistryPath => 'Project registry';
+
+  @override
+  String get workbenchApiRegistryPath => 'Tool registry';
+
+  @override
+  String get workbenchProjectFilePath => 'Project file';
+
+  @override
+  String get workbenchDataFilePath => 'Data file';
+
+  @override
+  String get workbenchLogFilePath => 'Tool log';
+
+  @override
+  String get workbenchBackendTools => 'Backend tools';
+
+  @override
+  String get workbenchFrontendBinding => 'Frontend binding';
+
+  @override
+  String get workbenchCallApi => 'Call tool';
+
+  @override
+  String get workbenchGeneratedFrontend => 'Generated frontend';
+
+  @override
+  String get workbenchGeneratedFrontendSubtitle =>
+      'Open the OOB-native preview that a prompt-generated page should target. It uses the same Project Tools and persistent data as the AI layer.';
+
+  @override
+  String get workbenchOpenGeneratedFrontend => 'Open generated frontend';
+
+  @override
+  String get workbenchPreviewClose => 'Close preview';
+
+  @override
+  String get workbenchToolList => 'Project Tools';
+
+  @override
+  String get workbenchProjectControlSubtitle =>
+      'Only registered business tools are shown here. Project create/open stays in the OOB Workbench control surface.';
+
+  @override
+  String get workbenchOpenWorkspace => 'Open Workspace';
+
+  @override
+  String get workbenchApiEmpty => 'No tools yet';
+
+  @override
+  String get workbenchToolListDefaultTodo =>
+      'Project Tool clicked the shared backend';
+
+  @override
+  String workbenchToolExecutionCount(Object count) {
+    return 'Executed $count';
+  }
+
+  @override
+  String get workbenchProjectDefaultEntity => 'Item';
+
+  @override
+  String workbenchProjectCreateTitle(Object entity) {
+    return 'Create $entity';
+  }
+
+  @override
+  String workbenchProjectInputHint(Object entity) {
+    return 'Enter $entity name';
+  }
+
+  @override
+  String workbenchProjectItemsTitle(Object entity) {
+    return '$entity list';
+  }
+
+  @override
+  String workbenchProjectEmpty(Object entity) {
+    return 'No $entity yet';
+  }
+
+  @override
+  String get workbenchProjectActiveItems => 'Active';
+
+  @override
+  String get workbenchProjectArchivedItems => 'Archived';
+
+  @override
+  String get workbenchProjectEditAction => 'Edit';
+
+  @override
+  String get workbenchProjectEditTitle => 'Edit item';
+
+  @override
+  String get workbenchProjectArchiveAction => 'Archive';
+
+  @override
+  String get workbenchProjectMissingCreateApi =>
+      'This Project has no create tool';
+
+  @override
+  String get workbenchProjectMissingUpdateApi =>
+      'This Project has no edit tool';
+
+  @override
+  String get workbenchProjectMissingArchiveApi =>
+      'This Project has no archive tool';
+
+  @override
+  String workbenchProjectInputRequired(Object entity) {
+    return 'Enter $entity first';
+  }
+
+  @override
+  String workbenchProjectItemCreated(Object entity) {
+    return '$entity created';
+  }
+
+  @override
+  String workbenchProjectItemUpdated(Object entity) {
+    return '$entity saved';
+  }
+
+  @override
+  String workbenchProjectItemArchived(Object entity) {
+    return '$entity archived';
+  }
+
+  @override
+  String get workbenchLoadFailed => 'Load failed';
+
+  @override
+  String get workbenchUnknownTool => 'Workbench tool failed';
+
+  @override
+  String get workbenchStatusOpen => 'Waiting';
+
+  @override
+  String get workbenchStatusFinished => 'Archived';
+
+  @override
+  String get workbenchAssistantName => 'Xiaowan';
+
+  @override
+  String get workbenchAssistantTooltip => 'Open Xiaowan';
+
+  @override
+  String get workbenchAssistantPromptHint => 'Describe the change to apply now';
+
+  @override
+  String get workbenchAssistantSend => 'Hot update current Project';
+
+  @override
+  String get workbenchAssistantApplied => 'Project hot updated';
+
+  @override
+  String get workbenchAssistantPromptRequired => 'Enter the change first';
+
+  @override
+  String get workbenchAssistantNoProject => 'Select a Project first';
+
+  @override
+  String get workbenchAssistantHotUpdateFailed => 'Project hot update failed';
+
+  @override
+  String get workbenchProjectModeTitle => 'Projects';
+
+  @override
+  String get workbenchFlutterDisplay => 'Flutter Display';
+
+  @override
+  String get workbenchFlutterEvalTitle => 'Flutter runtime';
+
+  @override
+  String get workbenchFlutterEvalNoSource =>
+      'This Project has no runnable Flutter source yet. Define OobProjectWidget in frontend/flutter/lib/main.dart.';
+
+  @override
+  String get workbenchFlutterEvalRuntimeFailed =>
+      'Flutter source is not runnable yet. Return to the input box and ask Xiaowan to fix this page.';
+
+  @override
+  String get workbenchProjectSwitcher => 'Switch Project';
+
+  @override
+  String get workbenchProjectGenerateTitle => 'Project container';
+
+  @override
+  String get workbenchProjectGenerateSubtitle =>
+      'This page only selects and opens Project containers. Create, edit, and hot update from the Home input with the active Project toolbox.';
+
+  @override
+  String get workbenchProjectPromptHint =>
+      'Return Home to describe the Project';
+
+  @override
+  String get workbenchProjectDefaultPrompt =>
+      'I want to create a simple todolist management system that can add todos and archive todos';
+
+  @override
+  String get workbenchProjectGenerateButton => 'Continue from Home';
+
+  @override
+  String get workbenchInputProjectTooltip => 'Open Project Workbench';
+
+  @override
+  String get workbenchGeneratedTodoProjectName => 'Todo List Workbench';
+
+  @override
+  String get workbenchPromptSeedAddTodo => 'Verify adding a todo';
+
+  @override
+  String get workbenchPromptSeedArchiveTodo => 'Verify archiving a todo';
+
+  @override
+  String get workbenchProjectPlanTitle => 'Decomposition plan';
+
+  @override
+  String get workbenchProjectPlanProject =>
+      'Create Project registry and editable Workspace';
+
+  @override
+  String get workbenchProjectPlanFrontend =>
+      'Generate an OOB-native Flutter frontend';
+
+  @override
+  String get workbenchProjectPlanApi =>
+      'Register Project Tools shared by AI and UI';
+
+  @override
+  String get workbenchProjectPlanData => 'Persist data and tool call logs';
+
+  @override
+  String get workbenchUseMode => 'Use mode';
+
+  @override
+  String get workbenchDebugMode => 'Debug mode';
+
+  @override
+  String get workbenchDisplaysTitle => 'Pages';
+
+  @override
+  String workbenchDisplayCount(Object count) {
+    return '$count displays';
+  }
+
+  @override
+  String get workbenchUnnamedDisplay => 'Unnamed display';
+
+  @override
+  String get workbenchOpenDisplay => 'Open this frontend';
+
+  @override
+  String get workbenchDebugDisplay => 'Debug this frontend';
+
+  @override
+  String get workbenchProjectCurrentTitle => 'Project use surface';
+
+  @override
+  String get workbenchProjectCurrentSubtitle =>
+      'Default opens return to Home; debug opens return to the Workbench. Hot updates run from the Home input with the active Project.';
+
+  @override
+  String get workbenchProjectModeCreateTitle => 'Vibe project entry';
+
+  @override
+  String get workbenchProjectModeSubtitle =>
+      'This page only shows projects and the active item.';
+
+  @override
+  String get workbenchProjectActiveTitle => 'Active';
+
+  @override
+  String get workbenchProjectActiveEmpty => 'No active Project yet';
+
+  @override
+  String get workbenchProjectListTitle => 'Projects';
+
+  @override
+  String get workbenchProjectDetailTitle => 'Project';
+
+  @override
+  String get workbenchProjectModeCreateButton => 'Create from Home';
+
+  @override
+  String get workbenchProjectCreateFromHome =>
+      'Return to the Home input and say create project or describe the page you want.';
+
+  @override
+  String get workbenchProjectModeProjectsTitle => 'Current tools';
+
+  @override
+  String get workbenchProjectApiForProject => 'Tools';
+
+  @override
+  String get workbenchProjectModeOpen => 'Open project';
+
+  @override
+  String get workbenchProjectModeEmpty => 'No Workbench projects yet';
+
+  @override
+  String get workbenchProjectModeLoadFailed => 'Project mode failed to load';
+
+  @override
+  String get workbenchProjectPromptRequired =>
+      'Enter a Project requirement first';
+
+  @override
+  String get workbenchProjectGenerated => 'Project generated';
+
+  @override
+  String get workbenchDeleteProject => 'Delete Project';
+
+  @override
+  String get workbenchDeleteProjectTitle => 'Delete Project';
+
+  @override
+  String workbenchDeleteProjectMessage(Object projectId) {
+    return 'Delete $projectId? This removes its Project registry entry, business tool registrations, and Workspace project files.';
+  }
+
+  @override
+  String get workbenchDeleteProjectCancel => 'Cancel';
+
+  @override
+  String get workbenchDeleteProjectConfirm => 'Delete';
+
+  @override
+  String get workbenchDeleteProjectFailed => 'Project delete failed';
+
+  @override
+  String get workbenchProjectDeleted => 'Project deleted';
+
+  @override
+  String get workbenchProjectIdRequired => 'Enter a project ID';
+
+  @override
+  String get workbenchProjectCreated => 'Project created';
+
+  @override
+  String get workbenchProjectInfoTitle => 'Project info';
+
+  @override
+  String get workbenchProjectInfoDisplayTitle => 'Display path';
+
+  @override
+  String get workbenchProjectInfoSourceTitle => 'Source specs';
+
+  @override
+  String get workbenchProjectInfoSourceValue =>
+      'README.md / frontend/page_spec.json / backend/api_spec.json';
+
+  @override
+  String get workbenchProjectInfoRuntimeTitle => 'Runtime state';
+
+  @override
+  String get workbenchProjectInfoRuntimeValue =>
+      'data/todos.json / logs/api_calls.jsonl';
+
+  @override
+  String get workbenchDebugToolsTitle => 'Debug tools';
+
+  @override
+  String get workbenchDebugHotUpdate =>
+      'Use floating Xiaowan to hot-update this Project';
+
+  @override
+  String get workbenchDebugHotUpdateHomeInput =>
+      'Return to the Home input and describe the edit; the Agent will use the active Project toolbox for the hot update';
+
+  @override
+  String get workbenchDebugFloatingXiaowan =>
+      'Floating Xiaowan can attach the current frontend context, select page information, and call workbench_project_hot_update to iterate this Project.';
+
+  @override
+  String get workbenchDebugVlmInput =>
+      'VLM input can also attach the current Display, visible state, selected control, or screenshot summary as frontendContext for the Project Skill.';
+
+  @override
+  String workbenchDebugContextProject(Object projectId) {
+    return 'Project $projectId';
+  }
+
+  @override
+  String workbenchDebugContextDisplay(Object displayId) {
+    return 'Display $displayId';
+  }
+
+  @override
+  String workbenchDebugContextRoute(Object route) {
+    return 'Screen path $route';
+  }
+
+  @override
+  String get workbenchDebugVlmTest => 'Run a VLM human-operation simulation';
+
+  @override
+  String get workbenchDebugComingSoon => 'Pending';
+
+  @override
+  String get workbenchAnnotationTitle => 'Annotation canvas';
+
+  @override
+  String get workbenchAnnotationDrawMode => 'Draw';
+
+  @override
+  String get workbenchAnnotationBrowseMode => 'Browse page';
+
+  @override
+  String get workbenchAnnotationUndo => 'Undo';
+
+  @override
+  String get workbenchAnnotationClear => 'Clear';
+
+  @override
+  String get workbenchAnnotationApply => 'Apply annotation';
+
+  @override
+  String get workbenchAnnotationApplying => 'Applying';
+
+  @override
+  String get workbenchAnnotationPromptHint =>
+      'Add edit notes, for example: turn this into the primary button';
+
+  @override
+  String get workbenchAnnotationNoStrokes => 'Draw the area to edit first';
+
+  @override
+  String get workbenchAnnotationNoShape => 'No marks';
+
+  @override
+  String workbenchAnnotationShapeCount(Object count) {
+    return '$count strokes marked';
+  }
+
+  @override
+  String get workbenchAnnotationDefaultPrompt =>
+      'Adjust the current Project frontend according to the canvas annotation.';
+
+  @override
+  String get workbenchAnnotationHotUpdateSuccess =>
+      'Applied the annotation to the Project';
+
+  @override
+  String get workbenchAnnotationHotUpdateFailed =>
+      'Annotation hot update failed';
+
+  @override
+  String get workbenchExportProjectPackage => 'Export package';
+
+  @override
+  String get workbenchProjectExportFailed => 'Project export failed';
+
+  @override
+  String workbenchProjectExported(Object packageName) {
+    return 'Exported $packageName';
+  }
+
+  @override
+  String workbenchProjectExportPath(Object path) {
+    return 'Export path: $path';
+  }
+
+  @override
+  String get workbenchAndroidAssetsTitle => 'Apps';
+
+  @override
+  String get workbenchAndroidSourceHint =>
+      'Enter an APK or Android project path, for example /workspace/apps/demo.apk';
+
+  @override
+  String get workbenchAndroidIngestButton => 'Import into current Project';
+
+  @override
+  String get workbenchAndroidSourceRequired =>
+      'Enter an Android app or project path';
+
+  @override
+  String get workbenchAndroidIngestFailed => 'Android asset import failed';
+
+  @override
+  String workbenchAndroidIngested(Object name) {
+    return 'Imported $name';
+  }
+
+  @override
+  String get workbenchAndroidAssetsEmpty =>
+      'No imported Android apps or projects yet';
+
+  @override
+  String get workbenchProjectActivateFailed => 'Project activation failed';
+
+  @override
+  String workbenchProjectActivated(Object projectName) {
+    return 'Activated $projectName';
+  }
+
+  @override
+  String get workbenchProjectDeactivateFailed => 'Project deactivation failed';
+
+  @override
+  String get workbenchProjectDeactivated => 'Project deactivated';
+
+  @override
+  String get workbenchActivateProject => 'Activate Project';
+
+  @override
+  String get workbenchDeactivateProject => 'Deactivate';
+
+  @override
+  String get workbenchEditProjectLabels => 'Edit labels';
+
+  @override
+  String get workbenchProjectNameLabel => 'Name';
+
+  @override
+  String get workbenchProjectShortNameLabel => 'Short name';
+
+  @override
+  String get workbenchSaveProjectLabels => 'Save';
+
+  @override
+  String get workbenchProjectNameRequired => 'Enter a name';
+
+  @override
+  String get workbenchProjectLabelsUpdated => 'Saved';
+
+  @override
+  String get workbenchProjectLabelsUpdateFailed => 'Save failed';
+
+  @override
+  String get workbenchProjectMoreActions => 'More actions';
+
+  @override
+  String get workbenchActiveProject => 'Active';
+
+  @override
+  String get workbenchInactiveProject => 'Inactive';
+
+  @override
+  String get workbenchContinueInHome => 'Activate Project';
+
+  @override
+  String get workbenchProjectHelpTooltip => 'Project Workbench help';
+
+  @override
+  String get workbenchProjectHelpTitle => 'Project Workbench';
+
+  @override
+  String get workbenchProjectHelpHomeInput =>
+      'Create, edit, and hot update Projects from the Home input.';
+
+  @override
+  String get workbenchProjectHelpSelect =>
+      'Select a Project here to activate it as the Agent workspace.';
+
+  @override
+  String get workbenchProjectHelpDisplays =>
+      'Each Project can own multiple Flutter Displays; open containers from here.';
+
+  @override
+  String get workbenchProjectHelpApis =>
+      'Project Tools are the current Project business toolbox and stay separate from MCP tools.';
+
+  @override
+  String workbenchActiveProjectChip(Object projectName) {
+    return 'Project: $projectName';
+  }
+
+  @override
+  String workbenchProjectSummaryGeneric(Object entityName) {
+    return 'Manage $entityName records with saved status and quick actions.';
+  }
+
+  @override
+  String workbenchAndroidAssetCount(Object count) {
+    return '$count Android assets';
+  }
+
+  @override
+  String workbenchProjectItemCount(Object activeCount, Object archivedCount) {
+    return '$activeCount active / $archivedCount archived';
+  }
+
+  @override
+  String workbenchApiCount(Object count) {
+    return '$count tools';
+  }
+
+  @override
+  String get workbenchPhilosophyBadge => 'What is Workbench?';
+
+  @override
+  String get workbenchPhilosophyClose => 'Close';
+
+  @override
+  String get workbenchPhilosophyTitle => 'AI Product Display Workbench';
+
+  @override
+  String get workbenchPhilosophyTagline =>
+      'Turn AI results into interfaces users can see, tap, and keep changing';
+
+  @override
+  String get workbenchPhilosophySubtitle =>
+      'Workbench is not a template generator. It is the display and runtime layer for AI products. Agent reports, data, state, and actions land in a Project, render through HTML, Markdown, or Flutter, and connect to phone capabilities and persisted data through Project APIs.';
+
+  @override
+  String get workbenchPhilosophyPillarsTitle => 'Current loop';
+
+  @override
+  String get workbenchPhilosophyComposable => 'Display';
+
+  @override
+  String get workbenchPhilosophyComposableDesc =>
+      'HTML / Markdown / Flutter are Project Displays for presenting AI output';
+
+  @override
+  String get workbenchPhilosophyAIDriven => 'Interaction';
+
+  @override
+  String get workbenchPhilosophyAIDrivenDesc =>
+      'User clicks, form input, and selections call Project APIs to trigger the next Agent or tool step';
+
+  @override
+  String get workbenchPhilosophyMobileNative => 'Capabilities';
+
+  @override
+  String get workbenchPhilosophyMobileNativeDesc =>
+      'Screen control, reading UI, files, and scripts go through OOB native capabilities only when needed';
+
+  @override
+  String get workbenchPhilosophyStrengthsTitle => 'Three essentials';
+
+  @override
+  String get workbenchPhilosophyBackendTitle => 'Project API';
+
+  @override
+  String get workbenchPhilosophyBackendDesc =>
+      'Whitelisted tools, persisted data, run logs, and phone capabilities are mounted on the Project';
+
+  @override
+  String get workbenchPhilosophyFrontendTitle => 'Display';
+
+  @override
+  String get workbenchPhilosophyFrontendDesc =>
+      'Normal interactive UI defaults to HTML; reports use Markdown / HTML; Flutter stays as the container and constrained supplement';
+
+  @override
+  String get workbenchPhilosophyRuntimeTitle => 'Hot update';
+
+  @override
+  String get workbenchPhilosophyRuntimeDesc =>
+      'After one sentence or one annotated selection, AI edits only the necessary frontend files or APIs and the right side refreshes';
+
+  @override
+  String get workbenchPhilosophyHowToTitle => 'Flow';
+
+  @override
+  String get workbenchPhilosophyStep1Label => 'Generate';
+
+  @override
+  String get workbenchPhilosophyStep1Desc =>
+      'The Agent creates a Project and writes APIs plus display files';
+
+  @override
+  String get workbenchPhilosophyStep2Label => 'View';
+
+  @override
+  String get workbenchPhilosophyStep2Desc =>
+      'The right Workspace previews HTML / Markdown / Flutter directly';
+
+  @override
+  String get workbenchPhilosophyStep3Label => 'Update';
+
+  @override
+  String get workbenchPhilosophyStep3Desc =>
+      'Use the floating input or annotation to request a Project hot update';
+
+  @override
+  String get workbenchPhilosophyActivateHint =>
+      'After activation, the right Workspace shows the Project Display. Further input or annotations are passed as context to hot update.';
 }
