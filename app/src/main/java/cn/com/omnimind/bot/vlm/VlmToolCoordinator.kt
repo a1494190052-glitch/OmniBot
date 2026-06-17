@@ -1190,7 +1190,7 @@ object VlmToolCoordinator {
             val prev = previousXml
             previousXml = current
             if (current != null && prev != null) {
-                val similarity = runCatching { TreeEditDistance.getSimilarity(prev, current) }.getOrDefault(0.0)
+                val similarity = runCatching { TreeEditDistance.getSimilarity(prev, current) }.getOrDefault(0f)
                 current.takeIf { similarity >= 0.85 }
             } else null
         }
