@@ -1,3 +1,6 @@
+import java.io.InputStreamReader
+import java.util.Properties
+import java.nio.charset.StandardCharsets
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -18,6 +21,30 @@ fun buildConfigString(value: String): String {
     return "\"$escaped\""
 }
 
+fun localProp(name: String): String {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (!localPropertiesFile.isFile) return ""
+    return Properties()
+        .apply {
+            localPropertiesFile.inputStream().use { input ->
+                load(InputStreamReader(input, StandardCharsets.UTF_8))
+            }
+        }
+        .getProperty(name)
+        ?.trim()
+        ?: ""
+}
+
+fun flutterCommand(): String {
+    val executableName = if (org.gradle.internal.os.OperatingSystem.current().isWindows) "flutter.bat" else "flutter"
+    val configuredFlutterSdk = localProp("flutter.sdk")
+    if (configuredFlutterSdk.isNotBlank()) {
+        val configuredFlutter = File(configuredFlutterSdk, "bin/$executableName")
+        if (configuredFlutter.isFile) return configuredFlutter.absolutePath
+    }
+    return executableName
+}
+
 val omnibotImageBaseUrl = prop("OMNIBOT_IMAGE_BASE_URL")
     .ifBlank { "https://cloud.omnimind.com.cn" }
 val omnibotImageModel = prop("OMNIBOT_IMAGE_MODEL")
@@ -28,13 +55,28 @@ val flutterWebBuildDir = rootProject.file("ui/build/web")
 val flutterWebAssetsRootDir = layout.buildDirectory.dir("generated/omnibot_assets").get().asFile
 val flutterWebAssetsDir = File(flutterWebAssetsRootDir, "flutter_web")
 
+val flutterPubGetForWebBundle by tasks.registering(Exec::class) {
+    group = "flutter web"
+    description = "Resolve Flutter dependencies without modifying pubspec.lock."
+    workingDir = rootProject.file("ui")
+    commandLine(
+        flutterCommand(),
+        "pub",
+        "get",
+        "--enforce-lockfile"
+    )
+    inputs.file(rootProject.file("ui/pubspec.yaml"))
+    inputs.file(rootProject.file("ui/pubspec.lock"))
+    outputs.file(rootProject.file("ui/.dart_tool/package_config.json"))
+}
+
 val buildFlutterWebBundle by tasks.registering(Exec::class) {
     group = "flutter web"
     description = "Build the dedicated web chat Flutter bundle."
+    dependsOn(flutterPubGetForWebBundle)
     workingDir = rootProject.file("ui")
-    val flutterCmd = if (org.gradle.internal.os.OperatingSystem.current().isWindows) "flutter.bat" else "flutter"
     commandLine(
-        flutterCmd,
+        flutterCommand(),
         "build",
         "web",
         "--target",
@@ -42,11 +84,13 @@ val buildFlutterWebBundle by tasks.registering(Exec::class) {
         "--base-href",
         "/webchat/",
         "--no-tree-shake-icons",
-        "--no-wasm-dry-run"
+        "--no-wasm-dry-run",
+        "--no-pub"
     )
     inputs.dir(rootProject.file("ui/lib"))
     inputs.dir(rootProject.file("ui/web"))
     inputs.file(rootProject.file("ui/pubspec.yaml"))
+    inputs.file(rootProject.file("ui/pubspec.lock"))
     outputs.dir(flutterWebBuildDir)
     doFirst {
         delete(flutterWebBuildDir)

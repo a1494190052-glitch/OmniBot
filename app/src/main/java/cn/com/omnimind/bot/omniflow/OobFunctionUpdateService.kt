@@ -701,7 +701,8 @@ class OobFunctionUpdateService(
             else -> OmniflowCheckerRule.COND_OVERLAY_BLOCKING
         }
         return linkedMapOf("id" to "optional_checker_step_${stepIndex}_$condition",
-            "phase" to OmniflowCheckerRule.phaseForCondition(condition), "condition" to condition,
+            "phase" to OmniflowCheckerRule.phaseForCondition(condition),
+            "condition" to condition,
             "action" to OmniflowCheckerRule.actionForCondition(condition), "enabled" to true, "params" to emptyMap<String, Any?>())
     }
 
@@ -743,7 +744,8 @@ class OobFunctionUpdateService(
             rp[key]?.let { params[key] = it }
         }
         return linkedMapOf("id" to safeCheckerRuleId(firstNonBlank(raw["id"], "function_checker")),
-            "phase" to OmniflowCheckerRule.phaseForCondition(normalized.condition), "condition" to normalized.condition,
+            "phase" to normalized.phase,
+            "condition" to normalized.condition,
             "action" to normalized.action, "enabled" to normalized.enabled, "params" to params)
     }
 

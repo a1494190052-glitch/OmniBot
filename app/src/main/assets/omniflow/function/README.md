@@ -35,7 +35,7 @@ appear:
 - A checker is conditional environment handling. Ads, popups, permission
   prompts, resolver sheets, and "skip" buttons should be represented as checker
   metadata or evidence, not inserted as mandatory Function path steps.
-- Checker rule condition/action/phase vocabulary and alias normalization belong
+- Checker rule condition/action vocabulary and alias normalization belong
   to `OmniflowCheckerRule`; patch appliers should delegate to it instead of
   maintaining local `dismiss`/`allow`/`skip` alias tables.
 
@@ -234,10 +234,10 @@ When adding or migrating a generic agent tool name:
 
 `OmniflowCheckerRule` owns runtime checker rule vocabulary:
 
-- define checker phases, conditions, actions, and global built-in checker rules
+- define checker conditions, actions, and global built-in checker rules
 - normalize checker condition/action aliases such as `skip_ad`, `click_allow`,
   `always_open`, and `dismiss_keyboard`
-- expose the supported condition/action matrix and default phase/action mapping
+- expose the supported condition/action matrix for the single checker pass
 - keep checker vocabulary out of `update_function` patch appliers and step
   execution services
 
@@ -355,7 +355,7 @@ When adding or migrating a generic agent tool name:
 
 `OobFunctionCallTiming` owns toolkit call timing payloads:
 
-- measure guard and execution phases for Function calls
+- measure guard and execution timing for Function calls
 - merge call-level timing into runner timing without changing run results
 - keep timing payload shape outside the public tool facade
 
@@ -458,7 +458,7 @@ primitive local action execution:
 
 - build stable per-step failure records for guard, delegation, and replay errors
 - build failed and completed Function run payloads
-- merge runner timing and phase timings into existing failure payloads
+- merge runner timing into existing failure payloads
 - keep output schema and timing accounting outside the runtime replay loop
 
 `OobFunctionNestedCallCardPresenter` owns nested Function tool-card payloads:
@@ -606,7 +606,7 @@ Keep these pieces separate:
 - `OobFunctionNestedFunctionExecutor`: nested Function id/argument resolution,
   nested materialization, recursive run handoff, and parent-step result shaping
 - `OobFunctionRunResultBuilder`: stable run payload schema, failure step
-  records, and runner timing/phase accounting
+  records, and runner timing accounting
 - `OobFunctionNestedCallCardPresenter`: nested Function tool-card ids,
   summaries, args payloads, and result preview payloads
 - `OobFunctionEntryPackageGuard`: pre-replay app/package restoration
@@ -730,7 +730,7 @@ Use these owner rules when removing duplicated helper code:
 - Step role aliases belong in `OobStepRoleClassifier`. Checker patching may
   consume those roles, but should not maintain a separate optional-checker role
   alias table.
-- Checker condition/action/phase aliases belong in `OmniflowCheckerRule`.
+- Checker condition/action aliases belong in `OmniflowCheckerRule`.
   `OobFunctionCheckerPatchService` may infer checker metadata from optional
   cleanup annotations, but it must delegate explicit checker rule
   normalization there instead of maintaining a second checker alias table.

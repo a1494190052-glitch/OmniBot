@@ -6,6 +6,7 @@ import cn.com.omnimind.baselib.llm.contentText
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.baselib.util.exception.PrivacyBlockedException
 import cn.com.omnimind.assists.util.TreeEditDistance
+import cn.com.omnimind.assists.util.pollUntilReady
 import cn.com.omnimind.baselib.util.ImageCompressor
 import cn.com.omnimind.baselib.util.ImageQuality
 import kotlinx.coroutines.CancellationException
@@ -239,7 +240,9 @@ class VLMOperationService(
                     val launchResult = deviceOperator.launchApplication(packageName)
                     if (launchResult.success) {
                         OmniLog.d(Tag, "成功拉起应用: $packageName")
-                        delay(2000L)
+                        pollUntilReady(intervalMs = 100L, timeoutMs = 3000L) {
+                            AccessibilityController.Companion.getPackageName()?.takeIf { it == packageName }
+                        }
                         ensureTaskActive("after_launch_application_delay")
                     } else {
                         OmniLog.e(Tag, "拉起应用失败: ${launchResult.message}")
@@ -1100,20 +1103,13 @@ class VLMOperationService(
                 markPhase("action_dispatch_ms", actionDispatchStartedAt)
                 val actionFinishedAtMs = System.currentTimeMillis()
                 safePauseCheck("after_action_${processedStep.action.name}_${stabilityAttempt}")
-                val postObserveStartedAt = System.currentTimeMillis()
-                val afterActionXml = waitForPostActionStableXml(
-                    beforeXml = dispatchXml,
-                    expectPageChange = shouldWaitForChangedPostActionPage(processedStep.action)
-                )
-                markPhase("post_action_observe_ms", postObserveStartedAt)
-                val afterPackageName = AccessibilityController.Companion.getPackageName()
                 var finalStep = executedStep.copy(
                     summary = processedStep.summary,
                     observationXml = dispatchXml,
-                    afterObservationXml = afterActionXml.takeIf { it.isNotBlank() },
+                    afterObservationXml = null,
                     actionResultData = executedStep.actionResultData,
                     packageName = beforePackageName,
-                    afterPackageName = afterPackageName,
+                    afterPackageName = null,
                     startedAtMs = actionStartedAtMs,
                     finishedAtMs = actionFinishedAtMs,
                     tokenUsage = usageAggregate(),
@@ -1124,8 +1120,8 @@ class VLMOperationService(
                     finalStep = finalStep.copy(
                         result = buildGetStateResult(
                             reason = processedStep.action.reason,
-                            currentXml = afterActionXml.ifBlank { beforeXml.orEmpty() },
-                            packageName = afterPackageName ?: beforePackageName,
+                            currentXml = dispatchXml.orEmpty(),
+                            packageName = beforePackageName,
                             activityName = runCatching {
                                 AccessibilityController.Companion.getCurrentActivity()
                             }.getOrNull(),
@@ -1216,7 +1212,7 @@ class VLMOperationService(
                     )
                 }
                 stabilityAttempt++  // 执行异常，增加重试计数
-                delay(500)
+                delay(100L)
             }
         }
 
@@ -1713,7 +1709,7 @@ class VLMOperationService(
     /**
      * 获取当前屏幕的XML表示
      */
-    private fun captureCurrentXml(): String? {
+    private suspend fun captureCurrentXml(): String? {
         var bestCandidate: String? = null
         var bestHealth = XmlHealth(0, 0, false)
         repeat(XML_CAPTURE_MAX_ATTEMPTS) { attempt ->
@@ -1733,7 +1729,7 @@ class VLMOperationService(
                 return current
             }
             if (attempt < XML_CAPTURE_MAX_ATTEMPTS - 1) {
-                Thread.sleep(XML_CAPTURE_RETRY_DELAY_MS)
+                delay(50L)
             }
         }
         val fallback = lastUsableXml
@@ -1785,18 +1781,6 @@ class VLMOperationService(
             false
         }
     }
-
-    private fun shouldWaitForChangedPostActionPage(action: UIAction): Boolean =
-        when (action) {
-            is ClickAction,
-            is LongPressAction,
-            is SwipeAction,
-            is PressKeyAction,
-            is OpenAppAction,
-            is InputTextAction,
-            is FunctionRunAction -> true
-            else -> false
-        }
 
     private data class GetStatePageSummary(
         val visibleTexts: List<String> = emptyList(),
@@ -1910,106 +1894,13 @@ class VLMOperationService(
             scrollableCount = scrollableCount,
         )
     }
-
-    private suspend fun waitForPostActionStableXml(
-        beforeXml: String?,
-        expectPageChange: Boolean,
-    ): String {
-        var previous: String? = null
-        var best: String? = null
-        var bestHealth = XmlHealth(0, 0, false)
-        var bestChanged: String? = null
-        var bestChangedHealth = XmlHealth(0, 0, false)
-        repeat(POST_ACTION_XML_STABLE_MAX_CHECKS) { attempt ->
-            val current = runCatching { captureCurrentXml() }.getOrNull()
-            val health = xmlHealth(current)
-            if (health.nodeCount > bestHealth.nodeCount || health.largestArea > bestHealth.largestArea) {
-                best = current
-                bestHealth = health
-            }
-            val changedFromBefore = hasPostActionPageChanged(beforeXml, current)
-            if (changedFromBefore &&
-                (health.nodeCount > bestChangedHealth.nodeCount ||
-                    health.largestArea > bestChangedHealth.largestArea)
-            ) {
-                bestChanged = current
-                bestChangedHealth = health
-            }
-            val previousSnapshot = previous
-            if (!current.isNullOrBlank() && !previousSnapshot.isNullOrBlank()) {
-                val similarity = runCatching {
-                    TreeEditDistance.getSimilarity(previousSnapshot, current).toDouble()
-                }.getOrDefault(0.0)
-                if (similarity >= POST_ACTION_XML_STABLE_SIMILARITY &&
-                    (!expectPageChange || changedFromBefore)
-                ) {
-                    OmniLog.d(
-                        Tag,
-                        "Post-action XML stable: attempt=$attempt similarity=$similarity " +
-                            "nodes=${health.nodeCount} changedFromBefore=$changedFromBefore"
-                    )
-                    return current
-                }
-            }
-            previous = current
-            if (attempt < POST_ACTION_XML_STABLE_MAX_CHECKS - 1) {
-                delay(POST_ACTION_XML_STABLE_INTERVAL_MS)
-            }
-        }
-        if (expectPageChange && !bestChanged.isNullOrBlank()) {
-            OmniLog.d(
-                Tag,
-                "Post-action XML fell back to best changed candidate: nodes=${bestChangedHealth.nodeCount}"
-            )
-            return bestChanged.orEmpty()
-        }
-        return best.orEmpty()
-    }
-
-    private fun hasPostActionPageChanged(beforeXml: String?, afterXml: String?): Boolean {
-        if (beforeXml.isNullOrBlank() || afterXml.isNullOrBlank()) return true
-        val beforeHealth = xmlHealth(beforeXml)
-        val afterHealth = xmlHealth(afterXml)
-        if (!afterHealth.isUsable) return false
-        val similarity = runCatching {
-            TreeEditDistance.getSimilarity(beforeXml, afterXml).toDouble()
-        }.getOrDefault(0.0)
-        if (similarity <= POST_ACTION_XML_CHANGED_MAX_SIMILARITY) return true
-        val beforePackage = packageHintFromXml(beforeXml)
-        val afterPackage = packageHintFromXml(afterXml)
-        return beforePackage.isNotBlank() &&
-            afterPackage.isNotBlank() &&
-            beforePackage != afterPackage &&
-            afterHealth.nodeCount >= beforeHealth.nodeCount.coerceAtMost(MIN_USABLE_XML_NODE_COUNT)
-    }
-
-    private fun packageHintFromXml(xml: String): String {
-        val counts = linkedMapOf<String, Int>()
-        fun add(raw: String?) {
-            val value = raw?.trim().orEmpty()
-            if (value.isBlank() || value == "android" || !value.contains('.')) return
-            if (!PACKAGE_NAME_PATTERN.matches(value)) return
-            counts[value] = (counts[value] ?: 0) + 1
-        }
-        PACKAGE_ATTR_PATTERN.findAll(xml).forEach { add(it.groupValues[1]) }
-        RESOURCE_ID_PACKAGE_PATTERN.findAll(xml).forEach { add(it.groupValues[1]) }
-        return counts.maxWithOrNull(
-            compareBy<Map.Entry<String, Int>> { it.value }
-                .thenByDescending { it.key.length }
-        )?.key.orEmpty()
-    }
 }
 
 private const val XML_CAPTURE_MAX_ATTEMPTS = 4
-private const val XML_CAPTURE_RETRY_DELAY_MS = 180L
 private const val MIN_USABLE_XML_NODE_COUNT = 3
 private const val MIN_TINY_XML_NODE_COUNT = 1
 private const val MIN_USABLE_XML_AREA = 180_000
 private const val MIN_APP_XML_AREA_RATIO = 0.28
-private const val POST_ACTION_XML_STABLE_MAX_CHECKS = 4
-private const val POST_ACTION_XML_STABLE_INTERVAL_MS = 350L
-private const val POST_ACTION_XML_STABLE_SIMILARITY = 0.86
-private const val POST_ACTION_XML_CHANGED_MAX_SIMILARITY = 0.82
 private const val SEND_MARKED_SCREENSHOT_BY_DEFAULT = false
 private const val MAX_GET_STATE_NODE_SCAN = 180
 private const val MAX_GET_STATE_VISIBLE_TEXTS = 18
@@ -2018,10 +1909,6 @@ private const val MAX_GET_STATE_LABEL_CHARS = 80
 private const val MAX_GET_STATE_RESULT_CHARS = 2200
 private const val DEFAULT_VLM_MAX_STEPS = 12
 private const val VLM_RELATIVE_COORDINATE_MAX = 1000f
-private val PACKAGE_ATTR_PATTERN = Regex("""\bpackage\s*=\s*["']([^"']+)["']""")
-private val RESOURCE_ID_PACKAGE_PATTERN =
-    Regex("""\bresource-id\s*=\s*["']([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+):id/[^"']*["']""")
-private val PACKAGE_NAME_PATTERN = Regex("""[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+""")
 
 data class VLMOperationResult(
     val success: Boolean,

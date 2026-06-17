@@ -1,4 +1,5 @@
 import java.math.BigInteger
+import java.io.FileNotFoundException
 import java.net.URI
 import java.io.RandomAccessFile
 import java.security.MessageDigest
@@ -20,8 +21,11 @@ val gitCommitDate: Provider<String> =
     providers.exec { commandLine("git", "show", "-s", "--format=%cI", "HEAD") }.standardOutput.asText.map { it.trim() }
 
 val termuxPackageBaseUrl = "https://packages-cf.termux.dev/apt/termux-main"
-val prootDebUrl = "$termuxPackageBaseUrl/pool/main/p/proot/proot_5.1.107.76_aarch64.deb"
-val prootDebChecksum = "390891fe974985e06fa42693cbbc82742d7c5d681eb7534cd5e0497f2836cd9f"
+val termuxPackageIndexUrl = "$termuxPackageBaseUrl/dists/stable/main/binary-aarch64/Packages"
+val prootDebPackageName = "proot"
+val prootDebUrl = "$termuxPackageBaseUrl/pool/main/p/proot/proot_5.1.107.79_aarch64.deb"
+val prootDebChecksum = "529c231b5110e39fba8feef75c91592593781390005d634a47b0a64ffb3f2b13"
+val libtallocDebPackageName = "libtalloc"
 val libtallocDebUrl = "$termuxPackageBaseUrl/pool/main/libt/libtalloc/libtalloc_2.4.3_aarch64.deb"
 val libtallocDebChecksum = "ac81ad623d74c209718b9f3acb2dd702cc8a88c431e820d212229910b4db29da"
 val alpineMiniRootfsUrl =
@@ -134,6 +138,61 @@ fun downloadRuntimeFile(localPath: String, remoteUrl: String, expectedChecksum: 
     }
 }
 
+data class TermuxPackage(
+    val remoteUrl: String,
+    val checksum: String
+)
+
+fun resolveTermuxPackage(packageName: String): TermuxPackage {
+    val packageIndex = URI(termuxPackageIndexUrl).toURL().readText()
+    val packageEntry = packageIndex
+        .split(Regex("\\n\\n+"))
+        .firstOrNull { entry ->
+            entry.lineSequence().any { it == "Package: $packageName" }
+        }
+        ?: throw GradleException("Missing Termux package '$packageName' in $termuxPackageIndexUrl")
+    val fields = packageEntry.lineSequence()
+        .mapNotNull { line ->
+            val separator = line.indexOf(": ")
+            if (separator < 0) {
+                null
+            } else {
+                line.substring(0, separator) to line.substring(separator + 2)
+            }
+        }
+        .toMap()
+    val filename = fields["Filename"]
+        ?: throw GradleException("Missing Filename for Termux package '$packageName'")
+    val checksum = fields["SHA256"]
+        ?: throw GradleException("Missing SHA256 for Termux package '$packageName'")
+    return TermuxPackage(
+        remoteUrl = "$termuxPackageBaseUrl/$filename",
+        checksum = checksum
+    )
+}
+
+fun downloadTermuxPackage(
+    localPath: String,
+    packageName: String,
+    remoteUrl: String,
+    expectedChecksum: String
+) {
+    try {
+        downloadRuntimeFile(
+            localPath = localPath,
+            remoteUrl = remoteUrl,
+            expectedChecksum = expectedChecksum
+        )
+    } catch (error: FileNotFoundException) {
+        val resolvedPackage = resolveTermuxPackage(packageName)
+        downloadRuntimeFile(
+            localPath = localPath,
+            remoteUrl = resolvedPackage.remoteUrl,
+            expectedChecksum = resolvedPackage.checksum
+        )
+    }
+}
+
 fun extractDebMember(debFile: File, memberName: String, target: File) {
     target.parentFile?.mkdirs()
     RandomAccessFile(debFile, "r").use { input ->
@@ -165,15 +224,66 @@ fun extractDebMember(debFile: File, memberName: String, target: File) {
     error("Missing $memberName in ${debFile.absolutePath}")
 }
 
+fun extractDebMemberMatching(debFile: File, memberNames: Set<String>, target: File): String {
+    target.parentFile?.mkdirs()
+    RandomAccessFile(debFile, "r").use { input ->
+        val globalHeader = ByteArray(8)
+        input.readFully(globalHeader)
+        check(String(globalHeader) == "!<arch>\n") { "Invalid deb archive: ${debFile.absolutePath}" }
+
+        while (input.filePointer < input.length()) {
+            val header = ByteArray(60)
+            input.readFully(header)
+            val name = String(header, 0, 16).trim().removeSuffix("/")
+            val size = String(header, 48, 10).trim().toLong()
+            if (name in memberNames) {
+                target.outputStream().use { output ->
+                    val buffer = ByteArray(8192)
+                    var remaining = size
+                    while (remaining > 0) {
+                        val readBytes = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+                        check(readBytes >= 0) { "Unexpected EOF while reading $name from ${debFile.name}" }
+                        output.write(buffer, 0, readBytes)
+                        remaining -= readBytes
+                    }
+                }
+                return name
+            }
+            input.seek(input.filePointer + size + (size % 2))
+        }
+    }
+    error("Missing one of ${memberNames.joinToString()} in ${debFile.absolutePath}")
+}
+
 fun unpackDebData(debFile: File, targetDir: File) {
-    val dataArchive = File(targetDir.parentFile, "${debFile.name}.data.tar.xz")
-    extractDebMember(debFile, "data.tar.xz", dataArchive)
+    val dataArchive = File(targetDir.parentFile, "${debFile.name}.data.tar")
+    extractDebMemberMatching(
+        debFile = debFile,
+        memberNames = setOf("data.tar.xz", "data.tar.zst", "data.tar.gz", "data.tar"),
+        target = dataArchive
+    )
     targetDir.deleteRecursively()
     targetDir.mkdirs()
     exec {
-        commandLine("tar", "-xJf", dataArchive.absolutePath, "-C", targetDir.absolutePath)
+        commandLine("tar", "-xf", dataArchive.absolutePath, "-C", targetDir.absolutePath)
     }
 }
+
+fun firstExistingFile(root: File, relativePaths: List<String>): File =
+    relativePaths
+        .map { root.resolve(it) }
+        .firstOrNull { it.isFile }
+        ?: error(
+            "Missing runtime file under ${root.absolutePath}. Tried:\n" +
+                relativePaths.joinToString("\n") { "  - $it" }
+        )
+
+fun firstExistingFileByPrefix(directory: File, prefix: String): File =
+    directory
+        .listFiles()
+        ?.filter { it.isFile && it.name.startsWith(prefix) }
+        ?.maxByOrNull { it.name }
+        ?: error("Missing runtime file matching $prefix* under ${directory.absolutePath}")
 
 fun copyRuntimeFile(source: File, target: File, executable: Boolean) {
     check(source.isFile && source.length() > 0) { "Missing runtime file: ${source.absolutePath}" }
@@ -189,8 +299,11 @@ fun copyRuntimeFile(source: File, target: File, executable: Boolean) {
 val prepareEmbeddedTerminalRuntime by tasks.registering {
     val outputDir = layout.buildDirectory.dir("generated/assets/embeddedTerminalRuntime/embedded-terminal-runtime")
     val jniOutputDir = layout.buildDirectory.dir("generated/jniLibs/embeddedTerminalRuntime")
+    inputs.property("termuxPackageIndexUrl", termuxPackageIndexUrl)
+    inputs.property("prootDebPackageName", prootDebPackageName)
     inputs.property("prootDebUrl", prootDebUrl)
     inputs.property("prootDebChecksum", prootDebChecksum)
+    inputs.property("libtallocDebPackageName", libtallocDebPackageName)
     inputs.property("libtallocDebUrl", libtallocDebUrl)
     inputs.property("libtallocDebChecksum", libtallocDebChecksum)
     inputs.property("alpineMiniRootfsUrl", alpineMiniRootfsUrl)
@@ -208,8 +321,9 @@ val prepareEmbeddedTerminalRuntime by tasks.registering {
         }
 
         val prootDeb = workDir.resolve("proot.deb")
-        downloadRuntimeFile(
+        downloadTermuxPackage(
             localPath = prootDeb.absolutePath,
+            packageName = prootDebPackageName,
             remoteUrl = prootDebUrl,
             expectedChecksum = prootDebChecksum
         )
@@ -222,26 +336,34 @@ val prepareEmbeddedTerminalRuntime by tasks.registering {
             executable = true
         )
         copyRuntimeFile(
-            source = prootPrefix.resolve("libexec/proot/loader"),
+            source = firstExistingFile(
+                root = prootPrefix,
+                relativePaths = listOf("libexec/proot/loader", "lib/proot/loader")
+            ),
             target = jniRoot.resolve("arm64-v8a/libproot-loader.so"),
             executable = true
         )
         copyRuntimeFile(
-            source = prootPrefix.resolve("libexec/proot/loader32"),
+            source = firstExistingFile(
+                root = prootPrefix,
+                relativePaths = listOf("libexec/proot/loader32", "lib/proot/loader32")
+            ),
             target = jniRoot.resolve("arm64-v8a/libproot-loader32.so"),
             executable = true
         )
 
         val libtallocDeb = workDir.resolve("libtalloc.deb")
-        downloadRuntimeFile(
+        downloadTermuxPackage(
             localPath = libtallocDeb.absolutePath,
+            packageName = libtallocDebPackageName,
             remoteUrl = libtallocDebUrl,
             expectedChecksum = libtallocDebChecksum
         )
         val libtallocPackageRoot = workDir.resolve("libtalloc")
         unpackDebData(libtallocDeb, libtallocPackageRoot)
+        val libtallocLibraryDir = libtallocPackageRoot.resolve("data/data/com.termux/files/usr/lib")
         copyRuntimeFile(
-            source = libtallocPackageRoot.resolve("data/data/com.termux/files/usr/lib/libtalloc.so.2.4.3"),
+            source = firstExistingFileByPrefix(libtallocLibraryDir, "libtalloc.so."),
             target = root.resolve("libtalloc.so.2"),
             executable = false
         )

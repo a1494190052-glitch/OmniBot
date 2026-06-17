@@ -1,6 +1,7 @@
 package cn.com.omnimind.bot.omniflow.language
 
 import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
+import cn.com.omnimind.bot.runlog.OmniflowCheckerRule
 
 // ---------------------------------------------------------------------------
 // Parameter binding
@@ -82,9 +83,9 @@ data class FunctionParameter(
 
 data class UIStepCheckerRule(
     val id: String,
-    val phase: String,
     val condition: String,
     val action: String,
+    val phase: String = OmniflowCheckerRule.phaseForCondition(condition),
     val enabled: Boolean = true,
     val params: Map<String, Any?> = emptyMap(),
 )

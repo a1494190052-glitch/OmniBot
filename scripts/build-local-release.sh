@@ -8,6 +8,7 @@ NDK_VERSION="${NDK_VERSION:-28.2.13676358}"
 FLUTTER_DIR="$ROOT_DIR/ui"
 ARTIFACT_DIR="$ROOT_DIR/app/build/outputs/release-artifacts"
 DEFAULT_WORKER_URL="https://omni.1775885.xyz"
+FLUTTER_CMD="${FLUTTER_CMD:-}"
 
 INSTALL_APK=0
 SKIP_SUBMODULES=0
@@ -119,6 +120,38 @@ load_gradle_property_if_empty() {
       return
     fi
   done
+}
+
+read_local_property() {
+  local property_name="$1"
+  read_gradle_property "$property_name" "$ROOT_DIR/local.properties"
+}
+
+detect_flutter_command() {
+  local configured_flutter_sdk=""
+  local candidate=""
+
+  if [[ -n "$FLUTTER_CMD" ]]; then
+    printf '%s\n' "$FLUTTER_CMD"
+    return
+  fi
+
+  configured_flutter_sdk="$(read_local_property flutter.sdk 2>/dev/null || true)"
+  if [[ -n "$configured_flutter_sdk" ]]; then
+    candidate="$configured_flutter_sdk/bin/flutter"
+    if [[ -x "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return
+    fi
+  fi
+
+  if command -v flutter >/dev/null 2>&1; then
+    command -v flutter
+    return
+  fi
+
+  echo "Missing Flutter command. Set FLUTTER_CMD or flutter.sdk in local.properties." >&2
+  exit 1
 }
 
 prompt_if_empty() {
@@ -810,7 +843,8 @@ fi
 
 if [[ "$SKIP_FLUTTER" -eq 0 ]]; then
   echo "Installing Flutter dependencies..."
-  (cd "$FLUTTER_DIR" && flutter pub get --enforce-lockfile)
+  FLUTTER_CMD_PATH="$(detect_flutter_command)"
+  (cd "$FLUTTER_DIR" && "$FLUTTER_CMD_PATH" pub get --enforce-lockfile)
 fi
 
 for edition in "${EDITIONS[@]}"; do

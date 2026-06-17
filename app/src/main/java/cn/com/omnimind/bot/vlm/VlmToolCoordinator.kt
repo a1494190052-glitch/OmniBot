@@ -9,6 +9,8 @@ import cn.com.omnimind.assists.api.bean.VlmTaskTerminalResult
 import cn.com.omnimind.assists.api.interfaces.OnMessagePushListener
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.assists.controller.http.HttpController
+import cn.com.omnimind.assists.util.pollUntilReady
+import cn.com.omnimind.assists.util.TreeEditDistance
 import cn.com.omnimind.assists.task.vlmserver.AbortAction
 import cn.com.omnimind.assists.task.vlmserver.ClickAction
 import cn.com.omnimind.assists.task.vlmserver.FeedbackAction
@@ -218,10 +220,6 @@ typealias RuntimeResolveProvider = suspend (
 
 object VlmToolCoordinator {
     private const val TAG = "[VlmToolCoordinator]"
-    private const val SUMMARY_WAIT_GRACE_MS = 20_000L
-    private const val PRELAUNCH_OBSERVE_DELAY_MS = 700L
-    private const val RECALL_OBSERVE_ATTEMPTS = 8
-    private const val RECALL_OBSERVE_INTERVAL_MS = 250L
     private const val MIN_WAIT_TIMEOUT_MS = 30_000L
     private const val MAX_WAIT_TIMEOUT_MS = 600_000L
     private const val DEFAULT_MAX_STEPS = 12
@@ -845,7 +843,6 @@ object VlmToolCoordinator {
         val startWaitTime = System.currentTimeMillis()
         val resolvedWaitTimeoutMs = resolveWaitTimeoutMs(waitTimeoutMs)
         var lastScreenState = ScreenStateUtil.isOperable()
-        var summaryWaitStart: Long? = null
         var lastProgress = ""
 
         while (System.currentTimeMillis() - startWaitTime < resolvedWaitTimeoutMs) {
@@ -903,17 +900,6 @@ object VlmToolCoordinator {
 
             when (state.status) {
                 TaskStatus.FINISHED -> {
-                    if (state.needSummary && state.summaryText.isNullOrBlank() && !state.summaryUnavailable) {
-                        if (summaryWaitStart == null) {
-                            summaryWaitStart = System.currentTimeMillis()
-                        }
-                        if (System.currentTimeMillis() - summaryWaitStart < SUMMARY_WAIT_GRACE_MS) {
-                            delay(McpTaskManager.POLL_INTERVAL_MS)
-                            continue
-                        }
-                        state.summaryUnavailable = true
-                        state.markStateChanged()
-                    }
                     return state.toOutcome(VlmToolOutcomeStatus.FINISHED)
                 }
                 TaskStatus.ERROR -> {
@@ -1163,7 +1149,10 @@ object VlmToolCoordinator {
                 OmniLog.w(TAG, "Recall prelaunch failed target=$targetPackage error=${error.message}")
             }.isSuccess
             if (launched) {
-                delay(PRELAUNCH_OBSERVE_DELAY_MS)
+                pollUntilReady(intervalMs = 300L, timeoutMs = 2000L) {
+                    runCatching { AccessibilityController.getCaptureScreenShotXml(true) }.getOrNull()
+                        ?.trim()?.takeIf { it.isNotEmpty() }
+                }
                 request.copy(skipGoHome = true)
             } else {
                 request
@@ -1191,24 +1180,22 @@ object VlmToolCoordinator {
 
     private suspend fun waitForRecallObservation(): RecallObservation {
         var lastPackage: String? = null
-        var lastXml: String? = null
-        repeat(RECALL_OBSERVE_ATTEMPTS) { attempt ->
-            val currentPackage = runCatching { AccessibilityController.getPackageName() }.getOrNull()
-                ?.trim()
-                ?.takeIf { it.isNotEmpty() }
-            val currentXml = runCatching { AccessibilityController.getCaptureScreenShotXml(true) }.getOrNull()
-                ?.trim()
-                ?.takeIf { it.isNotEmpty() }
-            if (currentPackage != null) lastPackage = currentPackage
-            if (currentXml != null) lastXml = currentXml
-            if (currentXml != null) {
-                return RecallObservation(currentPackage, currentXml)
-            }
-            if (attempt < RECALL_OBSERVE_ATTEMPTS - 1) {
-                delay(RECALL_OBSERVE_INTERVAL_MS)
-            }
+        var previousXml: String? = null
+        val stableXml = pollUntilReady(intervalMs = 300L, timeoutMs = 3000L) {
+            val pkg = runCatching { AccessibilityController.getPackageName() }.getOrNull()
+                ?.trim()?.takeIf { it.isNotEmpty() }
+            if (pkg != null) lastPackage = pkg
+            val current = runCatching { AccessibilityController.getCaptureScreenShotXml(true) }.getOrNull()
+                ?.trim()?.takeIf { it.isNotEmpty() }
+            val prev = previousXml
+            previousXml = current
+            if (current != null && prev != null) {
+                val similarity = runCatching { TreeEditDistance.getSimilarity(prev, current) }.getOrDefault(0.0)
+                current.takeIf { similarity >= 0.85 }
+            } else null
         }
-        return RecallObservation(lastPackage, lastXml)
+        val currentPackage = runCatching { AccessibilityController.getPackageName() }.getOrNull()
+        return RecallObservation(currentPackage ?: lastPackage, stableXml ?: previousXml)
     }
 
     private suspend fun emitProgress(

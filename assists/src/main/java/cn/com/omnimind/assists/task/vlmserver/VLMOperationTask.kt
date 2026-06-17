@@ -1018,15 +1018,6 @@ open class VLMOperationTask(
                     "VLM task terminal state: finishType=$finishType success=${taskExecutionReport.success} error=${taskExecutionReport.error.orEmpty()}"
                 )
 
-                val summaryResult = if (shouldSummary && taskExecutionReport.summaryScreenshotList != null) {
-                    pushSummary(
-                        goal = goal,
-                        model = model,
-                        report = taskExecutionReport
-                    )
-                } else {
-                    SummaryPushResult()
-                }
                 appendInternalRunLog(context, taskExecutionReport)
 
                 finalizeTerminalOnce {
@@ -1036,10 +1027,10 @@ open class VLMOperationTask(
                                 status = VlmTaskTerminalStatus.FINISHED,
                                 message = extractFinishedContent(taskExecutionReport),
                                 finishedContent = extractFinishedContent(taskExecutionReport),
-                                summaryText = summaryResult.summaryText,
+                                summaryText = null,
                                 needSummary = shouldSummary,
                                 feedback = taskExecutionReport.feedback,
-                                summaryUnavailable = summaryResult.summaryUnavailable
+                                summaryUnavailable = true
                             )
                         )
                     } else {
@@ -1049,16 +1040,22 @@ open class VLMOperationTask(
                                 status = VlmTaskTerminalStatus.ERROR,
                                 message = errorMessage,
                                 finishedContent = null,
-                                summaryText = summaryResult.summaryText,
+                                summaryText = null,
                                 errorMessage = errorMessage,
                                 needSummary = shouldSummary,
                                 feedback = taskExecutionReport.feedback,
-                                summaryUnavailable = summaryResult.summaryUnavailable
+                                summaryUnavailable = true
                             )
                         )
                     }
                     onTaskStop(finishType, finishMessage)
                     onTaskDestroy()
+                }
+
+                if (shouldSummary && taskExecutionReport.summaryScreenshotList != null) {
+                    cancelScope.launch {
+                        pushSummary(goal = goal, model = model, report = taskExecutionReport)
+                    }
                 }
             } catch (e: PrivacyBlockedException) {
                 finalizeTerminalOnce {

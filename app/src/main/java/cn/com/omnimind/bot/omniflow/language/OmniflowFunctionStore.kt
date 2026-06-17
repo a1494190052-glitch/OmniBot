@@ -181,8 +181,8 @@ object OmniflowFunctionStore {
                 val rm = (cr as? Map<*, *>)?.entries?.associate { it.key.toString() to it.value }
                     ?: return@mapNotNull null
                 UIStepCheckerRule(
-                    id = str(rm, "id"), phase = str(rm, "phase"),
-                    condition = str(rm, "condition"), action = str(rm, "action"),
+                    id = str(rm, "id"), condition = str(rm, "condition"), action = str(rm, "action"),
+                    phase = str(rm, "phase").ifBlank { cn.com.omnimind.bot.runlog.OmniflowCheckerRule.phaseForCondition(str(rm, "condition")) },
                     enabled = rm["enabled"] as? Boolean ?: true,
                     params = mapOf_(rm, "params"),
                 )
@@ -224,8 +224,8 @@ object OmniflowFunctionStore {
                     val rm = (cr as? Map<*, *>)?.entries?.associate { it.key.toString() to it.value }
                         ?: return@mapNotNull null
                     UIStepCheckerRule(
-                        id = str(rm, "id"), phase = str(rm, "phase"),
-                        condition = str(rm, "condition"), action = str(rm, "action"),
+                        id = str(rm, "id"), condition = str(rm, "condition"), action = str(rm, "action"),
+                        phase = str(rm, "phase").ifBlank { cn.com.omnimind.bot.runlog.OmniflowCheckerRule.phaseForCondition(str(rm, "condition")) },
                         enabled = rm["enabled"] as? Boolean ?: true,
                         params = (rm["params"] as? Map<*, *>)?.entries
                             ?.associate { it.key.toString() to it.value } ?: emptyMap(),

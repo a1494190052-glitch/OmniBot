@@ -10,9 +10,9 @@ metadata.
 
 ## Mental Model
 
-A checker injects a conditional action into replay. Its phase decides where that
-extra action runs relative to the main-path step: before transfer, before the
-action, or after the action.
+A checker injects at most one conditional action during the single replay
+checkpoint between observe and action transfer. The replay loop stays:
+`observe -> checker -> action_transfer -> act`.
 
 Do not use a checker to retarget, replace, or compete with a normal replay
 action. If the recorded action itself can be replayed through action transfer,
@@ -25,15 +25,15 @@ clear it.
 - If the condition is already supported, update the Function through
   `update_function` and `metadata.checker_rules`.
 - If the condition is not supported, add Kotlin runtime support first.
-- If a popup appears immediately after `open_app`, use a `post_action` checker.
-  Pre-transfer checkers do not run before an `open_app` step.
+- If a popup appears after `open_app`, the next replay action's checker pass
+  should dismiss it when the current XML proves the popup is blocking progress.
 
 ## Runtime Implementation
 
 1. Add or update condition/action aliases in
    `app/src/main/java/cn/com/omnimind/bot/runlog/OmniflowCheckerRule.kt`.
-2. Add the supported pair and default phase there. Global rules belong in
-   `GLOBAL_PRE_TRANSFER`, `GLOBAL_PRE_ACTION`, or `GLOBAL_POST_ACTION`.
+2. Add the supported condition/action pair there. Global rules belong in the
+   single checker rule library.
 3. Implement XML-only detection and action execution in
    `app/src/main/java/cn/com/omnimind/bot/runlog/UIStepExecutor.kt`.
 4. If agents may generate the checker through `update_function`, update
@@ -43,7 +43,7 @@ clear it.
 
 ## Hi Upgrade Pattern
 
-Use `app_upgrade_prompt + dismiss + post_action` for the Hi upgrade prompt.
+Use `app_upgrade_prompt + dismiss` for the Hi upgrade prompt.
 
 Detection should require upgrade/update evidence such as `新版本`, `版本更新`,
 `升级`, `update available`, or `upgrade available`. The action should click only
@@ -53,7 +53,7 @@ or `download`.
 
 ## Permission Dialog Pattern
 
-Use `permission_dialog + allow + pre_transfer` for Android permission prompts.
+Use `permission_dialog + allow` for Android permission prompts.
 
 Do not turn recorded permission-dialog clicks into selector-heavy checker
 logic. If the source step itself clicks a permission control such as `始终允许` /
@@ -78,7 +78,7 @@ If a new built-in skill is added, update
 
 Add focused tests for every new checker:
 
-- `OmniflowCheckerRuleTest`: aliases, default action, default phase, supported
+- `OmniflowCheckerRuleTest`: aliases, default action, supported
   pair.
 - `UIStepExecutorTest`: XML fixture that should trigger and one that
   should not trigger when risk is high.

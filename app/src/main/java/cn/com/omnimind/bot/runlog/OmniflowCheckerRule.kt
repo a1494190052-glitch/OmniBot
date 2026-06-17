@@ -8,7 +8,7 @@ package cn.com.omnimind.bot.runlog
  *
  * Three rule scopes compose in order — global rules run first, then
  * function-level rules, then node-level rules:
- *   - Global   : loaded from the built-in checker rule library by phase
+ *   - Global   : loaded from the built-in checker rule library
  *   - Function : loaded from Function spec metadata.checker_rules
  *   - Node     : loaded from UDEG node skill (future)
  *
@@ -22,11 +22,10 @@ data class OmniflowCheckerRule(
     val condition: String,
     val action: String,
     val params: Map<String, Any?> = emptyMap(),
-    val phase: String = PHASE_PRE_TRANSFER,
+    val phase: String = phaseForCondition(condition),
     val enabled: Boolean = true,
 ) {
     companion object {
-
         // ── Phases ──────────────────────────────────────────────────────────
         /** Runs before anchor-based action transfer. */
         const val PHASE_PRE_TRANSFER = "pre_transfer"
@@ -104,49 +103,36 @@ data class OmniflowCheckerRule(
                 id = "confirm_resolver_always",
                 condition = COND_RESOLVER_DIALOG,
                 action = ACTION_CONFIRM_RESOLVER_ALWAYS,
-                phase = PHASE_PRE_TRANSFER,
             ),
             checkerRuleSpec(
                 id = "auto_grant_permission",
                 condition = COND_PERMISSION_DIALOG,
                 action = ACTION_ALLOW,
-                phase = PHASE_PRE_TRANSFER,
             ),
             checkerRuleSpec(
                 id = "dismiss_ad_blocking",
                 condition = COND_AD_BLOCKING,
                 action = ACTION_DISMISS,
-                phase = PHASE_PRE_TRANSFER,
             ),
             checkerRuleSpec(
                 id = "package_mismatch_recovery",
                 condition = COND_PACKAGE_MISMATCH,
                 action = ACTION_OPEN_APP,
-                phase = PHASE_PRE_TRANSFER,
             ),
             checkerRuleSpec(
                 id = "dismiss_blocking_overlay",
                 condition = COND_OVERLAY_BLOCKING,
                 action = ACTION_DISMISS,
-                phase = PHASE_PRE_TRANSFER,
             ),
             checkerRuleSpec(
                 id = "hide_keyboard_if_obscuring",
                 condition = COND_KEYBOARD_OBSCURING,
                 action = ACTION_HIDE_KEYBOARD,
-                phase = PHASE_PRE_ACTION,
             ),
             checkerRuleSpec(
-                id = "confirm_resolver_always_after_open_app",
-                condition = COND_RESOLVER_DIALOG,
-                action = ACTION_CONFIRM_RESOLVER_ALWAYS,
-                phase = PHASE_POST_ACTION,
-            ),
-            checkerRuleSpec(
-                id = "dismiss_app_upgrade_prompt_after_open_app",
+                id = "dismiss_app_upgrade_prompt",
                 condition = COND_APP_UPGRADE_PROMPT,
                 action = ACTION_DISMISS,
-                phase = PHASE_POST_ACTION,
             ),
         )
 
@@ -156,27 +142,19 @@ data class OmniflowCheckerRule(
         fun globalRulesForPhase(phase: String): List<OmniflowCheckerRule> =
             BUILTIN_RULES.filter { it.phase == phase && it.enabled }
 
-        val GLOBAL_PRE_TRANSFER: List<OmniflowCheckerRule>
-            get() = globalRulesForPhase(PHASE_PRE_TRANSFER)
-
-        val GLOBAL_PRE_ACTION: List<OmniflowCheckerRule>
-            get() = globalRulesForPhase(PHASE_PRE_ACTION)
-
-        val GLOBAL_POST_ACTION: List<OmniflowCheckerRule>
-            get() = globalRulesForPhase(PHASE_POST_ACTION)
+        fun globalRules(): List<OmniflowCheckerRule> =
+            BUILTIN_RULES.filter { it.enabled }
 
         private fun checkerRuleSpec(
             id: String,
             condition: String,
             action: String,
-            phase: String,
             params: Map<String, Any?> = emptyMap(),
             enabled: Boolean = true,
         ): Map<String, Any?> = linkedMapOf(
             "id" to id,
             "condition" to condition,
             "action" to action,
-            "phase" to phase,
             "params" to params.takeIf { it.isNotEmpty() },
             "enabled" to enabled,
         ).filterValues { it != null }

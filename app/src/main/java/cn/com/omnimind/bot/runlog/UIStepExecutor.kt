@@ -563,50 +563,7 @@ object UIStepExecutor {
         } else {
             emptyMap()
         }
-        var postActionState: ReplayState? = null
-        val postActionObserve = if (action == OobActionCodec.ACTION_FINISHED) {
-            emptyMap()
-        } else {
-            timing.measure("post_action_observe_ms") {
-                val startedAtMs = System.currentTimeMillis()
-                val settleDelayMs = if (action == OobActionCodec.ACTION_OPEN_APP ||
-                    action == OobActionCodec.ACTION_WAIT
-                ) {
-                    0L
-                } else {
-                    REPLAY_ACTION_SETTLE_DELAY_MS
-                }
-                if (settleDelayMs > 0L) {
-                    delayWithStopPolling(effectiveReplayDelayMs(settleDelayMs), stopRequested)
-                }
-                val observed = refreshState("post_action_observe")
-                postActionState = observed
-                postActionObserveMeta(
-                    action = action,
-                    startedAtMs = startedAtMs,
-                    settleDelayMs = settleDelayMs,
-                    state = observed,
-                )
-            }
-        }
-        val postActionControls = timing.measure("checker_ms") {
-            val hasPostActionRules = checkerRules.any {
-                it.phase == OmniflowCheckerRule.PHASE_POST_ACTION && it.enabled
-            }
-            if (fixedReplay || (action != OobActionCodec.ACTION_OPEN_APP && !hasPostActionRules)) {
-                emptyList()
-            } else {
-                runCheckerPhaseUntilStable(
-                    phase = OmniflowCheckerRule.PHASE_POST_ACTION,
-                    initialState = postActionState ?: refreshState("after_action"),
-                    replayAction = ReplayAction(step, action, args),
-                    extraRules = checkerRules,
-                    checkerBudget = checkerBudget,
-                    refreshState = ::refreshState,
-                    refreshReasonPrefix = "after_post_action_controls",
-                )
-            }
-        }
+        val postActionControls = emptyList<Map<String, Any?>>()
         val controlEffects = preTransferControls + preActionControls + postActionControls
         val checker = timing.measureOverhead("result_summary_ms") {
             replayCheckerSummary(
@@ -650,9 +607,6 @@ object UIStepExecutor {
             }
             if (openAppReadyWait.isNotEmpty()) {
                 put("open_app_ready_wait", openAppReadyWait)
-            }
-            if (postActionObserve.isNotEmpty()) {
-                put("post_action_observe", postActionObserve)
             }
         }
     }
@@ -1535,32 +1489,6 @@ object UIStepExecutor {
         ).apply {
             putAll(extra)
         }.filterValues { it != null }
-    }
-
-    private fun postActionObserveMeta(
-        action: String,
-        startedAtMs: Long,
-        settleDelayMs: Long,
-        state: ReplayState,
-    ): Map<String, Any?> {
-        val snapshot = state.snapshot
-        val page = state.page
-        return linkedMapOf<String, Any?>(
-            "status" to "observed",
-            "action" to action,
-            "waited_ms" to (System.currentTimeMillis() - startedAtMs).coerceAtLeast(0L),
-            "settle_delay_ms" to settleDelayMs,
-            "captured_at_ms" to state.capturedAtMs,
-            "reason" to state.reason,
-            "package_name" to snapshot.rawPackage.takeIf { it.isNotBlank() },
-            "effective_package" to snapshot.effectivePackage().takeIf { it.isNotBlank() },
-            "activity_name" to snapshot.activityName.takeIf { it.isNotBlank() },
-            "xml_ready" to snapshot.xml.isNotBlank(),
-            "xml_chars" to snapshot.xml.length,
-            "xml_hash" to snapshot.xml.takeIf { it.isNotBlank() }?.let { Integer.toHexString(it.hashCode()) },
-            "visible_node_count" to page?.nodes?.count { it.visible },
-            "interactive_node_count" to page?.nodes?.count { it.visible && it.enabled && it.interactive },
-        ).filterValues { it != null }
     }
 
     private fun inputTextAttemptFailure(attempt: Int, error: Throwable): String =

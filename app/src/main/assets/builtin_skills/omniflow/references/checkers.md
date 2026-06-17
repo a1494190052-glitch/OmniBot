@@ -36,11 +36,11 @@ transfer, leave it executable.
 
 Use only supported runtime checker types:
 
-- `overlay_blocking` + `dismiss` + `pre_transfer`
-- `permission_dialog` + `allow` + `pre_transfer`
-- `keyboard_obscuring` + `hide_keyboard` + `pre_action`
-- `package_mismatch` + `open_app` + `pre_transfer`
-- `app_upgrade_prompt` + `dismiss` + `post_action`
+- `overlay_blocking` + `dismiss`
+- `permission_dialog` + `allow`
+- `keyboard_obscuring` + `hide_keyboard`
+- `package_mismatch` + `open_app`
+- `app_upgrade_prompt` + `dismiss`
 
 Do not invent checker conditions, scripts, selectors, or model calls.
 
@@ -77,8 +77,7 @@ rules.
   "metadata": {
     "checker_rules": [
       {
-        "id": "dismiss_optional_overlay_before_action",
-        "phase": "pre_transfer",
+        "id": "dismiss_optional_overlay",
         "condition": "overlay_blocking",
         "action": "dismiss",
         "enabled": true,
@@ -89,7 +88,7 @@ rules.
   "agent_reuse": {
     "checker_assets": [
       {
-        "checker_id": "dismiss_optional_overlay_before_action",
+        "checker_id": "dismiss_optional_overlay",
         "step_index": 2,
         "reason": "由录制中的关闭广告/弹窗动作提炼成条件 checker。"
       }
