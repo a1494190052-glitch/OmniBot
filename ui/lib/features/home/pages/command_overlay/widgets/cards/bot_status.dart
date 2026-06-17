@@ -39,11 +39,13 @@ class BotStatus extends StatelessWidget {
           context,
           customIcon: showAvatar ? const AgentAvatarButton(size: 30) : null,
           text: completedText,
-          timeDesc: AppTextLocalizer.chooseValue<String?>(
-            zh: AppTextLocalizer.text('用时', locale: locale),
-            en: null,
-            locale: locale,
-          ),
+          timeDesc: normalizedCostTime.isNotEmpty
+              ? AppTextLocalizer.chooseValue<String?>(
+                  zh: AppTextLocalizer.text('用时', locale: locale),
+                  en: null,
+                  locale: locale,
+                )
+              : null,
           costTime: costTime,
           shimmerText: false,
         );

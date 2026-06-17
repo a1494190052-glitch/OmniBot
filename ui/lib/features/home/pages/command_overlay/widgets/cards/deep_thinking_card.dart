@@ -55,7 +55,7 @@ class DeepThinkingCard extends StatefulWidget {
     super.key,
     required this.thinkingText,
     this.isLoading = true,
-    this.maxHeight = 320.0,
+    this.maxHeight = 210.0,
     this.stage = 1,
     this.startTime,
     this.endTime,
@@ -101,15 +101,11 @@ class _DeepThinkingCardState extends State<DeepThinkingCard>
   String? _cachedBuildTextInput;
   String? _cachedLocalizedText;
 
-  // Cache for _buildCollapsedSummary: avoids scanning the full text for the first line.
-  String? _cachedSummaryInput;
-  String? _cachedSummaryFirstLine;
-
   @override
   void initState() {
     super.initState();
     _hasAutoCollapsedForCurrentCompletion = _shouldAutoCollapse(widget);
-    _isCollapsed = _shouldStartCollapsed(widget);
+    _isCollapsed = _hasAutoCollapsedForCurrentCompletion;
     _collapseController = AnimationController(
       vsync: this,
       duration: _collapseDuration,
@@ -297,7 +293,7 @@ class _DeepThinkingCardState extends State<DeepThinkingCard>
   }
 
   void _toggleCollapsed() {
-    if (!widget.isCollapsible) return;
+    if (!widget.isCollapsible || widget.stage != 4) return;
     _setCollapsed(
       !_isCollapsed,
       markCompletionHandled: _shouldAutoCollapse(widget),
@@ -388,13 +384,6 @@ class _DeepThinkingCardState extends State<DeepThinkingCard>
         !widget.isLoading;
   }
 
-  bool _shouldStartCollapsed(DeepThinkingCard widget) {
-    if (!widget.isCollapsible) {
-      return false;
-    }
-    return widget.autoCollapseOnComplete;
-  }
-
   bool _shouldResetScrollPositionOnExpand() {
     return widget.stage == 4 && widget.isCollapsible;
   }
@@ -446,37 +435,6 @@ class _DeepThinkingCardState extends State<DeepThinkingCard>
   }
 
   /// 构建文本显示
-  Widget _buildCollapsedSummary(String thinkingText, Color textColor) {
-    if (_cachedSummaryInput != thinkingText) {
-      _cachedSummaryInput = thinkingText;
-      _cachedSummaryFirstLine = thinkingText
-          .split('\n')
-          .map((l) => l.trim())
-          .firstWhere((l) => l.isNotEmpty, orElse: () => '');
-    }
-    final firstLine = _cachedSummaryFirstLine!;
-    if (firstLine.isEmpty) return const SizedBox.shrink();
-    final localizedLine = AppTextLocalizer.text(firstLine);
-    final summary = localizedLine.length > 80
-        ? '${localizedLine.substring(0, 80)}…'
-        : localizedLine;
-    return Padding(
-      padding: const EdgeInsets.only(top: 2, left: 2),
-      child: Text(
-        summary,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          color: textColor.withValues(alpha: 0.6),
-          fontSize: 11 * widget.textScale,
-          fontFamily: 'PingFang SC',
-          fontWeight: FontWeight.w400,
-          height: 1.4,
-        ),
-      ),
-    );
-  }
-
   Widget _buildText(String text, Color textColor) {
     if (_cachedBuildTextInput != text) {
       _cachedBuildTextInput = text;
@@ -513,7 +471,7 @@ class _DeepThinkingCardState extends State<DeepThinkingCard>
         ? palette.textSecondary
         : resolvedTextColor.withValues(alpha: 0.68);
     final bool hasContent = widget.thinkingText.isNotEmpty;
-    final bool canCollapse = widget.isCollapsible;
+    final bool canCollapse = widget.isCollapsible && widget.stage == 4;
 
     // 根据阶段显示不同的文案
     String hintText;
@@ -522,10 +480,10 @@ class _DeepThinkingCardState extends State<DeepThinkingCard>
         hintText = AppTextLocalizer.text('正在思考');
         break;
       case 2:
-        hintText = AppTextLocalizer.text('正在调用工具');
+        hintText = AppTextLocalizer.text('正在思考');
         break;
       case 3:
-        hintText = AppTextLocalizer.text('执行中');
+        hintText = AppTextLocalizer.text('正在思考');
         break;
       case 4:
       case 5:
@@ -535,59 +493,51 @@ class _DeepThinkingCardState extends State<DeepThinkingCard>
         hintText = AppTextLocalizer.text('正在思考');
     }
 
-    final collapsedSummary =
-        (canCollapse && _isCollapsed && widget.thinkingText.isNotEmpty)
-        ? _buildCollapsedSummary(widget.thinkingText, secondaryTextColor)
-        : null;
     final header = canCollapse && hasContent
         ? InkWell(
             onTap: _toggleCollapsed,
             borderRadius: BorderRadius.circular(8),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      BotStatus(
-                        status: (widget.stage == 4 || widget.stage == 5)
-                            ? BotStatusType.completed
-                            : BotStatusType.hint,
-                        hintText: hintText,
-                        costTime: _formatTime(_elapsedSeconds),
-                        showAvatar: widget.showStatusAvatar,
-                        shimmerText: widget.stage != 4 && widget.stage != 5,
-                        textStyle: TextStyle(
-                          color: secondaryTextColor,
-                          fontSize: 12 * widget.textScale,
-                          fontFamily: 'PingFang SC',
-                          fontWeight: FontWeight.w400,
-                          height: 1.50,
-                          letterSpacing: 0.33,
-                        ),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    BotStatus(
+                      status: (widget.stage == 4 || widget.stage == 5)
+                          ? BotStatusType.completed
+                          : BotStatusType.hint,
+                      hintText: hintText,
+                      costTime: _formatTime(_elapsedSeconds),
+                      showAvatar: widget.showStatusAvatar,
+                      shimmerText: widget.stage != 4 && widget.stage != 5,
+                      textStyle: TextStyle(
+                        color: secondaryTextColor,
+                        fontSize: 12 * widget.textScale,
+                        fontFamily: 'PingFang SC',
+                        fontWeight: FontWeight.w400,
+                        height: 1.50,
+                        letterSpacing: 0.33,
                       ),
-                      const SizedBox(width: 2),
-                      AnimatedBuilder(
-                        animation: _collapseController,
-                        builder: (context, child) {
-                          return Transform.rotate(
-                            angle: (1 - _collapseController.value) * math.pi,
-                            child: child,
-                          );
-                        },
-                        child: Icon(
-                          Icons.keyboard_arrow_down_rounded,
-                          size: 16,
-                          color: secondaryTextColor,
-                        ),
+                    ),
+                    const SizedBox(width: 2),
+                    AnimatedBuilder(
+                      animation: _collapseController,
+                      builder: (context, child) {
+                        return Transform.rotate(
+                          angle: (1 - _collapseController.value) * math.pi,
+                          child: child,
+                        );
+                      },
+                      child: Icon(
+                        Icons.keyboard_arrow_down_rounded,
+                        size: 16,
+                        color: secondaryTextColor,
                       ),
-                    ],
-                  ),
-                  if (collapsedSummary != null) collapsedSummary,
-                ],
+                    ),
+                  ],
+                ),
               ),
             ),
           )
@@ -715,7 +665,7 @@ class _DeepThinkingCardState extends State<DeepThinkingCard>
               );
             },
           )
-        : RepaintBoundary(child: contentChild);
+        : contentChild;
     final footer = widget.stage == 4 && widget.isExecutable
         ? Padding(
             padding: const EdgeInsets.only(top: 8),

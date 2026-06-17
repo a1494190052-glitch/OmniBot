@@ -44,6 +44,28 @@ void main() {
     },
   );
 
+  testWidgets('completed thinking status shows elapsed time in the UI', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrapWithZhApp(
+        const DeepThinkingCard(
+          thinkingText: '历史思考内容',
+          stage: 4,
+          isLoading: false,
+          startTime: 1711711711000,
+          endTime: 1711711719000,
+          isCollapsible: true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('思考完成'), findsOneWidget);
+    expect(find.textContaining('用时'), findsOneWidget);
+    expect(find.textContaining('8秒'), findsOneWidget);
+  });
+
   testWidgets('thinking expansion stays anchored to the top edge', (
     tester,
   ) async {
@@ -56,9 +78,6 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byType(InkWell));
     await tester.pumpAndSettle();
 
     final alignedClip = find.descendant(
@@ -155,7 +174,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('思考完成'), findsOneWidget);
-    expect(find.text('流式思考内容'), findsOneWidget);
+    expect(find.textContaining('流式思考内容'), findsNothing);
     expect(find.byType(Scrollable), findsNothing);
   });
 

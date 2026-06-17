@@ -49,18 +49,13 @@ class AgentRunGroupMessage extends StatefulWidget {
 class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
     with SingleTickerProviderStateMixin {
   static const Duration _kToggleDuration = Duration(milliseconds: 260);
-  static const double _compactProcessMaxWidthFactor = 0.84;
-  static const double _compactProcessMaxWidth = 360;
-  static const double _compactProcessMinWidth = 252;
   static const double _processFontSize = 12;
-  static const double _thinkingFontSize = 11;
 
   late final AnimationController _expandController;
   late final Animation<double> _sizeFactor;
   late final Animation<double> _opacity;
   late final Animation<double> _lift;
   bool _isNotifyingParentDuringAnimation = false;
-  bool _expandThinkingOnNextOpen = false;
 
   @override
   void initState() {
@@ -201,12 +196,6 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
   }
 
   void _toggleProcessSection(List<ChatMessageModel> processMessages) {
-    if (!widget.expanded &&
-        processMessages.any(_shouldAutoExpandThinkingProcessMessage)) {
-      setState(() {
-        _expandThinkingOnNextOpen = true;
-      });
-    }
     widget.onToggleExpanded();
   }
 
@@ -234,27 +223,6 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
             .map((entry) {
               final index = entry.key;
               final message = entry.value;
-              if (_isThinkingProcessMessage(message)) {
-                final initiallyExpanded = _expandThinkingOnNextOpen;
-                if (initiallyExpanded) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (!mounted || !_expandThinkingOnNextOpen) {
-                      return;
-                    }
-                    setState(() {
-                      _expandThinkingOnNextOpen = false;
-                    });
-                  });
-                }
-                return _AgentThinkingActivityRow(
-                  key: ValueKey(
-                    'agent-run-${widget.group.taskId}-thinking-$index-${message.id}-${widget.expanded}',
-                  ),
-                  message: message,
-                  initiallyExpanded: initiallyExpanded,
-                  onLayoutChanged: widget.onStreamingTextLayoutChanged,
-                );
-              }
               return MessageBubble(
                 key: ValueKey(
                   'agent-run-${widget.group.taskId}-process-message-$index-${message.id}-${widget.expanded}',
@@ -665,258 +633,6 @@ class _RunLogHeaderButton extends StatelessWidget {
   }
 }
 
-class _AgentThinkingActivityRow extends StatefulWidget {
-  const _AgentThinkingActivityRow({
-    super.key,
-    required this.message,
-    this.initiallyExpanded = false,
-    this.onLayoutChanged,
-  });
-
-  final ChatMessageModel message;
-  final bool initiallyExpanded;
-  final VoidCallback? onLayoutChanged;
-
-  @override
-  State<_AgentThinkingActivityRow> createState() =>
-      _AgentThinkingActivityRowState();
-}
-
-class _AgentThinkingActivityRowState extends State<_AgentThinkingActivityRow> {
-  late bool _expanded = widget.initiallyExpanded;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.omniPalette;
-    final cardData = widget.message.cardData ?? const <String, dynamic>{};
-    final content = (cardData['thinkingContent'] ?? '').toString().trim();
-    final stage = _asInt(cardData['stage']) ?? 1;
-    final isLoading =
-        _asBool(cardData['isLoading']) ?? (stage != 4 && stage != 5);
-    if (content.isEmpty && !isLoading) {
-      return const SizedBox.shrink();
-    }
-    final label = AppTextLocalizer.choose(
-      zh: isLoading ? '思考中' : '思考',
-      en: isLoading ? 'Thinking' : 'Thought',
-      locale: Localizations.localeOf(context),
-    );
-    final preview = _firstMeaningfulLine(content);
-    final title = preview.isEmpty ? label : preview;
-    final statusColor = isLoading
-        ? const Color(0xFF8B5CF6)
-        : palette.textTertiary;
-    final cardBackgroundColor = context.isDarkTheme
-        ? Color.alphaBlend(
-            statusColor.withValues(alpha: isLoading ? 0.11 : 0.09),
-            palette.surfaceSecondary,
-          )
-        : statusColor.withValues(alpha: 0.08);
-    final cardBorderColor = context.isDarkTheme
-        ? Color.lerp(
-            palette.borderSubtle,
-            statusColor,
-            0.18,
-          )!.withValues(alpha: 0.92)
-        : Colors.transparent;
-    final tagBackgroundColor = context.isDarkTheme
-        ? Color.alphaBlend(
-            statusColor.withValues(alpha: 0.14),
-            palette.surfaceElevated,
-          )
-        : Colors.white.withValues(alpha: 0.78);
-    final tagTextColor = context.isDarkTheme
-        ? Color.lerp(palette.textSecondary, statusColor, 0.38)!
-        : statusColor;
-
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final availableWidth = constraints.maxWidth.isFinite
-              ? constraints.maxWidth
-              : MediaQuery.of(context).size.width;
-          final targetWidth =
-              (availableWidth *
-                      _AgentRunGroupMessageState._compactProcessMaxWidthFactor)
-                  .clamp(
-                    _AgentRunGroupMessageState._compactProcessMinWidth,
-                    _AgentRunGroupMessageState._compactProcessMaxWidth,
-                  )
-                  .toDouble();
-          final cardWidth = targetWidth > availableWidth
-              ? availableWidth
-              : targetWidth;
-          return ConstrainedBox(
-            key: ValueKey('agent-thinking-activity-row-${widget.message.id}'),
-            constraints: BoxConstraints(
-              minWidth: cardWidth,
-              maxWidth: cardWidth,
-              minHeight: 38,
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 3),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(10),
-                  onTap: content.isEmpty ? null : _toggleExpanded,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: cardBackgroundColor,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: cardBorderColor),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 9, 10, 9),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.only(top: 4),
-                                child: isLoading
-                                    ? SizedBox(
-                                        width: 12,
-                                        height: 12,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 1.4,
-                                          valueColor:
-                                              AlwaysStoppedAnimation<Color>(
-                                                statusColor,
-                                              ),
-                                        ),
-                                      )
-                                    : Icon(
-                                        Icons.psychology_alt_outlined,
-                                        size: 13,
-                                        color: statusColor,
-                                      ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      title,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: context.isDarkTheme
-                                            ? palette.textPrimary
-                                            : Colors.black87,
-                                        fontSize: _AgentRunGroupMessageState
-                                            ._processFontSize,
-                                        fontWeight: FontWeight.w500,
-                                        letterSpacing: 0,
-                                        height: 1.15,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 7,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: tagBackgroundColor,
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                                child: Text(
-                                  label,
-                                  style: TextStyle(
-                                    color: tagTextColor,
-                                    fontSize: _AgentRunGroupMessageState
-                                        ._processFontSize,
-                                    fontWeight: FontWeight.w600,
-                                    letterSpacing: 0,
-                                    height: 1,
-                                  ),
-                                ),
-                              ),
-                              if (content.isNotEmpty)
-                                AnimatedRotation(
-                                  turns: _expanded ? 0 : -0.25,
-                                  duration: const Duration(milliseconds: 160),
-                                  child: Icon(
-                                    Icons.keyboard_arrow_down_rounded,
-                                    size: 16,
-                                    color: palette.textTertiary,
-                                  ),
-                                ),
-                            ],
-                          ),
-                          if (_expanded) _ThinkingDetail(content: content),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  void _toggleExpanded() {
-    setState(() {
-      _expanded = !_expanded;
-    });
-    widget.onLayoutChanged?.call();
-  }
-}
-
-class _ThinkingDetail extends StatelessWidget {
-  const _ThinkingDetail({required this.content});
-
-  final String content;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.omniPalette;
-    return Padding(
-      padding: const EdgeInsets.only(top: 8, left: 26),
-      child: Container(
-        constraints: const BoxConstraints(maxHeight: 220),
-        decoration: BoxDecoration(
-          border: Border(
-            left: BorderSide(
-              color: palette.borderSubtle.withValues(alpha: 0.75),
-              width: 1,
-            ),
-          ),
-        ),
-        child: SingleChildScrollView(
-          physics: const ClampingScrollPhysics(),
-          padding: const EdgeInsets.only(left: 10, right: 2),
-          child: Text(
-            content,
-            style: TextStyle(
-              color: palette.textTertiary,
-              fontSize: _AgentRunGroupMessageState._thinkingFontSize,
-              fontWeight: FontWeight.w500,
-              fontStyle: FontStyle.italic,
-              letterSpacing: 0,
-              height: 1.28,
-              fontFamily: 'monospace',
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _ProcessStatusPill extends StatelessWidget {
   const _ProcessStatusPill({
     required this.label,
@@ -956,68 +672,4 @@ class _ProcessStatusPill extends StatelessWidget {
       ),
     );
   }
-}
-
-bool _isThinkingProcessMessage(ChatMessageModel message) {
-  return (message.cardData?['type'] ?? '').toString() == 'deep_thinking';
-}
-
-bool _shouldAutoExpandThinkingProcessMessage(ChatMessageModel message) {
-  if (!_isThinkingProcessMessage(message)) {
-    return false;
-  }
-  final cardData = message.cardData ?? const <String, dynamic>{};
-  final content = (cardData['thinkingContent'] ?? '').toString().trim();
-  if (content.isEmpty) {
-    return false;
-  }
-  final stage = _asInt(cardData['stage']) ?? 1;
-  final isLoading =
-      _asBool(cardData['isLoading']) ?? (stage != 4 && stage != 5);
-  return !isLoading;
-}
-
-String _firstMeaningfulLine(String value) {
-  final line = value
-      .replaceAll('\r\n', '\n')
-      .replaceAll('\r', '\n')
-      .split('\n')
-      .map((item) => item.replaceAll(RegExp(r'\s+'), ' ').trim())
-      .firstWhere((item) => item.isNotEmpty, orElse: () => '');
-  if (line.length <= 96) {
-    return line;
-  }
-  return '${line.substring(0, 95).trimRight()}…';
-}
-
-int? _asInt(dynamic value) {
-  if (value is int) {
-    return value;
-  }
-  if (value is num) {
-    final asDouble = value.toDouble();
-    if (asDouble.isFinite && asDouble == asDouble.truncateToDouble()) {
-      return value.toInt();
-    }
-  }
-  if (value is String) {
-    return int.tryParse(value.trim());
-  }
-  return null;
-}
-
-bool? _asBool(dynamic value) {
-  if (value is bool) {
-    return value;
-  }
-  if (value is String) {
-    final normalized = value.trim().toLowerCase();
-    if (normalized == 'true') {
-      return true;
-    }
-    if (normalized == 'false') {
-      return false;
-    }
-  }
-  return null;
 }
