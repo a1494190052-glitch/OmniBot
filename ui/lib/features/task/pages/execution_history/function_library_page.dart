@@ -1721,15 +1721,15 @@ Future<void> _startHumanTrajectoryLearningFlow({
         !conversionSuccess
             ? _text(
                 context,
-                '手动录制完成，RunLog 已生成；人工 Function 生成失败',
-                'Recording completed and RunLog was created; manual function conversion failed',
+                '手动录制完成，RunLog 已生成；复用指令生成失败',
+                'Recording completed and RunLog was created; reusable command conversion failed',
               )
             : functionId.isEmpty
-            ? _text(context, '已保存人工 Function', 'Manual function saved')
+            ? _text(context, '已保存复用指令', 'Reusable command saved')
             : _text(
                 context,
-                '已保存人工 Function：$functionId',
-                'Manual function saved: $functionId',
+                '已保存复用指令：$functionId',
+                'Reusable command saved: $functionId',
               ),
         type: ToastType.success,
         duration: const Duration(seconds: 3),
@@ -1835,7 +1835,7 @@ Future<Map<String, dynamic>?> _showRunArgumentsDialog(
                         _text(
                           ctx,
                           '这个复用指令需要补充参数后才能执行。',
-                          'This reusable Function needs arguments before running.',
+                          'This reusable command needs arguments before running.',
                         ),
                         style: TextStyle(
                           fontSize: 13,

@@ -36,6 +36,23 @@ void main() {
     expect(projected['toolTypeLabel'], '手动录制');
     expect(projected['runLogId'], 'run-manual-1');
     expect(projected['openRunLogAsTimeline'], isTrue);
+    expect(projected['progress'], contains('复用指令 open_settings'));
+    expect(projected['progress'], isNot(contains('人工 Function')));
+  });
+
+  test('manual recording result labels hidden functions as reusable commands', () {
+    final projected = manualRecordingResultAgentToolCardData(<String, dynamic>{
+      'type': kManualRecordingResultCardType,
+      'success': true,
+      'recordingSuccess': true,
+      'conversionSuccess': true,
+      'runId': 'run-manual-1',
+      'functionId': 'open_settings',
+      'agent_visible': false,
+    });
+
+    expect(projected['progress'], contains('复用指令 open_settings'));
+    expect(projected['progress'], isNot(contains('人工 Function')));
   });
 
   testWidgets('renders manual recording result with AgentToolSummaryCard', (

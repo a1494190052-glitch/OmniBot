@@ -466,7 +466,7 @@ class AgentRunService(
                 )
             }
             TaskStatus.ERROR, TaskStatus.CANCELLED -> {
-                val message = state.message.ifBlank { "OmniFlow Function 执行失败" }
+                val message = state.message.ifBlank { "OmniFlow 复用指令执行失败" }
                 RealtimeHub.publish(
                     "agent_stream_event",
                     base + mapOf(

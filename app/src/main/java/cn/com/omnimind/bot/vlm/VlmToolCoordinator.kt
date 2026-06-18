@@ -1259,7 +1259,7 @@ object VlmToolCoordinator {
                 taskState.status,
                 "等待参数",
                 mapOf(
-                    "summary" to "召回 Function 命中，但需要补充参数",
+                    "summary" to "召回复用指令命中，但需要补充参数",
                     "function_id" to functionId,
                     "arguments" to argumentResolve.arguments,
                     "missingArguments" to argumentResolve.missingRequiredArguments,
@@ -1303,7 +1303,7 @@ object VlmToolCoordinator {
         if (!success) {
             val reason = recallFallbackReason(result)
             taskState.status = TaskStatus.ERROR
-            taskState.message = "召回 Function 执行失败: $reason"
+            taskState.message = "召回复用指令执行失败: $reason"
             taskState.errorCode = firstNonBlank(result["error_code"], result["errorCode"]).ifBlank {
                 "OMNIFLOW_FUNCTION_FAILED"
             }
@@ -1338,7 +1338,7 @@ object VlmToolCoordinator {
         val runId = result["run_id"]?.toString()?.trim().orEmpty()
         val actionsExecuted = result["actions_executed"]?.toString()?.trim().orEmpty()
         val message = buildString {
-            append("已通过召回 Function 完成: ")
+            append("已通过召回复用指令完成: ")
             append(functionId)
             if (runId.isNotEmpty()) append(" (run_id=$runId)")
         }
@@ -1410,7 +1410,7 @@ object VlmToolCoordinator {
 
         taskState.status = TaskStatus.RUNNING
         taskState.waitingQuestion = null
-        taskState.message = "执行召回 Function"
+        taskState.message = "执行召回复用指令"
         taskState.addChatMessage("User replied: $reply")
         taskState.markStateChanged()
         emitProgress(
@@ -1419,7 +1419,7 @@ object VlmToolCoordinator {
             taskState.status,
             "召回执行",
             mapOf(
-                "summary" to "参数已确认，直接执行召回 Function",
+                "summary" to "参数已确认，直接执行召回复用指令",
                 "function_id" to pending.functionId,
                 "arguments" to arguments,
             )
@@ -1436,7 +1436,7 @@ object VlmToolCoordinator {
         if (!success) {
             val reason = recallFallbackReason(result)
             taskState.status = TaskStatus.ERROR
-            taskState.message = "召回 Function 执行失败: $reason"
+            taskState.message = "召回复用指令执行失败: $reason"
             taskState.errorCode = firstNonBlank(result["error_code"], result["errorCode"]).ifBlank {
                 "OMNIFLOW_FUNCTION_FAILED"
             }
@@ -1468,7 +1468,7 @@ object VlmToolCoordinator {
         val runId = result["run_id"]?.toString()?.trim().orEmpty()
         val actionsExecuted = result["actions_executed"]?.toString()?.trim().orEmpty()
         val message = buildString {
-            append("已通过召回 Function 完成: ")
+            append("已通过召回复用指令完成: ")
             append(pending.functionId)
             if (runId.isNotEmpty()) append(" (run_id=$runId)")
         }

@@ -25,8 +25,6 @@ Map<String, dynamic> manualRecordingResultAgentToolCardData(
   final functionId = (cardData['functionId'] ?? cardData['function_id'] ?? '')
       .toString()
       .trim();
-  final agentVisible =
-      cardData['agent_visible'] == true || cardData['agentVisible'] == true;
   final diagnostics = _asMap(cardData['diagnostics']);
   final manualDiagnostics = _asMap(diagnostics['manual_recording']);
   final rawTouchDiagnostics = _asMap(diagnostics['raw_touch']);
@@ -63,8 +61,7 @@ Map<String, dynamic> manualRecordingResultAgentToolCardData(
     if (warning.isNotEmpty) warning,
     if (error.isNotEmpty) error,
     if (recordingMode.isNotEmpty) recordingMode,
-    if (functionId.isNotEmpty)
-      '${agentVisible ? '复用指令' : '人工 Function'} $functionId',
+    if (functionId.isNotEmpty) '复用指令 $functionId',
     if (runId.isNotEmpty) 'RunLog $runId',
   ];
   final cardId = _firstNonBlank([

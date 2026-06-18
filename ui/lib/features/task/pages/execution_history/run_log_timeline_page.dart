@@ -358,7 +358,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
     final isEnhancingRunLogFunction = _runLogEnhancementJob?.isRunning == true;
     final List<Widget> actions = <Widget>[
       Tooltip(
-        message: _text(context, '执行复用指令', 'Run reusable Function'),
+        message: _text(context, '执行复用指令', 'Run reusable command'),
         child: IconButton(
           key: const ValueKey('run-log-action-replay'),
           icon: _isReplayingRunLog
@@ -380,9 +380,9 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       ),
       Tooltip(
         message: savedSpec != null
-            ? _text(context, '查看复用指令', 'View reusable Function')
+            ? _text(context, '查看复用指令', 'View reusable command')
             : convertEligibility.canConvert
-            ? _text(context, '保存为复用指令', 'Save reusable Function')
+            ? _text(context, '保存为复用指令', 'Save reusable command')
             : convertEligibility.message,
         child: IconButton(
           key: const ValueKey('run-log-action-save-function'),
@@ -572,7 +572,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       _functionPanelMessage = _text(
         context,
         '正在保存复用指令',
-        'Saving reusable Function',
+        'Saving reusable command',
       );
       _functionPanelError = null;
     });
@@ -660,7 +660,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       _isReplayingRunLog = true;
     });
     showToast(
-      _text(context, '正在执行复用指令', 'Running reusable Function'),
+      _text(context, '正在执行复用指令', 'Running reusable command'),
       type: ToastType.info,
     );
     final executionFailedText = _text(
@@ -1232,7 +1232,7 @@ class _RunLogFunctionStatusStrip extends StatelessWidget {
   String _title(BuildContext context) {
     switch (status) {
       case _RunLogFunctionPanelStatus.saving:
-        return _text(context, '正在保存复用指令', 'Saving reusable Function');
+        return _text(context, '正在保存复用指令', 'Saving reusable command');
       case _RunLogFunctionPanelStatus.saved:
         return _text(context, '已保存为复用指令', 'Reusable command saved');
       case _RunLogFunctionPanelStatus.enhancing:
@@ -3868,7 +3868,7 @@ class _ReusableFunctionSpecSheetState
     }
     if (functionId.isEmpty) {
       showToast(
-        _text(context, '没有可执行的复用指令', 'Missing runnable Function'),
+        _text(context, '没有可执行的复用指令', 'Missing runnable command'),
         type: ToastType.warning,
       );
       return;
@@ -5820,7 +5820,7 @@ class _FunctionApiStatusBox extends StatelessWidget {
     return _text(
       context,
       count > 0 ? '保存：已保存 $count 条复用指令' : '保存：已保存',
-      count > 0 ? 'Save: $count reusable Functions saved' : 'Save: saved',
+      count > 0 ? 'Save: $count reusable commands saved' : 'Save: saved',
     );
   }
 

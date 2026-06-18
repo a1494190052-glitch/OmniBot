@@ -264,19 +264,19 @@ String _enhancementStatusMessage(
       return _text(
         useEnglish,
         'Agent 已检查，未发现可安全应用的增强；当前复用指令保持不变。',
-        'Agent checked this Function and found no safe enhancement to apply. The reusable Function is unchanged.',
+        'Agent checked this command and found no safe enhancement to apply. The reusable command is unchanged.',
       );
     case RunLogReusableFunctionEnhancementStatus.failed:
       return _text(
         useEnglish,
         'Agent 增强未产生可用结果，已保留当前复用指令。',
-        'Agent enhancement produced no usable result. Keeping the current reusable Function.',
+        'Agent enhancement produced no usable result. Keeping the current reusable command.',
       );
     case RunLogReusableFunctionEnhancementStatus.enhancing:
       return _text(
         useEnglish,
         'Agent 正在后台增强这个复用指令。',
-        'Agent is enhancing this reusable Function in the background.',
+        'Agent is enhancing this reusable command in the background.',
       );
     case RunLogReusableFunctionEnhancementStatus.none:
       return '';
