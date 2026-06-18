@@ -3598,12 +3598,11 @@ class _ReusableFunctionSpecSheetState
 
   Future<void> _restoreEnhancementJob() async {
     try {
-      await RunLogFunctionEnhancementJobService.resumePendingJobs();
       final job = await RunLogFunctionEnhancementJobService.latestFor(
         runId: widget.runId,
         functionId: spec.functionId,
       );
-      if (!mounted || job == null) {
+      if (!mounted || job == null || job.isRunning) {
         return;
       }
       _attachEnhancementJob(job);

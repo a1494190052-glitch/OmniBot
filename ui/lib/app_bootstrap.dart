@@ -10,7 +10,6 @@ import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/services/omnibot_resource_service.dart';
 import 'package:ui/services/app_background_service.dart';
 import 'package:ui/services/app_font_effect_service.dart';
-import 'package:ui/services/run_log_function_enhancement_job_service.dart';
 import 'package:ui/services/scheduled_task_scheduler_service.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/theme/app_font_effect_controller.dart';
@@ -67,7 +66,6 @@ Future<void> bootstrapMain(List<String> args) async {
     ),
   );
   WidgetsBinding.instance.allowFirstFrame();
-  unawaited(RunLogFunctionEnhancementJobService.resumePendingJobs());
 }
 
 @pragma('vm:entry-point')
@@ -105,7 +103,6 @@ Future<void> bootstrapSubEngine(List<String> args) async {
       child: MyApp(args: args),
     ),
   );
-  unawaited(RunLogFunctionEnhancementJobService.resumePendingJobs());
 }
 
 Brightness _resolveStartupBrightness(AppThemeMode mode) {
@@ -179,10 +176,10 @@ class _MyAppState extends ConsumerState<MyApp> {
         final theme = Theme.of(context);
         final brightness = theme.brightness;
         final content = AnnotatedRegion<SystemUiOverlayStyle>(
-        // scaffoldBackgroundColor 由父级 AnimatedTheme 在主题切换时逐帧 lerp,
-        // 这里用 ColoredBox 把它显式画出来作为整屏兜底色:
-        // - 堵住主题切换瞬间 Flutter 子树短暂透明露出原生 windowBackground 的可能
-        // - 让背景过渡显式参与 themeAnimationDuration(220ms)的平滑插值
+          // scaffoldBackgroundColor 由父级 AnimatedTheme 在主题切换时逐帧 lerp,
+          // 这里用 ColoredBox 把它显式画出来作为整屏兜底色:
+          // - 堵住主题切换瞬间 Flutter 子树短暂透明露出原生 windowBackground 的可能
+          // - 让背景过渡显式参与 themeAnimationDuration(220ms)的平滑插值
           value: AppTheme.overlayStyleForBrightness(brightness),
           child: ColoredBox(
             color: theme.scaffoldBackgroundColor,
