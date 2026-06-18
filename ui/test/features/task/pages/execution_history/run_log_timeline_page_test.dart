@@ -853,16 +853,26 @@ void main() {
               return _runLogTimelinePayload(runId: 'run-vlm');
             }
             if (call.method == 'convertInternalRunLogToOobFunction') {
+              final args = Map<String, dynamic>.from(call.arguments as Map);
+              final agentVisible = args['agent_visible'] == true;
               return <String, dynamic>{
                 'success': true,
                 'registered': true,
                 'created_function_id': 'fn_from_runlog',
                 'function_id': 'fn_from_runlog',
+                'agent_visible': agentVisible,
+                'visibility': agentVisible
+                    ? 'agent_reusable'
+                    : 'manual_function',
                 'function_spec': _runLogReusableFunctionSpec(
                   name: '打开 Settings',
                   description: '打开 Android 设置',
                   metadata: <String, dynamic>{
                     'enhancement_policy': 'offline_only',
+                    'agent_visible': agentVisible,
+                    'visibility': agentVisible
+                        ? 'agent_reusable'
+                        : 'manual_function',
                   },
                 ),
               };
@@ -1120,16 +1130,26 @@ void main() {
               return null;
             }
             if (call.method == 'convertInternalRunLogToOobFunction') {
+              final args = Map<String, dynamic>.from(call.arguments as Map);
+              final agentVisible = args['agent_visible'] == true;
               return <String, dynamic>{
                 'success': true,
                 'registered': true,
                 'created_function_id': 'fn_from_runlog',
                 'function_id': 'fn_from_runlog',
+                'agent_visible': agentVisible,
+                'visibility': agentVisible
+                    ? 'agent_reusable'
+                    : 'manual_function',
                 'function_spec': _runLogReusableFunctionSpec(
                   name: '打开 Settings',
                   description: '打开 Android 设置',
                   metadata: <String, dynamic>{
                     'enhancement_policy': 'offline_only',
+                    'agent_visible': agentVisible,
+                    'visibility': agentVisible
+                        ? 'agent_reusable'
+                        : 'manual_function',
                   },
                 ),
               };
@@ -1204,6 +1224,23 @@ void main() {
       );
       expect(
         methodCalls.where((call) => call.method == 'runOobReusableFunction'),
+        hasLength(1),
+      );
+      await tester.pump();
+
+      await tester.tap(find.text('注册', skipOffstage: false));
+      await tester.pump();
+
+      final convertCalls = methodCalls
+          .where((call) => call.method == 'convertInternalRunLogToOobFunction')
+          .toList(growable: false);
+      expect(convertCalls, hasLength(2));
+      final registerArgs = Map<String, dynamic>.from(
+        convertCalls.last.arguments as Map,
+      );
+      expect(registerArgs['agent_visible'], isTrue);
+      expect(
+        methodCalls.where((call) => call.method == 'updateOobFunction'),
         hasLength(1),
       );
 

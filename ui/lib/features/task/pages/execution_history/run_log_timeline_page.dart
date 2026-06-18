@@ -3258,7 +3258,6 @@ class _ReusableFunctionSpecSheetState
                                         _isImporting ||
                                             _isExecuting ||
                                             _isScheduling ||
-                                            isEnhancing ||
                                             isAgentVisible
                                         ? null
                                         : _publishFunctionForAgent,
@@ -3274,8 +3273,7 @@ class _ReusableFunctionSpecSheetState
                                     onTap:
                                         _isImporting ||
                                             _isExecuting ||
-                                            _isScheduling ||
-                                            isEnhancing
+                                            _isScheduling
                                         ? null
                                         : _scheduleRegisteredFunction,
                                   ),
@@ -3874,7 +3872,7 @@ class _ReusableFunctionSpecSheetState
     }
     var functionId = _registeredFunctionId;
     if (functionId.isEmpty) {
-      await _registerFunction();
+      await _registerFunction(allowWhileEnhancing: true);
       if (!mounted) return;
       functionId = _registeredFunctionId;
     }
@@ -3938,10 +3936,7 @@ class _ReusableFunctionSpecSheetState
   }
 
   Future<void> _scheduleRegisteredFunction() async {
-    if (_isScheduling ||
-        _isImporting ||
-        _isExecuting ||
-        _enhancementJob?.isRunning == true) {
+    if (_isScheduling || _isImporting || _isExecuting) {
       return;
     }
     setState(() {
@@ -3951,7 +3946,7 @@ class _ReusableFunctionSpecSheetState
     try {
       var functionId = _registeredFunctionId;
       if (functionId.isEmpty) {
-        await _registerFunction();
+        await _registerFunction(allowWhileEnhancing: true);
         if (!mounted) return;
         functionId = _registeredFunctionId;
       }
