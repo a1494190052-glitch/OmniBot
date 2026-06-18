@@ -6,6 +6,7 @@ import cn.com.omnimind.bot.BuildConfig
 import cn.com.omnimind.bot.agent.tool.handlers.OmniflowActionHandler
 import cn.com.omnimind.bot.mcp.McpToolExecutors
 import cn.com.omnimind.bot.runlog.OobActionCodec
+import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
 import cn.com.omnimind.bot.runlog.OmniflowActionRuntime
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
 import io.ktor.http.HttpStatusCode
@@ -100,6 +101,22 @@ object LocalDeviceHttpHostManager {
                     val status = if (result["success"] == true) HttpStatusCode.OK else HttpStatusCode.BadRequest
                     call.respond(status, result)
                 }
+                post("/omniflow/tool") {
+                    val body = call.receiveMap()
+                    val result = executeOmniFlowTool(context, body)
+                    val status = if (result["success"] == true || result["accepted"] == true) {
+                        HttpStatusCode.OK
+                    } else {
+                        HttpStatusCode.BadRequest
+                    }
+                    call.respond(status, result)
+                }
+                post("/omniflow/function/run") {
+                    val body = call.receiveMap()
+                    val result = executeOmniFlowFunction(context, body)
+                    val status = if (result["success"] == true) HttpStatusCode.OK else HttpStatusCode.BadRequest
+                    call.respond(status, result)
+                }
             }
         }
 
@@ -126,6 +143,52 @@ object LocalDeviceHttpHostManager {
                 "error" to error.message.orEmpty().ifBlank { error::class.java.simpleName },
                 "source" to "oob_local_device_http_host",
             )
+        }
+
+    private suspend fun executeOmniFlowTool(context: Context, body: Map<String, Any?>): Map<String, Any?> =
+        runCatching {
+            val toolName = firstNonBlank(body["tool"], body["tool_name"], body["toolName"], body["name"])
+            val args = mapArg(body["arguments"]).ifEmpty { mapArg(body["args"]) }.ifEmpty { body }
+            withHttpAdapterSource(OobOmniFlowToolkitService(context).executeTool(toolName, args))
+        }.getOrElse { error ->
+            linkedMapOf(
+                "success" to false,
+                "error" to error.message.orEmpty().ifBlank { error::class.java.simpleName },
+                "source" to "oob_local_device_http_host",
+            )
+        }
+
+    private suspend fun executeOmniFlowFunction(context: Context, body: Map<String, Any?>): Map<String, Any?> =
+        runCatching {
+            val args = linkedMapOf<String, Any?>().apply {
+                putAll(mapArg(body["args"]))
+                val publicArguments = mapArg(body["arguments"])
+                if (publicArguments.isNotEmpty()) put("arguments", publicArguments)
+                val functionId = firstNonBlank(body["function_id"], body["functionId"])
+                if (functionId.isNotEmpty()) put("function_id", functionId)
+                firstNonBlank(body["goal"], body["query"], body["task"]).takeIf { it.isNotEmpty() }?.let {
+                    put("goal", it)
+                }
+            }
+            withHttpAdapterSource(OobOmniFlowToolkitService(context).executeTool("run_function", args)) + mapOf(
+                "tool" to "run_function",
+            )
+        }.getOrElse { error ->
+            linkedMapOf(
+                "success" to false,
+                "error" to error.message.orEmpty().ifBlank { error::class.java.simpleName },
+                "tool" to "run_function",
+                "source" to "oob_local_device_http_host",
+            )
+        }
+
+    private fun withHttpAdapterSource(result: Map<String, Any?>): Map<String, Any?> =
+        linkedMapOf<String, Any?>().apply {
+            putAll(result)
+            if (firstNonBlank(result["source"]).isBlank()) {
+                put("source", "oob_local_device_http_host")
+            }
+            put("adapter_source", "oob_local_device_http_host")
         }
 
     private fun canonicalAction(raw: String): String {

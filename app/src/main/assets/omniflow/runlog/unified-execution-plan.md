@@ -271,6 +271,10 @@ External and debug entry points should be thin adapters:
   `McpToolExecutors`/native toolkit services.
 - HTTP/debug receivers should decode arguments, call the same native service,
   and write a result JSON file or response body.
+- Debug HTTP exposes `/omniflow/tool` for Function lifecycle tools and
+  `/omniflow/function/run` for concrete `function_id` execution. Both routes
+  delegate to `OobOmniFlowToolkitService`; `/act` remains only a single-step
+  action endpoint for recorder/debug tooling.
 - Diagnostic direct Function execution is permitted only when the caller gives a
   concrete `function_id`; ordinary user goals should still enter through
   `vlm_task`, so recall and replay remain runtime-owned.

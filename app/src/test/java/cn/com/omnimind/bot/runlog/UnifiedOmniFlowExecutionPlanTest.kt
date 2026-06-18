@@ -50,6 +50,8 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(plan.contains("\"tool\": \"run_function\""))
         assertTrue(plan.contains("\"tool\": \"update_function\""))
         assertTrue(plan.contains("Enhancement is offline"))
+        assertTrue(plan.contains("/omniflow/tool"))
+        assertTrue(plan.contains("/omniflow/function/run"))
 
         assertTrue(plan.contains("## Shared Acceptance Gates"))
         assertTrue(plan.contains("Manual recording: a visible `录制轨迹` entry starts recording"))
@@ -152,6 +154,32 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(!debugReplay.contains("service.updateFunction("))
         assertTrue(!debugReplay.contains("\"enhanced_function_spec_hash\""))
         assertTrue(!debugReplay.contains("\"enhance_failed\""))
+    }
+
+    @Test
+    fun `debug http omniflow routes delegate to native toolkit facade`() {
+        val httpHost = readSource(
+            "app/src/main/java/cn/com/omnimind/bot/devicehost/LocalDeviceHttpHostManager.kt"
+        )
+        val toolkit = readSource(
+            "app/src/main/java/cn/com/omnimind/bot/runlog/OobOmniFlowToolkitService.kt"
+        )
+
+        assertTrue(httpHost.contains("post(\"/omniflow/tool\")"))
+        assertTrue(httpHost.contains("post(\"/omniflow/function/run\")"))
+        assertTrue(httpHost.contains("executeOmniFlowTool(context, body)"))
+        assertTrue(httpHost.contains("executeOmniFlowFunction(context, body)"))
+        assertTrue(httpHost.contains("OobOmniFlowToolkitService(context).executeTool(toolName, args)"))
+        assertTrue(httpHost.contains("OobOmniFlowToolkitService(context).executeTool(\"run_function\", args)"))
+        assertTrue(httpHost.contains("val publicArguments = mapArg(body[\"arguments\"])"))
+        assertTrue(httpHost.contains("put(\"arguments\", publicArguments)"))
+        assertTrue(!httpHost.contains("putAll(mapArg(body[\"arguments\"]).ifEmpty { body })"))
+        assertTrue(httpHost.contains("adapter_source"))
+        assertTrue(httpHost.contains("post(\"/act\")"))
+        assertTrue(httpHost.contains("McpToolExecutors.executeAct(context, body)"))
+        assertTrue(toolkit.contains("\"run_function\", \"oob_function_run\" -> runFunction(args)"))
+        assertTrue(toolkit.contains("val arguments = functionArguments(request)"))
+        assertTrue(toolkit.contains("mapArg(request[\"arguments\"])"))
     }
 
     private fun readSource(relativePath: String): String {

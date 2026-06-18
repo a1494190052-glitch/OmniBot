@@ -57,6 +57,7 @@ class OobOmniFlowToolkitService(
             "omniflow.recall" -> recall(args)
             "omniflow.ingest_run_log" -> ingestRunLog(args)
             "omniflow.explore_replay" -> exploreAndReplay(args)
+            "run_function", "oob_function_run" -> runFunction(args)
             OobFunctionToolNames.FUNCTION_LIST -> listFunctions(args)
             OobFunctionToolNames.FUNCTION_GET -> getFunction(args)
             OobFunctionToolNames.FUNCTION_REGISTER -> registerFunction(args)
