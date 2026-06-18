@@ -1213,6 +1213,27 @@ void main() {
         tester,
         find.byKey(const ValueKey('run-log-reusable-run-action')),
       );
+      await tester.enterText(find.widgetWithText(TextField, '名称'), '打开设置修改版');
+      await tester.pump();
+      expect(find.text('保存修改', skipOffstage: false), findsOneWidget);
+      await tester.tap(
+        find.byKey(const ValueKey('run-log-reusable-primary-action')),
+      );
+      await tester.pump();
+
+      final saveCalls = methodCalls
+          .where((call) => call.method == 'convertInternalRunLogToOobFunction')
+          .toList(growable: false);
+      expect(saveCalls, hasLength(2));
+      final saveArgs = Map<String, dynamic>.from(
+        saveCalls.last.arguments as Map,
+      );
+      expect(saveArgs['name'], '打开设置修改版');
+      expect(
+        methodCalls.where((call) => call.method == 'updateOobFunction'),
+        hasLength(1),
+      );
+
       await tester.tap(
         find.byKey(const ValueKey('run-log-reusable-run-action')),
       );
@@ -1234,7 +1255,7 @@ void main() {
       final convertCalls = methodCalls
           .where((call) => call.method == 'convertInternalRunLogToOobFunction')
           .toList(growable: false);
-      expect(convertCalls, hasLength(2));
+      expect(convertCalls, hasLength(3));
       final registerArgs = Map<String, dynamic>.from(
         convertCalls.last.arguments as Map,
       );

@@ -2960,7 +2960,6 @@ class _ReusableFunctionSpecSheetState
     final isAgentVisible = _isAgentVisible;
     final hasAgentEnhanced =
         _hasAgentEnhanced || spec.aiEnhanced || enhancementStatus.isApplied;
-    final runBlockedByPendingSave = hasUnsavedEdits && isEnhancing;
     final showOfflineEnhancementHint =
         _hasOfflineEnhancementPolicy &&
         enhancementStatus == RunLogReusableFunctionEnhancementStatus.none;
@@ -3149,10 +3148,7 @@ class _ReusableFunctionSpecSheetState
                               runButtonKey: const ValueKey(
                                 'run-log-reusable-run-action',
                               ),
-                              onRun:
-                                  _isImporting ||
-                                      _isExecuting ||
-                                      runBlockedByPendingSave
+                              onRun: _isImporting || _isExecuting
                                   ? null
                                   : _executeRegisteredFunction,
                             ),
@@ -3200,16 +3196,16 @@ class _ReusableFunctionSpecSheetState
                                                   .failed
                                         ? Icons.refresh_rounded
                                         : Icons.auto_awesome_rounded,
-                                    label: isEnhancing
+                                    label: _isImporting
+                                        ? _text(context, '保存中', 'Saving')
+                                        : hasUnsavedEdits
+                                        ? _text(context, '保存修改', 'Save changes')
+                                        : isEnhancing
                                         ? _text(
                                             context,
                                             '后台增强中',
                                             'Background enhance',
                                           )
-                                        : _isImporting
-                                        ? _text(context, '保存中', 'Saving')
-                                        : hasUnsavedEdits
-                                        ? _text(context, '保存修改', 'Save changes')
                                         : enhancementStatus ==
                                               RunLogReusableFunctionEnhancementStatus
                                                   .failed
@@ -3228,11 +3224,12 @@ class _ReusableFunctionSpecSheetState
                                     onTap:
                                         _isImporting ||
                                             _isExecuting ||
-                                            _isScheduling ||
-                                            isEnhancing
+                                            _isScheduling
                                         ? null
                                         : hasUnsavedEdits
                                         ? _registerFunction
+                                        : isEnhancing
+                                        ? null
                                         : enhancementStatus ==
                                               RunLogReusableFunctionEnhancementStatus
                                                   .failed
@@ -3311,10 +3308,7 @@ class _ReusableFunctionSpecSheetState
                                     ),
                                     visualDensity: VisualDensity.compact,
                                     color: palette.textSecondary,
-                                    onPressed:
-                                        _isImporting ||
-                                            _isExecuting ||
-                                            isEnhancing
+                                    onPressed: _isImporting || _isExecuting
                                         ? null
                                         : _addStep,
                                   ),
@@ -3346,9 +3340,7 @@ class _ReusableFunctionSpecSheetState
                                   }
                                   final step = detail.steps[index];
                                   final canEdit =
-                                      !_isImporting &&
-                                      !_isExecuting &&
-                                      !isEnhancing;
+                                      !_isImporting && !_isExecuting;
                                   final canDelete =
                                       canEdit && detail.steps.length > 1;
                                   return Row(
@@ -3480,7 +3472,7 @@ class _ReusableFunctionSpecSheetState
   }
 
   Future<void> _addStep() async {
-    if (_isImporting || _isExecuting || _enhancementJob?.isRunning == true) {
+    if (_isImporting || _isExecuting) {
       return;
     }
     final detail = _ReusableFunctionDraftSnapshot.fromSpec(spec.json);
@@ -3507,7 +3499,7 @@ class _ReusableFunctionSpecSheetState
   }
 
   Future<void> _editStep(_ReusableFunctionStepSummary step) async {
-    if (_isImporting || _isExecuting || _enhancementJob?.isRunning == true) {
+    if (_isImporting || _isExecuting) {
       return;
     }
     final editedStep = await _showReusableFunctionStepEditorDialog(
@@ -3536,7 +3528,7 @@ class _ReusableFunctionSpecSheetState
   }
 
   Future<void> _deleteStep(_ReusableFunctionStepSummary step) async {
-    if (_isImporting || _isExecuting || _enhancementJob?.isRunning == true) {
+    if (_isImporting || _isExecuting) {
       return;
     }
     final detail = _ReusableFunctionDraftSnapshot.fromSpec(spec.json);
@@ -3741,11 +3733,9 @@ class _ReusableFunctionSpecSheetState
 
   Future<bool> _registerFunction({
     String? successMessage,
-    bool allowWhileEnhancing = false,
     bool agentVisible = false,
   }) async {
-    if (_isImporting ||
-        (_enhancementJob?.isRunning == true && !allowWhileEnhancing)) {
+    if (_isImporting) {
       return false;
     }
     setState(() {
@@ -3872,7 +3862,7 @@ class _ReusableFunctionSpecSheetState
     }
     var functionId = _registeredFunctionId;
     if (functionId.isEmpty) {
-      await _registerFunction(allowWhileEnhancing: true);
+      await _registerFunction();
       if (!mounted) return;
       functionId = _registeredFunctionId;
     }
@@ -3931,7 +3921,6 @@ class _ReusableFunctionSpecSheetState
         'Reusable Function registered',
       ),
       agentVisible: true,
-      allowWhileEnhancing: true,
     );
   }
 
@@ -3946,7 +3935,7 @@ class _ReusableFunctionSpecSheetState
     try {
       var functionId = _registeredFunctionId;
       if (functionId.isEmpty) {
-        await _registerFunction(allowWhileEnhancing: true);
+        await _registerFunction();
         if (!mounted) return;
         functionId = _registeredFunctionId;
       }
