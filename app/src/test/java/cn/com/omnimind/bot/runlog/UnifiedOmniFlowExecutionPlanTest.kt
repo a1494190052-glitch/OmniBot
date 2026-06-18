@@ -50,7 +50,11 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(plan.contains("\"allowOmniFlowFunctionAutoExecute\": true"))
         assertTrue(plan.contains("\"tool\": \"run_function\""))
         assertTrue(plan.contains("\"tool\": \"update_function\""))
+        assertTrue(plan.contains("\"offline_job\": true"))
+        assertTrue(plan.contains("\"auto_analyze_with_model\": true"))
         assertTrue(plan.contains("Enhancement is offline"))
+        assertTrue(plan.contains("returns the analysis"))
+        assertTrue(plan.contains("offline_job=true"))
         assertTrue(plan.contains("/omniflow/tool"))
         assertTrue(plan.contains("/omniflow/function/run"))
 

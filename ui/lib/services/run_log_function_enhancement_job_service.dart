@@ -313,7 +313,10 @@ class RunLogFunctionEnhancementJobService {
         mode: 'enhance',
         extraArgs: const <String, dynamic>{
           'source': 'run_log_function_enhancement_job',
+          'offline_job': true,
+          'background_enhancement': true,
         },
+        autoAnalyzeWithModel: true,
       );
       if (_canceledJobIds.contains(jobId)) return;
       if (_isFunctionMissingForUpdate(saveJson)) {
@@ -352,7 +355,10 @@ class RunLogFunctionEnhancementJobService {
           mode: 'enhance',
           extraArgs: const <String, dynamic>{
             'source': 'run_log_function_enhancement_job_retry_after_register',
+            'offline_job': true,
+            'background_enhancement': true,
           },
+          autoAnalyzeWithModel: true,
         );
         if (_canceledJobIds.contains(jobId)) return;
       }

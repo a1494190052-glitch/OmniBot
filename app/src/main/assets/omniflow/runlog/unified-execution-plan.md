@@ -170,6 +170,8 @@ goal and do not mutate the saved Function.
   "tool": "update_function",
   "function_id": "open_network_settings",
   "mode": "enhance",
+  "offline_job": true,
+  "auto_analyze_with_model": true,
   "run_id": "vlm-run-123",
   "analysis": {},
   "patch": {}
@@ -178,7 +180,11 @@ goal and do not mutate the saved Function.
 
 Enhancement is offline. It may produce a better description, public parameters,
 step labels, checker metadata, or repair patches when explicitly requested. It
-must not block auto-registration, second-run recall, or replay.
+must not block auto-registration, second-run recall, or replay. A bare
+`update_function(function_id, run_id, mode=enhance)` returns the analysis
+context and prompt only; model-backed enhancement requires an explicit
+`offline_job=true` / `auto_analyze_with_model=true` request from a background
+job, debug update, or offline tool.
 
 ## Shared Acceptance Gates
 

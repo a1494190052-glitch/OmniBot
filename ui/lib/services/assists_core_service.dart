@@ -3176,7 +3176,7 @@ class AssistsMessageService {
     Map<String, dynamic>? analysis,
     Map<String, dynamic>? patch,
     Map<String, dynamic> extraArgs = const <String, dynamic>{},
-    bool autoAnalyzeWithModel = true,
+    bool autoAnalyzeWithModel = false,
   }) async {
     final normalizedFunctionId = functionId.trim();
     if (normalizedFunctionId.isEmpty) {
@@ -3186,6 +3186,7 @@ class AssistsMessageService {
       ..._jsonSafeMap(extraArgs),
       'function_id': normalizedFunctionId,
       'mode': mode.trim().isEmpty ? 'enhance' : mode.trim(),
+      'auto_analyze_with_model': autoAnalyzeWithModel,
       if (runId != null && runId.trim().isNotEmpty) 'run_id': runId.trim(),
       if (analysis != null && analysis.isNotEmpty)
         'analysis': _jsonSafeMap(analysis),

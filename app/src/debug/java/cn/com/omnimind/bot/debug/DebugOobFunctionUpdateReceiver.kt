@@ -44,6 +44,8 @@ class DebugOobFunctionUpdateReceiver : BroadcastReceiver() {
 
                 val args = linkedMapOf<String, Any?>().apply {
                     putAll(extraArgs)
+                    put("offline_job", true)
+                    put("debug_offline_update", true)
                     put("function_id", functionId)
                     put("mode", mode)
                     if (runId.isNotBlank()) put("run_id", runId)

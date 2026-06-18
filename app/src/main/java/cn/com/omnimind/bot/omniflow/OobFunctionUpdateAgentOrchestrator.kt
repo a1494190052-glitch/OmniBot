@@ -30,6 +30,17 @@ class OobFunctionUpdateAgentOrchestrator(
         if (initial["needs_agent_analysis"] != true || requestHasAnalysisOrPatch(request)) {
             return initial
         }
+        if (!shouldAutoAnalyze(request)) {
+            return linkedMapOf<String, Any?>().apply {
+                putAll(initial)
+                put("agent_model_invoked", false)
+                put("analysis_policy", "offline_only")
+                put(
+                    "message",
+                    "update_function enhancement analysis is queued for an explicit offline/background step."
+                )
+            }
+        }
 
         val prompt = OobFunctionJson.firstNonBlank(initial["agent_prompt"])
         if (prompt.isBlank()) {
@@ -119,6 +130,20 @@ class OobFunctionUpdateAgentOrchestrator(
                 listOf("patch", "function_patch", "updates", "recommended_patch"),
             ).isNotEmpty()
 
+    private fun shouldAutoAnalyze(request: Map<String, Any?>): Boolean {
+        val explicit = firstNonBlank(
+            request["auto_analyze_with_model"],
+            request["autoAnalyzeWithModel"],
+        )
+        if (explicit.isNotBlank()) {
+            return explicit.equals("true", ignoreCase = true)
+        }
+        return boolArg(request["offline_job"]) ||
+            boolArg(request["offlineJob"]) ||
+            boolArg(request["background_enhancement"]) ||
+            boolArg(request["backgroundEnhancement"])
+    }
+
     private fun extractJsonObject(raw: String): Map<String, Any?>? {
         val trimmed = raw.trim()
         if (trimmed.isEmpty()) return null
@@ -199,6 +224,19 @@ class OobFunctionUpdateAgentOrchestrator(
             is String -> parseJsonObject(value) ?: emptyMap()
             else -> emptyMap()
         }
+
+    private fun boolArg(value: Any?): Boolean =
+        when (value) {
+            is Boolean -> value
+            is Number -> value.toInt() != 0
+            is String -> value.trim().lowercase() in setOf("1", "true", "yes", "y", "on")
+            else -> false
+        }
+
+    private fun firstNonBlank(vararg values: Any?): String =
+        values.firstNotNullOfOrNull { raw ->
+            raw?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+        }.orEmpty()
 
     private fun agentFailure(
         initial: Map<String, Any?>,

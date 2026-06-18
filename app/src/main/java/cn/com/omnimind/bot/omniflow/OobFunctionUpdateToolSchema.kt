@@ -92,6 +92,8 @@ object OobFunctionUpdateToolSchema {
             "run_id" to string("Optional local RunLog id used as evidence for agent analysis."),
             "instruction" to string("Optional user correction or enhancement instruction."),
             "mode" to enumString("Update mode.", listOf("enhance", "repair", "annotate", "fix", "correction")),
+            "offline_job" to boolean("Set true when this enhancement is running as an explicit offline/background maintenance job."),
+            "auto_analyze_with_model" to boolean("Set true only for offline/background jobs that should invoke the model to produce analysis and patch. Online calls return analysis_context instead."),
             "analysis" to analysisSchema,
             "patch" to patchSchema,
             "usage" to obj(description = "Optional token usage from the API call that produced this enhancement analysis."),
@@ -101,6 +103,8 @@ object OobFunctionUpdateToolSchema {
             "allow_structural_change" to boolean("Allow insert/delete step operations."),
         )
         if (includeCamelCaseAliases) {
+            properties["offlineJob"] = boolean("Alias of offline_job.")
+            properties["autoAnalyzeWithModel"] = boolean("Alias of auto_analyze_with_model.")
             properties["dryRun"] = boolean("Alias of dry_run.")
             properties["allowExecutionChange"] = boolean("Alias of allow_execution_change.")
             properties["allowStructuralChange"] = boolean("Alias of allow_structural_change.")

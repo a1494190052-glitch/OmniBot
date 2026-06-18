@@ -955,6 +955,9 @@ void main() {
             expect(args['function_id'], 'fn_from_runlog');
             expect(args['run_id'], 'run-vlm');
             expect(args['mode'], 'enhance');
+            expect(args['offline_job'], isTrue);
+            expect(args['background_enhancement'], isTrue);
+            expect(args['auto_analyze_with_model'], isTrue);
             expect(args['patch'], isNull);
             return <String, dynamic>{
               'success': true,
@@ -1311,6 +1314,9 @@ void main() {
             final args = Map<String, dynamic>.from(call.arguments as Map);
             expect(args['function_id'], 'fn_from_runlog');
             expect(args['mode'], 'enhance');
+            expect(args['offline_job'], isTrue);
+            expect(args['background_enhancement'], isTrue);
+            expect(args['auto_analyze_with_model'], isTrue);
             expect(args['patch'], isNull);
             return <String, dynamic>{
               'success': true,
@@ -1539,6 +1545,9 @@ void main() {
             final args = Map<String, dynamic>.from(call.arguments as Map);
             expect(args['function_id'], 'fn_from_runlog');
             expect(args['mode'], 'enhance');
+            expect(args['offline_job'], isTrue);
+            expect(args['background_enhancement'], isTrue);
+            expect(args['auto_analyze_with_model'], isTrue);
             expect(args['patch'], isNull);
             return <String, dynamic>{
               'success': true,

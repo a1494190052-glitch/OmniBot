@@ -367,7 +367,79 @@ class OobOmniFlowLoopAcceptanceTest {
     }
 
     @Test
-    fun `update function with runlog invokes agent analysis and saves patch`() = runBlocking {
+    fun `update function with runlog defaults to offline analysis without invoking model`() = runBlocking {
+        val context = TempFilesContext()
+        try {
+            var modelCalls = 0
+            val toolkit = OobOmniFlowToolkitService(
+                context,
+                WorkspaceFunctionStore(context.root),
+            ) { _, _ ->
+                modelCalls += 1
+                error("agent requester must not run on the default online path")
+            }
+            val functionId = "runlog_analysis_offline_default_demo"
+            val runId = "runlog-analysis-offline-default-run"
+            assertEquals(true, toolkit.registerFunction(
+                mapOf(
+                    "functionId" to functionId,
+                    "name" to "打开外卖入口",
+                    "description" to "点击外卖入口",
+                    "steps" to listOf(
+                        mapOf(
+                            "action" to "click",
+                            "title" to "点击外卖",
+                            "target_description" to "外卖",
+                            "x" to 790,
+                            "y" to 140,
+                        ),
+                    ),
+                )
+            )["success"])
+            InternalRunLogStore.beginRun(
+                context = context,
+                runId = runId,
+                goal = "打开外卖入口",
+                source = "test",
+                toolName = RunLogReplayPolicy.TOOL_CALL_TOOL,
+            )
+            InternalRunLogStore.appendCard(
+                context = context,
+                runId = runId,
+                card = mapOf(
+                    "tool_name" to "click",
+                    "header" to mapOf("success" to false),
+                    "arguments" to mapOf("target_description" to "美食"),
+                    "result" to mapOf("success" to false, "error" to "target_not_found"),
+                )
+            )
+            InternalRunLogStore.finishRun(
+                context = context,
+                runId = runId,
+                success = false,
+                doneReason = "replay_failed",
+                errorMessage = "target_not_found",
+            )
+
+            val update = toolkit.updateFunction(mapOf("function_id" to functionId, "run_id" to runId))
+
+            assertEquals(true, update["success"])
+            assertEquals(true, update["needs_agent_analysis"])
+            assertEquals(false, update["agent_model_invoked"])
+            assertEquals("offline_only", update["analysis_policy"])
+            assertEquals(false, update["changed"])
+            assertEquals(false, update["saved"])
+            assertEquals(0, modelCalls)
+            assertTrue(update["agent_prompt"].toString().contains("Analyze this OmniFlow Function"))
+            val stored = toolkit.getFunction(mapOf("function_id" to functionId))["function"] as Map<*, *>
+            assertEquals("点击外卖入口", stored["description"])
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `update function offline job invokes agent analysis and saves patch`() = runBlocking {
         val context = TempFilesContext()
         try {
             var modelCalls = 0
@@ -444,7 +516,14 @@ class OobOmniFlowLoopAcceptanceTest {
                 errorMessage = "target_not_found",
             )
 
-            val update = toolkit.updateFunction(mapOf("function_id" to functionId, "run_id" to runId))
+            val update = toolkit.updateFunction(
+                mapOf(
+                    "function_id" to functionId,
+                    "run_id" to runId,
+                    "offline_job" to true,
+                    "auto_analyze_with_model" to true,
+                )
+            )
 
             assertEquals(true, update["success"])
             assertEquals(false, update["needs_agent_analysis"])
@@ -518,7 +597,14 @@ class OobOmniFlowLoopAcceptanceTest {
                 errorMessage = "target_not_found",
             )
 
-            val update = toolkit.updateFunction(mapOf("function_id" to functionId, "run_id" to runId))
+            val update = toolkit.updateFunction(
+                mapOf(
+                    "function_id" to functionId,
+                    "run_id" to runId,
+                    "offline_job" to true,
+                    "auto_analyze_with_model" to true,
+                )
+            )
 
             assertEquals(false, update["success"])
             assertEquals("AGENT_ANALYSIS_UNPARSEABLE", update["error_code"])

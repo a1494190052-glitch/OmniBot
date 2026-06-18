@@ -1,6 +1,7 @@
 OmniFlow Function Enhancer skill contract:
 - This is the saved Function enhancement pass; RunLog is provenance only.
 - Enhancement is offline editing only; do not execute the Function while enhancing it.
+- Model-backed enhancement must be an explicit offline/background job; online calls should only collect analysis context.
 - Save changes only by calling `update_function`; do not hand-register rewritten Function JSON.
 - Improve reuse clarity without silently changing execution.
 - A Function is an executable action stack. At runtime, Flow expands it into

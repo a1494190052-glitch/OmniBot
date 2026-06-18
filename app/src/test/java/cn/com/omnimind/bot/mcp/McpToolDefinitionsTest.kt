@@ -131,6 +131,8 @@ class McpToolDefinitionsTest {
         assertTrue(description.contains("analysis_context"))
         assertTrue(properties.containsKey("function_id"))
         assertTrue(properties.containsKey("run_id"))
+        assertTrue(properties.containsKey("offline_job"))
+        assertTrue(properties.containsKey("auto_analyze_with_model"))
         assertTrue(properties.containsKey("analysis"))
         assertTrue(properties.containsKey("patch"))
         assertTrue(properties.containsKey("dry_run"))
