@@ -119,6 +119,30 @@ class McpToolDefinitionsTest {
     }
 
     @Test
+    fun functionExecutionIsNotModelVisibleMcpTool() {
+        val names = McpToolDefinitions.fixedTools.map { it["name"].toString() }.toSet()
+        val routeSource = listOf(
+            File("app/src/main/java/cn/com/omnimind/bot/mcp/McpRoutes.kt"),
+            File("src/main/java/cn/com/omnimind/bot/mcp/McpRoutes.kt"),
+        ).first { it.exists() }.readText()
+        val httpHostSource = listOf(
+            File("app/src/main/java/cn/com/omnimind/bot/devicehost/LocalDeviceHttpHostManager.kt"),
+            File("src/main/java/cn/com/omnimind/bot/devicehost/LocalDeviceHttpHostManager.kt"),
+        ).first { it.exists() }.readText()
+
+        assertFalse(names.contains("run_function"))
+        assertFalse(names.contains("oob_function_run"))
+        assertFalse(names.contains("omniflow.run_function"))
+        assertFalse(names.contains("omniflow.call_function"))
+        assertFalse(names.contains("omniflow.execute_function"))
+        assertFalse(routeSource.contains("\"run_function\""))
+        assertFalse(routeSource.contains("\"omniflow.call_function\""))
+
+        assertTrue(httpHostSource.contains("post(\"/omniflow/function/run\")"))
+        assertTrue(httpHostSource.contains("OobOmniFlowToolkitService(context).executeTool(\"run_function\", args)"))
+    }
+
+    @Test
     fun updateFunctionToolExposesRunLogAnalysisInputs() {
         val tool = McpToolDefinitions.fixedTools.single {
             it["name"] == OobFunctionToolNames.FUNCTION_UPDATE
