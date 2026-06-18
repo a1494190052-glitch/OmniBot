@@ -16,6 +16,14 @@ class ManualRecordingFlowMessageIds {
   final String aiMessageId;
 }
 
+typedef ManualRecordingAuthorizer =
+    Future<bool> Function(BuildContext context);
+
+typedef ManualRecordingNativeStarter =
+    Future<Map<String, dynamic>> Function({
+      required bool enableDebugScreenshots,
+    });
+
 class ManualRecordingFlowController {
   const ManualRecordingFlowController._();
 
@@ -89,35 +97,59 @@ class ManualRecordingFlowController {
     FutureOr<void> Function()? afterNativeRecording,
     FutureOr<void> Function()? onFinally,
     void Function(String runId)? openRunLogTimeline,
+    ManualRecordingAuthorizer? ensureAuthorized,
+    ManualRecordingNativeStarter? startNativeRecording,
   }) async {
-    final canRecord = await ManualRecordingPermissionGuard.ensureAuthorized(
-      context,
-    );
+    final canRecord = await (ensureAuthorized ??
+            ManualRecordingPermissionGuard.ensureAuthorized)
+        .call(context);
     if (!isMounted() || !canRecord) return false;
 
     inputFocusNode.unfocus();
-    final messageIds = addUserMessage(userMessageText);
-    await afterUserMessageAdded?.call(messageIds);
-    showToast('开始手动录制。请执行操作，结束后点小万「完成学习」。');
-    await beforeNativeRecording?.call();
+    ManualRecordingFlowMessageIds? messageIds;
+
+    var shouldRestoreNativeSurface = false;
+    var didRestoreNativeSurface = false;
+    Future<void> restoreNativeSurfaceIfNeeded() async {
+      if (!shouldRestoreNativeSurface || didRestoreNativeSurface) return;
+      didRestoreNativeSurface = true;
+      try {
+        await afterNativeRecording?.call();
+      } catch (error) {
+        debugPrint('Failed to restore after manual recording: $error');
+      }
+    }
 
     try {
-      final result = await AssistsMessageService.startHumanTrajectoryLearning(
-        enableDebugScreenshots: recordDebugScreenshots,
-      );
-      if (!isMounted()) return true;
-      await afterNativeRecording?.call();
+      messageIds = addUserMessage(userMessageText);
+      await afterUserMessageAdded?.call(messageIds);
+      showToast('开始手动录制。请执行操作，结束后点小万「完成学习」。');
+      if (beforeNativeRecording != null) {
+        shouldRestoreNativeSurface = true;
+        await beforeNativeRecording();
+      }
+      final result = startNativeRecording != null
+          ? await startNativeRecording(
+              enableDebugScreenshots: recordDebugScreenshots,
+            )
+          : await AssistsMessageService.startHumanTrajectoryLearning(
+              enableDebugScreenshots: recordDebugScreenshots,
+            );
+      await restoreNativeSurfaceIfNeeded();
       if (!isMounted()) return true;
       insertResultMessage(messageIds.aiMessageId, result);
       _showCompletionToast(result);
       _openRunLogTimelineIfAvailable(result, isMounted, openRunLogTimeline);
     } catch (error) {
+      await restoreNativeSurfaceIfNeeded();
       if (!isMounted()) return true;
-      await afterNativeRecording?.call();
-      insertResultMessage(messageIds.aiMessageId, {
-        'success': false,
-        'error_message': error.toString(),
-      });
+      final failedMessageId = messageIds?.aiMessageId;
+      if (failedMessageId != null) {
+        insertResultMessage(failedMessageId, {
+          'success': false,
+          'error_message': error.toString(),
+        });
+      }
       showToast(error.toString(), type: ToastType.error);
     } finally {
       if (isMounted()) {
