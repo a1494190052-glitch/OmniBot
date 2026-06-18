@@ -135,62 +135,32 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                     ?.mapKeys { it.key?.toString().orEmpty() }
                     ?: emptyMap<String, Any?>()
                 val functionSpec = convert["function_spec"] ?: convertResult["function_spec"]
-                val enhanceStartMs = if (shouldEnhance) System.currentTimeMillis() else null
-                val enhance = if (
-                    shouldEnhance &&
-                    convert["success"] == true &&
-                    inlineRegistration?.get("success") != false &&
-                    createdFunctionId.isNotBlank()
-                ) {
-                    service.updateFunction(
-                        linkedMapOf(
-                            "function_id" to createdFunctionId,
-                            "mode" to "enhance",
-                            "instruction" to enhancementInstruction.ifBlank {
-                                "Enhance this Function using OOB RunLog evidence before replay. Preserve the execution steps unless the supplied patch explicitly changes them."
-                            },
-                            "analysis" to defaultEnhancementAnalysis(
-                                runId = convert["run_id"]?.toString()
-                                    ?: runId.ifBlank { rawRunLog["run_id"]?.toString().orEmpty() },
-                                goal = effectiveGoal,
-                                rawAnalysis = enhancementAnalysis,
-                            ),
-                            "patch" to enhancementPatch,
-                        )
-                    )
-                } else {
-                    null
-                }
-                val enhanceEndMs = if (shouldEnhance) System.currentTimeMillis() else null
+                val enhance = buildOfflineEnhanceStatus(
+                    requested = shouldEnhance,
+                    functionId = createdFunctionId,
+                    runId = convert["run_id"]?.toString()
+                        ?: runId.ifBlank { rawRunLog["run_id"]?.toString().orEmpty() },
+                    goal = effectiveGoal,
+                    instruction = enhancementInstruction,
+                    analysis = enhancementAnalysis,
+                    patch = enhancementPatch,
+                )
                 val enhanceCost = buildEnhanceCost(
                     requested = shouldEnhance,
-                    startedAtMs = enhanceStartMs,
-                    endedAtMs = enhanceEndMs,
                     enhance = enhance,
                 )
-                val enhancedFunctionSpec = if (enhance?.get("success") == true) {
-                    service.getFunction(linkedMapOf("function_id" to createdFunctionId))["function"]
-                } else {
-                    null
-                }
+                val enhancedFunctionSpec = null
                 val functionSpecHash = stableHash(functionSpec)
-                val enhancedFunctionSpecHash = stableHash(enhancedFunctionSpec)
                 val canReplay = shouldRun &&
                     convert["success"] == true &&
                     inlineRegistration?.get("success") != false &&
-                    createdFunctionId.isNotBlank() &&
-                    (!shouldEnhance || enhance?.get("success") == true)
+                    createdFunctionId.isNotBlank()
                 val functionSpecBeforeReplay = if (canReplay) {
                     service.getFunction(linkedMapOf("function_id" to createdFunctionId))["function"]
                 } else {
                     null
                 }
                 val functionSpecBeforeReplayHash = stableHash(functionSpecBeforeReplay)
-                val replayWillUseEnhancedFunction = shouldRun &&
-                    shouldEnhance &&
-                    canReplay &&
-                    enhancedFunctionSpecHash.isNotBlank() &&
-                    enhancedFunctionSpecHash == functionSpecBeforeReplayHash
                 val replay = if (
                     canReplay
                 ) {
@@ -214,8 +184,6 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                     "registration_failed"
                 } else if (createdFunctionId.isBlank()) {
                     "missing_function_id"
-                } else if (shouldEnhance && enhance?.get("success") != true) {
-                    "enhance_failed"
                 } else {
                     null
                 }
@@ -223,7 +191,6 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                 linkedMapOf<String, Any?>(
                     "success" to (
                         convert["success"] == true &&
-                            (!shouldEnhance || enhance?.get("success") == true) &&
                             (replay?.get("success") != false)
                         ),
                     "run_id" to (
@@ -241,11 +208,11 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                     "function_spec" to functionSpec,
                     "enhanced_function_spec" to enhancedFunctionSpec,
                     "function_spec_hash" to functionSpecHash.takeIf { it.isNotBlank() },
-                    "enhanced_function_spec_hash" to enhancedFunctionSpecHash.takeIf { it.isNotBlank() },
                     "function_spec_before_replay_hash" to functionSpecBeforeReplayHash.takeIf { it.isNotBlank() },
                     "replay_arguments" to replayArguments,
                     "replay" to replay,
-                    "replay_uses_enhanced_function" to (replay != null && replayWillUseEnhancedFunction),
+                    "replay_uses_enhanced_function" to false,
+                    "enhancement_policy" to "offline_only",
                     "replay_skipped_reason" to replaySkippedReason,
                     "run_requested" to shouldRun,
                 )
@@ -311,14 +278,13 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
 
     private fun buildEnhanceCost(
         requested: Boolean,
-        startedAtMs: Long?,
-        endedAtMs: Long?,
         enhance: Map<String, Any?>?,
     ): Map<String, Any?> {
         if (!requested) {
             return linkedMapOf(
                 "requested" to false,
-                "backend" to "oob_native_omniflow_toolkit",
+                "policy" to "offline_only",
+                "backend" to "offline_update_function",
             )
         }
         val updateCostPayload = firstMap(enhance?.get("cost"))
@@ -336,12 +302,42 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
         return linkedMapOf<String, Any?>(
             "requested" to true,
             "success" to (enhance?.get("success") == true),
-            "backend" to (enhance?.get("source")?.toString()?.takeIf { it.isNotBlank() } ?: "oob_native_omniflow_toolkit"),
-            "started_at_ms" to startedAtMs,
-            "ended_at_ms" to endedAtMs,
-            "duration_ms" to if (startedAtMs != null && endedAtMs != null) (endedAtMs - startedAtMs).coerceAtLeast(0L) else null,
+            "policy" to "offline_only",
+            "backend" to (enhance?.get("source")?.toString()?.takeIf { it.isNotBlank() } ?: "offline_update_function"),
+            "duration_ms" to 0L,
             "usage" to usage.takeIf { it.isNotEmpty() },
             "cost" to cost.takeIf { it.isNotEmpty() },
+        ).filterValues { it != null }
+    }
+
+    private fun buildOfflineEnhanceStatus(
+        requested: Boolean,
+        functionId: String,
+        runId: String,
+        goal: String,
+        instruction: String,
+        analysis: Map<String, Any?>,
+        patch: Map<String, Any?>,
+    ): Map<String, Any?>? {
+        if (!requested) return null
+        val canQueue = functionId.isNotBlank()
+        return linkedMapOf<String, Any?>(
+            "success" to canQueue,
+            "status" to if (canQueue) "queued" else "skipped",
+            "policy" to "offline_only",
+            "source" to "offline_update_function",
+            "function_id" to functionId.takeIf { it.isNotBlank() },
+            "run_id" to runId.takeIf { it.isNotBlank() },
+            "mode" to "enhance",
+            "instruction" to instruction.takeIf { it.isNotBlank() },
+            "analysis" to analysis.takeIf { it.isNotEmpty() },
+            "patch" to patch.takeIf { it.isNotEmpty() },
+            "goal" to goal.takeIf { it.isNotBlank() },
+            "message" to if (canQueue) {
+                "Enhancement is offline-only; replay uses the registered Function as-is."
+            } else {
+                "Enhancement is offline-only but no registered Function was available to queue."
+            },
         ).filterValues { it != null }
     }
 
@@ -397,26 +393,6 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
             decoded ?: emptyMap()
         }.getOrDefault(emptyMap())
     }
-
-    private fun defaultEnhancementAnalysis(
-        runId: String,
-        goal: String,
-        rawAnalysis: Map<String, Any?>,
-    ): Map<String, Any?> =
-        linkedMapOf<String, Any?>(
-            "summary" to (
-                rawAnalysis["summary"]?.toString()?.takeIf { it.isNotBlank() }
-                    ?: "OOB RunLog-derived Function enhanced before replay."
-                ),
-            "goal" to goal.takeIf { it.isNotBlank() },
-            "source_run_id" to runId.takeIf { it.isNotBlank() },
-            "recommended_patch" to (rawAnalysis["recommended_patch"] ?: rawAnalysis["recommendedPatch"]),
-            "notes" to (rawAnalysis["notes"] ?: "Preserve OOB canonical action schema and existing parameter bindings."),
-        ).apply {
-            rawAnalysis.forEach { (key, value) ->
-                if (key !in this) put(key, value)
-            }
-        }.filterValues { it != null }
 
     private fun Throwable.fullMessage(): String {
         val parts = mutableListOf<String>()
