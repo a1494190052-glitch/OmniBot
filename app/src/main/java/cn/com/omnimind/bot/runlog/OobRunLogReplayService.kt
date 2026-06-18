@@ -315,6 +315,7 @@ class OobRunLogReplayService(
                     put("agent_visible", true)
                     put("visibility", "agent_reusable")
                     put("registered_via", metadata["registered_via"] ?: "run_log_agent_visible_convert")
+                    putIfAbsent("enhancement_policy", "offline_only")
                 }
             )
         }

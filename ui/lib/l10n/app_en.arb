@@ -1020,6 +1020,7 @@
       }
     }
   },
+  "functionLibraryEnhanceOfflineHint": "This reusable Function is ready for direct replay; semantic upgrade runs as an offline background step and does not block VLM auto-registration or the next fast execution.",
   "functionLibrarySplit": "Split",
   "functionLibrarySplitTitle": "Split reusable Function",
   "functionLibrarySplitConfirm": "Use AI to split this reusable Function into smaller ones?",

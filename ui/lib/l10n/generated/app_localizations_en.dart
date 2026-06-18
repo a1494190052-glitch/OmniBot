@@ -2859,6 +2859,10 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get functionLibraryEnhanceOfflineHint =>
+      'This reusable Function is ready for direct replay; semantic upgrade runs as an offline background step and does not block VLM auto-registration or the next fast execution.';
+
+  @override
   String get functionLibrarySplit => 'Split';
 
   @override

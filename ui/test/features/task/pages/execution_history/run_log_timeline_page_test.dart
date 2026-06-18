@@ -842,6 +842,79 @@ void main() {
     expect(find.text('已经保存过的 Android 设置轨迹'), findsWidgets);
   });
 
+  testWidgets(
+    'RunLog offline-only Function shows hint without auto enhancement',
+    (tester) async {
+      final methodCalls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(assistCoreChannel, (call) async {
+            methodCalls.add(call);
+            if (call.method == 'getInternalRunLogTimeline') {
+              return _runLogTimelinePayload(runId: 'run-vlm');
+            }
+            if (call.method == 'convertInternalRunLogToOobFunction') {
+              return <String, dynamic>{
+                'success': true,
+                'registered': true,
+                'created_function_id': 'fn_from_runlog',
+                'function_id': 'fn_from_runlog',
+                'function_spec': _runLogReusableFunctionSpec(
+                  name: '打开 Settings',
+                  description: '打开 Android 设置',
+                  metadata: <String, dynamic>{
+                    'enhancement_policy': 'offline_only',
+                  },
+                ),
+              };
+            }
+            return null;
+          });
+
+      await tester.pumpWidget(
+        _buildLocalizedApp(
+          locale: const Locale('zh'),
+          child: const RunLogTimelinePage(runId: 'run-vlm', title: ''),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey('run-log-action-save-function')),
+      );
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 500)),
+      );
+
+      await _pumpUntilFound(
+        tester,
+        find.byKey(const ValueKey('run-log-function-open-detail')),
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('run-log-function-open-detail')),
+      );
+      await tester.pumpAndSettle();
+      await _pumpUntilFound(
+        tester,
+        find.text(
+          '当前复用指令已可直接回放；语义升级是离线后台步骤，不会阻塞 VLM 自动注册和下一次快速执行。',
+          skipOffstage: false,
+        ),
+      );
+
+      expect(
+        methodCalls.where((call) => call.method == 'updateOobFunction'),
+        isEmpty,
+      );
+      expect(
+        methodCalls.where(
+          (call) => call.method == 'registerOobReusableFunction',
+        ),
+        isEmpty,
+      );
+    },
+  );
+
   testWidgets('RunLog saved Function supports explicit Agent enhancement', (
     tester,
   ) async {
@@ -1447,6 +1520,7 @@ Map<String, dynamic> _runLogReusableFunctionSpec({
   required String name,
   required String description,
   String? stepTitle,
+  Map<String, dynamic>? metadata,
 }) {
   return <String, dynamic>{
     'schema_version': 'oob.reusable_function.v1',
@@ -1458,6 +1532,7 @@ Map<String, dynamic> _runLogReusableFunctionSpec({
       'run_id': 'run-vlm',
       'converter': 'native_run_log_reusable_function_builder',
     },
+    if (metadata != null) 'metadata': metadata,
     'parameters': <dynamic>[],
     'execution': <String, dynamic>{
       'kind': 'tool_sequence',

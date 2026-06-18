@@ -85,11 +85,13 @@ class OobVlmRunLogAutoRegistrarTest {
             assertEquals(true, convert["agent_visible"])
             assertEquals("agent_reusable", convert["visibility"])
             assertEquals(functionId, convert["function_id"])
+            val registeredSpec = convert["function_spec"] as? Map<*, *>
+            val metadata = registeredSpec?.get("metadata") as? Map<*, *>
+            assertEquals("offline_only", metadata?.get("enhancement_policy"))
             val udeg = convert["udeg"] as? Map<*, *>
             assertEquals(true, udeg?.get("indexed"))
 
-            val spec = convert["function_spec"] as? Map<*, *>
-            val execution = spec?.get("execution") as? Map<*, *>
+            val execution = registeredSpec?.get("execution") as? Map<*, *>
             val steps = execution?.get("steps") as? List<*>
             val step = steps?.single() as? Map<*, *>
             val sourceContext = step?.get("source_context") as? Map<*, *>

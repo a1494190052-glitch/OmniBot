@@ -24,8 +24,13 @@ class ManualRecordingFlowController {
     return normalized == '手动录制' ||
         normalized == '开始手动录制' ||
         normalized == '人工录制' ||
+        normalized == '录制轨迹' ||
+        normalized == '开始录制轨迹' ||
+        normalized == '轨迹录制' ||
         normalized == 'manual recording' ||
-        normalized == 'manual record';
+        normalized == 'manual record' ||
+        normalized == 'record trajectory' ||
+        normalized == 'start recording';
   }
 
   static Map<String, dynamic> resultCardData({

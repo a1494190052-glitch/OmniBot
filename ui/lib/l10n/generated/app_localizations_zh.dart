@@ -2720,6 +2720,10 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get functionLibraryEnhanceOfflineHint =>
+      '当前复用指令已可直接回放；语义升级是离线后台步骤，不会阻塞 VLM 自动注册和下一次快速执行。';
+
+  @override
   String get functionLibrarySplit => '拆分';
 
   @override

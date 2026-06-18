@@ -5180,6 +5180,12 @@ abstract class AppLocalizations {
   /// **'升级失败：{message}'**
   String functionLibraryEnrichFailedWithMessage(String message);
 
+  /// No description provided for @functionLibraryEnhanceOfflineHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前复用指令已可直接回放；语义升级是离线后台步骤，不会阻塞 VLM 自动注册和下一次快速执行。'**
+  String get functionLibraryEnhanceOfflineHint;
+
   /// No description provided for @functionLibrarySplit.
   ///
   /// In zh, this message translates to:

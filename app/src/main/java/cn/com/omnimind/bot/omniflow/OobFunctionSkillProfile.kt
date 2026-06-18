@@ -299,7 +299,7 @@ object OobFunctionSkillProfile {
             put("name", OobFunctionToolNames.FUNCTION_UPDATE)
             put("displayName", "更新复用指令")
             put("toolType", "oob_function")
-            put("description", "根据结构化 patch、用户纠错指令或 RunLog 证据分析更新一个已保存的 OmniFlow Function。传 run_id 且不传 analysis/patch 时后台会自动分析 RunLog、生成 patch 并保存增强结果；不会执行手机操作。")
+            put("description", "离线维护一个已保存的 OmniFlow Function：根据结构化 patch、用户纠错指令或 RunLog 证据更新语义信息。传 run_id 且不传 analysis/patch 时后台会分析 RunLog、生成 patch 并保存结果；不会执行手机操作，也不属于 vlm_task 实时路径。")
             put("parameters", mapToJsonElement(OobFunctionUpdateToolSchema.inputSchema(includeCamelCaseAliases = true)))
         }
     }

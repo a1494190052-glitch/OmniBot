@@ -2958,6 +2958,9 @@ class _ReusableFunctionSpecSheetState
     final isAgentVisible = _isAgentVisible;
     final hasAgentEnhanced =
         _hasAgentEnhanced || spec.aiEnhanced || enhancementStatus.isApplied;
+    final showOfflineEnhancementHint =
+        _hasOfflineEnhancementPolicy &&
+        enhancementStatus == RunLogReusableFunctionEnhancementStatus.none;
 
     return GestureDetector(
       onTap: () => Navigator.of(context, rootNavigator: true).maybePop(),
@@ -3163,6 +3166,14 @@ class _ReusableFunctionSpecSheetState
                                 message: _visibleEnhancementMessage,
                                 isSaving: _isImporting,
                                 isSaved: !hasUnsavedEdits,
+                              ),
+                            ],
+                            if (showOfflineEnhancementHint) ...[
+                              const SizedBox(height: 12),
+                              _WarningBox(
+                                text: context
+                                    .l10n
+                                    .functionLibraryEnhanceOfflineHint,
                               ),
                             ],
                             const SizedBox(height: 14),
@@ -4051,6 +4062,21 @@ class _ReusableFunctionSpecSheetState
         readFlag(spec.json['agentVisible']) ??
         readFlag(metadata['agent_visible']) ??
         (visibility.isEmpty || visibility == 'agent_reusable');
+  }
+
+  bool get _hasOfflineEnhancementPolicy {
+    final metadata = _asStringKeyMap(spec.json['metadata']);
+    final source = _asStringKeyMap(spec.json['source']);
+    final sourceMetadata = _asStringKeyMap(source['metadata']);
+    final policy = _firstNonBlank([
+      metadata['enhancement_policy'],
+      metadata['enhancementPolicy'],
+      sourceMetadata['enhancement_policy'],
+      sourceMetadata['enhancementPolicy'],
+      spec.json['enhancement_policy'],
+      spec.json['enhancementPolicy'],
+    ]).trim().toLowerCase();
+    return policy == 'offline_only' || policy == 'offline-only';
   }
 
   String get _registeredFunctionId {
