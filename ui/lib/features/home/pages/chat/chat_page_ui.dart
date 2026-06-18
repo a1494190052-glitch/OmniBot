@@ -1463,6 +1463,10 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                           _activeMode == ChatPageMode.normal
                           ? _openLatestRunLogFromShortcut
                           : null,
+                      onOpenFunctionLibraryTap:
+                          _activeMode == ChatPageMode.normal
+                          ? _openFunctionLibraryFromShortcut
+                          : null,
                       onManualRecordingTap: _activeMode == ChatPageMode.normal
                           ? _startManualRecordingFromShortcut
                           : null,

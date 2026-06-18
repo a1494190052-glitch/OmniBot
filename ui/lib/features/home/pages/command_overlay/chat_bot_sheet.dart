@@ -1730,6 +1730,10 @@ class _ChatBotSheetState extends State<ChatBotSheet>
     await RunLogShortcutController.openRunLogList();
   }
 
+  Future<void> _openFunctionLibraryFromShortcut() async {
+    await RunLogShortcutController.openFunctionLibrary();
+  }
+
   Future<void> _openLatestRunLogFromShortcut() async {
     await RunLogShortcutController.openLatestRunLog(
       context: context,
@@ -2640,6 +2644,7 @@ class _ChatBotSheetState extends State<ChatBotSheet>
             onToggleOpenClaw: _setOpenClawEnabled,
             onViewTrajectoriesTap: _openRunLogListFromShortcut,
             onViewCurrentTrajectoryTap: _openLatestRunLogFromShortcut,
+            onOpenFunctionLibraryTap: _openFunctionLibraryFromShortcut,
             onManualRecordingTap: _startManualRecordingFromShortcut,
           ),
         ],

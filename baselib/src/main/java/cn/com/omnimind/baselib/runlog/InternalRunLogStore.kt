@@ -27,6 +27,20 @@ data class InternalRunLogRecord(
     val eventSeq: Long = 0L
 )
 
+data class InternalRunLogFinishEvent(
+    val runId: String,
+    val goal: String,
+    val source: String,
+    val toolName: String,
+    val operationDescription: String,
+    val startedAtMs: Long,
+    val finishedAtMs: Long,
+    val success: Boolean,
+    val doneReason: String,
+    val errorMessage: String,
+    val cardCount: Int
+)
+
 object InternalRunLogStore {
     private const val TAG = "InternalRunLogStore"
     private const val PROVIDER = "internal_oob"
@@ -46,6 +60,12 @@ object InternalRunLogStore {
     private val mapType = object : TypeToken<Map<String, Any?>>() {}.type
     private val lastEventSeqByRun = mutableMapOf<String, Long>()
     private val lastSnapshotWriteMsByRun = mutableMapOf<String, Long>()
+    @Volatile
+    private var finishListener: ((InternalRunLogFinishEvent) -> Unit)? = null
+
+    fun setFinishListener(listener: ((InternalRunLogFinishEvent) -> Unit)?) {
+        finishListener = listener
+    }
 
     @Synchronized
     fun beginRun(
@@ -274,18 +294,37 @@ object InternalRunLogStore {
             )
         )
         if (saveSnapshot) {
-            saveRunLocked(
-                context,
-                record.copy(
-                    finishedAtMs = normalizedFinishedAtMs,
-                    success = success,
-                    doneReason = doneReason,
-                    errorMessage = errorMessage.orEmpty(),
-                    eventSeq = eventSeq
-                )
+            val finishedRecord = record.copy(
+                finishedAtMs = normalizedFinishedAtMs,
+                success = success,
+                doneReason = doneReason,
+                errorMessage = errorMessage.orEmpty(),
+                eventSeq = eventSeq
             )
+            saveRunLocked(context, finishedRecord)
         }
         pruneLocked(context)
+        notifyFinishListener(
+            InternalRunLogFinishEvent(
+                runId = normalizedRunId,
+                goal = record.goal,
+                source = record.source,
+                toolName = record.toolName,
+                operationDescription = record.operationDescription,
+                startedAtMs = record.startedAtMs,
+                finishedAtMs = normalizedFinishedAtMs,
+                success = success,
+                doneReason = doneReason,
+                errorMessage = errorMessage.orEmpty(),
+                cardCount = record.cards.size
+            )
+        )
+    }
+
+    private fun notifyFinishListener(event: InternalRunLogFinishEvent) {
+        val listener = finishListener ?: return
+        runCatching { listener(event) }
+            .onFailure { OmniLog.w(TAG, "run finish listener failed: ${it.message}") }
     }
 
     @Synchronized

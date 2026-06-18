@@ -13,6 +13,10 @@ class RunLogShortcutController {
     GoRouterManager.push('/task/run_logs');
   }
 
+  static Future<void> openFunctionLibrary() async {
+    GoRouterManager.push('/task/function_library');
+  }
+
   static Future<void> openLatestRunLog({
     required BuildContext context,
     required bool Function() isMounted,

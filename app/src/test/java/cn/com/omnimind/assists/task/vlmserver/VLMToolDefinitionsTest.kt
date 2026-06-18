@@ -94,11 +94,14 @@ class VLMToolDefinitionsTest {
     fun `compact action schema requires native tool call and rejects legacy formats`() {
         val promptGuide = VLMToolDefinitions.renderCompactActionSchemaGuide(PromptLocale.EN_US)
 
-        assertTrue(promptGuide.contains("native tool_call only"))
-        assertTrue(promptGuide.contains("Do not use legacy action/coordinate/coordinate2"))
+        assertTrue(promptGuide.contains("Allowed tools this turn"))
+        assertTrue(promptGuide.contains("exactly one native tool_call"))
+        assertTrue(promptGuide.contains("about-20-word summary only"))
+        assertTrue(promptGuide.contains("0..1000 relative coordinates"))
+        assertTrue(promptGuide.contains("call finished only when the current page shows the final target state"))
+        assertFalse(promptGuide.contains("required=["))
         assertFalse(promptGuide.contains("fallback JSON"))
         assertFalse(promptGuide.contains("\"tool\":\"tool_name\""))
         assertFalse(promptGuide.contains("get_state"))
-        assertTrue(promptGuide.contains("wait"))
     }
 }

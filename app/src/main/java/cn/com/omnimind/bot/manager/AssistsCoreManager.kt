@@ -3589,7 +3589,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     }
                     startedSession
                 }
-                withContext(Dispatchers.Main) {
+                val controlShown = withContext(Dispatchers.Main) {
                     val controlShown = ManualRecordingControlOverlay.show(
                         context,
                         ManualRecordingControlOverlay.State.READY,
@@ -3597,9 +3597,18 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                             captureCurrentUdegStateForManualRecording(description)
                         }
                     )
-                    ManualRecordingControlOverlay.markReady()
-                    OmniLog.d(TAG, "manual recording control overlay shown=$controlShown")
+                    if (controlShown) {
+                        ManualRecordingControlOverlay.markReady()
+                    }
+                    controlShown
                 }
+                if (!controlShown) {
+                    withContext(Dispatchers.Default) {
+                        HumanTrajectoryLearningSession.cancelActive("录制控制浮窗显示失败，请检查悬浮窗权限")
+                    }
+                    throw IllegalStateException("录制控制浮窗显示失败，请检查悬浮窗权限")
+                }
+                OmniLog.d(TAG, "manual recording control overlay shown=$controlShown")
                 sessionResult.await()
             }.getOrElse { error ->
                 OmniLog.e(TAG, "start human trajectory learning failed: ${error.message}", error)

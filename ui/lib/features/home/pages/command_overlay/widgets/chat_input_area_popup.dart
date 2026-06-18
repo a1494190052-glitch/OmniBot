@@ -18,6 +18,13 @@ mixin _ChatInputAreaPopupMixin on _ChatInputAreaStateBase {
           tooltip: context.l10n.chatInputViewCurrentTrajectoryTooltip,
           onTap: widget.onViewCurrentTrajectoryTap!,
         ),
+      if (widget.onOpenFunctionLibraryTap != null)
+        _TrajectoryPopupAction(
+          icon: Icons.library_books_rounded,
+          label: context.l10n.memoryCommandsTitle,
+          tooltip: context.l10n.omniflowViewFunctionLibrary,
+          onTap: widget.onOpenFunctionLibraryTap!,
+        ),
       if (widget.onManualRecordingTap != null)
         _TrajectoryPopupAction(
           icon: Icons.fiber_manual_record_rounded,
@@ -62,17 +69,11 @@ mixin _ChatInputAreaPopupMixin on _ChatInputAreaStateBase {
               _buildDebugScreenshotToggle(),
               const SizedBox(height: 8),
             ],
-            Row(
-              mainAxisSize: MainAxisSize.min,
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
               children: actions
-                  .asMap()
-                  .entries
-                  .map(
-                    (entry) => Padding(
-                      padding: EdgeInsets.only(left: entry.key == 0 ? 0 : 8),
-                      child: _buildTrajectoryPopupItem(entry.value),
-                    ),
-                  )
+                  .map(_buildTrajectoryPopupItem)
                   .toList(growable: false),
             ),
           ],

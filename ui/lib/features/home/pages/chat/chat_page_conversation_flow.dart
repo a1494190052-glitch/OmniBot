@@ -1105,6 +1105,11 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
   }
 
   @override
+  Future<void> _openFunctionLibraryFromShortcut() async {
+    await RunLogShortcutController.openFunctionLibrary();
+  }
+
+  @override
   Future<void> _openLatestRunLogFromShortcut() async {
     await RunLogShortcutController.openLatestRunLog(
       context: context,

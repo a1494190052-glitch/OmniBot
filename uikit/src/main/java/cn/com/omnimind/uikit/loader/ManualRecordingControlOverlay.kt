@@ -558,19 +558,25 @@ object ManualRecordingControlOverlay {
     }
 
     private fun showOverlayDialog(dialog: AlertDialog): Boolean {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            dialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
-        } else {
-            @Suppress("DEPRECATION")
-            dialog.window?.setType(WindowManager.LayoutParams.TYPE_PHONE)
-        }
         return runCatching {
+            applyOverlayWindowType(dialog)
             dialog.show()
+            applyOverlayWindowType(dialog)
             true
         }.getOrElse { error ->
             OmniLog.e(TAG, "show manual action dialog failed: ${error.message}", error)
             false
         }
+    }
+
+    private fun applyOverlayWindowType(dialog: AlertDialog) {
+        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+        dialog.window?.setType(type)
     }
 
     private fun attachDragHandler(

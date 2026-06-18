@@ -2139,6 +2139,8 @@ abstract class _ChatPageStateBase extends State<ChatPage>
 
   Future<void> _openRunLogListFromShortcut();
 
+  Future<void> _openFunctionLibraryFromShortcut();
+
   Future<void> _openLatestRunLogFromShortcut();
 
   Future<void> _retryUserMessageText(

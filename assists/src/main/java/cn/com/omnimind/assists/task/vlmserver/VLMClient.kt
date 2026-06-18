@@ -361,7 +361,12 @@ class VLMClient(
     ): VLMResult {
         return try {
             val action = parseActionFromToolCall(toolCall, dynamicFunctionToolNames)
-            val thought = metadata.thought.ifBlank { reasoning.ifBlank { content } }
+            val thought = metadataThoughtFallback(
+                metadata = metadata,
+                reasoning = reasoning,
+                content = content,
+                source = source
+            )
             if (source != "tool_calls") {
                 OmniLog.w(
                     TAG,
@@ -387,6 +392,19 @@ class VLMClient(
                 thinking = thinking,
                 shouldRetryForToolCall = true
             )
+        }
+    }
+
+    private fun metadataThoughtFallback(
+        metadata: StepMetadataPayload,
+        reasoning: String,
+        content: String,
+        source: String
+    ): String {
+        return metadata.thought.ifBlank {
+            reasoning.ifBlank {
+                if (source == "tool_calls") "" else content
+            }
         }
     }
 
@@ -552,10 +570,10 @@ class VLMClient(
             if (jsonStart >= 0 && jsonEnd > jsonStart) {
                 json.decodeFromString<StepMetadataPayload>(normalized.substring(jsonStart, jsonEnd + 1))
             } else {
-                StepMetadataPayload(thought = normalized)
+                StepMetadataPayload(summary = normalized)
             }
         }.getOrElse {
-            StepMetadataPayload(thought = normalized.ifBlank { reasoning })
+            StepMetadataPayload(summary = normalized)
         }
     }
 

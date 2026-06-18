@@ -110,6 +110,7 @@ class ChatInputArea extends StatefulWidget {
   final VoidCallback? onLongPressOpenClaw;
   final FutureOr<void> Function()? onViewTrajectoriesTap;
   final FutureOr<void> Function()? onViewCurrentTrajectoryTap;
+  final FutureOr<void> Function()? onOpenFunctionLibraryTap;
   final FutureOr<void> Function(bool recordDebugScreenshots)?
   onManualRecordingTap;
   final FutureOr<void> Function()? onTerminalTap;
@@ -150,6 +151,7 @@ class ChatInputArea extends StatefulWidget {
     this.onLongPressOpenClaw,
     this.onViewTrajectoriesTap,
     this.onViewCurrentTrajectoryTap,
+    this.onOpenFunctionLibraryTap,
     this.onManualRecordingTap,
     this.onTerminalTap,
     this.useFrostedGlass = false,
@@ -404,6 +406,11 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
 
   bool get isPopupVisible => _isPopupVisible;
   bool get _hasManualRecordingAction => widget.onManualRecordingTap != null;
+  bool get _hasTrajectoryPopupAction =>
+      widget.onViewTrajectoriesTap != null ||
+      widget.onViewCurrentTrajectoryTap != null ||
+      widget.onOpenFunctionLibraryTap != null ||
+      widget.onManualRecordingTap != null;
   bool get _showDebugScreenshotToggle =>
       _debugScreenshotToggleAvailable && _hasManualRecordingAction;
   bool get _debugScreenshotToggleAvailable {

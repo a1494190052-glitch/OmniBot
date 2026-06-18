@@ -34,15 +34,12 @@ object PromptTemplate {
         }
         val runtimeProfile = ModelSceneRegistry.getRuntimeProfile(resolvedSceneId)
         val parser = runtimeProfile?.responseParser ?: ModelSceneRegistry.ResponseParser.TEXT_CONTENT
+        if (parser == ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS) {
+            return buildToolActionSystemPrompt(locale)
+        }
         val template = ModelSceneRegistry.getPrompt(resolvedSceneId)
             ?: ModelSceneRegistry.getPrompt("scene.vlm.operation.primary")
             ?: throw IllegalStateException("scene.vlm.operation.primary prompt not found")
-
-        val responseContract = if (parser == ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS) {
-            VLMToolDefinitions.responseContract(locale)
-        } else {
-            ""
-        }
 
         return ModelSceneRegistry.renderPrompt(
             template,
@@ -58,8 +55,40 @@ object PromptTemplate {
                 "keyMemory" to t(locale, "见后续 user 消息", "See the following user message"),
                 "installedApps" to t(locale, "见后续 user 消息", "See the following user message"),
                 "currentTime" to t(locale, "见后续 user 消息", "See the following user message"),
-                "responseContract" to responseContract
+                "responseContract" to ""
             )
+        )
+    }
+
+    private fun buildToolActionSystemPrompt(locale: PromptLocale): String {
+        return t(
+            locale,
+            """
+            你是 Android 手机 GUI-Agent。根据后续 user 消息里的任务上下文、历史 tool 结果、当前截图和 OOB compact indexed page evidence，选择下一步手机操作。raw XML 只供系统内部 page match、grounding、action transfer 使用，不会作为模型上下文提供。
+
+            协议：
+            1. 每轮必须且只能返回 tools[] 中一个 OpenAI 原生 tool_call；不要用文本 JSON 表达动作。
+            2. assistant.content 可为空；若返回，只能是 {"summary":"约20字本步摘要"}，不要输出 observation/thought。
+            3. 只有任务真正完成时才调用 finished；需要用户补充时调用 info；无法继续时调用 abort。
+            4. 每轮只让一个 UI 变量变化；优先使用 screenshot、compact indexed page evidence、visible_texts 和上一轮 tool 结果。
+            5. 不要输出停留、刷新状态或空操作；页面稳定和每轮 fresh observe 由系统内部完成。
+            6. 不要直接调用已保存流程、call_tool、function_id 或隐藏 Function tool；本地 runtime 会自动处理 Function recall/replay。
+
+            坐标：使用 0..1000 相对坐标；每个坐标字段必须是单个数值。click/long_press 用 x/y，swipe 用 direction 和 x1/y1/x2/y2；input_text 必须绑定可见输入目标，优先填写 element_index。
+            """.trimIndent(),
+            """
+            You are an Android phone GUI agent. Use the task context in later user messages, prior tool results, the current screenshot, and OOB compact indexed page evidence to choose the next phone action. Raw XML is internal-only for page match, grounding, and action transfer; it is not provided as model context.
+
+            Protocol:
+            1. Each turn must return exactly one native OpenAI tool_call from tools[]; do not express actions as text JSON.
+            2. assistant.content may be empty. If present, it must only be {"summary":"about 20 words for this step"}; do not output observation/thought.
+            3. Call finished only when the task is truly complete. Call info when the user must provide input. Call abort when the task cannot continue.
+            4. Change only one UI variable per turn; prefer the screenshot, compact indexed page evidence, visible_texts, and previous tool result.
+            5. Do not output idle, refresh-state, or no-op actions; page settling and per-turn fresh observe are handled internally.
+            6. Do not directly call saved workflows, call_tool, function_id, or hidden Function tools; the local runtime handles Function recall/replay.
+
+            Coordinates: use 0..1000 relative coordinates, with each coordinate field as a single number. click/long_press use x/y; swipe uses direction and x1/y1/x2/y2; input_text must bind a visible input target and should prefer element_index.
+            """.trimIndent()
         )
     }
 
@@ -133,37 +162,7 @@ object PromptTemplate {
                 appendLine(it)
             }
             appendLine()
-            appendLine(renderUnifiedActionSchema(context, locale))
-            appendLine()
-            appendLine("${t(locale, "本轮提醒", "Turn reminder")}:")
-            appendLine(
-                t(
-                    locale,
-                    "遵守统一 action schema：每轮恰好一个原生 tool_call。swipe 目标出现在 Sindex 中时填写 scrollable_index 和 direction。坐标基于截图或 indexed evidence 给出。",
-                    "Follow the unified action schema: exactly one native tool_call per turn. For swipe when the target appears as Sindex, include scrollable_index and direction. Use coordinates from the screenshot or indexed evidence."
-                )
-            )
-            appendLine(
-                t(
-                    locale,
-                    "不要输出文本动作、Markdown、旧格式 action/swipe/coordinate/coordinate2，或任何不在 tools[] 里的工具名。",
-                    "Do not output text actions, Markdown, legacy action/swipe/coordinate/coordinate2 formats, or tool names that are not in tools[]."
-                )
-            )
-            appendLine(
-                t(
-                    locale,
-                    "完成判断：只有当前页面已经显示用户目标的最终状态，或上一轮工具结果明确完成了不可见系统动作，才调用 finished。还需要打开页面、选择项目、输入内容、保存、发送、确认、等待结果，或只是看到了目标入口，都不算完成；不确定时继续执行下一步，系统会在每轮自动刷新页面状态。",
-                    "Completion rule: call finished only when the current page already shows the user's final target state, or the previous tool result explicitly completed an invisible system action. If any page opening, item selection, typing, saving, sending, confirmation, result wait, or visible target entry remains, the task is not complete; when uncertain, continue with the next action. The system refreshes page state automatically each turn."
-                )
-            )
-            appendLine(
-                t(
-                    locale,
-                    "如果截图是黑屏/空白，但 indexed evidence 或 visible_texts 包含当前页面和目标控件，请把这些压缩证据视为当前页面证据并继续选择统一 schema 中的工具；不要输出刷新状态、等待或空操作。",
-                    "If the screenshot is black/blank but indexed evidence or visible_texts contains the current page and target control, treat that compact evidence as current-page evidence and continue with a tool from the unified schema; do not output refresh-state, wait, or no-op actions."
-                )
-            )
+            appendLine(VLMToolDefinitions.renderCompactActionSchemaGuide(locale))
         }.trim()
     }
 
@@ -189,13 +188,6 @@ object PromptTemplate {
         return buildString {
             appendLine(t(locale, "【页面解释】", "[Page Explanation]"))
             append(pageContext)
-        }.trim()
-    }
-
-    private fun renderUnifiedActionSchema(context: UIContext, locale: PromptLocale): String {
-        return buildString {
-            appendLine(t(locale, "统一 action schema:", "Unified action schema:"))
-            appendLine(VLMToolDefinitions.renderCompactActionSchemaGuide(locale))
         }.trim()
     }
 

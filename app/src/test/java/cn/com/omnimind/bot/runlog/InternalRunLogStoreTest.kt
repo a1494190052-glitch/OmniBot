@@ -3,6 +3,7 @@ package cn.com.omnimind.bot.runlog
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.SharedPreferences
+import cn.com.omnimind.baselib.runlog.InternalRunLogFinishEvent
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
 import cn.com.omnimind.bot.omniflow.OobFunctionRepository
@@ -613,6 +614,73 @@ class InternalRunLogStoreTest {
             assertEquals(xml, RunLogCardAccessors.observationXml(observation))
             assertEquals(xml, OobActionCodec.pageXmlFromContext(sourceContext))
         } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `finish listener receives finished run event and can be cleared`() {
+        val context = TempFilesContext()
+        val events = mutableListOf<InternalRunLogFinishEvent>()
+        try {
+            InternalRunLogStore.setFinishListener { event ->
+                events += event
+            }
+            val runId = "run-finish-listener-${System.nanoTime()}"
+            InternalRunLogStore.beginRun(
+                context = context,
+                runId = runId,
+                goal = "Search notes",
+                source = "vlm",
+                toolName = "vlm_task",
+                operationDescription = "Search notes"
+            )
+            InternalRunLogStore.appendCard(
+                context = context,
+                runId = runId,
+                card = linkedMapOf(
+                    "card_id" to "card-1",
+                    "tool_name" to "click",
+                    "success" to true,
+                    "args" to linkedMapOf("target_description" to "Search")
+                )
+            )
+            InternalRunLogStore.finishRun(
+                context = context,
+                runId = runId,
+                success = true,
+                doneReason = "finished",
+                finishedAtMs = 1_700_000_000_000L
+            )
+
+            assertEquals(1, events.size)
+            val event = events.single()
+            assertEquals(runId, event.runId)
+            assertEquals("Search notes", event.goal)
+            assertEquals("vlm", event.source)
+            assertEquals("vlm_task", event.toolName)
+            assertEquals(true, event.success)
+            assertEquals("finished", event.doneReason)
+            assertEquals(1, event.cardCount)
+
+            InternalRunLogStore.setFinishListener(null)
+            val ignoredRunId = "run-finish-listener-cleared-${System.nanoTime()}"
+            InternalRunLogStore.beginRun(
+                context = context,
+                runId = ignoredRunId,
+                goal = "Ignored",
+                source = "vlm",
+                toolName = "vlm_task"
+            )
+            InternalRunLogStore.finishRun(
+                context = context,
+                runId = ignoredRunId,
+                success = true,
+                doneReason = "finished"
+            )
+            assertEquals(1, events.size)
+        } finally {
+            InternalRunLogStore.setFinishListener(null)
             context.root.deleteRecursively()
         }
     }

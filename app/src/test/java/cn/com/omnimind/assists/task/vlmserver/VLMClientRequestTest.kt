@@ -230,6 +230,40 @@ class VLMClientRequestTest {
     }
 
     @Test
+    fun `plain assistant content with native tool call is treated as summary`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "vlm-test-model",
+                turn = ChatCompletionTurn(
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        content = JsonPrimitive("点击设置入口"),
+                        toolCalls = listOf(
+                            AssistantToolCall(
+                                id = "call_1",
+                                function = AssistantToolCallFunction(
+                                    name = "click",
+                                    arguments = """{"target_description":"Settings","x":100,"y":100}"""
+                                )
+                            )
+                        )
+                    )
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary"
+        )
+
+        assertTrue(result.error.orEmpty(), result.success)
+        val step = requireNotNull(result.step)
+        assertTrue(step.action is ClickAction)
+        assertEquals("", step.thought)
+        assertEquals("点击设置入口", step.summary)
+    }
+
+    @Test
     fun `conversation history compacts previous user prompt to avoid repeating page evidence`() {
         val client = VLMClient()
         val verbosePrompt = """

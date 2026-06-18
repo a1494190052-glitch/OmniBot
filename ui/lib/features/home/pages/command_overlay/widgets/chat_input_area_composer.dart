@@ -205,9 +205,7 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
         ),
         const SizedBox(width: 4),
       ],
-      if (widget.onViewTrajectoriesTap != null ||
-          widget.onViewCurrentTrajectoryTap != null ||
-          widget.onManualRecordingTap != null) ...[
+      if (_hasTrajectoryPopupAction) ...[
         SizedBox(
           width: 28,
           height: 28,
@@ -734,9 +732,7 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
           ),
           const SizedBox(width: 2),
         ],
-        if (widget.onViewTrajectoriesTap != null ||
-            widget.onViewCurrentTrajectoryTap != null ||
-            widget.onManualRecordingTap != null) ...[
+        if (_hasTrajectoryPopupAction) ...[
           SizedBox(
             width: 24,
             height: 24,
@@ -1015,10 +1011,7 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
     final color = context.isDarkTheme
         ? palette.accentPrimary
         : const Color(0xFF6D5BD0);
-    final hasActions =
-        widget.onViewTrajectoriesTap != null ||
-        widget.onViewCurrentTrajectoryTap != null ||
-        widget.onManualRecordingTap != null;
+    final hasActions = _hasTrajectoryPopupAction;
     return IconButton(
       key: const ValueKey('chat-input-manual-recording-button'),
       padding: EdgeInsets.zero,

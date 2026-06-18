@@ -21,7 +21,6 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 object VLMToolDefinitions {
-    private const val MAX_COMPACT_ACTION_SCHEMA_CHARS = 1_600
     private const val TOOL_TITLE_FIELD = "tool_title"
     private val HIDDEN_BASE_TOOL_NAMES = setOf(
         OobCanonicalActionSchema.TOOL_GET_STATE,
@@ -147,28 +146,46 @@ object VLMToolDefinitions {
     }
 
     fun renderCompactActionSchemaGuide(locale: PromptLocale = currentLocale()): String {
-        val toolLines = toolSpecs(locale).joinToString(separator = "\n") { spec ->
-            val required = requiredFieldsFor(spec.name, locale).joinToString(",").ifBlank { "-" }
-            "- ${spec.name}: required=[$required]"
-        }
+        val toolNames = toolSpecs(locale).joinToString(separator = ", ") { it.name }
         return buildString {
-            appendLine(toolLines)
+            appendLine("${t(locale, "本轮允许工具", "Allowed tools this turn")}: $toolNames")
+            appendLine(
+                t(
+                    locale,
+                    "输出约束：只返回 tools[] 中恰好一个原生 tool_call；assistant.content 可为空，若返回只能是约20字 summary；不要输出其他 JSON 字段、Markdown、旧格式 action/swipe/coordinate/coordinate2，或 tools[] 外的工具名。",
+                    "Output constraint: return exactly one native tool_call from tools[]. assistant.content may be empty; if present it must be an about-20-word summary only. Do not output other JSON fields, Markdown, legacy action/swipe/coordinate/coordinate2 formats, or tool names outside tools[]."
+                )
+            )
+            appendLine(
+                t(
+                    locale,
+                    "坐标如需兜底，使用 0..1000 相对坐标；优先使用 indexed evidence 的 element_index/scrollable_index。",
+                    "When coordinate fallback is needed, use 0..1000 relative coordinates; prefer element_index/scrollable_index from indexed evidence."
+                )
+            )
+            appendLine(
+                t(
+                    locale,
+                    "完成判断：只有当前页面已显示最终状态，或上一轮工具结果明确完成不可见系统动作，才调用 finished；不确定时继续下一步，系统每轮会自动刷新页面状态。",
+                    "Completion rule: call finished only when the current page shows the final target state, or the previous tool result explicitly completed an invisible system action. When uncertain, continue with the next step; the system refreshes page state automatically each turn."
+                )
+            )
             append(
                 t(
                     locale,
-                    "统一格式：只能使用原生 tool_call。swipe 目标在 Sindex 中时填 scrollable_index 和 direction。坐标必须是 0..1000 相对坐标；系统会在执行前解码为屏幕绝对像素。不要使用旧 action/coordinate/coordinate2。",
-                    "Unified format: native tool_call only. For swipe when a target appears as Sindex, include scrollable_index plus direction. Coordinates must be 0..1000 relative; the system decodes them to screen absolute pixels before execution. Do not use legacy action/coordinate/coordinate2."
+                    "黑屏/空白但 indexed evidence 或 visible_texts 有目标控件时，按这些证据继续选择工具；不要输出刷新状态、等待或空操作。",
+                    "If the screenshot is black/blank but indexed evidence or visible_texts contains the target control, continue from that evidence; do not output refresh-state, wait, or no-op actions."
                 )
             )
-        }.take(MAX_COMPACT_ACTION_SCHEMA_CHARS)
+        }.trim()
     }
 
     fun responseContract(locale: PromptLocale = currentLocale()): String {
         return when (locale) {
             PromptLocale.ZH_CN ->
-                """{"observation":"当前界面的关键状态","thought":"为什么要执行这个工具","summary":"执行完本步后新的历史总结"}"""
+                """{"summary":"约20字本步摘要"}"""
             PromptLocale.EN_US ->
-                """{"observation":"key state of the current screen","thought":"why this tool should be executed","summary":"updated running summary after this step"}"""
+                """{"summary":"about 20 words for this step"}"""
         }
     }
 

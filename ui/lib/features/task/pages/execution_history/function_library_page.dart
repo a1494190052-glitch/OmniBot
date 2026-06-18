@@ -15,10 +15,16 @@ import 'package:ui/widgets/common_app_bar.dart';
 import 'package:ui/widgets/oob_function_run_progress_card.dart';
 
 class FunctionLibraryPage extends StatefulWidget {
-  const FunctionLibraryPage({super.key});
+  const FunctionLibraryPage({super.key, this.embedded = false});
+
+  final bool embedded;
 
   @override
   State<FunctionLibraryPage> createState() => _FunctionLibraryPageState();
+}
+
+class FunctionLibraryEmbed extends FunctionLibraryPage {
+  const FunctionLibraryEmbed({super.key}) : super(embedded: true);
 }
 
 class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
@@ -320,6 +326,12 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
   @override
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
+    if (widget.embedded) {
+      return ColoredBox(
+        color: palette.pageBackground,
+        child: _buildContent(context),
+      );
+    }
     return Scaffold(
       backgroundColor: palette.pageBackground,
       appBar: CommonAppBar(

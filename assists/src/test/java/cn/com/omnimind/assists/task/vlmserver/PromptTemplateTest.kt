@@ -55,16 +55,14 @@ class PromptTemplateTest {
                 )
             )
 
-            assertTrue(prompt.contains("Turn reminder"))
+            assertTrue(prompt.contains("Allowed tools this turn"))
             assertTrue(prompt.contains("exactly one native tool_call"))
-            assertTrue(prompt.contains("black/blank"))
-            assertTrue(prompt.contains("The system refreshes page state automatically each turn"))
-            assertTrue(prompt.contains("do not output refresh-state"))
-            assertTrue(prompt.contains("Do not output text actions"))
-            assertTrue(prompt.contains("Raw XML is internal-only"))
-            assertFalse(prompt.contains("1. Pick the next action directly from the tools list"))
-            assertFalse(prompt.contains("8. Do not output any idle"))
-            assertFalse(prompt.contains("fallback JSON"))
+            assertTrue(prompt.contains("assistant.content may be empty"))
+            assertTrue(prompt.contains("about-20-word summary only"))
+            assertTrue(prompt.contains("click, long_press, input_text"))
+            assertFalse(prompt.contains("required=["))
+            assertFalse(prompt.contains("Unified action schema"))
+            assertFalse(prompt.contains("observation/thought JSON"))
             assertFalse(prompt.contains("\"action\":\"swipe\""))
             assertFalse(prompt.contains("Accessibility tree"))
         } finally {
@@ -73,18 +71,19 @@ class PromptTemplateTest {
     }
 
     @Test
-    fun `system prompt does not expose stale get state or type tools`() {
+    fun `system prompt stays tool-call only for vlm`() {
         val previousLocale = Locale.getDefault()
         Locale.setDefault(Locale.US)
         try {
             val prompt = PromptTemplate.buildSystemPrompt("scene.vlm.operation.primary")
 
-            assertTrue(prompt.contains("tools[]"))
-            assertTrue(prompt.contains("Raw XML is internal-only"))
-            assertTrue(prompt.contains("compact indexed page evidence"))
+            assertTrue(prompt.contains("exactly one native tool_call"))
+            assertTrue(prompt.contains("assistant.content may be empty"))
+            assertTrue(prompt.contains("about 20 words"))
+            assertFalse(prompt.contains("observation"))
+            assertFalse(prompt.contains("thought"))
+            assertFalse(prompt.contains("required=["))
             assertFalse(prompt.contains("get_state"))
-            assertFalse(prompt.contains("type,"))
-            assertFalse(prompt.contains("Accessibility tree"))
         } finally {
             Locale.setDefault(previousLocale)
         }
@@ -139,7 +138,7 @@ class PromptTemplateTest {
             assertFalse(prompt.contains("Current package: com.xingin.xhs"))
             assertFalse(prompt.contains("[Available Functions]"))
             assertFalse(prompt.contains("tool=xhs_search_keyword"))
-            assertFalse(prompt.contains("keyword:string:required"))
+            assertFalse(prompt.contains("required=["))
         } finally {
             Locale.setDefault(previousLocale)
         }
