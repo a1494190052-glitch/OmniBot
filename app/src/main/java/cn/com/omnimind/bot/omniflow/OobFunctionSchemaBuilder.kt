@@ -101,6 +101,8 @@ object OobFunctionSchemaBuilder {
         val execution = mapArg(spec["execution"])
         val legacySteps = listArg(execution["steps"]).mapNotNull { mapArg(it).takeIf { m -> m.isNotEmpty() } }
         if (legacySteps.isNotEmpty()) return legacySteps
+        val topLevelSteps = listArg(spec["steps"]).mapNotNull { mapArg(it).takeIf { m -> m.isNotEmpty() } }
+        if (topLevelSteps.isNotEmpty()) return topLevelSteps
         return listArg(spec["actions"]).mapIndexedNotNull { index, raw -> canonicalActionToStep(index, mapArg(raw)) }
     }
 

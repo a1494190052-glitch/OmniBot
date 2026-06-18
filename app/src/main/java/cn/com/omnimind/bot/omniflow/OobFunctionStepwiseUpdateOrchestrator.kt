@@ -32,14 +32,21 @@ class OobFunctionStepwiseUpdateOrchestrator(
         if (initial["needs_agent_analysis"] != true || hasAnalysisOrPatch(request)) {
             return initial
         }
+        if (!shouldAutoAnalyze(request)) {
+            return initial + linkedMapOf<String, Any?>(
+                "stepwise" to true,
+                "agent_model_invoked" to false,
+                "analysis_policy" to "offline_only",
+                "message" to "update_function stepwise enhancement is queued for an explicit offline/background step.",
+            )
+        }
 
         val context = OobFunctionJson.mapArg(initial["analysis_context"])
         if (context.isEmpty()) return initial
 
         val functionSpec = OobFunctionJson.mapArg(context["function"])
         val functionId = OobFunctionJson.firstNonBlank(context["function_id"])
-        val steps = OobFunctionJson.listArg(functionSpec["steps"])
-            .mapNotNull { OobFunctionJson.mapArg(it).takeIf { m -> m.isNotEmpty() } }
+        val steps = OobFunctionSchemaBuilder.materializedSteps(functionSpec)
         if (steps.isEmpty()) return initial
 
         val patch = linkedMapOf<String, Any?>()
@@ -214,6 +221,28 @@ class OobFunctionStepwiseUpdateOrchestrator(
             OobFunctionJson.mapArg(request[it]).isNotEmpty()
         } || listOf("patch", "function_patch", "updates").any {
             OobFunctionJson.mapArg(request[it]).isNotEmpty()
+        }
+
+    private fun shouldAutoAnalyze(request: Map<String, Any?>): Boolean {
+        val explicit = OobFunctionJson.firstNonBlank(
+            request["auto_analyze_with_model"],
+            request["autoAnalyzeWithModel"],
+        ).equals("true", ignoreCase = true)
+        val offlineJob = boolArg(request["offline_job"]) ||
+            boolArg(request["offlineJob"]) ||
+            boolArg(request["background_enhancement"]) ||
+            boolArg(request["backgroundEnhancement"])
+        return offlineJob && explicit
+    }
+
+    private fun boolArg(value: Any?): Boolean =
+        when (value) {
+            true -> true
+            is Number -> value.toInt() != 0
+            is String -> value.equals("true", ignoreCase = true) ||
+                value == "1" ||
+                value.equals("yes", ignoreCase = true)
+            else -> false
         }
 
     private fun extractJsonObject(raw: String): Map<String, Any?>? {

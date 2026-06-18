@@ -10,7 +10,10 @@ import cn.com.omnimind.bot.mcp.RemoteMcpDiscoveredServer
 import cn.com.omnimind.bot.mcp.RemoteMcpServerConfig
 import cn.com.omnimind.bot.mcp.RemoteMcpToolDescriptor
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
+import cn.com.omnimind.bot.omniflow.OobFunctionRepository
 import cn.com.omnimind.bot.omniflow.OobFunctionRuntimeResolvePlanner
+import cn.com.omnimind.bot.omniflow.OobFunctionStepwiseUpdateOrchestrator
+import cn.com.omnimind.bot.omniflow.OobFunctionUpdateService
 import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
 import cn.com.omnimind.bot.omniflow.language.OmniflowFunctionStore
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
@@ -585,6 +588,102 @@ class OobOmniFlowLoopAcceptanceTest {
             assertEquals(false, update["saved"])
             assertEquals(0, modelCalls)
             assertTrue(update["agent_prompt"].toString().contains("Analyze this OmniFlow Function"))
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `stepwise update function also keeps enhancement on explicit offline path`() = runBlocking {
+        val context = TempFilesContext()
+        try {
+            var modelCalls = 0
+            val repository = OobFunctionRepository(context, WorkspaceFunctionStore(context.root))
+            val updateService = OobFunctionUpdateService(context, repository)
+            val stepwise = OobFunctionStepwiseUpdateOrchestrator(updateService) { prompt, _ ->
+                modelCalls += 1
+                when {
+                    prompt.contains("写一句准确、简洁的中文描述") -> """{"description":"打开并点击外卖入口"}"""
+                    prompt.contains("找出每次调用时会变化的输入值") -> """{"parameters":[]}"""
+                    else -> error("unexpected stepwise prompt: $prompt")
+                }
+            }
+            val functionId = "stepwise_offline_policy_demo"
+            val runId = "stepwise-offline-policy-run"
+            assertEquals(true, repository.register(
+                mapOf(
+                    "functionId" to functionId,
+                    "name" to "打开外卖入口",
+                    "description" to "点击外卖入口",
+                    "steps" to listOf(
+                        mapOf(
+                            "action" to "click",
+                            "title" to "点击外卖",
+                            "target_description" to "外卖",
+                            "x" to 790,
+                            "y" to 140,
+                        ),
+                    ),
+                )
+            )["success"])
+            InternalRunLogStore.beginRun(
+                context = context,
+                runId = runId,
+                goal = "打开外卖入口",
+                source = "test",
+                toolName = RunLogReplayPolicy.TOOL_CALL_TOOL,
+            )
+            InternalRunLogStore.appendCard(
+                context = context,
+                runId = runId,
+                card = mapOf(
+                    "tool_name" to "click",
+                    "header" to mapOf("success" to false),
+                    "arguments" to mapOf("target_description" to "美食"),
+                    "result" to mapOf("success" to false, "error" to "target_not_found"),
+                )
+            )
+            InternalRunLogStore.finishRun(
+                context = context,
+                runId = runId,
+                success = false,
+                doneReason = "replay_failed",
+                errorMessage = "target_not_found",
+            )
+
+            val online = stepwise.updateFunction(
+                mapOf("function_id" to functionId, "run_id" to runId)
+            )
+            val offlineFlagOnly = stepwise.updateFunction(
+                mapOf("function_id" to functionId, "run_id" to runId, "offline_job" to true)
+            )
+            val modelFlagOnly = stepwise.updateFunction(
+                mapOf("function_id" to functionId, "run_id" to runId, "auto_analyze_with_model" to true)
+            )
+
+            assertEquals(0, modelCalls)
+            listOf(online, offlineFlagOnly, modelFlagOnly).forEach { update ->
+                assertEquals(true, update["success"])
+                assertEquals(true, update["needs_agent_analysis"])
+                assertEquals(false, update["agent_model_invoked"])
+                assertEquals("offline_only", update["analysis_policy"])
+                assertEquals(false, update["changed"])
+                assertEquals(false, update["saved"])
+            }
+
+            val offlineExplicit = stepwise.updateFunction(
+                mapOf(
+                    "function_id" to functionId,
+                    "run_id" to runId,
+                    "offline_job" to true,
+                    "auto_analyze_with_model" to true,
+                )
+            )
+
+            assertEquals(2, modelCalls)
+            assertEquals(true, offlineExplicit["success"])
+            assertEquals(true, offlineExplicit["stepwise"])
+            assertEquals(listOf("description", "parameters"), offlineExplicit["stepwise_patch_keys"])
         } finally {
             context.root.deleteRecursively()
         }

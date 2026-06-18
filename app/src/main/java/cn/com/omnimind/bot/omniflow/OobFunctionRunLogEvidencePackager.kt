@@ -20,7 +20,7 @@ class OobFunctionRunLogEvidencePackager {
         runLogTimeline: Map<String, Any?>,
         instruction: String,
     ): Map<String, Any?> {
-        val execution = mapArg(functionSpec["execution"])
+        val steps = OobFunctionSchemaBuilder.materializedSteps(functionSpec)
         return linkedMapOf(
             "schema_version" to "oob.function_runlog_analysis_context.v1",
             "function_id" to functionId,
@@ -30,7 +30,7 @@ class OobFunctionRunLogEvidencePackager {
                 "name" to firstNonBlank(functionSpec["name"]),
                 "description" to firstNonBlank(functionSpec["description"]),
                 "parameters" to listArg(functionSpec["parameters"]),
-                "steps" to listArg(execution["steps"]),
+                "steps" to steps,
                 "metadata" to mapArg(functionSpec["metadata"]),
             ),
             "runlog" to linkedMapOf(
