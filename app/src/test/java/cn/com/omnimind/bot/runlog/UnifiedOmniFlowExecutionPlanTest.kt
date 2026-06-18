@@ -145,6 +145,26 @@ class UnifiedOmniFlowExecutionPlanTest {
     }
 
     @Test
+    fun `vlm android gui skill keeps enhancement out of online replay path`() {
+        val skill = readSource(
+            "app/src/main/assets/builtin_skills/vlm-android-gui/SKILL.md"
+        )
+
+        assertTrue(skill.contains("Auto-registration saves the replayable Function first"))
+        assertTrue(skill.contains("Do not call"))
+        assertTrue(skill.contains("`update_function`"))
+        assertTrue(skill.contains("`enhance`"))
+        assertTrue(skill.contains("inline before VLM"))
+        assertTrue(skill.contains("RunLog registration"))
+        assertTrue(skill.contains("recall-hit replay"))
+        assertTrue(skill.contains("debug"))
+        assertTrue(skill.contains("convert-and-replay"))
+        assertTrue(skill.contains("Enhancement is an explicit offline/background maintenance"))
+        assertTrue(skill.contains("must not block direct replay"))
+        assertTrue(skill.contains("second-run recall fast path"))
+    }
+
+    @Test
     fun `vlm recall loop smoke script is strict and executable`() {
         val scriptPath = findSource("scripts/oob-vlm-recall-loop-smoke.sh")
         val script = String(Files.readAllBytes(scriptPath))

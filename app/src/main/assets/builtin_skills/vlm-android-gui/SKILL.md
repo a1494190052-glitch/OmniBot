@@ -31,6 +31,13 @@ Do not use this skill for uploaded-image Q&A, static document analysis, generic 
 4. Register or update Functions through the OmniFlow Function tools. Keep Function specs small, parameterized, and tied to observed UI evidence.
 5. Replay registered Functions when the current package and page evidence match. Fall back to live VLM execution when guards fail, targets are missing, or user intent diverges.
 
+Auto-registration saves the replayable Function first. Do not call
+`update_function`, `enhance`, or a Function enhancement skill inline before VLM
+RunLog registration, direct replay, recall-hit replay, or debug
+convert-and-replay. Enhancement is an explicit offline/background maintenance
+step; it may improve labels, descriptions, parameters, and metadata later, but
+it must not block direct replay or the second-run recall fast path.
+
 ## Validation
 
 - Verify at least two visible UI states for nontrivial workflows: before the action sequence and after the claimed completion.
