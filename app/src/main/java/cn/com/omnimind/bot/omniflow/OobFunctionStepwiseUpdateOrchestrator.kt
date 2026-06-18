@@ -230,9 +230,7 @@ class OobFunctionStepwiseUpdateOrchestrator(
             request["autoAnalyzeWithModel"],
         ).equals("true", ignoreCase = true)
         val offlineJob = boolArg(request["offline_job"]) ||
-            boolArg(request["offlineJob"]) ||
-            boolArg(request["background_enhancement"]) ||
-            boolArg(request["backgroundEnhancement"])
+            boolArg(request["offlineJob"])
         return offlineJob && explicit
     }
 

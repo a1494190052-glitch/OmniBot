@@ -660,9 +660,17 @@ class OobOmniFlowLoopAcceptanceTest {
             val modelFlagOnly = stepwise.updateFunction(
                 mapOf("function_id" to functionId, "run_id" to runId, "auto_analyze_with_model" to true)
             )
+            val backgroundFlagOnly = stepwise.updateFunction(
+                mapOf(
+                    "function_id" to functionId,
+                    "run_id" to runId,
+                    "background_enhancement" to true,
+                    "auto_analyze_with_model" to true,
+                )
+            )
 
             assertEquals(0, modelCalls)
-            listOf(online, offlineFlagOnly, modelFlagOnly).forEach { update ->
+            listOf(online, offlineFlagOnly, modelFlagOnly, backgroundFlagOnly).forEach { update ->
                 assertEquals(true, update["success"])
                 assertEquals(true, update["needs_agent_analysis"])
                 assertEquals(false, update["agent_model_invoked"])
