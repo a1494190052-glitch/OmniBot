@@ -600,9 +600,9 @@ object ModelSceneRegistry {
     private fun defaultTransportForScene(sceneId: String): SceneTransport {
         return when (sceneId) {
             "scene.vlm.operation.primary",
+            "scene.vlm.summary",
             "scene.voice",
             "scene.dispatch.model",
-            "scene.compactor.context",
             "scene.compactor.context.chat",
             "scene.loading.sprite",
             "scene.memory.embedding",
@@ -614,7 +614,7 @@ object ModelSceneRegistry {
     private fun defaultParserForScene(sceneId: String): ResponseParser {
         return when (sceneId) {
             "scene.vlm.operation.primary" -> ResponseParser.OPENAI_TOOL_ACTIONS
-            "scene.compactor.context" -> ResponseParser.JSON_CONTENT
+            "scene.vlm.summary",
             "scene.compactor.context.chat",
             "scene.loading.sprite",
             "scene.memory.embedding",
@@ -653,7 +653,7 @@ object ModelSceneRegistry {
                 
                 Examples:
                   ✅ scene.dispatch.model
-                  ✅ scene.compactor.context
+                  ✅ scene.vlm.summary
                   ❌ qwen-vl-max (raw model name - NOT allowed)
                   ❌ qwen3-vl-plus (raw model name - NOT allowed)
             

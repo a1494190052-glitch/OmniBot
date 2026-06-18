@@ -70,9 +70,10 @@ internal object AgentImageAttachmentSupport {
                     quality = quality,
                     bypassThreshold = NO_BYPASS_THRESHOLD
                 )
+                val normalizedDataUrl = normalizeImageDataUrl(result.base64)
                 ResolvedImageData(
-                    dataUrl = result.base64,
-                    mimeType = extractMimeType(result.base64),
+                    dataUrl = normalizedDataUrl,
+                    mimeType = extractMimeType(normalizedDataUrl),
                     originalWidth = result.originalWidth,
                     originalHeight = result.originalHeight,
                     compressedWidth = result.compressedWidth,
@@ -148,15 +149,15 @@ internal object AgentImageAttachmentSupport {
                     quality = MODEL_QUALITY
                 )
                 if (compressed != null) {
-                    return compressed.dataUrl
+                    return normalizeImageDataUrl(compressed.dataUrl)
                 }
-                return dataUrl
+                return normalizeImageDataUrl(dataUrl)
             }
         }
 
         val dataUrl = dataUrlFromAttachment(attachment)
         if (dataUrl.isNotBlank()) {
-            return dataUrl
+            return normalizeImageDataUrl(dataUrl)
         }
 
         val remoteUrl = remoteUrlFromAttachment(attachment)
@@ -193,7 +194,7 @@ internal object AgentImageAttachmentSupport {
         )
         return FileReadImageResult(
             payload = payload,
-            imageDataUrl = compressed.dataUrl
+            imageDataUrl = normalizeImageDataUrl(compressed.dataUrl)
         )
     }
 
@@ -269,19 +270,19 @@ internal object AgentImageAttachmentSupport {
                     historyAttachment["mimeType"] = resolvedMimeType
                 }
                 modelImage?.let {
-                    modelAttachment["dataUrl"] = it.dataUrl
+                    modelAttachment["dataUrl"] = normalizeImageDataUrl(it.dataUrl)
                     modelAttachment["width"] = it.originalWidth
                     modelAttachment["height"] = it.originalHeight
                 }
                 historyImage?.let {
-                    historyAttachment["dataUrl"] = it.dataUrl
+                    historyAttachment["dataUrl"] = normalizeImageDataUrl(it.dataUrl)
                     historyAttachment["width"] = it.originalWidth
                     historyAttachment["height"] = it.originalHeight
                 }
                 return modelAttachment to historyAttachment
             }
             val fallbackModelAttachment = LinkedHashMap(base)
-            fallbackModelAttachment["dataUrl"] = sourceDataUrl
+            fallbackModelAttachment["dataUrl"] = normalizeImageDataUrl(sourceDataUrl)
             return fallbackModelAttachment to LinkedHashMap(base)
         }
 
@@ -316,11 +317,11 @@ internal object AgentImageAttachmentSupport {
     private fun dataUrlFromAttachment(attachment: Map<String, Any?>): String {
         val explicitDataUrl = attachment["dataUrl"]?.toString()?.trim().orEmpty()
         if (explicitDataUrl.startsWith("data:", ignoreCase = true)) {
-            return explicitDataUrl
+            return normalizeImageDataUrl(explicitDataUrl)
         }
         val urlCandidate = extractUrlCandidate(attachment)
         return if (urlCandidate.startsWith("data:", ignoreCase = true)) {
-            urlCandidate
+            normalizeImageDataUrl(urlCandidate)
         } else {
             ""
         }
@@ -461,5 +462,19 @@ internal object AgentImageAttachmentSupport {
         }
         val mimeType = header.removePrefix("data:").substringBefore(';').trim()
         return if (mimeType.isBlank()) "image/jpeg" else mimeType
+    }
+
+    private fun normalizeImageDataUrl(dataUrl: String): String {
+        val trimmed = dataUrl.trim()
+        val separatorIndex = trimmed.indexOf(',')
+        if (separatorIndex <= 0) {
+            return trimmed
+        }
+        val header = trimmed.substring(0, separatorIndex)
+        if (!header.startsWith("data:", ignoreCase = true) || !header.contains(";base64", ignoreCase = true)) {
+            return trimmed
+        }
+        val payload = trimmed.substring(separatorIndex + 1).filterNot(Char::isWhitespace)
+        return "$header,$payload"
     }
 }

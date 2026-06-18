@@ -409,6 +409,7 @@ class TerminalManager private constructor(
         )
         if (File(context.applicationInfo.nativeLibraryDir).resolve("libproot-loader32.so").exists()) {
             env["PROOT_LOADER32"] = "${context.applicationInfo.nativeLibraryDir}/libproot-loader32.so"
+            env["PROOT_LOADER_32"] = "${context.applicationInfo.nativeLibraryDir}/libproot-loader32.so"
         }
         if (File(context.applicationInfo.nativeLibraryDir).resolve("libproot-loader.so").exists()) {
             env["PROOT_LOADER"] = "${context.applicationInfo.nativeLibraryDir}/libproot-loader.so"

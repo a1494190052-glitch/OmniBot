@@ -16,7 +16,7 @@ object SceneModelBindingStore {
         "scene.dispatch.model",
         "scene.voice",
         "scene.vlm.operation.primary",
-        "scene.compactor.context",
+        "scene.vlm.summary",
         "scene.compactor.context.chat",
         "scene.loading.sprite",
         "scene.memory.embedding",

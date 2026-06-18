@@ -342,7 +342,7 @@ Widget _buildTitle(BuildContext context) {
               )
             : GradientText(
                 '小万的任务总结',
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: AppTextStyles.fontFamily,
                   fontSize: AppTextStyles.fontSizeH3,
                   fontWeight: AppTextStyles.fontWeightMedium,

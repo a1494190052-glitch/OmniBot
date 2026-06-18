@@ -250,9 +250,11 @@ class AgentOrchestrator(
                 missingToolCallRecoveryRounds = 0
 
                 var advanceToNextRound = false
+                var pendingToolCallBackfillReason: String? = null
                 val descriptorMap = mutableMapOf<String, AgentToolRegistry.RuntimeToolDescriptor>()
                 val parsedArgsMap = mutableMapOf<String, JsonObject>()
                 val validatedCalls = mutableListOf<AssistantToolCall>()
+                val writtenToolCallIds = linkedSetOf<String>()
 
                 // Phase A — parse + validate all tool arguments synchronously.
                 // Any parse/validation failure aborts the current turn's tool execution
@@ -284,9 +286,14 @@ class AgentOrchestrator(
                             result = result,
                             failureLearning = failureLearning
                         )
+                        writtenToolCallIds += toolCall.id
                         hasUserFacingOutput =
                             hasUserFacingOutput || eventAdapter.hasUserVisibleOutput(result)
                         advanceToNextRound = true
+                        pendingToolCallBackfillReason = t(
+                            "工具参数 JSON 解析失败，当前 assistant 消息中的剩余 tool_call 未执行。",
+                            "Tool arguments JSON parsing failed, so the remaining tool calls in this assistant message were not executed."
+                        )
                         break@parsePhase
                     }
                     val validationError = runCatching {
@@ -313,9 +320,14 @@ class AgentOrchestrator(
                             result = result,
                             failureLearning = failureLearning
                         )
+                        writtenToolCallIds += toolCall.id
                         hasUserFacingOutput =
                             hasUserFacingOutput || eventAdapter.hasUserVisibleOutput(result)
                         advanceToNextRound = true
+                        pendingToolCallBackfillReason = t(
+                            "工具参数校验失败，当前 assistant 消息中的剩余 tool_call 未执行。",
+                            "Tool argument validation failed, so the remaining tool calls in this assistant message were not executed."
+                        )
                         break@parsePhase
                     }
                     parsedArgsMap[toolCall.id] = parsedArgs
@@ -323,7 +335,7 @@ class AgentOrchestrator(
                 }
 
                 // Phase B — partition validated calls into batches and execute.
-                if (validatedCalls.isNotEmpty()) {
+                if (!advanceToNextRound && validatedCalls.isNotEmpty()) {
                     val batches = AgentToolConcurrencyPolicy.partitionToolCalls(
                         validatedCalls,
                         parsedArgsMap
@@ -400,26 +412,37 @@ class AgentOrchestrator(
                                 result = result,
                                 failureLearning = failureLearning
                             )
+                            writtenToolCallIds += call.id
 
-                            if (eventAdapter.hasUserVisibleOutput(result)) {
+                            if (!terminated && !advanceToNextRound && eventAdapter.hasUserVisibleOutput(result)) {
                                 hasUserFacingOutput = true
                             }
-                            val mappedKind = eventAdapter.mapOutputKind(result)
-                            if (mappedKind != AgentOutputKind.NONE) {
-                                outputKind = mappedKind
+                            if (!terminated && !advanceToNextRound) {
+                                val mappedKind = eventAdapter.mapOutputKind(result)
+                                if (mappedKind != AgentOutputKind.NONE) {
+                                    outputKind = mappedKind
+                                }
                             }
-                            if (eventAdapter.isConversationStoppingResult(result)) {
+                            if (!terminated && eventAdapter.isConversationStoppingResult(result)) {
                                 terminated = true
-                                break@roundLoop
+                                pendingToolCallBackfillReason = t(
+                                    "工具 ${call.function.name} 的结果已结束当前对话，当前 assistant 消息中的剩余 tool_call 未继续处理。",
+                                    "The result of tool ${call.function.name} ended the conversation, so the remaining tool calls in this assistant message were not processed."
+                                )
                             }
                             if (
-                                call.function.name == "terminal_execute" ||
-                                call.function.name == "android_privileged_action" ||
-                                call.function.name == "android_privileged_session_start" ||
-                                call.function.name == "android_privileged_session_exec" ||
-                                call.function.name == "android_privileged_session_read" ||
-                                call.function.name == "android_privileged_session_stop"
+                                !terminated &&
+                                !advanceToNextRound &&
+                                isExclusiveTurnBoundaryTool(call.function.name)
                             ) {
+                                advanceToNextRound = true
+                                breakBatchLoopAfterPost = true
+                                pendingToolCallBackfillReason = t(
+                                    "独占工具 ${call.function.name} 已占用本轮，当前 assistant 消息中的剩余 tool_call 未执行。",
+                                    "Exclusive tool ${call.function.name} occupied this turn, so the remaining tool calls in this assistant message were not executed."
+                                )
+                            }
+                            if (terminated) {
                                 breakBatchLoopAfterPost = true
                             }
                         }
@@ -427,6 +450,17 @@ class AgentOrchestrator(
                             break@batchLoop
                         }
                     }
+                }
+
+                pendingToolCallBackfillReason?.let { reason ->
+                    appendSyntheticToolResultMessages(
+                        memory = memory,
+                        toolCalls = toolCalls,
+                        descriptorMap = descriptorMap,
+                        writtenToolCallIds = writtenToolCallIds,
+                        round = round,
+                        reason = reason
+                    )
                 }
 
                 if (terminated) {
@@ -635,6 +669,60 @@ class AgentOrchestrator(
                 content = content
             )
         )
+    }
+
+    private fun appendSyntheticToolResultMessages(
+        memory: AgentChatMemory,
+        toolCalls: List<AssistantToolCall>,
+        descriptorMap: MutableMap<String, AgentToolRegistry.RuntimeToolDescriptor>,
+        writtenToolCallIds: MutableSet<String>,
+        round: Int,
+        reason: String
+    ) {
+        val syntheticIds = mutableListOf<String>()
+        val actualIds = writtenToolCallIds.toList()
+        for (toolCall in toolCalls) {
+            if (toolCall.id in writtenToolCallIds) {
+                continue
+            }
+            val descriptor = descriptorMap.getOrPut(toolCall.id) {
+                toolRegistry.runtimeDescriptor(toolCall.function.name)
+            }
+            appendToolResultMessage(
+                memory = memory,
+                toolCall = toolCall,
+                descriptor = descriptor,
+                result = ToolExecutionResult.Error(
+                    toolName = toolCall.function.name,
+                    message = buildSyntheticToolSkipMessage(reason)
+                )
+            )
+            writtenToolCallIds += toolCall.id
+            syntheticIds += toolCall.id
+        }
+        if (syntheticIds.isNotEmpty()) {
+            logInfo(
+                tag,
+                "round=$round tool_calls=${toolCalls.size} actual_tool_call_ids=${actualIds.joinToString(",")} " +
+                    "synthetic_tool_call_ids=${syntheticIds.joinToString(",")} reason=$reason"
+            )
+        }
+    }
+
+    private fun buildSyntheticToolSkipMessage(reason: String): String {
+        return t(
+            "本轮未执行该工具。原因：$reason 如仍需要此工具，请由模型在下一轮重新发起。",
+            "This tool was not executed in this turn. Reason: $reason If it is still needed, the model should call it again in the next turn."
+        )
+    }
+
+    private fun isExclusiveTurnBoundaryTool(toolName: String): Boolean {
+        return toolName == "terminal_execute" ||
+            toolName == "android_privileged_action" ||
+            toolName == "android_privileged_session_start" ||
+            toolName == "android_privileged_session_exec" ||
+            toolName == "android_privileged_session_read" ||
+            toolName == "android_privileged_session_stop"
     }
 
     private fun buildInterruptedToolResult(

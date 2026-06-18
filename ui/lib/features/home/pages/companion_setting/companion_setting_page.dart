@@ -5,6 +5,7 @@ import 'package:ui/l10n/l10n.dart';
 import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/services/cache_service.dart';
 import 'package:ui/theme/app_colors.dart';
+import 'package:ui/theme/app_font_effect_scope.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/image_util.dart';
 import 'package:ui/widgets/common_app_bar.dart';
@@ -121,7 +122,10 @@ class _CompanionSettingPageState extends State<CompanionSettingPage> {
       backgroundColor: context.isDarkTheme
           ? palette.pageBackground
           : const Color(0xFFF6F8FA),
-      appBar: CommonAppBar(title: context.l10n.authorizePageTitle, primary: true),
+      appBar: CommonAppBar(
+        title: context.l10n.authorizePageTitle,
+        primary: true,
+      ),
       body: SafeArea(
         top: false,
         child: SingleChildScrollView(
@@ -147,7 +151,10 @@ class _CompanionSettingPageState extends State<CompanionSettingPage> {
                             : AppColors.text,
                         fontSize: 20,
                         fontFamily: 'PingFang SC',
-                        fontWeight: FontWeight.w500,
+                        fontWeight: AppFontEffectScope.resolveNonChatWeight(
+                          context,
+                          FontWeight.w500,
+                        ),
                         height: 1.10,
                       ),
                     ),
@@ -163,7 +170,10 @@ class _CompanionSettingPageState extends State<CompanionSettingPage> {
                               : const Color(0xFF999999),
                           fontSize: 14,
                           fontFamily: 'PingFang SC',
-                          fontWeight: FontWeight.w400,
+                          fontWeight: AppFontEffectScope.resolveNonChatWeight(
+                            context,
+                            FontWeight.w400,
+                          ),
                         ),
                       ),
                     ),
@@ -267,7 +277,10 @@ class _CompanionSettingPageState extends State<CompanionSettingPage> {
                     : AppColors.text,
                 fontSize: 14,
                 fontFamily: 'PingFang SC',
-                fontWeight: FontWeight.w500,
+                fontWeight: AppFontEffectScope.resolveNonChatWeight(
+                  context,
+                  FontWeight.w500,
+                ),
                 height: 1.57,
               ),
             ),

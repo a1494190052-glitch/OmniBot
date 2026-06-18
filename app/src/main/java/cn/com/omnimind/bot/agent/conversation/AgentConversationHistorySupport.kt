@@ -2,8 +2,6 @@ package cn.com.omnimind.bot.agent
 
 import cn.com.omnimind.baselib.database.AgentConversationEntry
 import cn.com.omnimind.baselib.database.AgentConversationEntryRecord
-import cn.com.omnimind.baselib.llm.AssistantToolCall
-import cn.com.omnimind.baselib.llm.AssistantToolCallFunction
 import cn.com.omnimind.baselib.llm.ChatCompletionMessage
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -606,27 +604,13 @@ internal object AgentConversationHistorySupport {
         val toolName = payload["toolName"]?.toString()?.trim().orEmpty()
         if (toolName.isEmpty()) return emptyList()
 
-        val toolCallId = "restored_${entry.entryId}"
-        val argsJson = payload["argsJson"]?.toString()?.trim()?.ifEmpty { null } ?: "{}"
-        val assistantMessage = ChatCompletionMessage(
-            role = "assistant",
-            reasoningContent = readReasoningContent(payload),
-            toolCalls = listOf(
-                AssistantToolCall(
-                    id = toolCallId,
-                    function = AssistantToolCallFunction(
-                        name = toolName,
-                        arguments = argsJson
-                    )
-                )
+        return listOf(
+            ChatCompletionMessage(
+                role = "assistant",
+                content = JsonPrimitive(buildCompactToolReplayContent(entry, payload)),
+                reasoningContent = readReasoningContent(payload)
             )
         )
-        val toolMessage = ChatCompletionMessage(
-            role = "tool",
-            toolCallId = toolCallId,
-            content = JsonPrimitive(buildCompactToolReplayContent(entry, payload))
-        )
-        return listOf(assistantMessage, toolMessage)
     }
 
     private fun extractAssistantReplayTaskId(entryId: String): String? {

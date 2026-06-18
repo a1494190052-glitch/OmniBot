@@ -62,10 +62,7 @@ class ChatAppBar extends StatelessWidget {
   final VoidCallback onCompanionTap;
   final ChatSurfaceMode activeMode;
   final ValueChanged<ChatSurfaceMode> onModeChanged;
-  final String? activeModelId;
-  final ValueChanged<BuildContext>? onModelTap;
   final ChatIslandDisplayLayer displayLayer;
-  final VoidCallback? onInteracted;
   final ValueChanged<ChatIslandDisplayLayer> onDisplayLayerChanged;
   final ValueChanged<BuildContext> onTerminalEnvironmentTap;
   final VoidCallback onTerminalTap;
@@ -107,10 +104,7 @@ class ChatAppBar extends StatelessWidget {
     required this.onCompanionTap,
     required this.activeMode,
     required this.onModeChanged,
-    this.activeModelId,
-    this.onModelTap,
     this.displayLayer = ChatIslandDisplayLayer.mode,
-    this.onInteracted,
     required this.onDisplayLayerChanged,
     required this.onTerminalEnvironmentTap,
     required this.onTerminalTap,
@@ -274,13 +268,10 @@ class ChatAppBar extends StatelessWidget {
                     child: SizedBox(
                       key: const ValueKey('chat-app-bar-island'),
                       width: islandWidth,
-                      child: _ChatModeModelSwitcher(
+                      child: _ChatIslandSwitcher(
                         activeMode: activeMode,
                         onModeChanged: onModeChanged,
-                        activeModelId: activeModelId,
-                        onModelTap: onModelTap,
                         displayLayer: displayLayer,
-                        onInteracted: onInteracted,
                         onDisplayLayerChanged: onDisplayLayerChanged,
                         onTerminalEnvironmentTap: onTerminalEnvironmentTap,
                         onTerminalTap: onTerminalTap,
@@ -822,6 +813,9 @@ class _ChatAppBarModeShortcutMenuContent extends StatelessWidget {
             children: [
               for (final item in items)
                 _ChatAppBarModeShortcutMenuRow(
+                  key: ValueKey(
+                    'chat-app-bar-mode-menu-${_chatModeShortcutActionSlug(item.action)}',
+                  ),
                   item: item,
                   selectedColor: selectedColor,
                   iconTint: iconTint,
@@ -835,8 +829,17 @@ class _ChatAppBarModeShortcutMenuContent extends StatelessWidget {
   }
 }
 
+String _chatModeShortcutActionSlug(_ChatAppBarModeShortcutAction action) {
+  return switch (action) {
+    _ChatAppBarModeShortcutAction.agent => 'agent',
+    _ChatAppBarModeShortcutAction.codex => 'codex',
+    _ChatAppBarModeShortcutAction.pureChat => 'pure-chat',
+  };
+}
+
 class _ChatAppBarModeShortcutMenuRow extends StatelessWidget {
   const _ChatAppBarModeShortcutMenuRow({
+    super.key,
     required this.item,
     required this.selectedColor,
     required this.iconTint,
@@ -887,14 +890,11 @@ class _ChatAppBarModeShortcutMenuRow extends StatelessWidget {
   }
 }
 
-class _ChatModeModelSwitcher extends StatefulWidget {
-  const _ChatModeModelSwitcher({
+class _ChatIslandSwitcher extends StatefulWidget {
+  const _ChatIslandSwitcher({
     required this.activeMode,
     required this.onModeChanged,
-    this.activeModelId,
-    this.onModelTap,
     required this.displayLayer,
-    this.onInteracted,
     required this.onDisplayLayerChanged,
     required this.onTerminalEnvironmentTap,
     required this.onTerminalTap,
@@ -911,10 +911,7 @@ class _ChatModeModelSwitcher extends StatefulWidget {
 
   final ChatSurfaceMode activeMode;
   final ValueChanged<ChatSurfaceMode> onModeChanged;
-  final String? activeModelId;
-  final ValueChanged<BuildContext>? onModelTap;
   final ChatIslandDisplayLayer displayLayer;
-  final VoidCallback? onInteracted;
   final ValueChanged<ChatIslandDisplayLayer> onDisplayLayerChanged;
   final ValueChanged<BuildContext> onTerminalEnvironmentTap;
   final VoidCallback onTerminalTap;
@@ -929,10 +926,10 @@ class _ChatModeModelSwitcher extends StatefulWidget {
   final VoidCallback? onPrimaryModeTap;
 
   @override
-  State<_ChatModeModelSwitcher> createState() => _ChatModeModelSwitcherState();
+  State<_ChatIslandSwitcher> createState() => _ChatIslandSwitcherState();
 }
 
-class _ChatModeModelSwitcherState extends State<_ChatModeModelSwitcher> {
+class _ChatIslandSwitcherState extends State<_ChatIslandSwitcher> {
   static const String _terminalIconAsset = 'assets/home/chat/terminal.svg';
   static const String _browserIconAsset = 'assets/home/chat/browser.svg';
   static const String _environmentIconAsset =
@@ -944,90 +941,26 @@ class _ChatModeModelSwitcherState extends State<_ChatModeModelSwitcher> {
   static const double _offstageLayerGap = 2;
 
   double _verticalDragDelta = 0;
-  double _horizontalDragDelta = 0;
 
-  int get _activeVisibleModeIndex {
-    final effectiveMode = widget.activeMode == ChatSurfaceMode.project
-        ? ChatSurfaceMode.workspace
-        : widget.activeMode;
-    final index = kVisibleChatSurfaceModes.indexOf(effectiveMode);
-    if (index >= 0) {
-      return index;
-    }
-    return 0;
-  }
-
-  String get _modelLabel {
-    final text = (widget.activeModelId ?? '').trim();
-    if (text.isEmpty) {
-      return LegacyTextLocalizer.isEnglish ? 'No model set' : '未设置模型';
-    }
-    return text;
-  }
-
-  bool get _canRevealModelLabel =>
-      widget.activeMode == ChatSurfaceMode.normal &&
-      (widget.activeModelId ?? '').trim().isNotEmpty;
-
-  List<ChatIslandDisplayLayer> get _visibleLayers => widget.showSurfaceLayer
-      ? const <ChatIslandDisplayLayer>[
-          ChatIslandDisplayLayer.tools,
-          ChatIslandDisplayLayer.model,
-          ChatIslandDisplayLayer.mode,
-        ]
-      : const <ChatIslandDisplayLayer>[
-          ChatIslandDisplayLayer.tools,
-          ChatIslandDisplayLayer.model,
-        ];
+  List<ChatIslandDisplayLayer> get _visibleLayers =>
+      const <ChatIslandDisplayLayer>[
+        ChatIslandDisplayLayer.tools,
+        ChatIslandDisplayLayer.mode,
+      ];
 
   ChatIslandDisplayLayer get _effectiveDisplayLayer =>
       _visibleLayers.contains(widget.displayLayer)
       ? widget.displayLayer
-      : ChatIslandDisplayLayer.model;
+      : _visibleLayers.last;
 
   int _layerOrder(ChatIslandDisplayLayer layer) =>
       _visibleLayers.indexOf(layer);
 
-  void _handleSliderInteraction() {
-    widget.onInteracted?.call();
-  }
-
-  void _handleHorizontalDragUpdate(DragUpdateDetails details) {
-    if (!widget.showSurfaceLayer ||
-        widget.activeMode != ChatSurfaceMode.normal ||
-        widget.displayLayer != ChatIslandDisplayLayer.model) {
-      return;
-    }
-    _horizontalDragDelta += details.delta.dx;
-  }
-
-  void _handleHorizontalDragEnd(DragEndDetails details) {
-    if (!widget.showSurfaceLayer ||
-        widget.activeMode != ChatSurfaceMode.normal ||
-        widget.displayLayer != ChatIslandDisplayLayer.model) {
-      _horizontalDragDelta = 0;
-      return;
-    }
-    final velocity = details.primaryVelocity ?? 0;
-    final shouldSwitch =
-        _horizontalDragDelta.abs() > 14 || velocity.abs() > 250;
-    if (!shouldSwitch) {
-      _horizontalDragDelta = 0;
-      return;
-    }
-    final intent = _horizontalDragDelta + velocity * 0.015;
-    _horizontalDragDelta = 0;
-    final currentIndex = _activeVisibleModeIndex;
-    final delta = intent > 0 ? 1 : -1;
-    final targetIndex = (currentIndex + delta).clamp(
-      0,
-      kVisibleChatSurfaceModes.length - 1,
-    );
-    widget.onInteracted?.call();
-    widget.onModeChanged(kVisibleChatSurfaceModes[targetIndex]);
-  }
-
   void _handleVerticalDragUpdate(DragUpdateDetails details) {
+    if (widget.activeMode != ChatSurfaceMode.normal ||
+        _visibleLayers.length < 2) {
+      return;
+    }
     _verticalDragDelta += details.delta.dy;
   }
 
@@ -1046,58 +979,23 @@ class _ChatModeModelSwitcherState extends State<_ChatModeModelSwitcher> {
     if (widget.activeMode != ChatSurfaceMode.normal) {
       return;
     }
-    widget.onInteracted?.call();
-    if (intent > 0) {
-      if (_effectiveDisplayLayer != ChatIslandDisplayLayer.tools) {
-        widget.onDisplayLayerChanged(ChatIslandDisplayLayer.tools);
-      }
-      return;
-    }
-    if ((_canRevealModelLabel || !widget.showSurfaceLayer) &&
-        _effectiveDisplayLayer != ChatIslandDisplayLayer.model) {
-      widget.onDisplayLayerChanged(ChatIslandDisplayLayer.model);
+    final targetLayer = intent > 0
+        ? ChatIslandDisplayLayer.tools
+        : ChatIslandDisplayLayer.mode;
+    if (_visibleLayers.contains(targetLayer) &&
+        _effectiveDisplayLayer != targetLayer) {
+      widget.onDisplayLayerChanged(targetLayer);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
-    final restingLabelColor = widget.translucent
-        ? widget.visualProfile.subtleTextColor
-        : context.isDarkTheme
-        ? palette.textSecondary
-        : const Color(0xFF9DA9BB);
     final islandBaseColor = widget.translucent
         ? palette.surfacePrimary
         : context.isDarkTheme
         ? palette.surfaceSecondary
         : palette.surfacePrimary;
-    final modelLabelWidget = Builder(
-      builder: (anchorContext) {
-        final text = Text(
-          _modelLabel,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 14,
-            color: restingLabelColor,
-            fontWeight: FontWeight.w500,
-          ),
-        );
-        if (widget.onModelTap == null) {
-          return Center(child: text);
-        }
-        return InkWell(
-          onTap: () {
-            widget.onInteracted?.call();
-            widget.onModelTap?.call(anchorContext);
-          },
-          borderRadius: BorderRadius.circular(999),
-          child: Center(child: text),
-        );
-      },
-    );
     final toolLayerWidget = _ChatToolSlider(
       environmentIconAsset: _environmentIconAsset,
       terminalIconAsset: _terminalIconAsset,
@@ -1105,21 +1003,29 @@ class _ChatModeModelSwitcherState extends State<_ChatModeModelSwitcher> {
       activeToolType: widget.activeToolType,
       hasTerminalEnvironment: widget.hasTerminalEnvironment,
       onTerminalEnvironmentTap: (anchorContext) {
-        widget.onInteracted?.call();
         widget.onTerminalEnvironmentTap(anchorContext);
       },
       isBrowserEnabled: widget.isBrowserEnabled,
       onTerminalTap: () {
-        widget.onInteracted?.call();
         widget.onTerminalTap();
       },
       onBrowserTap: () {
-        widget.onInteracted?.call();
         widget.onBrowserTap();
       },
-      onInteracted: _handleSliderInteraction,
       visualProfile: widget.visualProfile,
     );
+    final modeLayerWidget = widget.showSurfaceLayer
+        ? ChatModeSlider(
+            activeMode: widget.activeMode,
+            onChanged: widget.onModeChanged,
+            visualProfile: widget.visualProfile,
+            primaryIconAsset: widget.primaryModeIconAsset,
+            onPrimaryModeTap: widget.onPrimaryModeTap,
+          )
+        : _ChatSingleModePill(
+            iconAsset: widget.primaryModeIconAsset,
+            onTap: widget.onPrimaryModeTap,
+          );
     final currentOrder = _layerOrder(_effectiveDisplayLayer);
 
     double topFor(ChatIslandDisplayLayer layer) {
@@ -1149,8 +1055,6 @@ class _ChatModeModelSwitcherState extends State<_ChatModeModelSwitcher> {
           height: _switcherHeight,
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onHorizontalDragUpdate: _handleHorizontalDragUpdate,
-            onHorizontalDragEnd: _handleHorizontalDragEnd,
             onVerticalDragUpdate: _handleVerticalDragUpdate,
             onVerticalDragEnd: _handleVerticalDragEnd,
             onVerticalDragCancel: () {
@@ -1167,27 +1071,7 @@ class _ChatModeModelSwitcherState extends State<_ChatModeModelSwitcher> {
                   right: 0,
                   height: _switcherHeight,
                   top: topFor(ChatIslandDisplayLayer.mode),
-                  child: widget.showSurfaceLayer
-                      ? ClipRect(
-                          child: ChatModeSlider(
-                            activeMode: widget.activeMode,
-                            onChanged: widget.onModeChanged,
-                            onInteracted: _handleSliderInteraction,
-                            visualProfile: widget.visualProfile,
-                            primaryIconAsset: widget.primaryModeIconAsset,
-                            onPrimaryModeTap: widget.onPrimaryModeTap,
-                          ),
-                        )
-                      : const SizedBox.shrink(),
-                ),
-                AnimatedPositioned(
-                  duration: _switchDuration,
-                  curve: Curves.easeInOutCubicEmphasized,
-                  left: 0,
-                  right: 0,
-                  height: _switcherHeight,
-                  top: topFor(ChatIslandDisplayLayer.model),
-                  child: modelLabelWidget,
+                  child: ClipRect(child: modeLayerWidget),
                 ),
                 AnimatedPositioned(
                   duration: _switchDuration,
@@ -1217,7 +1101,6 @@ class _ChatToolSlider extends StatelessWidget {
   final bool isBrowserEnabled;
   final VoidCallback onTerminalTap;
   final VoidCallback onBrowserTap;
-  final VoidCallback? onInteracted;
   final AppBackgroundVisualProfile visualProfile;
 
   const _ChatToolSlider({
@@ -1230,7 +1113,6 @@ class _ChatToolSlider extends StatelessWidget {
     this.isBrowserEnabled = false,
     required this.onTerminalTap,
     required this.onBrowserTap,
-    this.onInteracted,
     this.visualProfile = AppBackgroundVisualProfile.defaultProfile,
   });
 
@@ -1336,10 +1218,7 @@ class _ChatToolSlider extends StatelessWidget {
               : '管理终端环境变量',
           child: InkWell(
             key: const ValueKey('chat-island-terminal-env-button'),
-            onTap: () {
-              onInteracted?.call();
-              onTerminalEnvironmentTap(anchorContext);
-            },
+            onTap: () => onTerminalEnvironmentTap(anchorContext),
             borderRadius: BorderRadius.circular(999),
             child: SizedBox.expand(
               child: AnimatedContainer(
@@ -1388,12 +1267,7 @@ class _ChatToolSlider extends StatelessWidget {
       message: tooltip,
       child: InkWell(
         key: key,
-        onTap: isEnabled
-            ? () {
-                onInteracted?.call();
-                onTap();
-              }
-            : null,
+        onTap: isEnabled ? onTap : null,
         borderRadius: BorderRadius.circular(999),
         child: Center(
           child: AnimatedScale(
@@ -1411,10 +1285,57 @@ class _ChatToolSlider extends StatelessWidget {
   }
 }
 
+class _ChatSingleModePill extends StatelessWidget {
+  const _ChatSingleModePill({required this.iconAsset, this.onTap});
+
+  final String iconAsset;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final activeGradient = context.isDarkTheme
+        ? _kDarkChatAccentGradient
+        : const <Color>[Color(0xFF2DA5F0), Color(0xFF1930D9)];
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        height: 32,
+        padding: const EdgeInsets.all(2),
+        decoration: BoxDecoration(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: activeGradient,
+            ),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Center(
+            child: SvgPicture.asset(
+              iconAsset,
+              key: const ValueKey('chat-island-single-mode-icon'),
+              width: 16,
+              height: 16,
+              colorFilter: ColorFilter.mode(
+                Theme.of(context).colorScheme.onPrimary,
+                BlendMode.srcIn,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class ChatModeSlider extends StatefulWidget {
   final ChatSurfaceMode activeMode;
   final ValueChanged<ChatSurfaceMode> onChanged;
-  final VoidCallback? onInteracted;
   final AppBackgroundVisualProfile visualProfile;
   final String primaryIconAsset;
   final VoidCallback? onPrimaryModeTap;
@@ -1423,7 +1344,6 @@ class ChatModeSlider extends StatefulWidget {
     super.key,
     required this.activeMode,
     required this.onChanged,
-    this.onInteracted,
     this.visualProfile = AppBackgroundVisualProfile.defaultProfile,
     this.primaryIconAsset = _kChatAppBarAgentIconAsset,
     this.onPrimaryModeTap,
@@ -1473,14 +1393,11 @@ class _ChatModeSliderState extends State<ChatModeSlider> {
       behavior: HitTestBehavior.opaque,
       onHorizontalDragUpdate: (details) {
         _dragDelta += details.delta.dx;
-        widget.onInteracted?.call();
       },
       onHorizontalDragEnd: (details) {
-        widget.onInteracted?.call();
         _handleDragEnd(velocity: details.primaryVelocity ?? 0);
       },
       onTapUp: (details) {
-        widget.onInteracted?.call();
         final box = context.findRenderObject() as RenderBox?;
         if (box == null || !box.hasSize) return;
         final local = box.globalToLocal(details.globalPosition);
@@ -2599,6 +2516,7 @@ class ChatInputWrapper extends StatelessWidget {
   final String? contextUsageTooltipMessage;
   final VoidCallback? onLongPressContextUsageRing;
   final ValueChanged<double>? onInputHeightChanged;
+  final ChatModelPickerSettings? modelPickerSettings;
   final CodexRunSettings? codexRunSettings;
   final CodexRunSettingsChanged? onCodexRunSettingsChanged;
   final FutureOr<void> Function()? onCodexRunSettingsOpened;
@@ -2638,6 +2556,7 @@ class ChatInputWrapper extends StatelessWidget {
     this.contextUsageTooltipMessage,
     this.onLongPressContextUsageRing,
     this.onInputHeightChanged,
+    this.modelPickerSettings,
     this.codexRunSettings,
     this.onCodexRunSettingsChanged,
     this.onCodexRunSettingsOpened,
@@ -2684,6 +2603,7 @@ class ChatInputWrapper extends StatelessWidget {
             contextUsageRatio: contextUsageRatio,
             contextUsageTooltipMessage: contextUsageTooltipMessage,
             onLongPressContextUsageRing: onLongPressContextUsageRing,
+            modelPickerSettings: modelPickerSettings,
             codexRunSettings: codexRunSettings,
             onCodexRunSettingsChanged: onCodexRunSettingsChanged,
             onCodexRunSettingsOpened: onCodexRunSettingsOpened,

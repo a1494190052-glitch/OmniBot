@@ -3883,7 +3883,7 @@ class AssistsMessageService {
   /// 生成记忆中心问候语（原生端优先使用标准 tool_calls）
   static Future<String?> generateMemoryGreeting({
     required List<Map<String, String>> records,
-    String model = 'scene.compactor.context',
+    String model = 'scene.dispatch.model',
   }) async {
     try {
       final payloadRecords = records

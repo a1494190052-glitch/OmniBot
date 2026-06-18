@@ -9,7 +9,6 @@ import 'package:ui/services/agent_tool_card_policy.dart';
 
 enum ChatIslandDisplayLayer {
   mode('mode'),
-  model('model'),
   tools('tools');
 
   const ChatIslandDisplayLayer(this.wireName);
@@ -18,6 +17,9 @@ enum ChatIslandDisplayLayer {
 
   static ChatIslandDisplayLayer fromWireName(String? value) {
     final normalized = value?.trim().toLowerCase() ?? '';
+    if (normalized == 'model') {
+      return ChatIslandDisplayLayer.tools;
+    }
     for (final layer in ChatIslandDisplayLayer.values) {
       if (layer.wireName == normalized) {
         return layer;
@@ -1106,6 +1108,44 @@ class HdPadPaneLayout {
 const double kHdPadMinShortestSide = 600;
 const double kHdPadMinLandscapeWidth = 960;
 const double kChatKeyboardComposerClearance = 10.0;
+const double kChatComposerEdgeInset = 24.0;
+
+/// Resolves the composer's bottom padding inside the page-level [SafeArea].
+///
+/// While the soft keyboard still covers the system navigation area, the
+/// ancestor SafeArea's bottom padding (`max(0, viewPadding - viewInsets)`)
+/// has not been restored yet. When the composer is not lifted for the
+/// keyboard (e.g. focus was cleared before the IME finished hiding), the
+/// missing SafeArea padding is compensated here so the composer rests at its
+/// final position immediately, instead of settling too low and visibly
+/// popping up once the IME hide animation ends.
+double resolveChatComposerInputBottomPadding({
+  required bool shouldLiftComposerForKeyboard,
+  required double bottomInset,
+  required double viewPaddingBottom,
+  required double safeAreaBottomPadding,
+  double edgeInset = kChatComposerEdgeInset,
+}) {
+  final normalizedBottomInset = bottomInset.isFinite
+      ? math.max(0.0, bottomInset)
+      : 0.0;
+  final normalizedViewPadding = viewPaddingBottom.isFinite
+      ? math.max(0.0, viewPaddingBottom)
+      : 0.0;
+  final normalizedEdgeInset = edgeInset.isFinite
+      ? math.max(0.0, edgeInset)
+      : 0.0;
+  if (shouldLiftComposerForKeyboard) {
+    return (normalizedViewPadding + normalizedEdgeInset - normalizedBottomInset)
+        .clamp(0.0, normalizedEdgeInset)
+        .toDouble();
+  }
+  final normalizedSafeAreaPadding = safeAreaBottomPadding.isFinite
+      ? safeAreaBottomPadding.clamp(0.0, normalizedViewPadding).toDouble()
+      : 0.0;
+  final safeAreaShortfall = normalizedViewPadding - normalizedSafeAreaPadding;
+  return normalizedEdgeInset + safeAreaShortfall;
+}
 
 double resolveChatComposerKeyboardSpacer({
   required bool shouldLiftComposerForKeyboard,

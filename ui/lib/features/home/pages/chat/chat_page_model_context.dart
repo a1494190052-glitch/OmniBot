@@ -28,7 +28,6 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
           overrideSelection: _activeConversationModelOverrideSelection,
         );
       });
-      _scheduleNormalSurfaceModelReveal();
       await _syncInvalidNormalConversationOverrideIfNeeded();
       await _syncActiveNormalConversationPromptTokenThreshold();
     } catch (e) {
@@ -363,9 +362,20 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
         break;
       }
     }
+    ProviderModelOption? selectedModel;
+    for (final item
+        in _modelOptionsByProfileId[override.providerProfileId] ??
+            const <ProviderModelOption>[]) {
+      if (item.id == override.modelId) {
+        selectedModel = item;
+        break;
+      }
+    }
     return {
       'providerProfileId': override.providerProfileId,
       'modelId': override.modelId,
+      if ((selectedModel?.contextLimit ?? 0) > 0)
+        'contextLimit': selectedModel!.contextLimit,
       if (profile != null && profile.baseUrl.trim().isNotEmpty)
         'apiBase': profile.baseUrl.trim(),
       if (profile != null && profile.protocolType.trim().isNotEmpty)
@@ -417,11 +427,24 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
     );
   }
 
+  void _removeConversationModelSelectorOverlay() {
+    final entry = _conversationModelSelectorOverlayEntry;
+    if (entry == null) {
+      return;
+    }
+    _conversationModelSelectorOverlayEntry = null;
+    entry.remove();
+  }
+
   @override
   Future<void> _openConversationModelSelector(
     BuildContext anchorContext,
   ) async {
     if (_activeMode != ChatPageMode.normal) {
+      return;
+    }
+    if (_conversationModelSelectorOverlayEntry != null) {
+      // 已经开着,不重开。
       return;
     }
     if (_showSlashCommandPanel ||
@@ -433,36 +456,100 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
         _openClawPanelExpanded = false;
       });
     }
-    final hasSelectableModels = _modelProviderProfiles.any((profile) {
-      if (!profile.configured) {
-        return false;
-      }
-      final models =
-          _modelOptionsByProfileId[profile.id] ?? const <ProviderModelOption>[];
-      return models.isNotEmpty;
-    });
-    if (!hasSelectableModels) {
+    if (!_hasSelectableNormalChatModels) {
       return;
     }
-    _inputFocusNode.unfocus();
+    // 关键：不能调 `_inputFocusNode.unfocus()`，也不能用 `showGlassPopup`
+    // (push Navigator route)。两条路径都会让 TextField 失焦 → 软键盘塌陷 →
+    // 输入栏下沉 → popup 锚点错位(锚点是 popup 弹出瞬间按按钮在屏幕上的位置算的，
+    // 键盘塌陷后按钮位置已经变了)。
+    //
+    // Flutter 框架细节(重要)：`Route.requestFocus = false` **不能** 阻止 push
+    // 时的焦点迁移——`ModalRoute.didPush` 里检查的是 `navigator.widget.requestFocus`
+    // (Navigator 的 requestFocus),不是 Route 的。详见 routes.dart:1668。要彻底
+    // 跳过这条焦点迁移路径，唯一干净的办法是不走 Navigator 路由——直接挂到 Overlay。
     final anchorBox = anchorContext.findRenderObject() as RenderBox?;
     final anchorRect = glassPopupAnchorFromContext(anchorContext);
     if (anchorBox == null || !anchorBox.hasSize || anchorRect == null) {
       return;
     }
-    final popupWidth = anchorBox.size.width.clamp(160.0, 320.0).toDouble();
+    final popupWidth = math
+        .max(260.0, anchorBox.size.width)
+        .clamp(260.0, 320.0)
+        .toDouble();
     const popupMaxHeight = 360.0;
-    final selected = await showGlassPopup<_ChatModelOverrideSelection>(
-      context: context,
-      anchor: anchorRect,
-      child: _ConversationModelSelectorContent(
-        width: popupWidth,
-        maxHeight: popupMaxHeight,
-        profiles: _modelProviderProfiles,
-        providerModelsByProfileId: _modelOptionsByProfileId,
-        currentSelection: _activeDispatchSceneSelection,
-      ),
+    final overlayState = Overlay.of(context, rootOverlay: true);
+    final completer = Completer<_ChatModelOverrideSelection?>();
+    final wrapperKey = GlobalKey<GlassPopupOverlayContentState>();
+    OverlayEntry? entry;
+    bool dismissing = false;
+
+    Future<void> finish(_ChatModelOverrideSelection? result) async {
+      if (dismissing) return;
+      dismissing = true;
+      if (!completer.isCompleted) {
+        // 立刻 resolve caller,让 _applyDispatchSceneModelSelection 可以并行启动；
+        // 收起动画在背景里跑完即可,UI 更响应。
+        completer.complete(result);
+      }
+      final wrapper = wrapperKey.currentState;
+      if (wrapper != null) {
+        await wrapper.playReverse();
+      }
+      if (_conversationModelSelectorOverlayEntry == entry) {
+        _removeConversationModelSelectorOverlay();
+      }
+    }
+
+    entry = OverlayEntry(
+      builder: (overlayContext) {
+        return BackButtonListener(
+          onBackButtonPressed: () async {
+            unawaited(finish(null));
+            return true;
+          },
+          // 系统返回手势在 Android 上的处理顺序:
+          //   1. 软键盘开着时,平台层先 hide IME,Flutter 收不到 back 事件;
+          //   2. IME 关掉后再按返回才会传到 Flutter 的 BackButtonListener / PopScope。
+          // 我们的 fix 让模型 popup 打开时键盘保持可见,所以第一击会被
+          // 平台吃掉变成"只关键盘",popup 留在原地。这里用一个 listener
+          // 观察 MediaQuery.viewInsets.bottom,从 >0 跳到 0 就主动关掉 popup,
+          // 这样从用户视角一次返回就把键盘和 popup 一起收掉。
+          child: _DismissOverlayOnKeyboardHide(
+            onKeyboardHide: () => unawaited(finish(null)),
+            child: Material(
+              color: Colors.transparent,
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => unawaited(finish(null)),
+                    ),
+                  ),
+                  GlassPopupOverlayContent(
+                    key: wrapperKey,
+                    anchor: anchorRect,
+                    child: _ConversationModelSelectorContent(
+                      width: popupWidth,
+                      maxHeight: popupMaxHeight,
+                      profiles: _modelProviderProfiles,
+                      providerModelsByProfileId: _modelOptionsByProfileId,
+                      currentSelection: _activeDispatchSceneSelection,
+                      onSelect: (selection) => unawaited(finish(selection)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
+    _conversationModelSelectorOverlayEntry = entry;
+    overlayState.insert(entry);
+
+    final selected = await completer.future;
     if (selected == null) {
       return;
     }
@@ -840,13 +927,16 @@ class _ChatModelMentionPanelState extends State<_ChatModelMentionPanel> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: context.isDarkTheme
-              ? palette.surfaceSecondary
-              : const Color(0xFFF4F6FA),
+          color: isCurrentProvider
+              ? (context.isDarkTheme
+                    ? Color.lerp(
+                        palette.surfaceSecondary.withValues(alpha: 0.46),
+                        palette.accentPrimary,
+                        0.14,
+                      )!
+                    : const Color(0xFF2C7FEB).withValues(alpha: 0.10))
+              : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
-          border: context.isDarkTheme
-              ? Border.all(color: palette.borderSubtle)
-              : null,
         ),
         child: Row(
           children: [
@@ -920,13 +1010,8 @@ class _ChatModelMentionPanelState extends State<_ChatModelMentionPanel> {
                   ? (context.isDarkTheme
                         ? palette.segmentThumb
                         : const Color(0xFFEAF3FF))
-                  : (context.isDarkTheme
-                        ? palette.surfaceSecondary
-                        : const Color(0xFFF8FAFD)),
+                  : Colors.transparent,
               borderRadius: BorderRadius.circular(12),
-              border: context.isDarkTheme
-                  ? Border.all(color: palette.borderSubtle)
-                  : null,
             ),
             child: Row(
               children: [
@@ -1034,6 +1119,7 @@ class _ConversationModelSelectorContent extends StatefulWidget {
     required this.profiles,
     required this.providerModelsByProfileId,
     required this.currentSelection,
+    this.onSelect,
   });
 
   final double width;
@@ -1041,6 +1127,10 @@ class _ConversationModelSelectorContent extends StatefulWidget {
   final List<ModelProviderProfileSummary> profiles;
   final Map<String, List<ProviderModelOption>> providerModelsByProfileId;
   final _ChatModelOverrideSelection? currentSelection;
+
+  /// 非空时由调用方决定怎么消费选择(例如关闭外层 [OverlayEntry] + 触发后续逻辑)；
+  /// 为空时回退到 [Navigator.of(context).pop(selection)],兼容老的 route 调用方。
+  final ValueChanged<_ChatModelOverrideSelection>? onSelect;
 
   @override
   State<_ConversationModelSelectorContent> createState() =>
@@ -1062,8 +1152,16 @@ class _ConversationModelSelectorContentState
   ];
 
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _listScrollController = ScrollController();
+  final GlobalKey _selectedModelRowKey = GlobalKey();
   late final Set<String> _expandedProfileIds;
   late final Set<String> _expandedBackendKeys;
+
+  // 估算滚动定位用的行高常量（与下方各行的固定 padding/字号对应）。
+  static const double _kProfileHeaderExtent = 43.0;
+  static const double _kModelRowExtent = 43.0;
+  static const double _kBackendHeaderExtent = 28.0;
+  static const double _kProfileGapExtent = 6.0;
 
   bool get _hasSearchQuery => _searchController.text.trim().isNotEmpty;
 
@@ -1097,12 +1195,101 @@ class _ConversationModelSelectorContentState
     _searchController.addListener(() {
       setState(() {});
     });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _autoScrollToSelectedModel();
+      }
+    });
   }
 
   @override
   void dispose() {
     _searchController.dispose();
+    _listScrollController.dispose();
     super.dispose();
+  }
+
+  /// 打开弹窗后自动滚动到当前选中的模型行。
+  ///
+  /// 列表为懒加载（ListView.builder），选中行可能尚未构建，因此先按固定行高
+  /// 估算偏移跳转到目标附近，待目标行构建后再用 ensureVisible 精确对齐。
+  void _autoScrollToSelectedModel() {
+    final selection = widget.currentSelection;
+    if (selection == null || !_listScrollController.hasClients) {
+      return;
+    }
+    final profiles = _visibleProfiles;
+    var offset = 0.0;
+    var found = false;
+    for (final profile in profiles) {
+      offset += _kProfileHeaderExtent;
+      final isTargetProfile = profile.id == selection.providerProfileId;
+      final expanded = _isExpanded(profile.id);
+      if (expanded) {
+        if (_needsBackendGrouping(profile.id)) {
+          final groups = _groupByBackend(profile.id);
+          for (final backend in _sortedBackendKeys(groups.keys)) {
+            offset += _kBackendHeaderExtent;
+            final models = groups[backend]!;
+            if (!_isBackendExpanded(profile.id, backend)) {
+              continue;
+            }
+            final index = isTargetProfile
+                ? models.indexWhere((m) => m.id == selection.modelId)
+                : -1;
+            if (index >= 0) {
+              offset += index * _kModelRowExtent;
+              found = true;
+              break;
+            }
+            offset += models.length * _kModelRowExtent;
+          }
+        } else {
+          final models = _filteredModels(profile.id);
+          final index = isTargetProfile
+              ? models.indexWhere((m) => m.id == selection.modelId)
+              : -1;
+          if (index >= 0) {
+            offset += index * _kModelRowExtent;
+            found = true;
+          } else {
+            offset += models.length * _kModelRowExtent;
+          }
+        }
+      }
+      if (found || isTargetProfile) {
+        found = found || isTargetProfile;
+        break;
+      }
+      offset += _kProfileGapExtent;
+    }
+    if (!found) {
+      return;
+    }
+    final position = _listScrollController.position;
+    if (position.maxScrollExtent <= 0) {
+      return;
+    }
+    // 让目标行落在视口上方约 1/3 处。
+    final target = (offset - position.viewportDimension * 0.35).clamp(
+      0.0,
+      position.maxScrollExtent,
+    );
+    _listScrollController.jumpTo(target);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      final rowContext = _selectedModelRowKey.currentContext;
+      if (rowContext != null) {
+        Scrollable.ensureVisible(
+          rowContext,
+          alignment: 0.35,
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOutCubic,
+        );
+      }
+    });
   }
 
   List<ProviderModelOption> _filteredModels(String profileId) {
@@ -1257,27 +1444,16 @@ class _ConversationModelSelectorContentState
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
-            color: isDark
-                ? (isSelectedProvider
+            color: isSelectedProvider
+                ? (isDark
                       ? Color.lerp(
-                          palette.surfaceSecondary.withValues(alpha: 0.62),
+                          palette.surfaceSecondary.withValues(alpha: 0.46),
                           palette.accentPrimary,
-                          0.18,
+                          0.14,
                         )!
-                      : palette.surfaceSecondary.withValues(alpha: 0.42))
-                : (isSelectedProvider
-                      ? const Color(0xFF2C7FEB).withValues(alpha: 0.10)
-                      : Colors.white.withValues(alpha: 0.30)),
+                      : const Color(0xFF2C7FEB).withValues(alpha: 0.10))
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: isSelectedProvider
-                  ? (isDark
-                        ? palette.accentPrimary.withValues(alpha: 0.26)
-                        : const Color(0xFF2C7FEB).withValues(alpha: 0.18))
-                  : (isDark
-                        ? palette.borderSubtle.withValues(alpha: 0.52)
-                        : Colors.white.withValues(alpha: 0.50)),
-            ),
           ),
           child: Row(
             children: [
@@ -1342,17 +1518,22 @@ class _ConversationModelSelectorContentState
     final palette = context.omniPalette;
     final isDark = context.isDarkTheme;
     return Padding(
+      key: selected ? _selectedModelRowKey : null,
       padding: const EdgeInsets.fromLTRB(10, 2, 10, 2),
       child: _buildChatModelIdTooltip(
         modelId: model.id,
         child: InkWell(
           onTap: () {
-            Navigator.of(context).pop(
-              _ChatModelOverrideSelection(
-                providerProfileId: profile.id,
-                modelId: model.id,
-              ),
+            final selection = _ChatModelOverrideSelection(
+              providerProfileId: profile.id,
+              modelId: model.id,
             );
+            final onSelect = widget.onSelect;
+            if (onSelect != null) {
+              onSelect(selection);
+            } else {
+              Navigator.of(context).pop(selection);
+            }
           },
           borderRadius: BorderRadius.circular(12),
           child: Container(
@@ -1361,27 +1542,25 @@ class _ConversationModelSelectorContentState
               color: selected
                   ? (isDark
                         ? Color.lerp(
-                            palette.surfaceSecondary.withValues(alpha: 0.64),
+                            palette.surfaceSecondary.withValues(alpha: 0.48),
                             palette.accentPrimary,
-                            0.22,
+                            0.18,
                           )!
                         : const Color(0xFF2C7FEB).withValues(alpha: 0.12))
-                  : (isDark
-                        ? palette.surfaceSecondary.withValues(alpha: 0.34)
-                        : Colors.white.withValues(alpha: 0.26)),
+                  : Colors.transparent,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: selected
-                    ? (isDark
-                          ? palette.accentPrimary.withValues(alpha: 0.30)
-                          : const Color(0xFF2C7FEB).withValues(alpha: 0.20))
-                    : (isDark
-                          ? palette.borderSubtle.withValues(alpha: 0.48)
-                          : Colors.white.withValues(alpha: 0.42)),
-              ),
             ),
             child: Row(
               children: [
+                ProviderVendorIcon(
+                  vendor: ModelVendorCatalog.resolve(
+                    model.id,
+                    ownedBy: model.ownedBy,
+                    providerId: model.modelsDevProviderId,
+                  ),
+                  size: 14,
+                ),
+                const SizedBox(width: 6),
                 Expanded(
                   child: Text(
                     model.id,
@@ -1528,94 +1707,168 @@ class _ConversationModelSelectorContentState
     final visibleProfiles = _visibleProfiles;
     return SizedBox(
       width: widget.width,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxHeight: dynamicMaxHeight),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _buildSearchRow(),
-            if (configuredProfiles.isEmpty)
-              Padding(
-                padding: EdgeInsets.all(16),
-                child: Text(
-                  AppTextLocalizer.text('请先在模型提供商页配置 Provider'),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: context.isDarkTheme
-                        ? palette.textTertiary
-                        : const Color(0xFF94A3B8),
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              )
-            else if (visibleProfiles.isEmpty)
-              Padding(
-                padding: EdgeInsets.all(16),
-                child: Text(
-                  AppTextLocalizer.text('没有匹配的模型'),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: context.isDarkTheme
-                        ? palette.textTertiary
-                        : const Color(0xFF94A3B8),
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              )
-            else
-              Flexible(
-                child: Scrollbar(
-                  child: ListView.builder(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    itemCount: visibleProfiles.length,
-                    itemBuilder: (context, index) {
-                      final profile = visibleProfiles[index];
-                      final expanded = _isExpanded(profile.id);
-                      final models = _filteredModels(profile.id);
-                      return Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _buildProfileHeader(profile),
-                          if (expanded)
-                            if (_needsBackendGrouping(profile.id))
-                              _buildBackendGroupedModels(profile)
-                            else if (models.isEmpty)
-                              Padding(
-                                padding: EdgeInsets.fromLTRB(12, 4, 12, 8),
-                                child: Text(
-                                  AppTextLocalizer.text('该 Provider 暂无可选模型'),
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: context.isDarkTheme
-                                        ? palette.textTertiary
-                                        : const Color(0xFF94A3B8),
-                                  ),
-                                ),
-                              )
-                            else
-                              Column(
-                                children: models
-                                    .map(
-                                      (item) => _buildModelRow(
-                                        profile: profile,
-                                        model: item,
+      child: OmniGlassPanel(
+        width: widget.width,
+        borderRadius: BorderRadius.circular(18),
+        child: Material(
+          color: Colors.transparent,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: dynamicMaxHeight),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildSearchRow(),
+                if (configuredProfiles.isEmpty)
+                  Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text(
+                      LegacyTextLocalizer.localize('请先在模型提供商页配置 Provider'),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.isDarkTheme
+                            ? palette.textTertiary
+                            : const Color(0xFF94A3B8),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  )
+                else if (visibleProfiles.isEmpty)
+                  Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text(
+                      LegacyTextLocalizer.localize('没有匹配的模型'),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.isDarkTheme
+                            ? palette.textTertiary
+                            : const Color(0xFF94A3B8),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  )
+                else
+                  Flexible(
+                    child: Scrollbar(
+                      controller: _listScrollController,
+                      child: ListView.builder(
+                        controller: _listScrollController,
+                        padding: const EdgeInsets.only(bottom: 8),
+                        itemCount: visibleProfiles.length,
+                        itemBuilder: (context, index) {
+                          final profile = visibleProfiles[index];
+                          final expanded = _isExpanded(profile.id);
+                          final models = _filteredModels(profile.id);
+                          return Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _buildProfileHeader(profile),
+                              if (expanded)
+                                if (_needsBackendGrouping(profile.id))
+                                  _buildBackendGroupedModels(profile)
+                                else if (models.isEmpty)
+                                  Padding(
+                                    padding: EdgeInsets.fromLTRB(12, 4, 12, 8),
+                                    child: Text(
+                                      LegacyTextLocalizer.localize(
+                                        '该 Provider 暂无可选模型',
                                       ),
-                                    )
-                                    .toList(),
-                              ),
-                          if (index != visibleProfiles.length - 1)
-                            const SizedBox(height: 6),
-                        ],
-                      );
-                    },
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: context.isDarkTheme
+                                            ? palette.textTertiary
+                                            : const Color(0xFF94A3B8),
+                                      ),
+                                    ),
+                                  )
+                                else
+                                  Column(
+                                    children: models
+                                        .map(
+                                          (item) => _buildModelRow(
+                                            profile: profile,
+                                            model: item,
+                                          ),
+                                        )
+                                        .toList(),
+                                  ),
+                              if (index != visibleProfiles.length - 1)
+                                const SizedBox(height: 6),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
                   ),
-                ),
-              ),
           ],
         ),
       ),
+    ),
+  ),
     );
   }
+}
+
+/// 监听 [MediaQuery.viewInsetsOf] 的底部 inset。键盘从可见变成不可见时 (典型场景:
+/// Android 系统返回手势在键盘弹起状态下先被平台吃掉一击,只关键盘不传到 Flutter,
+/// popup 留在原地;还有 home/外部应用切走) 调一次 [onKeyboardHide]。
+///
+/// 用法:挂在 OverlayEntry 里包住 popup 内容。这样一次系统返回就能把键盘和
+/// popup 一起收掉,符合"输入框聚焦+popup 打开→返回→什么都没了"的直觉。
+class _DismissOverlayOnKeyboardHide extends StatefulWidget {
+  const _DismissOverlayOnKeyboardHide({
+    required this.onKeyboardHide,
+    required this.child,
+  });
+
+  final VoidCallback onKeyboardHide;
+  final Widget child;
+
+  @override
+  State<_DismissOverlayOnKeyboardHide> createState() =>
+      _DismissOverlayOnKeyboardHideState();
+}
+
+class _DismissOverlayOnKeyboardHideState
+    extends State<_DismissOverlayOnKeyboardHide> {
+  /// 要把 peak 视作"键盘是真的弹起过",最小高度;<50dp 通常是 nav bar / 手势
+  /// gutter 之类的固定 inset,不算键盘。
+  static const double _kKeyboardPeakMinimum = 50.0;
+
+  /// 已经看到的最大 viewInsets.bottom。键盘高度可能随键盘类型(文本/表情/语音)
+  /// 变化,我们只把"曾经达到过的最高值"当作 peak,避免切换布局时误触发收起。
+  double _peakInset = 0;
+  bool _firedOnce = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    if (bottomInset > _peakInset) {
+      _peakInset = bottomInset;
+    }
+    // 关键时序:Android 的 IME hide 是动画的(~250ms),如果等 viewInsets.bottom
+    // 全部跌到 0 再触发收起 popup,popup 的反向动画(220ms)就要排在 IME 动画
+    // 之后跑,用户看到的延迟 ≈ 250+220 ms,popup 卡顿明显。改为检测"开始下落"
+    // 的瞬间(从 peak 跌掉 ≥ 10%),触发 popup 反向动画并行跑——这样 IME 动画
+    // 跑完时 popup 也几乎同时消失。
+    //
+    // 阈值 10% 而不是固定像素,是因为 PJD110/ColorOS 的 viewPadding 在静稳态
+    // 也会有亚像素抖动(见 composer-keyboard-debug-rig 笔记),百分比阈值
+    // 对噪声更稳健;peak 必须 ≥ 50dp 进一步保证是真键盘弹起过。
+    if (!_firedOnce &&
+        _peakInset > _kKeyboardPeakMinimum &&
+        bottomInset < _peakInset * 0.9) {
+      _firedOnce = true;
+      // 不能在 didChangeDependencies 同步调 callback——callback 可能 setState,
+      // 而本帧正在 build。延到下一帧。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.onKeyboardHide();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

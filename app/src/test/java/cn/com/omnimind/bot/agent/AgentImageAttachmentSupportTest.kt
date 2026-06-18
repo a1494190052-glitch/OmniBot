@@ -4,6 +4,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
@@ -106,6 +107,70 @@ class AgentImageAttachmentSupportTest {
         assertFalse(result?.payload.toString().orEmpty().contains("base64"))
         assertEquals(1179, result?.payload?.get("width"))
         assertEquals(2556, result?.payload?.get("height"))
+    }
+
+    @Test
+    fun `prepareAttachments strips whitespace from image data urls`() {
+        AgentImageAttachmentSupport.backend = object : AgentImageAttachmentSupport.Backend {
+            override fun readFileAsDataUrl(file: File, mimeTypeHint: String?): String {
+                return "data:image/png;base64,ORIGINAL"
+            }
+
+            override fun compressDataUrl(
+                dataUrl: String,
+                scale: Float,
+                quality: Int
+            ): AgentImageAttachmentSupport.ResolvedImageData {
+                val encoded = if (scale >= 0.7f) {
+                    "data:image/jpeg;base64,MO\nDE\r\nL\tDATA"
+                } else {
+                    "data:image/jpeg;base64,PRE\nVIEW\r DATA"
+                }
+                return AgentImageAttachmentSupport.ResolvedImageData(
+                    dataUrl = encoded,
+                    mimeType = "image/jpeg",
+                    originalWidth = 1280,
+                    originalHeight = 720,
+                    compressedWidth = 960,
+                    compressedHeight = 540
+                )
+            }
+        }
+
+        val prepared = AgentImageAttachmentSupport.prepareAttachments(
+            listOf(
+                mapOf(
+                    "path" to "/tmp/screenshot.png",
+                    "mimeType" to "image/png",
+                    "isImage" to true
+                )
+            )
+        )
+
+        assertEquals(
+            "data:image/jpeg;base64,MODELDATA",
+            prepared.modelAttachments.single()["dataUrl"]
+        )
+        assertEquals(
+            "data:image/jpeg;base64,PREVIEWDATA",
+            prepared.historyAttachments.single()["dataUrl"]
+        )
+    }
+
+    @Test
+    fun `resolveImageAttachmentUrl strips whitespace from stored data urls`() {
+        val resolved = AgentImageAttachmentSupport.resolveImageAttachmentUrl(
+            mapOf(
+                "dataUrl" to "data:image/jpeg;base64,AB\nCD\r EF\tGH",
+                "mimeType" to "image/jpeg",
+                "isImage" to true
+            )
+        )
+
+        assertEquals("data:image/jpeg;base64,ABCDEFGH", resolved)
+        assertFalse(resolved.contains('\n'))
+        assertFalse(resolved.contains('\r'))
+        assertTrue(resolved.startsWith("data:image/jpeg;base64,"))
     }
 
     @Test

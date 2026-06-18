@@ -90,6 +90,7 @@ object MkSession {
 
             if (File(applicationInfo.nativeLibraryDir).child("libproot-loader32.so").exists()){
                 env.add("PROOT_LOADER32=${applicationInfo.nativeLibraryDir}/libproot-loader32.so")
+                env.add("PROOT_LOADER_32=${applicationInfo.nativeLibraryDir}/libproot-loader32.so")
             }
 
             if (File(applicationInfo.nativeLibraryDir).child("libproot-loader.so").exists()){

@@ -50,7 +50,7 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
     'scene.dispatch.model',
     'scene.voice',
     'scene.vlm.operation.primary',
-    'scene.compactor.context',
+    'scene.vlm.summary',
     'scene.compactor.context.chat',
     'scene.loading.sprite',
     'scene.memory.embedding',
@@ -61,7 +61,7 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
     'scene.dispatch.model': 'Agent',
     'scene.voice': 'Voice',
     'scene.vlm.operation.primary': 'Operation',
-    'scene.compactor.context': 'Compactor',
+    'scene.vlm.summary': 'VLM Summary',
     'scene.compactor.context.chat': 'Chat Compactor',
     'scene.loading.sprite': 'Loading',
     'scene.memory.embedding': 'Memory Embed',
@@ -72,7 +72,7 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
     'scene.dispatch.model': '负责任务理解与分流决策',
     'scene.voice': '负责 AI 回复文本的语音合成与播放',
     'scene.vlm.operation.primary': '负责执行 UI 操作主链路',
-    'scene.compactor.context': '负责 VLM 执行链的上下文压缩与纠错',
+    'scene.vlm.summary': '负责 VLM 信息收集任务结束后的多截图总结',
     'scene.compactor.context.chat': '负责聊天历史压缩总结',
     'scene.loading.sprite': '负责生成加载状态文案',
     'scene.memory.embedding': '负责 workspace 记忆向量检索的嵌入模型',
@@ -914,11 +914,6 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
             decoration: BoxDecoration(
               color: _cardColor,
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: _isDarkTheme
-                    ? context.omniPalette.borderSubtle
-                    : const Color(0x1A000000),
-              ),
             ),
             child: Row(
               children: [
@@ -1683,9 +1678,6 @@ class _SceneSelectionPopupEntryState extends State<_SceneSelectionPopupEntry> {
   }
 
   bool get _isDarkTheme => context.isDarkTheme;
-  Color get _surfaceColor => _isDarkTheme
-      ? context.omniPalette.surfaceSecondary
-      : const Color(0xFFF8FAFD);
   Color get _selectedSurfaceColor =>
       _isDarkTheme ? context.omniPalette.segmentThumb : const Color(0xFFEAF3FF);
   Color get _primaryTextColor =>
@@ -1750,11 +1742,8 @@ class _SceneSelectionPopupEntryState extends State<_SceneSelectionPopupEntry> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
-            color: selected ? _selectedSurfaceColor : _surfaceColor,
+            color: selected ? _selectedSurfaceColor : Colors.transparent,
             borderRadius: BorderRadius.circular(12),
-            border: _isDarkTheme
-                ? Border.all(color: context.omniPalette.borderSubtle)
-                : null,
           ),
           child: Row(
             children: [
@@ -1810,11 +1799,8 @@ class _SceneSelectionPopupEntryState extends State<_SceneSelectionPopupEntry> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
-            color: _surfaceColor,
+            color: isCurrent ? _selectedSurfaceColor : Colors.transparent,
             borderRadius: BorderRadius.circular(12),
-            border: _isDarkTheme
-                ? Border.all(color: context.omniPalette.borderSubtle)
-                : null,
           ),
           child: Row(
             children: [
@@ -1891,11 +1877,8 @@ class _SceneSelectionPopupEntryState extends State<_SceneSelectionPopupEntry> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
-              color: selected ? _selectedSurfaceColor : _surfaceColor,
+              color: selected ? _selectedSurfaceColor : Colors.transparent,
               borderRadius: BorderRadius.circular(12),
-              border: _isDarkTheme
-                  ? Border.all(color: context.omniPalette.borderSubtle)
-                  : null,
             ),
             child: Row(
               children: [

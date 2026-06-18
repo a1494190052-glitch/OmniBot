@@ -80,9 +80,7 @@ class ChatConversationRuntimeState {
   ChatConversationRuntimeState({
     required this.conversationId,
     required this.mode,
-  }) : chatIslandDisplayLayer = mode == kChatRuntimeModeNormal
-           ? ChatIslandDisplayLayer.tools
-           : ChatIslandDisplayLayer.mode;
+  }) : chatIslandDisplayLayer = ChatIslandDisplayLayer.mode;
 
   final int conversationId;
   final String mode;

@@ -62,8 +62,9 @@ class HttpAgentLlmClient(
         explicitApiKey: String?,
         explicitModel: String?,
         explicitProtocolType: String?,
+        explicitWireApi: String?,
         forceHttp1: Boolean
-    ) -> EventSource = { model, requestBodyJson, event, explicitApiBase, explicitApiKey, explicitModel, explicitProtocolType, forceHttp1 ->
+    ) -> EventSource = { model, requestBodyJson, event, explicitApiBase, explicitApiKey, explicitModel, explicitProtocolType, explicitWireApi, forceHttp1 ->
         HttpController.postChatCompletionsStreamRequest(
             model = model,
             requestBodyJson = requestBodyJson,
@@ -72,6 +73,7 @@ class HttpAgentLlmClient(
             explicitApiKey = explicitApiKey,
             explicitModel = explicitModel,
             explicitProtocolType = explicitProtocolType,
+            explicitWireApi = explicitWireApi,
             forceHttp1 = forceHttp1
         )
     },
@@ -80,14 +82,16 @@ class HttpAgentLlmClient(
         explicitApiBase: String?,
         explicitApiKey: String?,
         explicitModel: String?,
-        explicitProtocolType: String?
-    ) -> HttpController.ChatCompletionRouteInfo = { modelOrScene, explicitApiBase, explicitApiKey, explicitModel, explicitProtocolType ->
+        explicitProtocolType: String?,
+        explicitWireApi: String?
+    ) -> HttpController.ChatCompletionRouteInfo = { modelOrScene, explicitApiBase, explicitApiKey, explicitModel, explicitProtocolType, explicitWireApi ->
         HttpController.resolveChatCompletionRouteInfo(
             modelOrScene = modelOrScene,
             explicitApiBase = explicitApiBase,
             explicitApiKey = explicitApiKey,
             explicitModel = explicitModel,
-            explicitProtocolType = explicitProtocolType
+            explicitProtocolType = explicitProtocolType,
+            explicitWireApi = explicitWireApi
         )
     },
     private val streamIdleWatchdogMs: Long = 0L,
@@ -128,7 +132,8 @@ class HttpAgentLlmClient(
                 modelOverride?.apiBase,
                 modelOverride?.apiKey,
                 modelOverride?.modelId,
-                modelOverride?.protocolType
+                modelOverride?.protocolType,
+                modelOverride?.wireApi
             )
             val variants = buildRequestVariants(sanitizedRequest, routeInfo)
             for (variantIndex in variants.indices) {
@@ -243,7 +248,8 @@ class HttpAgentLlmClient(
             modelOverride?.apiBase,
             modelOverride?.apiKey,
             modelOverride?.modelId,
-            modelOverride?.protocolType
+            modelOverride?.protocolType,
+            modelOverride?.wireApi
         )
         val accumulator = AgentLlmStreamAccumulator(
             json = json,
@@ -472,6 +478,7 @@ class HttpAgentLlmClient(
                 modelOverride?.apiKey,
                 modelOverride?.modelId,
                 modelOverride?.protocolType,
+                modelOverride?.wireApi,
                 forceHttp1
             )
             scheduleWatchdog()
@@ -550,7 +557,7 @@ class HttpAgentLlmClient(
         )
 
         val legacyFunctions = request.tools.map { it.function }
-        if (legacyFunctions.isNotEmpty()) {
+        if (legacyFunctions.isNotEmpty() && !routeInfo.wireApi.equals("responses", ignoreCase = true)) {
             add(
                 "legacy_functions",
                 request.copy(
@@ -635,7 +642,10 @@ class HttpAgentLlmClient(
         if (isOfficialDeepSeekTarget()) {
             return true
         }
-        return resolvedProtocolType() == DeepSeekProvider.PROTOCOL_TYPE
+        return when (resolvedProtocolType()) {
+            DeepSeekProvider.PROTOCOL_TYPE, "anthropic" -> true
+            else -> false
+        }
     }
 
     private fun shouldRetainAssistantReasoning(

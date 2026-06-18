@@ -116,6 +116,10 @@ object WebChatStaticHandler {
             path.endsWith(".svg") -> ContentType.parse("image/svg+xml")
             path.endsWith(".wasm") -> ContentType.parse("application/wasm")
             path.endsWith(".ico") -> ContentType.parse("image/x-icon")
+            path.endsWith(".woff2") -> ContentType.parse("font/woff2")
+            path.endsWith(".woff") -> ContentType.parse("font/woff")
+            path.endsWith(".otf") -> ContentType.parse("font/otf")
+            path.endsWith(".ttf") -> ContentType.parse("font/ttf")
             else -> ContentType.Application.OctetStream
         }
     }

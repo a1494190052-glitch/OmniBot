@@ -28,6 +28,8 @@ object ModelProviderConfigStore {
     private val canonicalEndpointSuffixes = listOf(
         "/v1/chat/completions",
         "/chat/completions",
+        "/v1/responses",
+        "/responses",
         "/v1/images/generations",
         "/images/generations",
         "/v1/models",
@@ -108,7 +110,8 @@ object ModelProviderConfigStore {
                         ),
                         baseUrl = normalizeBaseUrl(profile.baseUrl).orEmpty(),
                         apiKey = profile.apiKey.trim(),
-                        protocolType = normalizeProtocolType(profile.protocolType)
+                        protocolType = normalizeProtocolType(profile.protocolType),
+                        wireApi = normalizeWireApi(profile.wireApi)
                     )
                 )
             }
@@ -137,17 +140,24 @@ object ModelProviderConfigStore {
         name: String,
         baseUrl: String,
         apiKey: String,
-        protocolType: String = "openai_compatible"
+        protocolType: String = "openai_compatible",
+        wireApi: String = OpenAiWireApi.CHAT_COMPLETIONS
     ): ModelProviderProfile {
         ModelProviderMigration.ensureMigrated()
         require(!MnnLocalProviderStateStore.isBuiltinProfileId(id)) { "builtin provider is read only" }
         val normalizedProtocolType = normalizeProtocolType(protocolType)
+        val normalizedWireApi = resolveWireApiForSave(
+            baseUrl = baseUrl,
+            protocolType = normalizedProtocolType,
+            wireApi = wireApi
+        )
         val mmkv = MMKV.defaultMMKV() ?: return ModelProviderProfile(
             id = id?.trim().orEmpty().ifEmpty { DEFAULT_PROFILE_ID },
             name = name.trim().ifEmpty { DEFAULT_PROFILE_NAME },
             baseUrl = normalizeBaseUrl(baseUrl).orEmpty(),
             apiKey = apiKey.trim(),
-            protocolType = normalizedProtocolType
+            protocolType = normalizedProtocolType,
+            wireApi = normalizedWireApi
         )
 
         val current = readProfiles(mmkv).toMutableList().ifEmpty {
@@ -165,7 +175,8 @@ object ModelProviderConfigStore {
             name = sanitizedName,
             baseUrl = normalizeBaseUrl(baseUrl).orEmpty(),
             apiKey = apiKey.trim(),
-            protocolType = normalizedProtocolType
+            protocolType = normalizedProtocolType,
+            wireApi = normalizedWireApi
         )
 
         if (currentIndex >= 0) {
@@ -215,7 +226,8 @@ object ModelProviderConfigStore {
             providerType = profile.sourceType,
             readOnly = profile.readOnly,
             ready = profile.ready,
-            statusText = profile.statusText
+            statusText = profile.statusText,
+            wireApi = profile.wireApi
         )
     }
 
@@ -227,7 +239,8 @@ object ModelProviderConfigStore {
             name = current.name,
             baseUrl = baseUrl,
             apiKey = apiKey,
-            protocolType = current.protocolType
+            protocolType = current.protocolType,
+            wireApi = current.wireApi
         )
     }
 
@@ -239,7 +252,8 @@ object ModelProviderConfigStore {
             name = current.name,
             baseUrl = "",
             apiKey = "",
-            protocolType = current.protocolType
+            protocolType = current.protocolType,
+            wireApi = current.wireApi
         )
     }
 
@@ -382,6 +396,35 @@ object ModelProviderConfigStore {
         return DeepSeekProvider.normalizeProtocolType(value)
     }
 
+    private fun normalizeWireApi(value: String?): String {
+        return OpenAiWireApi.normalize(value)
+    }
+
+    private fun resolveWireApiForSave(
+        baseUrl: String,
+        protocolType: String,
+        wireApi: String?
+    ): String {
+        val normalizedWireApi = wireApi?.trim()?.lowercase().orEmpty()
+        if (normalizedWireApi == OpenAiWireApi.RESPONSES ||
+            normalizedWireApi == OpenAiWireApi.CHAT_COMPLETIONS
+        ) {
+            return normalizedWireApi
+        }
+        if (protocolType != "openai_compatible") {
+            return OpenAiWireApi.CHAT_COMPLETIONS
+        }
+        val rawBaseUrl = stripDirectRequestUrlMarker(baseUrl).lowercase()
+        return if (
+            rawBaseUrl.endsWith("/v1/responses") ||
+            rawBaseUrl.endsWith("/responses")
+        ) {
+            OpenAiWireApi.RESPONSES
+        } else {
+            OpenAiWireApi.CHAT_COMPLETIONS
+        }
+    }
+
     private fun ensureOfficialDeepSeekProfileSeeded(
         mmkv: MMKV,
         profiles: List<ModelProviderProfile>
@@ -454,7 +497,8 @@ object ModelProviderConfigStore {
                     name = profile.name.trim().ifEmpty { DEFAULT_PROFILE_NAME },
                     baseUrl = normalizeBaseUrl(profile.baseUrl).orEmpty(),
                     apiKey = profile.apiKey.trim(),
-                    protocolType = normalizeProtocolType(profile.protocolType)
+                    protocolType = normalizeProtocolType(profile.protocolType),
+                    wireApi = normalizeWireApi(profile.wireApi)
                 )
             }
         } catch (t: Throwable) {
@@ -475,7 +519,8 @@ object ModelProviderConfigStore {
                 name = profile.name.trim().ifEmpty { "Provider ${index + 1}" },
                 baseUrl = normalizeBaseUrl(profile.baseUrl).orEmpty(),
                 apiKey = profile.apiKey.trim(),
-                protocolType = normalizeProtocolType(profile.protocolType)
+                protocolType = normalizeProtocolType(profile.protocolType),
+                wireApi = normalizeWireApi(profile.wireApi)
             )
         }
         mmkv.encode(KEY_PROVIDER_PROFILES, gson.toJson(normalized))

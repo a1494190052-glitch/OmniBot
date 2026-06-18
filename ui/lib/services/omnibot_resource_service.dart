@@ -272,6 +272,16 @@ class OmnibotResourceService {
     return result == true;
   }
 
+  static Future<bool> shareText(String text) async {
+    if (text.trim().isEmpty) {
+      return false;
+    }
+    final result = await _fileChannel.invokeMethod<dynamic>('shareText', {
+      'text': text,
+    });
+    return result == true;
+  }
+
   static Future<bool> ensureResourceAccess({String? path, String? uri}) {
     return _ensureResourceAccess(path: path, uri: uri);
   }

@@ -2007,10 +2007,17 @@ void main() {
     final reused = coordinator.ensureRuntime(
       conversationId: conversationId,
       mode: kChatRuntimeModeNormal,
-      initialChatIslandDisplayLayer: ChatIslandDisplayLayer.model,
+      initialChatIslandDisplayLayer: ChatIslandDisplayLayer.tools,
     );
 
     expect(identical(runtime, reused), isTrue);
     expect(reused.chatIslandDisplayLayer, ChatIslandDisplayLayer.mode);
+  });
+
+  test('maps legacy model island layer wire value to tools', () {
+    expect(
+      ChatIslandDisplayLayer.fromWireName('model'),
+      ChatIslandDisplayLayer.tools,
+    );
   });
 }

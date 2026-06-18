@@ -1,5 +1,4 @@
 import java.math.BigInteger
-import java.io.FileNotFoundException
 import java.net.URI
 import java.io.RandomAccessFile
 import java.security.MessageDigest
@@ -21,11 +20,10 @@ val gitCommitDate: Provider<String> =
     providers.exec { commandLine("git", "show", "-s", "--format=%cI", "HEAD") }.standardOutput.asText.map { it.trim() }
 
 val termuxPackageBaseUrl = "https://packages-cf.termux.dev/apt/termux-main"
-val termuxPackageIndexUrl = "$termuxPackageBaseUrl/dists/stable/main/binary-aarch64/Packages"
-val prootDebPackageName = "proot"
-val prootDebUrl = "$termuxPackageBaseUrl/pool/main/p/proot/proot_5.1.107.79_aarch64.deb"
-val prootDebChecksum = "529c231b5110e39fba8feef75c91592593781390005d634a47b0a64ffb3f2b13"
-val libtallocDebPackageName = "libtalloc"
+val bundledRuntimeDir = layout.projectDirectory.dir("src/main/embedded-terminal-runtime")
+val prootDebFileName = "proot_5.1.107.77_aarch64.deb"
+val prootDebFile = bundledRuntimeDir.file(prootDebFileName)
+val prootDebChecksum = "f2cd07bafbebf625c62931994120d469934a8925a831f6e049bb08f91889a00d"
 val libtallocDebUrl = "$termuxPackageBaseUrl/pool/main/libt/libtalloc/libtalloc_2.4.3_aarch64.deb"
 val libtallocDebChecksum = "ac81ad623d74c209718b9f3acb2dd702cc8a88c431e820d212229910b4db29da"
 val alpineMiniRootfsUrl =
@@ -138,59 +136,16 @@ fun downloadRuntimeFile(localPath: String, remoteUrl: String, expectedChecksum: 
     }
 }
 
-data class TermuxPackage(
-    val remoteUrl: String,
-    val checksum: String
-)
-
-fun resolveTermuxPackage(packageName: String): TermuxPackage {
-    val packageIndex = URI(termuxPackageIndexUrl).toURL().readText()
-    val packageEntry = packageIndex
-        .split(Regex("\\n\\n+"))
-        .firstOrNull { entry ->
-            entry.lineSequence().any { it == "Package: $packageName" }
-        }
-        ?: throw GradleException("Missing Termux package '$packageName' in $termuxPackageIndexUrl")
-    val fields = packageEntry.lineSequence()
-        .mapNotNull { line ->
-            val separator = line.indexOf(": ")
-            if (separator < 0) {
-                null
-            } else {
-                line.substring(0, separator) to line.substring(separator + 2)
-            }
-        }
-        .toMap()
-    val filename = fields["Filename"]
-        ?: throw GradleException("Missing Filename for Termux package '$packageName'")
-    val checksum = fields["SHA256"]
-        ?: throw GradleException("Missing SHA256 for Termux package '$packageName'")
-    return TermuxPackage(
-        remoteUrl = "$termuxPackageBaseUrl/$filename",
-        checksum = checksum
-    )
-}
-
-fun downloadTermuxPackage(
-    localPath: String,
-    packageName: String,
-    remoteUrl: String,
-    expectedChecksum: String
-) {
-    try {
-        downloadRuntimeFile(
-            localPath = localPath,
-            remoteUrl = remoteUrl,
-            expectedChecksum = expectedChecksum
-        )
-    } catch (error: FileNotFoundException) {
-        val resolvedPackage = resolveTermuxPackage(packageName)
-        downloadRuntimeFile(
-            localPath = localPath,
-            remoteUrl = resolvedPackage.remoteUrl,
-            expectedChecksum = resolvedPackage.checksum
+fun copyVerifiedRuntimeFile(source: File, target: File, expectedChecksum: String? = null) {
+    check(source.isFile && source.length() > 0) { "Missing bundled runtime file: ${source.absolutePath}" }
+    val checksum = sha256(source)
+    if (expectedChecksum != null && checksum != expectedChecksum) {
+        throw GradleException(
+            "Wrong checksum for ${source.absolutePath}:\nExpected: $expectedChecksum\nActual:   $checksum"
         )
     }
+    target.parentFile?.mkdirs()
+    source.copyTo(target, overwrite = true)
 }
 
 fun extractDebMember(debFile: File, memberName: String, target: File) {
@@ -299,11 +254,8 @@ fun copyRuntimeFile(source: File, target: File, executable: Boolean) {
 val prepareEmbeddedTerminalRuntime by tasks.registering {
     val outputDir = layout.buildDirectory.dir("generated/assets/embeddedTerminalRuntime/embedded-terminal-runtime")
     val jniOutputDir = layout.buildDirectory.dir("generated/jniLibs/embeddedTerminalRuntime")
-    inputs.property("termuxPackageIndexUrl", termuxPackageIndexUrl)
-    inputs.property("prootDebPackageName", prootDebPackageName)
-    inputs.property("prootDebUrl", prootDebUrl)
+    inputs.file(prootDebFile).withPropertyName("prootDebFile")
     inputs.property("prootDebChecksum", prootDebChecksum)
-    inputs.property("libtallocDebPackageName", libtallocDebPackageName)
     inputs.property("libtallocDebUrl", libtallocDebUrl)
     inputs.property("libtallocDebChecksum", libtallocDebChecksum)
     inputs.property("alpineMiniRootfsUrl", alpineMiniRootfsUrl)
@@ -321,10 +273,9 @@ val prepareEmbeddedTerminalRuntime by tasks.registering {
         }
 
         val prootDeb = workDir.resolve("proot.deb")
-        downloadTermuxPackage(
-            localPath = prootDeb.absolutePath,
-            packageName = prootDebPackageName,
-            remoteUrl = prootDebUrl,
+        copyVerifiedRuntimeFile(
+            source = prootDebFile.asFile,
+            target = prootDeb,
             expectedChecksum = prootDebChecksum
         )
         val prootPackageRoot = workDir.resolve("proot")
@@ -353,9 +304,8 @@ val prepareEmbeddedTerminalRuntime by tasks.registering {
         )
 
         val libtallocDeb = workDir.resolve("libtalloc.deb")
-        downloadTermuxPackage(
+        downloadRuntimeFile(
             localPath = libtallocDeb.absolutePath,
-            packageName = libtallocDebPackageName,
             remoteUrl = libtallocDebUrl,
             expectedChecksum = libtallocDebChecksum
         )

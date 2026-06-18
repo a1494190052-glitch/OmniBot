@@ -8,14 +8,15 @@ import java.io.OutputStreamWriter
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.nio.charset.StandardCharsets
+import kotlin.concurrent.thread
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlin.concurrent.thread
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HttpControllerAnthropicTest {
@@ -106,7 +107,18 @@ class HttpControllerAnthropicTest {
                     val body = """
                         {
                           "data": [
-                            {"id": "claude-sonnet-4-5", "display_name": "Claude Sonnet 4.5", "type": "model"},
+                            {
+                              "id": "claude-sonnet-4-5",
+                              "display_name": "Claude Sonnet 4.5",
+                              "type": "model",
+                              "context_limit": 1000000,
+                              "output_limit": 64000,
+                              "capabilities": {
+                                "reasoning": true,
+                                "tool_call": true,
+                                "vision": true
+                              }
+                            },
                             {"id": "claude-haiku-4-5", "display_name": "Claude Haiku 4.5", "type": "model"}
                           ]
                         }
@@ -139,6 +151,11 @@ class HttpControllerAnthropicTest {
                 listOf("Claude Haiku 4.5", "Claude Sonnet 4.5"),
                 models.map { it.displayName }
             )
+            assertEquals(1000000, models.last().contextLimit)
+            assertEquals(64000, models.last().outputLimit)
+            assertTrue(models.last().reasoning == true)
+            assertTrue(models.last().toolCall == true)
+            assertTrue(models.last().attachment == true)
             assertEquals("GET /v1/models HTTP/1.1", requestLines.first())
             assertEquals(
                 "x-api-key: sk-ant-test",
@@ -153,4 +170,5 @@ class HttpControllerAnthropicTest {
             serverSocket.close()
         }
     }
+
 }

@@ -118,6 +118,7 @@ class FileSaveChannel {
                 "saveFileWithSystemDialog" -> saveFileWithSystemDialog(call, result)
                 "openFile" -> openFile(call, result)
                 "shareFile" -> shareFile(call, result)
+                "shareText" -> shareText(call, result)
                 else -> result.notImplemented()
             }
         }
@@ -216,6 +217,42 @@ class FileSaveChannel {
             result.success(true)
         } catch (e: Exception) {
             OmniLog.e(TAG, "Failed to share file", e)
+            result.error("SHARE_FAILED", e.message, e.toString())
+        }
+    }
+
+    private fun shareText(call: MethodCall, result: MethodChannel.Result) {
+        val activity = context as? Activity
+        if (activity == null) {
+            result.error("INIT_FAILED", "Not attached to activity", null)
+            return
+        }
+        val args = call.arguments as? Map<*, *>
+        val text = args?.get("text") as? String
+        if (text.isNullOrBlank()) {
+            result.error("INVALID_ARGS", "text is required", null)
+            return
+        }
+
+        try {
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, text)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            if (!hasIntentHandler(activity, intent)) {
+                result.error("SHARE_FAILED", "No application can share text", null)
+                return
+            }
+            activity.startActivity(
+                Intent.createChooser(
+                    intent,
+                    chooserTitle("发送文本", "Share Text")
+                )
+            )
+            result.success(true)
+        } catch (e: Exception) {
+            OmniLog.e(TAG, "Failed to share text", e)
             result.error("SHARE_FAILED", e.message, e.toString())
         }
     }

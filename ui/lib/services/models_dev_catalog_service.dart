@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:ui/services/model_vendor_catalog.dart';
 import 'package:ui/services/storage_service.dart';
 
 class ModelsDevModelMetadata {
@@ -134,18 +135,6 @@ class ModelsDevCatalogService {
     'together': 'togetherai',
     'togetherai': 'togetherai',
   };
-
-  static const Set<String> _kSpecialGroupProviders = {
-    'aihubmix',
-    'silicon',
-    'siliconflow',
-    'siliconflow-cn',
-    'ocoolai',
-    'o3',
-    'dmxapi',
-  };
-
-  static const Set<String> _kQwenGroupProviders = {'dashscope', 'alibaba'};
 
   static const Set<String> _kFuzzyModelSuffixTokens = {
     'alpha',
@@ -438,46 +427,18 @@ class ModelsDevCatalogService {
     return candidates;
   }
 
-  static String groupModelId(String modelId, {String providerId = ''}) {
-    final normalizedProvider = providerId.trim().toLowerCase();
-    final normalizedId = modelId.trim().toLowerCase();
-    if (normalizedId.isEmpty) return 'other';
-
-    final qwenGroupName = _qwenGroupName(normalizedId);
-    if (_kQwenGroupProviders.contains(normalizedProvider) ||
-        qwenGroupName != null) {
-      if (qwenGroupName != null) return qwenGroupName;
-    }
-
-    return defaultGroupName(normalizedId, providerId: normalizedProvider);
-  }
-
-  @visibleForTesting
-  static String defaultGroupName(String modelId, {String providerId = ''}) {
-    final str = modelId.trim().toLowerCase();
-    if (str.isEmpty) return 'other';
-
-    var firstDelimiters = const ['/', ' ', ':'];
-    var secondDelimiters = const ['-', '_'];
-    if (_kSpecialGroupProviders.contains(providerId.trim().toLowerCase())) {
-      firstDelimiters = const ['/', ' ', '-', '_', ':'];
-      secondDelimiters = const [];
-    }
-
-    for (final delimiter in firstDelimiters) {
-      if (str.contains(delimiter)) {
-        return str.split(delimiter).first;
-      }
-    }
-
-    for (final delimiter in secondDelimiters) {
-      if (str.contains(delimiter)) {
-        final parts = str.split(delimiter);
-        return parts.length > 1 ? '${parts[0]}-${parts[1]}' : parts.first;
-      }
-    }
-
-    return str;
+  /// 按厂商分组：返回 [ModelVendorCatalog] 中的厂商 key，未识别返回 'other'。
+  static String groupModelId(
+    String modelId, {
+    String providerId = '',
+    String ownedBy = '',
+  }) {
+    if (modelId.trim().isEmpty) return ModelVendorCatalog.otherGroupKey;
+    return ModelVendorCatalog.groupKeyFor(
+      modelId,
+      ownedBy: ownedBy,
+      providerId: providerId,
+    );
   }
 
   @visibleForTesting
@@ -616,21 +577,6 @@ class ModelsDevCatalogService {
     return catalog.providers[alias] ?? catalog.providers[normalized];
   }
 
-  static String? _qwenGroupName(String modelId) {
-    for (final candidate in modelLookupCandidates(modelId)) {
-      final trimmed = _trimKnownModelSuffixes(candidate.replaceAll('_', '-'));
-      if (!trimmed.startsWith('qwen')) continue;
-      final match = RegExp(
-        r'^(qwen(?:\d+(?:\.\d+)?|2(?:\.\d+)?|-\d+b)?(?:-[a-z0-9.]+){0,2})',
-      ).firstMatch(trimmed);
-      final groupName = match?.group(1)?.trim();
-      if (groupName != null && groupName.isNotEmpty) {
-        return groupName;
-      }
-    }
-    return null;
-  }
-
   static void _addFuzzyModelSuffixCandidates(
     String value,
     void Function(String value) add,
@@ -643,15 +589,6 @@ class ModelsDevCatalogService {
       final trimmed = _trimOneKnownModelSuffix(current);
       if (trimmed == current) return;
       add(trimmed);
-      current = trimmed;
-    }
-  }
-
-  static String _trimKnownModelSuffixes(String value) {
-    var current = value;
-    while (true) {
-      final trimmed = _trimOneKnownModelSuffix(current);
-      if (trimmed == current) return current;
       current = trimmed;
     }
   }

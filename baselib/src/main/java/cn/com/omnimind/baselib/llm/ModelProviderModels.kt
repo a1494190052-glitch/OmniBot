@@ -9,7 +9,8 @@ data class ModelProviderConfig(
     val providerType: String = "custom",
     val readOnly: Boolean = false,
     val ready: Boolean = true,
-    val statusText: String? = null
+    val statusText: String? = null,
+    val wireApi: String = OpenAiWireApi.CHAT_COMPLETIONS
 ) {
     fun isConfigured(): Boolean = baseUrl.isNotBlank()
 }
@@ -23,7 +24,8 @@ data class ModelProviderProfile(
     val readOnly: Boolean = false,
     val ready: Boolean = true,
     val statusText: String? = null,
-    val protocolType: String = "openai_compatible"
+    val protocolType: String = "openai_compatible",
+    val wireApi: String = OpenAiWireApi.CHAT_COMPLETIONS
 ) {
     fun isConfigured(): Boolean = baseUrl.isNotBlank()
 }

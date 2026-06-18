@@ -1393,7 +1393,7 @@ $goal
 (请直接输出针对用户目标的最终整理结果...)
 """.trimIndent()
 
-            val modelToUse = "scene.compactor.context"
+            val modelToUse = "scene.vlm.summary"
             val vlmPayload = AgentRequest.Payload.VLMChatPayload(
                 model = modelToUse, text = prompt, images = report.summaryScreenshotList!!
             )

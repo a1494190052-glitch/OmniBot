@@ -113,7 +113,9 @@
             android:label="@string/omni_app_name"
             android:launchMode="singleTask"
             android:screenOrientation="portrait"
-            android:theme="@style/Theme.OmnibotApp.Splash" />
+            android:configChanges="uiMode|orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|screenLayout|locale|layoutDirection|fontScale|density"
+            android:theme="@style/Theme.OmnibotApp.Splash"
+            android:windowSoftInputMode="adjustResize" />
 
         <activity
             android:name=".activity.QuickLogEntryActivity"

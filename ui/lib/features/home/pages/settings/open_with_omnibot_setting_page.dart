@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:ui/l10n/l10n.dart';
 import 'package:ui/services/app_state_service.dart';
+import 'package:ui/theme/app_font_effect_scope.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/widgets/common_app_bar.dart';
@@ -193,7 +194,10 @@ class _OpenWithOmnibotSettingPageState
             style: TextStyle(
               color: palette.textPrimary,
               fontSize: 12,
-              fontWeight: FontWeight.w500,
+              fontWeight: AppFontEffectScope.resolveNonChatWeight(
+                context,
+                FontWeight.w500,
+              ),
             ),
             icon: Icon(
               Icons.keyboard_arrow_down_rounded,
@@ -302,7 +306,10 @@ class _OpenWithOmnibotSettingPageState
                       context.trLegacy(item.title),
                       style: TextStyle(
                         fontSize: 14,
-                        fontWeight: FontWeight.w500,
+                        fontWeight: AppFontEffectScope.resolveNonChatWeight(
+                          context,
+                          FontWeight.w500,
+                        ),
                         color: palette.textPrimary,
                         height: 1.5,
                         fontFamily: 'PingFang SC',
@@ -316,7 +323,10 @@ class _OpenWithOmnibotSettingPageState
                           color: palette.textSecondary,
                           fontSize: 11,
                           fontFamily: 'PingFang SC',
-                          fontWeight: FontWeight.w400,
+                          fontWeight: AppFontEffectScope.resolveNonChatWeight(
+                            context,
+                            FontWeight.w400,
+                          ),
                           height: 1.55,
                         ),
                       ),

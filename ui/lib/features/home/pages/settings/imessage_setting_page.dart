@@ -584,7 +584,6 @@ class _ImessageSettingPageState extends State<ImessageSettingPage> {
     List<TextInputFormatter>? inputFormatters,
     Widget? suffixIcon,
   }) {
-    final palette = context.omniPalette;
     return TextField(
       controller: controller,
       obscureText: obscureText,
@@ -592,39 +591,8 @@ class _ImessageSettingPageState extends State<ImessageSettingPage> {
       maxLines: obscureText ? 1 : maxLines,
       keyboardType: keyboardType,
       inputFormatters: inputFormatters,
-      style: TextStyle(color: palette.textPrimary, fontSize: 13),
-      decoration: InputDecoration(
-        labelText: label,
-        labelStyle: TextStyle(color: palette.textTertiary, fontSize: 12),
-        filled: true,
-        fillColor: palette.surfaceSecondary.withValues(
-          alpha: context.isDarkTheme ? 0.72 : 0.64,
-        ),
-        isDense: true,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 12,
-          vertical: 12,
-        ),
-        suffixIcon: suffixIcon,
-        suffixIconConstraints: const BoxConstraints(
-          minWidth: 44,
-          minHeight: 44,
-        ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide.none,
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide.none,
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide(
-            color: palette.accentPrimary.withValues(alpha: 0.64),
-          ),
-        ),
-      ),
+      style: context.omniInputTextStyle,
+      decoration: InputDecoration(labelText: label, suffixIcon: suffixIcon),
     );
   }
 

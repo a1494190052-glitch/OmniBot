@@ -35,6 +35,7 @@ import cn.com.omnimind.baselib.llm.ChatCompletionMessage
 import cn.com.omnimind.baselib.llm.ChatCompletionRequest
 import cn.com.omnimind.baselib.llm.ChatCompletionTool
 import cn.com.omnimind.baselib.llm.AiRequestLogStore
+import cn.com.omnimind.baselib.llm.DeepSeekProvider
 import cn.com.omnimind.baselib.llm.ModelProviderConfig
 import cn.com.omnimind.baselib.llm.ModelProviderProfile
 import cn.com.omnimind.baselib.llm.ModelProviderConfigStore
@@ -214,21 +215,60 @@ internal fun resolveChatTaskModelOverride(
     if (providerProfile == null || !providerProfile.isConfigured()) {
         return null
     }
+    val contextLimit = when (val rawContextLimit = raw["contextLimit"]) {
+        is Number -> rawContextLimit.toInt()
+        else -> rawContextLimit?.toString()?.trim()?.toIntOrNull()
+    }?.takeIf { it > 0 }
     return TaskParams.ChatModelOverride(
         providerProfileId = providerProfile.id,
         modelId = modelId,
         apiBase = providerProfile.baseUrl,
         apiKey = providerProfile.apiKey,
-        protocolType = providerProfile.protocolType.ifEmpty { "openai_compatible" }
+        protocolType = providerProfile.protocolType.ifEmpty { "openai_compatible" },
+        wireApi = providerProfile.wireApi,
+        contextLimit = contextLimit
     )
+}
+
+internal fun resolvePromptTokenThresholdFallback(
+    storedThreshold: Int?,
+    modelOverride: TaskParams.ChatModelOverride?
+): Int {
+    return storedThreshold?.coerceAtLeast(1)
+        ?: modelOverride?.contextLimit?.coerceAtLeast(1)
+        ?: AgentConversationContextCompactor.DEFAULT_PROMPT_TOKEN_THRESHOLD
 }
 
 internal fun normalizeReasoningEffort(raw: String?): String? {
     val normalized = raw?.trim()?.lowercase().orEmpty()
     return when (normalized) {
-        "no", "low", "high" -> normalized
+        "no", "low", "high", "xhigh", "max" -> normalized
         else -> null
     }
+}
+
+internal fun resolveAgentReasoningEffort(
+    reasoningEffort: String?,
+    modelOverride: AgentModelOverride?,
+    fallbackProfile: ModelProviderProfile? = runCatching {
+        ModelProviderConfigStore.getEditingProfile()
+    }.getOrNull()
+): String? {
+    if (!reasoningEffort.isNullOrBlank()) {
+        return reasoningEffort
+    }
+    val useOfficialDeepSeekDefault = if (modelOverride != null) {
+        DeepSeekProvider.shouldUseOfficialAdapter(
+            protocolType = modelOverride.protocolType,
+            apiBase = modelOverride.apiBase
+        )
+    } else {
+        DeepSeekProvider.shouldUseOfficialAdapter(
+            protocolType = fallbackProfile?.protocolType,
+            apiBase = fallbackProfile?.baseUrl
+        )
+    }
+    return if (useOfficialDeepSeekDefault) "max" else null
 }
 
 internal data class AgentFinalErrorResolution(
@@ -435,7 +475,9 @@ internal fun chatModelOverrideToAgentModelOverride(
         modelId = modelOverride.modelId,
         apiBase = modelOverride.apiBase,
         apiKey = modelOverride.apiKey,
-        protocolType = modelOverride.protocolType.ifEmpty { "openai_compatible" }
+        protocolType = modelOverride.protocolType.ifEmpty { "openai_compatible" },
+        wireApi = modelOverride.wireApi,
+        contextLimit = modelOverride.contextLimit
     )
 }
 
@@ -1599,7 +1641,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             "baseUrl" to baseUrl,
             "apiKey" to apiKey,
             "source" to source,
-            "configured" to isConfigured()
+            "configured" to isConfigured(),
+            "wireApi" to wireApi
         )
     }
 
@@ -1610,7 +1653,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             "baseUrl" to baseUrl,
             "apiKey" to apiKey,
             "configured" to isConfigured(),
-            "protocolType" to protocolType
+            "protocolType" to protocolType,
+            "wireApi" to wireApi
         )
     }
 
@@ -2950,10 +2994,12 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                             assistantEntryId = "$taskID-assistant",
                             modelOverride = modelOverride,
                             reasoningEffort = reasoningEffort,
-                            promptTokenThreshold = repository
-                                .getConversation(normalizedConversationId)
-                                ?.promptTokenThreshold
-                                ?.coerceAtLeast(1)
+                            promptTokenThreshold = resolvePromptTokenThresholdFallback(
+                                storedThreshold = repository
+                                    .getConversation(normalizedConversationId)
+                                    ?.promptTokenThreshold,
+                                modelOverride = modelOverride
+                            )
                         )
                     )
                 }
@@ -2997,9 +3043,10 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 normalizedType != "rate_limited"
             ) {
                 extractChatTaskPromptTokens(content)?.let { promptTokens ->
-                    val promptTokenThreshold =
-                        state.promptTokenThreshold?.coerceAtLeast(1)
-                            ?: AgentConversationContextCompactor.DEFAULT_PROMPT_TOKEN_THRESHOLD
+                    val promptTokenThreshold = resolvePromptTokenThresholdFallback(
+                        storedThreshold = state.promptTokenThreshold,
+                        modelOverride = state.modelOverride
+                    )
                     state.latestPromptTokens = promptTokens
                     state.promptTokenThreshold = promptTokenThreshold
                     repository.updatePromptTokenUsage(
@@ -3157,9 +3204,10 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             return null
         }
         val latestPromptTokens = state.latestPromptTokens ?: return null
-        val promptTokenThreshold =
-            state.promptTokenThreshold?.coerceAtLeast(1)
-                ?: AgentConversationContextCompactor.DEFAULT_PROMPT_TOKEN_THRESHOLD
+        val promptTokenThreshold = resolvePromptTokenThresholdFallback(
+            storedThreshold = state.promptTokenThreshold,
+            modelOverride = state.modelOverride
+        )
         if (latestPromptTokens <= promptTokenThreshold) {
             return null
         }
@@ -4817,7 +4865,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
      */
     fun generateMemoryGreeting(call: MethodCall, result: MethodChannel.Result) {
         val model = call.argument<String>("model")?.trim().orEmpty()
-            .ifEmpty { "scene.compactor.context" }
+            .ifEmpty { "scene.dispatch.model" }
         val records = (call.argument<List<Map<String, Any?>>>("records") ?: emptyList())
             .map { entry ->
                 entry.mapKeys { it.key.toString() }
@@ -5187,6 +5235,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val baseUrl = call.argument<String>("baseUrl")?.trim().orEmpty()
         val apiKey = call.argument<String>("apiKey")?.trim().orEmpty()
         val protocolType = call.argument<String>("protocolType")?.trim() ?: "openai_compatible"
+        val wireApi = call.argument<String>("wireApi")?.trim().orEmpty()
 
         workJob.launch {
             try {
@@ -5195,7 +5244,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     name = name,
                     baseUrl = baseUrl,
                     apiKey = apiKey,
-                    protocolType = protocolType
+                    protocolType = protocolType,
+                    wireApi = wireApi
                 )
                 syncAgentAiCapabilityConfigFile()
                 withContext(Dispatchers.Main) {
@@ -5326,7 +5376,12 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     val apiKey = if (baseUrlArg.isNotEmpty()) apiKeyArg else currentConfig.apiKey
                     val profile = profileId?.let(ModelProviderConfigStore::getProfile)
                         ?: ModelProviderConfigStore.getEditingProfile()
-                    HttpController.fetchProviderModels(apiBase, apiKey, profile.protocolType)
+                    HttpController.fetchProviderModels(
+                        apiBase = apiBase,
+                        apiKey = apiKey,
+                        protocolType = profile.protocolType,
+                        wireApi = profile.wireApi
+                    )
                 }
                 withContext(Dispatchers.Main) {
                     result.success(models.map { it.toMap() })
@@ -5367,10 +5422,13 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 } else {
                     val apiBase = if (baseUrlArg.isNotEmpty()) baseUrlArg else currentConfig.baseUrl
                     val apiKey = if (baseUrlArg.isNotEmpty()) apiKeyArg else currentConfig.apiKey
+                    val profile = profileId?.let(ModelProviderConfigStore::getProfile)
+                        ?: ModelProviderConfigStore.getEditingProfile()
                     HttpController.checkProviderModelAvailability(
                         model = model,
                         apiBase = apiBase,
-                        apiKey = apiKey
+                        apiKey = apiKey,
+                        wireApi = profile.wireApi
                     )
                 }
 
@@ -6374,7 +6432,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             modelId = modelId,
             apiBase = providerProfile.baseUrl,
             apiKey = providerProfile.apiKey,
-            protocolType = providerProfile.protocolType.ifEmpty { "openai_compatible" }
+            protocolType = providerProfile.protocolType.ifEmpty { "openai_compatible" },
+            wireApi = providerProfile.wireApi
         )
     }
 
@@ -6592,8 +6651,11 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val modelOverride = resolveAgentModelOverride(
             call.argument<Map<String, Any?>>("modelOverride")
         )
-        val reasoningEffort = normalizeReasoningEffort(
-            call.argument<String>("reasoningEffort")
+        val reasoningEffort = resolveAgentReasoningEffort(
+            normalizeReasoningEffort(
+                call.argument<String>("reasoningEffort")
+            ),
+            modelOverride
         )
         val terminalEnvironment = parseTerminalEnvironmentMap(
             call.argument<Map<String, Any?>>("terminalEnvironment")
@@ -7366,8 +7428,11 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val modelOverride = resolveAgentModelOverride(
             call.argument<Map<String, Any?>>("modelOverride")
         )
-        val reasoningEffort = normalizeReasoningEffort(
-            call.argument<String>("reasoningEffort")
+        val reasoningEffort = resolveAgentReasoningEffort(
+            normalizeReasoningEffort(
+                call.argument<String>("reasoningEffort")
+            ),
+            modelOverride
         )
         workJob.launch {
             try {

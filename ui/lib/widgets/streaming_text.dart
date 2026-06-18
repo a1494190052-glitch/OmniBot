@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/services/assists_core_service.dart';
+import 'package:ui/services/omnibot_resource_service.dart';
+import 'package:ui/theme/theme_context.dart';
+import 'package:ui/utils/ui.dart';
+import 'package:ui/widgets/omni_glass.dart';
 import 'package:ui/widgets/omnibot_markdown_body.dart';
 import 'package:ui/widgets/omnibot_resource_widgets.dart';
 
@@ -433,35 +437,233 @@ class _StreamingTextState extends State<StreamingText> {
   Widget _buildSelectionContextMenu(
     SelectableRegionState selectableRegionState,
   ) {
-    return AdaptiveTextSelectionToolbar.buttonItems(
+    return _GlassSelectionContextMenu(
       anchors: selectableRegionState.contextMenuAnchors,
-      buttonItems: [
-        // 全选按钮
-        ContextMenuButtonItem(
-          label: LegacyTextLocalizer.localize('全选'),
-          onPressed: () {
-            selectableRegionState.selectAll(SelectionChangedCause.toolbar);
-          },
-        ),
-        // 复制按钮 - 使用 native channel 复制
-        ContextMenuButtonItem(
-          label: LegacyTextLocalizer.localize('复制'),
-          onPressed: () {
-            // 使用 onSelectionChanged 回调跟踪到的选中内容
-            final selectedText = _lastSelectedContent;
+      onSelectAll: () {
+        selectableRegionState.selectAll(SelectionChangedCause.toolbar);
+      },
+      onCopy: () {
+        final selectedText = _lastSelectedContent;
+        selectableRegionState.hideToolbar();
+        if (selectedText != null && selectedText.isNotEmpty) {
+          AssistsMessageService.copyToClipboard(selectedText);
+        }
+      },
+      onShare: () {
+        final selectedText = _lastSelectedContent;
+        selectableRegionState.hideToolbar();
+        if (selectedText == null || selectedText.isEmpty) {
+          return;
+        }
+        _shareSelectedText(selectedText);
+      },
+    );
+  }
 
-            if (selectedText != null && selectedText.isNotEmpty) {
-              // 使用 native channel 复制到剪贴板
-              AssistsMessageService.copyToClipboard(selectedText);
-            }
+  Future<void> _shareSelectedText(String selectedText) async {
+    try {
+      final shared = await OmnibotResourceService.shareText(selectedText);
+      if (!shared) {
+        showToast(
+          LegacyTextLocalizer.isEnglish
+              ? 'Share failed, please try again later'
+              : '发送失败，请稍后重试',
+          type: ToastType.error,
+        );
+      }
+    } catch (error) {
+      debugPrint('share selected text failed: $error');
+      showToast(
+        LegacyTextLocalizer.isEnglish ? 'Share failed' : '发送失败',
+        type: ToastType.error,
+      );
+    }
+  }
+}
 
-            selectableRegionState.hideToolbar();
-          },
+class _GlassSelectionContextMenu extends StatelessWidget {
+  const _GlassSelectionContextMenu({
+    required this.anchors,
+    required this.onSelectAll,
+    required this.onCopy,
+    required this.onShare,
+  });
+
+  final TextSelectionToolbarAnchors anchors;
+  final VoidCallback onSelectAll;
+  final VoidCallback onCopy;
+  final VoidCallback onShare;
+
+  @override
+  Widget build(BuildContext context) {
+    final anchorBelow = anchors.secondaryAnchor ?? anchors.primaryAnchor;
+    final safePadding = MediaQuery.paddingOf(context);
+    return CustomSingleChildLayout(
+      delegate: _GlassSelectionMenuLayoutDelegate(
+        anchorAbove: anchors.primaryAnchor,
+        anchorBelow: anchorBelow,
+        screenPadding: _kSelectionMenuScreenPadding,
+        topSafePadding: safePadding.top,
+        bottomSafePadding: safePadding.bottom,
+      ),
+      child: OmniGlassPanel(
+        borderRadius: BorderRadius.circular(14),
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+        child: Material(
+          type: MaterialType.transparency,
+          child: SizedBox(
+            height: 28,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                _GlassSelectionMenuButton(
+                  label: LegacyTextLocalizer.isEnglish ? 'Select all' : '全选',
+                  onPressed: onSelectAll,
+                ),
+                const _GlassSelectionMenuDivider(),
+                _GlassSelectionMenuButton(
+                  label: LegacyTextLocalizer.isEnglish ? 'Copy' : '复制',
+                  onPressed: onCopy,
+                ),
+                const _GlassSelectionMenuDivider(),
+                _GlassSelectionMenuButton(
+                  label: LegacyTextLocalizer.isEnglish ? 'Share' : '发送',
+                  onPressed: onShare,
+                ),
+              ],
+            ),
+          ),
         ),
-      ],
+      ),
     );
   }
 }
+
+class _GlassSelectionMenuButton extends StatelessWidget {
+  const _GlassSelectionMenuButton({
+    required this.label,
+    required this.onPressed,
+  });
+
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    return Tooltip(
+      message: label,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onPressed,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 50, minHeight: 34),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
+            child: Center(
+              child: Text(
+                label,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: palette.textPrimary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  height: 1.0,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GlassSelectionMenuDivider extends StatelessWidget {
+  const _GlassSelectionMenuDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 1,
+      height: 20,
+      color: context.omniPalette.borderSubtle.withValues(alpha: 0.55),
+    );
+  }
+}
+
+class _GlassSelectionMenuLayoutDelegate extends SingleChildLayoutDelegate {
+  const _GlassSelectionMenuLayoutDelegate({
+    required this.anchorAbove,
+    required this.anchorBelow,
+    required this.screenPadding,
+    required this.topSafePadding,
+    required this.bottomSafePadding,
+  });
+
+  final Offset anchorAbove;
+  final Offset anchorBelow;
+  final double screenPadding;
+  final double topSafePadding;
+  final double bottomSafePadding;
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) {
+    return BoxConstraints(
+      maxWidth: (constraints.maxWidth - screenPadding * 2).clamp(
+        0.0,
+        double.infinity,
+      ),
+      maxHeight:
+          (constraints.maxHeight -
+                  topSafePadding -
+                  bottomSafePadding -
+                  screenPadding * 2)
+              .clamp(0.0, double.infinity),
+    );
+  }
+
+  @override
+  Offset getPositionForChild(Size size, Size childSize) {
+    final topLimit = topSafePadding + screenPadding;
+    final fitsAbove =
+        anchorAbove.dy - _kSelectionMenuAnchorGap - childSize.height >=
+        topLimit;
+    final anchor = fitsAbove ? anchorAbove : anchorBelow;
+    final minX = screenPadding;
+    final maxX = size.width - childSize.width - screenPadding;
+    final dx = _clampToMenuBounds(anchor.dx - childSize.width / 2, minX, maxX);
+    final dy = fitsAbove
+        ? anchor.dy - _kSelectionMenuAnchorGap - childSize.height
+        : anchor.dy + _kSelectionMenuAnchorGap;
+    final maxY =
+        size.height - childSize.height - bottomSafePadding - screenPadding;
+    return Offset(dx, _clampToMenuBounds(dy, topLimit, maxY));
+  }
+
+  @override
+  bool shouldRelayout(_GlassSelectionMenuLayoutDelegate oldDelegate) {
+    return anchorAbove != oldDelegate.anchorAbove ||
+        anchorBelow != oldDelegate.anchorBelow ||
+        screenPadding != oldDelegate.screenPadding ||
+        topSafePadding != oldDelegate.topSafePadding ||
+        bottomSafePadding != oldDelegate.bottomSafePadding;
+  }
+}
+
+double _clampToMenuBounds(double value, double min, double max) {
+  if (max < min) {
+    return min;
+  }
+  return value.clamp(min, max).toDouble();
+}
+
+const double _kSelectionMenuScreenPadding = 8.0;
+const double _kSelectionMenuAnchorGap = 10.0;
 
 /// 流式尾部文本（fast-path 内嵌）。
 ///

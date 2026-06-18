@@ -164,6 +164,95 @@ void main() {
     );
   });
 
+  test('keeps the lifted composer bottom padding clamped to the edge '
+      'inset', () {
+    expect(
+      resolveChatComposerInputBottomPadding(
+        shouldLiftComposerForKeyboard: true,
+        bottomInset: 320,
+        viewPaddingBottom: 24,
+        safeAreaBottomPadding: 0,
+      ),
+      0,
+    );
+    expect(
+      resolveChatComposerInputBottomPadding(
+        shouldLiftComposerForKeyboard: true,
+        bottomInset: 30,
+        viewPaddingBottom: 24,
+        safeAreaBottomPadding: 0,
+      ),
+      18,
+    );
+    expect(
+      resolveChatComposerInputBottomPadding(
+        shouldLiftComposerForKeyboard: true,
+        bottomInset: 0,
+        viewPaddingBottom: 24,
+        safeAreaBottomPadding: 24,
+      ),
+      kChatComposerEdgeInset,
+    );
+  });
+
+  test('compensates pending SafeArea padding while the keyboard hides '
+      'without focus', () {
+    // Mid-hide: SafeArea bottom padding is still consumed by the keyboard
+    // inset, so the unlifted composer padding makes up the difference.
+    expect(
+      resolveChatComposerInputBottomPadding(
+        shouldLiftComposerForKeyboard: false,
+        bottomInset: 300,
+        viewPaddingBottom: 24,
+        safeAreaBottomPadding: 0,
+      ),
+      kChatComposerEdgeInset + 24,
+    );
+    // Fully hidden: SafeArea padding restored, no compensation left.
+    expect(
+      resolveChatComposerInputBottomPadding(
+        shouldLiftComposerForKeyboard: false,
+        bottomInset: 0,
+        viewPaddingBottom: 24,
+        safeAreaBottomPadding: 24,
+      ),
+      kChatComposerEdgeInset,
+    );
+  });
+
+  test('unlifted composer keeps a constant screen-anchored rest position '
+      'through the whole keyboard hide animation', () {
+    const viewPaddingBottom = 24.0;
+    for (final bottomInset in const [300.0, 24.0, 12.0, 3.0, 0.5, 0.0]) {
+      final safeAreaBottomPadding = bottomInset >= viewPaddingBottom
+          ? 0.0
+          : viewPaddingBottom - bottomInset;
+      final padding = resolveChatComposerInputBottomPadding(
+        shouldLiftComposerForKeyboard: false,
+        bottomInset: bottomInset,
+        viewPaddingBottom: viewPaddingBottom,
+        safeAreaBottomPadding: safeAreaBottomPadding,
+      );
+      expect(
+        safeAreaBottomPadding + padding,
+        viewPaddingBottom + kChatComposerEdgeInset,
+        reason: 'bottomInset $bottomInset should not move the settled composer',
+      );
+    }
+  });
+
+  test('SafeArea compensation is a no-op without bottom view padding', () {
+    expect(
+      resolveChatComposerInputBottomPadding(
+        shouldLiftComposerForKeyboard: false,
+        bottomInset: 200,
+        viewPaddingBottom: 0,
+        safeAreaBottomPadding: 0,
+      ),
+      kChatComposerEdgeInset,
+    );
+  });
+
   test('clamps overlay anchor when keyboard spacing exceeds viewport', () {
     final geometry = resolveChatPaneOverlayAnchorGeometry(
       viewportSize: const Size(420, 300),

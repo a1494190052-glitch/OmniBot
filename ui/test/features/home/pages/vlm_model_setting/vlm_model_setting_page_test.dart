@@ -57,6 +57,7 @@ void main() {
   Map<String, dynamic> profilePayload({
     String baseUrl = 'https://api.openai.com/v1',
     String protocolType = 'openai_compatible',
+    String wireApi = 'chat_completions',
   }) {
     return <String, dynamic>{
       'profiles': <Map<String, dynamic>>[
@@ -71,6 +72,7 @@ void main() {
           'statusText': '',
           'configured': true,
           'protocolType': protocolType,
+          'wireApi': wireApi,
         },
       ],
       'editingProfileId': 'provider-1',
@@ -125,7 +127,7 @@ void main() {
       expect(
         find.descendant(
           of: find.byKey(const Key('provider-protocol-type-button')),
-          matching: find.text('OpenAI'),
+          matching: find.text('OpenAI Completions'),
         ),
         findsOneWidget,
       );
@@ -140,6 +142,99 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('provider protocol labels stay bounded on narrow layout', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.physicalSize = const Size(360, 800);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    for (final entry in const <String, String>{
+      'chat_completions': 'OpenAI Completions',
+      'responses': 'OpenAI Responses',
+    }.entries) {
+      messenger.setMockMethodCallHandler(assistCoreChannel, (call) async {
+        switch (call.method) {
+          case 'listModelProviderProfiles':
+            return profilePayload(wireApi: entry.key);
+        }
+        return null;
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          key: ValueKey('provider-protocol-${entry.key}'),
+          theme: AppTheme.lightTheme,
+          darkTheme: AppTheme.darkTheme,
+          home: const VlmModelSettingPage(),
+        ),
+      );
+
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('provider-protocol-type-button')),
+          matching: find.text(entry.value),
+        ),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    }
+  });
+
+  testWidgets('provider protocol menu expands to fit long labels', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.physicalSize = const Size(360, 800);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(assistCoreChannel, (call) async {
+      switch (call.method) {
+        case 'listModelProviderProfiles':
+          return profilePayload(wireApi: 'responses');
+      }
+      return null;
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        home: const VlmModelSettingPage(),
+      ),
+    );
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    await tester.tap(find.byKey(const Key('provider-protocol-type-button')));
+    await tester.pumpAndSettle();
+
+    final menuRect = tester.getRect(
+      find.byKey(const Key('provider-protocol-type-menu')),
+    );
+    final menuLabel = find.descendant(
+      of: find.byKey(const Key('provider-protocol-type-menu')),
+      matching: find.text('OpenAI Responses'),
+    );
+    final labelRect = tester.getRect(menuLabel);
+    expect(menuRect.width, greaterThan(220));
+    expect(labelRect.right <= menuRect.right, isTrue);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('base url hint mentions trailing marker override', (
     tester,
@@ -192,7 +287,117 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(find.text('https://api.anthropic.com/v1/messages'), findsOneWidget);
+    expect(find.byKey(const Key('provider-wire-api-button')), findsNothing);
   });
+
+  testWidgets('openai compatible profile shows direct wire api choice', (
+    tester,
+  ) async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(assistCoreChannel, (call) async {
+      switch (call.method) {
+        case 'listModelProviderProfiles':
+          return profilePayload(
+            baseUrl: 'https://api.openai.com/v1',
+            wireApi: 'responses',
+          );
+      }
+      return null;
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        home: const VlmModelSettingPage(),
+      ),
+    );
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('provider-protocol-type-button')),
+        matching: find.text('OpenAI Responses'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('provider-wire-api-button')), findsNothing);
+    expect(find.text('接口方式'), findsNothing);
+    expect(find.text('https://api.openai.com/v1/responses'), findsOneWidget);
+  });
+
+  testWidgets(
+    'openai provider menu exposes completions and responses directly',
+    (tester) async {
+      var saveCalls = 0;
+      String savedWireApi = '';
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(assistCoreChannel, (call) async {
+        switch (call.method) {
+          case 'listModelProviderProfiles':
+            return profilePayload(
+              baseUrl: 'https://api.openai.com/v1',
+              wireApi: 'responses',
+            );
+          case 'saveModelProviderProfile':
+            saveCalls += 1;
+            final args = Map<dynamic, dynamic>.from(
+              (call.arguments as Map?) ?? const <String, dynamic>{},
+            );
+            savedWireApi = (args['wireApi'] ?? '').toString();
+            return <String, dynamic>{
+              'id': 'provider-1',
+              'name': (args['name'] ?? 'DeepSeek').toString(),
+              'baseUrl': (args['baseUrl'] ?? '').toString(),
+              'apiKey': (args['apiKey'] ?? '').toString(),
+              'sourceType': 'custom',
+              'readOnly': false,
+              'ready': true,
+              'statusText': '',
+              'configured': true,
+              'protocolType': (args['protocolType'] ?? 'openai_compatible')
+                  .toString(),
+              'wireApi': savedWireApi,
+            };
+        }
+        return null;
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.lightTheme,
+          darkTheme: AppTheme.darkTheme,
+          home: const VlmModelSettingPage(),
+        ),
+      );
+
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      await tester.tap(find.byKey(const Key('provider-protocol-type-button')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('OpenAI Completions'), findsOneWidget);
+      expect(find.text('OpenAI Responses'), findsAtLeastNWidgets(1));
+
+      await tester.tap(find.text('OpenAI Completions'));
+      await tester.pumpAndSettle();
+
+      expect(saveCalls, 1);
+      expect(savedWireApi, 'chat_completions');
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('provider-protocol-type-button')),
+          matching: find.text('OpenAI Completions'),
+        ),
+        findsOneWidget,
+      );
+    },
+  );
 
   testWidgets('provider fields do not auto-save while focused', (tester) async {
     var saveCalls = 0;
@@ -264,8 +469,8 @@ void main() {
         ProviderModelOption(id: 'gpt-4o', displayName: 'gpt-4o'),
         ProviderModelOption(id: 'gpt-4o-mini', displayName: 'gpt-4o-mini'),
         ProviderModelOption(
-          id: 'text-embedding-3-large',
-          displayName: 'text-embedding-3-large',
+          id: 'claude-3-haiku',
+          displayName: 'claude-3-haiku',
         ),
       ],
     );
@@ -287,11 +492,11 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.byKey(const Key('provider-model-group-gpt-4o')),
+      find.byKey(const Key('provider-model-group-openai')),
       findsOneWidget,
     );
     expect(
-      find.byKey(const Key('provider-model-group-text-embedding')),
+      find.byKey(const Key('provider-model-group-anthropic')),
       findsOneWidget,
     );
     expect(find.text('2'), findsOneWidget);
@@ -316,7 +521,7 @@ void main() {
     expect(find.text('手动'), findsNothing);
     expect(
       find.byKey(const Key('provider-model-modality-text')),
-      findsNWidgets(3),
+      findsNWidgets(2),
     );
     expect(
       find.byKey(const Key('provider-model-modality-image')),
@@ -327,33 +532,33 @@ void main() {
       findsOneWidget,
     );
 
-    final groupBody = find.byKey(const Key('provider-model-group-body-gpt-4o'));
+    final groupBody = find.byKey(const Key('provider-model-group-body-openai'));
     expect(tester.getSize(groupBody).height, greaterThan(0));
     final shortLine = tester.getSize(
-      find.byKey(const Key('provider-model-group-line-gpt-4o')),
+      find.byKey(const Key('provider-model-group-line-openai')),
     );
     final longLine = tester.getSize(
-      find.byKey(const Key('provider-model-group-line-text-embedding')),
+      find.byKey(const Key('provider-model-group-line-anthropic')),
     );
     expect(shortLine.width, greaterThan(longLine.width));
     final shortHeaderRight = tester.getTopRight(
-      find.byKey(const Key('provider-model-group-gpt-4o')),
+      find.byKey(const Key('provider-model-group-openai')),
     );
     final shortIconRight = tester.getTopRight(
-      find.byKey(const Key('provider-model-group-icon-gpt-4o')),
+      find.byKey(const Key('provider-model-group-icon-openai')),
     );
     expect((shortHeaderRight.dx - shortIconRight.dx).abs(), lessThan(6));
     final shortCountRight = tester.getTopRight(
-      find.byKey(const Key('provider-model-group-count-gpt-4o')),
+      find.byKey(const Key('provider-model-group-count-openai')),
     );
     final shortLineLeft = tester.getTopLeft(
-      find.byKey(const Key('provider-model-group-line-gpt-4o')),
+      find.byKey(const Key('provider-model-group-line-openai')),
     );
     final shortLineRight = tester.getTopRight(
-      find.byKey(const Key('provider-model-group-line-gpt-4o')),
+      find.byKey(const Key('provider-model-group-line-openai')),
     );
     final shortIconLeft = tester.getTopLeft(
-      find.byKey(const Key('provider-model-group-icon-gpt-4o')),
+      find.byKey(const Key('provider-model-group-icon-openai')),
     );
     expect(shortLineLeft.dx - shortCountRight.dx, closeTo(10, 0.5));
     expect(shortIconLeft.dx - shortLineRight.dx, closeTo(6, 0.5));
@@ -375,9 +580,7 @@ void main() {
     expect(tester.getSize(groupBody).height, 0);
     expect(
       tester
-          .getSize(
-            find.byKey(const Key('provider-model-group-body-text-embedding')),
-          )
+          .getSize(find.byKey(const Key('provider-model-group-body-anthropic')))
           .height,
       0,
     );
@@ -389,12 +592,12 @@ void main() {
     await tester.pump(const Duration(milliseconds: 260));
     expect(tester.getSize(groupBody).height, greaterThan(0));
 
-    await tester.tap(find.byKey(const Key('provider-model-group-gpt-4o')));
+    await tester.tap(find.byKey(const Key('provider-model-group-openai')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 260));
     expect(tester.getSize(groupBody).height, 0);
 
-    await tester.tap(find.byKey(const Key('provider-model-group-gpt-4o')));
+    await tester.tap(find.byKey(const Key('provider-model-group-openai')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 260));
     expect(tester.getSize(groupBody).height, greaterThan(0));

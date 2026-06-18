@@ -141,7 +141,7 @@ class _AnimatedShinyText extends StatelessWidget {
         text,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
+        style: TextStyle(
           fontFamily: AppTextStyles.fontFamily,
           fontSize: 12,
           fontWeight: FontWeight.w500,

@@ -2,7 +2,7 @@ part of 'chat_page.dart';
 
 const int _kDefaultContextTokenThreshold = 128000;
 const int _kMinContextTokenThreshold = 10000;
-const int _kMaxContextTokenThreshold = 512000;
+const int _kMaxContextTokenThreshold = 1000000;
 const double _kChatMessageBottomSafeSpacing = 12.0;
 const double _kSlashCommandDrawerRadius = 18.0;
 const double _kSlashCommandDrawerHandleWidth = 36.0;
@@ -116,15 +116,19 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     if (route == _SlashCommandPanelRoute.effort &&
         _supportsReasoningEffortCommand) {
       final activeEffort = _activeConversationReasoningEffort;
+      final displayActiveEffort =
+          activeEffort == 'xhigh' ? 'max' : activeEffort;
       final query = _slashCommandRouteQuery(route).toLowerCase();
-      final efforts = <String>['no', 'low', 'high']
+      final efforts = <String>['no', 'low', 'high', 'max']
           .where((effort) {
-            return query.isEmpty || effort.contains(query);
+            return query.isEmpty ||
+                effort.contains(query) ||
+                (effort == 'max' && 'xhigh'.contains(query));
           })
           .toList(growable: false);
       return efforts
           .map((effort) {
-            final isSelected = effort == activeEffort;
+            final isSelected = effort == displayActiveEffort;
             return <String, dynamic>{
               'cardId': 'slash-command-effort-$effort',
               'toolName': effort,
@@ -195,29 +199,29 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     }
     if (_supportsReasoningEffortCommand) {
       final activeEffort = _activeConversationReasoningEffort;
+      final displayActiveEffort =
+          activeEffort == 'xhigh' ? 'max' : activeEffort;
       commands.add(<String, dynamic>{
         'cardId': 'slash-command-effort',
         'toolName': '/effort',
         'toolTitle': '/effort',
         'displayName': '/effort',
         'toolType': 'command',
-        'toolTypeLabel': AppTextLocalizer.choose(en: 'Thinking', zh: '思考'),
-        'status': activeEffort == null ? 'running' : 'success',
+        'toolTypeLabel': LegacyTextLocalizer.isEnglish ? 'Thinking' : '思考',
+        'status': displayActiveEffort == null ? 'running' : 'success',
         'statusLabel':
-            activeEffort ?? (AppTextLocalizer.choose(en: 'Command', zh: '命令')),
-        'summary': activeEffort == null
-            ? (AppTextLocalizer.choose(
-                en: 'Set reasoning effort for this session',
-                zh: '设置当前会话的思考强度',
-              ))
-            : (AppTextLocalizer.choose(
-                en: 'Current effort: $activeEffort',
-                zh: '当前思考强度：$activeEffort',
-              )),
-        'progress': AppTextLocalizer.choose(
-          en: 'Choose no, low or high',
-          zh: '点击后选择 no、low 或 high',
-        ),
+            displayActiveEffort ??
+            (LegacyTextLocalizer.isEnglish ? 'Command' : '命令'),
+        'summary': displayActiveEffort == null
+            ? (LegacyTextLocalizer.isEnglish
+                  ? 'Set reasoning effort for this session'
+                  : '设置当前会话的思考强度')
+            : (LegacyTextLocalizer.isEnglish
+                  ? 'Current effort: $displayActiveEffort'
+                  : '当前思考强度：$displayActiveEffort'),
+        'progress': LegacyTextLocalizer.isEnglish
+            ? 'Choose no, low, high or max'
+            : '点击后选择 no、low、high 或 max',
       });
     }
     if (_isOpenClawSurface) {
@@ -485,6 +489,8 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       case 'no':
       case 'low':
       case 'high':
+      case 'xhigh':
+      case 'max':
         unawaited(_applyConversationReasoningEffort(command));
         _messageController.clear();
         _hideSlashCommandPanel();
@@ -1080,14 +1086,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     );
   }
 
-  ChatIslandDisplayLayer _resolveChatPaneDisplayLayer({
-    required bool showSurfaceSwitcher,
-  }) {
-    if (!showSurfaceSwitcher) {
-      return _chatIslandDisplayLayer == ChatIslandDisplayLayer.tools
-          ? ChatIslandDisplayLayer.tools
-          : ChatIslandDisplayLayer.model;
-    }
+  ChatIslandDisplayLayer _resolveChatPaneDisplayLayer() {
     return _activeSurfaceMode == ChatSurfaceMode.normal
         ? _chatIslandDisplayLayer
         : ChatIslandDisplayLayer.mode;
@@ -1221,31 +1220,6 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
               ? ChatSurfaceMode.workspace
               : _activeSurfaceMode)
         : ChatSurfaceMode.normal;
-    final activeAppBarModelId = appBarMode == ChatSurfaceMode.normal
-        ? switch (_activeMode) {
-            ChatPageMode.normal => _activeNormalChatModelId,
-            ChatPageMode.codex => _activeCodexModelId,
-            ChatPageMode.openclaw => null,
-          }
-        : null;
-    final ValueChanged<BuildContext>? onAppBarModelTap =
-        appBarMode == ChatSurfaceMode.normal
-        ? switch (_activeMode) {
-            ChatPageMode.normal => (anchorContext) {
-              unawaited(_openConversationModelSelector(anchorContext));
-            },
-            ChatPageMode.codex => (anchorContext) {
-              _messageController.value = const TextEditingValue(
-                text: '/model ',
-                selection: TextSelection.collapsed(offset: 7),
-              );
-              _inputFocusNode.requestFocus();
-              _handleSlashCommandInput();
-              unawaited(_loadCodexModelOptions());
-            },
-            ChatPageMode.openclaw => null,
-          }
-        : null;
     final bottomRegionBackgroundColor = !backgroundActive && context.isDarkTheme
         ? context.omniPalette.pageBackground
         : Colors.transparent;
@@ -1297,13 +1271,10 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                 unawaited(_toggleCompanionMode());
               },
               activeMode: appBarMode,
-              onModeChanged: handleAppBarSurfaceModeChanged,
-              activeModelId: activeAppBarModelId,
-              onModelTap: onAppBarModelTap,
-              displayLayer: _resolveChatPaneDisplayLayer(
-                showSurfaceSwitcher: showSurfaceSwitcher,
-              ),
-              onInteracted: _cancelNormalSurfaceModelReveal,
+              onModeChanged: (value) {
+                unawaited(_switchChatMode(value, syncPage: true));
+              },
+              displayLayer: _resolveChatPaneDisplayLayer(),
               onDisplayLayerChanged: _handleChatIslandDisplayLayerChanged,
               onTerminalEnvironmentTap: (anchorContext) {
                 unawaited(_openTerminalEnvironmentEditor(anchorContext));
@@ -1411,6 +1382,18 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                           _activeMode == ChatPageMode.normal
                           ? _handleContextUsageRingLongPress
                           : null,
+                      modelPickerSettings: _activeMode == ChatPageMode.normal
+                          ? ChatModelPickerSettings(
+                              modelId: _activeNormalChatModelId ?? '',
+                              hasSelectableModels:
+                                  _hasSelectableNormalChatModels,
+                              onPointerDown: () {
+                                _suppressNextOutsideTapKeyboardHide = true;
+                              },
+                              onOpen: (anchorContext) =>
+                                  _openConversationModelSelector(anchorContext),
+                            )
+                          : null,
                       codexRunSettings: _activeMode == ChatPageMode.codex
                           ? CodexRunSettings(
                               modelId: _activeCodexModelId ?? '',
@@ -1485,15 +1468,6 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
               ),
             ),
           ),
-        if (!hideWorkspaceOverlays &&
-            toolActivityCanExpand &&
-            _isToolActivityExpanded)
-          Positioned.fill(
-            child: GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onTap: () => _setToolActivityExpanded(false),
-            ),
-          ),
         if (showToolActivityStrip)
           Positioned(
             left: overlayAnchor?.rect.left ?? 24,
@@ -1503,16 +1477,19 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
             bottom: overlayAnchor?.bottom ?? 0,
             child: _buildNormalSurfaceTransition(
               viewportWidth: constraints.maxWidth,
-              child: ChatToolActivityStrip(
-                messages: toolActivityMessages,
-                showPreviewThumbnail: toolActivitySnapshot.isActiveRun,
-                openActiveCardOnTap: isPinnedCompletedToolActivity,
-                anchorRect: overlayAnchor?.rect,
-                onOccupiedHeightChanged: _scheduleToolActivityInsetSync,
-                expanded: _isToolActivityExpanded,
-                onExpandedChanged: _setToolActivityExpanded,
-                suppressSurfaceShadow: suppressToolActivitySurfaceShadow,
-                onStopToolCall: _handleToolActivityStopRequested,
+              child: KeyedSubtree(
+                key: _toolActivityStripKey,
+                child: ChatToolActivityStrip(
+                  messages: toolActivityMessages,
+                  showPreviewThumbnail: toolActivitySnapshot.isActiveRun,
+                  openActiveCardOnTap: isPinnedCompletedToolActivity,
+                  anchorRect: overlayAnchor?.rect,
+                  onOccupiedHeightChanged: _scheduleToolActivityInsetSync,
+                  expanded: _isToolActivityExpanded,
+                  onExpandedChanged: _setToolActivityExpanded,
+                  suppressSurfaceShadow: suppressToolActivitySurfaceShadow,
+                  onStopToolCall: _handleToolActivityStopRequested,
+                ),
               ),
             ),
           ),
@@ -1912,24 +1889,20 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
 
   @override
   Widget build(BuildContext context) {
-    const edgeInset = 24.0;
     final mediaQuery = MediaQuery.of(context);
     final isHdPadLandscape = _isHdPadLandscapeForMediaQuery(mediaQuery);
     final bottomInset = mediaQuery.viewInsets.bottom;
     final viewPaddingBottom = mediaQuery.viewPadding.bottom;
     final shouldLiftComposerForKeyboard =
         _inputFocusNode.hasFocus || _editingUserMessageId != null;
-    final composerKeyboardLift = shouldLiftComposerForKeyboard
-        ? bottomInset
-        : 0.0;
-    final inputBottomPadding =
-        (viewPaddingBottom + edgeInset - composerKeyboardLift)
-            .clamp(0.0, edgeInset)
-            .toDouble();
-    final keyboardSpacer = resolveChatComposerKeyboardSpacer(
+    final composerKeyboardMetrics = _composerKeyboardMetricsTracker.update(
       shouldLiftComposerForKeyboard: shouldLiftComposerForKeyboard,
       bottomInset: bottomInset,
+      viewPaddingBottom: viewPaddingBottom,
+      safeAreaBottomPadding: mediaQuery.padding.bottom,
     );
+    final inputBottomPadding = composerKeyboardMetrics.inputBottomPadding;
+    final keyboardSpacer = composerKeyboardMetrics.keyboardSpacer;
     final commandPanelBottomOffset =
         (_popupMenuBottomOffset() + inputBottomPadding + keyboardSpacer + 6)
             .toDouble();
@@ -1945,6 +1918,13 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
               canPop: false,
               onPopInvokedWithResult: (didPop, _) {
                 if (didPop) return;
+                // 模型选择器是 OverlayEntry，不在 Navigator 栈里，普通 pop
+                // 不会关掉它；这里手动关，让系统返回手势先吃掉它再走原本的退出逻辑。
+                if (_conversationModelSelectorOverlayEntry != null) {
+                  _conversationModelSelectorOverlayEntry?.remove();
+                  _conversationModelSelectorOverlayEntry = null;
+                  return;
+                }
                 if (isHdPadLandscape &&
                     !_hdPadRightPaneCollapsed &&
                     _workspaceBrowserCanGoUp) {
@@ -2720,7 +2700,14 @@ class _ContextThresholdSheetState extends State<_ContextThresholdSheet> {
   bool _isSaving = false;
   int? _queuedThreshold;
 
-  static const List<int> _presets = <int>[32000, 64000, 128000, 256000, 512000];
+  static const List<int> _presets = <int>[
+    32000,
+    64000,
+    128000,
+    256000,
+    512000,
+    1000000,
+  ];
 
   @override
   void initState() {
@@ -2886,6 +2873,12 @@ class _ContextThresholdSheetState extends State<_ContextThresholdSheet> {
   }
 
   String _formatThresholdLabel(int threshold) {
+    if (threshold >= 1000000) {
+      final millions = threshold / 1000000;
+      return millions % 1 == 0
+          ? '${millions.toStringAsFixed(0)}M'
+          : '${millions.toStringAsFixed(1)}M';
+    }
     if (threshold >= 1000) {
       final kilo = threshold / 1000;
       return kilo % 1 == 0

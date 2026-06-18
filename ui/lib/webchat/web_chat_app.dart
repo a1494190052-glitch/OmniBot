@@ -9,19 +9,20 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:ui/features/home/pages/chat/utils/agent_run_timeline.dart';
-import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_summary_card.dart';
 import 'package:ui/l10n/generated/app_localizations.dart';
 import 'package:ui/models/agent_stream_event.dart';
 import 'package:ui/models/chat_message_model.dart';
 import 'package:ui/models/conversation_model.dart';
 import 'package:ui/l10n/l10n.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
+import 'package:ui/features/home/pages/chat/utils/agent_run_timeline.dart';
 import 'package:ui/services/agent_tool_card_projection.dart';
 import 'package:ui/services/agent_stream_run_projection.dart';
 import 'package:ui/services/agent_stream_meta.dart';
 import 'package:ui/services/agent_tool_card_policy.dart' as tool_policy;
 import 'package:ui/webchat/web_backends.dart';
+import 'package:ui/webchat/web_chat_cards.dart';
+import 'package:ui/webchat/web_chat_fonts.dart';
 
 enum _ShellSection { chat, workspace, browser }
 
@@ -94,7 +95,17 @@ class WebChatApp extends StatelessWidget {
           brightness: Brightness.light,
         ),
         scaffoldBackgroundColor: _kPageBackground,
-        fontFamily: 'PingFang SC',
+        fontFamily: WebChatFonts.family,
+        fontFamilyFallback: const <String>[
+          'PingFang SC',
+          'Microsoft YaHei',
+          'Hiragino Sans GB',
+          'Noto Sans CJK SC',
+          'WenQuanYi Micro Hei',
+          'Roboto',
+          'Arial',
+          'sans-serif',
+        ],
       ),
       home: const _WebChatHome(),
     );
@@ -2652,10 +2663,7 @@ class _WebChatHomeState extends State<_WebChatHome> {
     if (message.type == 2) {
       return Container(
         margin: const EdgeInsets.only(top: 8, bottom: 0),
-        child: _buildCard(
-          context,
-          message.cardData ?? const <String, dynamic>{},
-        ),
+        child: _buildCard(context, message),
       );
     }
     final isUser = message.user == 1;
@@ -2900,76 +2908,22 @@ class _WebChatHomeState extends State<_WebChatHome> {
     );
   }
 
-  Widget _buildCard(BuildContext context, Map<String, dynamic> cardData) {
-    final type = (cardData['type'] ?? '').toString();
-    switch (type) {
-      case 'deep_thinking':
-        return Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF8FBFF),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: const Color(0xFFD6E4FA)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Icon(Icons.psychology_alt_outlined, size: 18),
-                  const SizedBox(width: 8),
-                  Text(
-                    (cardData['stage'] == 4 || cardData['isLoading'] == false)
-                        ? (AppTextLocalizer.choose(
-                            en: 'Thinking complete',
-                            zh: '思考完成',
-                          ))
-                        : (AppTextLocalizer.choose(
-                            en: 'Thinking...',
-                            zh: '正在思考',
-                          )),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: _kPrimaryText,
-                    ),
-                  ),
-                  const Spacer(),
-                  if (cardData['isLoading'] == true)
-                    const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              SelectableText(
-                (cardData['thinkingContent'] ?? '').toString().trim().isEmpty
-                    ? (AppTextLocalizer.choose(
-                        en: 'Generating thinking content...',
-                        zh: '正在生成思考内容...',
-                      ))
-                    : (cardData['thinkingContent'] ?? '').toString(),
-                style: const TextStyle(color: _kSecondaryText, height: 1.55),
-              ),
-            ],
-          ),
-        );
-      case tool_policy.kAgentToolSummaryCardType:
-        return AgentToolSummaryCard(cardData: cardData);
-      default:
-        return Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: const Color(0xFFE3EAF7)),
-          ),
-          child: SelectableText(jsonEncode(cardData)),
-        );
-    }
+  Widget _buildCard(BuildContext context, ChatMessageModel message) {
+    final cardData = Map<String, dynamic>.from(
+      message.cardData ?? const <String, dynamic>{},
+    );
+    // Mirror native message_bubble.dart so the thinking/tool cards key off the
+    // same identifier the in-app chat uses.
+    cardData.putIfAbsent('cardId', () => message.contentId ?? message.id);
+    return SizedBox(
+      width: double.infinity,
+      child: WebChatCards.createCard(
+        cardData,
+        enableThinkingCollapse: true,
+        thinkingAutoCollapseOnComplete: true,
+        parentScrollController: _chatScrollController,
+      ),
+    );
   }
 
   List<Map<String, dynamic>> _extractAttachments(ChatMessageModel message) {

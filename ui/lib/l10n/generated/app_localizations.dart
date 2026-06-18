@@ -608,6 +608,42 @@ abstract class AppLocalizations {
   /// **'效果调整'**
   String get appearanceAdjustments;
 
+  /// No description provided for @appearanceFontEffectsTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'字体效果'**
+  String get appearanceFontEffectsTitle;
+
+  /// No description provided for @appearanceFontEffectsSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'为中文和英文界面加载更精细的字体组合'**
+  String get appearanceFontEffectsSubtitle;
+
+  /// No description provided for @appearanceEnhanceFontEffects.
+  ///
+  /// In zh, this message translates to:
+  /// **'提升字体效果'**
+  String get appearanceEnhanceFontEffects;
+
+  /// No description provided for @appearanceEnhanceFontEffectsSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'默认关闭；开启后会自动下载字体并缓存到本地，之后离线也可继续使用。'**
+  String get appearanceEnhanceFontEffectsSubtitle;
+
+  /// No description provided for @appearanceEnhanceFontEffectsLoading.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在加载字体…'**
+  String get appearanceEnhanceFontEffectsLoading;
+
+  /// No description provided for @appearanceEnhanceFontEffectsFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'字体加载失败，请稍后重试'**
+  String get appearanceEnhanceFontEffectsFailed;
+
   /// No description provided for @appearancePreviewChat.
   ///
   /// In zh, this message translates to:

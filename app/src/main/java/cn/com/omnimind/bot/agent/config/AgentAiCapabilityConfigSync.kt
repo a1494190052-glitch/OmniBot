@@ -5,6 +5,7 @@ import android.os.FileObserver
 import cn.com.omnimind.baselib.llm.DeepSeekProvider
 import cn.com.omnimind.baselib.llm.ModelProviderConfigStore
 import cn.com.omnimind.baselib.llm.ModelProviderProfile
+import cn.com.omnimind.baselib.llm.OpenAiWireApi
 import cn.com.omnimind.baselib.llm.SceneModelBindingEntry
 import cn.com.omnimind.baselib.llm.SceneModelBindingStore
 import cn.com.omnimind.baselib.llm.SceneVoiceConfig
@@ -33,7 +34,8 @@ private data class AgentAiCapabilityProviderSnapshot(
     val name: String = "",
     val baseUrl: String = "",
     val apiKey: String = "",
-    val protocolType: String = "openai_compatible"
+    val protocolType: String = "openai_compatible",
+    val wireApi: String = "chat_completions"
 )
 
 private data class AgentAiCapabilitySceneModelSnapshot(
@@ -70,7 +72,8 @@ private data class AgentAiCapabilityProviderPartial(
     val name: String? = null,
     val baseUrl: String? = null,
     val apiKey: String? = null,
-    val protocolType: String? = null
+    val protocolType: String? = null,
+    val wireApi: String? = null
 )
 
 class AgentAiCapabilityConfigSync private constructor(
@@ -279,7 +282,8 @@ class AgentAiCapabilityConfigSync private constructor(
                     name = profile.name,
                     baseUrl = profile.baseUrl,
                     apiKey = profile.apiKey,
-                    protocolType = profile.protocolType
+                    protocolType = profile.protocolType,
+                    wireApi = profile.wireApi
                 )
             }
         val sceneModels = linkedMapOf<String, AgentAiCapabilitySceneModelSnapshot>()
@@ -314,7 +318,8 @@ class AgentAiCapabilityConfigSync private constructor(
                     name = provider.name.trim(),
                     baseUrl = provider.baseUrl.trim(),
                     apiKey = provider.apiKey.trim(),
-                    protocolType = normalizeProtocolType(provider.protocolType)
+                    protocolType = normalizeProtocolType(provider.protocolType),
+                    wireApi = OpenAiWireApi.normalize(provider.wireApi)
                 )
             },
             editingProfileId = snapshot.currentProviderId
@@ -386,7 +391,8 @@ class AgentAiCapabilityConfigSync private constructor(
                     name = provider.name?.trim().orEmpty(),
                     baseUrl = provider.baseUrl?.trim().orEmpty(),
                     apiKey = provider.apiKey?.trim().orEmpty(),
-                    protocolType = normalizeProtocolType(provider.protocolType)
+                    protocolType = normalizeProtocolType(provider.protocolType),
+                    wireApi = OpenAiWireApi.normalize(provider.wireApi)
                 )
             } ?: fallback.providers,
             sceneModels = sceneModels,

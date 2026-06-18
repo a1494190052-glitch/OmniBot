@@ -2,6 +2,7 @@ package cn.com.omnimind.bot.manager
 
 import cn.com.omnimind.baselib.llm.ModelProviderProfile
 import cn.com.omnimind.assists.api.bean.TaskParams
+import cn.com.omnimind.bot.agent.AgentModelOverride
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -62,6 +63,29 @@ class AssistsCoreManagerChatOnlyTest {
         assertEquals("https://example.com/v1", result?.apiBase)
         assertEquals("secret", result?.apiKey)
         assertEquals("openai_compatible", result?.protocolType)
+        assertNull(result?.contextLimit)
+    }
+
+    @Test
+    fun `resolveChatTaskModelOverride preserves contextLimit from payload`() {
+        val result = resolveChatTaskModelOverride(
+            raw = mapOf(
+                "providerProfileId" to "provider-1",
+                "modelId" to "claude-fable-5",
+                "contextLimit" to 1000000
+            )
+        ) { id ->
+            ModelProviderProfile(
+                id = id,
+                name = "Provider One",
+                baseUrl = "https://api.anthropic.com",
+                apiKey = "secret",
+                protocolType = "anthropic"
+            )
+        }
+
+        assertNotNull(result)
+        assertEquals(1000000, result?.contextLimit)
     }
 
     @Test
@@ -187,7 +211,8 @@ class AssistsCoreManagerChatOnlyTest {
                 modelId = "gpt-5.4-mini",
                 apiBase = "https://example.com/v1",
                 apiKey = "secret",
-                protocolType = "openai_compatible"
+                protocolType = "openai_compatible",
+                contextLimit = 1000000
             )
         )
 
@@ -197,6 +222,29 @@ class AssistsCoreManagerChatOnlyTest {
         assertEquals("https://example.com/v1", result?.apiBase)
         assertEquals("secret", result?.apiKey)
         assertEquals("openai_compatible", result?.protocolType)
+        assertEquals(1000000, result?.contextLimit)
+    }
+
+    @Test
+    fun `resolvePromptTokenThresholdFallback prefers stored threshold then model contextLimit`() {
+        val override = TaskParams.ChatModelOverride(
+            providerProfileId = "provider-1",
+            modelId = "claude-fable-5",
+            apiBase = "https://api.anthropic.com",
+            apiKey = "secret",
+            protocolType = "anthropic",
+            contextLimit = 1000000
+        )
+
+        assertEquals(256000, resolvePromptTokenThresholdFallback(256000, override))
+        assertEquals(1000000, resolvePromptTokenThresholdFallback(null, override))
+        assertEquals(
+            128000,
+            resolvePromptTokenThresholdFallback(
+                null,
+                override.copy(contextLimit = null)
+            )
+        )
     }
 
     @Test
@@ -205,7 +253,59 @@ class AssistsCoreManagerChatOnlyTest {
         assertEquals("no", normalizeReasoningEffort(" NO "))
         assertEquals("low", normalizeReasoningEffort(" low "))
         assertEquals("high", normalizeReasoningEffort("HIGH"))
+        assertEquals("xhigh", normalizeReasoningEffort(" xhigh "))
+        assertEquals("max", normalizeReasoningEffort("MAX"))
         assertNull(normalizeReasoningEffort("medium"))
         assertNull(normalizeReasoningEffort(""))
+    }
+
+    @Test
+    fun `resolveAgentReasoningEffort defaults to max only for official deepseek targets`() {
+        val officialDeepSeekOverride = AgentModelOverride(
+            providerProfileId = "deepseek-official",
+            providerProfileName = "DeepSeek",
+            modelId = "deepseek-reasoner",
+            apiBase = "https://api.deepseek.com/v1",
+            apiKey = "secret",
+            protocolType = "deepseek"
+        )
+        val nonDeepSeekProfile = ModelProviderProfile(
+            id = "provider-1",
+            name = "Provider One",
+            baseUrl = "https://example.com/v1",
+            apiKey = "secret",
+            protocolType = "openai_compatible"
+        )
+
+        assertEquals("max", resolveAgentReasoningEffort(null, officialDeepSeekOverride))
+        assertEquals(
+            "max",
+            resolveAgentReasoningEffort(
+                reasoningEffort = null,
+                modelOverride = null,
+                fallbackProfile = ModelProviderProfile(
+                    id = "deepseek-official",
+                    name = "DeepSeek",
+                    baseUrl = "https://api.deepseek.com",
+                    apiKey = "secret",
+                    protocolType = "deepseek"
+                )
+            )
+        )
+        assertEquals(
+            "low",
+            resolveAgentReasoningEffort("low", officialDeepSeekOverride)
+        )
+        assertEquals(
+            "no",
+            resolveAgentReasoningEffort("no", officialDeepSeekOverride)
+        )
+        assertNull(
+            resolveAgentReasoningEffort(
+                reasoningEffort = null,
+                modelOverride = null,
+                fallbackProfile = nonDeepSeekProfile
+            )
+        )
     }
 }

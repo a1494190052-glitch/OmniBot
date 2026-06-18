@@ -48,6 +48,7 @@ import 'package:ui/services/device_service.dart';
 import 'package:ui/services/home_greeting_settings_service.dart';
 import 'package:ui/services/link_preview_service.dart';
 import 'package:ui/services/model_provider_config_service.dart';
+import 'package:ui/services/model_vendor_catalog.dart';
 import 'package:ui/services/omnibot_resource_service.dart';
 import 'package:ui/services/permission_registry.dart';
 import 'package:ui/services/permission_service.dart';
@@ -64,6 +65,7 @@ import 'package:ui/features/home/pages/chat/utils/chat_card_message_helpers.dart
 import 'package:ui/features/home/pages/chat/utils/omniflow_tool_profile_router.dart';
 import 'package:ui/features/home/pages/chat/utils/codex_slash_commands.dart';
 import 'package:ui/features/home/pages/chat/utils/deep_thinking_persistence.dart';
+import 'package:ui/features/home/pages/chat/utils/composer_keyboard_metrics_tracker.dart';
 import 'package:ui/features/home/pages/chat/utils/keyboard_inset_motion_tracker.dart';
 import 'package:ui/features/home/pages/codex/codex_remote_directory_picker.dart';
 import 'package:ui/features/home/pages/codex/codex_remote_workspace_browser.dart';
@@ -89,6 +91,7 @@ import 'package:ui/widgets/app_update_dialog.dart';
 import 'package:ui/widgets/app_background_widgets.dart';
 import 'package:ui/widgets/glass_popup.dart';
 import 'package:ui/widgets/omni_glass.dart';
+import 'package:ui/widgets/provider_vendor_icon.dart';
 
 part 'chat_page_browser.dart';
 part 'chat_page_lifecycle.dart';
@@ -144,6 +147,14 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   final GlobalKey<HomeDrawerState> _drawerKey = GlobalKey<HomeDrawerState>();
   final GlobalKey _browserOverlayKey = GlobalKey();
   final GlobalKey _slashCommandStripKey = GlobalKey();
+  final GlobalKey _toolActivityStripKey = GlobalKey();
+
+  /// 模型选择器走 OverlayEntry，不走 Navigator.push。
+  /// 理由：[Navigator.push] → [ModalRoute.didPush] 会调 `setFirstFocus`
+  /// (条件是 **Navigator** 的 `requestFocus`,Route 的 `requestFocus` 不起作用)，
+  /// 把焦点从输入框抢走 → 软键盘塌陷 → 输入栏下沉 → popup 锚点错位。
+  /// 用 Overlay 直接挂面板可以彻底跳过这条路径。
+  OverlayEntry? _conversationModelSelectorOverlayEntry;
 
   // ===================== State =====================
   bool _isPopupVisible = false;
@@ -200,10 +211,11 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     ChatPageMode.openclaw: '',
     ChatPageMode.codex: '',
   };
-  bool _isApplyingDraftToMessageController = false;
+  final ComposerKeyboardMetricsTracker _composerKeyboardMetricsTracker =
+      ComposerKeyboardMetricsTracker();
   final Map<ChatPageMode, ChatIslandDisplayLayer>
   _chatIslandDisplayLayerByMode = {
-    ChatPageMode.normal: ChatIslandDisplayLayer.tools,
+    ChatPageMode.normal: ChatIslandDisplayLayer.mode,
     ChatPageMode.openclaw: ChatIslandDisplayLayer.mode,
     ChatPageMode.codex: ChatIslandDisplayLayer.mode,
   };
@@ -373,9 +385,6 @@ abstract class _ChatPageStateBase extends State<ChatPage>
       'chat_hd_pad_right_pane_width';
   static const String _workspaceCachedDirectoryKey =
       'omnibot_workspace_cached_directory_v1';
-  static const Duration _normalSurfaceModelRevealDelay = Duration(
-    milliseconds: 1700,
-  );
   final GlobalKey<OmnibotWorkspaceBrowserState> _workspaceBrowserKey =
       GlobalKey<OmnibotWorkspaceBrowserState>();
   bool _workspaceBrowserCanGoUp = false;
@@ -435,8 +444,6 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   int? _pageGesturePointerId;
   double _pageHorizontalDragDelta = 0;
   double _pageVerticalDragDelta = 0;
-  Timer? _normalSurfaceModelRevealTimer;
-  bool _normalSurfaceModelRevealInterrupted = false;
   int _surfaceSwitchRequestId = 0;
   bool _isSurfacePageScrolling = false;
   final HdPadPaneLayoutResolver _hdPadPaneLayoutResolver =
@@ -563,12 +570,16 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     _conversationLifecycleGuard.invalidate();
   }
 
-  ChatIslandDisplayLayer _chatIslandDisplayLayerForMode(ChatPageMode mode) =>
-      _runtimeForMode(mode)?.chatIslandDisplayLayer ??
-      (_chatIslandDisplayLayerByMode[mode] ??
-          (mode == ChatPageMode.normal
-              ? ChatIslandDisplayLayer.tools
-              : ChatIslandDisplayLayer.mode));
+  ChatIslandDisplayLayer _chatIslandDisplayLayerForMode(ChatPageMode mode) {
+    final stored =
+        _runtimeForMode(mode)?.chatIslandDisplayLayer ??
+        _chatIslandDisplayLayerByMode[mode];
+    if (stored != null) {
+      return stored;
+    }
+    return ChatIslandDisplayLayer.mode;
+  }
+
   bool get _isOpenClawSurface => _activeSurfaceMode == ChatSurfaceMode.openclaw;
   bool get _isWorkspaceSurface =>
       _activeSurfaceMode == ChatSurfaceMode.workspace ||
@@ -1027,105 +1038,30 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     _chatIslandDisplayLayerByMode[_activeMode] = value;
   }
 
-  void _cancelNormalSurfaceModelReveal() {
-    _normalSurfaceModelRevealTimer?.cancel();
-    _normalSurfaceModelRevealTimer = null;
-  }
-
-  void _interruptNormalSurfaceModelReveal() {
-    _cancelNormalSurfaceModelReveal();
-    _normalSurfaceModelRevealInterrupted = true;
-  }
-
-  void _resetNormalSurfaceModelRevealInterruption() {
-    _normalSurfaceModelRevealInterrupted = false;
-  }
-
-  bool _canAutoRevealNormalSurfaceModel() {
-    // The Home top island is now the global Chat / Workspace / Project entry.
-    // Keep that switcher visible until the user explicitly swipes to model/tools.
-    return false;
-  }
-
-  void _scheduleNormalSurfaceModelReveal() {
-    _cancelNormalSurfaceModelReveal();
-    if (!_canAutoRevealNormalSurfaceModel()) {
-      return;
-    }
-    _normalSurfaceModelRevealTimer = Timer(_normalSurfaceModelRevealDelay, () {
-      _normalSurfaceModelRevealTimer = null;
-      if (!mounted || !_canAutoRevealNormalSurfaceModel()) {
-        return;
-      }
-      setState(() {
-        _setChatIslandDisplayLayerForMode(
-          ChatPageMode.normal,
-          ChatIslandDisplayLayer.model,
-        );
-      });
-    });
-  }
-
-  void _forceNormalSurfaceToolLayer() {
-    if (_chatIslandDisplayLayerForMode(ChatPageMode.normal) ==
-        ChatIslandDisplayLayer.tools) {
-      return;
-    }
-    _setChatIslandDisplayLayerForMode(
-      ChatPageMode.normal,
-      ChatIslandDisplayLayer.tools,
-    );
-  }
-
   void _handleSurfaceScrollStart() {
-    _cancelNormalSurfaceModelReveal();
     if (!mounted) {
       _isSurfacePageScrolling = true;
-      _forceNormalSurfaceToolLayer();
       return;
     }
-    if (_isSurfacePageScrolling &&
-        _chatIslandDisplayLayerForMode(ChatPageMode.normal) ==
-            ChatIslandDisplayLayer.tools) {
+    if (_isSurfacePageScrolling) {
       return;
     }
     setState(() {
       _isSurfacePageScrolling = true;
-      _forceNormalSurfaceToolLayer();
     });
   }
 
-  void _handleSurfaceScrollSettled(ChatSurfaceMode mode) {
-    _cancelNormalSurfaceModelReveal();
+  void _handleSurfaceScrollSettled() {
     if (!mounted) {
       _isSurfacePageScrolling = false;
-      if (mode == ChatSurfaceMode.normal) {
-        _resetNormalSurfaceModelRevealInterruption();
-        _forceNormalSurfaceToolLayer();
-      }
       return;
     }
-    final shouldSettleState =
-        _isSurfacePageScrolling ||
-        (mode == ChatSurfaceMode.normal &&
-            _chatIslandDisplayLayerForMode(ChatPageMode.normal) !=
-                ChatIslandDisplayLayer.tools);
-    if (shouldSettleState) {
+    if (_isSurfacePageScrolling) {
       setState(() {
         _isSurfacePageScrolling = false;
-        if (mode == ChatSurfaceMode.normal) {
-          _resetNormalSurfaceModelRevealInterruption();
-          _forceNormalSurfaceToolLayer();
-        }
       });
     } else {
       _isSurfacePageScrolling = false;
-      if (mode == ChatSurfaceMode.normal) {
-        _resetNormalSurfaceModelRevealInterruption();
-      }
-    }
-    if (mode == ChatSurfaceMode.normal) {
-      _scheduleNormalSurfaceModelReveal();
     }
   }
 
@@ -1147,14 +1083,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
       return false;
     }
     if (notification is ScrollEndNotification) {
-      final pageMetrics = notification.metrics;
-      final rawPage = pageMetrics is PageMetrics
-          ? pageMetrics.page
-          : _safeModePageControllerPage;
-      final settledPageIndex =
-          (rawPage ?? _pageIndexForSurface(_activeSurfaceMode).toDouble())
-              .round();
-      _handleSurfaceScrollSettled(_surfaceForPageIndex(settledPageIndex));
+      _handleSurfaceScrollSettled();
     }
     return false;
   }
@@ -1326,6 +1255,17 @@ abstract class _ChatPageStateBase extends State<ChatPage>
       return defaultModel;
     }
     return null;
+  }
+
+  bool get _hasSelectableNormalChatModels {
+    return _modelProviderProfiles.any((profile) {
+      if (!profile.configured) {
+        return false;
+      }
+      final models =
+          _modelOptionsByProfileId[profile.id] ?? const <ProviderModelOption>[];
+      return models.isNotEmpty;
+    });
   }
 
   _ChatModelOverrideSelection? get _activeDispatchSceneSelection {
@@ -1748,9 +1688,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     _currentConversationByMode[mode] = null;
     _isInputAreaVisibleByMode[mode] = true;
     _isExecutingTaskByMode[mode] = false;
-    _chatIslandDisplayLayerByMode[mode] = mode == ChatPageMode.normal
-        ? ChatIslandDisplayLayer.tools
-        : ChatIslandDisplayLayer.mode;
+    _chatIslandDisplayLayerByMode[mode] = ChatIslandDisplayLayer.mode;
     _lastAgentToolTypeByMode[mode] = null;
     _runtimeChromeSignatureByMode[mode] = '';
     _runtimeMessageMutationRevisionByMode[mode] = 0;

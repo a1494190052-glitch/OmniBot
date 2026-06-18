@@ -22,6 +22,123 @@ enum GlassPopupHorizontalPlacement {
   centerOnScreen,
 }
 
+/// 给 OverlayEntry 场景用的玻璃 popup 包装：复用 [GlassPopupRoute] 的定位
+/// 算法和 unfold 动画，但不走 [Navigator]。
+///
+/// 为什么不走 Navigator：在输入框聚焦+软键盘弹起时打开菜单，[Navigator.push] →
+/// [ModalRoute.didPush] 会调 `setFirstFocus` 把焦点从 TextField 抢到 popup 的
+/// FocusScope 上，TextField 失焦 → 软键盘塌陷 → 输入栏下沉 → popup 锚点
+/// (popup 弹出瞬间按按钮屏幕坐标算出来的 [Rect]) 就停在"原来高位置"和按钮错开。
+/// 这里关键的坑是 `ModalRoute.didPush` 里的判断条件是
+/// `navigator.widget.requestFocus`(Navigator 的)，**不是** Route 的——
+/// 所以给 [PopupRoute] 传 `requestFocus: false` 没用。只能彻底跳过 Navigator。
+///
+/// 用法：把这个 widget 放进 [OverlayEntry]，传一个
+/// `GlobalKey<GlassPopupOverlayContentState>`。选完之后调
+/// [GlassPopupOverlayContentState.playReverse] 播完收起动画再把 entry 从
+/// overlay 里 `remove()`。
+class GlassPopupOverlayContent extends StatefulWidget {
+  const GlassPopupOverlayContent({
+    super.key,
+    required this.anchor,
+    required this.child,
+    this.preferBelow = true,
+    this.verticalGap = 6,
+    this.screenPadding = const EdgeInsets.all(8),
+    this.unfoldAlignment,
+    this.horizontalPlacement = GlassPopupHorizontalPlacement.edgeAlign,
+    this.duration = const Duration(milliseconds: 380),
+    this.reverseDuration = const Duration(milliseconds: 220),
+    this.curve = Curves.easeOutCubic,
+    this.reverseCurve = Curves.easeInCubic,
+  });
+
+  final Rect anchor;
+  final Widget child;
+  final bool preferBelow;
+  final double verticalGap;
+  final EdgeInsets screenPadding;
+  final Alignment? unfoldAlignment;
+  final GlassPopupHorizontalPlacement horizontalPlacement;
+  final Duration duration;
+  final Duration reverseDuration;
+  final Curve curve;
+  final Curve reverseCurve;
+
+  @override
+  State<GlassPopupOverlayContent> createState() =>
+      GlassPopupOverlayContentState();
+}
+
+class GlassPopupOverlayContentState extends State<GlassPopupOverlayContent>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  final ValueNotifier<Alignment> _alignmentNotifier =
+      ValueNotifier<Alignment>(Alignment.topCenter);
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: widget.duration,
+      reverseDuration: widget.reverseDuration,
+    );
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _alignmentNotifier.dispose();
+    super.dispose();
+  }
+
+  /// 触发收起动画。返回的 [Future] 在动画完成时 resolve；调用方应该接着把外层
+  /// [OverlayEntry] 从 [Overlay] 中 `remove()`。
+  Future<void> playReverse() async {
+    if (!mounted) return;
+    try {
+      await _controller.reverse();
+    } on TickerCanceled {
+      // 收起途中被 dispose,正常退出。
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mediaQuery = MediaQuery.of(context);
+    return CustomSingleChildLayout(
+      delegate: _GlassPopupLayoutDelegate(
+        anchor: widget.anchor,
+        preferBelow: widget.preferBelow,
+        verticalGap: widget.verticalGap,
+        screenPadding: widget.screenPadding,
+        mediaPadding: mediaQuery.padding,
+        textDirection: Directionality.of(context),
+        explicitUnfoldAlignment: widget.unfoldAlignment,
+        horizontalPlacement: widget.horizontalPlacement,
+        onAlignmentResolved: (alignment) {
+          if (_alignmentNotifier.value != alignment) {
+            scheduleMicrotask(() {
+              if (mounted && _alignmentNotifier.value != alignment) {
+                _alignmentNotifier.value = alignment;
+              }
+            });
+          }
+        },
+      ),
+      child: _GlassPopupAnimatedFrame(
+        animation: _controller.view,
+        alignmentNotifier: _alignmentNotifier,
+        curve: widget.curve,
+        reverseCurve: widget.reverseCurve,
+        child: widget.child,
+      ),
+    );
+  }
+}
+
 /// 玻璃风格 popup 的统一入口。
 ///
 /// 设计目标：还原 Android 原生 PopupMenu 的"从 anchor 一侧的角先展宽、再展高、

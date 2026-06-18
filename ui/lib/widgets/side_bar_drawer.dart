@@ -13,6 +13,8 @@ import '../services/assists_core_service.dart';
 import '../services/conversation_service.dart';
 import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
+import 'package:ui/l10n/legacy_text_localizer.dart';
+import 'package:ui/theme/app_font_effect_scope.dart';
 
 class SidebarDrawer extends StatefulWidget {
   const SidebarDrawer({super.key});
@@ -23,10 +25,9 @@ class SidebarDrawer extends StatefulWidget {
 
 class _SidebarDrawerState extends State<SidebarDrawer> {
   int avatarIndex = 0;
-  String nickname = AppTextLocalizer.choose(
-    en: "Usernamexxxxx",
-    zh: "用户名xxxxx",
-  );
+  String nickname = LegacyTextLocalizer.isEnglish
+      ? "Usernamexxxxx"
+      : "用户名xxxxx";
   final List<String> presetAvatars = [
     'assets/avatar/default_avatar1.png',
     'assets/avatar/default_avatar2.png',
@@ -65,7 +66,7 @@ class _SidebarDrawerState extends State<SidebarDrawer> {
       avatarIndex = prefs.getInt('avatarIndex') ?? 0;
       nickname =
           prefs.getString('nickname') ??
-          (AppTextLocalizer.choose(en: "Usernamexxxxx", zh: "用户名xxxxx"));
+          (LegacyTextLocalizer.isEnglish ? "Usernamexxxxx" : "用户名xxxxx");
     });
   }
 
@@ -84,26 +85,29 @@ class _SidebarDrawerState extends State<SidebarDrawer> {
 
   @override
   Widget build(BuildContext context) {
+    final isEnglish = Localizations.localeOf(context).languageCode == 'en';
     return Drawer(
-      child: Container(
-        color: Colors.grey[100], // 浅灰色背景
-        child: Column(
-          children: [
-            // 用户信息区域
-            _buildUserHeader(),
+      child: AppFontEffectScope.nonChat(
+        child: Container(
+          color: Colors.grey[100], // 浅灰色背景
+          child: Column(
+            children: [
+              // 用户信息区域
+              _buildUserHeader(),
 
-            // 新建任务按钮
-            _buildNewTaskButton(),
+              // 新建任务按钮
+              _buildNewTaskButton(isEnglish: isEnglish),
 
-            // 功能菜单
-            _buildMenuItems(),
+              // 功能菜单
+              _buildMenuItems(isEnglish: isEnglish),
 
-            // 历史记录区域
-            Expanded(child: _buildHistorySection()),
+              // 历史记录区域
+              Expanded(child: _buildHistorySection(isEnglish: isEnglish)),
 
-            // 底部设置按钮
-            _buildBottomSettings(),
-          ],
+              // 底部设置按钮
+              _buildBottomSettings(),
+            ],
+          ),
         ),
       ),
     );
@@ -158,7 +162,10 @@ class _SidebarDrawerState extends State<SidebarDrawer> {
               nickname,
               style: TextStyle(
                 fontSize: 18,
-                fontWeight: FontWeight.w500,
+                fontWeight: AppFontEffectScope.resolveNonChatWeight(
+                  context,
+                  FontWeight.w500,
+                ),
                 color: Colors.black87,
               ),
             ),
@@ -169,7 +176,7 @@ class _SidebarDrawerState extends State<SidebarDrawer> {
   }
 
   // 新建任务按钮
-  Widget _buildNewTaskButton() {
+  Widget _buildNewTaskButton({required bool isEnglish}) {
     return Container(
       margin: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
       child: Container(
@@ -196,7 +203,10 @@ class _SidebarDrawerState extends State<SidebarDrawer> {
               style: TextStyle(
                 fontSize: 16,
                 color: Colors.grey[700],
-                fontWeight: FontWeight.w500,
+                fontWeight: AppFontEffectScope.resolveNonChatWeight(
+                  context,
+                  FontWeight.w500,
+                ),
               ),
             ),
           ],
@@ -206,7 +216,7 @@ class _SidebarDrawerState extends State<SidebarDrawer> {
   }
 
   // 功能菜单项
-  Widget _buildMenuItems() {
+  Widget _buildMenuItems({required bool isEnglish}) {
     return Container(
       margin: EdgeInsets.symmetric(horizontal: 20, vertical: 5),
       child: Container(
@@ -273,7 +283,10 @@ class _SidebarDrawerState extends State<SidebarDrawer> {
         style: TextStyle(
           fontSize: 16,
           color: Colors.black87,
-          fontWeight: FontWeight.w500,
+          fontWeight: AppFontEffectScope.resolveNonChatWeight(
+            context,
+            FontWeight.w500,
+          ),
         ),
       ),
       trailing: Icon(Icons.chevron_right, color: Colors.grey[400]),
@@ -282,7 +295,7 @@ class _SidebarDrawerState extends State<SidebarDrawer> {
   }
 
   // 历史记录区域
-  Widget _buildHistorySection() {
+  Widget _buildHistorySection({required bool isEnglish}) {
     return Container(
       margin: EdgeInsets.only(top: 20),
       child: Column(
@@ -295,7 +308,10 @@ class _SidebarDrawerState extends State<SidebarDrawer> {
               style: TextStyle(
                 fontSize: 14,
                 color: Colors.grey[600],
-                fontWeight: FontWeight.w500,
+                fontWeight: AppFontEffectScope.resolveNonChatWeight(
+                  context,
+                  FontWeight.w500,
+                ),
               ),
             ),
           ),
@@ -321,7 +337,10 @@ class _SidebarDrawerState extends State<SidebarDrawer> {
                     itemCount: conversations.length,
                     itemBuilder: (context, index) {
                       final conversation = conversations[index];
-                      return _buildHistoryItem(conversation);
+                      return _buildHistoryItem(
+                        conversation,
+                        isEnglish: isEnglish,
+                      );
                     },
                   ),
           ),
@@ -331,7 +350,10 @@ class _SidebarDrawerState extends State<SidebarDrawer> {
   }
 
   // 历史记录单项
-  Widget _buildHistoryItem(ConversationModel conversation) {
+  Widget _buildHistoryItem(
+    ConversationModel conversation, {
+    required bool isEnglish,
+  }) {
     return GestureDetector(
       onTap: () {
         // 点击对话，跳转到全屏聊天页面
@@ -395,7 +417,10 @@ class _SidebarDrawerState extends State<SidebarDrawer> {
                       conversation.title,
                       style: TextStyle(
                         color: Colors.black87,
-                        fontWeight: FontWeight.w400,
+                        fontWeight: AppFontEffectScope.resolveNonChatWeight(
+                          context,
+                          FontWeight.w400,
+                        ),
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -566,23 +591,22 @@ class _RenameConversationDialogState extends State<_RenameConversationDialog> {
       },
       child: AlertDialog(
         title: Text(
-          AppTextLocalizer.choose(en: "Rename conversation", zh: "重命名对话"),
+          LegacyTextLocalizer.isEnglish ? "Rename conversation" : "重命名对话",
         ),
         content: TextField(
           controller: _controller,
           focusNode: _focusNode,
           decoration: InputDecoration(
-            hintText: AppTextLocalizer.choose(
-              en: "Enter new name",
-              zh: "输入新的名称",
-            ),
+            hintText: LegacyTextLocalizer.isEnglish
+                ? "Enter new name"
+                : "输入新的名称",
           ),
           onSubmitted: (_) => _close(_controller.text.trim()),
         ),
         actions: [
           TextButton(
             onPressed: () => _close(),
-            child: Text(AppTextLocalizer.choose(en: "Cancel", zh: "取消")),
+            child: Text(LegacyTextLocalizer.isEnglish ? "Cancel" : "取消"),
           ),
           TextButton(
             onPressed: () => _close(_controller.text.trim()),

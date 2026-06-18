@@ -8,6 +8,11 @@ const String _kPinnedConversationSectionKey = '__home_drawer_pinned__';
 const String _kScheduledConversationSectionKey = '__home_drawer_scheduled__';
 const double _kConversationSectionHeaderLeadingSlotWidth = 20;
 const double _kPromotedConversationItemTitleInset = 20;
+const double _kScheduledConversationLeadingInset = 12;
+const double _kScheduledParentToggleHitWidth = 40;
+const double _kScheduledParentToggleIconSlotWidth = 24;
+const double _kScheduledChildConversationItemInset =
+    _kScheduledConversationLeadingInset + 26;
 const List<String> _kDateHeaderIconAssetPaths = <String>[
   'assets/home/date_header_icons/amphora.svg',
   'assets/home/date_header_icons/apple.svg',
@@ -219,7 +224,10 @@ extension _HomeDrawerConversationList on HomeDrawerState {
                   context.l10n.chatHistoryStartConversation,
                   style: TextStyle(
                     fontSize: 14,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: AppFontEffectScope.resolveNonChatWeight(
+                      context,
+                      FontWeight.w500,
+                    ),
                     color: Theme.of(context).colorScheme.onPrimary,
                   ),
                 ),
@@ -289,7 +297,10 @@ extension _HomeDrawerConversationList on HomeDrawerState {
               context.l10n.homeDrawerNoResults,
               style: TextStyle(
                 fontSize: 14,
-                fontWeight: FontWeight.w500,
+                fontWeight: AppFontEffectScope.resolveNonChatWeight(
+                  context,
+                  FontWeight.w500,
+                ),
                 color: _drawerTextColor,
                 fontFamily: 'PingFang SC',
               ),
@@ -322,7 +333,10 @@ extension _HomeDrawerConversationList on HomeDrawerState {
                   context.l10n.homeDrawerClearSearch,
                   style: TextStyle(
                     fontSize: 12,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: AppFontEffectScope.resolveNonChatWeight(
+                      context,
+                      FontWeight.w500,
+                    ),
                     color: _drawerTextColor,
                     fontFamily: 'PingFang SC',
                   ),
@@ -365,7 +379,10 @@ extension _HomeDrawerConversationList on HomeDrawerState {
               '${results.length} ${context.l10n.homeDrawerResultCount}',
               style: TextStyle(
                 fontSize: 11,
-                fontWeight: FontWeight.w500,
+                fontWeight: AppFontEffectScope.resolveNonChatWeight(
+                  context,
+                  FontWeight.w500,
+                ),
                 color: palette.textTertiary,
                 fontFamily: 'PingFang SC',
               ),
@@ -569,7 +586,7 @@ extension _HomeDrawerConversationList on HomeDrawerState {
       label: context.l10n.homeDrawerScheduledTasks,
       itemCount: itemCount,
       iconAssetPath: 'assets/common/schedule_icon.svg',
-      childrenLeadingInset: 12,
+      childrenLeadingInset: 0,
       backgroundColor: _promotedSectionBackgroundColor,
       children: [
         for (int groupIndex = 0; groupIndex < groups.length; groupIndex++)
@@ -718,63 +735,75 @@ extension _HomeDrawerConversationList on HomeDrawerState {
         borderRadius: BorderRadius.circular(8),
         splashColor: palette.accentPrimary.withValues(alpha: 0.08),
         highlightColor: Colors.transparent,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(4, 8, 2, 8),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              GestureDetector(
-                key: ValueKey<String>(
-                  'home-drawer-scheduled-parent-toggle-${group.parent.threadKey}',
-                ),
-                behavior: HitTestBehavior.opaque,
-                onTap: onToggle,
-                child: SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: Center(
-                    child: AnimatedRotation(
-                      turns: expanded ? 0 : -0.25,
-                      duration: HomeDrawerState._sectionToggleDuration,
-                      curve: Curves.easeInOutCubicEmphasized,
-                      child: SvgPicture.asset(
-                        'assets/common/chevron-down.svg',
-                        width: 16,
-                        height: 16,
-                        colorFilter: ColorFilter.mode(
-                          palette.textTertiary,
-                          BlendMode.srcIn,
+        child: Stack(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(0, 8, 2, 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    width: _kScheduledParentToggleHitWidth,
+                    height: 24,
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: SizedBox(
+                        width: _kScheduledParentToggleIconSlotWidth,
+                        height: 24,
+                        child: Center(
+                          child: AnimatedRotation(
+                            turns: expanded ? 0 : -0.25,
+                            duration: HomeDrawerState._sectionToggleDuration,
+                            curve: Curves.easeInOutCubicEmphasized,
+                            child: SvgPicture.asset(
+                              'assets/common/chevron-down.svg',
+                              width: 16,
+                              height: 16,
+                              colorFilter: ColorFilter.mode(
+                                palette.textTertiary,
+                                BlendMode.srcIn,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
+                  const SizedBox(width: 2),
+                  Expanded(
+                    child: _buildEditableConversationTitle(
+                      title: title,
+                      isEditing: isEditing,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    countText,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: AppFontEffectScope.resolveNonChatWeight(
+                        context,
+                        FontWeight.w500,
+                      ),
+                      color: palette.textTertiary,
+                      fontFamily: 'PingFang SC',
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 2),
-              ConversationStatusIndicator(
-                isRunning: _isConversationRunning(group.parent),
-                compact: true,
+            ),
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: _kScheduledParentToggleHitWidth,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onToggle,
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildEditableConversationTitle(
-                  title: title,
-                  isEditing: isEditing,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                countText,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  color: palette.textTertiary,
-                  fontFamily: 'PingFang SC',
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -785,7 +814,9 @@ extension _HomeDrawerConversationList on HomeDrawerState {
     required bool showDivider,
   }) {
     return Padding(
-      padding: const EdgeInsets.only(left: 26),
+      padding: const EdgeInsets.only(
+        left: _kScheduledChildConversationItemInset,
+      ),
       child: _buildSwipeConversationItem(
         result,
         showDivider: showDivider,
@@ -906,7 +937,10 @@ extension _HomeDrawerConversationList on HomeDrawerState {
               '$itemCount',
               style: TextStyle(
                 fontSize: 11,
-                fontWeight: FontWeight.w500,
+                fontWeight: AppFontEffectScope.resolveNonChatWeight(
+                  context,
+                  FontWeight.w500,
+                ),
                 color: palette.textTertiary.withValues(alpha: 0.82),
                 fontFamily: 'PingFang SC',
               ),
@@ -958,14 +992,6 @@ extension _HomeDrawerConversationList on HomeDrawerState {
                 ? palette.surfaceSecondary
                 : Colors.white,
             shape: BoxShape.circle,
-            boxShadow: [
-              if (!isPrimary && !context.isDarkTheme)
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.05),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-            ],
           ),
           padding: const EdgeInsets.all(8),
           child: SvgPicture.asset(
@@ -1057,7 +1083,10 @@ extension _HomeDrawerConversationList on HomeDrawerState {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 12,
-                          fontWeight: FontWeight.w400,
+                          fontWeight: AppFontEffectScope.resolveNonChatWeight(
+                            context,
+                            FontWeight.w400,
+                          ),
                           color: _drawerSecondaryTextColor,
                           height: 1.4,
                           fontFamily: 'PingFang SC',
@@ -1089,7 +1118,10 @@ extension _HomeDrawerConversationList on HomeDrawerState {
         cursorWidth: 1.5,
         style: TextStyle(
           fontSize: 13,
-          fontWeight: fontWeight,
+          fontWeight: AppFontEffectScope.resolveNonChatWeight(
+            context,
+            fontWeight,
+          ),
           color: _drawerTextColor,
           height: 1.35,
           fontFamily: 'PingFang SC',
@@ -1115,7 +1147,10 @@ extension _HomeDrawerConversationList on HomeDrawerState {
       overflow: TextOverflow.ellipsis,
       style: TextStyle(
         fontSize: 13,
-        fontWeight: fontWeight,
+        fontWeight: AppFontEffectScope.resolveNonChatWeight(
+          context,
+          fontWeight,
+        ),
         color: _drawerTextColor,
         height: 1.35,
         fontFamily: 'PingFang SC',

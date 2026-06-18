@@ -43,7 +43,6 @@ mixin _ChatPageTerminalEnvMixin on _ChatPageStateBase {
     if (_activeMode != ChatPageMode.normal) {
       return;
     }
-    _cancelNormalSurfaceModelReveal();
     if (_showSlashCommandPanel ||
         _showModelMentionPanel ||
         _openClawPanelExpanded) {

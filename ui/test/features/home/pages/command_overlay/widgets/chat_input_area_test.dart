@@ -7,6 +7,8 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/chat_input_area.dart';
 import 'package:ui/services/storage_service.dart';
+import 'package:ui/widgets/glass_popup.dart';
+import 'package:ui/widgets/provider_vendor_icon.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -212,7 +214,7 @@ void main() {
     await tester.tap(
       find.byKey(
         const ValueKey(
-          'chat-input-codex-run-settings-model-option-gpt-5.1-codex',
+          'chat-input-codex-run-settings-option-model-gpt-5.1-codex',
         ),
       ),
     );
@@ -225,11 +227,124 @@ void main() {
 
     await tester.tap(
       find.byKey(
-        const ValueKey('chat-input-codex-run-settings-effort-option-xhigh'),
+        const ValueKey('chat-input-codex-run-settings-option-effort-xhigh'),
       ),
     );
     await tester.pump(const Duration(milliseconds: 300));
     expect(selectedEffort, 'xhigh');
+  });
+
+  testWidgets('normal chat model picker renders inside input actions', (
+    tester,
+  ) async {
+    var opened = false;
+    await tester.pumpWidget(
+      _buildTestApp(
+        contextUsageRatio: null,
+        useLargeComposerStyle: true,
+        modelPickerSettings: ChatModelPickerSettings(
+          modelId: 'gpt-5.4-chat-preview',
+          hasSelectableModels: true,
+          onOpen: (_) {
+            opened = true;
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final modelButton = find.byKey(
+      const ValueKey('chat-input-model-picker-button'),
+    );
+    expect(modelButton, findsOneWidget);
+    expect(find.text('gpt-5.4-chat-preview'), findsNothing);
+    expect(
+      find.descendant(
+        of: modelButton,
+        matching: find.byType(ProviderVendorIcon),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(modelButton);
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(opened, isTrue);
+  });
+
+  testWidgets('disabled normal chat model picker does not open', (
+    tester,
+  ) async {
+    var opened = false;
+    await tester.pumpWidget(
+      _buildTestApp(
+        contextUsageRatio: null,
+        useLargeComposerStyle: true,
+        modelPickerSettings: ChatModelPickerSettings(
+          modelId: 'gpt-5.4',
+          hasSelectableModels: false,
+          onOpen: (_) {
+            opened = true;
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final modelButton = find.byKey(
+      const ValueKey('chat-input-model-picker-button'),
+    );
+    expect(modelButton, findsOneWidget);
+
+    await tester.tap(modelButton);
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(opened, isFalse);
+  });
+
+  testWidgets('normal chat model picker popup can keep input focus', (
+    tester,
+  ) async {
+    final focusNode = FocusNode();
+    OverlayEntry? modelPickerOverlay;
+    addTearDown(focusNode.dispose);
+    addTearDown(() {
+      modelPickerOverlay?.remove();
+      modelPickerOverlay = null;
+    });
+
+    await tester.pumpWidget(
+      _buildTestApp(
+        contextUsageRatio: null,
+        useLargeComposerStyle: true,
+        focusNode: focusNode,
+        modelPickerSettings: ChatModelPickerSettings(
+          modelId: 'gpt-5.4',
+          hasSelectableModels: true,
+          onOpen: (anchorContext) {
+            final anchor = glassPopupAnchorFromContext(anchorContext)!;
+            modelPickerOverlay = OverlayEntry(
+              builder: (_) => GlassPopupOverlayContent(
+                anchor: anchor,
+                child: const SizedBox(width: 120, height: 80),
+              ),
+            );
+            Overlay.of(anchorContext, rootOverlay: true).insert(modelPickerOverlay!);
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+
+    focusNode.requestFocus();
+    await tester.pump();
+    expect(focusNode.hasFocus, isTrue);
+
+    await tester.tap(find.byKey(const ValueKey('chat-input-model-picker-button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(focusNode.hasFocus, isTrue);
   });
 
   testWidgets('large composer codex controls fit on narrow screens', (
@@ -488,6 +603,7 @@ Widget _buildTestApp({
   ValueChanged<CodexPermissionMode>? onCodexPermissionModeChanged,
   CodexRunSettings? codexRunSettings,
   CodexRunSettingsChanged? onCodexRunSettingsChanged,
+  ChatModelPickerSettings? modelPickerSettings,
   String initialText = '',
   FocusNode? focusNode,
 }) {
@@ -505,6 +621,7 @@ Widget _buildTestApp({
           contextUsageRatio: contextUsageRatio,
           onLongPressContextUsageRing: onLongPressContextUsageRing,
           onTriggerSlashCommand: onTriggerSlashCommand,
+          modelPickerSettings: modelPickerSettings,
           codexRunSettings: codexRunSettings,
           onCodexRunSettingsChanged: onCodexRunSettingsChanged,
           codexPermissionMode: codexPermissionMode,

@@ -8,9 +8,11 @@ import 'package:flutter/material.dart';
 import 'package:ui/features/home/pages/command_overlay/services/manual_recording_permission_guard.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/l10n/l10n.dart';
+import 'package:ui/services/model_vendor_catalog.dart';
 import 'package:ui/services/special_permission.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/theme/theme_context.dart';
+import 'package:ui/widgets/provider_vendor_icon.dart';
 import 'package:ui/widgets/glass_popup.dart';
 import 'package:ui/widgets/image_preview_overlay.dart';
 import 'package:ui/widgets/omni_glass.dart';
@@ -59,6 +61,20 @@ class CodexRunSettings {
   final List<String> reasoningEffortOptions;
   final bool isLoadingModels;
   final String? modelListError;
+}
+
+class ChatModelPickerSettings {
+  const ChatModelPickerSettings({
+    required this.modelId,
+    required this.hasSelectableModels,
+    required this.onOpen,
+    this.onPointerDown,
+  });
+
+  final String modelId;
+  final bool hasSelectableModels;
+  final FutureOr<void> Function(BuildContext anchorContext) onOpen;
+  final VoidCallback? onPointerDown;
 }
 
 class ChatInputAttachment {
@@ -130,6 +146,7 @@ class ChatInputArea extends StatefulWidget {
   final double? contextUsageRatio;
   final String? contextUsageTooltipMessage;
   final VoidCallback? onLongPressContextUsageRing;
+  final ChatModelPickerSettings? modelPickerSettings;
   final CodexRunSettings? codexRunSettings;
   final CodexRunSettingsChanged? onCodexRunSettingsChanged;
   final FutureOr<void> Function()? onCodexRunSettingsOpened;
@@ -168,6 +185,7 @@ class ChatInputArea extends StatefulWidget {
     this.contextUsageRatio,
     this.contextUsageTooltipMessage,
     this.onLongPressContextUsageRing,
+    this.modelPickerSettings,
     this.codexRunSettings,
     this.onCodexRunSettingsChanged,
     this.onCodexRunSettingsOpened,
@@ -243,48 +261,99 @@ class _ContextUsageRingButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final child = SizedBox(
+    final ring = SizedBox(
       width: 22,
       height: 22,
       child: Center(child: _ContextUsageRing(ratio: ratio)),
     );
-    final interactiveChild = onLongPress == null
-        ? child
-        : GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onLongPress: onLongPress,
-            child: child,
-          );
     final tooltip = tooltipMessage?.trim() ?? '';
-    if (tooltip.isEmpty) {
-      return interactiveChild;
+    final hasTooltip = tooltip.isEmpty == false;
+    if (!hasTooltip && onLongPress == null) {
+      return ring;
     }
-    return Tooltip(
-      message: tooltip,
-      triggerMode: TooltipTriggerMode.tap,
-      waitDuration: Duration.zero,
-      showDuration: const Duration(seconds: 3),
+    return Builder(
+      builder: (anchorContext) {
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: hasTooltip
+              ? () => _showGlassTooltip(anchorContext, tooltip)
+              : null,
+          onLongPress: onLongPress,
+          child: ring,
+        );
+      },
+    );
+  }
+
+  void _showGlassTooltip(BuildContext anchorContext, String message) {
+    final anchor = glassPopupAnchorFromContext(anchorContext);
+    if (anchor == null) {
+      return;
+    }
+    showGlassPopup<void>(
+      context: anchorContext,
+      anchor: anchor,
       preferBelow: false,
-      verticalOffset: 12,
-      decoration: BoxDecoration(
-        color: const Color(0xFF172033),
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x24172033),
-            blurRadius: 24,
-            offset: Offset(0, 12),
+      verticalGap: 8,
+      horizontalPlacement: GlassPopupHorizontalPlacement.centerOnAnchor,
+      barrierColor: Colors.transparent,
+      child: _ContextUsageGlassTooltipBody(message: message),
+    );
+  }
+}
+
+class _ContextUsageGlassTooltipBody extends StatefulWidget {
+  const _ContextUsageGlassTooltipBody({required this.message});
+
+  final String message;
+
+  @override
+  State<_ContextUsageGlassTooltipBody> createState() =>
+      _ContextUsageGlassTooltipBodyState();
+}
+
+class _ContextUsageGlassTooltipBodyState
+    extends State<_ContextUsageGlassTooltipBody> {
+  Timer? _autoDismissTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _autoDismissTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      final navigator = Navigator.of(context);
+      if (navigator.canPop()) {
+        navigator.pop();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _autoDismissTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    final isDark = context.isDarkTheme;
+    final textColor = isDark ? palette.textPrimary : const Color(0xFF1F2937);
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 280),
+      child: OmniGlassPanel(
+        borderRadius: const BorderRadius.all(Radius.circular(14)),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Text(
+          widget.message,
+          style: TextStyle(
+            color: textColor,
+            fontSize: 12,
+            height: 1.45,
+            fontWeight: FontWeight.w500,
           ),
-        ],
+        ),
       ),
-      textStyle: const TextStyle(
-        color: Colors.white,
-        fontSize: 12,
-        height: 1.45,
-        fontWeight: FontWeight.w500,
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      child: interactiveChild,
     );
   }
 }
@@ -433,6 +502,7 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
   bool _inputHeightReportScheduled = false;
   bool _isComposerHovered = false;
   late AnimationController _composerFlowController;
+  late AnimationController _modelPickerSpinController;
 
   late Widget _terminalSvg;
   late Widget _sendSvg;
@@ -467,6 +537,10 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
       vsync: this,
       duration: const Duration(milliseconds: 8000),
     )..repeat();
+    _modelPickerSpinController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 520),
+    );
     _reportInputHeightAfterBuild();
   }
 
@@ -722,7 +796,8 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
     if (oldWidget.attachments != widget.attachments ||
         oldWidget.useLargeComposerStyle != widget.useLargeComposerStyle ||
         oldWidget.useFrostedGlass != widget.useFrostedGlass ||
-        oldWidget.selectedModelOverrideId != widget.selectedModelOverrideId) {
+        oldWidget.selectedModelOverrideId != widget.selectedModelOverrideId ||
+        oldWidget.modelPickerSettings != widget.modelPickerSettings) {
       _reportInputHeightAfterBuild();
     }
     if (oldWidget.onManualRecordingTap != widget.onManualRecordingTap &&
@@ -739,6 +814,7 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
     _textFieldScrollController.dispose();
     _composerStateNotifier.dispose();
     _composerFlowController.dispose();
+    _modelPickerSpinController.dispose();
     widget.controller.removeListener(_onTextChanged);
     widget.focusNode.removeListener(_onFocusChanged);
     super.dispose();

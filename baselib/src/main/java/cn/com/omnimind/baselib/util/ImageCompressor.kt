@@ -63,6 +63,7 @@ object ImageCompressor {
 
     private const val TAG = "ImageCompressor"
     private const val JPEG_DATA_URI_PREFIX = "data:image/jpeg;base64,"
+    private const val BASE64_ENCODE_FLAGS = Base64.NO_WRAP
 
     /**
      * 默认像素阈值: 小于 1.2MP 时不缩放，避免小屏截图或裁剪图过于模糊
@@ -227,7 +228,7 @@ object ImageCompressor {
         if (scale >= 1f || pixelCount < bypassThreshold) {
             val outputStream = ByteArrayOutputStream()
             bitmap.compress(Bitmap.CompressFormat.JPEG, quality, outputStream)
-            val base64 = Base64.encodeToString(outputStream.toByteArray(), Base64.DEFAULT)
+            val base64 = Base64.encodeToString(outputStream.toByteArray(), BASE64_ENCODE_FLAGS)
             return CompressResult(
                 base64 = JPEG_DATA_URI_PREFIX + base64,
                 appliedScale = 1f,
@@ -244,7 +245,7 @@ object ImageCompressor {
         val resized = Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
         val outputStream = ByteArrayOutputStream()
         resized.compress(Bitmap.CompressFormat.JPEG, quality, outputStream)
-        val resizedBase64 = Base64.encodeToString(outputStream.toByteArray(), Base64.DEFAULT)
+        val resizedBase64 = Base64.encodeToString(outputStream.toByteArray(), BASE64_ENCODE_FLAGS)
 
         OmniLog.d(TAG, "Bitmap compressed: ${originalWidth}x${originalHeight} -> ${newWidth}x${newHeight}, scale=$scale")
 
@@ -297,7 +298,7 @@ object ImageCompressor {
 
         return try {
             // 去除 data:image/xxx;base64, 前缀
-            val cleanBase64 = base64String.substringAfter(",")
+            val cleanBase64 = extractNormalizedBase64Payload(base64String)
             val imageBytes = Base64.decode(cleanBase64, Base64.DEFAULT)
             val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
                 ?: return parseAndReturnOriginal(base64String)
@@ -311,7 +312,7 @@ object ImageCompressor {
                 OmniLog.d(TAG, "Skip resize: ${originalWidth}x${originalHeight} (${pixelCount} px) < $bypassThreshold px")
                 if (!bitmap.isRecycled) bitmap.recycle()
                 return CompressResult(
-                    base64 = base64String,
+                    base64 = normalizeBase64ImageString(base64String),
                     appliedScale = 1f,
                     originalWidth = originalWidth,
                     originalHeight = originalHeight,
@@ -327,7 +328,7 @@ object ImageCompressor {
             val outputStream = ByteArrayOutputStream()
             resized.compress(Bitmap.CompressFormat.JPEG, quality, outputStream)
             val resizedBytes = outputStream.toByteArray()
-            val resizedBase64 = Base64.encodeToString(resizedBytes, Base64.DEFAULT)
+            val resizedBase64 = Base64.encodeToString(resizedBytes, BASE64_ENCODE_FLAGS)
 
             OmniLog.d(TAG, "Compressed: ${originalWidth}x${originalHeight} -> ${newWidth}x${newHeight}, scale=$scale, quality=$quality, bypassThreshold=$bypassThreshold")
 
@@ -376,7 +377,7 @@ object ImageCompressor {
         var width = 0
         var height = 0
         try {
-            val cleanBase64 = base64String.substringAfter(",")
+            val cleanBase64 = extractNormalizedBase64Payload(base64String)
             val imageBytes = Base64.decode(cleanBase64, Base64.DEFAULT)
             val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size, options)
@@ -386,12 +387,27 @@ object ImageCompressor {
             OmniLog.e(TAG, "Failed to parse image dimensions: ${e.message}", e)
         }
         return CompressResult(
-            base64 = base64String,
+            base64 = normalizeBase64ImageString(base64String),
             appliedScale = 1f,
             originalWidth = width,
             originalHeight = height,
             compressedWidth = width,
             compressedHeight = height
         )
+    }
+
+    private fun extractNormalizedBase64Payload(base64String: String): String {
+        val payload = base64String.substringAfter(",", base64String)
+        return payload.filterNot(Char::isWhitespace)
+    }
+
+    private fun normalizeBase64ImageString(base64String: String): String {
+        val separatorIndex = base64String.indexOf(',')
+        val normalizedPayload = extractNormalizedBase64Payload(base64String)
+        return if (separatorIndex >= 0) {
+            base64String.substring(0, separatorIndex + 1) + normalizedPayload
+        } else {
+            normalizedPayload
+        }
     }
 }

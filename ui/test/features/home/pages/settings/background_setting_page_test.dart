@@ -83,8 +83,12 @@ void main() {
 
     expect(find.text('外观设置'), findsOneWidget);
     expect(find.byKey(const ValueKey('theme-mode-slider')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('appearance-font-effects-switch')),
+      findsOneWidget,
+    );
     expect(find.byType(AppBackgroundPreview), findsOneWidget);
-    expect(find.textContaining('聊天文本 ·'), findsOneWidget);
+    expect(find.textContaining('聊天 ·'), findsOneWidget);
     expect(find.byKey(const ValueKey('background-save-button')), findsNothing);
     expect(find.byKey(const ValueKey('background-reset-button')), findsNothing);
     expect(find.byKey(const ValueKey('background-source-none')), findsNothing);
@@ -131,8 +135,11 @@ void main() {
     );
     expect(AppBackgroundService.current.chatTextHexColor, '#1D3E7B');
 
-    await tester.ensureVisible(find.byType(Switch).first);
-    await tester.tap(find.byType(Switch).first);
+    final backgroundSwitch = find.byKey(
+      const ValueKey('appearance-background-enable-switch'),
+    );
+    await tester.ensureVisible(backgroundSwitch);
+    await tester.tap(backgroundSwitch);
     await tester.pump(const Duration(milliseconds: 260));
     await tester.pumpAndSettle();
 
