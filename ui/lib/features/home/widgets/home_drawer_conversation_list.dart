@@ -799,6 +799,9 @@ extension _HomeDrawerConversationList on HomeDrawerState {
               bottom: 0,
               width: _kScheduledParentToggleHitWidth,
               child: GestureDetector(
+                key: ValueKey<String>(
+                  'home-drawer-scheduled-parent-toggle-${group.parent.threadKey}',
+                ),
                 behavior: HitTestBehavior.opaque,
                 onTap: onToggle,
               ),
