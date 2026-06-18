@@ -592,6 +592,82 @@ void main() {
       findsNothing,
     );
   });
+
+  testWidgets('trajectory shortcut exposes reusable function library action', (
+    tester,
+  ) async {
+    final inputKey = GlobalKey<ChatInputAreaState>();
+    final controller = TextEditingController();
+    final focusNode = FocusNode();
+    var popupVisible = false;
+    var functionLibraryTapCount = 0;
+
+    await tester.pumpWidget(
+      DefaultAssetBundle(
+        bundle: _TestAssetBundle(),
+        child: MaterialApp(
+          home: StatefulBuilder(
+            builder: (context, setState) {
+              return Scaffold(
+                body: Stack(
+                  children: [
+                    Align(
+                      alignment: Alignment.bottomCenter,
+                      child: ChatInputArea(
+                        key: inputKey,
+                        controller: controller,
+                        focusNode: focusNode,
+                        isProcessing: false,
+                        onSendMessage: () {},
+                        onCancelTask: () {},
+                        onPopupVisibilityChanged: (visible) {
+                          setState(() => popupVisible = visible);
+                        },
+                        onOpenFunctionLibraryTap: () {
+                          functionLibraryTapCount += 1;
+                        },
+                      ),
+                    ),
+                    if (popupVisible)
+                      Positioned(
+                        left: 12,
+                        bottom: 84,
+                        child:
+                            inputKey.currentState?.buildPopupMenu() ??
+                            const SizedBox.shrink(),
+                      ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    addTearDown(controller.dispose);
+    addTearDown(focusNode.dispose);
+    await tester.pump();
+
+    await tester.tap(
+      find.byKey(const ValueKey('chat-input-manual-recording-button')),
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('chat-input-trajectory-popup')),
+      findsOneWidget,
+    );
+    expect(find.text('复用指令'), findsOneWidget);
+
+    await tester.tap(find.text('复用指令'));
+    await tester.pump();
+
+    expect(functionLibraryTapCount, 1);
+    expect(
+      find.byKey(const ValueKey('chat-input-trajectory-popup')),
+      findsNothing,
+    );
+  });
 }
 
 Widget _buildTestApp({

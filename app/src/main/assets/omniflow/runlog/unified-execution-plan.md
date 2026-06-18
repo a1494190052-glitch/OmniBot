@@ -206,6 +206,48 @@ evidence:
   menu, and stream/tool cards continue to render with main-branch style and
   route into native services rather than Dart-side replay.
 
+## VLM Accuracy Measurement
+
+Measure `vlm_task` quality at two levels. Do not use one narrow metric as proof
+that the whole loop works.
+
+Online device metrics come from OOB native RunLog/debug result envelopes:
+
+- Task success rate: `success=true` and final RunLog status is successful.
+- Action success rate: each executed action card reports a successful dispatch
+  or a structured failure reason.
+- First-run registration rate: successful `vlm_task` RunLogs convert into an
+  agent-visible Function with `metadata.enhancement_policy=offline_only`.
+- Recall hit rate: second run from an equivalent page returns
+  `recall.decision=hit`.
+- Fast-path execution rate: second `vlm_task` or `RUN_VLM_RECALL_HIT` produces
+  `executionRoute` starting with `omniflow_recall_hit`.
+- Latency split: track observe, prompt build, VLM stream, parse, action dispatch,
+  conversion/register, recall, and replay from the existing diagnostics fields.
+
+Offline compatibility metrics may use OmniFlow Python:
+
+- Schema validity of exported RunLog/Function JSON through `schemas.py`,
+  `src/utg/core/oob_contract.py`, or equivalent schema loaders.
+- Recall top-1 / recall@k / margin on exported Function pools and fixed goal
+  fixtures.
+- Page-match and action-transfer accuracy using the AndroidWorld/vector
+  harnesses such as `tests/vector/benchmarks/page_match_accuracy.py`,
+  `tests/vector/benchmarks/action_accuracy.py`, and
+  `scripts/runlog_reuse_benchmark.py`.
+- Fixture regression for generated `vlm_task` examples without touching Android
+  accessibility.
+
+The merge gate is a pair:
+
+1. Offline Python eval proves schema/recall/action-transfer compatibility on
+   exported fixtures.
+2. Real-device OOB smoke proves native Android execution, RunLog registration,
+   strict recall hit, and fast replay.
+
+Python eval can explain why recall or transfer failed; it cannot certify live
+phone execution by itself.
+
 ### UI / MethodChannel
 
 Flutter should stay a presentation and request surface:

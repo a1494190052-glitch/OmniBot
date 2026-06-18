@@ -83,6 +83,31 @@ class UnifiedOmniFlowExecutionPlanTest {
     }
 
     @Test
+    fun `execution plan defines vlm accuracy measurement boundaries`() {
+        val plan = readSource(
+            "app/src/main/assets/omniflow/runlog/unified-execution-plan.md"
+        )
+
+        assertTrue(plan.contains("## VLM Accuracy Measurement"))
+        assertTrue(plan.contains("Online device metrics come from OOB native RunLog/debug result envelopes"))
+        assertTrue(plan.contains("Task success rate"))
+        assertTrue(plan.contains("Action success rate"))
+        assertTrue(plan.contains("First-run registration rate"))
+        assertTrue(plan.contains("Recall hit rate"))
+        assertTrue(plan.contains("Fast-path execution rate"))
+        assertTrue(plan.contains("Latency split"))
+        assertTrue(plan.contains("Offline compatibility metrics may use OmniFlow Python"))
+        assertTrue(plan.contains("Schema validity"))
+        assertTrue(plan.contains("Recall top-1 / recall@k / margin"))
+        assertTrue(plan.contains("Page-match and action-transfer accuracy"))
+        assertTrue(plan.contains("Offline Python eval proves schema/recall/action-transfer compatibility"))
+        assertTrue(plan.contains("Real-device OOB smoke proves native Android execution"))
+        assertTrue(plan.contains("Python eval can explain why recall or transfer failed"))
+        assertTrue(plan.contains("cannot certify live"))
+        assertTrue(plan.contains("phone execution by itself"))
+    }
+
+    @Test
     fun `vlm recall loop smoke script is strict and executable`() {
         val scriptPath = findSource("scripts/oob-vlm-recall-loop-smoke.sh")
         val script = String(Files.readAllBytes(scriptPath))
