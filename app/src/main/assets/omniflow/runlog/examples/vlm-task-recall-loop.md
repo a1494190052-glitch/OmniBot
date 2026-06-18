@@ -142,6 +142,37 @@ Expected fields:
 - `success=true`
 - `runner` or `execution_route` indicates local OOB replay
 
+## Convert-And-Replay With Enhance Flag
+
+The debug convert-and-replay receiver accepts an `enhance` flag for compatibility
+with older smoke scripts. That flag must not run `update_function` before replay.
+It should only report that enhancement is queued/skipped as an offline step:
+
+```bash
+adb shell am broadcast \
+  -a cn.com.omnimind.bot.debug.CONVERT_RUNLOG_AND_RUN_FUNCTION \
+  --es run_id "<successful_vlm_run_id>" \
+  --es goal "打开网络设置" \
+  --ez run true \
+  --ez enhance true
+```
+
+Read the result:
+
+```bash
+adb shell run-as cn.com.omnimind.bot cat files/debug-runlog-function-replay-result.json
+```
+
+Expected fields:
+
+- `enhance_requested=true`
+- `enhancement_policy=offline_only`
+- `enhance.policy=offline_only`
+- `enhance.status=queued` or `enhance.status=skipped`
+- `replay_uses_enhanced_function=false`
+- no `enhanced_function_spec_hash` field
+- replay success/failure is independent from enhancement status
+
 ## Boundary
 
 - Kotlin owns live phone execution: accessibility, overlay, screen observe, page matching, recall decision, replay, and RunLog.

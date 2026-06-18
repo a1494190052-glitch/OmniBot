@@ -7,6 +7,11 @@ Use this reference when improving an existing saved Function.
 All saved changes go through `update_function`. Do not rewrite and re-register a
 full Function JSON by hand.
 
+Enhancement is an explicit offline/background maintenance pass. Do not run it
+inline before VLM RunLog auto-registration, recall-hit replay, direct Function
+execution, or debug convert-and-replay. If a Function is already saved, it
+remains runnable as-is while enhancement is pending.
+
 ## Enhancement Mode
 
 Default mode is `enhance`: improve reuse clarity without silently changing

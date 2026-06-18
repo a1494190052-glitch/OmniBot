@@ -217,6 +217,9 @@ Flutter should stay a presentation and request surface:
 - UI never replays a Function by interpreting steps in Dart.
 - Background enhancement jobs are allowed, but they call `update_function`
   through native and remain off the live `vlm_task` path.
+- A running background enhancement job must not disable direct replay of the
+  already registered Function. Replay uses the currently saved Function as-is;
+  enhancement completion only affects future metadata/label reuse.
 
 ### MCP / HTTP / Debug
 

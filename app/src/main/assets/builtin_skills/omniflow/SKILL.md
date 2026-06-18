@@ -60,6 +60,10 @@ by default.
   Function parameters before replay or output only one ordinary UI action for
   the current failed step.
 - Use `update_function` for all saved Function modifications.
+- Treat Function enhancement as explicit offline/background maintenance. It
+  must not run inline before VLM auto-registration, recall-hit replay, direct
+  Function execution, or debug convert-and-replay. If enhancement is running,
+  the current saved Function can still be replayed as-is.
 - Treat RunLogs as evidence. Do not invent RunLogs, Function ids, screenshots,
   XML, or tool results.
 - Do not run a low-confidence Function. Recall is candidate context until the

@@ -20,6 +20,8 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(plan.contains("Enhancement is deliberately out of this critical path"))
         assertTrue(plan.contains("mode=enhance"))
         assertTrue(plan.contains("offline") && plan.contains("maintenance"))
+        assertTrue(plan.contains("must not disable direct replay"))
+        assertTrue(plan.contains("Replay uses the currently saved Function as-is"))
         assertTrue(plan.contains("Do not mark the end-to-end goal"))
         assertTrue(plan.contains("complete until the device smoke"))
     }
@@ -71,7 +73,35 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(smoke.contains("RUN_VLM_RECALL_HIT"))
         assertTrue(smoke.contains("outcome.executionRoute"))
         assertTrue(smoke.contains("omniflow_recall_hit"))
+        assertTrue(smoke.contains("CONVERT_RUNLOG_AND_RUN_FUNCTION"))
+        assertTrue(smoke.contains("--ez enhance true"))
+        assertTrue(smoke.contains("enhancement_policy=offline_only"))
+        assertTrue(smoke.contains("replay_uses_enhanced_function=false"))
         assertTrue(smoke.contains("Kotlin owns live phone execution"))
+    }
+
+    @Test
+    fun `auto register and debug replay keep enhancement off the online path`() {
+        val autoRegistrar = readSource(
+            "app/src/main/java/cn/com/omnimind/bot/runlog/OobVlmRunLogAutoRegistrar.kt"
+        )
+        val debugReplay = readSource(
+            "app/src/debug/java/cn/com/omnimind/bot/debug/DebugRunLogFunctionReplayReceiver.kt"
+        )
+
+        assertTrue(autoRegistrar.contains("convertRunLog("))
+        assertTrue(autoRegistrar.contains("register = true"))
+        assertTrue(autoRegistrar.contains("agentVisible = true"))
+        assertTrue(!autoRegistrar.contains("updateFunction("))
+        assertTrue(!autoRegistrar.contains("mode\" to \"enhance\""))
+
+        assertTrue(debugReplay.contains("buildOfflineEnhanceStatus("))
+        assertTrue(debugReplay.contains("\"policy\" to \"offline_only\""))
+        assertTrue(debugReplay.contains("\"replay_uses_enhanced_function\" to false"))
+        assertTrue(debugReplay.contains("\"enhancement_policy\" to \"offline_only\""))
+        assertTrue(!debugReplay.contains("service.updateFunction("))
+        assertTrue(!debugReplay.contains("\"enhanced_function_spec_hash\""))
+        assertTrue(!debugReplay.contains("\"enhance_failed\""))
     }
 
     private fun readSource(relativePath: String): String {

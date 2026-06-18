@@ -56,6 +56,7 @@ class ReusableFunctionCard extends StatelessWidget {
     required this.failCount,
     required this.isRunning,
     required this.onRun,
+    this.runButtonKey,
     this.onRunLogsTap,
     this.agentVisible,
     this.lastRunSuccess,
@@ -78,6 +79,7 @@ class ReusableFunctionCard extends StatelessWidget {
   final bool? hasAgentSteps;
   final bool isRunning;
   final VoidCallback? onRun;
+  final Key? runButtonKey;
   final VoidCallback? onRunLogsTap;
   final bool isBusy;
   final List<ReusableFunctionCardAction> actions;
@@ -116,7 +118,11 @@ class ReusableFunctionCard extends StatelessWidget {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _RunActionButton(isRunning: isRunning, onTap: onRun),
+                  _RunActionButton(
+                    key: runButtonKey,
+                    isRunning: isRunning,
+                    onTap: onRun,
+                  ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(
@@ -283,7 +289,11 @@ class ReusableFunctionCard extends StatelessWidget {
 }
 
 class _RunActionButton extends StatelessWidget {
-  const _RunActionButton({required this.isRunning, required this.onTap});
+  const _RunActionButton({
+    super.key,
+    required this.isRunning,
+    required this.onTap,
+  });
 
   final bool isRunning;
   final VoidCallback? onTap;

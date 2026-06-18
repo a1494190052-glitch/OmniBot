@@ -402,8 +402,9 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
           onPressed:
               _isConvertingFunction ||
                   _isReplayingRunLog ||
-                  isEnhancingRunLogFunction ||
-                  (savedSpec == null && !convertEligibility.canConvert)
+                  (savedSpec == null &&
+                      (isEnhancingRunLogFunction ||
+                          !convertEligibility.canConvert))
               ? null
               : savedSpec != null
               ? _openSavedFunctionSheet
@@ -727,12 +728,13 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
         _functionPanelError?.trim().isNotEmpty == true;
     if (!shouldShow) return null;
     final savedSpec = _savedFunctionSpec;
-    final isBusy =
-        _isConvertingFunction || _runLogEnhancementJob?.isRunning == true;
+    final isEnhancing = _runLogEnhancementJob?.isRunning == true;
+    final isBusy = _isConvertingFunction;
     final canView = savedSpec != null && !isBusy;
     final canEnhance =
         savedSpec != null &&
         !isBusy &&
+        !isEnhancing &&
         (_functionPanelStatus == _RunLogFunctionPanelStatus.saved ||
             _functionPanelStatus == _RunLogFunctionPanelStatus.failed);
     final canRetrySave =
@@ -2958,6 +2960,7 @@ class _ReusableFunctionSpecSheetState
     final isAgentVisible = _isAgentVisible;
     final hasAgentEnhanced =
         _hasAgentEnhanced || spec.aiEnhanced || enhancementStatus.isApplied;
+    final runBlockedByPendingSave = hasUnsavedEdits && isEnhancing;
     final showOfflineEnhancementHint =
         _hasOfflineEnhancementPolicy &&
         enhancementStatus == RunLogReusableFunctionEnhancementStatus.none;
@@ -3142,8 +3145,14 @@ class _ReusableFunctionSpecSheetState
                               runCount: 0,
                               successCount: 0,
                               failCount: 0,
-                              isRunning: _isExecuting || isEnhancing,
-                              onRun: _isImporting || _isExecuting || isEnhancing
+                              isRunning: _isExecuting,
+                              runButtonKey: const ValueKey(
+                                'run-log-reusable-run-action',
+                              ),
+                              onRun:
+                                  _isImporting ||
+                                      _isExecuting ||
+                                      runBlockedByPendingSave
                                   ? null
                                   : _executeRegisteredFunction,
                             ),
@@ -3860,7 +3869,7 @@ class _ReusableFunctionSpecSheetState
   }
 
   Future<void> _executeRegisteredFunction() async {
-    if (_isExecuting || _isImporting || _enhancementJob?.isRunning == true) {
+    if (_isExecuting || _isImporting) {
       return;
     }
     var functionId = _registeredFunctionId;

@@ -338,22 +338,26 @@ coordinate evidence with screenshot/package context and
 evidence, not as a stable selector or a required Function main-path guarantee.
 
 RunLog save results, the Function library page, and the memory-center embedded
-Function list share the same reusable Function summary card. Keep the primary run
-entry on that card; secondary controls may enhance or schedule the Function, but
-must not introduce another summary-card layout or duplicate run button. If the
-RunLog already maps to a registered reusable Function, open that Function directly
-instead of registering it again. The save-result sheet's default primary action
-is `增强`: it asks Agent to improve the reusable Function name, description,
-per-step descriptions, safe runtime parameter slots, and non-executable
-`agent_reuse` metadata, then saves the enhanced spec back to the same
-`function_id`. Enhancement never changes executor/tool/args/validation/fallback
-or step order. This is a background UI task: the button shows `后台增强中`
-while the Agent/update work is pending, then shows an explicit terminal result:
-`已增强`, `已检查`, `部分增强`, or `重试增强`. The result is persisted under
-`metadata.oob_enhancement` with status `enhanced`, `unchanged`, `partial`, or
-`failed`, so reopening the Function does not require guessing whether the prior
-click changed anything. A save button should only appear after unsaved manual edits.
-Raw JSON and agent prompt details stay under the advanced section by default.
+Function list share the same reusable Function summary card. Keep the primary
+run entry on that card; secondary controls may enhance or schedule the Function,
+but must not introduce another summary-card layout or duplicate run button. If
+the RunLog already maps to a registered reusable Function, open that Function
+directly instead of registering it again. Saving and direct replay are the
+primary path; `增强` is an explicit offline/background action that may run after
+the current Function is already usable. It asks Agent to improve the reusable
+Function name, description, per-step descriptions, safe runtime parameter slots,
+and non-executable `agent_reuse` metadata, then saves the enhanced spec back to
+the same `function_id`. Enhancement never changes executor/tool/args/validation/
+fallback or step order. It must not block VLM auto-registration, recall-hit
+replay, direct run buttons, or debug convert-and-replay smoke tests. While the
+Agent/update work is pending, the enhancement control shows `后台增强中`, but
+the current registered Function remains runnable as-is. Terminal states are
+explicit: `已增强`, `已检查`, `部分增强`, or `重试增强`. The result is persisted
+under `metadata.oob_enhancement` with status `enhanced`, `unchanged`, `partial`,
+or `failed`, so reopening the Function does not require guessing whether the
+prior click changed anything. A save button should only appear after unsaved
+manual edits. Raw JSON and agent prompt details stay under the advanced section
+by default.
 
 ## OmniFlow Compatibility Boundary
 

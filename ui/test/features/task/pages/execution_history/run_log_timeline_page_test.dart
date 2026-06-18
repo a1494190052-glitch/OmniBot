@@ -1105,6 +1105,127 @@ void main() {
     await _pumpUntilFound(tester, find.text('已增强并保存', skipOffstage: false));
   });
 
+  testWidgets(
+    'RunLog detail can replay the current Function while enhancement is pending',
+    (tester) async {
+      final methodCalls = <MethodCall>[];
+      final updateCompleter = Completer<Map<String, dynamic>>();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(assistCoreChannel, (call) async {
+            methodCalls.add(call);
+            if (call.method == 'getInternalRunLogTimeline') {
+              return _runLogTimelinePayload(runId: 'run-vlm');
+            }
+            if (call.method == 'getOobReusableFunction') {
+              return null;
+            }
+            if (call.method == 'convertInternalRunLogToOobFunction') {
+              return <String, dynamic>{
+                'success': true,
+                'registered': true,
+                'created_function_id': 'fn_from_runlog',
+                'function_id': 'fn_from_runlog',
+                'function_spec': _runLogReusableFunctionSpec(
+                  name: '打开 Settings',
+                  description: '打开 Android 设置',
+                  metadata: <String, dynamic>{
+                    'enhancement_policy': 'offline_only',
+                  },
+                ),
+              };
+            }
+            if (call.method == 'updateOobFunction') {
+              return updateCompleter.future;
+            }
+            if (call.method == 'runOobReusableFunction') {
+              return <String, dynamic>{
+                'success': true,
+                'function_id': 'fn_from_runlog',
+                'goal': 'oob_reusable_function_run:fn_from_runlog',
+                'execution_status': 'completed_local',
+                'terminal_state': <String, dynamic>{
+                  'status': 'completed_local',
+                  'runner': 'oob_omniflow_replay',
+                  'step_count': 1,
+                  'success_step_count': 1,
+                },
+              };
+            }
+            if (call.method == 'registerOobReusableFunction') {
+              final args = Map<String, dynamic>.from(call.arguments as Map);
+              return _registerOobFunctionResult(
+                Map<String, dynamic>.from(args['function_spec'] as Map),
+              );
+            }
+            return null;
+          });
+
+      await tester.pumpWidget(
+        _buildLocalizedApp(
+          locale: const Locale('zh'),
+          child: const RunLogTimelinePage(runId: 'run-vlm', title: ''),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey('run-log-action-save-function')),
+      );
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 500)),
+      );
+      await tester.pumpAndSettle();
+      await _pumpUntilFound(
+        tester,
+        find.byKey(const ValueKey('run-log-function-enhance')),
+      );
+
+      await tester.tap(find.byKey(const ValueKey('run-log-function-enhance')));
+      await tester.pump();
+      expect(find.text('后台增强中', skipOffstage: false), findsWidgets);
+
+      await tester.tap(
+        find.byKey(const ValueKey('run-log-function-open-detail')),
+      );
+      await tester.pump(const Duration(milliseconds: 250));
+      await _pumpUntilFound(
+        tester,
+        find.byKey(const ValueKey('run-log-reusable-run-action')),
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('run-log-reusable-run-action')),
+      );
+      await tester.pump();
+
+      expect(
+        methodCalls.where((call) => call.method == 'updateOobFunction'),
+        hasLength(1),
+      );
+      expect(
+        methodCalls.where((call) => call.method == 'runOobReusableFunction'),
+        hasLength(1),
+      );
+
+      updateCompleter.complete(<String, dynamic>{
+        'success': true,
+        'function_id': 'fn_from_runlog',
+        'changed': false,
+        'saved': false,
+        'function_kind': 'oob_reusable_function',
+        'asset_state': 'native_local',
+        'updated_function': _runLogReusableFunctionSpec(
+          name: '打开 Settings',
+          description: '打开 Android 设置',
+        ),
+      });
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 500)),
+      );
+      await tester.pumpAndSettle();
+    },
+  );
+
   testWidgets('RunLog Agent enhancement marks unchanged explicitly', (
     tester,
   ) async {
