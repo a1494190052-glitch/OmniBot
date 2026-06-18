@@ -78,6 +78,98 @@ Python OmniFlow compatibility should be one-way for live tasks:
 - There is no model-visible `function_id` execution tool in the normal agent
   prompt. Saved Function recall, runtime resolve, and replay stay runtime-owned.
 
+## Compatible Surface Design
+
+The compatibility target is one native execution contract with multiple adapters:
+
+```text
+UI / MethodChannel
+MCP / HTTP / debug receiver
+Python OmniFlow provider or MCP dev tool
+        |
+        v
+OOB native Function facade
+        |
+        v
+OobOmniFlowToolkitService
+        |
+        +-- OobFunctionRepository        # Function storage/index
+        +-- OobFunctionRecallService     # page/node recall and hit policy
+        +-- OobFunctionRunner            # Android replay through Kotlin
+        +-- OobFunctionUpdateService     # offline update_function patches
+        +-- OobRunLogReplayService       # RunLog -> Function conversion
+```
+
+The adapter may differ, but the payload must not:
+
+- Function identity: `function_id`.
+- Goal/context: `goal`, `packageName`/`current_package`, current page XML when
+  available, and optional public runtime arguments.
+- Execution switch: `auto_execute`/`allowOmniFlowFunctionAutoExecute` is only a
+  request to the native runtime. It does not make a model-visible Function tool.
+- Enhancement switch: `mode=enhance` or `update_function` is offline
+  maintenance. It may inspect RunLog evidence and save metadata patches, but it
+  must never call live Android actions.
+- Result envelope: `success`, `function_id`, `execution_route`,
+  `execution_summary`, `run_id`, and explicit error fields. UI cards, MCP
+  responses, and debug result files should all project from this envelope.
+
+### UI / MethodChannel
+
+Flutter should stay a presentation and request surface:
+
+- Direct Function run buttons call `AssistsMessageService` and then the native
+  manager.
+- RunLog save/detail/enhancement UI calls the same native conversion/update
+  services.
+- UI never replays a Function by interpreting steps in Dart.
+- Background enhancement jobs are allowed, but they call `update_function`
+  through native and remain off the live `vlm_task` path.
+
+### MCP / HTTP / Debug
+
+External and debug entry points should be thin adapters:
+
+- MCP schema lives in `McpToolDefinitions`; dispatch goes through
+  `McpToolExecutors`/native toolkit services.
+- HTTP/debug receivers should decode arguments, call the same native service,
+  and write a result JSON file or response body.
+- Diagnostic direct Function execution is permitted only when the caller gives a
+  concrete `function_id`; ordinary user goals should still enter through
+  `vlm_task`, so recall and replay remain runtime-owned.
+- `RUN_VLM_RECALL_HIT` exists only to test the strict-hit native path; it should
+  not become another product execution mode.
+
+### Python OmniFlow In Alpine
+
+The Python package can be installed in the built-in Alpine environment as
+`omniflow-provider`/`omniflow-mcp`, but its role is deliberately offline or
+provider-side:
+
+- Keep: schema validation, `oob_contract.py` replay-policy checks, fixture
+  generation, offline recall experiments, `omniflow.recall`, and
+  `omniflow.ingest_run_log`.
+- Keep: provider dashboards, cache inspection, exported RunLog/Function linting,
+  and semantic enhancement experiments that return patches.
+- Do not use for: Android accessibility actions, overlay permission checks,
+  current screen observation, runtime parameter resolve against live XML, or the
+  fast second-run path.
+- If Python needs to execute on this phone for a developer workflow, it must call
+  OOB's native MCP/HTTP/debug surface. Native Kotlin still performs the action.
+
+### Direct Function Calls
+
+Direct calls are useful for debug and UI buttons, but they must be scoped:
+
+- Input is `function_id` plus public arguments, not a natural-language goal.
+- The call loads the saved Function through `OobFunctionRepository`.
+- Replay happens through `OobFunctionRunner` and Kotlin action codecs.
+- Failure returns a structured result and does not silently fall back to a fresh
+  VLM loop. The caller may decide to start a new `vlm_task` after inspecting the
+  failure.
+- Direct calls should not mutate the Function. Repairs use `update_function`
+  separately and remain offline.
+
 ## Bugs Fixed In This Pass
 
 - The visible recording shortcut label `录制轨迹` is now accepted as a manual
@@ -100,6 +192,28 @@ Local unit/widget tests:
 - RunLog detail/enhancement UI tests.
 - VLM auto-register conversion and recall tests.
 - VLM coordinator recall execution tests.
+- Drawer entry tests for Project, Memory Center, Function Library, and scheduled
+  section state.
+
+Required local commands before PR handoff:
+
+```bash
+./gradlew --no-daemon :app:testDevelopStandardDebugUnitTest \
+  --tests cn.com.omnimind.bot.runlog.ManualRecordingRunLogRecoveryTest \
+  --tests cn.com.omnimind.bot.runlog.OobVlmRunLogAutoRegistrarTest \
+  --tests cn.com.omnimind.bot.vlm.VlmToolCoordinatorRecallExecutionTest
+
+cd ui
+"/Users/wuzewen/Desktop/项目与代码/flutter/bin/flutter" test --no-pub \
+  test/features/home/widgets/home_drawer_test.dart \
+  test/features/task/pages/execution_history/function_library_page_test.dart \
+  test/features/home/pages/settings/workspace_memory_setting_page_test.dart \
+  test/features/home/pages/chat/utils/omniflow_tool_profile_router_test.dart \
+  test/features/home/pages/command_overlay/services/manual_recording_flow_controller_test.dart \
+  test/features/home/pages/command_overlay/widgets/chat_input_area_test.dart \
+  test/widgets/manual_recording_result_card_test.dart \
+  test/features/task/pages/execution_history/run_log_timeline_page_test.dart
+```
 
 Device smoke tests, requiring a connected Android device:
 
@@ -116,6 +230,11 @@ Device smoke tests, requiring a connected Android device:
 
 The detailed `adb` commands live in
 `app/src/main/assets/omniflow/runlog/examples/vlm-task-recall-loop.md`.
+
+Current limitation: if `adb devices` returns no connected device, local tests can
+prove conversion, recall policy, UI entry points, and strict-hit delegation, but
+they cannot prove Android permission/UI smoke. Do not mark the end-to-end goal
+complete until the device smoke above has been run on a real device.
 
 ## Follow-Up Work
 
