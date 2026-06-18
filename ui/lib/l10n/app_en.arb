@@ -634,6 +634,7 @@
   "alpinePip": "Python Projects & Packages",
   "alpinePipInstall": "Python Package Installer",
   "alpineCodex": "OpenAI Codex CLI and app-server bridge",
+  "alpineOmniFlowDev": "OmniFlow Python CLI / provider dev tools; does not replace native reusable Functions",
   "alpineSshClient": "SSH Client",
   "alpineSshpass": "SSH Password Helper",
   "alpineOpenSshServer": "OpenSSH Server",

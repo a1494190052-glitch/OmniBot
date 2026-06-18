@@ -1831,6 +1831,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get alpineCodex => 'OpenAI Codex CLI and app-server bridge';
 
   @override
+  String get alpineOmniFlowDev =>
+      'OmniFlow Python CLI / provider dev tools; does not replace native reusable Functions';
+
+  @override
   String get alpineSshClient => 'SSH Client';
 
   @override

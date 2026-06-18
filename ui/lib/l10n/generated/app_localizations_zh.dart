@@ -1710,6 +1710,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get alpineCodex => 'OpenAI Codex CLI 与 app-server 桥接';
 
   @override
+  String get alpineOmniFlowDev =>
+      'OmniFlow Python CLI / provider 开发工具，不替代小万原生复用指令';
+
+  @override
   String get alpineSshClient => 'SSH 客户端';
 
   @override

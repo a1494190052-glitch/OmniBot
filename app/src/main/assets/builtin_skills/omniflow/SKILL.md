@@ -12,6 +12,23 @@ Functions through runtime recall/resolve, and learning from replay evidence.
 Native Kotlin/MCP code provides storage, replay, UDEG indexing, and tool
 backends. The agent behavior belongs in this skill and its references.
 
+## Runtime Boundary
+
+Keep these two meanings separate:
+
+- **OOB-native OmniFlow** is the product runtime for 复用指令, 轨迹, RunLog,
+  replay, checkers, action transfer, and `vlm_task` recall/resolve. User-facing
+  Function execution must stay on this path.
+- **OmniFlow Python CLI/provider in Alpine** is an optional developer and
+  evaluation tool installed as `omniflow_dev` in the built-in Linux environment.
+  It may run `omniflow-provider`, `omniflow-mcp`, offline evaluation, asset
+  import/export, or diagnostics, but it must not replace the native OOB replay
+  runtime for normal phone tasks.
+
+When a user asks whether Xiaowan can install OmniFlow, answer yes for the
+optional Alpine developer toolchain and explicitly say that saved 复用指令 still
+run through OOB-native OmniFlow.
+
 ## Route The Task
 
 - Overall Function replay architecture, recall, runtime resolve, or over-design

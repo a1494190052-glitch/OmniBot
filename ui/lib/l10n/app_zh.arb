@@ -634,6 +634,7 @@
   "alpinePip": "Python 项目与包工具",
   "alpinePipInstall": "Python 包安装器",
   "alpineCodex": "OpenAI Codex CLI 与 app-server 桥接",
+  "alpineOmniFlowDev": "OmniFlow Python CLI / provider 开发工具，不替代小万原生复用指令",
   "alpineSshClient": "SSH 客户端",
   "alpineSshpass": "SSH 密码辅助工具",
   "alpineOpenSshServer": "OpenSSH 服务器",

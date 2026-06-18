@@ -4,7 +4,11 @@ OmniFlow is the pipeline from RunLog to reusable Function matching, execution,
 UDEG recall, checker handling, action transfer, and bounded runtime resolve.
 Product-facing behavior is exposed through skills; this contract only defines
 the storage, conversion, and replay primitives those skills call. There is no
-separate OmniFlow runtime or controller outside the skill system.
+separate OmniFlow runtime or controller outside the skill system for normal OOB
+phone execution. The optional `omniflow_dev` package in the built-in Alpine
+environment installs the external OmniFlow Python CLI/provider/MCP tooling for
+development, evaluation, asset import/export, and diagnostics; it does not own
+or replace native OOB Function replay.
 
 RunLog is a runtime contract, not just a UI feature. Keep these boundaries aligned:
 

@@ -3,6 +3,9 @@ package com.ai.assistance.operit.terminal.setup
 import com.ai.assistance.operit.terminal.utils.SourceManager
 
 object EnvironmentSetupLogic {
+    private const val OMNIFLOW_DEV_REPO_URL = "https://github.com/omnimind-ai/OmniFlow.git"
+    private const val OMNIFLOW_DEV_DIR = "/root/omniflow-dev/OmniFlow"
+
     data class PackageDefinition(
         val id: String,
         val command: String,
@@ -17,6 +20,7 @@ object EnvironmentSetupLogic {
         PackageDefinition("uv", "uv --version", "dev"),
         PackageDefinition("pip", "pip3 --version", "dev"),
         PackageDefinition("codex", "codex --version", "ai"),
+        PackageDefinition("omniflow_dev", "omniflow-provider --help", "ai"),
         PackageDefinition("ssh_client", "ssh -V 2>&1", "ssh"),
         PackageDefinition("sshpass", "sshpass -V 2>&1", "ssh"),
         PackageDefinition("openssh_server", "sshd -V 2>&1", "ssh")
@@ -45,6 +49,16 @@ object EnvironmentSetupLogic {
         "python" to listOf("python3"),
         "pip" to listOf("py3-pip"),
         "uv" to listOf("python3", "py3-pip"),
+        "omniflow_dev" to listOf(
+            "git",
+            "python3",
+            "py3-pip",
+            "bash",
+            "curl",
+            "ca-certificates",
+            "build-base",
+            "python3-dev"
+        ),
         "ssh_client" to listOf("openssh-client-default"),
         "sshpass" to listOf("sshpass"),
         "openssh_server" to listOf("openssh-server")
@@ -83,13 +97,13 @@ object EnvironmentSetupLogic {
             commands += "apk add --no-cache ${apkPackages.joinToString(" ")}"
         }
 
-        if ("python" in requested || "pip" in requested || "uv" in requested) {
+        if (requested.any { it == "python" || it == "pip" || it == "uv" || it == "omniflow_dev" }) {
             commands += "ln -sf /usr/bin/python3 /usr/local/bin/python || true"
         }
-        if ("pip" in requested || "uv" in requested) {
+        if (requested.any { it == "pip" || it == "uv" || it == "omniflow_dev" }) {
             commands += "ln -sf /usr/bin/pip3 /usr/local/bin/pip || true"
         }
-        if ("uv" in requested) {
+        if ("uv" in requested || "omniflow_dev" in requested) {
             commands += "if ! apk add --no-cache uv; then python3 -m pip install --break-system-packages --upgrade uv; fi"
         }
         if ("codex" in requested) {
@@ -98,6 +112,11 @@ object EnvironmentSetupLogic {
             commands += "export PATH=\"/root/.npm-global/bin:${'$'}PATH\""
             commands += "npm install -g @openai/codex@latest"
             commands += "ln -sf /root/.npm-global/bin/codex /usr/local/bin/codex || true"
+        }
+        if ("omniflow_dev" in requested) {
+            commands += "mkdir -p /root/omniflow-dev"
+            commands += "if [ -d \"$OMNIFLOW_DEV_DIR/.git\" ]; then git -C \"$OMNIFLOW_DEV_DIR\" pull --ff-only; else git clone --depth 1 \"$OMNIFLOW_DEV_REPO_URL\" \"$OMNIFLOW_DEV_DIR\"; fi"
+            commands += "cd \"$OMNIFLOW_DEV_DIR\" && uv pip install --system -e ."
         }
         if ("openssh_server" in requested) {
             commands += "mkdir -p /var/run/sshd /etc/ssh"
@@ -205,6 +224,11 @@ object EnvironmentSetupLogic {
                     commandCheck = "PATH=\"/root/.npm-global/bin:${'$'}PATH\"; export PATH; command -v codex >/dev/null 2>&1 && codex app-server --help >/dev/null 2>&1",
                     versionCommand = "codex --version"
                 )
+                "omniflow_dev" -> buildProbeSnippet(
+                    packageId = packageId,
+                    commandCheck = "command -v omniflow-provider >/dev/null 2>&1 && command -v omniflow-mcp >/dev/null 2>&1 && omniflow-provider --help >/dev/null 2>&1",
+                    versionCommand = "python3 -c 'import importlib.metadata as m; print(\"omniflow \" + m.version(\"omniflow\"))'"
+                )
                 "ssh_client" -> buildProbeSnippet(
                     packageId = packageId,
                     commandCheck = "command -v ssh >/dev/null 2>&1",
@@ -257,6 +281,7 @@ object EnvironmentSetupLogic {
             "pip" -> "command -v pip3 && pip3 --version"
             "uv" -> "command -v uv && uv --version"
             "codex" -> "PATH=\"/root/.npm-global/bin:${'$'}PATH\"; export PATH; command -v codex && codex app-server --help"
+            "omniflow_dev" -> "command -v omniflow-provider && command -v omniflow-mcp && omniflow-provider --help"
             "ripgrep" -> "command -v rg"
             "tmux" -> "command -v tmux"
             "xz" -> "command -v xz"
@@ -308,16 +333,16 @@ object EnvironmentSetupLogic {
         if (requested.any { it == "npm" || it == "codex" }) {
             add("npm", "npm --version >/dev/null 2>&1")
         }
-        if ("git" in requested || "codex" in requested) {
+        if (requested.any { it == "git" || it == "codex" || it == "omniflow_dev" }) {
             add("Git", "git --version >/dev/null 2>&1")
         }
-        if (requested.any { it == "python" || it == "pip" || it == "uv" }) {
+        if (requested.any { it == "python" || it == "pip" || it == "uv" || it == "omniflow_dev" }) {
             add("Python cwd", "python3 -c 'import os; os.getcwd()' >/dev/null 2>&1")
         }
-        if ("pip" in requested || "uv" in requested) {
+        if (requested.any { it == "pip" || it == "uv" || it == "omniflow_dev" }) {
             add("pip", "pip3 --version >/dev/null 2>&1")
         }
-        if ("uv" in requested) {
+        if ("uv" in requested || "omniflow_dev" in requested) {
             add("uv", "uv --version >/dev/null 2>&1")
         }
         if ("codex" in requested) {
@@ -325,6 +350,9 @@ object EnvironmentSetupLogic {
                 "Codex CLI",
                 "PATH=\"/root/.npm-global/bin:${'$'}PATH\"; export PATH; codex app-server --help >/dev/null 2>&1"
             )
+        }
+        if ("omniflow_dev" in requested) {
+            add("OmniFlow dev CLI", "command -v omniflow-provider >/dev/null 2>&1 && command -v omniflow-mcp >/dev/null 2>&1 && omniflow-provider --help >/dev/null 2>&1")
         }
         if ("ssh_client" in requested) {
             add("SSH client", "ssh -V >/dev/null 2>&1")

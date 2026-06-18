@@ -13,6 +13,16 @@ Use this skill to discover, compare, and install skills for Omnibot.
 
 This version is adapted from the open `vercel-labs/skills` idea, but the workflow is aligned with Omnibot's phone runtime, `.omnibot/skills` workspace, built-in skill store, and agent tools.
 
+## Skill vs Runtime Packages
+
+Installing an Omnibot skill is not the same thing as installing a Python runtime
+package. In particular, the built-in `omniflow` skill only teaches the agent how
+to use OOB-native 复用指令, RunLogs, replay, and update tools. If the user asks
+to install the external OmniFlow Python repository inside Xiaowan's Linux
+environment, use the Alpine environment package `omniflow_dev`; describe it as
+a developer/evaluation CLI/provider/MCP tool. It does not replace the native
+OOB OmniFlow replay path used by normal phone tasks.
+
 ## Local First
 
 Before searching the internet:

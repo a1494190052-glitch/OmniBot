@@ -3284,6 +3284,12 @@ abstract class AppLocalizations {
   /// **'OpenAI Codex CLI 与 app-server 桥接'**
   String get alpineCodex;
 
+  /// No description provided for @alpineOmniFlowDev.
+  ///
+  /// In zh, this message translates to:
+  /// **'OmniFlow Python CLI / provider 开发工具，不替代小万原生复用指令'**
+  String get alpineOmniFlowDev;
+
   /// No description provided for @alpineSshClient.
   ///
   /// In zh, this message translates to:

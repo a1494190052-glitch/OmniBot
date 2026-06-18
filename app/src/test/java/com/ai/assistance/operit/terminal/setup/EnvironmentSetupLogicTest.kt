@@ -64,6 +64,30 @@ class EnvironmentSetupLogicTest {
     }
 
     @Test
+    fun buildInstallCommands_omniflowDevInstallsExternalCliToolchain() {
+        val commands = EnvironmentSetupLogic.buildInstallCommands(
+            selectedPackageIds = listOf("omniflow_dev"),
+            repositorySetupCommand = ""
+        )
+
+        val apkAdd = commands.first { it.startsWith("apk add ") }
+        assertTrue(apkAdd.contains("git"))
+        assertTrue(apkAdd.contains("python3"))
+        assertTrue(apkAdd.contains("py3-pip"))
+        assertTrue(apkAdd.contains("build-base"))
+        assertTrue(apkAdd.contains("python3-dev"))
+        assertTrue(commands.contains("ln -sf /usr/bin/python3 /usr/local/bin/python || true"))
+        assertTrue(commands.contains("ln -sf /usr/bin/pip3 /usr/local/bin/pip || true"))
+        assertTrue(
+            commands.contains(
+                "if ! apk add --no-cache uv; then python3 -m pip install --break-system-packages --upgrade uv; fi"
+            )
+        )
+        assertTrue(commands.any { it.contains("https://github.com/omnimind-ai/OmniFlow.git") })
+        assertTrue(commands.any { it.contains("uv pip install --system -e .") })
+    }
+
+    @Test
     fun buildInventoryProbeCommand_codexChecksVersionAndAppServer() {
         val command = EnvironmentSetupLogic.buildInventoryProbeCommand(listOf("codex"))
 
@@ -72,6 +96,16 @@ class EnvironmentSetupLogicTest {
         assertTrue(command.contains("command -v codex"))
         assertTrue(command.contains("codex app-server --help"))
         assertTrue(command.contains("codex --version"))
+    }
+
+    @Test
+    fun buildInventoryProbeCommand_omniflowDevChecksProviderAndMcpTools() {
+        val command = EnvironmentSetupLogic.buildInventoryProbeCommand(listOf("omniflow_dev"))
+
+        assertTrue(command.contains("command -v omniflow-provider"))
+        assertTrue(command.contains("command -v omniflow-mcp"))
+        assertTrue(command.contains("omniflow-provider --help"))
+        assertTrue(command.contains("importlib.metadata"))
     }
 
     @Test
