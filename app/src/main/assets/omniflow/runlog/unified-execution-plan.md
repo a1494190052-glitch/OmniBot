@@ -429,6 +429,11 @@ complete until the device smoke above has been run on a real device.
 ## Follow-Up Work
 
 - Add a small offline Python CLI check that validates exported Function JSON
-  against the shared schema, without calling Android runtime actions.
+  against the shared schema, without calling Android runtime actions. The first
+  checked version is `scripts/oob-omniflow-python-offline-contract-smoke.py`;
+  it reads the local `~/Projects/Omni/OmniFlow` checkout, verifies standalone
+  MCP exposes only `omniflow.recall` / `omniflow.ingest_run_log`, and validates
+  the `vlm_task` recall-loop fixture still declares Kotlin as the live runtime
+  owner.
 - Keep UI changes minimal and aligned with existing main-branch presentation:
   cards may show status, but execution semantics must stay in the native runtime.

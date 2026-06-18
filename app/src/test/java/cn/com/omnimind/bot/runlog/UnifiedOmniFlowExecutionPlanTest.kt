@@ -216,6 +216,37 @@ class UnifiedOmniFlowExecutionPlanTest {
     }
 
     @Test
+    fun `omniflow python offline contract smoke is static and keeps python out of phone execution`() {
+        val scriptPath = findSource("scripts/oob-omniflow-python-offline-contract-smoke.py")
+        val script = String(Files.readAllBytes(scriptPath))
+        val plan = readSource("app/src/main/assets/omniflow/runlog/unified-execution-plan.md")
+
+        assertTrue(script.contains("DEFAULT_OMNIFLOW_ROOT"))
+        assertTrue(script.contains("STANDALONE_TOOL_NAMES"))
+        assertTrue(script.contains("\"omniflow.recall\""))
+        assertTrue(script.contains("\"omniflow.ingest_run_log\""))
+        assertTrue(script.contains("forbidden_mcp_tools"))
+        assertTrue(script.contains("omniflow.call_function"))
+        assertTrue(script.contains("runtime_owner"))
+        assertTrue(script.contains("oob_native_kotlin"))
+        assertTrue(script.contains("offline_fixture_eval"))
+        assertTrue(script.contains("mcp_cache_recall_ingest"))
+        assertTrue(script.contains("offline_enhance"))
+        assertTrue(script.contains("replay_uses_enhanced_function"))
+        assertTrue(!script.contains("adb "))
+        assertTrue(!script.contains("am broadcast"))
+
+        assertTrue(plan.contains("scripts/oob-omniflow-python-offline-contract-smoke.py"))
+        assertTrue(plan.contains("standalone"))
+        assertTrue(plan.contains("MCP exposes only"))
+        assertTrue(plan.contains("Kotlin"))
+        assertTrue(plan.contains("live runtime"))
+
+        val permissions = Files.getPosixFilePermissions(scriptPath)
+        assertTrue(permissions.contains(PosixFilePermission.OWNER_EXECUTE))
+    }
+
+    @Test
     fun `auto register and debug replay keep enhancement off the online path`() {
         val autoRegistrar = readSource(
             "app/src/main/java/cn/com/omnimind/bot/runlog/OobVlmRunLogAutoRegistrar.kt"
