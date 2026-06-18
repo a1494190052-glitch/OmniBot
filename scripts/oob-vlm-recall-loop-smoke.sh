@@ -231,7 +231,12 @@ wait_for_result_file() {
   local deadline=$((SECONDS + TIMEOUT_SECONDS))
   while (( SECONDS < deadline )); do
     read_app_file "$path" | tr -d '\r' > "$output_path"
-    if [[ -s "$output_path" ]]; then
+    if [[ -s "$output_path" ]] && python3 - "$output_path" <<'PY' >/dev/null 2>&1
+import json
+import sys
+json.load(open(sys.argv[1], encoding="utf-8"))
+PY
+    then
       return 0
     fi
     sleep 2

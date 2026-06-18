@@ -182,6 +182,8 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(script.contains("startFromCurrent true"))
         assertTrue(script.contains("enhancement_policy") && script.contains("offline_only"))
         assertTrue(script.contains("replay_uses_enhanced_function"))
+        assertTrue(script.contains("json.load(open(sys.argv[1], encoding=\"utf-8\"))"))
+        assertTrue(script.contains("then\n      return 0"))
 
         val permissions = Files.getPosixFilePermissions(scriptPath)
         assertTrue(permissions.contains(PosixFilePermission.OWNER_EXECUTE))
