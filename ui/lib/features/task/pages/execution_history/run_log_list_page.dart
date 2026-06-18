@@ -224,7 +224,7 @@ class _RunLogListItem extends StatelessWidget {
         _formatDuration(run.durationMs),
       if (run.tokenUsageTotal != null) _formatTokenUsage(run.tokenUsageTotal!),
       if (run.registeredAsFunction)
-        _text(context, '已保存为复用指令', 'Reusable Function saved'),
+        _text(context, '已保存为复用指令', 'Reusable command saved'),
     ].join(' · ');
     final detail = _firstNonBlank([
       run.errorMessage,

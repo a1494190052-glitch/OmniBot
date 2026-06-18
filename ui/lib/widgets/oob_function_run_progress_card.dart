@@ -65,19 +65,19 @@ Map<String, dynamic> oobFunctionRunProgressAgentToolCardDataForEvent(
     'tool_title': title,
     'toolTypeLabel': OobFunctionRunProgressCard._choose(
       zh: '复用指令',
-      en: 'Reusable Function',
+      en: 'Reusable command',
     ),
     'tool_type_label': OobFunctionRunProgressCard._choose(
       zh: '复用指令',
-      en: 'Reusable Function',
+      en: 'Reusable command',
     ),
     'displayName': OobFunctionRunProgressCard._choose(
       zh: '复用指令',
-      en: 'Reusable Function',
+      en: 'Reusable command',
     ),
     'display_name': OobFunctionRunProgressCard._choose(
       zh: '复用指令',
-      en: 'Reusable Function',
+      en: 'Reusable command',
     ),
     'summary': summary,
     'progress': detail,
@@ -142,15 +142,15 @@ class OobFunctionRunProgressCard extends StatelessWidget {
 
   static String _titleFor(OobFunctionRunProgressEvent event) {
     if (event.isRunning) {
-      return _choose(zh: '复用指令执行中', en: 'Reusable Function running');
+      return _choose(zh: '复用指令执行中', en: 'Reusable command running');
     }
     if (event.status == 'stopped') {
-      return _choose(zh: '复用指令已停止', en: 'Reusable Function stopped');
+      return _choose(zh: '复用指令已停止', en: 'Reusable command stopped');
     }
     if (event.status == 'failed' || _looksFailed(event.message)) {
-      return _choose(zh: '复用指令执行失败', en: 'Reusable Function failed');
+      return _choose(zh: '复用指令执行失败', en: 'Reusable command failed');
     }
-    return _choose(zh: '复用指令执行完成', en: 'Reusable Function completed');
+    return _choose(zh: '复用指令执行完成', en: 'Reusable command completed');
   }
 
   static String _stepLabel(OobFunctionRunProgressEvent event) {

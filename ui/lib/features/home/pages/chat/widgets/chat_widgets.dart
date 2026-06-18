@@ -319,7 +319,7 @@ class ChatAppBar extends StatelessWidget {
                             tooltip:
                                 replayProgressTooltip ??
                                 (LegacyTextLocalizer.isEnglish
-                                    ? 'Reusable Function progress'
+                                    ? 'Reusable command progress'
                                     : '复用指令执行进度'),
                             onTap: onReplayProgressTap!,
                             child: isReplayProgressRunning

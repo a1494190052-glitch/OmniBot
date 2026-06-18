@@ -218,7 +218,7 @@ class _FunctionRunResultSheetState extends State<_FunctionRunResultSheet> {
                                   : _text(
                                       context,
                                       '复用指令执行结果',
-                                      'Reusable Function result',
+                                      'Reusable command result',
                                     ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,

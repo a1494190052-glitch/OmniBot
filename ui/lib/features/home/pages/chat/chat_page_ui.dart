@@ -116,8 +116,9 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     if (route == _SlashCommandPanelRoute.effort &&
         _supportsReasoningEffortCommand) {
       final activeEffort = _activeConversationReasoningEffort;
-      final displayActiveEffort =
-          activeEffort == 'xhigh' ? 'max' : activeEffort;
+      final displayActiveEffort = activeEffort == 'xhigh'
+          ? 'max'
+          : activeEffort;
       final query = _slashCommandRouteQuery(route).toLowerCase();
       final efforts = <String>['no', 'low', 'high', 'max']
           .where((effort) {
@@ -199,8 +200,9 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     }
     if (_supportsReasoningEffortCommand) {
       final activeEffort = _activeConversationReasoningEffort;
-      final displayActiveEffort =
-          activeEffort == 'xhigh' ? 'max' : activeEffort;
+      final displayActiveEffort = activeEffort == 'xhigh'
+          ? 'max'
+          : activeEffort;
       commands.add(<String, dynamic>{
         'cardId': 'slash-command-effort',
         'toolName': '/effort',
@@ -1554,18 +1556,12 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
         ? (stepCount > 0 ? '$step/$stepCount' : '$step')
         : '';
     final status = event.isRunning
-        ? AppTextLocalizer.choose(
-            zh: '复用指令执行中',
-            en: 'Reusable Function running',
-          )
+        ? AppTextLocalizer.choose(zh: '复用指令执行中', en: 'Reusable command running')
         : event.status == 'stopped'
-        ? AppTextLocalizer.choose(
-            zh: '复用指令已停止',
-            en: 'Reusable Function stopped',
-          )
+        ? AppTextLocalizer.choose(zh: '复用指令已停止', en: 'Reusable command stopped')
         : AppTextLocalizer.choose(
             zh: '复用指令执行失败',
-            en: 'Reusable Function failed',
+            en: 'Reusable command failed',
           );
     if (stepLabel.isNotEmpty && label.isNotEmpty) {
       return AppTextLocalizer.choose(

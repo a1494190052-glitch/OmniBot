@@ -615,10 +615,10 @@ String _localizedActivityText(BuildContext context, String value) {
         zh: '工作流操作',
         locale: locale,
       );
-    case 'Reusable Function':
+    case 'Reusable command':
     case '复用指令':
       return AppTextLocalizer.choose(
-        en: 'Reusable Function',
+        en: 'Reusable command',
         zh: '复用指令',
         locale: locale,
       );
@@ -694,7 +694,11 @@ String _localizedActionText(BuildContext context, String value) {
     case 'press_key':
       return AppTextLocalizer.choose(en: 'Press key', zh: '按键', locale: locale);
     case 'call_tool':
-      return AppTextLocalizer.choose(en: 'Call tool', zh: '调用工具', locale: locale);
+      return AppTextLocalizer.choose(
+        en: 'Call tool',
+        zh: '调用工具',
+        locale: locale,
+      );
     case 'wait':
       return AppTextLocalizer.choose(en: 'Wait', zh: '等待', locale: locale);
     case 'record':

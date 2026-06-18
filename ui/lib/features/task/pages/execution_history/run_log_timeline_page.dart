@@ -274,7 +274,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
           _functionPanelMessage = _text(
             context,
             '已保存为复用指令',
-            'Reusable Function saved',
+            'Reusable command saved',
           );
           _functionPanelError = null;
         } else if (_functionPanelStatus == _RunLogFunctionPanelStatus.saved) {
@@ -636,7 +636,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
         _functionPanelMessage = _text(
           context,
           '已保存为复用指令',
-          'Reusable Function saved',
+          'Reusable command saved',
         );
         _functionPanelError = null;
       });
@@ -666,12 +666,12 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
     final executionFailedText = _text(
       context,
       '复用指令执行失败',
-      'Reusable Function failed',
+      'Reusable command failed',
     );
     final conversionFailedText = _text(
       context,
       '复用指令生成失败',
-      'Reusable Function generation failed',
+      'Reusable command generation failed',
     );
 
     try {
@@ -1234,7 +1234,7 @@ class _RunLogFunctionStatusStrip extends StatelessWidget {
       case _RunLogFunctionPanelStatus.saving:
         return _text(context, '正在保存复用指令', 'Saving reusable Function');
       case _RunLogFunctionPanelStatus.saved:
-        return _text(context, '已保存为复用指令', 'Reusable Function saved');
+        return _text(context, '已保存为复用指令', 'Reusable command saved');
       case _RunLogFunctionPanelStatus.enhancing:
         return _text(context, '后台增强中', 'Enhancing in background');
       case _RunLogFunctionPanelStatus.enhanced:
@@ -3431,7 +3431,7 @@ class _ReusableFunctionSpecSheetState
                                     text: _text(
                                       context,
                                       '复用指令 JSON',
-                                      'Reusable Function JSON',
+                                      'Reusable command JSON',
                                     ),
                                   ),
                                   const SizedBox(height: 8),
@@ -3780,7 +3780,7 @@ class _ReusableFunctionSpecSheetState
         });
         showToast(
           successMessage ??
-              _text(context, '已保存为复用指令', 'Reusable Function saved'),
+              _text(context, '已保存为复用指令', 'Reusable command saved'),
           type: ToastType.success,
         );
         return true;
@@ -3831,7 +3831,7 @@ class _ReusableFunctionSpecSheetState
       if (result.success) {
         showToast(
           successMessage ??
-              _text(context, '已保存为复用指令', 'Reusable Function saved'),
+              _text(context, '已保存为复用指令', 'Reusable command saved'),
           type: ToastType.success,
         );
         return true;
@@ -3899,7 +3899,7 @@ class _ReusableFunctionSpecSheetState
         await showFunctionRunResultSheet(
           context,
           result: result,
-          title: _text(context, '复用指令执行结果', 'Reusable Function result'),
+          title: _text(context, '复用指令执行结果', 'Reusable command result'),
           arguments: _defaultArguments,
         );
       }
@@ -3915,11 +3915,7 @@ class _ReusableFunctionSpecSheetState
 
   Future<void> _publishFunctionForAgent() async {
     await _registerFunction(
-      successMessage: _text(
-        context,
-        '已注册为复用指令',
-        'Reusable Function registered',
-      ),
+      successMessage: _text(context, '已注册为复用指令', 'Reusable command registered'),
       agentVisible: true,
     );
   }
@@ -3947,7 +3943,7 @@ class _ReusableFunctionSpecSheetState
           _text(
             context,
             '复用指令保存失败，无法转定时任务',
-            'Reusable Function registration failed',
+            'Reusable command registration failed',
           ),
           type: ToastType.error,
         );
@@ -4213,11 +4209,7 @@ class _ReusableFunctionSpecSheetState
     final progressText = _runProgressText(context, result);
     if (result.completedVlmFallback) {
       return _appendRunProgress(
-        _text(
-          context,
-          '复用指令已通过 VLM 执行完成',
-          'Reusable Function completed by VLM',
-        ),
+        _text(context, '复用指令已通过 VLM 执行完成', 'Reusable command completed by VLM'),
         progressText,
       );
     }
@@ -4236,12 +4228,12 @@ class _ReusableFunctionSpecSheetState
     }
     if (result.completedLocal) {
       return _appendRunProgress(
-        _text(context, '复用指令已本地执行完成', 'Reusable Function completed locally'),
+        _text(context, '复用指令已本地执行完成', 'Reusable command completed locally'),
         progressText,
       );
     }
     return _appendRunProgress(
-      _text(context, '复用指令已开始执行', 'Reusable Function started'),
+      _text(context, '复用指令已开始执行', 'Reusable command started'),
       progressText,
     );
   }
@@ -4253,7 +4245,7 @@ class _ReusableFunctionSpecSheetState
       return _appendRunProgress(error, progressText);
     }
     return _appendRunProgress(
-      _text(context, '复用指令执行失败', 'Reusable Function failed'),
+      _text(context, '复用指令执行失败', 'Reusable command failed'),
       progressText,
     );
   }
@@ -5756,7 +5748,7 @@ class _FunctionApiStatusBox extends StatelessWidget {
         : _errorColor(context);
     final lines = <String>[
       if (functionId.isNotEmpty)
-        _text(context, '复用指令：$functionId', 'Reusable Function: $functionId'),
+        _text(context, '复用指令：$functionId', 'Reusable command: $functionId'),
       if (importResult != null) _importStatusText(context, importResult!),
       if (runResult != null) _runStatusText(context, runResult),
     ];

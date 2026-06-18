@@ -82,7 +82,7 @@ class _OobFunctionRunProgressDialogState
                     child: Text(
                       AppTextLocalizer.choose(
                         zh: '复用指令执行进度',
-                        en: 'Reusable Function progress',
+                        en: 'Reusable command progress',
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,

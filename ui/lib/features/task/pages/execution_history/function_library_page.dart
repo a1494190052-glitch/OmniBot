@@ -129,7 +129,7 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(_text(context, '删除复用指令', 'Delete Reusable Function')),
+        title: Text(_text(context, '删除复用指令', 'Delete reusable command')),
         content: Text(
           _text(
             context,
@@ -186,8 +186,8 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
         });
         showToast(
           group.variantCount > 1
-              ? _text(context, '已删除复用指令组', 'Reusable Function group deleted')
-              : _text(context, '已删除复用指令', 'Reusable Function deleted'),
+              ? _text(context, '已删除复用指令组', 'Reusable command group deleted')
+              : _text(context, '已删除复用指令', 'Reusable command deleted'),
           type: ToastType.success,
         );
       } else {
@@ -247,7 +247,7 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
         await showFunctionRunResultSheet(
           context,
           result: result,
-          title: _text(context, '复用指令执行结果', 'Reusable Function result'),
+          title: _text(context, '复用指令执行结果', 'Reusable command result'),
           arguments: arguments,
         );
       }
@@ -335,7 +335,7 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
     return Scaffold(
       backgroundColor: palette.pageBackground,
       appBar: CommonAppBar(
-        title: _text(context, '复用指令库', 'Reusable Functions'),
+        title: _text(context, '复用指令库', 'Reusable commands'),
         primary: true,
         actions: [
           Tooltip(
@@ -382,7 +382,7 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
     if (_functions.isEmpty) {
       return _EmptyState(
         icon: Icons.bolt_outlined,
-        title: _text(context, '暂无复用指令', 'No Reusable Functions Yet'),
+        title: _text(context, '暂无复用指令', 'No reusable commands yet'),
         subtitle: _text(
           context,
           '可以直接学习一段完整的人类操作，保存后在这里复用。',
@@ -650,7 +650,7 @@ Future<void> _showFunctionSpecDetails(
     final specJson = _functionSpecJsonFromDetail(rawSpec);
     if (specJson.isEmpty) {
       showToast(
-        _text(context, '复用指令详情为空', 'Reusable Function details are empty'),
+        _text(context, '复用指令详情为空', 'Reusable command details are empty'),
         type: ToastType.error,
       );
       return;
@@ -2071,7 +2071,7 @@ String _runSuccessMessage(BuildContext context, UtgManualRunResult result) {
   final progressText = _runProgressText(context, result);
   if (result.completedVlmFallback) {
     return _appendRunProgress(
-      _text(context, '复用指令已通过 VLM 执行完成', 'Reusable Function completed by VLM'),
+      _text(context, '复用指令已通过 VLM 执行完成', 'Reusable command completed by VLM'),
       progressText,
     );
   }
@@ -2088,12 +2088,12 @@ String _runSuccessMessage(BuildContext context, UtgManualRunResult result) {
   }
   if (result.completedLocal) {
     return _appendRunProgress(
-      _text(context, '复用指令已本地执行完成', 'Reusable Function completed locally'),
+      _text(context, '复用指令已本地执行完成', 'Reusable command completed locally'),
       progressText,
     );
   }
   return _appendRunProgress(
-    _text(context, '复用指令已开始执行', 'Reusable Function started'),
+    _text(context, '复用指令已开始执行', 'Reusable command started'),
     progressText,
   );
 }

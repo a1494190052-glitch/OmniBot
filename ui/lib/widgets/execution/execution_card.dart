@@ -98,7 +98,7 @@ class ExecutionCard extends StatelessWidget {
                     detail.type == ExecutionDetailType.function
                         ? AppTextLocalizer.choose(
                             zh: '复用指令',
-                            en: 'Reusable Function',
+                            en: 'Reusable command',
                             locale: Localizations.maybeLocaleOf(context),
                           )
                         : 'RunLog',
