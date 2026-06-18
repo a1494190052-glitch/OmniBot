@@ -21,6 +21,7 @@ SETTLE_SECONDS="${OOB_VLM_SMOKE_SETTLE_SECONDS:-2}"
 PROFILE_ID="${OOB_PROVIDER_PROFILE_ID:-}"
 MODEL_ID="${OMNIMIND_MODEL:-${OPENAI_MODEL:-}}"
 SKILL_ID="${OOB_VLM_SMOKE_SKILL_ID:-vlm-android-gui}"
+OUTPUT_DIR="${OOB_VLM_SMOKE_OUTPUT_DIR:-}"
 RAW_JSON=0
 
 usage() {
@@ -50,6 +51,8 @@ Options:
   --profile-id ID           Optional model provider profile id for the receiver.
   --model-id ID             Optional model id for the receiver.
   --skill-id ID             Built-in skill guidance id. Default: vlm-android-gui.
+  --output-dir DIR          Keep all phase JSON files and write
+                            vlm-accuracy-report.{json,md} in DIR.
   --raw-json                Print full JSON payloads in addition to summaries.
   --help                    Show this help.
 
@@ -151,6 +154,14 @@ while [[ $# -gt 0 ]]; do
       SKILL_ID="${1#--skill-id=}"
       shift
       ;;
+    --output-dir)
+      OUTPUT_DIR="$2"
+      shift 2
+      ;;
+    --output-dir=*)
+      OUTPUT_DIR="${1#--output-dir=}"
+      shift
+      ;;
     --raw-json)
       RAW_JSON=1
       shift
@@ -194,15 +205,26 @@ RECALL_RESULT_FILE="files/debug-oob-recall-result.json"
 RECALL_HIT_RESULT_FILE="files/debug-vlm-recall-hit-result.json"
 CONVERT_REPLAY_RESULT_FILE="files/debug-runlog-function-replay-result.json"
 
-WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/oob-vlm-recall-smoke.XXXXXX")"
+if [[ -n "${OUTPUT_DIR// }" ]]; then
+  WORK_DIR="$OUTPUT_DIR"
+  mkdir -p "$WORK_DIR"
+  KEEP_WORK_DIR=1
+else
+  WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/oob-vlm-recall-smoke.XXXXXX")"
+  KEEP_WORK_DIR=0
+fi
 FIRST_JSON="$WORK_DIR/first-vlm.json"
 RECALL_JSON="$WORK_DIR/recall.json"
 RECALL_HIT_JSON="$WORK_DIR/recall-hit.json"
 SECOND_JSON="$WORK_DIR/second-vlm.json"
 ENHANCE_JSON="$WORK_DIR/enhance-offline.json"
+REPORT_JSON="$WORK_DIR/vlm-accuracy-report.json"
+REPORT_MD="$WORK_DIR/vlm-accuracy-report.md"
 
 cleanup() {
-  rm -rf "$WORK_DIR"
+  if [[ "$KEEP_WORK_DIR" -eq 0 ]]; then
+    rm -rf "$WORK_DIR"
+  fi
 }
 trap cleanup EXIT
 
@@ -532,5 +554,17 @@ clear_app_file "$CONVERT_REPLAY_RESULT_FILE"
 wait_for_result_file "$CONVERT_REPLAY_RESULT_FILE" "convert-and-replay enhance" "$ENHANCE_JSON"
 print_summary "convert-and-replay enhance" "$ENHANCE_JSON"
 validate_enhance_offline "$ENHANCE_JSON"
+
+if [[ "$KEEP_WORK_DIR" -eq 1 ]]; then
+  echo "== Phase 6: write VLM accuracy report =="
+  scripts/oob-vlm-accuracy-report.py \
+    --smoke-dir "$WORK_DIR" \
+    --case-name "$GOAL" \
+    --output "$REPORT_JSON" \
+    --markdown "$REPORT_MD" \
+    --strict >/dev/null
+  echo "accuracy_report=$REPORT_JSON"
+  echo "accuracy_markdown=$REPORT_MD"
+fi
 
 echo "== VLM recall loop smoke passed =="

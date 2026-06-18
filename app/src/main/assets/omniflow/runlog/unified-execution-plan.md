@@ -255,6 +255,36 @@ Online device metrics come from OOB native RunLog/debug result envelopes:
 - Latency split: track observe, prompt build, VLM stream, parse, action dispatch,
   conversion/register, recall, and replay from the existing diagnostics fields.
 
+Use `scripts/oob-vlm-accuracy-report.py` as the OOB-side aggregator. It is an
+offline reader only: it consumes JSON already produced by native debug receivers
+or the strict smoke script, then emits a stable report with
+`task_success_rate`, `action_success_rate`, `first_run_registration_rate`,
+`recall_hit_rate`, `recall_hit_replay_rate`, `second_fast_path_rate`,
+`offline_enhance_policy_rate`, and latency summaries. The strict device smoke
+can retain its evidence and generate the report in one run:
+
+```bash
+scripts/oob-vlm-recall-loop-smoke.sh \
+  --device <serial> \
+  --goal "打开网络设置" \
+  --target-package com.android.settings \
+  --output-dir runtime/vlm-recall-loop/<case-name>
+```
+
+Existing evidence can be re-scored without touching the phone:
+
+```bash
+scripts/oob-vlm-accuracy-report.py \
+  --smoke-dir runtime/vlm-recall-loop/<case-name> \
+  --output runtime/vlm-recall-loop/<case-name>/vlm-accuracy-report.json \
+  --markdown runtime/vlm-recall-loop/<case-name>/vlm-accuracy-report.md \
+  --strict
+```
+
+The report is not a replacement for the smoke. It only proves what is present in
+the captured JSON. If the JSON did not come from a real device run, do not use it
+as live Android execution evidence.
+
 Offline compatibility metrics may use OmniFlow Python:
 
 - Schema validity of exported RunLog/Function JSON through `schemas.py`,
