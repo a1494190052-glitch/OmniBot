@@ -2,6 +2,7 @@ package cn.com.omnimind.bot.runlog
 
 import java.nio.file.Files
 import java.nio.file.Paths
+import java.nio.file.attribute.PosixFilePermission
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -66,6 +67,7 @@ class UnifiedOmniFlowExecutionPlanTest {
         )
 
         assertTrue(smoke.contains("RUN_VLM_RUNLOG"))
+        assertTrue(smoke.contains("scripts/oob-vlm-recall-loop-smoke.sh"))
         assertTrue(smoke.contains("--ez register true"))
         assertTrue(smoke.contains("convert.function_spec.metadata.enhancement_policy=offline_only"))
         assertTrue(smoke.contains("RUN_OOB_RECALL"))
@@ -78,6 +80,29 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(smoke.contains("enhancement_policy=offline_only"))
         assertTrue(smoke.contains("replay_uses_enhanced_function=false"))
         assertTrue(smoke.contains("Kotlin owns live phone execution"))
+    }
+
+    @Test
+    fun `vlm recall loop smoke script is strict and executable`() {
+        val scriptPath = findSource("scripts/oob-vlm-recall-loop-smoke.sh")
+        val script = String(Files.readAllBytes(scriptPath))
+
+        assertTrue(script.contains("RUN_VLM_RUNLOG"))
+        assertTrue(script.contains("RUN_OOB_RECALL"))
+        assertTrue(script.contains("RUN_VLM_RECALL_HIT"))
+        assertTrue(script.contains("CONVERT_RUNLOG_AND_RUN_FUNCTION"))
+        assertTrue(script.contains("validate_first_run"))
+        assertTrue(script.contains("validate_recall"))
+        assertTrue(script.contains("validate_recall_hit"))
+        assertTrue(script.contains("validate_second_run"))
+        assertTrue(script.contains("validate_enhance_offline"))
+        assertTrue(script.contains("disableOmniFlowRecall true"))
+        assertTrue(script.contains("startFromCurrent true"))
+        assertTrue(script.contains("enhancement_policy") && script.contains("offline_only"))
+        assertTrue(script.contains("replay_uses_enhanced_function"))
+
+        val permissions = Files.getPosixFilePermissions(scriptPath)
+        assertTrue(permissions.contains(PosixFilePermission.OWNER_EXECUTE))
     }
 
     @Test
@@ -105,12 +130,13 @@ class UnifiedOmniFlowExecutionPlanTest {
     }
 
     private fun readSource(relativePath: String): String {
-        val candidates = listOf(
+        return String(Files.readAllBytes(findSource(relativePath)))
+    }
+
+    private fun findSource(relativePath: String) =
+        listOf(
             Paths.get(relativePath),
             Paths.get("..").resolve(relativePath)
-        )
-        val path = candidates.firstOrNull { Files.exists(it) }
+        ).firstOrNull { Files.exists(it) }
             ?: error("Missing source file: $relativePath from ${Paths.get("").toAbsolutePath()}")
-        return String(Files.readAllBytes(path))
-    }
 }

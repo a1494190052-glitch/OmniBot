@@ -15,6 +15,28 @@ The Python OmniFlow package installed in the built-in Alpine environment is not 
 - Configure a working VLM model binding if the first run needs live VLM inference.
 - Put the device on the target page or pass `packageName` and let the debug receiver prelaunch the app.
 
+## One-Command Strict Smoke
+
+Prefer the checked smoke harness when validating a PR on a real device:
+
+```bash
+scripts/oob-vlm-recall-loop-smoke.sh \
+  --device <serial> \
+  --goal "打开网络设置" \
+  --target-package com.android.settings
+```
+
+The script runs the same debug receivers listed below and exits non-zero unless:
+
+- first `RUN_VLM_RUNLOG` succeeds, stores a RunLog, and registers a Function
+- the registered Function has `metadata.enhancement_policy=offline_only`
+- `RUN_OOB_RECALL` returns a strict direct `hit`
+- `RUN_VLM_RECALL_HIT` executes through `omniflow_recall_hit`
+- the second `RUN_VLM_RUNLOG --ez startFromCurrent true` also uses
+  `omniflow_recall_hit`
+- `CONVERT_RUNLOG_AND_RUN_FUNCTION --ez enhance true` reports offline-only
+  enhancement and does not replay an enhanced Function
+
 ## First VLM Run
 
 ```bash

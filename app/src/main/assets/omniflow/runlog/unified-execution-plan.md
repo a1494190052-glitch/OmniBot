@@ -323,6 +323,12 @@ Device smoke tests, requiring a connected Android device:
 8. Run the second VLM debug task and confirm `executionRoute` starts with
    `omniflow_recall_hit`.
 
+For the VLM loop, prefer the strict checked harness:
+
+```bash
+scripts/oob-vlm-recall-loop-smoke.sh --device <serial> --goal "打开网络设置"
+```
+
 The detailed `adb` commands live in
 `app/src/main/assets/omniflow/runlog/examples/vlm-task-recall-loop.md`.
 
