@@ -236,7 +236,10 @@ Offline compatibility metrics may use OmniFlow Python:
   `tests/vector/benchmarks/action_accuracy.py`, and
   `scripts/runlog_reuse_benchmark.py`.
 - Fixture regression for generated `vlm_task` examples without touching Android
-  accessibility.
+  accessibility. The machine-readable example is
+  `app/src/main/assets/omniflow/runlog/examples/vlm-task-recall-loop.json`;
+  the adb smoke walkthrough is
+  `app/src/main/assets/omniflow/runlog/examples/vlm-task-recall-loop.md`.
 
 The merge gate is a pair:
 
@@ -382,7 +385,9 @@ scripts/oob-manual-recording-function-smoke.sh --device <serial>
 ```
 
 The detailed `adb` commands live in
-`app/src/main/assets/omniflow/runlog/examples/vlm-task-recall-loop.md`.
+`app/src/main/assets/omniflow/runlog/examples/vlm-task-recall-loop.md`; the
+same call-shape contract is mirrored in the JSON fixture
+`app/src/main/assets/omniflow/runlog/examples/vlm-task-recall-loop.json`.
 
 Current limitation: if `adb devices` returns no connected device, local tests can
 prove conversion, recall policy, UI entry points, and strict-hit delegation, but

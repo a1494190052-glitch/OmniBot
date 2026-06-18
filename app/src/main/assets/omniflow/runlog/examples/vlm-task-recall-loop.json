@@ -1,0 +1,103 @@
+{
+  "schema_version": "oob.vlm_task_recall_loop_example.v1",
+  "purpose": "Document the native OOB call shape for first-run VLM execution, auto-registration, strict recall hit, fast replay, and offline enhancement.",
+  "runtime_owner": "oob_native_kotlin",
+  "python_omniflow_role": [
+    "schema_validation",
+    "offline_fixture_eval",
+    "provider_dev_tools",
+    "mcp_cache_recall_ingest"
+  ],
+  "enhancement_policy": "offline_only",
+  "steps": [
+    {
+      "phase": "first_vlm_run",
+      "entry": "vlm_task",
+      "tool_payload": {
+        "tool": "vlm_task",
+        "arguments": {
+          "operation": "打开网络设置",
+          "packageName": "com.android.settings",
+          "allowOmniFlowFunctionAutoExecute": true,
+          "registerRunLog": true,
+          "maxSteps": 3
+        }
+      },
+      "expected": {
+        "runlog_success": true,
+        "convert_success": true,
+        "function_spec.metadata.enhancement_policy": "offline_only"
+      }
+    },
+    {
+      "phase": "strict_recall_check",
+      "entry": "omniflow.recall",
+      "tool_payload": {
+        "tool": "omniflow.recall",
+        "arguments": {
+          "goal": "打开网络设置",
+          "current_package": "com.android.settings",
+          "auto_execute": true
+        }
+      },
+      "expected": {
+        "recall.success": true,
+        "recall.decision": "hit",
+        "recall.hit.function_id": "present"
+      }
+    },
+    {
+      "phase": "second_fast_vlm_run",
+      "entry": "vlm_task",
+      "tool_payload": {
+        "tool": "vlm_task",
+        "arguments": {
+          "operation": "打开网络设置",
+          "packageName": "com.android.settings",
+          "allowOmniFlowFunctionAutoExecute": true,
+          "startFromCurrent": true,
+          "maxSteps": 3
+        }
+      },
+      "expected": {
+        "outcome.executionRoute": "omniflow_recall_hit*",
+        "outcome.omniflowExecutionSummary.success": true,
+        "new_vlm_action_loop_after_hit": false
+      }
+    },
+    {
+      "phase": "direct_function_debug",
+      "entry": "http_or_debug_run_function",
+      "http_payload": {
+        "path": "/omniflow/function/run",
+        "body": {
+          "function_id": "<function_id_from_recall>",
+          "goal": "打开网络设置",
+          "arguments": {}
+        }
+      },
+      "expected": {
+        "runner": "oob_native_replay",
+        "arguments_shape": "nested_arguments_preserved"
+      }
+    },
+    {
+      "phase": "offline_enhance",
+      "entry": "update_function",
+      "tool_payload": {
+        "tool": "update_function",
+        "arguments": {
+          "function_id": "<registered_function_id>",
+          "run_id": "<source_run_id>",
+          "mode": "enhance"
+        }
+      },
+      "expected": {
+        "blocks_auto_registration": false,
+        "blocks_recall_hit": false,
+        "blocks_direct_replay": false,
+        "replay_uses_enhanced_function": false
+      }
+    }
+  ]
+}

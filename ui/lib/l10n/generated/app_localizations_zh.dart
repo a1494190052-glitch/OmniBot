@@ -201,14 +201,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsMcpToggleFailed => 'MCP 开关失败';
 
   @override
-  String get settingsOobFunctionAsToolTitle => 'OmniFlow Function 召回';
+  String get settingsOobFunctionAsToolTitle => 'OmniFlow 复用指令召回';
 
   @override
   String get settingsOobFunctionAsToolSubtitle => 'VLM 任务中通过运行时召回和重放复用已保存流程';
 
   @override
-  String get settingsOobFunctionAsToolToggleFailed =>
-      'OmniFlow Function 召回开关失败';
+  String get settingsOobFunctionAsToolToggleFailed => 'OmniFlow 复用指令召回开关失败';
 
   @override
   String get settingsCopiedAddress => '已复制访问地址';

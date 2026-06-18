@@ -1,5 +1,6 @@
 package cn.com.omnimind.bot.runlog
 
+import com.google.gson.Gson
 import java.nio.file.Files
 import java.nio.file.Paths
 import java.nio.file.attribute.PosixFilePermission
@@ -67,6 +68,9 @@ class UnifiedOmniFlowExecutionPlanTest {
         val smoke = readSource(
             "app/src/main/assets/omniflow/runlog/examples/vlm-task-recall-loop.md"
         )
+        val example = readJsonMap(
+            "app/src/main/assets/omniflow/runlog/examples/vlm-task-recall-loop.json"
+        )
 
         assertTrue(smoke.contains("RUN_VLM_RUNLOG"))
         assertTrue(smoke.contains("scripts/oob-vlm-recall-loop-smoke.sh"))
@@ -82,6 +86,33 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(smoke.contains("enhancement_policy=offline_only"))
         assertTrue(smoke.contains("replay_uses_enhanced_function=false"))
         assertTrue(smoke.contains("Kotlin owns live phone execution"))
+
+        assertTrue(example["schema_version"] == "oob.vlm_task_recall_loop_example.v1")
+        assertTrue(example["runtime_owner"] == "oob_native_kotlin")
+        assertTrue(example["enhancement_policy"] == "offline_only")
+        val steps = listMaps(example["steps"])
+        val firstRun = phase(steps, "first_vlm_run")
+        val firstRunPayload = mapArg(mapArg(firstRun["tool_payload"])["arguments"])
+        assertTrue(mapArg(firstRun["tool_payload"])["tool"] == "vlm_task")
+        assertTrue(firstRunPayload["registerRunLog"] == true)
+        assertTrue(firstRunPayload["allowOmniFlowFunctionAutoExecute"] == true)
+        assertTrue(mapArg(firstRun["expected"])["function_spec.metadata.enhancement_policy"] == "offline_only")
+
+        val fastRun = phase(steps, "second_fast_vlm_run")
+        assertTrue(mapArg(mapArg(fastRun["tool_payload"])["arguments"])["startFromCurrent"] == true)
+        assertTrue(mapArg(fastRun["expected"])["outcome.executionRoute"] == "omniflow_recall_hit*")
+        assertTrue(mapArg(fastRun["expected"])["new_vlm_action_loop_after_hit"] == false)
+
+        val directRun = phase(steps, "direct_function_debug")
+        assertTrue(mapArg(directRun["http_payload"])["path"] == "/omniflow/function/run")
+        assertTrue(mapArg(directRun["expected"])["arguments_shape"] == "nested_arguments_preserved")
+
+        val enhance = phase(steps, "offline_enhance")
+        assertTrue(mapArg(mapArg(enhance["tool_payload"])["arguments"])["mode"] == "enhance")
+        assertTrue(mapArg(enhance["expected"])["blocks_auto_registration"] == false)
+        assertTrue(mapArg(enhance["expected"])["blocks_recall_hit"] == false)
+        assertTrue(mapArg(enhance["expected"])["blocks_direct_replay"] == false)
+        assertTrue(mapArg(enhance["expected"])["replay_uses_enhanced_function"] == false)
     }
 
     @Test
@@ -185,6 +216,23 @@ class UnifiedOmniFlowExecutionPlanTest {
     private fun readSource(relativePath: String): String {
         return String(Files.readAllBytes(findSource(relativePath)))
     }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun readJsonMap(relativePath: String): Map<String, Any?> =
+        Gson().fromJson(String(Files.readAllBytes(findSource(relativePath))), Map::class.java)
+            as Map<String, Any?>
+
+    private fun listMaps(value: Any?): List<Map<String, Any?>> =
+        (value as? List<*>).orEmpty().map { mapArg(it) }
+
+    private fun phase(steps: List<Map<String, Any?>>, name: String): Map<String, Any?> =
+        steps.firstOrNull { it["phase"] == name } ?: error("Missing example phase: $name")
+
+    private fun mapArg(value: Any?): Map<String, Any?> =
+        when (value) {
+            is Map<*, *> -> value.entries.associate { (key, item) -> key.toString() to item }
+            else -> emptyMap()
+        }
 
     private fun findSource(relativePath: String) =
         listOf(

@@ -74,6 +74,10 @@ record. Do not read only the snapshot when correctness matters.
 
 - Native storage: `baselib/src/main/java/cn/com/omnimind/baselib/runlog/InternalRunLogStore.kt`
 - Shared replay policy: `app/src/main/assets/omniflow/runlog/replay_policy.json`
+- VLM recall loop example:
+  `app/src/main/assets/omniflow/runlog/examples/vlm-task-recall-loop.md`
+- Machine-readable VLM call-shape fixture:
+  `app/src/main/assets/omniflow/runlog/examples/vlm-task-recall-loop.json`
 - Reusable Function storage owner: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionRepository.kt`
 - Function payload/value codec: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionJson.kt`
 - Function spec normalization: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionSpecBuilder.kt`

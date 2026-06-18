@@ -479,7 +479,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsOobFunctionAsToolTitle.
   ///
   /// In zh, this message translates to:
-  /// **'OmniFlow Function 召回'**
+  /// **'OmniFlow 复用指令召回'**
   String get settingsOobFunctionAsToolTitle;
 
   /// No description provided for @settingsOobFunctionAsToolSubtitle.
@@ -491,7 +491,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsOobFunctionAsToolToggleFailed.
   ///
   /// In zh, this message translates to:
-  /// **'OmniFlow Function 召回开关失败'**
+  /// **'OmniFlow 复用指令召回开关失败'**
   String get settingsOobFunctionAsToolToggleFailed;
 
   /// No description provided for @settingsCopiedAddress.
