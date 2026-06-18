@@ -1,6 +1,6 @@
 ---
 name: omniflow
-description: OmniFlow reusable Android GUI workflow skill. Use when the user wants to reuse, register, update, enhance, analyze, or debug OOB RunLogs and saved Functions, including update_function, RunLog evidence, replay results, checker design, action cleanup, "应该点 A 而不是 B", "保存为复用指令", "增强 function", and ad/popup optional checkers.
+description: OmniFlow reusable Android GUI workflow skill. Use when the user wants to reuse, register, update, enhance, analyze, or debug OOB RunLogs and saved Functions, including update_function, RunLog evidence, replay results, checker design, action cleanup, "应该点 A 而不是 B", "保存为复用指令", "复用记忆", "增强 function", and ad/popup optional checkers.
 ---
 
 # OmniFlow
@@ -85,3 +85,5 @@ by default.
 When reporting to the user, use product language: "复用指令", "轨迹",
 "执行结果", "已增强", "需要继续处理". Avoid exposing raw MCP/tool plumbing
 unless the user asks for implementation details.
+If a user says "复用记忆", treat it as a compatibility phrase for saved
+OmniFlow 复用指令, but keep the product wording as "复用指令" in replies.

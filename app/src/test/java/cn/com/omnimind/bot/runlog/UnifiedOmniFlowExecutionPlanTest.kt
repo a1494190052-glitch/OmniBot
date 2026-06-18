@@ -165,6 +165,19 @@ class UnifiedOmniFlowExecutionPlanTest {
     }
 
     @Test
+    fun `builtin skills treat reusable memory as compatibility wording`() {
+        val manifest = readSource("app/src/main/assets/builtin_skills/manifest.json")
+        val omniflow = readSource("app/src/main/assets/builtin_skills/omniflow/SKILL.md")
+        val management = readSource("app/src/main/assets/builtin_skills/oob-function-management/SKILL.md")
+
+        assertTrue(manifest.contains("复用记忆"))
+        assertTrue(omniflow.contains("\"复用记忆\""))
+        assertTrue(omniflow.contains("compatibility phrase for saved"))
+        assertTrue(omniflow.contains("keep the product wording as \"复用指令\""))
+        assertTrue(management.contains("\"复用记忆\""))
+    }
+
+    @Test
     fun `vlm recall loop smoke script is strict and executable`() {
         val scriptPath = findSource("scripts/oob-vlm-recall-loop-smoke.sh")
         val script = String(Files.readAllBytes(scriptPath))
