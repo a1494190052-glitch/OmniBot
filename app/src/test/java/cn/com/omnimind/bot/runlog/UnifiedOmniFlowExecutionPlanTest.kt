@@ -65,6 +65,9 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(plan.contains("No inline enhancement"))
         assertTrue(plan.contains("Python compatibility"))
         assertTrue(plan.contains("UI stability"))
+        assertTrue(plan.contains("Localization/product wording"))
+        assertTrue(plan.contains("`复用指令` as the product name"))
+        assertTrue(plan.contains("`复用记忆` is accepted only as compatibility wording"))
     }
 
     @Test
@@ -169,12 +172,22 @@ class UnifiedOmniFlowExecutionPlanTest {
         val manifest = readSource("app/src/main/assets/builtin_skills/manifest.json")
         val omniflow = readSource("app/src/main/assets/builtin_skills/omniflow/SKILL.md")
         val management = readSource("app/src/main/assets/builtin_skills/oob-function-management/SKILL.md")
+        val zhArb = readJsonMap("ui/lib/l10n/app_zh.arb")
+        val enArb = readJsonMap("ui/lib/l10n/app_en.arb")
 
         assertTrue(manifest.contains("复用记忆"))
         assertTrue(omniflow.contains("\"复用记忆\""))
         assertTrue(omniflow.contains("compatibility phrase for saved"))
         assertTrue(omniflow.contains("keep the product wording as \"复用指令\""))
         assertTrue(management.contains("\"复用记忆\""))
+        assertTrue(zhArb["memoryCommandsTitle"] == "复用指令")
+        assertTrue(zhArb["functionLibraryTitle"] == "复用指令库")
+        assertTrue(
+            zhArb["functionLibraryEnhanceOfflineHint"].toString()
+                .contains("语义升级是离线后台步骤")
+        )
+        assertTrue(!zhArb.values.any { it == "复用记忆" })
+        assertTrue(enArb["memoryCommandsTitle"] == "Reusable Commands")
     }
 
     @Test

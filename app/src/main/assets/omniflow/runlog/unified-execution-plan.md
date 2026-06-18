@@ -231,6 +231,10 @@ evidence:
 - UI stability: Function library, memory/reuse entries, chat input trajectory
   menu, and stream/tool cards continue to render with main-branch style and
   route into native services rather than Dart-side replay.
+- Localization/product wording: ARB/l10n user-visible labels keep
+  `复用指令` as the product name and keep the offline enhancement hint. User
+  input such as `复用记忆` is accepted only as compatibility wording in routing
+  and builtin skills; it should not replace the displayed product label.
 
 ## VLM Accuracy Measurement
 
@@ -350,6 +354,8 @@ Direct calls are useful for debug and UI buttons, but they must be scoped:
   `metadata.enhancement_policy=offline_only`.
 - Function details show a localized hint that direct replay is ready while
   semantic upgrade is offline/background.
+- Frontend routing and builtin skills accept `复用记忆` as compatibility wording,
+  while localized UI continues to display `复用指令`.
 - Debug builds now expose `RUN_VLM_RECALL_HIT`, which directly exercises
   `VlmToolCoordinator.tryExecuteRecallHitOnly` and writes
   `debug-vlm-recall-hit-result.json` for faster device validation.
