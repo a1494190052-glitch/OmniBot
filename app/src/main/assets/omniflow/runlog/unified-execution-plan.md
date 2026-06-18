@@ -183,8 +183,22 @@ step labels, checker metadata, or repair patches when explicitly requested. It
 must not block auto-registration, second-run recall, or replay. A bare
 `update_function(function_id, run_id, mode=enhance)` returns the analysis
 context and prompt only; model-backed enhancement requires an explicit
-`offline_job=true` / `auto_analyze_with_model=true` request from a background
-job, debug update, or offline tool.
+`offline_job=true` plus `auto_analyze_with_model=true` request from a
+background job, debug update, or offline tool. Passing only one of those flags
+still returns the offline analysis context without invoking the model.
+
+For local MCP/debug tooling, prefer the same payload shape:
+
+```json
+{
+  "tool": "update_function",
+  "function_id": "open_network_settings",
+  "run_id": "vlm-run-123",
+  "mode": "enhance",
+  "offline_job": true,
+  "auto_analyze_with_model": true
+}
+```
 
 ## Shared Acceptance Gates
 

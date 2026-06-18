@@ -41,6 +41,10 @@ class DebugOobFunctionUpdateReceiver : BroadcastReceiver() {
                     ?: intent.booleanExtra("allow_execution_change")
                 val allowStructuralChange = intent.booleanExtra("allowStructuralChange")
                     ?: intent.booleanExtra("allow_structural_change")
+                val backgroundEnhancement = intent.booleanExtra("backgroundEnhancement")
+                    ?: intent.booleanExtra("background_enhancement")
+                val autoAnalyzeWithModel = intent.booleanExtra("autoAnalyzeWithModel")
+                    ?: intent.booleanExtra("auto_analyze_with_model")
 
                 val args = linkedMapOf<String, Any?>().apply {
                     putAll(extraArgs)
@@ -55,6 +59,8 @@ class DebugOobFunctionUpdateReceiver : BroadcastReceiver() {
                     dryRun?.let { put("dry_run", it) }
                     allowExecutionChange?.let { put("allow_execution_change", it) }
                     allowStructuralChange?.let { put("allow_structural_change", it) }
+                    backgroundEnhancement?.let { put("background_enhancement", it) }
+                    autoAnalyzeWithModel?.let { put("auto_analyze_with_model", it) }
                 }.filterValues { it != null }
 
                 val service = OobOmniFlowToolkitService(appContext)

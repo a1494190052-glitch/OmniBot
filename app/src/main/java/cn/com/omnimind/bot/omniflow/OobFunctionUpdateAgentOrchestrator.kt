@@ -135,13 +135,12 @@ class OobFunctionUpdateAgentOrchestrator(
             request["auto_analyze_with_model"],
             request["autoAnalyzeWithModel"],
         )
-        if (explicit.isNotBlank()) {
-            return explicit.equals("true", ignoreCase = true)
-        }
-        return boolArg(request["offline_job"]) ||
+        val explicitModelAnalysis = explicit.equals("true", ignoreCase = true)
+        val offlineJob = boolArg(request["offline_job"]) ||
             boolArg(request["offlineJob"]) ||
             boolArg(request["background_enhancement"]) ||
             boolArg(request["backgroundEnhancement"])
+        return offlineJob && explicitModelAnalysis
     }
 
     private fun extractJsonObject(raw: String): Map<String, Any?>? {
