@@ -34,6 +34,7 @@ class UnifiedOmniFlowExecutionPlanTest {
             "app/src/main/assets/omniflow/runlog/unified-execution-plan.md"
         )
 
+        assertTrue(plan.contains("examples/unified-entry-surfaces.json"))
         assertTrue(plan.contains("## Adapter Matrix"))
         assertTrue(plan.contains("| `vlm_task` | natural-language goal"))
         assertTrue(plan.contains("| UI Function run | concrete `function_id`"))
@@ -334,6 +335,110 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(toolkit.contains("mapArg(request[\"arguments\"])"))
     }
 
+    @Test
+    fun `machine readable entry surface contract matches native adapters`() {
+        val contract = readJsonMap(
+            "app/src/main/assets/omniflow/runlog/examples/unified-entry-surfaces.json"
+        )
+        val plan = readSource(
+            "app/src/main/assets/omniflow/runlog/unified-execution-plan.md"
+        )
+        val readme = readSource("app/src/main/assets/omniflow/runlog/README.md")
+        val httpHost = readSource(
+            "app/src/main/java/cn/com/omnimind/bot/devicehost/LocalDeviceHttpHostManager.kt"
+        )
+        val mcpRoutes = readSource(
+            "app/src/main/java/cn/com/omnimind/bot/mcp/McpRoutes.kt"
+        )
+        val assistsManager = readSource(
+            "app/src/main/java/cn/com/omnimind/bot/manager/AssistsCoreManager.kt"
+        )
+        val coordinator = readSource(
+            "app/src/main/java/cn/com/omnimind/bot/vlm/VlmToolCoordinator.kt"
+        )
+        val toolkit = readSource(
+            "app/src/main/java/cn/com/omnimind/bot/runlog/OobOmniFlowToolkitService.kt"
+        )
+
+        assertTrue(contract["schema_version"] == "oob.omniflow_entry_surface_contract.v1")
+        assertTrue(contract["runtime_owner"] == "oob_native_kotlin")
+        assertTrue(contract["native_facade"] == "OobOmniFlowToolkitService")
+        assertTrue(contract["phone_action_runner"] == "OobFunctionRunner")
+        assertTrue(contract["enhancement_policy"] == "offline_only")
+        assertTrue(mapArg(contract["product_label"])["zh"] == "复用指令")
+        assertTrue(listAny(mapArg(contract["product_label"])["compatibility_aliases"]).contains("复用记忆"))
+        assertTrue(plan.contains("examples/unified-entry-surfaces.json"))
+        assertTrue(readme.contains("examples/unified-entry-surfaces.json"))
+
+        val surfaces = listMaps(contract["entry_surfaces"])
+        val byId = surfaces.associateBy { it["id"]?.toString().orEmpty() }
+        assertTrue(byId.keys.containsAll(listOf(
+            "vlm_task_recall_fast_path",
+            "ui_direct_function_run",
+            "ui_update_function",
+            "mcp_function_lifecycle_tools",
+            "http_function_run",
+            "debug_recall_hit_only",
+            "python_omniflow_offline",
+        )))
+
+        val vlm = byId.getValue("vlm_task_recall_fast_path")
+        assertTrue(vlm["may_execute_phone_actions"] == true)
+        assertTrue(vlm["phone_action_owner"] == "kotlin_only")
+        assertTrue(vlm["model_visible_function_execution_tool"] == false)
+        assertTrue(vlm["result_route_prefix"] == "omniflow_recall_hit")
+        assertTrue(coordinator.contains("OobOmniFlowToolkitService(context).runFunction("))
+        assertTrue(coordinator.contains("tryExecuteRecallHitOnly"))
+
+        val uiRun = byId.getValue("ui_direct_function_run")
+        assertTrue(uiRun["requires_concrete_function_id"] == true)
+        assertTrue(uiRun["arguments_field_policy"] == "nested_arguments_preserved")
+        assertTrue(assistsManager.contains("fun runOobReusableFunction("))
+        assertTrue(assistsManager.contains("OobOmniFlowToolkitService(context).runFunction("))
+        assertTrue(assistsManager.contains("\"arguments\" to callArguments"))
+        assertTrue(assistsManager.contains("\"frontend_parent\" to \"oob_direct_replay\""))
+
+        val uiUpdate = byId.getValue("ui_update_function")
+        assertTrue(uiUpdate["may_execute_phone_actions"] == false)
+        assertTrue(uiUpdate["enhance_policy"] == "offline_background_only")
+        assertTrue(assistsManager.contains("fun updateOobFunction("))
+        assertTrue(assistsManager.contains("toolName = OobFunctionToolNames.FUNCTION_UPDATE"))
+
+        val mcp = byId.getValue("mcp_function_lifecycle_tools")
+        val allowedTools = listAny(mcp["allowed_tools"]).map { it.toString() }
+        assertTrue(allowedTools.contains("update_function"))
+        assertTrue(allowedTools.contains("oob_run_log_convert"))
+        assertTrue(listAny(mcp["forbidden_public_tools"]).contains("run_function"))
+        assertTrue(mcpRoutes.contains("OMNIFLOW_MCP_TOOL_NAMES"))
+        assertTrue(mcpRoutes.contains("omniflowToolkit.executeTool(name, args)"))
+        assertTrue(!mcpRoutes.contains("\"run_function\" ->"))
+
+        val http = byId.getValue("http_function_run")
+        assertTrue(http["debug_or_dev_only"] == true)
+        assertTrue(http["arguments_field_policy"] == "nested_arguments_preserved")
+        assertTrue(httpHost.contains("post(\"/omniflow/function/run\")"))
+        assertTrue(httpHost.contains("OobOmniFlowToolkitService(context).executeTool(\"run_function\", args)"))
+        assertTrue(httpHost.contains("val publicArguments = mapArg(body[\"arguments\"])"))
+
+        val debugRecall = byId.getValue("debug_recall_hit_only")
+        assertTrue(debugRecall["debug_or_dev_only"] == true)
+        assertTrue(debugRecall["result_route_prefix"] == "omniflow_recall_hit")
+
+        val python = byId.getValue("python_omniflow_offline")
+        assertTrue(python["may_execute_phone_actions"] == false)
+        assertTrue(python["must_call_oob_adapter_for_phone_execution"] == true)
+        assertTrue(python["enhance_policy"] == "offline_patches_only")
+
+        val invariants = mapArg(contract["invariants"])
+        assertTrue(invariants["direct_function_calls_require_id"] == true)
+        assertTrue(invariants["enhance_never_blocks_registration_recall_or_replay"] == true)
+        assertTrue(invariants["python_never_owns_accessibility_or_overlay"] == true)
+        assertTrue(invariants["ui_never_interprets_function_steps_in_dart"] == true)
+        assertTrue(toolkit.contains("\"run_function\", \"oob_function_run\" -> runFunction(args)"))
+        assertTrue(toolkit.contains("suspend fun updateFunction(args: Map<String, Any?>?)"))
+        assertTrue(toolkit.contains("functionStepwiseUpdateOrchestrator.updateFunction(args)"))
+    }
+
     private fun readSource(relativePath: String): String {
         return String(Files.readAllBytes(findSource(relativePath)))
     }
@@ -345,6 +450,9 @@ class UnifiedOmniFlowExecutionPlanTest {
 
     private fun listMaps(value: Any?): List<Map<String, Any?>> =
         (value as? List<*>).orEmpty().map { mapArg(it) }
+
+    private fun listAny(value: Any?): List<Any?> =
+        value as? List<*> ?: emptyList<Any?>()
 
     private fun phase(steps: List<Map<String, Any?>>, name: String): Map<String, Any?> =
         steps.firstOrNull { it["phase"] == name } ?: error("Missing example phase: $name")

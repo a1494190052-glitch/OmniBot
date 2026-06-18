@@ -1,0 +1,168 @@
+{
+  "schema_version": "oob.omniflow_entry_surface_contract.v1",
+  "purpose": "Machine-readable contract for keeping UI, MCP, HTTP/debug, VLM recall, and Python OmniFlow on one OOB-native Function execution path.",
+  "runtime_owner": "oob_native_kotlin",
+  "native_facade": "OobOmniFlowToolkitService",
+  "phone_action_runner": "OobFunctionRunner",
+  "enhancement_policy": "offline_only",
+  "product_label": {
+    "zh": "复用指令",
+    "en": "Reusable command",
+    "compatibility_aliases": [
+      "复用记忆"
+    ]
+  },
+  "entry_surfaces": [
+    {
+      "id": "vlm_task_recall_fast_path",
+      "surface": "vlm_task",
+      "adapter": "VlmToolCoordinator",
+      "input_shape": "natural_language_goal_with_optional_package",
+      "delegates_to": [
+        "OobFunctionRecallService",
+        "OobOmniFlowToolkitService.runFunction"
+      ],
+      "may_execute_phone_actions": true,
+      "phone_action_owner": "kotlin_only",
+      "requires_concrete_function_id": false,
+      "model_visible_function_execution_tool": false,
+      "fresh_observe_required": true,
+      "result_route_prefix": "omniflow_recall_hit",
+      "enhance_inline_allowed": false
+    },
+    {
+      "id": "ui_direct_function_run",
+      "surface": "flutter_method_channel",
+      "adapter": "AssistsCoreManager.runOobReusableFunction",
+      "input_shape": "function_id_plus_public_arguments",
+      "delegates_to": [
+        "OobOmniFlowToolkitService.runFunction"
+      ],
+      "may_execute_phone_actions": true,
+      "phone_action_owner": "kotlin_only",
+      "requires_concrete_function_id": true,
+      "model_visible_function_execution_tool": false,
+      "arguments_field_policy": "nested_arguments_preserved",
+      "mutates_saved_function": false,
+      "enhance_inline_allowed": false
+    },
+    {
+      "id": "ui_update_function",
+      "surface": "flutter_method_channel",
+      "adapter": "AssistsCoreManager.updateOobFunction",
+      "input_shape": "function_id_runlog_evidence_analysis_patch",
+      "delegates_to": [
+        "OobOmniFlowToolkitService.executeTool(update_function)"
+      ],
+      "may_execute_phone_actions": false,
+      "phone_action_owner": "none",
+      "requires_concrete_function_id": true,
+      "model_visible_function_execution_tool": false,
+      "mutates_saved_function": true,
+      "enhance_inline_allowed": false,
+      "enhance_policy": "offline_background_only"
+    },
+    {
+      "id": "mcp_function_lifecycle_tools",
+      "surface": "mcp_tools",
+      "adapter": "McpRoutes.executeTool",
+      "input_shape": "omniflow_lifecycle_tool_payload",
+      "allowed_tools": [
+        "omniflow.recall",
+        "omniflow.ingest_run_log",
+        "omniflow.explore_replay",
+        "oob_function_list",
+        "oob_function_get",
+        "oob_function_register",
+        "update_function",
+        "oob_function_delete",
+        "oob_function_clear",
+        "oob_run_log_list",
+        "oob_run_log_get",
+        "oob_run_log_convert"
+      ],
+      "delegates_to": [
+        "OobOmniFlowToolkitService.executeTool"
+      ],
+      "may_execute_phone_actions": true,
+      "phone_action_owner": "kotlin_only_after_native_dispatch",
+      "requires_concrete_function_id": "tool_specific",
+      "model_visible_function_execution_tool": false,
+      "forbidden_public_tools": [
+        "run_function",
+        "oob_function_run",
+        "omniflow.call_function",
+        "omniflow.run_function",
+        "omniflow.execute_function"
+      ],
+      "enhance_inline_allowed": false
+    },
+    {
+      "id": "http_function_run",
+      "surface": "debug_http",
+      "adapter": "LocalDeviceHttpHostManager.post(/omniflow/function/run)",
+      "input_shape": "function_id_plus_public_arguments",
+      "delegates_to": [
+        "OobOmniFlowToolkitService.executeTool(run_function)"
+      ],
+      "may_execute_phone_actions": true,
+      "phone_action_owner": "kotlin_only",
+      "requires_concrete_function_id": true,
+      "model_visible_function_execution_tool": false,
+      "arguments_field_policy": "nested_arguments_preserved",
+      "debug_or_dev_only": true,
+      "enhance_inline_allowed": false
+    },
+    {
+      "id": "debug_recall_hit_only",
+      "surface": "debug_broadcast",
+      "adapter": "DebugVlmRecallHitReceiver",
+      "input_shape": "natural_language_goal_for_strict_hit_validation",
+      "delegates_to": [
+        "VlmToolCoordinator.tryExecuteRecallHitOnly",
+        "OobOmniFlowToolkitService.runFunction"
+      ],
+      "may_execute_phone_actions": true,
+      "phone_action_owner": "kotlin_only",
+      "requires_concrete_function_id": false,
+      "model_visible_function_execution_tool": false,
+      "result_route_prefix": "omniflow_recall_hit",
+      "debug_or_dev_only": true,
+      "enhance_inline_allowed": false
+    },
+    {
+      "id": "python_omniflow_offline",
+      "surface": "built_in_alpine_python",
+      "adapter": "omniflow-provider / omniflow-mcp",
+      "input_shape": "exported_runlogs_functions_fixtures",
+      "delegates_to": [
+        "schema_validation",
+        "offline_fixture_eval",
+        "omniflow.recall",
+        "omniflow.ingest_run_log"
+      ],
+      "may_execute_phone_actions": false,
+      "phone_action_owner": "none",
+      "requires_concrete_function_id": false,
+      "model_visible_function_execution_tool": false,
+      "must_call_oob_adapter_for_phone_execution": true,
+      "enhance_policy": "offline_patches_only"
+    }
+  ],
+  "invariants": {
+    "single_live_phone_executor": "All phone actions eventually enter the OOB-native facade and Kotlin runner.",
+    "direct_function_calls_require_id": true,
+    "ordinary_vlm_prompt_has_no_function_id_execution_tool": true,
+    "enhance_never_blocks_registration_recall_or_replay": true,
+    "python_never_owns_accessibility_or_overlay": true,
+    "ui_never_interprets_function_steps_in_dart": true
+  },
+  "required_device_gates": [
+    "scripts/oob-manual-recording-function-smoke.sh --device <serial>",
+    "scripts/oob-vlm-recall-loop-smoke.sh --device <serial> --output-dir runtime/vlm-recall-loop/<case>"
+  ],
+  "offline_gates": [
+    "scripts/oob-omniflow-python-offline-contract-smoke.py",
+    "scripts/oob-vlm-accuracy-report.py --smoke-dir <captured-smoke-dir> --strict"
+  ]
+}

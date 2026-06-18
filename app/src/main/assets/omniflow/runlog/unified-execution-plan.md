@@ -65,6 +65,9 @@ All entry surfaces should call the same native Function facade:
 
 The shared contract is the Function JSON schema and `{tool,args}` execution
 steps. The owner of actual Android execution remains the Kotlin replay runner.
+The machine-readable version of this entry-surface boundary lives in
+`app/src/main/assets/omniflow/runlog/examples/unified-entry-surfaces.json`; keep
+it in sync with MCP/HTTP/MethodChannel/VLM route changes.
 
 Python OmniFlow compatibility should be one-way for live tasks:
 

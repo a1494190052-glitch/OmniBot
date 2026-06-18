@@ -23,6 +23,10 @@ VLM_EXAMPLE = (
     ROOT
     / "app/src/main/assets/omniflow/runlog/examples/vlm-task-recall-loop.json"
 )
+ENTRY_SURFACE_CONTRACT = (
+    ROOT
+    / "app/src/main/assets/omniflow/runlog/examples/unified-entry-surfaces.json"
+)
 UNIFIED_PLAN = (
     ROOT / "app/src/main/assets/omniflow/runlog/unified-execution-plan.md"
 )
@@ -61,6 +65,7 @@ def main() -> int:
     )
     pyproject = read_text(omniflow_root / "pyproject.toml", failures)
     vlm_example = read_json(VLM_EXAMPLE, failures)
+    entry_contract = read_json(ENTRY_SURFACE_CONTRACT, failures)
     unified_plan = read_text(UNIFIED_PLAN, failures)
 
     tool_names = parse_standalone_tool_names(mcp_server)
@@ -199,6 +204,82 @@ def main() -> int:
             replay_uses_enhanced,
             False,
             "offline enhance must not feed replay",
+            failures,
+        )
+
+    if isinstance(entry_contract, dict):
+        report["checks"]["entry_surface_schema_version"] = entry_contract.get(
+            "schema_version"
+        )
+        assert_equal(
+            entry_contract.get("runtime_owner"),
+            "oob_native_kotlin",
+            "entry surface runtime_owner",
+            failures,
+        )
+        assert_equal(
+            entry_contract.get("native_facade"),
+            "OobOmniFlowToolkitService",
+            "entry surface native facade",
+            failures,
+        )
+        assert_equal(
+            entry_contract.get("enhancement_policy"),
+            "offline_only",
+            "entry surface enhancement_policy",
+            failures,
+        )
+        surfaces = {
+            str(surface.get("id")): surface
+            for surface in entry_contract.get("entry_surfaces", [])
+            if isinstance(surface, dict)
+        }
+        report["checks"]["entry_surface_ids"] = list(surfaces)
+        require_phase(surfaces, "vlm_task_recall_fast_path", failures)
+        require_phase(surfaces, "mcp_function_lifecycle_tools", failures)
+        require_phase(surfaces, "http_function_run", failures)
+        require_phase(surfaces, "python_omniflow_offline", failures)
+        python_surface = surfaces.get("python_omniflow_offline", {})
+        assert_equal(
+            python_surface.get("may_execute_phone_actions"),
+            False,
+            "Python surface may_execute_phone_actions",
+            failures,
+        )
+        assert_equal(
+            python_surface.get("must_call_oob_adapter_for_phone_execution"),
+            True,
+            "Python surface must call OOB adapter for phone execution",
+            failures,
+        )
+        assert_equal(
+            python_surface.get("enhance_policy"),
+            "offline_patches_only",
+            "Python surface enhance policy",
+            failures,
+        )
+        mcp_surface = surfaces.get("mcp_function_lifecycle_tools", {})
+        forbidden_public_tools = mcp_surface.get("forbidden_public_tools")
+        if not isinstance(forbidden_public_tools, list):
+            failures.append("entry surface MCP forbidden_public_tools must be a list")
+            forbidden_public_tools = []
+        for tool in forbidden_mcp_tools:
+            if tool not in forbidden_public_tools:
+                failures.append(f"entry surface MCP contract missing forbidden tool: {tool}")
+        invariants = entry_contract.get("invariants")
+        if not isinstance(invariants, dict):
+            failures.append("entry surface invariants must be an object")
+            invariants = {}
+        assert_equal(
+            invariants.get("python_never_owns_accessibility_or_overlay"),
+            True,
+            "entry surface Python accessibility invariant",
+            failures,
+        )
+        assert_equal(
+            invariants.get("enhance_never_blocks_registration_recall_or_replay"),
+            True,
+            "entry surface enhance nonblocking invariant",
             failures,
         )
 
