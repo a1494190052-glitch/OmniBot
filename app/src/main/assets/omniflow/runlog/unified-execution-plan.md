@@ -114,6 +114,98 @@ The adapter may differ, but the payload must not:
   `execution_summary`, `run_id`, and explicit error fields. UI cards, MCP
   responses, and debug result files should all project from this envelope.
 
+## Adapter Matrix
+
+This matrix is the implementation boundary for avoiding two execution systems:
+
+| Surface | Allowed Input | Owner | May Execute Phone Actions | Notes |
+| --- | --- | --- | --- | --- |
+| `vlm_task` | natural-language goal, optional package, max steps | `VlmToolCoordinator` | yes, through Kotlin only | Performs fresh observe, native recall, strict-hit replay, or ordinary VLM action loop. |
+| UI Function run | concrete `function_id`, public arguments | Flutter -> native manager -> `OobOmniFlowToolkitService` | yes, through Kotlin only | Flutter must never interpret Function steps or call Android actions itself. |
+| MCP Function tools | concrete Function lifecycle payloads | `McpToolExecutors` -> `OobOmniFlowToolkitService` | yes, only after native dispatch | The MCP layer is an adapter; it must not own replay semantics. |
+| HTTP/debug Function run | concrete debug payloads | debug receiver -> `OobOmniFlowToolkitService` | yes, through Kotlin only | Useful for smoke tests and diagnostics. It should not become a separate product mode. |
+| `RUN_VLM_RECALL_HIT` | natural-language goal for strict-hit validation | debug receiver -> `VlmToolCoordinator.tryExecuteRecallHitOnly` | yes, through Kotlin only | Exists to isolate the second-run fast path without starting a fresh ordinary VLM loop. |
+| `update_function` / enhance | concrete `function_id`, RunLog evidence, patch | `OobFunctionUpdateService` | no | Offline maintenance only. It may edit metadata/labels/checkers, but must not replay. |
+| Python `omniflow-mcp` in Alpine | `omniflow.recall`, `omniflow.ingest_run_log` | OmniFlow Python provider/toolchain | no for OOB phone runtime | The upstream standalone MCP server exposes recall/ingest cache tools only; OOB phone execution still goes through native surfaces. |
+| Python AndroidWorld action sequence | benchmark/eval manifests | OmniFlow Python experiments | no for OOB app runtime | Useful reference for fixtures/evaluation. Do not wire it into OOB's live accessibility path. |
+
+Concrete rule: a caller may be UI, MCP, HTTP, debug, or Python, but live phone
+execution must eventually enter the same native facade and Kotlin replay runner.
+If a proposed change adds another component that can click, swipe, input text,
+launch apps, observe XML, or decide strict direct execution outside this chain,
+it is creating the second execution system this plan rejects.
+
+## Call Shapes
+
+Use these as the compatibility target for new adapters:
+
+```json
+{
+  "tool": "vlm_task",
+  "goal": "打开网络设置",
+  "packageName": "com.android.settings",
+  "allowOmniFlowFunctionAutoExecute": true
+}
+```
+
+`vlm_task` may auto-register a successful RunLog and may short-circuit through a
+strict recall hit on a later run. The model should still see only ordinary UI
+actions if execution reaches the VLM action loop.
+
+```json
+{
+  "tool": "run_function",
+  "function_id": "open_network_settings",
+  "arguments": {},
+  "goal": "打开网络设置"
+}
+```
+
+Direct Function calls require a concrete `function_id`. They are valid for UI
+buttons, MCP tools, and debug tools, but they do not search by natural-language
+goal and do not mutate the saved Function.
+
+```json
+{
+  "tool": "update_function",
+  "function_id": "open_network_settings",
+  "mode": "enhance",
+  "run_id": "vlm-run-123",
+  "analysis": {},
+  "patch": {}
+}
+```
+
+Enhancement is offline. It may produce a better description, public parameters,
+step labels, checker metadata, or repair patches when explicitly requested. It
+must not block auto-registration, second-run recall, or replay.
+
+## Shared Acceptance Gates
+
+Before a PR claims this mainline is working, verify each gate with matching
+evidence:
+
+- Manual recording: a visible `录制轨迹` entry starts recording, completes from
+  the floating assistant, and returns a RunLog plus reusable Function result.
+  Unit tests only prove command routing; a real Android device proves this gate.
+- First VLM run: `vlm_task` succeeds, writes an Internal RunLog, and conversion
+  registers an agent-visible Function with
+  `metadata.enhancement_policy=offline_only`.
+- Second VLM run: from the same or equivalent page, native recall returns a
+  strict hit and `VlmToolCoordinator` runs `OobOmniFlowToolkitService.runFunction`
+  once, producing an `executionRoute` that starts with `omniflow_recall_hit`.
+- No inline enhancement: no VLM auto-registration, recall-hit path, direct
+  Function run, or debug replay path should call `update_function` before
+  replay. Explicit UI/background/MCP update requests are the only enhancement
+  entry.
+- Python compatibility: Alpine-installed OmniFlow may validate schemas, run
+  `omniflow-provider`, expose `omniflow.recall` and
+  `omniflow.ingest_run_log`, and generate offline patches. It must call OOB's
+  native HTTP/MCP/debug surface if it wants this phone to execute anything.
+- UI stability: Function library, memory/reuse entries, chat input trajectory
+  menu, and stream/tool cards continue to render with main-branch style and
+  route into native services rather than Dart-side replay.
+
 ### UI / MethodChannel
 
 Flutter should stay a presentation and request surface:

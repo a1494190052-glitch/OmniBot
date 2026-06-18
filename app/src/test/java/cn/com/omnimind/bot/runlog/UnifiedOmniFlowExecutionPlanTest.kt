@@ -25,6 +25,39 @@ class UnifiedOmniFlowExecutionPlanTest {
     }
 
     @Test
+    fun `execution plan defines adapter matrix and shared acceptance gates`() {
+        val plan = readSource(
+            "app/src/main/assets/omniflow/runlog/unified-execution-plan.md"
+        )
+
+        assertTrue(plan.contains("## Adapter Matrix"))
+        assertTrue(plan.contains("| `vlm_task` | natural-language goal"))
+        assertTrue(plan.contains("| UI Function run | concrete `function_id`"))
+        assertTrue(plan.contains("| MCP Function tools | concrete Function lifecycle payloads"))
+        assertTrue(plan.contains("| HTTP/debug Function run | concrete debug payloads"))
+        assertTrue(plan.contains("| `RUN_VLM_RECALL_HIT` | natural-language goal for strict-hit validation"))
+        assertTrue(plan.contains("| `update_function` / enhance | concrete `function_id`, RunLog evidence, patch"))
+        assertTrue(plan.contains("| Python `omniflow-mcp` in Alpine | `omniflow.recall`, `omniflow.ingest_run_log`"))
+        assertTrue(plan.contains("live phone"))
+        assertTrue(plan.contains("same native facade and Kotlin replay runner"))
+        assertTrue(plan.contains("creating the second execution system this plan rejects"))
+
+        assertTrue(plan.contains("## Call Shapes"))
+        assertTrue(plan.contains("\"allowOmniFlowFunctionAutoExecute\": true"))
+        assertTrue(plan.contains("\"tool\": \"run_function\""))
+        assertTrue(plan.contains("\"tool\": \"update_function\""))
+        assertTrue(plan.contains("Enhancement is offline"))
+
+        assertTrue(plan.contains("## Shared Acceptance Gates"))
+        assertTrue(plan.contains("Manual recording: a visible `录制轨迹` entry starts recording"))
+        assertTrue(plan.contains("First VLM run: `vlm_task` succeeds"))
+        assertTrue(plan.contains("Second VLM run: from the same or equivalent page"))
+        assertTrue(plan.contains("No inline enhancement"))
+        assertTrue(plan.contains("Python compatibility"))
+        assertTrue(plan.contains("UI stability"))
+    }
+
+    @Test
     fun `vlm recall loop smoke doc covers first run auto register and second fast path`() {
         val smoke = readSource(
             "app/src/main/assets/omniflow/runlog/examples/vlm-task-recall-loop.md"
