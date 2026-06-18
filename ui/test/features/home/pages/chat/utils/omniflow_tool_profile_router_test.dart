@@ -20,6 +20,14 @@ void main() {
       'function_management',
     );
     expect(
+      omniflowToolProfileForMessage('查看我的复用记忆'),
+      'function_management',
+    );
+    expect(
+      omniflowToolProfileForMessage('用刚才的复用记忆填写 Bob'),
+      'function_management',
+    );
+    expect(
       omniflowToolProfileForMessage('reuse the last function with name Dora'),
       'function_management',
     );
@@ -33,5 +41,6 @@ void main() {
     expect(omniflowToolProfileForMessage('打开蓝牙'), isNull);
     expect(omniflowToolProfileForMessage('总结一下刚才的聊天'), isNull);
     expect(omniflowToolProfileForMessage('function 是什么概念'), isNull);
+    expect(omniflowToolProfileForMessage('记住我喜欢深色模式'), isNull);
   });
 }

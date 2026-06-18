@@ -9,6 +9,7 @@ String? omniflowToolProfileForMessage(String message) {
   final mentionsFunction =
       normalized.contains('function') ||
       normalized.contains('复用指令') ||
+      normalized.contains('复用记忆') ||
       normalized.contains('指令库');
   final managementIntent =
       normalized.contains('注册') ||
