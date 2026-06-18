@@ -103,6 +103,13 @@ data class OmniflowCheckerRule(
                 id = "confirm_resolver_always",
                 condition = COND_RESOLVER_DIALOG,
                 action = ACTION_CONFIRM_RESOLVER_ALWAYS,
+                phase = PHASE_PRE_TRANSFER,
+            ),
+            checkerRuleSpec(
+                id = "confirm_resolver_always_after_open_app",
+                condition = COND_RESOLVER_DIALOG,
+                action = ACTION_CONFIRM_RESOLVER_ALWAYS,
+                phase = PHASE_POST_ACTION,
             ),
             checkerRuleSpec(
                 id = "auto_grant_permission",
@@ -130,9 +137,10 @@ data class OmniflowCheckerRule(
                 action = ACTION_HIDE_KEYBOARD,
             ),
             checkerRuleSpec(
-                id = "dismiss_app_upgrade_prompt",
+                id = "dismiss_app_upgrade_prompt_after_open_app",
                 condition = COND_APP_UPGRADE_PROMPT,
                 action = ACTION_DISMISS,
+                phase = PHASE_POST_ACTION,
             ),
         )
 
@@ -150,12 +158,14 @@ data class OmniflowCheckerRule(
             condition: String,
             action: String,
             params: Map<String, Any?> = emptyMap(),
+            phase: String? = null,
             enabled: Boolean = true,
         ): Map<String, Any?> = linkedMapOf(
             "id" to id,
             "condition" to condition,
             "action" to action,
             "params" to params.takeIf { it.isNotEmpty() },
+            "phase" to phase?.takeIf { it.isNotBlank() },
             "enabled" to enabled,
         ).filterValues { it != null }
 

@@ -563,7 +563,35 @@ object UIStepExecutor {
         } else {
             emptyMap()
         }
-        val postActionControls = emptyList<Map<String, Any?>>()
+        val postActionControls = if (!fixedReplay && action == OobActionCodec.ACTION_OPEN_APP) {
+            timing.measure("checker_ms") {
+                runCheckerPhaseUntilStable(
+                    phase = OmniflowCheckerRule.PHASE_POST_ACTION,
+                    initialState = refreshState("after_open_app"),
+                    replayAction = ReplayAction(
+                        step = step,
+                        action = action,
+                        args = executedActionArgs.ifEmpty { args },
+                    ),
+                    extraRules = checkerRules,
+                    checkerBudget = checkerBudget,
+                    refreshState = ::refreshState,
+                    refreshReasonPrefix = "after_post_action_controls",
+                )
+            }
+        } else {
+            emptyList()
+        }
+        val postActionObserve = if (action in OobActionCodec.coordinateActions && actionTransferApplied) {
+            timing.measure("post_action_observe_ms") {
+                postActionObserveMeta(
+                    action = action,
+                    state = refreshState("post_action_observe"),
+                )
+            }
+        } else {
+            emptyMap()
+        }
         val controlEffects = preTransferControls + preActionControls + postActionControls
         val checker = timing.measureOverhead("result_summary_ms") {
             replayCheckerSummary(
@@ -607,6 +635,9 @@ object UIStepExecutor {
             }
             if (openAppReadyWait.isNotEmpty()) {
                 put("open_app_ready_wait", openAppReadyWait)
+            }
+            if (postActionObserve.isNotEmpty()) {
+                put("post_action_observe", postActionObserve)
             }
         }
     }
@@ -679,6 +710,24 @@ object UIStepExecutor {
         transferRequested && transfer["recorded_action_args_used"] == true -> "recorded_action_replay"
         transferRequested -> "action_transfer_skipped"
         else -> "direct_replay"
+    }
+
+    private fun postActionObserveMeta(
+        action: String,
+        state: ReplayState,
+    ): Map<String, Any?> {
+        val snapshot = state.snapshot
+        return linkedMapOf<String, Any?>(
+            "status" to "observed",
+            "action" to action,
+            "captured_at_ms" to state.capturedAtMs,
+            "reason" to state.reason,
+            "package_name" to snapshot.rawPackage.takeIf { it.isNotBlank() },
+            "effective_package" to snapshot.effectivePackage().takeIf { it.isNotBlank() },
+            "activity_name" to snapshot.activityName.takeIf { it.isNotBlank() },
+            "xml_ready" to snapshot.xml.isNotBlank(),
+            "xml_chars" to snapshot.xml.length,
+        ).filterValues { it != null }
     }
 
     private suspend fun runReplayGestureIgnoringDispatchTimeout(

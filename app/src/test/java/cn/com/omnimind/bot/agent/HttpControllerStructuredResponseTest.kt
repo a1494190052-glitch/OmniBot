@@ -3,6 +3,7 @@ package cn.com.omnimind.bot.agent
 import cn.com.omnimind.assists.controller.http.HttpController
 import cn.com.omnimind.assists.task.vlmserver.SceneChatCompletionResponse
 import cn.com.omnimind.baselib.llm.ModelSceneRegistry
+import cn.com.omnimind.baselib.llm.OpenAiWireApi
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -83,9 +84,10 @@ class HttpControllerStructuredResponseTest {
 
     private fun parseStructured(body: String): SceneChatCompletionResponse {
         val method = HttpController::class.java.getDeclaredMethod(
-            "parseStructuredSceneResponse",
+            "parseOpenAiStructuredSceneResponse",
             String::class.java,
             ModelSceneRegistry.ResponseParser::class.java,
+            String::class.java,
             String::class.java
         )
         method.isAccessible = true
@@ -93,7 +95,8 @@ class HttpControllerStructuredResponseTest {
             HttpController,
             body,
             ModelSceneRegistry.ResponseParser.JSON_CONTENT,
-            "test"
+            "test",
+            OpenAiWireApi.CHAT_COMPLETIONS
         ) as SceneChatCompletionResponse
     }
 }
