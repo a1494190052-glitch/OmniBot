@@ -101,6 +101,22 @@ class ManualRecordingRunLogRecoveryTest {
         assertTrue(source.contains("doneReason = \"orphaned\""))
     }
 
+    @Test
+    fun `debug human recording result proves reusable function conversion`() {
+        val source = readSource(
+            "app/src/debug/java/cn/com/omnimind/bot/debug/DebugHumanRunRecordingReceiver.kt"
+        )
+
+        assertTrue(source.contains("OobRunLogReplayService(context).convertRunLog("))
+        assertTrue(source.contains("register = true"))
+        assertTrue(source.contains("\"recording_success\" to success"))
+        assertTrue(source.contains("\"conversion_success\" to conversionSuccess"))
+        assertTrue(source.contains("\"function_registered\" to (conversion?.get(\"registered\") == true)"))
+        assertTrue(source.contains("\"function_id\" to conversion?.get(\"function_id\")"))
+        assertTrue(source.contains("\"function_spec\" to conversion?.get(\"function_spec\")"))
+        assertTrue(source.contains("\"success\" to if (success) conversionSuccess else false"))
+    }
+
     private fun manualActionCard(action: String, backend: String): Map<String, Any?> =
         linkedMapOf(
             "compile_kind" to "manual_recording",

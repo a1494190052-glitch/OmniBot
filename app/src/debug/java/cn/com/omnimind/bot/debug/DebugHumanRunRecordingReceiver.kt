@@ -12,6 +12,7 @@ import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.util.OmniLog
+import cn.com.omnimind.bot.runlog.OobRunLogReplayService
 import cn.com.omnimind.bot.util.AssistsUtil
 import com.google.gson.GsonBuilder
 import kotlinx.coroutines.CompletableDeferred
@@ -304,20 +305,19 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
             errorMessage = recovery.errorMessage
         )
         val runLog = InternalRunLogStore.timelinePayload(context, record.runId)
-        return linkedMapOf(
-            "success" to recovery.success,
-            "phase" to "recovered",
-            "recording_active" to false,
-            "run_id" to record.runId,
-            "name" to record.operationDescription,
-            "description" to record.goal,
-            "action_count" to recovery.replayableActionCount,
-            "summary" to "Recovered unfinished human recording RunLog after app restart",
-            "error_message" to recovery.errorMessage,
-            "run_log" to runLog,
-            "token_usage_total" to 0,
-            "source" to "oob_debug_human_run_recording"
-        ).filterValues { it != null }
+        return finalizedPayload(
+            context = context,
+            success = recovery.success,
+            phase = "recovered",
+            runId = record.runId,
+            name = record.operationDescription,
+            description = record.goal,
+            actionCount = recovery.replayableActionCount,
+            summary = "Recovered unfinished human recording RunLog after app restart",
+            diagnostics = diagnostics,
+            errorMessage = recovery.errorMessage,
+            runLog = runLog
+        )
     }
 
     private suspend fun awaitResult(
@@ -336,22 +336,105 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
         activeName = ""
         activeDescription = ""
         val runLog = InternalRunLogStore.timelinePayload(context, learningResult.runId)
-        return linkedMapOf(
-            "success" to learningResult.success,
-            "phase" to phase,
-            "recording_active" to false,
-            "run_id" to learningResult.runId,
-            "name" to learningResult.name,
-            "description" to learningResult.description,
-            "action_count" to learningResult.actionCount,
-            "summary" to learningResult.summary,
-            "diagnostics" to learningResult.diagnostics.takeIf { it.isNotEmpty() },
-            "error_message" to learningResult.errorMessage,
-            "run_log" to runLog,
-            "token_usage_total" to 0,
-            "source" to "oob_debug_human_run_recording"
+        return finalizedPayload(
+            context = context,
+            success = learningResult.success,
+            phase = phase,
+            runId = learningResult.runId,
+            name = learningResult.name,
+            description = learningResult.description,
+            actionCount = learningResult.actionCount,
+            summary = learningResult.summary,
+            diagnostics = learningResult.diagnostics,
+            errorMessage = learningResult.errorMessage,
+            runLog = runLog
         )
     }
+
+    private fun finalizedPayload(
+        context: Context,
+        success: Boolean,
+        phase: String,
+        runId: String,
+        name: String,
+        description: String,
+        actionCount: Int,
+        summary: String,
+        diagnostics: Map<String, Any?>,
+        errorMessage: String?,
+        runLog: Map<String, Any?>
+    ): Map<String, Any?> {
+        val conversion = if (success && actionCount > 0) {
+            convertFinishedRunLog(
+                context = context,
+                runId = runId,
+                name = name,
+                description = description
+            )
+        } else {
+            null
+        }
+        val conversionSuccess = conversion?.get("success") == true
+        return linkedMapOf<String, Any?>(
+            "success" to if (success) conversionSuccess else false,
+            "recording_success" to success,
+            "conversion_success" to conversionSuccess,
+            "function_registered" to (conversion?.get("registered") == true),
+            "agent_visible" to (conversion?.get("agent_visible") == true),
+            "phase" to phase,
+            "recording_active" to false,
+            "run_id" to runId,
+            "name" to name,
+            "description" to description,
+            "action_count" to actionCount,
+            "summary" to summary,
+            "diagnostics" to diagnostics.takeIf { it.isNotEmpty() },
+            "error_code" to if (!success) null else if (conversionSuccess) null else {
+                conversion?.get("error_code") ?: "HUMAN_TRAJECTORY_CONVERT_FAILED"
+            },
+            "error_message" to if (!success) errorMessage else if (conversionSuccess) null else {
+                conversion?.get("error_message") ?: "Recording finished but Function conversion failed"
+            },
+            "run_log" to runLog,
+            "function_id" to conversion?.get("function_id"),
+            "created_function_id" to conversion?.get("created_function_id"),
+            "function_spec" to conversion?.get("function_spec"),
+            "conversion" to conversion,
+            "function_kind" to "oob_reusable_function",
+            "asset_state" to "native_local",
+            "token_usage_total" to 0,
+            "source" to "oob_debug_human_run_recording"
+        ).filterValues { it != null }
+    }
+
+    private fun convertFinishedRunLog(
+        context: Context,
+        runId: String,
+        name: String,
+        description: String
+    ): Map<String, Any?> =
+        runCatching {
+            OobRunLogReplayService(context).convertRunLog(
+                runId = runId,
+                register = true,
+                agentVisible = false,
+                nameOverride = name,
+                descriptionOverride = description
+            )
+        }.getOrElse { error ->
+            OmniLog.e(TAG, "debug human recording conversion failed: ${error.fullMessage()}", error)
+            linkedMapOf(
+                "success" to false,
+                "error_code" to "HUMAN_TRAJECTORY_CONVERT_FAILED",
+                "error_message" to error.fullMessage(),
+                "error_type" to error.javaClass.name,
+                "error_cause_chain" to error.causeChain(),
+                "run_id" to runId,
+                "function_kind" to "oob_reusable_function",
+                "asset_state" to "native_local",
+                "source" to "oob_debug_human_run_recording"
+            )
+        }
 
     private suspend fun waitForAccessibility(context: Context) {
         if (!AssistsUtil.Core.isInitialized()) {
