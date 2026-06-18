@@ -371,6 +371,12 @@ For the VLM loop, prefer the strict checked harness:
 scripts/oob-vlm-recall-loop-smoke.sh --device <serial> --goal "打开网络设置"
 ```
 
+For the manual recording loop, prefer the strict checked harness:
+
+```bash
+scripts/oob-manual-recording-function-smoke.sh --device <serial>
+```
+
 The detailed `adb` commands live in
 `app/src/main/assets/omniflow/runlog/examples/vlm-task-recall-loop.md`.
 

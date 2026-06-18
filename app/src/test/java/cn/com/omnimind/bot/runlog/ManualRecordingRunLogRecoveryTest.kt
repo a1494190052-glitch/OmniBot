@@ -4,6 +4,7 @@ import cn.com.omnimind.assists.ManualRecordingRunLogRecovery
 import cn.com.omnimind.baselib.runlog.InternalRunLogRecord
 import java.nio.file.Files
 import java.nio.file.Paths
+import java.nio.file.attribute.PosixFilePermission
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -117,6 +118,42 @@ class ManualRecordingRunLogRecoveryTest {
         assertTrue(source.contains("\"success\" to if (success) conversionSuccess else false"))
     }
 
+    @Test
+    fun `debug human recording receiver accepts base64 metadata for adb smoke`() {
+        val source = readSource(
+            "app/src/debug/java/cn/com/omnimind/bot/debug/DebugHumanRunRecordingReceiver.kt"
+        )
+
+        assertTrue(source.contains("decodeBase64Extra(intent, \"descriptionBase64\")"))
+        assertTrue(source.contains("decodeBase64Extra(intent, \"nameBase64\")"))
+        assertTrue(source.contains("Base64.decode(raw, Base64.DEFAULT)"))
+        assertTrue(source.contains("Charsets.UTF_8"))
+    }
+
+    @Test
+    fun `manual recording function smoke script is strict and executable`() {
+        val scriptPath = findSource("scripts/oob-manual-recording-function-smoke.sh")
+        val script = String(Files.readAllBytes(scriptPath))
+
+        assertTrue(script.contains("HUMAN_RUN_RECORDING"))
+        assertTrue(script.contains("validate_start"))
+        assertTrue(script.contains("validate_gesture"))
+        assertTrue(script.contains("validate_finish"))
+        assertTrue(script.contains("recording_success"))
+        assertTrue(script.contains("conversion_success"))
+        assertTrue(script.contains("function_registered"))
+        assertTrue(script.contains("function_spec"))
+        assertTrue(script.contains("metadata.visibility=manual_function"))
+        assertTrue(script.contains("action_count>=2"))
+        assertTrue(script.contains("click action recorded"))
+        assertTrue(script.contains("swipe/scroll action recorded"))
+        assertTrue(script.contains("--es nameBase64"))
+        assertTrue(script.contains("--es descriptionBase64"))
+
+        val permissions = Files.getPosixFilePermissions(scriptPath)
+        assertTrue(permissions.contains(PosixFilePermission.OWNER_EXECUTE))
+    }
+
     private fun manualActionCard(action: String, backend: String): Map<String, Any?> =
         linkedMapOf(
             "compile_kind" to "manual_recording",
@@ -134,4 +171,11 @@ class ManualRecordingRunLogRecoveryTest {
             ?: error("Missing source file: $relativePath from ${Paths.get("").toAbsolutePath()}")
         return String(Files.readAllBytes(path))
     }
+
+    private fun findSource(relativePath: String) =
+        listOf(
+            Paths.get(relativePath),
+            Paths.get("..").resolve(relativePath)
+        ).firstOrNull { Files.exists(it) }
+            ?: error("Missing source file: $relativePath from ${Paths.get("").toAbsolutePath()}")
 }

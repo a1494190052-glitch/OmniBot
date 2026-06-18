@@ -3,6 +3,7 @@ package cn.com.omnimind.bot.debug
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.util.Base64
 import cn.com.omnimind.accessibility.service.AssistsService
 import cn.com.omnimind.assists.HumanTrajectoryLearningResult
 import cn.com.omnimind.assists.HumanTrajectoryLearningSession
@@ -32,8 +33,10 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
         val appContext = context.applicationContext
         val op = intent?.getStringExtra("op")?.trim()?.lowercase().orEmpty()
             .ifBlank { "status" }
-        val description = intent?.getStringExtra("description")?.trim().orEmpty()
-        val name = intent?.getStringExtra("name")?.trim().orEmpty()
+        val description = decodeBase64Extra(intent, "descriptionBase64")
+            ?: stringExtra(intent, "description")
+            ?: ""
+        val name = (decodeBase64Extra(intent, "nameBase64") ?: stringExtra(intent, "name") ?: "")
             .ifBlank { description.ifBlank { "人工录制轨迹" } }
         val recoverRunId = stringExtra(intent, "runId") ?: stringExtra(intent, "run_id")
         val enableRawTouch = intent?.getBooleanExtra("enableRawTouch", false) == true ||
@@ -513,6 +516,15 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
 
     private fun stringExtra(intent: Intent?, key: String): String? =
         intent?.getStringExtra(key)?.trim()?.takeIf { it.isNotEmpty() }
+
+    private fun decodeBase64Extra(intent: Intent?, key: String): String? {
+        val raw = stringExtra(intent, key) ?: return null
+        return runCatching {
+            String(Base64.decode(raw, Base64.DEFAULT), Charsets.UTF_8)
+                .trim()
+                .takeIf { it.isNotEmpty() }
+        }.getOrNull()
+    }
 
     private fun floatExtra(intent: Intent?, key: String): Float? =
         stringExtra(intent, key)?.toFloatOrNull()
