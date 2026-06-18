@@ -10,6 +10,7 @@ import cn.com.omnimind.bot.omniflow.OobFunctionRecallService
 import cn.com.omnimind.bot.omniflow.OobFunctionRepository
 import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
 import cn.com.omnimind.bot.omniflow.OobFunctionRuntimeResolvePlanner
+import cn.com.omnimind.bot.omniflow.OobFunctionStepwiseUpdateOrchestrator
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
 import cn.com.omnimind.bot.omniflow.OobFunctionUpdateAgentOrchestrator
 import cn.com.omnimind.bot.omniflow.OobFunctionUpdateService
@@ -50,6 +51,8 @@ class OobOmniFlowToolkitService(
     private val functionUpdateService = OobFunctionUpdateService(context, functionRepository)
     private val functionUpdateOrchestrator =
         OobFunctionUpdateAgentOrchestrator(functionUpdateService, updateAgentRequester)
+    private val functionStepwiseUpdateOrchestrator =
+        OobFunctionStepwiseUpdateOrchestrator(functionUpdateService, updateAgentRequester)
     private val explorer = OobOmniFlowExplorer(context)
 
     suspend fun executeTool(name: String?, args: Map<String, Any?>?): Map<String, Any?> {
@@ -446,7 +449,18 @@ class OobOmniFlowToolkitService(
     }
 
     suspend fun updateFunction(args: Map<String, Any?>?): Map<String, Any?> =
-        functionUpdateOrchestrator.updateFunction(args)
+        if (shouldUseStepwiseEnhancement(args)) {
+            functionStepwiseUpdateOrchestrator.updateFunction(args)
+        } else {
+            functionUpdateOrchestrator.updateFunction(args)
+        }
+
+    private fun shouldUseStepwiseEnhancement(args: Map<String, Any?>?): Boolean {
+        val request = args ?: return false
+        val mode = firstNonBlank(request["mode"], request["operation"]).lowercase().ifBlank { "enhance" }
+        return mode == "enhance" &&
+            (boolArg(request["background_enhancement"]) || boolArg(request["backgroundEnhancement"]))
+    }
 
     suspend fun runFunction(args: Map<String, Any?>?): Map<String, Any?> {
         val callTiming = OobFunctionCallTiming()

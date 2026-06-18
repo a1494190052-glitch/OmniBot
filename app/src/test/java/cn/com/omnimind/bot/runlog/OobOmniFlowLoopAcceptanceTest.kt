@@ -683,7 +683,89 @@ class OobOmniFlowLoopAcceptanceTest {
             assertEquals(2, modelCalls)
             assertEquals(true, offlineExplicit["success"])
             assertEquals(true, offlineExplicit["stepwise"])
+            assertEquals(true, offlineExplicit["agent_model_invoked"])
             assertEquals(listOf("description", "parameters"), offlineExplicit["stepwise_patch_keys"])
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `toolkit routes only background enhancement through stepwise offline update`() = runBlocking {
+        val context = TempFilesContext()
+        try {
+            var modelCalls = 0
+            val toolkit = OobOmniFlowToolkitService(
+                context,
+                WorkspaceFunctionStore(context.root),
+            ) { prompt, _ ->
+                modelCalls += 1
+                when {
+                    prompt.contains("写一句准确、简洁的中文描述") -> """{"description":"打开并点击外卖入口"}"""
+                    prompt.contains("找出每次调用时会变化的输入值") -> """{"parameters":[]}"""
+                    else -> error("unexpected background enhancement prompt: $prompt")
+                }
+            }
+            val functionId = "toolkit_stepwise_background_enhancement_demo"
+            val runId = "toolkit-stepwise-background-enhancement-run"
+            assertEquals(true, toolkit.registerFunction(
+                mapOf(
+                    "functionId" to functionId,
+                    "name" to "打开外卖入口",
+                    "description" to "点击外卖入口",
+                    "steps" to listOf(
+                        mapOf(
+                            "action" to "click",
+                            "title" to "点击外卖",
+                            "target_description" to "外卖",
+                            "x" to 790,
+                            "y" to 140,
+                        ),
+                    ),
+                )
+            )["success"])
+            InternalRunLogStore.beginRun(
+                context = context,
+                runId = runId,
+                goal = "打开外卖入口",
+                source = "test",
+                toolName = RunLogReplayPolicy.TOOL_CALL_TOOL,
+            )
+            InternalRunLogStore.appendCard(
+                context = context,
+                runId = runId,
+                card = mapOf(
+                    "tool_name" to "click",
+                    "header" to mapOf("success" to true),
+                    "arguments" to mapOf("target_description" to "外卖"),
+                    "result" to mapOf("success" to true),
+                )
+            )
+            InternalRunLogStore.finishRun(
+                context = context,
+                runId = runId,
+                success = true,
+                doneReason = "finished",
+            )
+
+            val update = toolkit.updateFunction(
+                mapOf(
+                    "function_id" to functionId,
+                    "run_id" to runId,
+                    "mode" to "enhance",
+                    "offline_job" to true,
+                    "background_enhancement" to true,
+                    "auto_analyze_with_model" to true,
+                )
+            )
+
+            assertEquals(true, update["success"])
+            assertEquals(true, update["stepwise"])
+            assertEquals(true, update["agent_model_invoked"])
+            assertEquals(listOf("description", "parameters"), update["stepwise_patch_keys"])
+            assertEquals(2, modelCalls)
+            val stored = toolkit.getFunction(mapOf("function_id" to functionId))["function"] as Map<*, *>
+            assertEquals("打开并点击外卖入口", stored["description"])
         } finally {
             context.root.deleteRecursively()
         }

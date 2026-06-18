@@ -171,6 +171,7 @@ goal and do not mutate the saved Function.
   "function_id": "open_network_settings",
   "mode": "enhance",
   "offline_job": true,
+  "background_enhancement": true,
   "auto_analyze_with_model": true,
   "run_id": "vlm-run-123",
   "analysis": {},
@@ -186,6 +187,10 @@ context and prompt only; model-backed enhancement requires an explicit
 `offline_job=true` plus `auto_analyze_with_model=true` request from a
 background job, debug update, or offline tool. Passing only one of those flags
 still returns the offline analysis context without invoking the model.
+The UI background enhancement job also sets `background_enhancement=true`; that
+route uses the native stepwise offline enhancer for small description and
+parameter passes, while ordinary MCP/debug `update_function` calls keep the
+existing evidence/patch contract.
 
 For local MCP/debug tooling, prefer the same payload shape:
 
@@ -196,6 +201,7 @@ For local MCP/debug tooling, prefer the same payload shape:
   "run_id": "vlm-run-123",
   "mode": "enhance",
   "offline_job": true,
+  "background_enhancement": true,
   "auto_analyze_with_model": true
 }
 ```

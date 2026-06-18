@@ -80,6 +80,7 @@ class OobFunctionStepwiseUpdateOrchestrator(
         val updated = updateService.updateFunction(nextArgs)
         return updated + linkedMapOf<String, Any?>(
             "stepwise" to true,
+            "agent_model_invoked" to true,
             "stepwise_patch_keys" to patch.keys.toList(),
         )
     }
