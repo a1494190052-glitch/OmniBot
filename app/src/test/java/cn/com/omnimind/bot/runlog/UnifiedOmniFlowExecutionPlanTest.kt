@@ -73,6 +73,13 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(plan.contains("Localization/product wording"))
         assertTrue(plan.contains("`复用指令` as the product name"))
         assertTrue(plan.contains("`复用记忆` is accepted only as compatibility wording"))
+        assertTrue(plan.contains("AndroidWorld replay"))
+        assertTrue(plan.contains("scripts/androidworld_eval.py first30 --methods"))
+        assertTrue(plan.contains("canonical RunLog import"))
+        assertTrue(plan.contains("AndroidWorld validator scoring"))
+        assertTrue(plan.contains("`--limit 1` run is a smoke"))
+        assertTrue(plan.contains("first30 or"))
+        assertTrue(plan.contains("online VLM accuracy is good"))
     }
 
     @Test
@@ -156,6 +163,12 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(plan.contains("Python eval can explain why recall or transfer failed"))
         assertTrue(plan.contains("cannot certify live"))
         assertTrue(plan.contains("phone execution by itself"))
+        assertTrue(plan.contains("AndroidWorld replay evidence is a third, narrower signal"))
+        assertTrue(plan.contains("known accepted canonical RunLogs"))
+        assertTrue(plan.contains("does not exercise the online `vlm_task` provider"))
+        assertTrue(plan.contains("Treat a one-task"))
+        assertTrue(plan.contains("`SimpleSmsSend` pass as a smoke only"))
+        assertTrue(plan.contains("first30 or a named task set"))
     }
 
     @Test

@@ -248,6 +248,12 @@ evidence:
   `复用指令` as the product name and keep the offline enhancement hint. User
   input such as `复用记忆` is accepted only as compatibility wording in routing
   and builtin skills; it should not replace the displayed product label.
+- AndroidWorld replay: `scripts/androidworld_eval.py first30 --methods
+  ours-full` validates canonical RunLog import, Function replay through
+  OmniFlow/OOB-compatible steps, and AndroidWorld validator scoring. A
+  `--limit 1` run is a smoke for one accepted task, not proof that first30 or
+  online VLM accuracy is good. Headline AndroidWorld claims need the matching
+  case count, validator success rate, and report path.
 
 Use `scripts/oob-mainline-acceptance.sh --skip-device` only for local/offline
 regression. A skipped device report is not enough to claim manual recording or
@@ -329,6 +335,13 @@ The merge gate is a pair:
 
 Python eval can explain why recall or transfer failed; it cannot certify live
 phone execution by itself.
+
+AndroidWorld replay evidence is a third, narrower signal: it certifies that
+known accepted canonical RunLogs can be imported and replayed well enough for
+AndroidWorld's validator. It does not exercise the online `vlm_task` provider
+unless the run explicitly includes an online first-run phase. Treat a one-task
+`SimpleSmsSend` pass as a smoke only; use first30 or a named task set before
+claiming broad benchmark readiness.
 
 ### UI / MethodChannel
 
