@@ -10,6 +10,7 @@ import cn.com.omnimind.bot.vlm.VlmRecallGuidanceBuilder
 import cn.com.omnimind.bot.vlm.VlmToolCoordinator
 import cn.com.omnimind.bot.vlm.VlmToolOutcomeStatus
 import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -17,6 +18,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OobVlmRunLogAutoRegistrarTest {
+    @After
+    fun clearRunLogFinishListener() {
+        InternalRunLogStore.setFinishListener(null)
+    }
+
     @Test
     fun `auto register policy only accepts successful vlm task runs`() {
         val accepted = finishEvent(
@@ -31,6 +37,82 @@ class OobVlmRunLogAutoRegistrarTest {
         assertFalse(OobVlmRunLogAutoRegistrar.shouldAutoRegister(accepted.copy(runId = "")))
         assertFalse(OobVlmRunLogAutoRegistrar.shouldAutoRegister(accepted.copy(source = "agent")))
         assertFalse(OobVlmRunLogAutoRegistrar.shouldAutoRegister(accepted.copy(toolName = "run_function")))
+    }
+
+    @Test
+    fun `bind auto registers successful vlm task finish event`() {
+        val context = OobOmniFlowLoopAcceptanceTest.TempFilesContext()
+        try {
+            val runId = "vlm-auto-listener-${System.nanoTime()}"
+            OobVlmRunLogAutoRegistrar.bind(context)
+
+            InternalRunLogStore.beginRun(
+                context = context,
+                runId = runId,
+                goal = "Open network settings",
+                source = "vlm",
+                toolName = "vlm_task",
+                operationDescription = "Open network settings",
+            )
+            InternalRunLogStore.appendCard(
+                context = context,
+                runId = runId,
+                card = linkedMapOf(
+                    "card_id" to "$runId-click-network",
+                    "tool_name" to "click",
+                    "title" to "点击 Network",
+                    "success" to true,
+                    "args" to linkedMapOf(
+                        "target_description" to "Network",
+                        "x" to 540,
+                        "y" to 280,
+                    ),
+                    "before" to linkedMapOf(
+                        "package_name" to "com.example.settings",
+                        "observation_xml" to SOURCE_XML,
+                    ),
+                    "after" to linkedMapOf(
+                        "package_name" to "com.example.settings",
+                        "observation_xml" to AFTER_XML,
+                    ),
+                )
+            )
+            InternalRunLogStore.finishRun(
+                context = context,
+                runId = runId,
+                success = true,
+                doneReason = "finished",
+            )
+
+            val timeline = waitForRegisteredTimeline(context, runId)
+            assertEquals(true, timeline["registered_as_function"])
+            assertEquals(true, timeline["is_registered_function"])
+            assertEquals(1, timeline["registered_function_count"])
+            val functionId = timeline["registered_function_id"]?.toString().orEmpty()
+            assertTrue(functionId.isNotBlank())
+
+            val spec = timeline["registered_function_spec"] as? Map<*, *>
+            val metadata = spec?.get("metadata") as? Map<*, *>
+            assertEquals("agent_reusable", metadata?.get("visibility"))
+            assertEquals("offline_only", metadata?.get("enhancement_policy"))
+
+            val recall = OobOmniFlowToolkitService(context).recall(
+                mapOf(
+                    "goal" to "open network settings",
+                    "current_package" to "com.example.settings",
+                    "current_xml" to SOURCE_XML,
+                    "k" to 3,
+                    "auto_execute" to true,
+                )
+            )
+            assertEquals(true, recall["success"])
+            assertEquals("hit", recall["decision"])
+            val hit = recall["hit"] as? Map<*, *>
+            assertEquals(functionId, hit?.get("function_id"))
+        } finally {
+            InternalRunLogStore.setFinishListener(null)
+            context.root.deleteRecursively()
+        }
     }
 
     @Test
@@ -275,6 +357,20 @@ class OobVlmRunLogAutoRegistrarTest {
             errorMessage = "",
             cardCount = 1,
         )
+
+    private fun waitForRegisteredTimeline(
+        context: OobOmniFlowLoopAcceptanceTest.TempFilesContext,
+        runId: String,
+    ): Map<String, Any?> {
+        val deadline = System.currentTimeMillis() + 2_000L
+        var last = InternalRunLogStore.timelinePayload(context, runId)
+        while (System.currentTimeMillis() < deadline) {
+            if (last["registered_as_function"] == true) return last
+            Thread.sleep(25L)
+            last = InternalRunLogStore.timelinePayload(context, runId)
+        }
+        return last
+    }
 
     private companion object {
         const val SOURCE_XML = """
