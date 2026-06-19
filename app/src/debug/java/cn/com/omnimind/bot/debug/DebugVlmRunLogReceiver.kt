@@ -56,6 +56,15 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             "disableRecall",
             "disable_recall"
         )
+        val allowOmniFlowFunctionAutoExecute = !disableOmniFlowRecall && intent.readBooleanExtra(
+            "allowOmniFlowFunctionAutoExecute",
+            "allow_omniflow_function_auto_execute",
+            "autoExecuteOmniFlowFunction",
+            "auto_execute_omniflow_function",
+            "autoExecute",
+            "auto_execute",
+            default = true,
+        )
         val parseOnly = intent.readBooleanExtra("parseOnly", "parse_only", "dryRun", "dry_run")
         val offlineSeed = intent.readBooleanExtra("offlineSeed", "offline_seed", "seedRunLog", "seed_run_log")
         val stepSkillGuidance = intent.decodeBase64Extra("stepSkillGuidanceBase64")
@@ -80,6 +89,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
                     skipGoHome,
                     stepSkillGuidance,
                     disableOmniFlowRecall,
+                    allowOmniFlowFunctionAutoExecute,
                     parseOnly,
                     offlineSeed,
                 )
@@ -121,6 +131,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
         skipGoHome: Boolean,
         stepSkillGuidance: String,
         disableOmniFlowRecall: Boolean,
+        allowOmniFlowFunctionAutoExecute: Boolean,
         parseOnly: Boolean,
         offlineSeed: Boolean,
     ): Map<String, Any?> {
@@ -140,6 +151,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
                 startFromCurrent = startFromCurrent,
                 skipGoHome = skipGoHome,
                 disableOmniFlowRecall = disableOmniFlowRecall,
+                allowOmniFlowFunctionAutoExecute = allowOmniFlowFunctionAutoExecute,
                 waitTimeoutMs = waitTimeoutMs,
                 stepSkillGuidance = stepSkillGuidance,
                 configuredBinding = configuredBinding,
@@ -159,6 +171,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
                     skipGoHome = startFromCurrent || skipGoHome,
                     stepSkillGuidance = stepSkillGuidance,
                     disableOmniFlowRecall = disableOmniFlowRecall,
+                    allowOmniFlowFunctionAutoExecute = false,
                 ),
                 scope = scope,
             )
@@ -173,6 +186,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
                 "startFromCurrent" to startFromCurrent,
                 "skipGoHome" to skipGoHome,
                 "disable_omniflow_recall" to disableOmniFlowRecall,
+                "allow_omniflow_function_auto_execute" to false,
                 "wait_timeout_ms" to waitTimeoutMs,
                 "step_skill_guidance_chars" to stepSkillGuidance.length,
                 "configured_binding" to configuredBinding,
@@ -192,6 +206,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
                 skipGoHome = startFromCurrent || skipGoHome,
                 stepSkillGuidance = stepSkillGuidance,
                 disableOmniFlowRecall = disableOmniFlowRecall,
+                allowOmniFlowFunctionAutoExecute = allowOmniFlowFunctionAutoExecute,
             ),
             scope = scope,
         )
@@ -225,6 +240,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             "startFromCurrent" to startFromCurrent,
             "skipGoHome" to skipGoHome,
             "disable_omniflow_recall" to disableOmniFlowRecall,
+            "allow_omniflow_function_auto_execute" to allowOmniFlowFunctionAutoExecute,
             "wait_timeout_ms" to waitTimeoutMs,
             "step_skill_guidance_chars" to stepSkillGuidance.length,
             "configured_binding" to configuredBinding,
@@ -253,6 +269,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
         startFromCurrent: Boolean,
         skipGoHome: Boolean,
         disableOmniFlowRecall: Boolean,
+        allowOmniFlowFunctionAutoExecute: Boolean,
         waitTimeoutMs: Long?,
         stepSkillGuidance: String,
         configuredBinding: Map<String, Any?>?,
@@ -332,6 +349,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             "startFromCurrent" to startFromCurrent,
             "skipGoHome" to skipGoHome,
             "disable_omniflow_recall" to disableOmniFlowRecall,
+            "allow_omniflow_function_auto_execute" to allowOmniFlowFunctionAutoExecute,
             "wait_timeout_ms" to waitTimeoutMs,
             "step_skill_guidance_chars" to stepSkillGuidance.length,
             "configured_binding" to configuredBinding,
@@ -433,8 +451,8 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
         return null
     }
 
-    private fun Intent?.readBooleanExtra(vararg names: String): Boolean {
-        val intent = this ?: return false
+    private fun Intent?.readBooleanExtra(vararg names: String, default: Boolean = false): Boolean {
+        val intent = this ?: return default
         names.forEach { name ->
             if (!intent.hasExtra(name)) return@forEach
             @Suppress("DEPRECATION")
@@ -445,7 +463,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
                 else -> false
             }
         }
-        return false
+        return default
     }
 
     private fun loadBuiltinSkillGuidance(context: Context, skillId: String): String {

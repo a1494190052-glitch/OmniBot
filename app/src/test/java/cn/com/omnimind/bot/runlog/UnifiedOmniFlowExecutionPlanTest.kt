@@ -201,6 +201,9 @@ class UnifiedOmniFlowExecutionPlanTest {
     fun `vlm recall loop smoke script is strict and executable`() {
         val scriptPath = findSource("scripts/oob-vlm-recall-loop-smoke.sh")
         val script = String(Files.readAllBytes(scriptPath))
+        val debugReceiver = readSource(
+            "app/src/debug/java/cn/com/omnimind/bot/debug/DebugVlmRunLogReceiver.kt"
+        )
 
         assertTrue(script.contains("RUN_VLM_RUNLOG"))
         assertTrue(script.contains("RUN_OOB_RECALL"))
@@ -228,6 +231,12 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(script.contains("replay_uses_enhanced_function"))
         assertTrue(script.contains("json.load(open(sys.argv[1], encoding=\"utf-8\"))"))
         assertTrue(script.contains("then\n      return 0"))
+        assertTrue(debugReceiver.contains("\"allowOmniFlowFunctionAutoExecute\""))
+        assertTrue(debugReceiver.contains("\"allow_omniflow_function_auto_execute\""))
+        assertTrue(debugReceiver.contains("\"auto_execute\""))
+        assertTrue(debugReceiver.contains("default = true"))
+        assertTrue(debugReceiver.contains("allowOmniFlowFunctionAutoExecute = allowOmniFlowFunctionAutoExecute"))
+        assertTrue(debugReceiver.contains("\"allow_omniflow_function_auto_execute\" to allowOmniFlowFunctionAutoExecute"))
 
         val permissions = Files.getPosixFilePermissions(scriptPath)
         assertTrue(permissions.contains(PosixFilePermission.OWNER_EXECUTE))
