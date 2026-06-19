@@ -211,6 +211,76 @@ class OobVlmRunLogAutoRegistrarTest {
     }
 
     @Test
+    fun `vlm recall direct hit ignores same page empty text distractors`() {
+        val context = OobOmniFlowLoopAcceptanceTest.TempFilesContext()
+        try {
+            val workspaceStore = WorkspaceFunctionStore(context.root)
+            val service = OobOmniFlowToolkitService(context, workspaceStore)
+            val goal = "vlmseed direct hit network settings"
+            val targetFunctionId = "vlmseed_direct_hit_network_settings"
+            val distractorFunctionId = "zzzzzz"
+
+            val targetRegister = service.registerFunction(
+                mapOf(
+                    "function_spec" to reusableFunctionSpec(
+                        functionId = targetFunctionId,
+                        name = goal,
+                        description = "Open network settings from the Settings page",
+                        source = mapOf(
+                            "kind" to "run_log",
+                            "goal" to goal,
+                            "tool_name" to "vlm_task",
+                        ),
+                    )
+                )
+            )
+            val distractorRegister = service.registerFunction(
+                mapOf(
+                    "function_spec" to reusableFunctionSpec(
+                        functionId = distractorFunctionId,
+                        name = "",
+                        description = "",
+                        source = emptyMap(),
+                        stepTitle = "",
+                    )
+                )
+            )
+            assertEquals(true, targetRegister["success"])
+            assertEquals(true, (targetRegister["udeg"] as? Map<*, *>)?.get("indexed"))
+            assertEquals(true, distractorRegister["success"])
+            assertEquals(true, (distractorRegister["udeg"] as? Map<*, *>)?.get("indexed"))
+
+            val recall = service.recall(
+                mapOf(
+                    "goal" to goal,
+                    "current_package" to "com.example.settings",
+                    "current_xml" to SOURCE_XML,
+                    "k" to 10,
+                    "auto_execute" to true,
+                    "include_debug" to true,
+                )
+            )
+
+            assertEquals(true, recall["success"])
+            assertEquals("hit", recall["decision"])
+            val hit = recall["hit"] as? Map<*, *>
+            assertEquals(targetFunctionId, hit?.get("function_id"))
+            val capabilities = recall["node_function_capabilities"] as? List<*>
+            val distractor = capabilities
+                ?.mapNotNull { it as? Map<*, *> }
+                ?.firstOrNull { it["function_id"] == distractorFunctionId }
+            assertNotNull(distractor)
+            val distractorTextScore = distractor?.get("text_score") as? Number
+            assertTrue(
+                "empty text distractor should not meet direct-hit text threshold: $distractor",
+                (distractorTextScore?.toDouble() ?: 1.0) < 0.85,
+            )
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `vlm runlog recall hit executes registered function without online enhancement`() = runBlocking {
         val context = OobOmniFlowLoopAcceptanceTest.TempFilesContext()
         try {
@@ -371,6 +441,39 @@ class OobVlmRunLogAutoRegistrarTest {
         }
         return last
     }
+
+    private fun reusableFunctionSpec(
+        functionId: String,
+        name: String,
+        description: String,
+        source: Map<String, Any?>,
+        stepTitle: String = "Tap Network",
+    ): Map<String, Any?> = mapOf(
+        "schema_version" to "oob.reusable_function.v1",
+        "function_id" to functionId,
+        "name" to name,
+        "description" to description,
+        "parameters" to emptyList<Map<String, Any?>>(),
+        "source" to source,
+        "execution" to mapOf(
+            "kind" to "tool_sequence",
+            "steps" to listOf(
+                mapOf(
+                    "id" to "step_1",
+                    "title" to stepTitle,
+                    "tool" to "wait",
+                    "omniflow_action" to "wait",
+                    "args" to emptyMap<String, Any?>(),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf(
+                            "page" to SOURCE_XML,
+                            "package_name" to "com.example.settings",
+                        )
+                    ),
+                )
+            )
+        )
+    )
 
     private companion object {
         const val SOURCE_XML = """

@@ -60,6 +60,7 @@ def write_markdown(path: Path, report: dict[str, Any]) -> None:
         "recall_hit_replay_rate",
         "second_fast_path_rate",
         "offline_enhance_policy_rate",
+        "offline_seed_case_count",
     ]:
         value = aggregate.get(key)
         lines.append(f"- {key}: `{value}`")
@@ -75,6 +76,7 @@ def write_markdown(path: Path, report: dict[str, Any]) -> None:
         failed = [key for key, value in checks.items() if value is False]
         lines.append(
             f"- {case.get('case_name')}: passed=`{case.get('passed')}`, "
+            f"mode=`{case.get('evidence_mode')}`, "
             f"function_id=`{metrics.get('function_id')}`, failed_checks=`{failed}`"
         )
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -150,6 +152,7 @@ def load_case(name: str, paths: dict[str, Path | None]) -> dict[str, Any]:
         first_convert.get("created_function_id"),
         first_spec.get("function_id"),
     )
+    offline_seed = first.get("offline_seed") is True
 
     recall_payload = as_map(recall.get("recall"))
     recall_hit_payload = as_map(recall_payload.get("hit"))
@@ -208,6 +211,8 @@ def load_case(name: str, paths: dict[str, Path | None]) -> dict[str, Any]:
     }
     metrics = {
         "function_id": function_id,
+        "evidence_mode": "offline_seeded_runlog" if offline_seed else "online_vlm",
+        "offline_seed": offline_seed,
         "first_run_registered": checks["first_vlm_registered_function"],
         "recall_hit": checks["recall_decision_hit"],
         "recall_hit_replay": checks["recall_hit_replay_success"] and checks["recall_hit_route"],
@@ -236,6 +241,8 @@ def load_case(name: str, paths: dict[str, Path | None]) -> dict[str, Any]:
     ]
     return {
         "case_name": name,
+        "evidence_mode": "offline_seeded_runlog" if offline_seed else "online_vlm",
+        "accuracy_scope": "native_recall_replay_only" if offline_seed else "online_vlm_plus_native_recall_replay",
         "paths": {phase: str(path) for phase, path in paths.items() if path},
         "checks": checks,
         "metrics": metrics,
@@ -351,6 +358,9 @@ def aggregate_cases(cases: list[dict[str, Any]]) -> dict[str, Any]:
         "offline_enhance_policy_rate": rate(
             sum(1 for case in cases if as_map(case.get("metrics")).get("offline_enhance_policy") is True),
             len(cases),
+        ),
+        "offline_seed_case_count": sum(
+            1 for case in cases if as_map(case.get("metrics")).get("offline_seed") is True
         ),
         "latency_ms": summarize_latency(latency_values),
     }

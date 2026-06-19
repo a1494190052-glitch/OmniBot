@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Base64
 import cn.com.omnimind.accessibility.service.AssistsService
+import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.baselib.llm.ModelProviderConfigStore
 import cn.com.omnimind.baselib.llm.SceneModelBindingStore
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
@@ -56,6 +57,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             "disable_recall"
         )
         val parseOnly = intent.readBooleanExtra("parseOnly", "parse_only", "dryRun", "dry_run")
+        val offlineSeed = intent.readBooleanExtra("offlineSeed", "offline_seed", "seedRunLog", "seed_run_log")
         val stepSkillGuidance = intent.decodeBase64Extra("stepSkillGuidanceBase64")
             ?: intent?.getStringExtra("stepSkillGuidance")?.trim().orEmpty()
                 .takeIf { it.isNotBlank() }
@@ -79,6 +81,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
                     stepSkillGuidance,
                     disableOmniFlowRecall,
                     parseOnly,
+                    offlineSeed,
                 )
                     .withRequestId(requestId)
             }.getOrElse { error ->
@@ -119,12 +122,29 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
         stepSkillGuidance: String,
         disableOmniFlowRecall: Boolean,
         parseOnly: Boolean,
+        offlineSeed: Boolean,
     ): Map<String, Any?> {
         if (!AssistsUtil.Core.isInitialized()) {
             AssistsUtil.Core.initCore(context)
         }
         val configuredBinding = configureVlmBindingIfRequested(context, profileId, modelId)
         waitForAccessibility()
+
+        if (offlineSeed) {
+            return seedSuccessfulVlmRunLog(
+                context = context,
+                goal = goal,
+                targetPackageName = targetPackageName,
+                prelaunchPackageName = prelaunchPackageName,
+                prelaunch = prelaunch,
+                startFromCurrent = startFromCurrent,
+                skipGoHome = skipGoHome,
+                disableOmniFlowRecall = disableOmniFlowRecall,
+                waitTimeoutMs = waitTimeoutMs,
+                stepSkillGuidance = stepSkillGuidance,
+                configuredBinding = configuredBinding,
+            )
+        }
 
         if (parseOnly) {
             val result = VlmToolCoordinator.parseOnlyNextAction(
@@ -222,6 +242,131 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             "convert" to convert,
             "convert_success" to (convert?.get("success") == true),
         )
+    }
+
+    private fun seedSuccessfulVlmRunLog(
+        context: Context,
+        goal: String,
+        targetPackageName: String?,
+        prelaunchPackageName: String?,
+        prelaunch: Boolean,
+        startFromCurrent: Boolean,
+        skipGoHome: Boolean,
+        disableOmniFlowRecall: Boolean,
+        waitTimeoutMs: Long?,
+        stepSkillGuidance: String,
+        configuredBinding: Map<String, Any?>?,
+    ): Map<String, Any?> {
+        val runId = "debug-vlm-seed-${System.currentTimeMillis()}"
+        val currentPackage = AccessibilityController.getPackageName()?.trim().orEmpty()
+            .ifBlank { targetPackageName.orEmpty() }
+        val currentXml = AccessibilityController.getCaptureScreenShotXml(true)?.trim().orEmpty()
+        require(currentXml.isNotBlank()) { "current accessibility XML is empty" }
+
+        InternalRunLogStore.beginRun(
+            context = context,
+            runId = runId,
+            goal = goal,
+            source = "vlm",
+            toolName = "vlm_task",
+            operationDescription = goal,
+        )
+        InternalRunLogStore.appendCard(
+            context = context,
+            runId = runId,
+            card = linkedMapOf(
+                "card_id" to "$runId-wait",
+                "tool_name" to "wait",
+                "title" to "Seeded wait for VLM recall loop",
+                "success" to true,
+                "args" to linkedMapOf(
+                    "time_ms" to 100L,
+                    "reason" to "offline debug seed for VLM RunLog recall loop",
+                ),
+                "before" to linkedMapOf(
+                    "package_name" to currentPackage,
+                    "observation_xml" to currentXml,
+                ),
+                "after" to linkedMapOf(
+                    "package_name" to currentPackage,
+                    "observation_xml" to currentXml,
+                ),
+                "result" to linkedMapOf(
+                    "success" to true,
+                    "seeded" to true,
+                ),
+            )
+        )
+        InternalRunLogStore.finishRun(
+            context = context,
+            runId = runId,
+            success = true,
+            doneReason = "offline_seed_finished",
+        )
+
+        val timeline = waitForAutoRegisteredTimeline(context, runId)
+        val autoRegistered = timeline["registered_as_function"] == true
+        val convert = linkedMapOf<String, Any?>(
+            "success" to autoRegistered,
+            "registered" to autoRegistered,
+            "run_id" to runId,
+            "function_id" to timeline["registered_function_id"],
+            "created_function_id" to timeline["registered_function_id"],
+            "function_spec" to timeline["registered_function_spec"],
+            "source" to "oob_vlm_auto_registrar",
+            "error_code" to "AUTO_REGISTER_TIMEOUT".takeUnless { autoRegistered },
+            "error_message" to "Successful seeded vlm_task RunLog was not auto-registered in time."
+                .takeUnless { autoRegistered },
+        ).filterValues { it != null }
+        val refreshedTimeline = InternalRunLogStore.timelinePayload(context, runId)
+
+        return linkedMapOf(
+            "success" to autoRegistered,
+            "phase" to "offline_seed",
+            "offline_seed" to true,
+            "goal" to goal,
+            "packageName" to targetPackageName,
+            "current_package" to currentPackage,
+            "prelaunchPackageName" to prelaunchPackageName,
+            "prelaunch" to prelaunch,
+            "startFromCurrent" to startFromCurrent,
+            "skipGoHome" to skipGoHome,
+            "disable_omniflow_recall" to disableOmniFlowRecall,
+            "wait_timeout_ms" to waitTimeoutMs,
+            "step_skill_guidance_chars" to stepSkillGuidance.length,
+            "configured_binding" to configuredBinding,
+            "outcome" to linkedMapOf(
+                "success" to true,
+                "status" to "FINISHED",
+                "taskId" to runId,
+                "executionRoute" to "offline_seed_runlog",
+                "message" to "Seeded successful vlm_task RunLog for debug recall-loop smoke.",
+            ),
+            "vlm_task_finished" to true,
+            "run_id" to runId,
+            "runlog_found" to true,
+            "runlog_success" to true,
+            "runlog_card_count" to 1,
+            "run_log" to refreshedTimeline,
+            "auto_registered" to autoRegistered,
+            "token_usage" to emptyMap<String, Any?>(),
+            "token_usage_total" to 0,
+            "token_usage_by_step" to emptyList<Map<String, Any?>>(),
+            "token_usage_by_call" to emptyList<Map<String, Any?>>(),
+            "convert" to convert,
+            "convert_success" to (convert["success"] == true),
+        )
+    }
+
+    private fun waitForAutoRegisteredTimeline(context: Context, runId: String): Map<String, Any?> {
+        val deadline = System.currentTimeMillis() + 20_000L
+        var timeline = InternalRunLogStore.timelinePayload(context, runId)
+        while (System.currentTimeMillis() < deadline) {
+            if (timeline["registered_as_function"] == true) return timeline
+            Thread.sleep(50L)
+            timeline = InternalRunLogStore.timelinePayload(context, runId)
+        }
+        return timeline
     }
 
     private fun configureVlmBindingIfRequested(

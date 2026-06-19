@@ -651,9 +651,9 @@ class OobFunctionRecallService(
             normalizedGoal == normalizedName && normalizedName.isNotEmpty() -> 0.99
             normalizedGoal == normalizedDescription && normalizedDescription.isNotEmpty() -> 0.96
             normalizedGoal == normalizedSourceGoal && normalizedSourceGoal.isNotEmpty() -> 0.98
-            normalizedId.contains(normalizedGoal) || normalizedGoal.contains(normalizedId) -> 0.92
-            normalizedName.contains(normalizedGoal) || normalizedGoal.contains(normalizedName) -> 0.90
-            normalizedSourceGoal.contains(normalizedGoal) || normalizedGoal.contains(normalizedSourceGoal) -> 0.90
+            containsNonBlank(normalizedId, normalizedGoal) -> 0.92
+            containsNonBlank(normalizedName, normalizedGoal) -> 0.90
+            containsNonBlank(normalizedSourceGoal, normalizedGoal) -> 0.90
             else -> tokenOverlapScore(goal, corpus)
         }
         var reason = when {
@@ -667,6 +667,9 @@ class OobFunctionRecallService(
         }
         return FunctionTextScore(roundScore(score), reason)
     }
+
+    private fun containsNonBlank(a: String, b: String): Boolean =
+        a.isNotEmpty() && b.isNotEmpty() && (a.contains(b) || b.contains(a))
 
     private fun tokenOverlapScore(goal: String, corpus: String): Double {
         val goalTokens = tokenize(goal)

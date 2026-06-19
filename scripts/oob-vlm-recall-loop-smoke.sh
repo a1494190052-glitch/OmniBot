@@ -23,6 +23,7 @@ MODEL_ID="${OMNIMIND_MODEL:-${OPENAI_MODEL:-}}"
 SKILL_ID="${OOB_VLM_SMOKE_SKILL_ID:-vlm-android-gui}"
 OUTPUT_DIR="${OOB_VLM_SMOKE_OUTPUT_DIR:-}"
 RAW_JSON=0
+OFFLINE_SEED="${OOB_VLM_SMOKE_OFFLINE_SEED:-0}"
 
 usage() {
   cat <<'EOF'
@@ -53,6 +54,12 @@ Options:
   --skill-id ID             Built-in skill guidance id. Default: vlm-android-gui.
   --output-dir DIR          Keep all phase JSON files and write
                             vlm-accuracy-report.{json,md} in DIR.
+  --offline-seed            Debug-only: seed a successful vlm_task RunLog from
+                            the live page instead of calling the online VLM in
+                            phase 1. This validates native auto-register,
+                            recall, replay, and phase-4 fast path without
+                            provider credentials; it is not a model accuracy
+                            measurement.
   --raw-json                Print full JSON payloads in addition to summaries.
   --help                    Show this help.
 
@@ -163,6 +170,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --output-dir=*)
       OUTPUT_DIR="${1#--output-dir=}"
+      shift
+      ;;
+    --offline-seed)
+      OFFLINE_SEED=1
       shift
       ;;
     --raw-json)
@@ -516,6 +527,7 @@ echo "device=$DEVICE_SERIAL"
 echo "package=$PACKAGE_NAME"
 echo "target_package=$TARGET_PACKAGE"
 echo "goal=$GOAL"
+echo "offline_seed=$OFFLINE_SEED"
 
 if ! "${ADB[@]}" get-state >/dev/null 2>&1; then
   echo "Device is not available: $DEVICE_SERIAL" >&2
@@ -526,7 +538,6 @@ if ! "${ADB[@]}" shell run-as "$PACKAGE_NAME" pwd >/dev/null 2>&1; then
   exit 2
 fi
 
-goal_b64="$(base64_text "$GOAL")"
 optional_model_args=()
 if [[ -n "${PROFILE_ID// }" ]]; then
   optional_model_args+=(--es profileId "$PROFILE_ID")
@@ -537,8 +548,30 @@ fi
 if [[ -n "${SKILL_ID// }" ]]; then
   optional_model_args+=(--es skillId "$SKILL_ID")
 fi
+offline_seed_args=()
+REQUEST_GOAL="$GOAL"
+case "$OFFLINE_SEED" in
+  1|true|TRUE|yes|YES|on|ON)
+    offline_seed_args+=(--ez offlineSeed true)
+    REQUEST_GOAL="vlmseed$(date +%s)$RANDOM"
+    ;;
+  0|false|FALSE|no|NO|off|OFF|"")
+    ;;
+  *)
+    echo "--offline-seed/OOB_VLM_SMOKE_OFFLINE_SEED must be boolean" >&2
+    exit 2
+    ;;
+esac
+goal_b64="$(base64_text "$REQUEST_GOAL")"
+if [[ "$REQUEST_GOAL" != "$GOAL" ]]; then
+  echo "request_goal=$REQUEST_GOAL"
+fi
 
-echo "== Phase 1: first VLM run with recall disabled =="
+if [[ "${#offline_seed_args[@]}" -gt 0 ]]; then
+  echo "== Phase 1: offline-seeded VLM RunLog with recall disabled =="
+else
+  echo "== Phase 1: first VLM run with recall disabled =="
+fi
 reset_start_page
 clear_app_file "$VLM_RESULT_FILE"
 "${ADB[@]}" shell am broadcast \
@@ -549,6 +582,7 @@ clear_app_file "$VLM_RESULT_FILE"
   --ei maxSteps "$MAX_STEPS" \
   --ez register true \
   --ez disableOmniFlowRecall true \
+  "${offline_seed_args[@]}" \
   "${optional_model_args[@]}" >/dev/null
 wait_for_result_file "$VLM_RESULT_FILE" "first VLM run" "$FIRST_JSON"
 print_summary "first VLM run" "$FIRST_JSON"
