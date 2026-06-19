@@ -60,33 +60,43 @@ object McpToolExecutors {
         args: Map<String, Any?>?,
         scope: CoroutineScope
     ): Map<String, Any?> = withContext(Dispatchers.IO) {
-        val goal = args?.get("goal") as? String
+        val requestArgs = args ?: emptyMap()
+        val goal = requestArgs["goal"] as? String
         if (goal.isNullOrBlank()) {
             return@withContext McpResponseBuilder.buildErrorText("Missing goal")
         }
 
-        val needSummaryArg = args?.get("needSummary") as? Boolean
+        val needSummaryArg = requestArgs["needSummary"] as? Boolean
         val shouldSummary = shouldEnableSummary(goal, needSummaryArg)
-        val startFromCurrent = boolArg(args, "startFromCurrent", "start_from_current", "skipGoHome", "skip_go_home")
-        val parseOnly = boolArg(args, "parseOnly", "parse_only", "dryRun", "dry_run")
+        val startFromCurrent = boolArg(requestArgs, "startFromCurrent", "start_from_current", "skipGoHome", "skip_go_home")
+        val parseOnly = boolArg(requestArgs, "parseOnly", "parse_only", "dryRun", "dry_run")
         val disableOmniFlowRecall = boolArgOrDefault(
-            args,
+            requestArgs,
             default = false,
             "disableOmniFlowRecall",
             "disable_omniflow_recall",
             "disableRecall",
             "disable_recall",
         )
+        val allowOmniFlowFunctionAutoExecute = !disableOmniFlowRecall &&
+            boolArgOrDefault(
+                requestArgs,
+                default = true,
+                "allowOmniFlowFunctionAutoExecute",
+                "allow_omniflow_function_auto_execute",
+                "autoExecuteOmniFlowFunction",
+                "auto_execute_omniflow_function",
+            )
         val request = VlmTaskRequest(
             goal = goal,
-            model = args?.get("model") as? String,
-            maxSteps = intArg(args, "maxSteps", "max_steps")?.coerceIn(1, 64),
-            waitTimeoutMs = waitTimeoutMsArg(args),
-            packageName = if (startFromCurrent) null else firstString(args, "packageName", "package_name"),
+            model = requestArgs["model"] as? String,
+            maxSteps = intArg(requestArgs, "maxSteps", "max_steps")?.coerceIn(1, 64),
+            waitTimeoutMs = waitTimeoutMsArg(requestArgs),
+            packageName = if (startFromCurrent) null else firstString(requestArgs, "packageName", "package_name"),
             needSummary = shouldSummary,
             skipGoHome = startFromCurrent,
             disableOmniFlowRecall = disableOmniFlowRecall,
-            allowOmniFlowFunctionAutoExecute = !disableOmniFlowRecall
+            allowOmniFlowFunctionAutoExecute = allowOmniFlowFunctionAutoExecute
         )
 
         try {

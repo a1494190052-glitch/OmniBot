@@ -26,6 +26,10 @@
       "phone_action_owner": "kotlin_only",
       "requires_concrete_function_id": false,
       "model_visible_function_execution_tool": false,
+      "control_flags": [
+        "disableOmniFlowRecall",
+        "allowOmniFlowFunctionAutoExecute"
+      ],
       "fresh_observe_required": true,
       "result_route_prefix": "omniflow_recall_hit",
       "enhance_inline_allowed": false

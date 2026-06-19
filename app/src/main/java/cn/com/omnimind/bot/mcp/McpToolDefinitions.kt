@@ -88,6 +88,16 @@ WORKFLOW:
                 "needSummary" to mapOf(
                     "type" to "boolean",
                     "description" to "Optional: Set true for summarization/report tasks so the summary is generated and returned in the tool result. Default: false."
+                ),
+                "disableOmniFlowRecall" to mapOf(
+                    "type" to "boolean",
+                    "default" to false,
+                    "description" to "Optional: set true to disable local OmniFlow Function recall for this run. This is mainly for first-run capture, diagnostics, and A/B testing."
+                ),
+                "allowOmniFlowFunctionAutoExecute" to mapOf(
+                    "type" to "boolean",
+                    "default" to true,
+                    "description" to "Optional: when true, a high-confidence local OmniFlow recall hit may be replayed by the native runtime before ordinary VLM actions. Set false to observe recall guidance without automatic Function replay."
                 )
             ),
             "required" to listOf("goal")

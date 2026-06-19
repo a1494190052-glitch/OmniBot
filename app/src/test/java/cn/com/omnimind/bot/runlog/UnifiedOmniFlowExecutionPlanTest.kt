@@ -394,6 +394,10 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(vlm["phone_action_owner"] == "kotlin_only")
         assertTrue(vlm["model_visible_function_execution_tool"] == false)
         assertTrue(vlm["result_route_prefix"] == "omniflow_recall_hit")
+        assertTrue(
+            (listAny(vlm["control_flags"]).contains("disableOmniFlowRecall") &&
+                listAny(vlm["control_flags"]).contains("allowOmniFlowFunctionAutoExecute"))
+        )
         assertTrue(coordinator.contains("OobOmniFlowToolkitService(context).runFunction("))
         assertTrue(coordinator.contains("tryExecuteRecallHitOnly"))
 

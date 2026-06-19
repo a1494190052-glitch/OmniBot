@@ -254,6 +254,10 @@ class McpToolDefinitionsTest {
         }
         val schema = tool["inputSchema"] as Map<*, *>
         val properties = schema["properties"] as Map<*, *>
+        val executorSource = listOf(
+            File("app/src/main/java/cn/com/omnimind/bot/mcp/McpToolExecutors.kt"),
+            File("src/main/java/cn/com/omnimind/bot/mcp/McpToolExecutors.kt"),
+        ).first { it.exists() }.readText()
 
         assertTrue(properties.containsKey("goal"))
         assertTrue(properties.containsKey("model"))
@@ -261,9 +265,16 @@ class McpToolDefinitionsTest {
         assertTrue(properties.containsKey("maxSteps"))
         assertTrue(properties.containsKey("startFromCurrent"))
         assertTrue(properties.containsKey("needSummary"))
-        assertFalse(properties.containsKey("allowOmniFlowFunctionAutoExecute"))
-        assertFalse(properties.containsKey("disableOmniFlowRecall"))
+        assertTrue(properties.containsKey("allowOmniFlowFunctionAutoExecute"))
+        assertTrue(properties.containsKey("disableOmniFlowRecall"))
         assertFalse(properties.containsKey("parseOnly"))
+        val autoExecute = properties["allowOmniFlowFunctionAutoExecute"] as Map<*, *>
+        assertEquals(true, autoExecute["default"])
+        val disableRecall = properties["disableOmniFlowRecall"] as Map<*, *>
+        assertEquals(false, disableRecall["default"])
+        assertTrue(executorSource.contains("\"allowOmniFlowFunctionAutoExecute\""))
+        assertTrue(executorSource.contains("\"allow_omniflow_function_auto_execute\""))
+        assertTrue(executorSource.contains("val allowOmniFlowFunctionAutoExecute = !disableOmniFlowRecall"))
     }
 
     @Test

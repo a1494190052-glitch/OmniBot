@@ -293,6 +293,7 @@ object McpRoutes {
             "needSummary" to payload.needSummary,
             "skipGoHome" to payload.skipGoHome,
             "disableOmniFlowRecall" to payload.disableOmniFlowRecall,
+            "allowOmniFlowFunctionAutoExecute" to payload.allowOmniFlowFunctionAutoExecute,
         )
 
     private suspend fun handleLegacyTaskReply(
