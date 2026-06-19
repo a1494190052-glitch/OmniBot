@@ -211,6 +211,13 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(script.contains("validate_recall_hit"))
         assertTrue(script.contains("validate_second_run"))
         assertTrue(script.contains("validate_enhance_offline"))
+        assertTrue(script.contains("check_first_run_provider_blocker"))
+        assertTrue(script.contains("provider_auth_or_configuration_failed"))
+        assertTrue(script.contains("raise SystemExit(4)"))
+        assertTrue(
+            script.indexOf("check_first_run_provider_blocker \"\$FIRST_JSON\"") <
+                script.indexOf("validate_first_run \"\$FIRST_JSON\"")
+        )
         assertTrue(script.contains("disableOmniFlowRecall true"))
         assertTrue(script.contains("startFromCurrent true"))
         assertTrue(script.contains("--output-dir DIR"))

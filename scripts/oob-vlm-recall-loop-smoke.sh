@@ -61,6 +61,9 @@ Preconditions:
   - OOB accessibility and overlay permissions are enabled
   - a working VLM model binding is configured for the first run
   - the device is unlocked
+
+Provider/authentication failures on the first VLM call are reported as an
+environment blocker before recall/replay validation starts.
 EOF
 }
 
@@ -306,6 +309,65 @@ else:
 PY
 }
 
+check_first_run_provider_blocker() {
+  python3 - "$1" <<'PY'
+import json
+import sys
+
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+if data.get("success") is True:
+    raise SystemExit(0)
+
+outcome = data.get("outcome") if isinstance(data.get("outcome"), dict) else {}
+run_log = data.get("run_log") if isinstance(data.get("run_log"), dict) else {}
+cards = run_log.get("cards") if isinstance(run_log.get("cards"), list) else []
+texts = [
+    outcome.get("message"),
+    outcome.get("errorMessage"),
+    data.get("error_message"),
+    run_log.get("error_message"),
+]
+for card in cards[:3]:
+    if not isinstance(card, dict):
+        continue
+    result = card.get("result") if isinstance(card.get("result"), dict) else {}
+    params = card.get("params") if isinstance(card.get("params"), dict) else {}
+    texts.extend([
+        card.get("title"),
+        result.get("message"),
+        params.get("content"),
+    ])
+
+haystack = "\n".join(str(text) for text in texts if text).lower()
+provider_markers = [
+    "scene stream request failed(401)",
+    "authentication error",
+    "invalid proxy server token",
+    "unable to find token",
+    "unauthorized",
+    "api key",
+    "provider",
+]
+if not any(marker in haystack for marker in provider_markers):
+    raise SystemExit(0)
+
+binding = data.get("configured_binding") if isinstance(data.get("configured_binding"), dict) else {}
+diagnostic = {
+    "success": False,
+    "phase": "first_vlm_provider_blocker",
+    "reason": "provider_auth_or_configuration_failed",
+    "run_id": data.get("run_id"),
+    "outcome_status": outcome.get("status"),
+    "profile_id": binding.get("profileId"),
+    "model_id": binding.get("modelId"),
+    "hint": "Configure a valid VLM model provider before running recall/replay smoke.",
+}
+print("First VLM run blocked by model provider configuration/authentication.", file=sys.stderr)
+print(json.dumps({k: v for k, v in diagnostic.items() if v not in (None, "", [])}, ensure_ascii=False, indent=2), file=sys.stderr)
+raise SystemExit(4)
+PY
+}
+
 json_extract_first_run_ids() {
   python3 - "$1" <<'PY'
 import json
@@ -490,6 +552,7 @@ clear_app_file "$VLM_RESULT_FILE"
   "${optional_model_args[@]}" >/dev/null
 wait_for_result_file "$VLM_RESULT_FILE" "first VLM run" "$FIRST_JSON"
 print_summary "first VLM run" "$FIRST_JSON"
+check_first_run_provider_blocker "$FIRST_JSON"
 validate_first_run "$FIRST_JSON"
 first_ids=()
 while IFS= read -r value; do
