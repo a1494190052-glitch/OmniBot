@@ -57,6 +57,7 @@ class ChatBotSheet extends StatefulWidget {
   final String? initialDisplayMessage;
   final List<Map<String, dynamic>> initialAttachments;
   final Map<String, dynamic>? initialScheduleInfo;
+  final bool? initialManualRecordingDebugScreenshots;
 
   /// 启动场景，用于控制是否加载之前保存的上下文
   final ChatBotLaunchScene launchScene;
@@ -68,6 +69,7 @@ class ChatBotSheet extends StatefulWidget {
     this.initialDisplayMessage,
     this.initialAttachments = const [],
     this.initialScheduleInfo,
+    this.initialManualRecordingDebugScreenshots,
     this.launchScene = ChatBotLaunchScene.normal,
     this.openClawEnabled,
   });
@@ -306,6 +308,8 @@ class _ChatBotSheetState extends State<ChatBotSheet>
             text: widget.initialMessage!,
             displayText: widget.initialDisplayMessage,
             attachments: widget.initialAttachments,
+            manualRecordingDebugScreenshots:
+                widget.initialManualRecordingDebugScreenshots,
           );
         });
       }
@@ -1651,12 +1655,14 @@ class _ChatBotSheetState extends State<ChatBotSheet>
     String? displayText,
     List<Map<String, dynamic>> attachments = const [],
     bool appendUserBubble = true,
+    bool? manualRecordingDebugScreenshots,
   }) async {
     final messageText = text ?? _messageController.text.trim();
     if (messageText.isEmpty || _isAiResponding) return;
 
     final handledManualRecording = await _tryStartManualRecordingFromMessage(
       messageText,
+      recordDebugScreenshots: manualRecordingDebugScreenshots ?? false,
     );
     if (handledManualRecording) return;
 
@@ -1705,13 +1711,16 @@ class _ChatBotSheetState extends State<ChatBotSheet>
     }
   }
 
-  Future<bool> _tryStartManualRecordingFromMessage(String messageText) async {
+  Future<bool> _tryStartManualRecordingFromMessage(
+    String messageText, {
+    required bool recordDebugScreenshots,
+  }) async {
     if (!ManualRecordingFlowController.isCommand(messageText)) {
       return false;
     }
     await _startManualRecordingFlow(
       userMessageText: messageText,
-      recordDebugScreenshots: false,
+      recordDebugScreenshots: recordDebugScreenshots,
     );
     return true;
   }
