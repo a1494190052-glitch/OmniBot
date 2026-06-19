@@ -6,7 +6,8 @@
     "schema_validation",
     "offline_fixture_eval",
     "provider_dev_tools",
-    "mcp_cache_recall_ingest"
+    "mcp_cache_recall_ingest",
+    "mcp_offline_update_function"
   ],
   "enhancement_policy": "offline_only",
   "steps": [

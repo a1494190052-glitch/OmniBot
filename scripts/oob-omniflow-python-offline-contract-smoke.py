@@ -70,7 +70,11 @@ def main() -> int:
 
     tool_names = parse_standalone_tool_names(mcp_server)
     report["checks"]["python_mcp_tools"] = tool_names
-    expected_tools = ["omniflow.recall", "omniflow.ingest_run_log"]
+    expected_tools = [
+        "omniflow.recall",
+        "omniflow.ingest_run_log",
+        "omniflow.update_function",
+    ]
     if tool_names != expected_tools:
         failures.append(
             f"Expected Python standalone MCP tools {expected_tools}, got {tool_names}"
@@ -123,7 +127,7 @@ def main() -> int:
         unified_plan,
         [
             "Python `omniflow-mcp` in Alpine",
-            "`omniflow.recall`, `omniflow.ingest_run_log`",
+            "`omniflow.recall`, `omniflow.ingest_run_log`, `omniflow.update_function`",
             "no for OOB phone runtime",
             "Do not use for: Android accessibility actions",
             "If Python needs to execute on this phone",
@@ -153,6 +157,7 @@ def main() -> int:
             "offline_fixture_eval",
             "provider_dev_tools",
             "mcp_cache_recall_ingest",
+            "mcp_offline_update_function",
         ]:
             if role not in roles:
                 failures.append(f"vlm example missing Python role: {role}")

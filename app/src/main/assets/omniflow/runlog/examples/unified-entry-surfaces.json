@@ -144,7 +144,8 @@
         "schema_validation",
         "offline_fixture_eval",
         "omniflow.recall",
-        "omniflow.ingest_run_log"
+        "omniflow.ingest_run_log",
+        "omniflow.update_function"
       ],
       "may_execute_phone_actions": false,
       "phone_action_owner": "none",

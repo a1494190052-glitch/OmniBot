@@ -178,6 +178,71 @@ class VlmToolCoordinatorRecallExecutionTest {
     }
 
     @Test
+    fun `recall verifier rejection falls back to ordinary vlm execution`() = runBlocking {
+        val state = TaskState(
+            taskId = "task-recall-verifier-no",
+            goal = "open display settings",
+            status = TaskStatus.RUNNING,
+        )
+        var called = false
+        val events = mutableListOf<Map<String, Any?>>()
+
+        val outcome = VlmToolCoordinator.tryExecuteRecallHit(
+            taskState = state,
+            goal = state.goal,
+            recallGuidance = VlmRecallGuidance(
+                decision = "hit",
+                guidance = "OmniFlow recall checked for this VLM step.",
+                payload = mapOf("success" to true),
+                directHitFunctionId = "open_network_settings_function",
+            ),
+            progressReporter = { _, extras -> events += extras },
+            runFunction = { _, _ ->
+                called = true
+                mapOf("success" to true)
+            },
+            resolveProvider = rejectRecall("goal_mismatch"),
+        )
+
+        assertNull(outcome)
+        assertFalse(called)
+        assertEquals(TaskStatus.RUNNING, state.status)
+        assertEquals("omniflow_recall_verifier_no:open_network_settings_function", state.executionRoute)
+        assertTrue(state.chatMessages.last().contains("verifier rejected"))
+        assertEquals(1, events.size)
+        assertEquals("RUNNING", events.first()["status"])
+        assertEquals("goal_mismatch", events.first()["runtimeResolveReason"])
+    }
+
+    @Test
+    fun `recall verifier parses fenced json with execute decision`() {
+        val parsed = VlmToolCoordinator.parseRecallFunctionVerifierResolveForTest(
+            """
+            ```json
+            {"decision":"execute","arguments":{"keyword":"猫猫"},"missing_required_arguments":[],"reason":"goal match"}
+            ```
+            """.trimIndent()
+        )
+
+        assertNotNull(parsed)
+        assertEquals(true, parsed?.accepted)
+        assertEquals("猫猫", parsed?.arguments?.get("keyword"))
+        assertEquals(emptyList<String>(), parsed?.missingRequiredArguments)
+        assertEquals("goal match", parsed?.reason)
+    }
+
+    @Test
+    fun `recall verifier parses no decision from wrapped text`() {
+        val parsed = VlmToolCoordinator.parseRecallFunctionVerifierResolveForTest(
+            """result: {"decision":"no","arguments":{},"reason":"wrong page"}"""
+        )
+
+        assertNotNull(parsed)
+        assertEquals(false, parsed?.accepted)
+        assertEquals("wrong page", parsed?.reason)
+    }
+
+    @Test
     fun `request can disable omniflow recall for fresh VLM validation`() = runBlocking {
         val request = VlmTaskRequest(
             goal = "open settings",
@@ -763,6 +828,15 @@ class VlmToolCoordinatorRecallExecutionTest {
                 arguments = arguments,
                 missingRequiredArguments = missing,
                 reason = reason,
+            )
+        }
+
+    private fun rejectRecall(reason: String): RuntimeResolveProvider =
+        { _, _, _ ->
+            RuntimeResolveResult(
+                accepted = false,
+                reason = reason,
+                resolveCalls = 1,
             )
         }
 

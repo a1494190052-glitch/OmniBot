@@ -350,6 +350,65 @@ class OobVlmRunLogAutoRegistrarTest {
     }
 
     @Test
+    fun `vlm recall direct hit ignores legacy equivalent replay functions`() {
+        val context = OobOmniFlowLoopAcceptanceTest.TempFilesContext()
+        try {
+            val workspaceStore = WorkspaceFunctionStore(context.root)
+            val service = OobOmniFlowToolkitService(context, workspaceStore)
+            val firstRegister = service.registerFunction(
+                mapOf(
+                    "function_spec" to reusableFunctionSpec(
+                        functionId = "oob_fn_vlm_task_open_network",
+                        name = "Open network settings",
+                        description = "Open network settings",
+                        source = mapOf(
+                            "kind" to "run_log",
+                            "goal" to "Open network settings",
+                            "tool_name" to "vlm_task",
+                        ),
+                    )
+                )
+            )
+            val legacyRegister = service.registerFunction(
+                mapOf(
+                    "function_spec" to reusableFunctionSpec(
+                        functionId = "oob_fn_vlm_task_tap_mobile_network",
+                        name = "Tap mobile network",
+                        description = "Tap mobile network",
+                        source = mapOf(
+                            "kind" to "run_log",
+                            "goal" to "Tap mobile network",
+                            "tool_name" to "vlm_task",
+                        ),
+                    )
+                )
+            )
+            assertEquals(true, firstRegister["success"])
+            assertEquals(true, legacyRegister["success"])
+
+            val recall = service.recall(
+                mapOf(
+                    "goal" to "Open network settings",
+                    "current_package" to "com.example.settings",
+                    "current_xml" to SOURCE_XML,
+                    "k" to 10,
+                    "auto_execute" to true,
+                    "include_debug" to true,
+                )
+            )
+
+            assertEquals(true, recall["success"])
+            assertEquals("hit", recall["decision"])
+            val hit = recall["hit"] as? Map<*, *>
+            assertNotNull(hit?.get("function_id"))
+            val capabilities = recall["node_function_capabilities"] as? List<*>
+            assertEquals(2, capabilities?.size)
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `vlm runlog recall hit executes registered function without online enhancement`() = runBlocking {
         val context = OobOmniFlowLoopAcceptanceTest.TempFilesContext()
         try {

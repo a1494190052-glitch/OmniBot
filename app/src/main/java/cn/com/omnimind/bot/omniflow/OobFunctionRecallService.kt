@@ -771,10 +771,6 @@ class OobFunctionRecallService(
         val steps = materializedSteps(spec)
         if (steps.isEmpty()) return ""
         return listOf(
-            normalizeText(firstNonBlank(spec["name"])),
-            normalizeText(firstNonBlank(spec["description"])),
-            normalizeText(firstNonBlank(source["goal"])),
-            normalizeText(firstNonBlank(source["tool_name"])),
             packageName,
             steps.joinToString("|") { step -> replayStepEquivalenceKey(step) },
         ).joinToString("::")

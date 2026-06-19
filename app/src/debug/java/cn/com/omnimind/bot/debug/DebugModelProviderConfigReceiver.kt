@@ -21,6 +21,7 @@ import java.io.File
 
 class DebugModelProviderConfigReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
+        val pendingResult = goAsync()
         val appContext = context.applicationContext
         val baseUrl = intent.stringExtra("baseUrl", "base_url")
         val apiKey = intent.stringExtra("apiKey", "api_key")
@@ -36,29 +37,33 @@ class DebugModelProviderConfigReceiver : BroadcastReceiver() {
         val sceneIds = parseSceneIds(rawSceneIds)
 
         scope.launch {
-            val result = runCatching {
-                configure(
-                    context = appContext,
-                    profileId = profileId,
-                    name = name,
-                    baseUrl = baseUrl,
-                    apiKey = apiKey,
-                    modelId = modelId,
-                    protocolType = protocolType,
-                    sceneIds = sceneIds,
-                    clearLegacyDefaultDebugBindings = useDefaultSceneIds,
-                )
-            }.getOrElse { error ->
-                linkedMapOf<String, Any?>(
-                    "success" to false,
-                    "phase" to "exception",
-                    "error_message" to error.message.orEmpty(),
-                    "error_type" to error.javaClass.name,
-                )
+            try {
+                val result = runCatching {
+                    configure(
+                        context = appContext,
+                        profileId = profileId,
+                        name = name,
+                        baseUrl = baseUrl,
+                        apiKey = apiKey,
+                        modelId = modelId,
+                        protocolType = protocolType,
+                        sceneIds = sceneIds,
+                        clearLegacyDefaultDebugBindings = useDefaultSceneIds,
+                    )
+                }.getOrElse { error ->
+                    linkedMapOf<String, Any?>(
+                        "success" to false,
+                        "phase" to "exception",
+                        "error_message" to error.message.orEmpty(),
+                        "error_type" to error.javaClass.name,
+                    )
+                }
+                val json = gson.toJson(result)
+                File(appContext.filesDir, RESULT_FILE).writeText(json)
+                OmniLog.i(TAG, json)
+            } finally {
+                pendingResult.finish()
             }
-            val json = gson.toJson(result)
-            File(appContext.filesDir, RESULT_FILE).writeText(json)
-            OmniLog.i(TAG, json)
         }
     }
 
@@ -190,7 +195,9 @@ class DebugModelProviderConfigReceiver : BroadcastReceiver() {
         private const val DEFAULT_PROFILE_ID = "debug-runtime-provider"
         private const val DEFAULT_PROFILE_NAME = "Debug Runtime Provider"
         private val DEFAULT_SCENE_IDS = listOf(
+            "scene.dispatch.model",
             "scene.vlm.operation.primary",
+            "scene.compactor.context.chat",
         )
         private val LEGACY_DEFAULT_DEBUG_SCENE_IDS = listOf(
             "scene.dispatch.model",

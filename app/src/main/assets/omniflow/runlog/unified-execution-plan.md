@@ -37,8 +37,9 @@ Can reuse from OmniFlow Python inside the built-in Alpine environment:
 - Function schema compatibility checks and offline validation.
 - Provider/MCP dev tools such as `omniflow-provider` and `omniflow-mcp`.
   The current standalone Python MCP server exposes `omniflow.recall` and
-  `omniflow.ingest_run_log`; those are cache/ingest/dev tools, not phone action
-  executors.
+  `omniflow.ingest_run_log` for cache/ingest, plus
+  `omniflow.update_function` for offline patch/enhance writeback. These are dev
+  and maintenance tools, not phone action executors.
 - Evaluation harnesses, fixture generation, export/import linting, and semantic
   enhancement experiments.
 - Offline analysis of RunLogs and Functions when no live Android action is
@@ -129,7 +130,7 @@ This matrix is the implementation boundary for avoiding two execution systems:
 | HTTP/debug Function run | concrete debug payloads | debug receiver -> `OobOmniFlowToolkitService` | yes, through Kotlin only | Useful for smoke tests and diagnostics. It should not become a separate product mode. |
 | `RUN_VLM_RECALL_HIT` | natural-language goal for strict-hit validation | debug receiver -> `VlmToolCoordinator.tryExecuteRecallHitOnly` | yes, through Kotlin only | Exists to isolate the second-run fast path without starting a fresh ordinary VLM loop. |
 | `update_function` / enhance | concrete `function_id`, RunLog evidence, patch | `OobFunctionUpdateService` | no | Offline maintenance only. It may edit metadata/labels/checkers, but must not replay. |
-| Python `omniflow-mcp` in Alpine | `omniflow.recall`, `omniflow.ingest_run_log` | OmniFlow Python provider/toolchain | no for OOB phone runtime | The upstream standalone MCP server exposes recall/ingest cache tools only; OOB phone execution still goes through native surfaces. |
+| Python `omniflow-mcp` in Alpine | `omniflow.recall`, `omniflow.ingest_run_log`, `omniflow.update_function` | OmniFlow Python provider/toolchain | no for OOB phone runtime | The upstream standalone MCP server exposes recall/ingest/offline-update tools only; OOB phone execution still goes through native surfaces. |
 | Python AndroidWorld action sequence | benchmark/eval manifests | OmniFlow Python experiments | no for OOB app runtime | Useful reference for fixtures/evaluation. Do not wire it into OOB's live accessibility path. |
 
 Concrete rule: a caller may be UI, MCP, HTTP, debug, or Python, but live phone
@@ -239,8 +240,9 @@ evidence:
   entry.
 - Python compatibility: Alpine-installed OmniFlow may validate schemas, run
   `omniflow-provider`, expose `omniflow.recall` and
-  `omniflow.ingest_run_log`, and generate offline patches. It must call OOB's
-  native HTTP/MCP/debug surface if it wants this phone to execute anything.
+  `omniflow.ingest_run_log`, expose `omniflow.update_function` for offline
+  patches, and generate offline diagnostics. It must call OOB's native
+  HTTP/MCP/debug surface if it wants this phone to execute anything.
 - UI stability: Function library, memory/reuse entries, chat input trajectory
   menu, and stream/tool cards continue to render with main-branch style and
   route into native services rather than Dart-side replay.
@@ -387,7 +389,8 @@ provider-side:
 
 - Keep: schema validation, `oob_contract.py` replay-policy checks, fixture
   generation, offline recall experiments, `omniflow.recall`, and
-  `omniflow.ingest_run_log`.
+  `omniflow.ingest_run_log`, plus offline `omniflow.update_function` patch or
+  enhance writeback.
 - Keep: provider dashboards, cache inspection, exported RunLog/Function linting,
   and semantic enhancement experiments that return patches.
 - Do not use for: Android accessibility actions, overlay permission checks,
@@ -497,8 +500,8 @@ complete until the device smoke above has been run on a real device.
   against the shared schema, without calling Android runtime actions. The first
   checked version is `scripts/oob-omniflow-python-offline-contract-smoke.py`;
   it reads the local `~/Projects/Omni/OmniFlow` checkout, verifies standalone
-  MCP exposes only `omniflow.recall` / `omniflow.ingest_run_log`, and validates
-  the `vlm_task` recall-loop fixture still declares Kotlin as the live runtime
-  owner.
+  MCP exposes only `omniflow.recall` / `omniflow.ingest_run_log` /
+  `omniflow.update_function`, and validates the `vlm_task` recall-loop fixture
+  still declares Kotlin as the live runtime owner.
 - Keep UI changes minimal and aligned with existing main-branch presentation:
   cards may show status, but execution semantics must stay in the native runtime.

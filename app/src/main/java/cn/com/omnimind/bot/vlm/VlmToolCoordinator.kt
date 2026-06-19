@@ -198,6 +198,7 @@ data class VlmFunctionRuntimeSelectionDecision(
 )
 
 data class RuntimeResolveResult(
+    val accepted: Boolean = true,
     val arguments: Map<String, Any?> = emptyMap(),
     val missingRequiredArguments: List<String> = emptyList(),
     val reason: String = "",
@@ -206,6 +207,7 @@ data class RuntimeResolveResult(
     companion object {
         fun failed(reason: String, missingRequiredArguments: List<String> = emptyList()): RuntimeResolveResult =
             RuntimeResolveResult(
+                accepted = false,
                 missingRequiredArguments = missingRequiredArguments,
                 reason = reason,
             )
@@ -785,6 +787,24 @@ object VlmToolCoordinator {
                     taskState.executionRoute = "vlm_with_omniflow_recall:${recallGuidance.decision}"
                     taskState.markStateChanged()
                 }
+                tryExecuteRecallHitIfAllowed(
+                    request = boundedRequest,
+                    taskState = taskState,
+                    recallGuidance = recallGuidance,
+                    progressReporter = progressReporter,
+                    runFunction = { functionId, arguments ->
+                        OobOmniFlowToolkitService(context).runFunction(
+                            linkedMapOf(
+                                "function_id" to functionId,
+                                "goal" to boundedRequest.goal,
+                                "arguments" to arguments,
+                                "frontend_run_id" to taskId,
+                                "frontend_task_id" to taskId,
+                                "frontend_parent" to "vlm_task",
+                            )
+                        )
+                    },
+                )?.let { return@withContext it }
                 val executionRequest = taskState.vlmRequest ?: recallBaseRequest
                 val startResult = startVlmTaskInternal(
                     context,
@@ -1230,13 +1250,33 @@ object VlmToolCoordinator {
             if (resolveProvider != null) {
                 resolveProvider(goal, candidate, recallGuidance)
             } else {
-                resolveRecallFunctionArgumentsWithSmallModel(goal, candidate, recallGuidance)
+                verifyAndResolveRecallFunctionWithSmallModel(goal, candidate, recallGuidance)
             }
         }.getOrElse { error ->
             RuntimeResolveResult.failed(
                 reason = "runtime_resolve_model_failed:${error.message.orEmpty()}",
                 missingRequiredArguments = requiredFunctionArgumentNames(candidate),
             ).copy(resolveCalls = 1)
+        }
+        if (!argumentResolve.accepted) {
+            taskState.executionRoute = "omniflow_recall_verifier_no:$functionId"
+            taskState.addChatMessage(
+                "[SYSTEM] OmniFlow recall verifier rejected Function $functionId: ${argumentResolve.reason.ifBlank { "no" }}. Continue with ordinary VLM actions."
+            )
+            taskState.markStateChanged()
+            emitProgress(
+                progressReporter,
+                taskState.taskId,
+                taskState.status,
+                "召回跳过",
+                mapOf(
+                    "summary" to "召回复用指令未通过本轮校验，继续普通 VLM 执行",
+                    "function_id" to functionId,
+                    "runtimeResolveReason" to argumentResolve.reason,
+                    "runtimeResolveCalls" to argumentResolve.resolveCalls,
+                )
+            )
+            return null
         }
         if (argumentResolve.missingRequiredArguments.isNotEmpty()) {
             val pending = PendingOmniFlowFunctionCall(
@@ -1553,41 +1593,38 @@ object VlmToolCoordinator {
         )
     }
 
-    private suspend fun resolveRecallFunctionArgumentsWithSmallModel(
+    private suspend fun verifyAndResolveRecallFunctionWithSmallModel(
         goal: String,
         candidate: Map<String, Any?>,
         recallGuidance: VlmRecallGuidance,
     ): RuntimeResolveResult {
-        // Same bounded JSON capability as current-step action resolve. It
-        // counts as a resolve call, but not as an executed UI action.
+        // Runtime-owned verifier for Function replay. It decides execute/no and
+        // resolves only public Function arguments; it never exposes Function
+        // calls as ordinary model-visible tools.
         val allNames = functionArgumentNames(candidate)
         val requiredNames = requiredFunctionArgumentNames(candidate).ifEmpty {
             if (candidateRequiresArguments(candidate)) allNames.take(1) else emptyList()
         }
-        if (allNames.isEmpty() && !candidateRequiresArguments(candidate)) {
-            return RuntimeResolveResult(reason = "no_public_arguments")
-        }
-        if (candidateRequiresArguments(candidate) && allNames.isEmpty()) {
-            return RuntimeResolveResult(
-                arguments = emptyMap(),
-                missingRequiredArguments = listOf(GENERIC_ARGUMENT_NAME),
-                reason = "argument_schema_missing",
-            )
-        }
         val raw = HttpController.postLLMRequest(
             RECALL_DECISION_MODEL,
-            buildRecallFunctionArgumentResolvePrompt(
+            buildRecallFunctionVerifierPrompt(
                 goal = goal,
                 candidate = candidate,
                 recallGuidance = recallGuidance,
             ),
             responseJsonObject = true,
+            maxTokens = 160,
+            temperature = 0.0,
+            reasoningEffort = "no",
         ).message
-        val resolved = parseRecallFunctionArgumentResolve(raw)
+        val resolved = parseRecallFunctionVerifierResolve(raw)
             ?: return RuntimeResolveResult.failed(
-                reason = "runtime_resolve_model_unparseable",
+                reason = "runtime_verifier_unparseable",
                 missingRequiredArguments = requiredNames,
             ).copy(resolveCalls = 1)
+        if (!resolved.accepted) {
+            return resolved.copy(resolveCalls = 1)
+        }
         val arguments = if (allNames.isEmpty()) {
             emptyMap()
         } else {
@@ -1595,13 +1632,32 @@ object VlmToolCoordinator {
         }
         val missing = requiredNames.filter { name -> isBlankArgumentValue(arguments[name]) }
         return if (missing.isEmpty()) {
-            RuntimeResolveResult(
-                arguments = arguments,
-                reason = resolved.reason.ifBlank { "runtime_resolve_model_completed" },
-                resolveCalls = 1,
-            )
+            val genericMissing = if (candidateRequiresArguments(candidate) && allNames.isEmpty()) {
+                listOf(GENERIC_ARGUMENT_NAME)
+            } else {
+                emptyList()
+            }
+            if (genericMissing.isNotEmpty()) {
+                RuntimeResolveResult(
+                    accepted = true,
+                    arguments = emptyMap(),
+                    missingRequiredArguments = genericMissing,
+                    reason = resolved.reason.ifBlank { "argument_schema_missing" },
+                    resolveCalls = 1,
+                )
+            } else {
+                RuntimeResolveResult(
+                    accepted = true,
+                    arguments = arguments,
+                    reason = resolved.reason.ifBlank {
+                        if (allNames.isEmpty()) "runtime_verifier_execute_no_public_arguments" else "runtime_verifier_execute"
+                    },
+                    resolveCalls = 1,
+                )
+            }
         } else {
             RuntimeResolveResult(
+                accepted = true,
                 arguments = arguments,
                 missingRequiredArguments = missing,
                 reason = resolved.reason.ifBlank { "missing_required_arguments" },
@@ -1610,18 +1666,20 @@ object VlmToolCoordinator {
         }
     }
 
-    private fun buildRecallFunctionArgumentResolvePrompt(
+    private fun buildRecallFunctionVerifierPrompt(
         goal: String,
         candidate: Map<String, Any?>,
         recallGuidance: VlmRecallGuidance,
     ): String = buildString {
-        appendLine("OmniFlow runtime already selected this Function for local replay.")
-        appendLine("Do not decide whether to use the Function. Do not reject it.")
-        appendLine("Return only one JSON object with keys:")
-        appendLine("""{"arguments":{},"missing_required_arguments":[],"reason":"short reason"}""")
-        appendLine("If parameters are needed and can be inferred from the goal, put them in arguments.")
-        appendLine("If required parameters cannot be inferred, list their public names in missing_required_arguments; the app will ask the user.")
-        appendLine("Resolve only public business parameters from input_schema. Never expose or invent internal fields like package_name, target_description, x, y, selector, node_id, or resource_id.")
+        appendLine("OmniFlow runtime recall verifier.")
+        appendLine("Return only one compact JSON object:")
+        appendLine("""{"decision":"execute|no","arguments":{},"missing_required_arguments":[],"reason":"<=12 words"}""")
+        appendLine("Use execute only when the recalled Function is clearly the right reusable sub-route for the current user goal and page.")
+        appendLine("Use no when the goal is different, the page/function purpose is uncertain, or replay could perform the wrong operation.")
+        appendLine("If execute and public parameters can be inferred from the goal, put them in arguments.")
+        appendLine("If execute but required public parameters cannot be inferred, list their public names in missing_required_arguments.")
+        appendLine("Resolve only public business parameters from input_schema. Never output function_id, package_name, target_description, x, y, selector, node_id, resource_id, or coordinates.")
+        appendLine("Keep output under 80 tokens. No markdown.")
         appendLine()
         appendLine("User goal:")
         appendLine(goal.take(1000))
@@ -1638,19 +1696,66 @@ object VlmToolCoordinator {
             "description" to candidate["description"],
             "score" to candidate["score"],
             "reason" to candidate["reason"],
-            "input_schema" to (
-                mapValue(candidate["input_schema"]).ifEmpty { mapValue(candidate["inputSchema"]) }
-                    .takeIf { it.isNotEmpty() }
-                ),
+            "public_arguments" to publicArgumentPromptSpec(candidate).takeIf { it.isNotEmpty() },
             "requires_arguments" to candidate["requires_arguments"],
-            "step_summaries" to listValue(candidate["step_summaries"]).take(5).takeIf { it.isNotEmpty() },
+            "step_summaries" to compactStepSummaries(candidate).takeIf { it.isNotEmpty() },
         )
             .filterValues { it != null }
             .entries
             .joinToString("\n") { (key, value) -> "$key=$value" }
 
-    private fun parseRecallFunctionArgumentResolve(raw: String): RuntimeResolveResult? {
+    private fun publicArgumentPromptSpec(candidate: Map<String, Any?>): List<Map<String, Any?>> {
+        val schema = mapValue(candidate["input_schema"]).ifEmpty { mapValue(candidate["inputSchema"]) }
+        val required = listValue(schema["required"])
+            .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
+            .filterNot(::isInternalFunctionParamName)
+            .toSet()
+        return mapValue(schema["properties"]).entries
+            .mapNotNull { (rawName, rawSpec) ->
+                val name = rawName.trim()
+                if (name.isEmpty() || isInternalFunctionParamName(name)) return@mapNotNull null
+                val spec = mapValue(rawSpec)
+                linkedMapOf<String, Any?>(
+                    "name" to name,
+                    "type" to firstNonBlank(spec["type"]).ifBlank { "string" },
+                    "required" to (name in required),
+                    "description" to firstNonBlank(spec["description"]).take(80).takeIf { it.isNotBlank() },
+                ).filterValues { it != null }
+            }
+            .take(6)
+    }
+
+    private fun compactStepSummaries(candidate: Map<String, Any?>): List<Map<String, Any?>> =
+        listValue(candidate["step_summaries"])
+            .mapNotNull { raw ->
+                val step = mapValue(raw)
+                if (step.isEmpty()) return@mapNotNull null
+                linkedMapOf<String, Any?>(
+                    "tool" to firstNonBlank(step["tool"], step["action"]).take(40).takeIf { it.isNotBlank() },
+                    "title" to firstNonBlank(step["title"], step["summary"], step["description"]).take(80).takeIf { it.isNotBlank() },
+                ).filterValues { it != null }
+            }
+            .take(3)
+
+    internal fun parseRecallFunctionVerifierResolveForTest(raw: String): RuntimeResolveResult? =
+        parseRecallFunctionVerifierResolve(raw)
+
+    private fun parseRecallFunctionVerifierResolve(raw: String): RuntimeResolveResult? {
         val resolveMap = extractJsonObjectMap(raw).takeIf { it.isNotEmpty() } ?: return null
+        val decision = firstNonBlank(
+            resolveMap["decision"],
+            resolveMap["action"],
+            resolveMap["use"],
+            resolveMap["accepted"],
+            resolveMap["should_execute"],
+            resolveMap["shouldExecute"],
+        ).lowercase()
+        val accepted = when {
+            decision in setOf("execute", "yes", "true", "use", "accept", "accepted", "run") -> true
+            decision in setOf("no", "false", "reject", "skip", "none") -> false
+            boolValue(resolveMap["accepted"]) || boolValue(resolveMap["should_execute"]) || boolValue(resolveMap["shouldExecute"]) -> true
+            else -> false
+        }
         val arguments = mapValue(resolveMap["arguments"])
         val reason = firstNonBlank(
             resolveMap["reason"],
@@ -1662,9 +1767,10 @@ object VlmToolCoordinator {
         )
             .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
         return RuntimeResolveResult(
+            accepted = accepted,
             arguments = arguments,
             missingRequiredArguments = missing,
-            reason = reason,
+            reason = reason.ifBlank { if (accepted) "runtime_verifier_execute" else "runtime_verifier_no" },
         )
     }
 
@@ -1674,7 +1780,7 @@ object VlmToolCoordinator {
         val candidates = listOf(
             trimmed,
             stripJsonFence(trimmed),
-            Regex("""\{[\s\S]*}""").find(trimmed)?.value.orEmpty(),
+            Regex("""\{.*\}""", options = setOf(RegexOption.DOT_MATCHES_ALL)).find(trimmed)?.value.orEmpty(),
         )
         candidates.forEach { candidate ->
             if (candidate.isBlank()) return@forEach

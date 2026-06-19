@@ -1841,7 +1841,9 @@ object HttpController {
         resolved: ResolvedSceneRequest,
         text: String,
         reasoningEffort: String? = null,
-        responseFormat: KxJsonObject? = null
+        responseFormat: KxJsonObject? = null,
+        maxTokens: Int? = null,
+        temperature: Double? = null
     ): ChatCompletionRequest {
         val disableThinking = reasoningEffort == "no"
         return ChatCompletionRequest(
@@ -1854,6 +1856,8 @@ object HttpController {
             ),
             enableThinking = if (disableThinking) false else null,
             reasoningEffort = if (disableThinking) null else reasoningEffort,
+            maxCompletionTokens = maxTokens,
+            temperature = temperature,
             responseFormat = responseFormat
         )
     }
@@ -2776,7 +2780,10 @@ object HttpController {
     suspend fun postLLMRequest(
         model: String,
         text: String,
-        responseJsonObject: Boolean = false
+        responseJsonObject: Boolean = false,
+        maxTokens: Int? = null,
+        temperature: Double? = null,
+        reasoningEffort: String? = null
     ): ResultBean = withContext(Dispatchers.IO) {
         val resolved = resolveSceneRequest(model)
         logSceneProfile(resolved)
@@ -2793,7 +2800,10 @@ object HttpController {
             request = createChatRequestFromText(
                 resolved = resolved,
                 text = text,
-                responseFormat = responseFormat
+                reasoningEffort = reasoningEffort,
+                responseFormat = responseFormat,
+                maxTokens = maxTokens,
+                temperature = temperature
             ),
             retryOnBadRequest = responseJsonObject
         )
