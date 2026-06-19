@@ -597,6 +597,74 @@ class InternalRunLogStoreTest {
     }
 
     @Test
+    fun `prune does not delete current run when old files have future mtimes`() {
+        val context = TempFilesContext()
+        try {
+            val dir = File(context.root, "internal_run_logs")
+            repeat(200) { index ->
+                val runId = "future-mtime-old-run-$index-${System.nanoTime()}"
+                InternalRunLogStore.beginRun(
+                    context = context,
+                    runId = runId,
+                    goal = "Old run $index",
+                    source = "vlm",
+                    toolName = "vlm_task"
+                )
+                InternalRunLogStore.finishRun(
+                    context = context,
+                    runId = runId,
+                    success = true,
+                    doneReason = "finished"
+                )
+            }
+            val futureMtime = System.currentTimeMillis() + 86_400_000L
+            dir.listFiles { file -> file.isFile && file.extension == "json" }
+                .orEmpty()
+                .forEach { file ->
+                    file.setLastModified(futureMtime)
+                }
+
+            val currentRunId = "current-manual-run-${System.nanoTime()}"
+            InternalRunLogStore.beginRun(
+                context = context,
+                runId = currentRunId,
+                goal = "Manual recording",
+                source = "human_trajectory",
+                toolName = "human_trajectory"
+            )
+            InternalRunLogStore.appendCard(
+                context = context,
+                runId = currentRunId,
+                card = linkedMapOf(
+                    "card_id" to "manual-card-1",
+                    "tool_name" to "click",
+                    "status" to "success",
+                    "success" to true
+                )
+            )
+            InternalRunLogStore.finishRun(
+                context = context,
+                runId = currentRunId,
+                success = true,
+                doneReason = "user_completed"
+            )
+
+            val timeline = InternalRunLogStore.timelinePayload(context, currentRunId)
+            val cards = timeline["cards"] as List<*>
+            assertEquals(true, timeline["success"])
+            assertEquals("success", timeline["run_status"])
+            assertEquals(1, cards.size)
+            assertTrue(
+                dir.listFiles { file -> file.isFile && file.name.endsWith("_$currentRunId.json") }
+                    .orEmpty()
+                    .isNotEmpty()
+            )
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `xml artifact references are readable by runlog accessors`() {
         val context = TempFilesContext()
         try {

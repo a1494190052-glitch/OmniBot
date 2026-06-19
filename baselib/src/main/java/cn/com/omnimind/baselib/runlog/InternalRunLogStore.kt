@@ -109,7 +109,7 @@ object InternalRunLogStore {
             )
         )
         saveRunLocked(context, record.copy(eventSeq = eventSeq))
-        pruneLocked(context)
+        pruneLocked(context, preserveRunId = normalizedRunId)
     }
 
     @Synchronized
@@ -126,7 +126,7 @@ object InternalRunLogStore {
             payload = linkedMapOf("card" to sanitizedCard)
         )
         saveRunLocked(context, record.copy(cards = record.cards + sanitizedCard, eventSeq = eventSeq))
-        pruneLocked(context)
+        pruneLocked(context, preserveRunId = normalizedRunId)
     }
 
     @Synchronized
@@ -150,7 +150,7 @@ object InternalRunLogStore {
         if (saveSnapshot) {
             saveRunLocked(context, record.copy(cards = record.cards + sanitizedCards, eventSeq = eventSeq))
         }
-        pruneLocked(context)
+        pruneLocked(context, preserveRunId = normalizedRunId)
     }
 
     @Synchronized
@@ -175,7 +175,7 @@ object InternalRunLogStore {
         if (saveSnapshot) {
             saveRunLocked(context, record.copy(diagnostics = mergedDiagnostics, eventSeq = eventSeq))
         }
-        pruneLocked(context)
+        pruneLocked(context, preserveRunId = normalizedRunId)
     }
 
     @Synchronized
@@ -212,7 +212,7 @@ object InternalRunLogStore {
             eventSeq = eventSeq
         )
         saveRunLocked(context, updatedRecord)
-        pruneLocked(context)
+        pruneLocked(context, preserveRunId = normalizedRunId)
         return registeredFunctionBinding(context, updatedRecord)
     }
 
@@ -264,7 +264,7 @@ object InternalRunLogStore {
         if (shouldSaveSnapshotLocked(context, normalizedRunId, sanitizedCard)) {
             saveRunLocked(context, updatedRecord)
         }
-        pruneLocked(context)
+        pruneLocked(context, preserveRunId = normalizedRunId)
     }
 
     @Synchronized
@@ -303,7 +303,7 @@ object InternalRunLogStore {
             )
             saveRunLocked(context, finishedRecord)
         }
-        pruneLocked(context)
+        pruneLocked(context, preserveRunId = normalizedRunId)
         notifyFinishListener(
             InternalRunLogFinishEvent(
                 runId = normalizedRunId,
@@ -867,17 +867,31 @@ object InternalRunLogStore {
         }
     }
 
-    private fun pruneLocked(context: Context) {
+    private fun pruneLocked(context: Context, preserveRunId: String = "") {
         val dir = storageDir(context)
+        val preserveFileName = preserveRunId.trim()
+            .takeIf { it.isNotEmpty() }
+            ?.let { runFile(context, it).name }
         val files = dir.listFiles { file -> file.isFile && file.extension == "json" }
             ?.sortedByDescending { it.lastModified() }
             .orEmpty()
-        files.drop(MAX_RUN_COUNT).forEach { file ->
-            runCatching {
-                runEventsFile(file).delete()
-                file.delete()
-            }
+        val preservedFile = preserveFileName?.let { name ->
+            files.firstOrNull { file -> file.name == name }
         }
+        val keepNonPreservedCount = if (preservedFile != null) {
+            (MAX_RUN_COUNT - 1).coerceAtLeast(0)
+        } else {
+            MAX_RUN_COUNT
+        }
+        files
+            .filter { file -> file.name != preserveFileName }
+            .drop(keepNonPreservedCount)
+            .forEach { file ->
+                runCatching {
+                    runEventsFile(file).delete()
+                    file.delete()
+                }
+            }
     }
 
     private fun storageDir(context: Context): File {

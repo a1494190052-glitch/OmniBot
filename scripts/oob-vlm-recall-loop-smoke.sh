@@ -358,6 +358,12 @@ provider_markers = [
     "unauthorized",
     "api key",
     "provider",
+    "unacceptable certificate",
+    "certificatenotyetvalid",
+    "certificate not yet valid",
+    "certificate has expired",
+    "sslhandshakeexception",
+    "tls",
 ]
 if not any(marker in haystack for marker in provider_markers):
     raise SystemExit(0)
