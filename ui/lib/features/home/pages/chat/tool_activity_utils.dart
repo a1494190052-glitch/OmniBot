@@ -980,7 +980,9 @@ String _localizeToolUiText(String value, {Locale? locale}) {
     case '工作流':
       return AppTextLocalizer.choose(en: 'OmniFlow', zh: '工作流', locale: locale);
     case 'Reusable command':
+    case 'Reusable memory':
     case '复用指令':
+    case '复用记忆':
       return AppTextLocalizer.choose(
         en: 'Reusable command',
         zh: '复用指令',

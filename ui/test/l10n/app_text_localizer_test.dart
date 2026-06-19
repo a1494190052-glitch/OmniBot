@@ -194,6 +194,18 @@ void main() {
     );
     expect(
       resolveAgentToolTitle(const <String, dynamic>{
+        'toolTitle': '复用记忆',
+      }, locale: const Locale('zh')),
+      '复用指令',
+    );
+    expect(
+      resolveAgentToolTitle(const <String, dynamic>{
+        'toolTitle': 'Reusable memory',
+      }, locale: const Locale('en')),
+      'Reusable command',
+    );
+    expect(
+      resolveAgentToolTitle(const <String, dynamic>{
         'toolType': 'vlm',
         'toolName': 'click',
         'toolTitle': '点击 设置按钮',

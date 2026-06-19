@@ -616,7 +616,9 @@ String _localizedActivityText(BuildContext context, String value) {
         locale: locale,
       );
     case 'Reusable command':
+    case 'Reusable memory':
     case '复用指令':
+    case '复用记忆':
       return AppTextLocalizer.choose(
         en: 'Reusable command',
         zh: '复用指令',
