@@ -371,6 +371,7 @@ provider_markers = [
     "unknownhostexception",
     "failed to connect",
     "connection refused",
+    "connection reset",
     "connect timed out",
     "read timed out",
     "timeout",
