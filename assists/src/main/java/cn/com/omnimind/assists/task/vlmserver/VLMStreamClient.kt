@@ -248,6 +248,8 @@ class HttpVLMStreamClient(
     private fun buildRequestVariants(request: ChatCompletionRequest): List<StreamRequestVariant> {
         val variants = mutableListOf<StreamRequestVariant>()
         val seenPayloads = LinkedHashSet<String>()
+        val requiresNativeToolCall = request.tools.isNotEmpty() &&
+            request.toolChoice?.toString()?.trim('"')?.equals("required", ignoreCase = true) == true
 
         fun add(name: String, candidate: ChatCompletionRequest) {
             val normalized = candidate.copy(stream = true)
@@ -270,6 +272,27 @@ class HttpVLMStreamClient(
             "no_parallel_tool_calls",
             request.copy(parallelToolCalls = null)
         )
+        add(
+            "no_stream_options",
+            request.copy(streamOptions = null)
+        )
+
+        if (requiresNativeToolCall) {
+            val normalizedMaxCompletionTokens = request.maxCompletionTokens ?: request.maxTokens
+            add(
+                "minimal_strict_tools",
+                request.copy(
+                    streamOptions = null,
+                    parallelToolCalls = null,
+                    temperature = null,
+                    topP = null,
+                    maxCompletionTokens = normalizedMaxCompletionTokens,
+                    maxTokens = null
+                )
+            )
+            return variants
+        }
+
         add(
             "no_tool_choice",
             request.copy(

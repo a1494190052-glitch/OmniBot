@@ -97,7 +97,13 @@ object VLMToolDefinitions {
     }
 
     fun dynamicFunctionToolNamesFromDefinitions(definitions: List<JsonObject>): Set<String> {
-        return emptySet()
+        return definitions.mapNotNull { definition ->
+            val function = definition["function"] as? JsonObject ?: return@mapNotNull null
+            if (!isHiddenFunctionTool(function)) return@mapNotNull null
+            function["name"]?.jsonPrimitive?.contentOrNull
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+        }.toSet()
     }
 
     private fun isHiddenFunctionTool(function: JsonObject): Boolean {

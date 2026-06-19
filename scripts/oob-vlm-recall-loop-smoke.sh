@@ -574,16 +574,23 @@ else
 fi
 reset_start_page
 clear_app_file "$VLM_RESULT_FILE"
-"${ADB[@]}" shell am broadcast \
+first_vlm_broadcast_args=(
+  shell am broadcast
   -a cn.com.omnimind.bot.debug.RUN_VLM_RUNLOG \
   -n "$VLM_RECEIVER" \
   --es goalBase64 "$goal_b64" \
   --es packageName "$TARGET_PACKAGE" \
   --ei maxSteps "$MAX_STEPS" \
   --ez register true \
-  --ez disableOmniFlowRecall true \
-  "${offline_seed_args[@]}" \
-  "${optional_model_args[@]}" >/dev/null
+  --ez disableOmniFlowRecall true
+)
+if [[ "${#offline_seed_args[@]}" -gt 0 ]]; then
+  first_vlm_broadcast_args+=("${offline_seed_args[@]}")
+fi
+if [[ "${#optional_model_args[@]}" -gt 0 ]]; then
+  first_vlm_broadcast_args+=("${optional_model_args[@]}")
+fi
+"${ADB[@]}" "${first_vlm_broadcast_args[@]}" >/dev/null
 wait_for_result_file "$VLM_RESULT_FILE" "first VLM run" "$FIRST_JSON"
 print_summary "first VLM run" "$FIRST_JSON"
 check_first_run_provider_blocker "$FIRST_JSON"
@@ -626,14 +633,19 @@ validate_recall_hit "$RECALL_HIT_JSON" "$FUNCTION_ID"
 echo "== Phase 4: second vlm_task fast path =="
 reset_start_page
 clear_app_file "$VLM_RESULT_FILE"
-"${ADB[@]}" shell am broadcast \
+second_vlm_broadcast_args=(
+  shell am broadcast
   -a cn.com.omnimind.bot.debug.RUN_VLM_RUNLOG \
   -n "$VLM_RECEIVER" \
   --es goalBase64 "$goal_b64" \
   --es packageName "$TARGET_PACKAGE" \
   --ei maxSteps "$MAX_STEPS" \
-  --ez startFromCurrent true \
-  "${optional_model_args[@]}" >/dev/null
+  --ez startFromCurrent true
+)
+if [[ "${#optional_model_args[@]}" -gt 0 ]]; then
+  second_vlm_broadcast_args+=("${optional_model_args[@]}")
+fi
+"${ADB[@]}" "${second_vlm_broadcast_args[@]}" >/dev/null
 wait_for_result_file "$VLM_RESULT_FILE" "second VLM run" "$SECOND_JSON"
 print_summary "second VLM run" "$SECOND_JSON"
 validate_second_run "$SECOND_JSON" "$FUNCTION_ID"

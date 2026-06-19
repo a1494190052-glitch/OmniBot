@@ -3261,6 +3261,8 @@ object HttpController {
     private fun buildSceneRequestVariants(request: ChatCompletionRequest): List<CompletionRequestVariant> {
         val variants = mutableListOf<CompletionRequestVariant>()
         val seenPayloads = LinkedHashSet<String>()
+        val requiresNativeToolCall = request.tools.isNotEmpty() &&
+            request.toolChoice?.toString()?.trim('"')?.equals("required", ignoreCase = true) == true
 
         fun add(name: String, candidate: ChatCompletionRequest) {
             val encoded = encodeChatCompletionRequest(candidate)
@@ -3280,6 +3282,21 @@ object HttpController {
         }
 
         add("no_parallel_tool_calls", request.copy(parallelToolCalls = null))
+        if (requiresNativeToolCall) {
+            val normalizedMaxTokens = request.maxTokens ?: request.maxCompletionTokens
+            add(
+                "minimal_strict_tools",
+                request.copy(
+                    parallelToolCalls = null,
+                    temperature = null,
+                    topP = null,
+                    maxCompletionTokens = null,
+                    maxTokens = normalizedMaxTokens
+                )
+            )
+            return variants
+        }
+
         add(
             "no_tool_choice",
             request.copy(

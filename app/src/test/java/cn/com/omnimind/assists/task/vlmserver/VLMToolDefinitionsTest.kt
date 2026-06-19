@@ -2,9 +2,11 @@ package cn.com.omnimind.assists.task.vlmserver
 
 import cn.com.omnimind.baselib.i18n.PromptLocale
 import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
+import com.google.gson.Gson
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.jsonObject
+import java.io.File
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -104,4 +106,45 @@ class VLMToolDefinitionsTest {
         assertFalse(promptGuide.contains("\"tool\":\"tool_name\""))
         assertFalse(promptGuide.contains("get_state"))
     }
+
+    @Test
+    fun `canonical action schema is single source for kotlin and dart accessors`() {
+        val schema = readCanonicalActionSchema()
+        val schemaTools = (schema["tools"] as List<*>)
+            .map { it as Map<*, *> }
+        val schemaToolNames = schemaTools.map { it["name"].toString() }
+        val schemaArgsByTool = schemaTools.associate { tool ->
+            tool["name"].toString() to (tool["args"] as List<*>)
+                .map { (it as Map<*, *>)["name"].toString() }
+        }
+
+        assertTrue(schema["schema_version"] == OobCanonicalActionSchema.SCHEMA_VERSION)
+        assertTrue(schema["root_tool"] == OobCanonicalActionSchema.ROOT_TOOL)
+        assertTrue(schema["root_args"] == OobCanonicalActionSchema.ROOT_ARGS)
+        assertTrue(schemaToolNames == OobCanonicalActionSchema.tools.map { it.name })
+        OobCanonicalActionSchema.tools.forEach { tool ->
+            assertTrue(schemaArgsByTool[tool.name] == tool.args.map { it.name })
+        }
+
+        val dart = readSource("ui/lib/features/task/run_log/oob_canonical_action_schema.dart")
+        schemaToolNames.forEach { toolName ->
+            assertTrue(dart.contains("name: \"$toolName\""))
+        }
+        schemaArgsByTool.values.flatten().distinct().forEach { argName ->
+            assertTrue(dart.contains("name: \"$argName\""))
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun readCanonicalActionSchema(): Map<String, Any?> =
+        Gson().fromJson(
+            readSource("schemas/oob/oob_canonical_actions.v1.json"),
+            Map::class.java
+        ) as Map<String, Any?>
+
+    private fun readSource(relativePath: String): String =
+        listOf(
+            File(relativePath),
+            File("../$relativePath")
+        ).first { it.exists() }.readText()
 }
