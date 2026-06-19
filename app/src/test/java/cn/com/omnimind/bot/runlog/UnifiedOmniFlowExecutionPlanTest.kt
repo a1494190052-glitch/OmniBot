@@ -256,6 +256,22 @@ class UnifiedOmniFlowExecutionPlanTest {
     }
 
     @Test
+    fun `mainline acceptance reports online and offline vlm scope separately`() {
+        val scriptPath = findSource("scripts/oob-mainline-acceptance.sh")
+        val script = String(Files.readAllBytes(scriptPath))
+
+        assertTrue(script.contains("offline_seed mode validates the native OOB RunLog/register/recall/replay loop"))
+        assertTrue(script.contains("Use --online-vlm with a configured provider that returns native OpenAI tool_calls"))
+        assertTrue(script.contains("online_vlm mode measures the configured provider"))
+        assertTrue(script.contains("provider_auth_or_configuration_failed and provider_tool_call_contract_violation"))
+        assertTrue(script.contains("not reasons to re-enable legacy text action parsing"))
+        assertTrue(script.contains("Python OmniFlow remains an offline/dev/eval adapter"))
+        assertTrue(script.contains("accuracy_scope"))
+        assertTrue(script.contains("online_vlm_plus_native_registration_recall_replay"))
+        assertTrue(script.contains("native_registration_recall_replay_only"))
+    }
+
+    @Test
     fun `vlm accuracy report is offline and covers native recall-loop metrics`() {
         val scriptPath = findSource("scripts/oob-vlm-accuracy-report.py")
         val script = String(Files.readAllBytes(scriptPath))

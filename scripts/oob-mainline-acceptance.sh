@@ -341,10 +341,19 @@ report = {
         "device_gate_count": len(device_gates),
         "offline_seed": offline_seed,
     },
-    "notes": [
-        "offline_seed mode validates the native OOB RunLog/register/recall/replay loop, not online model accuracy.",
-        "Python OmniFlow remains an offline/dev/eval adapter; live phone execution stays in Kotlin.",
-    ],
+    "notes": (
+        [
+            "offline_seed mode validates the native OOB RunLog/register/recall/replay loop, not online model accuracy.",
+            "Use --online-vlm with a configured provider that returns native OpenAI tool_calls to measure online model accuracy.",
+            "Python OmniFlow remains an offline/dev/eval adapter; live phone execution stays in Kotlin.",
+        ]
+        if offline_seed
+        else [
+            "online_vlm mode measures the configured provider plus native OOB registration/recall/replay.",
+            "provider_auth_or_configuration_failed and provider_tool_call_contract_violation are provider/environment blockers, not reasons to re-enable legacy text action parsing.",
+            "Python OmniFlow remains an offline/dev/eval adapter; live phone execution stays in Kotlin.",
+        ]
+    ),
 }
 report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
