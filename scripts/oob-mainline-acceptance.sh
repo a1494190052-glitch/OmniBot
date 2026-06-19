@@ -138,18 +138,34 @@ append_gate() {
   local duration_ms="$3"
   local log_path="$4"
   local note="${5:-}"
-  status_json_items+=("{\"name\":$(json_escape "$name"),\"status\":$(json_escape "$status"),\"duration_ms\":$duration_ms,\"log_path\":$(json_escape "$log_path"),\"note\":$(json_escape "$note")}")
+  local exit_code="${6:-null}"
+  local blocker_reason="${7:-}"
+  status_json_items+=("{\"name\":$(json_escape "$name"),\"status\":$(json_escape "$status"),\"duration_ms\":$duration_ms,\"log_path\":$(json_escape "$log_path"),\"note\":$(json_escape "$note"),\"exit_code\":$exit_code,\"blocker_reason\":$(json_escape "$blocker_reason")}")
   printf '%s\t%s\n' "$name" "$duration_ms" >> "$TIMING_TSV"
   if [[ "$status" == "failed" ]]; then
     overall_success=0
   fi
 }
 
+classify_gate_failure() {
+  local name="$1"
+  local exit_code="$2"
+  local log_path="$3"
+  if [[ "$name" == "vlm_recall_loop_device_smoke" ]]; then
+    if [[ "$exit_code" -eq 4 ]] ||
+      grep -qiE 'provider_auth_or_configuration_failed|model provider configuration/authentication|authentication error|invalid proxy server token|unable to find token|unauthorized|api key' "$log_path"; then
+      echo "provider_auth_or_configuration_failed"
+      return 0
+    fi
+  fi
+  echo ""
+}
+
 run_gate() {
   local name="$1"
   local log_path="$OUTPUT_DIR/${name//[^A-Za-z0-9_.-]/_}.log"
   shift
-  local start_ms end_ms status note
+  local start_ms end_ms status note exit_code blocker_reason
   start_ms="$("$PYTHON_BIN" - <<'PY'
 import time
 print(int(time.time() * 1000))
@@ -159,16 +175,23 @@ PY
   if "$@" >"$log_path" 2>&1; then
     status="passed"
     note=""
+    exit_code=0
+    blocker_reason=""
   else
+    exit_code="$?"
     status="failed"
     note="see log"
+    blocker_reason="$(classify_gate_failure "$name" "$exit_code" "$log_path")"
+    if [[ -n "$blocker_reason" ]]; then
+      note="$blocker_reason; see log"
+    fi
   fi
   end_ms="$("$PYTHON_BIN" - <<'PY'
 import time
 print(int(time.time() * 1000))
 PY
 )"
-  append_gate "$name" "$status" "$((end_ms - start_ms))" "$log_path" "$note"
+  append_gate "$name" "$status" "$((end_ms - start_ms))" "$log_path" "$note" "$exit_code" "$blocker_reason"
   if [[ "$status" == "failed" ]]; then
     echo "gate failed: $name (log: $log_path)" >&2
   fi
