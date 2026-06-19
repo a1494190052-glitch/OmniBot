@@ -331,6 +331,24 @@ class UnifiedOmniFlowExecutionPlanTest {
     }
 
     @Test
+    fun `runlog readme code map points at existing sources`() {
+        val readme = readSource("app/src/main/assets/omniflow/runlog/README.md")
+        val pathPattern = Regex("`((?:app|ui|baselib|scripts|assists)/[^`]+)`")
+        val missing = pathPattern.findAll(readme)
+            .map { it.groupValues[1] }
+            .distinct()
+            .filterNot { sourceExists(it) }
+            .toList()
+
+        assertTrue("Missing Code Map paths: $missing", missing.isEmpty())
+        assertTrue(readme.contains("Function spec/schema normalization"))
+        assertTrue(readme.contains("do not recreate the old split patch-applier classes"))
+        assertTrue(readme.contains("owns `call_tool`"))
+        assertTrue(readme.contains("nested Function dispatch"))
+        assertTrue(readme.contains("do not reintroduce separate step executors"))
+    }
+
+    @Test
     fun `auto register and debug replay keep enhancement off the online path`() {
         val autoRegistrar = readSource(
             "app/src/main/java/cn/com/omnimind/bot/runlog/OobVlmRunLogAutoRegistrar.kt"
@@ -521,4 +539,10 @@ class UnifiedOmniFlowExecutionPlanTest {
             Paths.get("..").resolve(relativePath)
         ).firstOrNull { Files.exists(it) }
             ?: error("Missing source file: $relativePath from ${Paths.get("").toAbsolutePath()}")
+
+    private fun sourceExists(relativePath: String): Boolean =
+        listOf(
+            Paths.get(relativePath),
+            Paths.get("..").resolve(relativePath)
+        ).any { Files.exists(it) }
 }

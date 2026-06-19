@@ -82,13 +82,12 @@ record. Do not read only the snapshot when correctness matters.
   `app/src/main/assets/omniflow/runlog/examples/unified-entry-surfaces.json`
 - Reusable Function storage owner: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionRepository.kt`
 - Function payload/value codec: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionJson.kt`
-- Function spec normalization: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionSpecBuilder.kt`
+- Function spec/schema normalization: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionSchemaBuilder.kt`
 - Function update/evidence service: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionUpdateService.kt`
-- Function metadata/evidence patch applier: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionMetadataPatchApplier.kt`
-- Function structural patch applier: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionStructuralPatchApplier.kt`
+  This owns structural patching, metadata/evidence patching, and checker patch
+  normalization; do not recreate the old split patch-applier classes.
 - Function update intent parser: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionUpdateIntentParser.kt`
 - Function RunLog evidence packager: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionRunLogEvidencePackager.kt`
-- Function checker metadata normalization: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionCheckerPatchService.kt`
 - Function target repair source matcher: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionTargetSourceMatcher.kt`
 - Function recall policy: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionRecallService.kt`
 - VLM Function recall guidance: `app/src/main/java/cn/com/omnimind/bot/vlm/VlmRecallGuidanceBuilder.kt`
@@ -98,7 +97,7 @@ record. Do not read only the snapshot when correctness matters.
 - Function call timing: `app/src/main/java/cn/com/omnimind/bot/runlog/OobFunctionCallTiming.kt`
 - Function-management skill profile: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionSkillProfile.kt`
 - Agent-facing tool JSON projection: `app/src/main/java/cn/com/omnimind/bot/agent/AgentToolJson.kt`
-- Dynamic Function tool schema builder: `app/src/main/java/cn/com/omnimind/bot/runlog/OobFunctionSchemaBuilder.kt`
+- Dynamic Function tool schema builder: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionSchemaBuilder.kt`
 - MCP Function tool schema: `app/src/main/java/cn/com/omnimind/bot/mcp/McpToolDefinitions.kt`
 - MCP Function/tool call adapter: `app/src/main/java/cn/com/omnimind/bot/mcp/McpToolExecutors.kt`
 - SharedPreferences registry/materialization: `baselib/src/main/java/cn/com/omnimind/baselib/runlog/OobReusableFunctionStore.kt`
@@ -113,12 +112,10 @@ record. Do not read only the snapshot when correctness matters.
 - Function execution startup: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionRunner.kt`
 - Replay step runner: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolHandler.kt`
 - Replay frontend session controller: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionFrontendSessionController.kt`
-- Replay source alignment controller: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionSourceAlignmentController.kt`
 - Replay failed-step runtime resolve context controller: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionRuntimeResolveContextController.kt`
-- Replay step classifier: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionStepClassifier.kt`
 - Replay tool delegation executor: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolDelegationExecutor.kt`
-- `call_tool` step executor: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionCallToolStepExecutor.kt`
-- Nested Function executor: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionNestedFunctionExecutor.kt`
+  This plus `OobFunctionToolHandler` owns `call_tool` and nested Function dispatch;
+  do not reintroduce separate step executors unless the ownership boundary changes.
 - Replay run result builder: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionRunResultBuilder.kt`
 - Nested Function card presenter: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionNestedCallCardPresenter.kt`
 - Pre-replay entry package guard: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionEntryPackageGuard.kt`
