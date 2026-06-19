@@ -416,9 +416,12 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(allowedTools.contains("update_function"))
         assertTrue(allowedTools.contains("oob_run_log_convert"))
         assertTrue(listAny(mcp["forbidden_public_tools"]).contains("run_function"))
+        assertTrue(listAny(mcp["forbidden_public_tools"]).contains("call_tool"))
         assertTrue(mcpRoutes.contains("OMNIFLOW_MCP_TOOL_NAMES"))
         assertTrue(mcpRoutes.contains("omniflowToolkit.executeTool(name, args)"))
         assertTrue(!mcpRoutes.contains("\"run_function\" ->"))
+        assertTrue(!mcpRoutes.contains("TOOL_CALL_TOOL ->"))
+        assertTrue(!mcpRoutes.contains("executeOobToolCall(context, args)"))
 
         val http = byId.getValue("http_function_run")
         assertTrue(http["debug_or_dev_only"] == true)

@@ -346,6 +346,9 @@ External and debug entry points should be thin adapters:
 
 - MCP schema lives in `McpToolDefinitions`; dispatch goes through
   `McpToolExecutors`/native toolkit services.
+- Public MCP must not route hidden `call_tool` or `run_function` directly.
+  `call_tool(function_id)` is an internal replay primitive only; external MCP
+  callers use `vlm_task` for goal execution or lifecycle tools for data.
 - HTTP/debug receivers should decode arguments, call the same native service,
   and write a result JSON file or response body.
 - Debug HTTP exposes `/omniflow/tool` for Function lifecycle tools and

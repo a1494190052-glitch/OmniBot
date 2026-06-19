@@ -113,9 +113,16 @@ class McpToolDefinitionsTest {
     @Test
     fun callToolIsInternalReplayOnlyNotPublicMcpTool() {
         val names = McpToolDefinitions.fixedTools.map { it["name"].toString() }.toSet()
+        val routeSource = listOf(
+            File("app/src/main/java/cn/com/omnimind/bot/mcp/McpRoutes.kt"),
+            File("src/main/java/cn/com/omnimind/bot/mcp/McpRoutes.kt"),
+        ).first { it.exists() }.readText()
+
         assertFalse(names.contains("call_tool"))
         assertFalse(names.contains("omniflow" + ".call_tool"))
         assertFalse(names.contains("oob_" + "tool_call"))
+        assertFalse(routeSource.contains("TOOL_CALL_TOOL ->"))
+        assertFalse(routeSource.contains("executeOobToolCall(context, args)"))
     }
 
     @Test

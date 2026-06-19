@@ -89,6 +89,7 @@
       "requires_concrete_function_id": "tool_specific",
       "model_visible_function_execution_tool": false,
       "forbidden_public_tools": [
+        "call_tool",
         "run_function",
         "oob_function_run",
         "omniflow.call_function",

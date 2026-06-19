@@ -5,7 +5,6 @@ import cn.com.omnimind.bot.agent.AgentToolNames
 import cn.com.omnimind.bot.omniflow.OobFunctionSchemaExport
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
 import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
-import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import cn.com.omnimind.bot.util.AssistsUtil
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
@@ -219,7 +218,6 @@ object McpRoutes {
             "act" -> McpToolExecutors.executeAct(context, args)
             "file_transfer" -> McpToolExecutors.executeFileTransfer(args)
             "agent_run" -> McpToolExecutors.executeAgentRun(context, args)
-            RunLogReplayPolicy.TOOL_CALL_TOOL -> McpToolExecutors.executeOobToolCall(context, args)
             else -> {
                 if (isOmniflowMcpTool(name)) {
                     omniflowToolkit.executeTool(name, args)
