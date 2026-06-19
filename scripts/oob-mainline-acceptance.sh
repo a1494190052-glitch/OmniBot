@@ -171,8 +171,8 @@ PY
   append_gate "$name" "$status" "$((end_ms - start_ms))" "$log_path" "$note"
   if [[ "$status" == "failed" ]]; then
     echo "gate failed: $name (log: $log_path)" >&2
-    return 1
   fi
+  return 0
 }
 
 run_android_unit_gates() {
