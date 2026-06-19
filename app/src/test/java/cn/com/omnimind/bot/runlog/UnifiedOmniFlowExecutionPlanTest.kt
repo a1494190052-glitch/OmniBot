@@ -268,6 +268,12 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(script.contains("not reasons to re-enable legacy text action parsing"))
         assertTrue(script.contains("Python OmniFlow remains an offline/dev/eval adapter"))
         assertTrue(script.contains("accuracy_scope"))
+        assertTrue(script.contains("GIT_BRANCH="))
+        assertTrue(script.contains("GIT_COMMIT="))
+        assertTrue(script.contains("GIT_DIRTY="))
+        assertTrue(script.contains("\"git\""))
+        assertTrue(script.contains("\"commit\""))
+        assertTrue(script.contains("git_commit"))
         assertTrue(script.contains("online_vlm_plus_native_registration_recall_replay"))
         assertTrue(script.contains("native_registration_recall_replay_only"))
     }

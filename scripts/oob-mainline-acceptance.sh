@@ -120,6 +120,13 @@ REPORT_JSON="$OUTPUT_DIR/mainline-acceptance-report.json"
 REPORT_MD="$OUTPUT_DIR/mainline-acceptance-report.md"
 TIMING_TSV="$OUTPUT_DIR/timing.tsv"
 : > "$TIMING_TSV"
+GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)"
+GIT_DIRTY=0
+if ! git diff --quiet --ignore-submodules -- 2>/dev/null ||
+  ! git diff --cached --quiet --ignore-submodules -- 2>/dev/null; then
+  GIT_DIRTY=1
+fi
 
 status_json_items=()
 overall_success=1
@@ -297,7 +304,7 @@ if [[ "$OFFLINE_SEED" -eq 1 ]]; then
   mode="offline_seed_native_loop"
 fi
 
-"$PYTHON_BIN" - "$REPORT_JSON" "$REPORT_MD" "$overall_success" "$OUTPUT_DIR" "$DEVICE_SERIAL" "$mode" "$gates_json" <<'PY'
+"$PYTHON_BIN" - "$REPORT_JSON" "$REPORT_MD" "$overall_success" "$OUTPUT_DIR" "$DEVICE_SERIAL" "$mode" "$gates_json" "$GIT_BRANCH" "$GIT_COMMIT" "$GIT_DIRTY" <<'PY'
 from __future__ import annotations
 
 import json
@@ -312,6 +319,9 @@ output_dir = sys.argv[4]
 device = sys.argv[5]
 vlm_mode = sys.argv[6]
 gates = json.loads("[" + sys.argv[7] + "]") if sys.argv[7] else []
+git_branch = sys.argv[8] or None
+git_commit = sys.argv[9] or None
+git_dirty = sys.argv[10] == "1"
 device_gates = [
     gate for gate in gates
     if gate["name"] in {
@@ -326,6 +336,11 @@ report = {
     "generated_at": datetime.now(timezone.utc).isoformat(),
     "success": overall_success,
     "device": device or None,
+    "git": {
+        "branch": git_branch,
+        "commit": git_commit,
+        "dirty": git_dirty,
+    },
     "vlm_mode": vlm_mode,
     "accuracy_scope": (
         "native_registration_recall_replay_only"
@@ -362,6 +377,9 @@ lines = [
     "",
     f"- success: `{overall_success}`",
     f"- device: `{device or ''}`",
+    f"- git_branch: `{git_branch or ''}`",
+    f"- git_commit: `{git_commit or ''}`",
+    f"- git_dirty: `{git_dirty}`",
     f"- vlm_mode: `{vlm_mode}`",
     f"- accuracy_scope: `{report['accuracy_scope']}`",
     f"- output_dir: `{output_dir}`",
