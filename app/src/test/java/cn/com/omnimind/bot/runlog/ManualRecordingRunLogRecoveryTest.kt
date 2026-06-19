@@ -136,6 +136,8 @@ class ManualRecordingRunLogRecoveryTest {
         val script = String(Files.readAllBytes(scriptPath))
 
         assertTrue(script.contains("HUMAN_RUN_RECORDING"))
+        assertTrue(script.contains("RECEIVER=\"\$PACKAGE_NAME/.DebugHumanRunRecordingReceiver\""))
+        assertTrue(!script.contains(".debug.DebugHumanRunRecordingReceiver"))
         assertTrue(script.contains("validate_start"))
         assertTrue(script.contains("validate_gesture"))
         assertTrue(script.contains("validate_finish"))

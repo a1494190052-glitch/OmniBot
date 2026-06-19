@@ -120,7 +120,7 @@ fi
 
 ADB=(adb -s "$DEVICE_SERIAL")
 ACTION="cn.com.omnimind.bot.debug.HUMAN_RUN_RECORDING"
-RECEIVER="$PACKAGE_NAME/.debug.DebugHumanRunRecordingReceiver"
+RECEIVER="$PACKAGE_NAME/.DebugHumanRunRecordingReceiver"
 START_FILE="files/debug-human-run-recording-start.json"
 GESTURE_FILE="files/debug-human-run-recording-gesture.json"
 RESULT_FILE="files/debug-human-run-recording-result.json"
