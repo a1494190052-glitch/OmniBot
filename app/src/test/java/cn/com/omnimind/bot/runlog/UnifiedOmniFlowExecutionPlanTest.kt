@@ -349,6 +349,42 @@ class UnifiedOmniFlowExecutionPlanTest {
     }
 
     @Test
+    fun `function readme owner map matches current consolidated implementation`() {
+        val readme = readSource("app/src/main/assets/omniflow/function/README.md")
+        val updateService = readSource(
+            "app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionUpdateService.kt"
+        )
+        val toolHandler = readSource(
+            "app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolHandler.kt"
+        )
+        val stepNormalizer = readSource(
+            "app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionStepNormalizer.kt"
+        )
+
+        assertTrue(readme.contains("OobFunctionStepNormalizer"))
+        assertTrue(readme.contains("OobFunctionUpdateService"))
+        assertTrue(readme.contains("OobFunctionToolHandler"))
+        assertTrue(readme.contains("do not recreate the old split patch-applier classes"))
+        assertTrue(readme.contains("do not reintroduce separate `call_tool`"))
+
+        val staleOwnerNames = listOf(
+            "OobFunctionSpecBuilder",
+            "OobFunctionMetadataPatchApplier",
+            "OobFunctionStructuralPatchApplier",
+            "OobFunctionCheckerPatchService",
+            "OobFunctionStepClassifier",
+            "OobFunctionCallToolStepExecutor",
+            "OobFunctionNestedFunctionExecutor",
+        )
+        val staleMentions = staleOwnerNames.filter { readme.contains(it) }
+        assertTrue("Stale Function README owner names: $staleMentions", staleMentions.isEmpty())
+
+        assertTrue(updateService.contains("Consolidates OobFunctionStructuralPatchApplier"))
+        assertTrue(toolHandler.contains("Inlined from OobFunctionStepClassifier"))
+        assertTrue(stepNormalizer.contains("Used by OobFunctionUpdateService"))
+    }
+
+    @Test
     fun `auto register and debug replay keep enhancement off the online path`() {
         val autoRegistrar = readSource(
             "app/src/main/java/cn/com/omnimind/bot/runlog/OobVlmRunLogAutoRegistrar.kt"

@@ -131,7 +131,8 @@ helper with mixed semantics.
 - route Function recall and direct-hit decisions through
   `OobFunctionRecallService`
 - route deterministic Function execution through `OobFunctionRunner`
-- route Function registration normalization through `OobFunctionSpecBuilder`
+- route simple Function registration step normalization through
+  `OobFunctionStepNormalizer`
 - route `update_function` evidence analysis and patches through
   `OobFunctionUpdateService`
 
@@ -197,18 +198,17 @@ When adding or migrating a generic agent tool name:
   execution steps from legacy action specs
 - never decide recall ranking, replay policy, or update patches
 
-`OobFunctionSpecBuilder` owns simple Function spec construction:
+`OobFunctionStepNormalizer` owns simple inserted-step construction:
 
-- normalize simple register requests into canonical Function specs
-- capture current page source context when a simple registration needs it
+- normalize simple register-request steps into canonical execution-step maps
 - normalize inserted steps for `update_function`
-- compute execution capability counts from canonical steps
+- compute durable execution capability counts from canonical steps
 - report static agent presence as `has_agent_steps`/`agent_step_count`; runtime
   fallback state belongs to run payloads, not durable Function capabilities
 - do not expose `model_free`/`scriptable` capability counts; those are step-level
   compatibility flags and are derivable from executor policy
-- use `OobFunctionSpecVocabulary` for durable spec vocabulary such as schema
-  version, execution kind, execution runner, and registry runner
+- use `OobActionCodec` and `RunLogReplayPolicy` for action and replay-tool
+  vocabulary instead of creating local aliases
 
 `OobFunctionUpdateService` owns the `update_function` contract:
 
@@ -216,21 +216,16 @@ When adding or migrating a generic agent tool name:
   and returned tool payloads
 - delegate raw patch op and natural-language repair intent normalization to
   `OobFunctionUpdateIntentParser`
-- delegate metadata, step label, evidence, checker, parameter, agent reuse, and
-  audit patches to `OobFunctionMetadataPatchApplier`
-- delegate target-repair, insert-step, delete-step, and execution step
-  reindexing to `OobFunctionStructuralPatchApplier`
+- own consolidated metadata, step label, evidence, checker, parameter, agent
+  reuse, audit, target-repair, insert-step, delete-step, and execution reindex
+  patching
+- delegate inserted-step normalization to `OobFunctionStepNormalizer`
+- delegate source XML target matching for repair patches to
+  `OobFunctionTargetSourceMatcher`
 - delegate Function + RunLog evidence context and agent prompt packaging to
   `OobFunctionRunLogEvidencePackager`
-
-`OobFunctionMetadataPatchApplier` owns non-structural `update_function` patches:
-
-- persist agent RunLog analysis under `metadata.oob_function_evidence`
-- apply Function name/description, step title/summary/description, parameters,
-  agent reuse hints, metadata, checker rules, and update audit metadata
-- delegate checker rule and optional checker candidate normalization to
-  `OobFunctionCheckerPatchService`
-- never insert/delete/reorder execution steps or retarget a recorded action
+- do not recreate split patch-applier classes unless there is a real ownership
+  boundary that cannot live in the current update service
 
 `OmniflowCheckerRule` owns runtime checker rule vocabulary:
 
@@ -245,30 +240,13 @@ When adding or migrating a generic agent tool name:
 
 - classify cleanup annotations and explicit checker/noise hints for offline
   analysis and UDEG metadata
-- expose checker-candidate role alias detection used by
-  `OobFunctionCheckerPatchService`
+- expose checker-candidate role alias detection used by `OobFunctionUpdateService`
 - keep role labels such as `optional_checker`, `runtime_checker`,
   `checker_candidate`, and `ad_checker` out of checker-specific local alias
   tables
 - never emit or consume explanatory main-path labels; whether a replay step is
   executable, key/user-facing, or route-safe belongs to `OobActionCodec` and
   replay policy
-
-`OobFunctionStructuralPatchApplier` owns structural `update_function` patches:
-
-- retarget an existing action when the agent says the Function clicked or used
-  the wrong target
-- insert and delete execution steps only when structural changes are explicitly
-  allowed
-- canonicalize patch action names through `OobActionCodec` before matching
-  recorded steps, so aliases such as `scroll` do not become durable Function
-  actions
-- normalize inserted simple steps through `OobFunctionSpecBuilder`
-- reindex execution steps and recompute execution capability counts after
-  structural edits
-- delegate source XML target matching for repair patches to
-  `OobFunctionTargetSourceMatcher`
-- never persist metadata evidence or save Functions
 
 `OobFunctionRunLogEvidencePackager` owns update evidence packaging:
 
@@ -291,14 +269,6 @@ When adding or migrating a generic agent tool name:
   repair operations
 - classify replace-target and structural operations for update-mode decisions
 - never apply an operation or mutate a Function spec
-
-`OobFunctionCheckerPatchService` owns checker metadata patching:
-
-- normalize agent-provided checker rules from `update_function`
-- convert optional cleanup/noise annotations into metadata checker rules
-- keep ad, popup, permission, resolver, keyboard, and package mismatch handling
-  as conditional checker metadata instead of mandatory execution steps
-- deduplicate checker rules and `agent_reuse.checker_assets`
 
 `OobFunctionJson` owns mechanical Function payload coercion:
 
@@ -411,20 +381,18 @@ primitive local action execution:
 - keep recovery text outside the replay loop; it must not start a hidden Agent or
   VLM task by itself
 
-`OobFunctionToolHandler` owns replay/tool-call argument resolution:
+`OobFunctionToolHandler` owns replay/tool-call argument resolution and step
+routing:
 
 - extract executable args from current Function steps and recorded RunLog cards
 - resolve `call_tool` targets, nested Function ids, and delegated tool args
-- strip Function/call-tool metadata from forwarded argument payloads
-- keep recorded argument-shape compatibility outside the runtime replay loop
-
-`OobFunctionStepClassifier` owns replay step-shape classification:
-
 - identify legacy/noise steps that replay should skip
 - resolve the canonical OmniFlow execution tool for a step
 - decide whether a step is locally executable as graph/function/call_tool
 - extract replayable legacy agent-tool steps when present in older recordings
-- keep these routing predicates out of the main replay loop
+- hand off nested Function runs through `OobFunctionNestedCallCardPresenter`
+- strip Function/call-tool metadata from forwarded argument payloads
+- keep recorded argument-shape compatibility outside the runtime replay loop
 - skip only explicit observation/no-op legacy steps. Do not introduce
   `already_satisfied` or `optional_not_present` runtime skips for action steps.
 
@@ -436,23 +404,6 @@ primitive local action execution:
 - map delegated tool results back into a stable per-step payload, delegating
   failed delegated-tool result shape to `OobFunctionRunResultBuilder`
 - never decide replay order, fallback policy, or whether a step should delegate
-
-`OobFunctionCallToolStepExecutor` owns `call_tool` replay steps:
-
-- resolve `call_tool` target Function/tool names and forwarded arguments
-- convert Function targets into nested reusable Function replay handoffs
-- delegate ordinary tool targets through `OobFunctionToolDelegationExecutor`
-- return runtime resolve payloads when a live tool router is required
-- keep `call_tool` target policy outside the main replay loop
-
-`OobFunctionNestedFunctionExecutor` owns nested reusable Function execution:
-
-- resolve `function_id` and nested Function arguments from a replay step
-- load, validate, and materialize the nested Function before recursive replay
-- emit nested Function tool-card start/completion payloads through
-  `OobFunctionNestedCallCardPresenter`
-- map the nested run result back into the parent step result payload
-- never decide parent replay order or recursion limits
 
 `OobFunctionRunResultBuilder` owns replay result payloads:
 
@@ -490,16 +441,13 @@ Agent/MCP tool surface
       -> OobFunctionSchemaBuilder # Function spec -> call_tool argument schema
   -> OobOmniFlowToolkitService
       -> OobFunctionRepository       # storage/index/source bindings
-      -> OobFunctionSpecBuilder      # simple register/insert-step normalization
+      -> OobFunctionStepNormalizer   # simple register/insert-step normalization
           -> OobFunctionJson # shared value coercion for Function payloads
       -> OobFunctionUpdateService    # update_function evidence and patches
           -> OobFunctionJson # shared value coercion for Function payloads
           -> OobFunctionUpdateIntentParser # patch/instruction -> update ops
-          -> OobFunctionMetadataPatchApplier # metadata/evidence/audit patches
-              -> OobFunctionCheckerPatchService # checker metadata normalization
-          -> OobFunctionStructuralPatchApplier # retarget/insert/delete steps
-              -> OobFunctionSpecBuilder # inserted step normalization
-              -> OobFunctionTargetSourceMatcher # source XML repair matching
+          -> OobFunctionStepNormalizer # inserted step normalization
+          -> OobFunctionTargetSourceMatcher # source XML repair matching
           -> OobFunctionRunLogEvidencePackager # Function + RunLog agent context
       -> OobFunctionRecallService    # page/node recall and direct-hit policy
           -> OobFunctionJson # shared value coercion for Function payloads
@@ -511,11 +459,8 @@ Agent/MCP tool surface
           -> OobFunctionToolHandler  # deterministic replay and runtime resolve
               -> OobFunctionFrontendSessionController # replay overlay/session
               -> OobFunctionRuntimeResolveContextController # recovery context/runtime resolve
-              -> OobFunctionToolHandler # replay/call_tool args
-              -> OobFunctionStepClassifier # replay step-shape routing
+              -> OobFunctionToolHandler # replay/call_tool args and step routing
               -> OobFunctionToolDelegationExecutor # live tool delegation bridge
-              -> OobFunctionCallToolStepExecutor # call_tool step resolution
-              -> OobFunctionNestedFunctionExecutor # nested Function execution
               -> OobFunctionRunResultBuilder # run result/timing payloads
               -> OobFunctionNestedCallCardPresenter # nested Function card payloads
               -> OobFunctionEntryPackageGuard # pre-replay app restoration
@@ -548,25 +493,20 @@ only for `convertRunLog` and `autoRegisterRecentRunLogs`.
 Keep these pieces separate:
 
 - `OobFunctionRepository`: persistent Function records and index synchronization
-- `OobFunctionSpecBuilder`: simple public input -> canonical Function spec
-- `OobFunctionSpecVocabulary`: durable Function spec words shared by simple
-  registration, RunLog conversion, repository projections, and terminal-state
-  payloads
+- `OobFunctionSchemaBuilder`: public Function input-schema projection,
+  parameter-name extraction, step summaries, and legacy action materialization
+- `OobFunctionStepNormalizer`: simple public/inserted step maps -> canonical
+  execution steps and static execution capability counts
 - `OobFunctionUpdateService`: update_function orchestration, permission gates,
-  dry-run/save behavior, and tool response shaping
+  dry-run/save behavior, metadata/evidence/checker/retarget/insert/delete
+  patching, execution reindexing, and tool response shaping
 - `OobFunctionUpdateIntentParser`: raw patch op and instruction intent
   normalization
-- `OobFunctionMetadataPatchApplier`: non-structural metadata, evidence,
-  checker, parameter, agent reuse, and audit patching
-- `OobFunctionStructuralPatchApplier`: target repair, insert/delete step
-  mutation, execution reindexing, and execution capability recomputation
 - `OobFunctionRunLogEvidencePackager`: Function + RunLog evidence context and
   agent prompt packaging
 - `OobFunctionRunLogAnalysisContract`: agent-facing analysis JSON field names,
   evidence role labels, and failure code vocabulary used by
   `OobFunctionRunLogEvidencePackager`; this is not runtime replay role policy
-- `OobFunctionCheckerPatchService`: checker rule and checker asset metadata
-  normalization
 - `OobFunctionJson`: mechanical JSON/map/list/scalar coercion shared by Function
   register/update/run/recall services; do not hide policy or mutation behavior here
 - `OobFunctionTargetSourceMatcher`: source XML parsing and node scoring for
@@ -594,17 +534,12 @@ Keep these pieces separate:
 - `OobFunctionRuntimeResolveContextController`: failed-step recovery snapshots and
   bounded runtime resolve context
 - `OobFunctionToolHandler`: replay step args, `call_tool` target resolution,
-  nested Function argument extraction, and metadata stripping
-- `OobFunctionStepClassifier`: skip-step detection, OmniFlow execution-tool
-  resolution, local graph/function/call_tool classification, and replayable
-  agent-tool extraction
+  nested Function argument extraction, skip-step detection, OmniFlow
+  execution-tool resolution, local graph/function/call_tool classification,
+  replayable agent-tool extraction, and metadata stripping
 - `OobFunctionToolDelegationExecutor`: mechanical bridge from replay steps to
   live `AgentToolExecutor` calls and back to per-step result payloads, using
   `OobFunctionRunResultBuilder` for delegated-tool failures
-- `OobFunctionCallToolStepExecutor`: `call_tool` target resolution, Function
-  target handoff, ordinary tool delegation, and tool-router fallback payloads
-- `OobFunctionNestedFunctionExecutor`: nested Function id/argument resolution,
-  nested materialization, recursive run handoff, and parent-step result shaping
 - `OobFunctionRunResultBuilder`: stable run payload schema, failure step
   records, and runner timing accounting
 - `OobFunctionNestedCallCardPresenter`: nested Function tool-card ids,
@@ -731,18 +666,20 @@ Use these owner rules when removing duplicated helper code:
   consume those roles, but should not maintain a separate optional-checker role
   alias table.
 - Checker condition/action aliases belong in `OmniflowCheckerRule`.
-  `OobFunctionCheckerPatchService` may infer checker metadata from optional
+  `OobFunctionUpdateService` may infer checker metadata from optional
   cleanup annotations, but it must delegate explicit checker rule
   normalization there instead of maintaining a second checker alias table.
   When a checker patch references a real local action such as `click` or
   `open_app`, it must canonicalize through `OobActionCodec` before mapping to
   checker-only actions such as dismiss, allow, or reopen-app.
-- Function update policy belongs in `OobFunctionUpdateService` and its patch
-  appliers. Do not move checker, evidence, audit, retarget, insert, delete, or
-  reindex rules into `OobFunctionJson`.
+- Function update policy belongs in `OobFunctionUpdateService`. Do not move
+  checker, evidence, audit, retarget, insert, delete, or reindex rules into
+  `OobFunctionJson`, and do not recreate the old split patch-applier classes
+  without a real ownership boundary.
 - Runtime replay policy belongs in the replay components under
   `OobFunctionToolHandler`. Do not move skip/fallback/delegation decisions into
-  mechanical helper objects.
+  mechanical helper objects, and do not reintroduce separate `call_tool` or
+  nested-Function step executors for routing already owned by the handler.
 - Function run result payload shape belongs in `OobFunctionRunResultBuilder`.
   Runtime components may decide that a step failed, requires runtime resolve,
   or was delegated, but they should call this owner for stable fields such as
