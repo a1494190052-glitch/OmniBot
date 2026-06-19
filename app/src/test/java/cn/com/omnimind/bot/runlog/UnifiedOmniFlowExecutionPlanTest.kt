@@ -60,6 +60,9 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(plan.contains("/omniflow/function/run"))
 
         assertTrue(plan.contains("## Shared Acceptance Gates"))
+        assertTrue(plan.contains("provider_tool_call_contract_violation"))
+        assertTrue(plan.contains("single OpenAI native `tool_calls[0]`"))
+        assertTrue(plan.contains("not a reason to re-enable legacy text parsing"))
         assertTrue(plan.contains("Manual recording: a visible `录制轨迹` entry starts recording"))
         assertTrue(plan.contains("First VLM run: `vlm_task` succeeds"))
         assertTrue(plan.contains("Second VLM run: from the same or equivalent page"))
@@ -216,6 +219,9 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(script.contains("validate_enhance_offline"))
         assertTrue(script.contains("check_first_run_provider_blocker"))
         assertTrue(script.contains("provider_auth_or_configuration_failed"))
+        assertTrue(script.contains("provider_tool_call_contract_violation"))
+        assertTrue(script.contains("Use a VLM provider/model that returns OpenAI native tool_calls"))
+        assertTrue(script.contains("raise SystemExit(5)"))
         assertTrue(script.contains("raise SystemExit(4)"))
         assertTrue(
             script.indexOf("check_first_run_provider_blocker \"\$FIRST_JSON\"") <

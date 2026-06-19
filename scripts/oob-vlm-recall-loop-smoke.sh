@@ -69,8 +69,9 @@ Preconditions:
   - a working VLM model binding is configured for the first run
   - the device is unlocked
 
-Provider/authentication failures on the first VLM call are reported as an
-environment blocker before recall/replay validation starts.
+Provider/authentication failures and native tool-call contract violations on
+the first VLM call are reported as environment/provider blockers before
+recall/replay validation starts.
 EOF
 }
 
@@ -357,7 +358,8 @@ provider_markers = [
     "unable to find token",
     "unauthorized",
     "api key",
-    "provider",
+    "provider_auth_or_configuration_failed",
+    "model provider configuration",
     "unacceptable certificate",
     "certificatenotyetvalid",
     "certificate not yet valid",
@@ -365,6 +367,29 @@ provider_markers = [
     "sslhandshakeexception",
     "tls",
 ]
+contract_markers = [
+    "provider_tool_call_contract_violation",
+    "missing native tool_call",
+    "missing native tool call",
+    "without native tool call",
+    "text output without native tool_call",
+    "returned text instead of native tool_call",
+]
+if any(marker in haystack for marker in contract_markers):
+    binding = data.get("configured_binding") if isinstance(data.get("configured_binding"), dict) else {}
+    diagnostic = {
+        "success": False,
+        "phase": "first_vlm_provider_blocker",
+        "reason": "provider_tool_call_contract_violation",
+        "run_id": data.get("run_id"),
+        "outcome_status": outcome.get("status"),
+        "profile_id": binding.get("profileId"),
+        "model_id": binding.get("modelId"),
+        "hint": "Use a VLM provider/model that returns OpenAI native tool_calls; text action wrappers are intentionally rejected.",
+    }
+    print("First VLM run blocked by provider native tool-call contract violation.", file=sys.stderr)
+    print(json.dumps({k: v for k, v in diagnostic.items() if v not in (None, "", [])}, ensure_ascii=False, indent=2), file=sys.stderr)
+    raise SystemExit(5)
 if not any(marker in haystack for marker in provider_markers):
     raise SystemExit(0)
 

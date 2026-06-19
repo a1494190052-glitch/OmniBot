@@ -219,6 +219,11 @@ evidence:
   UI/l10n gates, Python offline contract smoke, manual recording device smoke,
   and VLM recall-loop device smoke, then writes
   `mainline-acceptance-report.{json,md}`.
+- Online provider contract: in `--online-vlm` mode, a provider/model that
+  returns text actions, JSON wrappers, `function_id`, or any response without a
+  single OpenAI native `tool_calls[0]` must fail as
+  `provider_tool_call_contract_violation`. This is an external/provider
+  blocker, not a reason to re-enable legacy text parsing.
 - Manual recording: a visible `录制轨迹` entry starts recording, completes from
   the floating assistant, and returns a RunLog plus reusable Function result.
   Unit tests only prove command routing; a real Android device proves this gate.
