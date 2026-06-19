@@ -366,6 +366,14 @@ provider_markers = [
     "certificate has expired",
     "sslhandshakeexception",
     "tls",
+    "unable to resolve host",
+    "no address associated with hostname",
+    "unknownhostexception",
+    "failed to connect",
+    "connection refused",
+    "connect timed out",
+    "read timed out",
+    "timeout",
 ]
 contract_markers = [
     "provider_tool_call_contract_violation",
@@ -402,9 +410,9 @@ diagnostic = {
     "outcome_status": outcome.get("status"),
     "profile_id": binding.get("profileId"),
     "model_id": binding.get("modelId"),
-    "hint": "Configure a valid VLM model provider before running recall/replay smoke.",
+    "hint": "Configure a reachable VLM model provider before running recall/replay smoke.",
 }
-print("First VLM run blocked by model provider configuration/authentication.", file=sys.stderr)
+print("First VLM run blocked by model provider configuration/authentication/network.", file=sys.stderr)
 print(json.dumps({k: v for k, v in diagnostic.items() if v not in (None, "", [])}, ensure_ascii=False, indent=2), file=sys.stderr)
 raise SystemExit(4)
 PY

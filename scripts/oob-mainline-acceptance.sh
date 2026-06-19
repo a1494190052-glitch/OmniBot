@@ -165,7 +165,7 @@ classify_gate_failure() {
       return 0
     fi
     if [[ "$exit_code" -eq 4 ]] ||
-      grep -qiE 'provider_auth_or_configuration_failed|model provider configuration/authentication|authentication error|invalid proxy server token|unable to find token|unauthorized|api key' "$log_path"; then
+      grep -qiE 'provider_auth_or_configuration_failed|model provider configuration/authentication|model provider configuration/authentication/network|authentication error|invalid proxy server token|unable to find token|unauthorized|api key|unable to resolve host|no address associated with hostname|unknownhostexception|failed to connect|connection refused|connect timed out|read timed out' "$log_path"; then
       echo "provider_auth_or_configuration_failed"
       return 0
     fi
