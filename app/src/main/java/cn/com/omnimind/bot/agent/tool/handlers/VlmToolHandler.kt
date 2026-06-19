@@ -37,6 +37,7 @@ class VlmToolHandler(
         val waitTimeoutMs: Long?,
         val model: String?,
         val disableOmniFlowRecall: Boolean,
+        val allowOmniFlowFunctionAutoExecute: Boolean,
         val parseOnly: Boolean = false,
     )
 
@@ -87,6 +88,15 @@ class VlmToolHandler(
                 "disableRecall",
                 "disable_recall"
             ) ?: false
+            val allowOmniFlowFunctionAutoExecute = !disableOmniFlowRecall && (
+                firstBoolean(
+                    args,
+                    "allowOmniFlowFunctionAutoExecute",
+                    "allow_omniflow_function_auto_execute",
+                    "autoExecuteOmniFlowFunction",
+                    "auto_execute_omniflow_function",
+                ) ?: true
+            )
             val parseOnly = firstBoolean(args, "parseOnly", "parse_only", "dryRun", "dry_run") ?: false
             val rawArgs = VlmExecutionArgs(
                 goal = goal,
@@ -97,6 +107,7 @@ class VlmToolHandler(
                 waitTimeoutMs = waitTimeoutMs,
                 model = model?.takeIf { it.isNotBlank() },
                 disableOmniFlowRecall = disableOmniFlowRecall,
+                allowOmniFlowFunctionAutoExecute = allowOmniFlowFunctionAutoExecute,
                 parseOnly = parseOnly,
             )
             val appNameToPackage = runtimeContextRepository.getAppNameToPackageMap()
@@ -173,7 +184,7 @@ class VlmToolHandler(
                     skipGoHome = safeArgs.startFromCurrent,
                     stepSkillGuidance = resolvedSkills.joinToString("\n\n") { it.stepGuidance() },
                     disableOmniFlowRecall = safeArgs.disableOmniFlowRecall,
-                    allowOmniFlowFunctionAutoExecute = !safeArgs.disableOmniFlowRecall
+                    allowOmniFlowFunctionAutoExecute = safeArgs.allowOmniFlowFunctionAutoExecute
                 ),
                 scope = scope,
                 taskIdOverride = vlmTaskId,

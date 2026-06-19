@@ -4,6 +4,7 @@ import cn.com.omnimind.baselib.i18n.PromptLocale
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -78,6 +79,26 @@ class AgentToolDefinitionsMusicTest {
         assertFalse(properties.containsKey("disableOmniFlowRecall"))
         assertFalse(properties.containsKey("parseOnly"))
         assertFalse(properties.containsKey("allowOmniFlowFunctionAutoExecute"))
+    }
+
+    @Test
+    fun `agent vlm task keeps recall controls internal but handler honors them`() {
+        val vlmTool = AgentToolDefinitions.staticTools(PromptLocale.ZH_CN)
+            .first { ((it["function"] as JsonObject)["name"]?.jsonPrimitive?.contentOrNull) == "vlm_task" }
+        val function = vlmTool["function"] as JsonObject
+        val parameters = function["parameters"] as JsonObject
+        val properties = parameters["properties"] as JsonObject
+        val handlerSource = listOf(
+            File("app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/VlmToolHandler.kt"),
+            File("src/main/java/cn/com/omnimind/bot/agent/tool/handlers/VlmToolHandler.kt"),
+        ).first { it.exists() }.readText()
+
+        assertFalse(properties.containsKey("disableOmniFlowRecall"))
+        assertFalse(properties.containsKey("allowOmniFlowFunctionAutoExecute"))
+        assertTrue(handlerSource.contains("\"allowOmniFlowFunctionAutoExecute\""))
+        assertTrue(handlerSource.contains("\"allow_omniflow_function_auto_execute\""))
+        assertTrue(handlerSource.contains("\"autoExecuteOmniFlowFunction\""))
+        assertTrue(handlerSource.contains("allowOmniFlowFunctionAutoExecute = safeArgs.allowOmniFlowFunctionAutoExecute"))
     }
 
     @Test
