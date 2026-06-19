@@ -210,6 +210,8 @@ run_flutter_ui_gates() {
   (cd ui && "$FLUTTER_BIN" test --no-pub \
     test/l10n/app_text_localizer_test.dart \
     test/features/home/widgets/home_drawer_test.dart \
+    test/features/home/pages/command_overlay/command_overlay_test.dart \
+    test/features/home/pages/command_overlay/widgets/chat_input_area_test.dart \
     test/features/task/pages/execution_history/function_library_page_test.dart \
     test/features/home/pages/settings/workspace_memory_setting_page_test.dart \
     test/features/home/pages/chat/utils/omniflow_tool_profile_router_test.dart)
