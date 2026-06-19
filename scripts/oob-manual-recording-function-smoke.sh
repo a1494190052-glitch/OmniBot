@@ -268,6 +268,7 @@ checks = [
     (bool(function_id), "function_id present"),
     (bool(spec), "function_spec present"),
     (metadata.get("visibility") == "manual_function", "metadata.visibility=manual_function"),
+    (metadata.get("enhancement_policy") == "offline_only", "metadata.enhancement_policy=offline_only"),
     (int(data.get("action_count") or 0) >= 2, "action_count>=2"),
     (len(cards) >= 2, "run_log.cards>=2"),
     ("click" in action_names, "click action recorded"),

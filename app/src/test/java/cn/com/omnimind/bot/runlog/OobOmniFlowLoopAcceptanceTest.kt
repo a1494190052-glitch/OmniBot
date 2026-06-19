@@ -1914,6 +1914,10 @@ class OobOmniFlowLoopAcceptanceTest {
             assertEquals(hiddenFunctionId, hiddenConvert["function_id"])
             assertEquals(true, hiddenConvert["registered"])
             assertEquals(false, hiddenConvert["agent_visible"])
+            val hiddenSpec = hiddenConvert["function_spec"] as? Map<*, *>
+            val hiddenMetadata = hiddenSpec?.get("metadata") as? Map<*, *>
+            assertEquals("manual_function", hiddenMetadata?.get("visibility"))
+            assertEquals("offline_only", hiddenMetadata?.get("enhancement_policy"))
             val hiddenRecall = toolkit.recall(
                 mapOf(
                     "goal" to goal,

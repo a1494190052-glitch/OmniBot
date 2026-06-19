@@ -146,6 +146,7 @@ class ManualRecordingRunLogRecoveryTest {
         assertTrue(script.contains("function_registered"))
         assertTrue(script.contains("function_spec"))
         assertTrue(script.contains("metadata.visibility=manual_function"))
+        assertTrue(script.contains("metadata.enhancement_policy=offline_only"))
         assertTrue(script.contains("action_count>=2"))
         assertTrue(script.contains("click action recorded"))
         assertTrue(script.contains("swipe/scroll action recorded"))

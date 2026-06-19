@@ -814,6 +814,7 @@ class OobOmniFlowToolkitService(
                     put("agent_visible", false)
                     put("visibility", "manual_function")
                     put("registered_via", metadata["registered_via"] ?: "run_log_manual_convert")
+                    putIfAbsent("enhancement_policy", "offline_only")
                 }
             )
         }
