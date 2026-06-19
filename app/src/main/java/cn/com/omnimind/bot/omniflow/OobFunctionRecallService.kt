@@ -732,8 +732,64 @@ class OobFunctionRecallService(
         if (candidate.score < DIRECT_HIT_MIN_SCORE) return false
         if (candidate.pageScore < DIRECT_HIT_MIN_PAGE_SCORE) return false
         if (candidate.textScore < DIRECT_HIT_MIN_TEXT_SCORE) return false
+        if (nextCandidate != null && sameBehaviorIdentity(candidate.spec, nextCandidate.spec)) {
+            return true
+        }
         val margin = candidate.score - (nextCandidate?.score ?: 0.0)
         return nextCandidate == null || margin >= DIRECT_HIT_MIN_MARGIN
+    }
+
+    private fun sameBehaviorIdentity(
+        first: Map<String, Any?>,
+        second: Map<String, Any?>,
+    ): Boolean {
+        val firstHash = behaviorIdentityHash(first)
+        val secondHash = behaviorIdentityHash(second)
+        if (firstHash.isNotBlank() && firstHash == secondHash) return true
+        val firstLegacyKey = replayIntentEquivalenceKey(first)
+        if (firstLegacyKey.isBlank()) return false
+        return firstLegacyKey == replayIntentEquivalenceKey(second)
+    }
+
+    private fun behaviorIdentityHash(spec: Map<String, Any?>): String {
+        val metadata = mapArg(spec["metadata"])
+        val source = mapArg(spec["source"])
+        return firstNonBlank(
+            mapArg(metadata["oob_behavior_identity"])["hash"],
+            mapArg(source["behavior_identity"])["hash"],
+        )
+    }
+
+    private fun replayIntentEquivalenceKey(spec: Map<String, Any?>): String {
+        val source = mapArg(spec["source"])
+        val packageName = firstNonBlank(
+            mapArg(spec["constraints"])["package_name"],
+            mapArg(spec["constraints"])["packageName"],
+            source["package_name"],
+            source["packageName"],
+        )
+        val steps = materializedSteps(spec)
+        if (steps.isEmpty()) return ""
+        return listOf(
+            normalizeText(firstNonBlank(spec["name"])),
+            normalizeText(firstNonBlank(spec["description"])),
+            normalizeText(firstNonBlank(source["goal"])),
+            normalizeText(firstNonBlank(source["tool_name"])),
+            packageName,
+            steps.joinToString("|") { step -> replayStepEquivalenceKey(step) },
+        ).joinToString("::")
+    }
+
+    private fun replayStepEquivalenceKey(step: Map<String, Any?>): String {
+        val args = mapArg(step["args"])
+        return listOf(
+            normalizeText(firstNonBlank(step["tool"])),
+            normalizeText(firstNonBlank(step["title"])),
+            normalizeText(firstNonBlank(args["target_description"])),
+            normalizeText(firstNonBlank(args["package_name"], args["packageName"])),
+            normalizeText(firstNonBlank(args["direction"])),
+            normalizeText(firstNonBlank(args["key"])),
+        ).joinToString(":")
     }
 
     private fun functionProfile(

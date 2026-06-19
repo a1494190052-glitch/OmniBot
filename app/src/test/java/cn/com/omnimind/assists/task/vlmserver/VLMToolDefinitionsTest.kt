@@ -4,8 +4,11 @@ import cn.com.omnimind.baselib.i18n.PromptLocale
 import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
 import com.google.gson.Gson
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
@@ -47,6 +50,32 @@ class VLMToolDefinitionsTest {
     }
 
     @Test
+    fun `model visible tool schemas require coordinates instead of replacing them with indexes`() {
+        val tools = VLMToolDefinitions.tools(PromptLocale.EN_US).associateBy { it.function.name }
+
+        listOf("click", "input_text").forEach { toolName ->
+            val tool = tools.getValue(toolName)
+            val required = tool.function.parameters["required"]!!.jsonArray
+                .mapNotNull { it.jsonPrimitive.contentOrNull }
+                .toSet()
+            val description = tool.function.description
+            val elementIndexDescription = tool.function.parameters["properties"]!!
+                .jsonObject
+                .getValue("element_index")
+                .jsonObject
+                .getValue("description")
+                .jsonPrimitive
+                .content
+
+            assertTrue(required.contains("x"))
+            assertTrue(required.contains("y"))
+            assertFalse(description.contains("prefer element_index", ignoreCase = true))
+            assertFalse(description.contains("fallback only", ignoreCase = true))
+            assertTrue(elementIndexDescription.contains("cannot replace required coordinates"))
+        }
+    }
+
+    @Test
     fun `argument validation rejects hidden tools and non schema aliases`() {
         assertThrows(IllegalArgumentException::class.java) {
             VLMToolDefinitions.validateArguments(
@@ -75,19 +104,23 @@ class VLMToolDefinitionsTest {
         val promptGuide = VLMToolDefinitions.renderPromptGuide(PromptLocale.EN_US)
 
         assertTrue(promptGuide.contains("wait(time_s?)"))
-        assertTrue(promptGuide.contains("input_text(target_description, text, element_index?, x, y)"))
+        assertTrue(promptGuide.contains("input_text(target_description, text, x, y, element_index?)"))
+        assertTrue(promptGuide.contains("schema.required"))
         assertTrue(promptGuide.contains("Function recall, runtime resolve, and replay are handled automatically"))
         assertTrue(promptGuide.contains("same bounded runtime resolve path"))
         assertTrue(promptGuide.contains("fills public arguments before replay"))
         assertTrue(promptGuide.contains("one ordinary current-screen UI action after a replay miss"))
         assertTrue(promptGuide.contains("If this turn reaches the VLM, output exactly one ordinary UI action"))
         assertTrue(promptGuide.contains("do not emit call_tool, function_id, or hidden Function tools"))
+        assertTrue(promptGuide.contains("Action choice: use click for visible buttons"))
+        assertTrue(promptGuide.contains("use input_text when known text must be typed"))
+        assertTrue(promptGuide.contains("use wait only for clear loading"))
         assertFalse(promptGuide.contains("fill_params"))
         assertFalse(promptGuide.contains("repair_step"))
         assertFalse(promptGuide.contains("call_tool(function_id?, tool_name?, arguments)"))
         assertFalse(promptGuide.contains("preferred_call_tool"))
         assertFalse(promptGuide.contains("get_state("))
-        assertTrue(promptGuide.contains("Coordinate fields must be 0..1000 relative coordinates"))
+        assertTrue(promptGuide.contains("Coordinate fields in schema.required must be 0..1000 relative coordinates"))
         assertTrue(promptGuide.contains("The system decodes coordinates to screen absolute pixels before execution"))
         assertTrue(promptGuide.contains("Use wait only when the page is clearly loading"))
     }
@@ -98,9 +131,14 @@ class VLMToolDefinitionsTest {
 
         assertTrue(promptGuide.contains("Allowed tools this turn"))
         assertTrue(promptGuide.contains("exactly one native tool_call"))
+        assertTrue(promptGuide.contains("schema.required"))
         assertTrue(promptGuide.contains("about-20-word summary only"))
-        assertTrue(promptGuide.contains("0..1000 relative coordinates"))
-        assertTrue(promptGuide.contains("call finished only when the current page shows the final target state"))
+        assertTrue(promptGuide.contains("cannot replace coordinates or other fields listed in the selected tool's schema.required"))
+        assertTrue(promptGuide.contains("Action choice: use click for visible buttons"))
+        assertTrue(promptGuide.contains("use swipe when the target is not currently visible"))
+        assertTrue(promptGuide.contains("first decide whether the user's goal is already satisfied"))
+        assertTrue(promptGuide.contains("search box or input field"))
+        assertTrue(promptGuide.contains("target input is focused"))
         assertFalse(promptGuide.contains("required=["))
         assertFalse(promptGuide.contains("fallback JSON"))
         assertFalse(promptGuide.contains("\"tool\":\"tool_name\""))

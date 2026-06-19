@@ -57,9 +57,14 @@ class PromptTemplateTest {
 
             assertTrue(prompt.contains("Allowed tools this turn"))
             assertTrue(prompt.contains("exactly one native tool_call"))
+            assertTrue(prompt.contains("schema.required"))
             assertTrue(prompt.contains("assistant.content may be empty"))
             assertTrue(prompt.contains("about-20-word summary only"))
             assertTrue(prompt.contains("click, long_press, input_text"))
+            assertTrue(prompt.contains("Action choice: use click for visible buttons"))
+            assertTrue(prompt.contains("use input_text when known text must be typed"))
+            assertTrue(prompt.contains("first decide whether the user's goal is already satisfied"))
+            assertTrue(prompt.contains("search box or input field"))
             assertFalse(prompt.contains("required=["))
             assertFalse(prompt.contains("Unified action schema"))
             assertFalse(prompt.contains("observation/thought JSON"))
@@ -77,13 +82,17 @@ class PromptTemplateTest {
         try {
             val prompt = PromptTemplate.buildSystemPrompt("scene.vlm.operation.primary")
 
-            assertTrue(prompt.contains("exactly one native tool_call"))
+            assertTrue(prompt.contains("tools[] JSON schema"))
+            assertTrue(prompt.contains("schema.required"))
+            assertTrue(prompt.contains("optional fields cannot replace required fields"))
             assertTrue(prompt.contains("assistant.content may be empty"))
             assertTrue(prompt.contains("about 20 words"))
+            assertTrue(prompt.contains("First check whether the goal is already satisfied"))
             assertFalse(prompt.contains("observation"))
             assertFalse(prompt.contains("thought"))
             assertFalse(prompt.contains("required=["))
             assertFalse(prompt.contains("get_state"))
+            assertFalse(prompt.contains("click/long_press use x/y"))
         } finally {
             Locale.setDefault(previousLocale)
         }

@@ -141,11 +141,12 @@ object VLMToolDefinitions {
         val guides = toolSpecs(locale).joinToString(separator = "\n") { it.promptGuide }
         return buildString {
             appendLine(guides)
+            appendLine(actionChoiceGuide(locale))
             append(
                 t(
                     locale,
-                    "注意：每个 tool call 的 JSON 参数必须是严格合法的 object；Function recall、runtime resolve 和 replay 由本地 runtime 自动处理。同一条 bounded runtime resolve 只用于 replay 前补公开参数，或 replay miss 后补一个当前屏幕普通 UI action。如果本轮请求到达 VLM，只能输出一个当前屏幕的普通 UI action，不要输出 call_tool、function_id 或隐藏 Function 工具。swipe 优先填写 scrollable_index 和 direction。坐标字段必须是 0..1000 相对坐标，分别写入 x / y / x1 / y1 / x2 / y2，不要写成 \"x\": 827, 76 这类非法格式。系统会在执行前解码为屏幕绝对像素，本地记录始终保存绝对像素。wait 只在页面明确加载、动画或等待外部状态时使用。",
-                    "Important: every tool call JSON argument value must be a strict object. Function recall, runtime resolve, and replay are handled automatically by the local runtime. The same bounded runtime resolve path only fills public arguments before replay or one ordinary current-screen UI action after a replay miss. If this turn reaches the VLM, output exactly one ordinary UI action for the current screen; do not emit call_tool, function_id, or hidden Function tools. For swipe prefer scrollable_index plus direction. Coordinate fields must be 0..1000 relative coordinates, written into x / y / x1 / y1 / x2 / y2 as separate scalar fields. Do not emit invalid forms such as \"x\": 827, 76. The system decodes coordinates to screen absolute pixels before execution, and local records always store absolute pixels. Use wait only when the page is clearly loading, animating, or waiting for an external state change."
+                    "注意：每个 tool call 的 JSON 参数必须是严格合法的 object，并满足所选工具 schema.required。Function recall、runtime resolve 和 replay 由本地 runtime 自动处理。同一条 bounded runtime resolve 只用于 replay 前补公开参数，或 replay miss 后补一个当前屏幕普通 UI action。如果本轮请求到达 VLM，只能输出一个当前屏幕的普通 UI action，不要输出 call_tool、function_id 或隐藏 Function 工具。schema.required 中的坐标字段必须是 0..1000 相对坐标，分别写入 x / y / x1 / y1 / x2 / y2，不要写成 \"x\": 827, 76 这类非法格式。系统会在执行前解码为屏幕绝对像素，本地记录始终保存绝对像素。wait 只在页面明确加载、动画或等待外部状态时使用。",
+                    "Important: every tool call JSON argument value must be a strict object and satisfy the selected tool's schema.required. Function recall, runtime resolve, and replay are handled automatically by the local runtime. The same bounded runtime resolve path only fills public arguments before replay or one ordinary current-screen UI action after a replay miss. If this turn reaches the VLM, output exactly one ordinary UI action for the current screen; do not emit call_tool, function_id, or hidden Function tools. Coordinate fields in schema.required must be 0..1000 relative coordinates, written into x / y / x1 / y1 / x2 / y2 as separate scalar fields. Do not emit invalid forms such as \"x\": 827, 76. The system decodes coordinates to screen absolute pixels before execution, and local records always store absolute pixels. Use wait only when the page is clearly loading, animating, or waiting for an external state change."
                 )
             )
         }
@@ -158,22 +159,23 @@ object VLMToolDefinitions {
             appendLine(
                 t(
                     locale,
-                    "输出约束：只返回 tools[] 中恰好一个原生 tool_call；assistant.content 可为空，若返回只能是约20字 summary；不要输出其他 JSON 字段、Markdown、旧格式 action/swipe/coordinate/coordinate2，或 tools[] 外的工具名。",
-                    "Output constraint: return exactly one native tool_call from tools[]. assistant.content may be empty; if present it must be an about-20-word summary only. Do not output other JSON fields, Markdown, legacy action/swipe/coordinate/coordinate2 formats, or tool names outside tools[]."
+                    "输出约束：只返回 tools[] 中恰好一个原生 tool_call；function.arguments 必须满足所选工具的 JSON schema，schema.required 字段必须全部填写；assistant.content 可为空，若返回只能是约20字 summary；不要输出其他 JSON 字段、Markdown、旧格式 action/swipe/coordinate/coordinate2，或 tools[] 外的工具名。",
+                    "Output constraint: return exactly one native tool_call from tools[]. function.arguments must satisfy the selected tool JSON schema, and every schema.required field must be present. assistant.content may be empty; if present it must be an about-20-word summary only. Do not output other JSON fields, Markdown, legacy action/swipe/coordinate/coordinate2 formats, or tool names outside tools[]."
                 )
             )
             appendLine(
                 t(
                     locale,
-                    "坐标如需兜底，使用 0..1000 相对坐标；优先使用 indexed evidence 的 element_index/scrollable_index。",
-                    "When coordinate fallback is needed, use 0..1000 relative coordinates; prefer element_index/scrollable_index from indexed evidence."
+                    "可选的 element_index/scrollable_index 只能作为补充 grounding 线索，不能替代所选工具 schema.required 中的坐标或其他必填字段。",
+                    "Optional element_index/scrollable_index values are supplemental grounding hints only; they cannot replace coordinates or other fields listed in the selected tool's schema.required."
                 )
             )
+            appendLine(actionChoiceGuide(locale))
             appendLine(
                 t(
                     locale,
-                    "完成判断：只有当前页面已显示最终状态，或上一轮工具结果明确完成不可见系统动作，才调用 finished；不确定时继续下一步，系统每轮会自动刷新页面状态。",
-                    "Completion rule: call finished only when the current page shows the final target state, or the previous tool result explicitly completed an invisible system action. When uncertain, continue with the next step; the system refreshes page state automatically each turn."
+                    "完成判断：每轮先判断用户目标是否已经达成；若已达成，必须调用 finished，不要重复点击同一目标。对“点击/聚焦/打开搜索框或输入框”类目标，只要当前页面已进入搜索页、目标输入框已聚焦，或目标控件已处于可输入状态，就视为完成。",
+                    "Completion rule: first decide whether the user's goal is already satisfied this turn. If it is, call finished and do not click the same target again. For goals like click/focus/open a search box or input field, treat the goal as complete once the current page is a search page, the target input is focused, or the target control is ready for typing."
                 )
             )
             append(
@@ -184,6 +186,14 @@ object VLMToolDefinitions {
                 )
             )
         }.trim()
+    }
+
+    private fun actionChoiceGuide(locale: PromptLocale): String {
+        return t(
+            locale,
+            "操作选择：click 用于点击可见按钮、列表项、标签、搜索框或输入框聚焦；input_text 用于向可见输入目标输入已知文本；long_press 只用于上下文菜单、拖拽起点或页面明确需要长按；swipe 用于目标不在当前可见区域、列表翻页或横向切换；open_app 用于当前不在目标应用且目标包名明确；press_key 用于系统 back/home/enter；wait 只用于页面明确加载、动画或等待外部状态；finished 只在目标已完成；info/require_user_choice/require_user_confirmation 用于必须询问用户；feedback/abort 用于当前上下文不匹配或无法继续。",
+            "Action choice: use click for visible buttons, list items, tabs, search boxes, or focusing an input field; use input_text when known text must be typed into a visible input target; use long_press only for context menus, drag starts, or screens that clearly require a long press; use swipe when the target is not currently visible, a list must move, or horizontal switching is needed; use open_app when the target app is not current and its package is known; use press_key for system back/home/enter; use wait only for clear loading, animation, or external state; use finished only after the goal is complete; use info/require_user_choice/require_user_confirmation only when user input is required; use feedback/abort when the context mismatches or cannot continue."
+        )
     }
 
     fun responseContract(locale: PromptLocale = currentLocale()): String {

@@ -95,6 +95,39 @@ class RunLogReusableFunctionCompilerTest {
     }
 
     @Test
+    fun `vlm run log function id is stable across run ids for same behavior`() {
+        val cards = listOf(
+            card(
+                "click",
+                mapOf("target_description" to "Network", "x" to 540, "y" to 280),
+                beforeXml = SOURCE_XML,
+                beforePackage = "com.example.settings",
+            ),
+            card("finished", mapOf("content" to "done")),
+        )
+        val first = compile(
+            cards = cards,
+            runId = "vlm-run-one",
+            goal = "Open network settings",
+            source = "vlm",
+            toolName = "vlm_task",
+        )
+        val second = compile(
+            cards = cards,
+            runId = "vlm-run-two",
+            goal = "Open network settings",
+            source = "vlm",
+            toolName = "vlm_task",
+        )
+
+        assertEquals(first["function_id"], second["function_id"])
+        val metadata = first["metadata"] as Map<*, *>
+        val identity = metadata["oob_behavior_identity"] as Map<*, *>
+        assertEquals(true, identity["stable"])
+        assertEquals("vlm_goal_package_actions_v1", identity["strategy"])
+    }
+
+    @Test
     fun `manual recording click keeps coordinates and source context for replay`() {
         val spec = compile(
             listOf(
@@ -1341,11 +1374,14 @@ class RunLogReusableFunctionCompilerTest {
         cards: List<Map<String, Any?>>,
         runId: String,
         goal: String = "Replay $runId",
+        source: String = "test",
+        toolName: String = "test_tool",
     ): Map<String, Any?> {
         val record = InternalRunLogRecord(
             runId = runId,
             goal = goal,
-            toolName = "test_tool",
+            source = source,
+            toolName = toolName,
             operationDescription = goal,
             cards = cards,
         )

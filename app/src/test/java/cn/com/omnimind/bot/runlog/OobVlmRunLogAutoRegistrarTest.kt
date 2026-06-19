@@ -281,6 +281,75 @@ class OobVlmRunLogAutoRegistrarTest {
     }
 
     @Test
+    fun `vlm recall direct hit ignores duplicate behavior identity functions`() {
+        val context = OobOmniFlowLoopAcceptanceTest.TempFilesContext()
+        try {
+            val workspaceStore = WorkspaceFunctionStore(context.root)
+            val service = OobOmniFlowToolkitService(context, workspaceStore)
+            val goal = "Open network settings"
+            val behaviorIdentity = mapOf(
+                "stable" to true,
+                "hash" to "samebehavior",
+                "strategy" to "vlm_goal_package_actions_v1",
+            )
+            val firstRegister = service.registerFunction(
+                mapOf(
+                    "function_spec" to reusableFunctionSpec(
+                        functionId = "oob_fn_vlm_task_samebehavior",
+                        name = goal,
+                        description = goal,
+                        source = mapOf(
+                            "kind" to "run_log",
+                            "goal" to goal,
+                            "tool_name" to "vlm_task",
+                            "behavior_identity" to behaviorIdentity,
+                        ),
+                        metadata = mapOf("oob_behavior_identity" to behaviorIdentity),
+                    )
+                )
+            )
+            val duplicateRegister = service.registerFunction(
+                mapOf(
+                    "function_spec" to reusableFunctionSpec(
+                        functionId = "oob_fn_vlm_task_oldcopy",
+                        name = goal,
+                        description = goal,
+                        source = mapOf(
+                            "kind" to "run_log",
+                            "goal" to goal,
+                            "tool_name" to "vlm_task",
+                            "behavior_identity" to behaviorIdentity,
+                        ),
+                        metadata = mapOf("oob_behavior_identity" to behaviorIdentity),
+                    )
+                )
+            )
+            assertEquals(true, firstRegister["success"])
+            assertEquals(true, duplicateRegister["success"])
+
+            val recall = service.recall(
+                mapOf(
+                    "goal" to goal,
+                    "current_package" to "com.example.settings",
+                    "current_xml" to SOURCE_XML,
+                    "k" to 10,
+                    "auto_execute" to true,
+                    "include_debug" to true,
+                )
+            )
+
+            assertEquals(true, recall["success"])
+            assertEquals("hit", recall["decision"])
+            val hit = recall["hit"] as? Map<*, *>
+            assertEquals("oob_fn_vlm_task_oldcopy", hit?.get("function_id"))
+            val capabilities = recall["node_function_capabilities"] as? List<*>
+            assertEquals(2, capabilities?.size)
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `vlm runlog recall hit executes registered function without online enhancement`() = runBlocking {
         val context = OobOmniFlowLoopAcceptanceTest.TempFilesContext()
         try {
@@ -447,6 +516,7 @@ class OobVlmRunLogAutoRegistrarTest {
         name: String,
         description: String,
         source: Map<String, Any?>,
+        metadata: Map<String, Any?> = emptyMap(),
         stepTitle: String = "Tap Network",
     ): Map<String, Any?> = mapOf(
         "schema_version" to "oob.reusable_function.v1",
@@ -454,6 +524,7 @@ class OobVlmRunLogAutoRegistrarTest {
         "name" to name,
         "description" to description,
         "parameters" to emptyList<Map<String, Any?>>(),
+        "metadata" to metadata,
         "source" to source,
         "execution" to mapOf(
             "kind" to "tool_sequence",

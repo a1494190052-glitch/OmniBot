@@ -100,8 +100,8 @@ object OobCanonicalActionSchema {
         ToolSpec(
             name = "click",
             uiLabel = LocalizedText(zhCn = "点击", enUs = "Click"),
-            description = LocalizedText(zhCn = "点击一个可见目标；有 indexed evidence 时优先给 element_index。", enUs = "Tap a visible target; when indexed evidence is available, prefer element_index."),
-            promptGuide = LocalizedText(zhCn = "- click(target_description, element_index?, x, y): 点击可见目标；优先填写 indexed evidence 的 element_index，x/y 只是兜底。", enUs = "- click(target_description, element_index?, x, y): Tap a visible target; prefer indexed evidence element_index, x/y are fallback only."),
+            description = LocalizedText(zhCn = "点击一个可见目标；必须按 schema 提供 target_description、x、y，element_index 仅作为可选定位线索。", enUs = "Tap a visible target; provide target_description, x, and y as required by the schema. element_index is an optional grounding hint only."),
+            promptGuide = LocalizedText(zhCn = "- click(target_description, x, y, element_index?): 点击可见目标；x/y 是 required 的 0..1000 相对坐标，element_index 只补充 grounding。", enUs = "- click(target_description, x, y, element_index?): Tap a visible target; x/y are required 0..1000 relative coordinates, and element_index only supplements grounding."),
             argsTemplate = emptyMap(),
             args = listOf(
 ArgSpec(
@@ -113,7 +113,7 @@ ArgSpec(
 ArgSpec(
                     name = "element_index",
                     type = Type.INTEGER,
-                    description = LocalizedText(zhCn = "优先填写。OOB indexed page evidence 中目标元素的 #index；提供后系统会用 live XML 中该元素中心覆盖坐标。", enUs = "Prefer this. The #index of the target element in OOB indexed page evidence; when provided, the runtime uses that live XML element center over raw coordinates."),
+                    description = LocalizedText(zhCn = "可选。OOB indexed page evidence 中目标元素的 #index；提供后系统可用 live XML 中该元素中心辅助定位，但不能替代 required 坐标。", enUs = "Optional. The #index of the target element in OOB indexed page evidence; when provided, the runtime may use that live XML element center for grounding, but it cannot replace required coordinates."),
                     minimum = 0,
                 ),
 ArgSpec(
@@ -130,14 +130,14 @@ ArgSpec(
                     name = "x",
                     type = Type.NUMBER,
                     required = true,
-                    description = LocalizedText(zhCn = "兜底点击位置的 0..1000 相对 X 坐标；执行前会解码为屏幕绝对像素。", enUs = "Fallback 0..1000 relative X coordinate of the tap target; decoded to absolute screen pixels before execution."),
+                    description = LocalizedText(zhCn = "点击位置的 required 0..1000 相对 X 坐标；执行前会解码为屏幕绝对像素。", enUs = "Required 0..1000 relative X coordinate of the tap target; decoded to absolute screen pixels before execution."),
                     minimum = 0,
                 ),
 ArgSpec(
                     name = "y",
                     type = Type.NUMBER,
                     required = true,
-                    description = LocalizedText(zhCn = "兜底点击位置的 0..1000 相对 Y 坐标；执行前会解码为屏幕绝对像素。", enUs = "Fallback 0..1000 relative Y coordinate of the tap target; decoded to absolute screen pixels before execution."),
+                    description = LocalizedText(zhCn = "点击位置的 required 0..1000 相对 Y 坐标；执行前会解码为屏幕绝对像素。", enUs = "Required 0..1000 relative Y coordinate of the tap target; decoded to absolute screen pixels before execution."),
                     minimum = 0,
                 ),
             ),
@@ -153,7 +153,7 @@ ArgSpec(
             name = "long_press",
             uiLabel = LocalizedText(zhCn = "长按", enUs = "Long press"),
             description = LocalizedText(zhCn = "长按一个目标。", enUs = "Long-press a target."),
-            promptGuide = LocalizedText(zhCn = "- long_press(target_description, element_index?, x, y): 长按目标；优先填写 element_index，x/y 只是兜底。", enUs = "- long_press(target_description, element_index?, x, y): Long-press a target; prefer element_index, x/y are fallback only."),
+            promptGuide = LocalizedText(zhCn = "- long_press(target_description, x, y, element_index?): 长按目标；x/y 是 required 的 0..1000 相对坐标，element_index 只补充 grounding。", enUs = "- long_press(target_description, x, y, element_index?): Long-press a target; x/y are required 0..1000 relative coordinates, and element_index only supplements grounding."),
             argsTemplate = emptyMap(),
             args = listOf(
 ArgSpec(
@@ -165,7 +165,7 @@ ArgSpec(
 ArgSpec(
                     name = "element_index",
                     type = Type.INTEGER,
-                    description = LocalizedText(zhCn = "优先填写。OOB indexed page evidence 中目标元素的 #index；提供后系统会用 live XML 中该元素中心覆盖坐标。", enUs = "Prefer this. The #index of the target element in OOB indexed page evidence; when provided, the runtime uses that live XML element center over raw coordinates."),
+                    description = LocalizedText(zhCn = "可选。OOB indexed page evidence 中目标元素的 #index；提供后系统可用 live XML 中该元素中心辅助定位，但不能替代 required 坐标。", enUs = "Optional. The #index of the target element in OOB indexed page evidence; when provided, the runtime may use that live XML element center for grounding, but it cannot replace required coordinates."),
                     minimum = 0,
                 ),
 ArgSpec(
@@ -210,8 +210,8 @@ ArgSpec(
         ToolSpec(
             name = "input_text",
             uiLabel = LocalizedText(zhCn = "输入文本", enUs = "Input text"),
-            description = LocalizedText(zhCn = "向一个可见输入目标输入文本；有 indexed evidence 时优先给 element_index。", enUs = "Type text into a visible input target; when indexed evidence is available, prefer element_index."),
-            promptGuide = LocalizedText(zhCn = "- input_text(target_description, text, element_index?, x, y): 向输入框输入；优先填写 element_index，系统会先走 XML 节点输入，x/y 只是兜底。", enUs = "- input_text(target_description, text, element_index?, x, y): Type into an input field; prefer element_index so the runtime can use XML node input first, x/y are fallback only."),
+            description = LocalizedText(zhCn = "向一个可见输入目标输入文本；必须按 schema 提供 target_description、text、x、y，element_index 仅作为可选定位线索。", enUs = "Type text into a visible input target; provide target_description, text, x, and y as required by the schema. element_index is an optional grounding hint only."),
+            promptGuide = LocalizedText(zhCn = "- input_text(target_description, text, x, y, element_index?): 向输入框输入；x/y 是 required 的 0..1000 相对坐标，element_index 只补充 grounding。", enUs = "- input_text(target_description, text, x, y, element_index?): Type into an input field; x/y are required 0..1000 relative coordinates, and element_index only supplements grounding."),
             argsTemplate = emptyMap(),
             args = listOf(
 ArgSpec(
@@ -229,7 +229,7 @@ ArgSpec(
 ArgSpec(
                     name = "element_index",
                     type = Type.INTEGER,
-                    description = LocalizedText(zhCn = "优先填写。OOB indexed page evidence 中目标输入框的 #index；提供后系统会用 live XML 中该元素中心覆盖坐标。", enUs = "Prefer this. The #index of the target input field in OOB indexed page evidence; when provided, the runtime uses that live XML element center over raw coordinates."),
+                    description = LocalizedText(zhCn = "可选。OOB indexed page evidence 中目标输入框的 #index；提供后系统可用 live XML 中该元素中心辅助定位，但不能替代 required 坐标。", enUs = "Optional. The #index of the target input field in OOB indexed page evidence; when provided, the runtime may use that live XML element center for grounding, but it cannot replace required coordinates."),
                     minimum = 0,
                 ),
 ArgSpec(
@@ -246,14 +246,14 @@ ArgSpec(
                     name = "x",
                     type = Type.NUMBER,
                     required = true,
-                    description = LocalizedText(zhCn = "兜底目标输入框中心的 0..1000 相对 X 坐标；执行前会解码为屏幕绝对像素。", enUs = "Fallback 0..1000 relative X coordinate of the input target center; decoded to absolute screen pixels before execution."),
+                    description = LocalizedText(zhCn = "目标输入框中心的 required 0..1000 相对 X 坐标；执行前会解码为屏幕绝对像素。", enUs = "Required 0..1000 relative X coordinate of the input target center; decoded to absolute screen pixels before execution."),
                     minimum = 0,
                 ),
 ArgSpec(
                     name = "y",
                     type = Type.NUMBER,
                     required = true,
-                    description = LocalizedText(zhCn = "兜底目标输入框中心的 0..1000 相对 Y 坐标；执行前会解码为屏幕绝对像素。", enUs = "Fallback 0..1000 relative Y coordinate of the input target center; decoded to absolute screen pixels before execution."),
+                    description = LocalizedText(zhCn = "目标输入框中心的 required 0..1000 相对 Y 坐标；执行前会解码为屏幕绝对像素。", enUs = "Required 0..1000 relative Y coordinate of the input target center; decoded to absolute screen pixels before execution."),
                     minimum = 0,
                 ),
             ),
@@ -269,7 +269,7 @@ ArgSpec(
             name = "swipe",
             uiLabel = LocalizedText(zhCn = "滑动", enUs = "Swipe"),
             description = LocalizedText(zhCn = "在屏幕或可滚动区域内按方向滑动。", enUs = "Swipe in a direction on the screen or inside a scrollable region."),
-            promptGuide = LocalizedText(zhCn = "- swipe(target_description, direction, scrollable_index?, x1, y1, x2, y2, duration_ms?): 在屏幕或指定可滚动区域内滑动；优先填写 scrollable_index 和 direction，x1/y1/x2/y2 是兜底。", enUs = "- swipe(target_description, direction, scrollable_index?, x1, y1, x2, y2, duration_ms?): Swipe on the screen or a target scrollable region; prefer scrollable_index and direction, x1/y1/x2/y2 are fallback."),
+            promptGuide = LocalizedText(zhCn = "- swipe(target_description, direction, x1, y1, x2, y2, scrollable_index?, duration_ms?): 在屏幕或指定可滚动区域内滑动；direction 和 x1/y1/x2/y2 必须满足 schema.required。", enUs = "- swipe(target_description, direction, x1, y1, x2, y2, scrollable_index?, duration_ms?): Swipe on the screen or a target scrollable region; direction and x1/y1/x2/y2 must satisfy schema.required."),
             argsTemplate = emptyMap(),
             args = listOf(
 ArgSpec(

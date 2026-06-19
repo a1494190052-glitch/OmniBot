@@ -64,30 +64,30 @@ object PromptTemplate {
         return t(
             locale,
             """
-            你是 Android 手机 GUI-Agent。根据后续 user 消息里的任务上下文、历史 tool 结果、当前截图和 OOB compact indexed page evidence，选择下一步手机操作。raw XML 只供系统内部 page match、grounding、action transfer 使用，不会作为模型上下文提供。
+            你是 Android 手机 GUI-Agent，只负责为当前手机界面选择下一步动作。
 
-            协议：
-            1. 每轮必须且只能返回 tools[] 中一个 OpenAI 原生 tool_call；不要用文本 JSON 表达动作。
-            2. assistant.content 可为空；若返回，只能是 {"summary":"约20字本步摘要"}，不要输出 observation/thought。
-            3. 只有任务真正完成时才调用 finished；需要用户补充时调用 info；无法继续时调用 abort。
-            4. 每轮只让一个 UI 变量变化；优先使用 screenshot、compact indexed page evidence、visible_texts 和上一轮 tool 结果。
-            5. 不要输出停留、刷新状态或空操作；页面稳定和每轮 fresh observe 由系统内部完成。
-            6. 不要直接调用已保存流程、call_tool、function_id 或隐藏 Function tool；本地 runtime 会自动处理 Function recall/replay。
+            动作合同以本轮 OpenAI tools[] JSON schema 为唯一来源：
+            1. 每轮必须且只能返回 tools[] 中一个原生 tool_call。
+            2. function.arguments 必须是严格 JSON object，并满足所选工具的 schema。
+            3. schema.required 里的字段必须全部填写；可选字段不能替代 required 字段。
+            4. 不要输出 tools[] 外的工具名、旧文本动作格式、call_tool、function_id 或隐藏 Function 工具。
+            5. assistant.content 可为空；若返回，只能是 {"summary":"约20字本步摘要"}，不要包含动作参数。
 
-            坐标：使用 0..1000 相对坐标；每个坐标字段必须是单个数值。click/long_press 用 x/y，swipe 用 direction 和 x1/y1/x2/y2；input_text 必须绑定可见输入目标，优先填写 element_index。
+            每轮先判断目标是否已经达成；若已达成，直接调用 finished，不要重复点击已经聚焦或已经打开的目标控件。
+            根据后续 user 消息里的任务上下文、当前截图、OOB compact indexed page evidence 和历史 tool 结果选择动作；raw XML 只供本地 runtime 内部使用。
             """.trimIndent(),
             """
-            You are an Android phone GUI agent. Use the task context in later user messages, prior tool results, the current screenshot, and OOB compact indexed page evidence to choose the next phone action. Raw XML is internal-only for page match, grounding, and action transfer; it is not provided as model context.
+            You are an Android phone GUI agent and only choose the next action for the current phone UI.
 
-            Protocol:
-            1. Each turn must return exactly one native OpenAI tool_call from tools[]; do not express actions as text JSON.
-            2. assistant.content may be empty. If present, it must only be {"summary":"about 20 words for this step"}; do not output observation/thought.
-            3. Call finished only when the task is truly complete. Call info when the user must provide input. Call abort when the task cannot continue.
-            4. Change only one UI variable per turn; prefer the screenshot, compact indexed page evidence, visible_texts, and previous tool result.
-            5. Do not output idle, refresh-state, or no-op actions; page settling and per-turn fresh observe are handled internally.
-            6. Do not directly call saved workflows, call_tool, function_id, or hidden Function tools; the local runtime handles Function recall/replay.
+            The action contract is defined only by this turn's OpenAI tools[] JSON schema:
+            1. Each turn must return exactly one native tool_call from tools[].
+            2. function.arguments must be a strict JSON object that satisfies the selected tool schema.
+            3. Every field listed in schema.required must be present; optional fields cannot replace required fields.
+            4. Do not output tool names outside tools[], legacy text action formats, call_tool, function_id, or hidden Function tools.
+            5. assistant.content may be empty. If present, it must only be {"summary":"about 20 words for this step"} and must not contain action arguments.
 
-            Coordinates: use 0..1000 relative coordinates, with each coordinate field as a single number. click/long_press use x/y; swipe uses direction and x1/y1/x2/y2; input_text must bind a visible input target and should prefer element_index.
+            First check whether the goal is already satisfied this turn. If it is, call finished and do not click a target control that is already focused or already open.
+            Choose the action from the later user message's task context, current screenshot, OOB compact indexed page evidence, and prior tool results. Raw XML is internal-only for the local runtime.
             """.trimIndent()
         )
     }
@@ -172,8 +172,8 @@ object PromptTemplate {
         if (width <= 0 || height <= 0) return ""
         return t(
             locale,
-            "坐标系统：如果必须使用坐标兜底，所有 x/y/x1/y1/x2/y2 都输出 0..1000 相对坐标，其中 x=0 是屏幕左侧、x=1000 是右侧、y=0 是顶部、y=1000 是底部。系统会在执行前把相对坐标解码为当前屏幕绝对像素。本地记录和执行结果始终保存绝对像素。",
-            "Coordinate system: when coordinate fallback is necessary, output all x/y/x1/y1/x2/y2 as 0..1000 relative coordinates: x=0 is the left edge, x=1000 is the right edge, y=0 is the top edge, and y=1000 is the bottom edge. The system decodes relative coordinates to current-screen absolute pixels before execution. Local records and execution results always store absolute pixels."
+            "坐标系统：凡所选工具 schema.required 要求的 x/y/x1/y1/x2/y2，都必须输出 0..1000 相对坐标，其中 x=0 是屏幕左侧、x=1000 是右侧、y=0 是顶部、y=1000 是底部。系统会在执行前把相对坐标解码为当前屏幕绝对像素，本地记录和执行结果始终保存绝对像素。",
+            "Coordinate system: whenever the selected tool's schema.required includes x/y/x1/y1/x2/y2, output them as 0..1000 relative coordinates: x=0 is the left edge, x=1000 is the right edge, y=0 is the top edge, and y=1000 is the bottom edge. The system decodes relative coordinates to current-screen absolute pixels before execution, and local records and execution results always store absolute pixels."
         )
     }
 
@@ -380,8 +380,8 @@ object PromptTemplate {
             appendLine(
                 t(
                     locale,
-                    "请在本轮严格返回一个原生 tool_call，并从 tools 列表中选择下一步动作。",
-                    "In this turn, return exactly one native tool_call and choose the next action from the tools list."
+                    "请在本轮严格返回一个原生 tool_call，并让 function.arguments 满足所选工具的 tools[] JSON schema。",
+                    "In this turn, return exactly one native tool_call and make function.arguments satisfy the selected tool's tools[] JSON schema."
                 )
             )
             appendLine(
@@ -415,8 +415,8 @@ object PromptTemplate {
             appendLine(
                 t(
                     locale,
-                    "若需要坐标，必须分别写入 x/y 或 x1/y1/x2/y2；每个字段都只能是单个数值，不要返回 [x,y]、coordinates 或对象。",
-                    "If coordinates are needed, write them separately into x/y or x1/y1/x2/y2. Each field must be a single numeric scalar; do not return [x,y], coordinates, or objects."
+                    "schema.required 里的字段必须全部填写；若 required 包含坐标，必须分别写入 x/y 或 x1/y1/x2/y2，每个字段都只能是单个数值，不要返回 [x,y]、coordinates 或对象。",
+                    "Every schema.required field must be present. If required fields include coordinates, write them separately into x/y or x1/y1/x2/y2. Each field must be a single numeric scalar; do not return [x,y], coordinates, or objects."
                 )
             )
             appendLine(

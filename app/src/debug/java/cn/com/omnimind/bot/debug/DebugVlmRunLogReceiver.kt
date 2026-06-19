@@ -212,24 +212,36 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
         )
         val runId = outcome.taskId
         val record = InternalRunLogStore.getRun(context, runId)
-        val timeline = record?.let { InternalRunLogStore.timelinePayload(context, runId) }
-        val convert = if (outcome.status == VlmToolOutcomeStatus.FINISHED && record?.success == true) {
-            OobOmniFlowToolkitService(context).convertRunLog(
-                mapOf(
-                    "run_id" to runId,
-                    "register" to register,
-                    "function_id" to "debug_${runId.replace('-', '_')}",
-                    "name" to "Debug VLM RunLog",
-                    "description" to goal,
-                )
-            )
-        } else {
-            null
-        }
-
         val outcomePayload = outcome.toPayload()
         val vlmTaskFinished = outcome.status == VlmToolOutcomeStatus.FINISHED
         val runLogSuccessful = record?.success == true
+        var timeline = record?.let {
+            if (vlmTaskFinished && runLogSuccessful && register) {
+                waitForAutoRegisteredTimeline(context, runId)
+            } else {
+                InternalRunLogStore.timelinePayload(context, runId)
+            }
+        }
+        val convert = if (vlmTaskFinished && runLogSuccessful) {
+            if (register && timeline?.get("registered_as_function") == true) {
+                autoRegisteredConvertPayload(runId, timeline.orEmpty())
+            } else {
+                OobOmniFlowToolkitService(context).convertRunLog(
+                    mapOf(
+                        "run_id" to runId,
+                        "register" to register,
+                        "function_id" to "debug_${runId.replace('-', '_')}",
+                        "name" to "Debug VLM RunLog",
+                        "description" to goal,
+                    )
+                )
+            }
+        } else {
+            null
+        }
+        if (convert != null && record != null) {
+            timeline = InternalRunLogStore.timelinePayload(context, runId)
+        }
 
         return linkedMapOf(
             "success" to vlmTaskFinished,
@@ -258,6 +270,30 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             "convert" to convert,
             "convert_success" to (convert?.get("success") == true),
         )
+    }
+
+    private fun autoRegisteredConvertPayload(
+        runId: String,
+        timeline: Map<String, Any?>
+    ): Map<String, Any?> {
+        val functionId = timeline["registered_function_id"]?.toString()?.trim().orEmpty()
+        return linkedMapOf<String, Any?>(
+            "success" to functionId.isNotEmpty(),
+            "registered" to functionId.isNotEmpty(),
+            "run_id" to runId,
+            "function_id" to functionId,
+            "created_function_id" to functionId,
+            "function_spec" to timeline["registered_function_spec"],
+            "summary" to timeline["registered_function_summary"],
+            "function_kind" to "oob_reusable_function",
+            "asset_state" to "native_local",
+            "source" to "oob_vlm_auto_registrar",
+        ).filterValues { value ->
+            when (value) {
+                is String -> value.isNotBlank()
+                else -> value != null
+            }
+        }
     }
 
     private fun seedSuccessfulVlmRunLog(
