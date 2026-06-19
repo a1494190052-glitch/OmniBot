@@ -214,6 +214,11 @@ For local MCP/debug tooling, prefer the same payload shape:
 Before a PR claims this mainline is working, verify each gate with matching
 evidence:
 
+- Mainline gate: `scripts/oob-mainline-acceptance.sh --device <serial>` is the
+  composed check for this section. It runs the Android unit gates, Flutter
+  UI/l10n gates, Python offline contract smoke, manual recording device smoke,
+  and VLM recall-loop device smoke, then writes
+  `mainline-acceptance-report.{json,md}`.
 - Manual recording: a visible `录制轨迹` entry starts recording, completes from
   the floating assistant, and returns a RunLog plus reusable Function result.
   Unit tests only prove command routing; a real Android device proves this gate.
@@ -238,6 +243,12 @@ evidence:
   `复用指令` as the product name and keep the offline enhancement hint. User
   input such as `复用记忆` is accepted only as compatibility wording in routing
   and builtin skills; it should not replace the displayed product label.
+
+Use `scripts/oob-mainline-acceptance.sh --skip-device` only for local/offline
+regression. A skipped device report is not enough to claim manual recording or
+live Android recall/replay are working. The default VLM mode is `--offline-seed`,
+which validates the native RunLog/register/recall/replay loop without provider
+credentials; use `--online-vlm` when measuring online model accuracy.
 
 ## VLM Accuracy Measurement
 

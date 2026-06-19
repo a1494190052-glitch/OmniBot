@@ -158,10 +158,12 @@
     "ui_never_interprets_function_steps_in_dart": true
   },
   "required_device_gates": [
+    "scripts/oob-mainline-acceptance.sh --device <serial>",
     "scripts/oob-manual-recording-function-smoke.sh --device <serial>",
     "scripts/oob-vlm-recall-loop-smoke.sh --device <serial> --output-dir runtime/vlm-recall-loop/<case>"
   ],
   "offline_gates": [
+    "scripts/oob-mainline-acceptance.sh --skip-device",
     "scripts/oob-omniflow-python-offline-contract-smoke.py",
     "scripts/oob-vlm-accuracy-report.py --smoke-dir <captured-smoke-dir> --strict"
   ]
