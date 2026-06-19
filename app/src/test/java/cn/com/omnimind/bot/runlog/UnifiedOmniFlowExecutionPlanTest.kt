@@ -1,5 +1,6 @@
 package cn.com.omnimind.bot.runlog
 
+import cn.com.omnimind.bot.mcp.McpToolDefinitions
 import com.google.gson.Gson
 import java.nio.file.Files
 import java.nio.file.Paths
@@ -511,8 +512,23 @@ class UnifiedOmniFlowExecutionPlanTest {
         val allowedTools = listAny(mcp["allowed_tools"]).map { it.toString() }
         assertTrue(allowedTools.contains("update_function"))
         assertTrue(allowedTools.contains("oob_run_log_convert"))
-        assertTrue(listAny(mcp["forbidden_public_tools"]).contains("run_function"))
-        assertTrue(listAny(mcp["forbidden_public_tools"]).contains("call_tool"))
+        assertTrue(allowedTools.contains("omniflow.recall"))
+        assertTrue(allowedTools.contains("omniflow.ingest_run_log"))
+        assertTrue(allowedTools.contains("omniflow.explore_replay"))
+        val fixedMcpToolNames = McpToolDefinitions.fixedToolNames
+        val missingAllowedTools = allowedTools.filterNot { it in fixedMcpToolNames }
+        assertTrue(
+            "Entry-surface allowed MCP tools must be exposed by McpToolDefinitions: $missingAllowedTools",
+            missingAllowedTools.isEmpty()
+        )
+        val forbiddenPublicTools = listAny(mcp["forbidden_public_tools"]).map { it.toString() }
+        assertTrue(forbiddenPublicTools.contains("run_function"))
+        assertTrue(forbiddenPublicTools.contains("call_tool"))
+        val exposedForbiddenTools = forbiddenPublicTools.filter { it in fixedMcpToolNames }
+        assertTrue(
+            "Entry-surface forbidden Function execution tools must not be public MCP tools: $exposedForbiddenTools",
+            exposedForbiddenTools.isEmpty()
+        )
         assertTrue(mcpRoutes.contains("OMNIFLOW_MCP_TOOL_NAMES"))
         assertTrue(mcpRoutes.contains("omniflowToolkit.executeTool(name, args)"))
         assertTrue(!mcpRoutes.contains("\"run_function\" ->"))
