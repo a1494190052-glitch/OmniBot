@@ -31,15 +31,14 @@ const ValueKey<String> kChatToolActivityStopKey = ValueKey<String>(
 );
 
 const double _kToolActivityRowHeight = 38;
-const double _kToolActivityRowGap = 5;
-const double _kToolActivityRowRadius = 10;
+const double _kToolActivityRowGap = 0;
 const double _kToolActivitySurfaceRadius = 18;
 const double _kToolActivityPreviewWidth = 94;
 const double _kToolActivityPreviewHeight = 54;
 const double _kToolActivityPreviewOverlap = 30;
 const double _kToolActivitySurfaceHorizontalInset = 20;
-const double _kToolActivityDrawerHorizontalPadding = 6;
-const double _kToolActivityDrawerVerticalPadding = 6;
+const double _kToolActivityDrawerHorizontalPadding = 0;
+const double _kToolActivityDrawerVerticalPadding = 0;
 const double _kToolActivityDrawerMaxHeight = 264;
 const double _kToolActivityStatusSlotWidth = 48;
 const double _kToolActivityTrailingSlotWidth = 24;
@@ -953,6 +952,9 @@ class _HistoryDrawer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dividerColor = context.isDarkTheme
+        ? context.omniPalette.borderSubtle.withValues(alpha: 0.52)
+        : const Color(0x140F2034);
     final scrollable = cards.length > 4;
     return Container(
       key: kChatToolActivityPanelKey,
@@ -973,19 +975,23 @@ class _HistoryDrawer extends StatelessWidget {
               : const NeverScrollableScrollPhysics(),
           itemBuilder: (context, index) {
             final card = cards[index];
-            return Material(
-              color: Colors.transparent,
-              borderRadius: BorderRadius.circular(_kToolActivityRowRadius),
-              clipBehavior: Clip.antiAlias,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(_kToolActivityRowRadius),
-                onTap: () => onOpenCard(card),
-                child: ToolActivityRow(card: card),
+            final isBottomMost = index == 0;
+            return DecoratedBox(
+              decoration: BoxDecoration(
+                border: isBottomMost
+                    ? null
+                    : Border(bottom: BorderSide(color: dividerColor, width: 1)),
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => onOpenCard(card),
+                  child: ToolActivityRow(card: card),
+                ),
               ),
             );
           },
-          separatorBuilder: (_, __) =>
-              const SizedBox(height: _kToolActivityRowGap),
+          separatorBuilder: (_, __) => const SizedBox.shrink(),
           itemCount: cards.length,
         ),
       ),
@@ -1020,16 +1026,6 @@ class ToolActivityRow extends StatelessWidget {
         : Color.lerp(AppColors.text, activityColor, 0.12)!;
     final status = (card['status'] ?? 'running').toString();
     final statusLabel = resolveAgentToolStatusLabel(card, locale: locale);
-    final rowBackgroundColor = context.isDarkTheme
-        ? Color.alphaBlend(
-            activityColor.withValues(alpha: 0.10),
-            palette.surfacePrimary,
-          )
-        : activityColor.withValues(alpha: 0.070);
-    final rowBorderColor = context.isDarkTheme
-        ? Color.lerp(palette.borderSubtle, activityColor, 0.30)!
-        : activityColor.withValues(alpha: 0.16);
-
     final title = resolveAgentToolTitle(card, locale: locale);
     final preview = _resolveActivityRowPreview(
       card,
@@ -1041,13 +1037,7 @@ class ToolActivityRow extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 220),
         curve: Curves.easeOutCubic,
-        padding: EdgeInsets.fromLTRB(10 + leadingInset, 0, 7, 0),
-        decoration: BoxDecoration(
-          color: rowBackgroundColor,
-          borderRadius: BorderRadius.circular(_kToolActivityRowRadius),
-          border: Border.all(color: rowBorderColor.withValues(alpha: 0.62)),
-        ),
-        clipBehavior: Clip.antiAlias,
+        padding: EdgeInsets.fromLTRB(10 + leadingInset, 0, 8, 0),
         child: LayoutBuilder(
           builder: (context, constraints) {
             return Row(
