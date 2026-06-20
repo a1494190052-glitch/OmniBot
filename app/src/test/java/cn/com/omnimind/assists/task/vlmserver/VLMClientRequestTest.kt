@@ -266,7 +266,7 @@ class VLMClientRequestTest {
     }
 
     @Test
-    fun `conversation tool result includes post action page observation`() {
+    fun `conversation tool result omits post action page observation`() {
         val client = VLMClient()
         val round = client.buildConversationRound(
             currentUserText = "current turn",
@@ -305,7 +305,9 @@ class VLMClientRequestTest {
         val payload = json.parseToJsonElement(round.toolMessage.content!!.jsonPrimitive.contentOrNull!!).jsonObject
         assertEquals(setOf("success", "result"), payload.keys)
         assertTrue(payload["success"]!!.jsonPrimitive.boolean)
-        assertTrue(payload["result"].toString().contains("Network & internet"))
+        assertEquals("OK", payload["result"]!!.jsonPrimitive.contentOrNull)
+        assertFalse(payload["result"].toString().contains("Network & internet"))
+        assertFalse(payload["result"].toString().contains("after_visible_texts"))
         assertFalse(payload.containsKey("state_delta"))
         assertFalse(payload.containsKey("continuation"))
     }
@@ -388,7 +390,8 @@ class VLMClientRequestTest {
         val compactUser = round.userMessage.content!!.jsonPrimitive.contentOrNull.orEmpty()
         assertTrue(compactUser.contains("Previous turn compact context"))
         assertTrue(compactUser.contains("Prior action: click Settings"))
-        assertTrue(compactUser.contains("Post-action observation"))
+        assertFalse(compactUser.contains("Post-action observation"))
+        assertFalse(compactUser.contains("Network & internet"))
         assertFalse(compactUser.contains("OOB indexed page evidence"))
         assertFalse(compactUser.contains("bounds=[0,0][720,1280]"))
     }

@@ -161,10 +161,9 @@ class VLMClient(
         )
         val toolCallId = assistantTurn.turn.message.toolCalls?.firstOrNull()?.id.orEmpty()
         val success = !(executedStep.result?.startsWith("执行失败") == true)
-        val postAction = VLMPostActionObservation.summarize(executedStep)
         val toolPayload = buildJsonObject {
             put("success", JsonPrimitive(success))
-            put("result", JsonPrimitive(compactToolResult(executedStep, postAction)))
+            put("result", JsonPrimitive(compactToolResult(executedStep)))
         }.toString()
         return VLMConversationRound(
             userMessage = ChatCompletionMessage(
@@ -180,17 +179,10 @@ class VLMClient(
         )
     }
 
-    private fun compactToolResult(
-        executedStep: UIStep,
-        post: VLMPostActionObservation.Summary?
-    ): String {
+    private fun compactToolResult(executedStep: UIStep): String {
         val parts = buildList {
             executedStep.result?.trim()?.takeIf { it.isNotEmpty() }?.let { add(it) }
             executedStep.summary.trim().takeIf { it.isNotEmpty() }?.let { add("summary=$it") }
-            post?.summaryText?.takeIf { it.isNotBlank() }?.let { add(it) }
-            post?.afterVisibleTexts?.takeIf { it.isNotEmpty() }?.let {
-                add("after_visible_texts=${it.take(MAX_TOOL_RESULT_VISIBLE_TEXTS).joinToString(" / ")}")
-            }
         }
         return parts.joinToString("; ").ifBlank { "no result details" }.take(MAX_TOOL_RESULT_CHARS)
     }
@@ -263,8 +255,6 @@ class VLMClient(
             is WaitAction -> "wait"
             is RecordAction -> "record"
         }.take(MAX_HISTORY_ACTION_CHARS)
-        val pageResult = VLMPostActionObservation.summarize(executedStep)?.summaryText
-            ?.take(MAX_HISTORY_OBSERVATION_CHARS)
         return buildString {
             append("Previous turn compact context. ")
             append("Do not use this as current page evidence; use the latest user message and screenshot for grounding. ")
@@ -273,10 +263,6 @@ class VLMClient(
             executedStep.result?.trim()?.takeIf { it.isNotEmpty() }?.let {
                 append(". Result: ")
                 append(it.take(MAX_HISTORY_RESULT_CHARS))
-            }
-            pageResult?.takeIf { it.isNotBlank() }?.let {
-                append(". Post-action observation: ")
-                append(it)
             }
             if (currentUserText.contains("用户任务") || currentUserText.contains("User task")) {
                 append(". The full previous prompt was intentionally compacted to control tokens.")
@@ -700,9 +686,7 @@ class VLMClient(
         private const val DEFAULT_MAX_COMPLETION_TOKENS = 384
         private const val MAX_HISTORY_ACTION_CHARS = 160
         private const val MAX_HISTORY_RESULT_CHARS = 220
-        private const val MAX_HISTORY_OBSERVATION_CHARS = 360
         private const val MAX_TOOL_RESULT_CHARS = 900
-        private const val MAX_TOOL_RESULT_VISIBLE_TEXTS = 12
         private const val INTERNAL_CALL_TOOL_ERROR =
             "call_tool is an internal runtime action and cannot be emitted by the VLM"
     }
