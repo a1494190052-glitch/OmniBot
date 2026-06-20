@@ -287,6 +287,7 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(vlm.contains("For saved RunLogs, reusable Functions"))
         assertTrue(vlm.contains("use the `omniflow` skill"))
         assertTrue(vlm.contains("`update_function`"))
+        assertFalse(vlm.contains("Function enhancement skill"))
         assertFalse(vlm.contains("`oob_function_update`"))
         retiredSkillAssets.forEach { path ->
             assertFalse("Retired OmniFlow skill asset must not be bundled: $path", sourceExists(path))
