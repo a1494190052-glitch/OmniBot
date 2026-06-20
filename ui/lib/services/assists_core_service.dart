@@ -1998,6 +1998,12 @@ class AgentAiConfigChangedEvent {
 }
 
 class AssistsMessageService {
+  static const String oobReusableFunctionAgentToolProfile =
+      'function_management';
+  static const List<String> oobReusableFunctionAgentAllowedTools = [
+    'oob_function_run',
+  ];
+
   static const MethodChannel assistCore = MethodChannel(
     'cn.com.omnimind.bot/AssistCoreEvent',
   );
@@ -3413,8 +3419,8 @@ class AssistsMessageService {
       userMessage: prompt,
       conversationId: conversationId,
       conversationMode: conversationMode,
-      toolProfile: 'function_management',
-      allowedTools: const ['oob_function_run'],
+      toolProfile: oobReusableFunctionAgentToolProfile,
+      allowedTools: oobReusableFunctionAgentAllowedTools,
     );
   }
 

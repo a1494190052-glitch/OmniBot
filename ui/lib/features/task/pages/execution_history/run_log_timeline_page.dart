@@ -4145,8 +4145,9 @@ class _ReusableFunctionSpecSheetState
         functionId: functionId,
         arguments: _defaultArguments,
       ),
-      'toolProfile': 'function_management',
-      'allowedTools': const ['oob_function_run'],
+      'toolProfile': AssistsMessageService.oobReusableFunctionAgentToolProfile,
+      'allowedTools':
+          AssistsMessageService.oobReusableFunctionAgentAllowedTools,
       'notificationEnabled': true,
       'source': 'run_log_reusable_function',
       'sourceRunId': widget.runId,

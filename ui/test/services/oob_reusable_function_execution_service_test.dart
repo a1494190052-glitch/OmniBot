@@ -29,6 +29,17 @@ void main() {
       expect(message, isNot(contains('Use the oob_function_run')));
     });
 
+    test('exposes one focused Agent tool policy for reusable Function UI', () {
+      expect(
+        AssistsMessageService.oobReusableFunctionAgentToolProfile,
+        'function_management',
+      );
+      expect(
+        AssistsMessageService.oobReusableFunctionAgentAllowedTools,
+        ['oob_function_run'],
+      );
+    });
+
     test('starts agent managed execution with focused Function tool', () async {
       final calls = <MethodCall>[];
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
