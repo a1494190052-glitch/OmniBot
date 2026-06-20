@@ -117,6 +117,17 @@ object UIStepExecutor {
         conditions: Set<String> = DEFAULT_PAGE_GUARD_CONDITIONS,
     ): Map<String, Any?> {
         val capturedAtMs = System.currentTimeMillis()
+        if (CHECKERS_DISABLED) {
+            return pageGuardBaseResult(
+                source = source,
+                execute = execute,
+                capturedAtMs = capturedAtMs,
+                snapshot = null,
+            ) + mapOf(
+                "matched" to false,
+                "reason" to "checker_disabled",
+            )
+        }
         if (!OmniflowActionRuntime.backend.isReady()) {
             return pageGuardBaseResult(
                 source = source,
@@ -1885,6 +1896,7 @@ object UIStepExecutor {
         state: ReplayState,
         checkerBudget: CheckerTriggerBudget,
     ): List<Map<String, Any?>> {
+        if (CHECKERS_DISABLED) return emptyList()
         val page = state.page ?: return emptyList()
         val candidate = blockingOverlayDismissCandidate(page) ?: return emptyList()
         val rule = OmniflowCheckerRule(
@@ -2328,6 +2340,7 @@ object UIStepExecutor {
         extraRules: List<OmniflowCheckerRule>,
         checkerBudget: CheckerTriggerBudget,
     ): List<Map<String, Any?>> {
+        if (CHECKERS_DISABLED) return emptyList()
         val action = replayAction.action
         if (action == OobActionCodec.ACTION_FINISHED) return emptyList()
         if (action == OobActionCodec.ACTION_OPEN_APP && phase != OmniflowCheckerRule.PHASE_POST_ACTION) {
@@ -5276,6 +5289,7 @@ object UIStepExecutor {
     private const val DEFAULT_CHECKER_TRIGGER_LIMIT = 1
     private const val DEFAULT_PAGE_GUARD_TRIGGER_LIMIT = 3
     private const val MAX_CHECKER_PHASE_CONTROL_COUNT = 3
+    private const val CHECKERS_DISABLED = true
     private const val DISMISS_CONTROL_RETRY_LIMIT = 1
     private const val MIN_FIRST_RUN_PROMPT_DISMISS_SCORE = 520f
     private const val REPLAY_ACTION_SETTLE_DELAY_MS = 1000L

@@ -55,10 +55,8 @@ OmniFlow Function Enhancer skill contract:
 - Never register UDEG node/page memory/decision context as a skill; UDEG material is recall evidence only.
 - Header enhancement must write a compact but detailed reusable description that helps the Agent decide when to call the Function later. Include the user-visible operation sequence, required app/page conditions, runtime inputs, and success signal when known; avoid coordinates and internal implementation details.
 - Per-step enhancement must label every executable step/action with what it does and why it exists in the trajectory. Each step needs a concise title, a concrete description/action_purpose, importance, cleanup_action, and cleanup_reason.
-- Per-step enhancement must mark each step with useful/merge/drop/noise/optional_checker metadata when applicable, but this metadata must not rewrite executable steps by itself.
-- Conditional obstruction dismissals such as closing ads, popups, banners, coupons, or permission nudges should be annotated as optional_checker metadata, not treated as a guaranteed happy-path action.
-- When marking a step as optional_checker, also add supported runtime checker rules in metadata.checker_rules and link them from agent_reuse.checker_assets so replay can apply the condition only when it is observed.
-- Supported checker rules are limited to overlay_blocking/dismiss, permission_dialog/allow, keyboard_obscuring/hide_keyboard, package_mismatch/open_app, and app_upgrade_prompt/dismiss. Do not invent checker conditions, scripts, selectors, or model calls.
+- Per-step enhancement must mark each step with useful/merge/drop/noise metadata when applicable, but this metadata must not rewrite executable steps by itself.
+- Runtime checker generation is disabled. Do not emit metadata.checker_rules, checker_assets, optional_checker cleanup actions, scripts, selectors, or model-call guards.
 - If there is no safe useful improvement for this section, return the current/fallback shape for this section rather than inventing content.
 - The app classifies the final attempt as enhanced, unchanged, partial, or failed from the validated patch and save result.
 ''';
@@ -1328,26 +1326,12 @@ Return exactly one JSON object. Use this example shape:
       "cleanup_reason": "why this step is useful or can be merged/dropped"
     }
   ],
-  "metadata": {
-    "checker_rules": [
-      {
-        "id": "dismiss_optional_overlay",
-        "condition": "overlay_blocking",
-        "action": "dismiss",
-        "enabled": true,
-        "params": {}
-      }
-    ]
-  },
   "agent_reuse": {
     "reuse_when": ["when this recorded trajectory matches the current app/page"],
     "avoid_when": ["when the target app/page is different"],
     "success_signal": "visible state that confirms success",
     "key_actions": [
       {"step_index": 1, "reason": "writes the runtime contact name", "parameter_names": ["contact_name"]}
-    ],
-    "checker_assets": [
-      {"checker_id": "dismiss_optional_overlay", "step_index": 2, "reason": "turns a conditional popup close into a runtime checker"}
     ],
     "segments": [
       {
@@ -1378,9 +1362,8 @@ Rules:
 - Include every input step index from execution.steps.
 - Every executable step/action must have title, description, action_purpose, importance, cleanup_action, and cleanup_reason.
 - Step description/action_purpose must say what the action does and why it exists in this trajectory; avoid generic labels like "click button".
-- cleanup_action must be one of keep, merge_candidate, drop_candidate, noise, or optional_checker.
-- Use optional_checker for conditional obstruction actions such as closing ads, popups, banners, coupons, permission nudges, or upgrade prompts that may not appear on every replay. Add optional_condition when known. Do not remove or force the step.
-- For every optional_checker, add a supported metadata.checker_rules entry and link it from agent_reuse.checker_assets. Supported combinations only: overlay_blocking+dismiss, permission_dialog+allow, keyboard_obscuring+hide_keyboard, package_mismatch+open_app, app_upgrade_prompt+dismiss. Do not invent scripts, selectors, model calls, or unsupported checker types.
+- cleanup_action must be one of keep, merge_candidate, drop_candidate, or noise.
+- Runtime checker generation is disabled. Do not emit metadata.checker_rules, checker_assets, optional_checker, scripts, selectors, or model-call guards.
 - Mark repeated, wrapper, state-refresh, wait-like, or no-op steps as merge_candidate/drop_candidate/noise with a short cleanup_reason. This is annotation only; do not remove steps.
 
 Input digest:
@@ -1423,26 +1406,12 @@ ${_labelEnhancementSkillContract(skillContract: skillContract, section: 'all')}
       "cleanup_reason": "说明这一步为什么有用，或为什么可合并/可删除"
     }
   ],
-  "metadata": {
-    "checker_rules": [
-      {
-        "id": "dismiss_optional_overlay",
-        "condition": "overlay_blocking",
-        "action": "dismiss",
-        "enabled": true,
-        "params": {}
-      }
-    ]
-  },
   "agent_reuse": {
     "reuse_when": ["当前 app/页面与记录轨迹一致时"],
     "avoid_when": ["目标 app/页面不同或字段语义不匹配时"],
     "success_signal": "可见的完成状态",
     "key_actions": [
       {"step_index": 1, "reason": "写入运行时联系人姓名", "parameter_names": ["contact_name"]}
-    ],
-    "checker_assets": [
-      {"checker_id": "dismiss_optional_overlay", "step_index": 2, "reason": "把条件性弹窗关闭动作转成运行时 checker"}
     ],
     "segments": [
       {
@@ -1472,9 +1441,8 @@ ${_labelEnhancementSkillContract(skillContract: skillContract, section: 'all')}
 - execution.steps 里的每个 step index 都要覆盖。
 - 每个可执行 step/action 都必须有 title、description、action_purpose、importance、cleanup_action 和 cleanup_reason。
 - description/action_purpose 必须说明这个动作做什么、为什么在这条轨迹里需要它；不要写“点击按钮”这种空泛描述。
-- cleanup_action 只能是 keep、merge_candidate、drop_candidate、noise 或 optional_checker。
-- 对关闭广告、弹窗、横幅、优惠券、权限提示、升级/更新提示等不一定每次出现的条件性遮挡动作，标成 optional_checker，并在知道条件时写 optional_condition。不要删除或强制改执行。
-- 每个 optional_checker 都要补一个可运行的 metadata.checker_rules，并在 agent_reuse.checker_assets 里关联原 step。只允许这些组合：overlay_blocking+dismiss、permission_dialog+allow、keyboard_obscuring+hide_keyboard、package_mismatch+open_app、app_upgrade_prompt+dismiss。不要发明脚本、selector、模型调用或不支持的 checker 类型。
+- cleanup_action 只能是 keep、merge_candidate、drop_candidate 或 noise。
+- 运行时 checker 生成已关闭。不要输出 metadata.checker_rules、checker_assets、optional_checker、脚本、selector 或模型调用 guard。
 - 对重复、wrapper、刷新状态、类似 wait、无页面变化的步骤，标成 merge_candidate/drop_candidate/noise 并写简短 cleanup_reason。这只是标注，不要删除步骤。
 
 输入摘要：
@@ -1553,20 +1521,18 @@ You are editing only per-step titles, descriptions, and action-purpose labels fo
 ${_labelEnhancementSkillContract(skillContract: skillContract, section: 'steps')}
 
 Return exactly one JSON object:
-{"steps":[{"index":0,"title":"short action title","description":"what visible action this step performs and why it is needed","action_purpose":"why this action exists in the recorded trajectory","importance":"key","cleanup_action":"keep","cleanup_reason":"why this step is useful or can be merged/dropped"}],"metadata":{"checker_rules":[{"id":"dismiss_optional_overlay","condition":"overlay_blocking","action":"dismiss","enabled":true,"params":{}}]},"agent_reuse":{"checker_assets":[{"checker_id":"dismiss_optional_overlay","step_index":0,"reason":"turns a conditional popup close into a runtime checker"}]}}
+{"steps":[{"index":0,"title":"short action title","description":"what visible action this step performs and why it is needed","action_purpose":"why this action exists in the recorded trajectory","importance":"key","cleanup_action":"keep","cleanup_reason":"why this step is useful or can be merged/dropped"}]}
 
 Rules:
 - Return raw JSON only. Do not use Markdown or explanations.
 - Include every input step index exactly once.
 - Use only indexes from the input digest.
 - Do not include name, parameters, execution, tools, or args.
-- Include metadata.checker_rules and agent_reuse.checker_assets only when a step is marked optional_checker.
 - Keep titles concise and action-oriented.
 - Describe visible user intent and why the action exists, not raw coordinates or low-level implementation.
 - Every executable step/action must have title, description, action_purpose, importance, cleanup_action, and cleanup_reason.
-- cleanup_action must be one of keep, merge_candidate, drop_candidate, noise, or optional_checker.
-- Use optional_checker for conditional obstruction actions such as closing ads, popups, banners, coupons, permission nudges, or upgrade prompts that may not appear on every replay. Add optional_condition when known. Do not remove or force the step.
-- For every optional_checker, add a supported metadata.checker_rules entry and link it from agent_reuse.checker_assets. Supported combinations only: overlay_blocking+dismiss, permission_dialog+allow, keyboard_obscuring+hide_keyboard, package_mismatch+open_app, app_upgrade_prompt+dismiss. Do not invent scripts, selectors, model calls, or unsupported checker types.
+- cleanup_action must be one of keep, merge_candidate, drop_candidate, or noise.
+- Runtime checker generation is disabled. Do not emit metadata.checker_rules, checker_assets, optional_checker, scripts, selectors, or model-call guards.
 - Mark repeated, wrapper, state-refresh, wait-like, or no-op steps as merge_candidate/drop_candidate/noise with a short cleanup_reason. This is annotation only; do not remove steps.
 
 Input digest:
@@ -1579,20 +1545,18 @@ $input
 ${_labelEnhancementSkillContract(skillContract: skillContract, section: 'steps')}
 
 只返回一个 JSON object：
-{"steps":[{"index":0,"title":"简短动作标题","description":"这个动作具体做什么，以及为什么需要它","action_purpose":"这个动作在录制轨迹里的用途","importance":"key","cleanup_action":"keep","cleanup_reason":"说明这一步为什么有用，或为什么可合并/可删除"}],"metadata":{"checker_rules":[{"id":"dismiss_optional_overlay","condition":"overlay_blocking","action":"dismiss","enabled":true,"params":{}}]},"agent_reuse":{"checker_assets":[{"checker_id":"dismiss_optional_overlay","step_index":0,"reason":"把条件性弹窗关闭动作转成运行时 checker"}]}}
+{"steps":[{"index":0,"title":"简短动作标题","description":"这个动作具体做什么，以及为什么需要它","action_purpose":"这个动作在录制轨迹里的用途","importance":"key","cleanup_action":"keep","cleanup_reason":"说明这一步为什么有用，或为什么可合并/可删除"}]}
 
 规则：
 - 只返回原始 JSON。不要 Markdown，不要解释。
 - 输入摘要里的每个 step index 都必须出现一次。
 - 只能使用输入摘要中已有的 index。
 - 不要包含 name、parameters、execution、tools 或 args。
-- 只有当 step 标成 optional_checker 时，才包含 metadata.checker_rules 和 agent_reuse.checker_assets。
 - 标题要短，像动作说明。
 - 描述可见用户意图和动作存在的原因，不要描述裸坐标或底层实现。
 - 每个可执行 step/action 都必须有 title、description、action_purpose、importance、cleanup_action 和 cleanup_reason。
-- cleanup_action 只能是 keep、merge_candidate、drop_candidate、noise 或 optional_checker。
-- 对关闭广告、弹窗、横幅、优惠券、权限提示、升级/更新提示等不一定每次出现的条件性遮挡动作，标成 optional_checker，并在知道条件时写 optional_condition。不要删除或强制改执行。
-- 每个 optional_checker 都要补一个可运行的 metadata.checker_rules，并在 agent_reuse.checker_assets 里关联原 step。只允许这些组合：overlay_blocking+dismiss、permission_dialog+allow、keyboard_obscuring+hide_keyboard、package_mismatch+open_app、app_upgrade_prompt+dismiss。不要发明脚本、selector、模型调用或不支持的 checker 类型。
+- cleanup_action 只能是 keep、merge_candidate、drop_candidate 或 noise。
+- 运行时 checker 生成已关闭。不要输出 metadata.checker_rules、checker_assets、optional_checker、脚本、selector 或模型调用 guard。
 - 对重复、wrapper、刷新状态、类似 wait、无页面变化的步骤，标成 merge_candidate/drop_candidate/noise 并写简短 cleanup_reason。这只是标注，不要删除步骤。
 
 输入摘要：
@@ -2165,14 +2129,7 @@ $fallback
       }
     }
     result['parameters'] = _applyParameterEnhancement(aiJson, result);
-    final checkerEnhancement = _checkerRuleEnhancement(aiJson, result);
-    _applyCheckerRuleEnhancement(result, checkerEnhancement);
-    final agentReuse = _agentReuseEnhancement(
-      aiJson,
-      result,
-      checkerAssets: checkerEnhancement.assets,
-      checkerRuleIds: checkerEnhancement.ruleIds,
-    );
+    final agentReuse = _agentReuseEnhancement(aiJson, result);
     if (agentReuse.isNotEmpty) {
       result['agent_reuse'] = _mergeMaps(
         _asStringKeyMap(result['agent_reuse']),
@@ -2464,21 +2421,17 @@ $fallback
 
   static Map<String, dynamic> _agentReuseEnhancement(
     Map<String, dynamic> aiJson,
-    Map<String, dynamic> functionJson, {
-    List<Map<String, dynamic>> checkerAssets = const <Map<String, dynamic>>[],
-    Set<String> checkerRuleIds = const <String>{},
-  }) {
+    Map<String, dynamic> functionJson,
+  ) {
     final raw = _mergeMaps(_asStringKeyMap(aiJson['agent_reuse']), {
       if (aiJson['reuse_when'] != null) 'reuse_when': aiJson['reuse_when'],
       if (aiJson['avoid_when'] != null) 'avoid_when': aiJson['avoid_when'],
       if (aiJson['success_signal'] != null)
         'success_signal': aiJson['success_signal'],
       if (aiJson['key_actions'] != null) 'key_actions': aiJson['key_actions'],
-      if (aiJson['checker_assets'] != null)
-        'checker_assets': aiJson['checker_assets'],
       if (aiJson['segments'] != null) 'segments': aiJson['segments'],
     });
-    if (raw.isEmpty && checkerAssets.isEmpty) {
+    if (raw.isEmpty) {
       return const <String, dynamic>{};
     }
 
@@ -2495,16 +2448,6 @@ $fallback
       steps,
       parameterNames,
     );
-    final existingAgentReuse = _asStringKeyMap(functionJson['agent_reuse']);
-    final safeCheckerAssets = _mergeCheckerAssets(
-      _asStringKeyMapList(existingAgentReuse['checker_assets']),
-      [
-        ..._safeCheckerAssets(raw['checker_assets'], steps, checkerRuleIds),
-        ...checkerAssets,
-      ],
-      steps,
-      checkerRuleIds,
-    );
     final segments = _safeReuseSegments(raw['segments'], steps, parameterNames);
 
     final output = <String, dynamic>{
@@ -2515,7 +2458,6 @@ $fallback
       if (avoidWhen.isNotEmpty) 'avoid_when': avoidWhen,
       if (successSignal.isNotEmpty) 'success_signal': successSignal,
       if (keyActions.isNotEmpty) 'key_actions': keyActions,
-      if (safeCheckerAssets.isNotEmpty) 'checker_assets': safeCheckerAssets,
       if (segments.isNotEmpty) 'segments': segments,
     };
     return output.length <= 3 ? const <String, dynamic>{} : output;

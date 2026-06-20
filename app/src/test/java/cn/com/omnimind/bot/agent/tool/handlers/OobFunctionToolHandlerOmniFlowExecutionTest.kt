@@ -184,7 +184,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
     }
 
     @Test
-    fun `function replay stops safely on slider verification page`() = runBlocking {
+    fun `function replay continues on slider verification page when checkers are disabled`() = runBlocking {
         val context = TempFilesContext()
         val backend = RecordingBackend(
             currentXml = """
@@ -223,15 +223,10 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
                     allowAgentFallback = false,
                 )
 
-                assertEquals(false, run["success"])
-                assertEquals("OOB_RISK_CHALLENGE_REQUIRES_USER", run["error_code"])
-                assertEquals(true, run["requires_user_action"])
-                assertEquals(0, backend.clickCount)
-                val challenge = run["risk_challenge"] as? Map<*, *> ?: error("missing challenge")
-                assertEquals("slider_challenge", challenge["kind"])
+                assertEquals(true, run["success"])
+                assertEquals(1, backend.clickCount)
                 val step = stepResults(run).single()
-                assertEquals("OOB_RISK_CHALLENGE_REQUIRES_USER", step["error_code"])
-                assertEquals(true, step["requires_user_action"])
+                assertEquals(true, step["success"])
             }
         } finally {
             context.root.deleteRecursively()
@@ -541,7 +536,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
                 )
 
                 assertEquals(false, run["success"])
-                assertEquals(1, backend.clickCount)
+                assertEquals(0, backend.clickCount)
                 val results = stepResults(run)
                 assertFalse("replay must not skip directly to a later matching source", results.any { it["step_id"] == "current_c" })
                 assertFalse(results[0]["skipped"] == true)

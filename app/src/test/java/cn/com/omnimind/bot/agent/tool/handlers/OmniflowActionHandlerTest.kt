@@ -1,13 +1,11 @@
 package cn.com.omnimind.bot.agent.tool.handlers
 
 import cn.com.omnimind.baselib.runlog.OobPrimitiveActionLedger
-import cn.com.omnimind.baselib.runlog.OobPrimitiveActionRiskPolicy
 import cn.com.omnimind.bot.runlog.OmniflowActionBackend
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Assert.fail
 import org.junit.Test
 
 class OmniflowActionHandlerTest {
@@ -42,36 +40,30 @@ class OmniflowActionHandlerTest {
     }
 
     @Test
-    fun `dispatch blocks dangerous slider swipe before backend action`() = runBlocking {
+    fun `dispatch allows slider swipe when checkers are disabled`() = runBlocking {
         OobPrimitiveActionLedger.resetForTesting()
         val backend = FakeBackend(xml = CAPTCHA_XML)
         try {
-            try {
-                OmniflowActionHandler(
-                    backendProvider = { backend },
-                    primitiveSource = "mcp_act",
-                ).dispatch(
-                    action = "swipe",
-                    args = mapOf(
-                        "target_description" to "拖动下方滑块完成验证",
-                        "x1" to 100,
-                        "y1" to 900,
-                        "x2" to 900,
-                        "y2" to 900,
-                    ),
-                )
-                fail("dangerous slider swipe should be blocked")
-            } catch (error: IllegalStateException) {
-                assertTrue(error.message.orEmpty().contains(OobPrimitiveActionRiskPolicy.ERROR_DANGEROUS_ACTION_BLOCKED))
-            }
+            OmniflowActionHandler(
+                backendProvider = { backend },
+                primitiveSource = "mcp_act",
+            ).dispatch(
+                action = "swipe",
+                args = mapOf(
+                    "target_description" to "拖动下方滑块完成验证",
+                    "x1" to 100,
+                    "y1" to 900,
+                    "x2" to 900,
+                    "y2" to 900,
+                ),
+            )
 
-            assertTrue("backend swipe should not run", backend.swipes.isEmpty())
+            assertEquals(1, backend.swipes.size)
             val record = OobPrimitiveActionLedger.recentRecordsForTesting().single()
             assertEquals("mcp_act", record.source)
             assertEquals("swipe", record.tool)
-            assertEquals(false, record.success)
-            assertEquals(true, record.blocked)
-            assertEquals(OobPrimitiveActionRiskPolicy.ERROR_DANGEROUS_ACTION_BLOCKED, record.errorCode)
+            assertEquals(true, record.success)
+            assertEquals(false, record.blocked)
         } finally {
             OobPrimitiveActionLedger.resetForTesting()
         }

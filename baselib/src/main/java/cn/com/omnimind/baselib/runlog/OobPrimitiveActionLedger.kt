@@ -64,22 +64,7 @@ object OobPrimitiveActionRiskPolicy {
         val pageText = pageRiskText(pageXml, packageName, activityName)
         val targetAndPageText = "$targetText $pageText"
 
-        findMatch(pageText, globalChallengeTerms)?.let { term ->
-            return blocked(
-                category = "risk_challenge",
-                reason = "Current page requires user verification or risk challenge handling",
-                matchedText = term,
-            )
-        }
-
         if (normalizedTool in targetDrivenTools) {
-            findMatch(targetText, globalChallengeTerms)?.let { term ->
-                return blocked(
-                    category = "risk_challenge",
-                    reason = "Verification, captcha, slider, or identity challenge handling requires the user",
-                    matchedText = term,
-                )
-            }
             findMatch(targetAndPageText, paymentTerms)?.let { term ->
                 return blocked(
                     category = "payment_or_order",
@@ -91,16 +76,6 @@ object OobPrimitiveActionRiskPolicy {
                 return blocked(
                     category = "destructive",
                     reason = "Destructive account, app, data, or system action requires the user",
-                    matchedText = term,
-                )
-            }
-        }
-
-        if (normalizedTool == OobCanonicalActionSchema.TOOL_INPUT_TEXT) {
-            findMatch(targetAndPageText, sensitiveInputTerms)?.let { term ->
-                return blocked(
-                    category = "sensitive_input",
-                    reason = "Password, verification code, identity, bank, or payment credential input requires the user",
                     matchedText = term,
                 )
             }
@@ -173,26 +148,6 @@ object OobPrimitiveActionRiskPolicy {
 
     private val submitKeys = setOf("enter", "return", "done", "go", "search")
 
-    private val globalChallengeTerms = listOf(
-        "验证码",
-        "校验码",
-        "短信验证",
-        "滑块",
-        "拼图",
-        "身份核实",
-        "身份验证",
-        "安全验证",
-        "人机验证",
-        "拖动下方滑块",
-        "puzzleslider",
-        "captcha",
-        "verification code",
-        "security verification",
-        "identity verification",
-        "slide to verify",
-        "yoda",
-    )
-
     private val paymentTerms = listOf(
         "确认支付",
         "立即支付",
@@ -244,28 +199,7 @@ object OobPrimitiveActionRiskPolicy {
         "close account",
     )
 
-    private val sensitiveInputTerms = listOf(
-        "密码",
-        "支付密码",
-        "验证码",
-        "校验码",
-        "短信码",
-        "动态码",
-        "身份证",
-        "银行卡",
-        "卡号",
-        "cvv",
-        "pin",
-        "password",
-        "passcode",
-        "verification code",
-        "one-time code",
-        "otp",
-        "bank card",
-        "card number",
-    )
-
-    private val submitPageTerms = paymentTerms + sensitiveInputTerms + globalChallengeTerms
+    private val submitPageTerms = paymentTerms
 
     private const val MAX_PAGE_XML_SCAN_CHARS = 80_000
     private const val MAX_PAGE_ATTRS = 240

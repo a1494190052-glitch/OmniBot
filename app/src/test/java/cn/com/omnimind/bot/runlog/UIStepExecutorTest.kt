@@ -240,43 +240,34 @@ class UIStepExecutorTest {
     }
 
     @Test
-    fun `execute blocks dangerous primitive replay swipe before backend dispatch`() = runBlocking {
+    fun `execute allows slider primitive replay when checkers are disabled`() = runBlocking {
         OobPrimitiveActionLedger.resetForTesting()
         val backend = FakeBackend(beforeXml = CAPTCHA_XML, afterXml = CAPTCHA_XML)
         try {
             OmniflowActionRuntime.useBackendForTesting(backend).use {
-                try {
-                    UIStepExecutor.execute(
-                        step = mapOf(
-                            "executor" to "omniflow",
-                            "tool" to "swipe",
-                            "args" to mapOf(
-                                "target_description" to "拖动下方滑块完成验证",
-                                "x1" to 100,
-                                "y1" to 900,
-                                "x2" to 900,
-                                "y2" to 900,
-                                "direction" to "right",
-                            ),
+                UIStepExecutor.execute(
+                    step = mapOf(
+                        "executor" to "omniflow",
+                        "tool" to "swipe",
+                        "args" to mapOf(
+                            "target_description" to "拖动下方滑块完成验证",
+                            "x1" to 100,
+                            "y1" to 900,
+                            "x2" to 900,
+                            "y2" to 900,
+                            "direction" to "right",
                         ),
-                        stepId = "step_slider_verification",
-                        stepTitle = "drag slider verification",
-                    )
-                    fail("dangerous primitive swipe should be blocked")
-                } catch (error: UIStepExecutor.ExecutionException) {
-                    assertEquals(
-                        OobPrimitiveActionRiskPolicy.ERROR_DANGEROUS_ACTION_BLOCKED,
-                        error.errorCode,
-                    )
-                }
+                    ),
+                    stepId = "step_slider_verification",
+                    stepTitle = "drag slider verification",
+                )
 
-                assertTrue("backend swipe should not run", backend.swipeRequests.isEmpty())
+                assertEquals(1, backend.swipeRequests.size)
                 val record = OobPrimitiveActionLedger.recentRecordsForTesting().single()
                 assertEquals("omniflow_replay", record.source)
                 assertEquals("swipe", record.tool)
-                assertEquals(false, record.success)
-                assertEquals(true, record.blocked)
-                assertEquals(OobPrimitiveActionRiskPolicy.ERROR_DANGEROUS_ACTION_BLOCKED, record.errorCode)
+                assertEquals(true, record.success)
+                assertEquals(false, record.blocked)
             }
         } finally {
             OobPrimitiveActionLedger.resetForTesting()
@@ -483,9 +474,10 @@ class UIStepExecutorTest {
             assertEquals(true, transfer["current_sparse_overlay_page"])
             assertEquals(true, transfer["current_privacy_notice_overlay"])
             assertEquals(true, transfer["recorded_action_args_used"])
-            assertTrue("checker should attempt to dismiss privacy overlay before replay", backend.clickPoints.size >= 2)
-            assertEquals(360f, backend.clickPoints.last().first, 0.01f)
-            assertEquals(944f, backend.clickPoints.last().second, 0.01f)
+            assertFalse(result.containsKey("control_effects"))
+            assertEquals(1, backend.clickPoints.size)
+            assertEquals(360f, backend.clickPoints.single().first, 0.01f)
+            assertEquals(944f, backend.clickPoints.single().second, 0.01f)
         }
     }
 
@@ -681,7 +673,7 @@ class UIStepExecutorTest {
     }
 
     @Test
-    fun `checker control action refreshes replay state before transfer`() = runBlocking {
+    fun `checker disabled does not refresh replay state before transfer`() = runBlocking {
         val backend = FakeBackend(beforeXml = AD_OVERLAY_XML, afterXml = SOURCE_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
             val result = UIStepExecutor.execute(
@@ -699,9 +691,10 @@ class UIStepExecutorTest {
             )
 
             assertEquals(true, result["success"])
-            assertEquals("action_transfer", result["replay_mode"])
-            assertTrue(backend.currentXmlReadCount >= 2)
-            assertEquals(2, backend.clickPoints.size)
+            assertFalse(result.containsKey("control_effects"))
+            assertEquals(1, backend.clickPoints.size)
+            assertEquals(120f, backend.clickPoints.single().first, 0.01f)
+            assertEquals(240f, backend.clickPoints.single().second, 0.01f)
         }
     }
 
@@ -949,7 +942,7 @@ class UIStepExecutorTest {
     }
 
     @Test
-    fun `open app runs resolver checker after launch`() = runBlocking {
+    fun `open app does not run resolver checker when checkers are disabled`() = runBlocking {
         val backend = FakeBackend(beforeXml = SOURCE_XML, afterXml = RESOLVER_DIALOG_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
             val result = UIStepExecutor.execute(
@@ -964,20 +957,13 @@ class UIStepExecutorTest {
 
             assertEquals(true, result["success"])
             assertEquals(listOf("com.example:false"), backend.launchRequests)
-            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
-            val effect = controlEffects.single() as Map<*, *>
-            assertEquals("confirm_resolver_always_after_open_app", effect["controller"])
-            assertEquals("post_action", effect["phase"])
-            assertEquals("resolver_dialog", effect["condition"])
-            assertEquals("confirm_resolver_always", effect["action"])
-            assertEquals(1, backend.clickPoints.size)
-            assertEquals(810f, backend.clickPoints.single().first, 0.01f)
-            assertEquals(1690f, backend.clickPoints.single().second, 0.01f)
+            assertFalse(result.containsKey("control_effects"))
+            assertTrue(backend.clickPoints.isEmpty())
         }
     }
 
     @Test
-    fun `open app dismisses app upgrade prompt after launch`() = runBlocking {
+    fun `open app does not dismiss app upgrade prompt when checkers are disabled`() = runBlocking {
         val backend = FakeBackend(
             beforeXml = SOURCE_XML,
             afterXml = HI_UPGRADE_DIALOG_XML,
@@ -996,16 +982,8 @@ class UIStepExecutorTest {
 
             assertEquals(true, result["success"])
             assertEquals(listOf("com.example.hi:false"), backend.launchRequests)
-            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
-            val effect = controlEffects.single() as Map<*, *>
-            assertEquals("dismiss_app_upgrade_prompt_after_open_app", effect["controller"])
-            assertEquals("post_action", effect["phase"])
-            assertEquals("app_upgrade_prompt", effect["condition"])
-            assertEquals("dismiss", effect["action"])
-            assertEquals("以后再说 later", effect["button_text"])
-            assertEquals(1, backend.clickPoints.size)
-            assertEquals(510f, backend.clickPoints.single().first, 0.01f)
-            assertEquals(1240f, backend.clickPoints.single().second, 0.01f)
+            assertFalse(result.containsKey("control_effects"))
+            assertTrue(backend.clickPoints.isEmpty())
         }
     }
 
@@ -1602,7 +1580,7 @@ class UIStepExecutorTest {
     }
 
     @Test
-    fun `omniflow loop dismisses blocking overlay before recorded click`() = runBlocking {
+    fun `omniflow loop does not dismiss blocking overlay when checkers are disabled`() = runBlocking {
         val backend = FakeBackend(beforeXml = AD_OVERLAY_XML, afterXml = SOURCE_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
             val result = UIStepExecutor.execute(
@@ -1620,23 +1598,21 @@ class UIStepExecutorTest {
             )
 
             assertEquals(true, result["success"])
-            assertEquals("action_transfer", result["replay_mode"])
-            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
-            assertEquals(1, controlEffects.size)
-            assertEquals(2, backend.clickPoints.size)
-            assertEquals(120f, backend.clickPoints.last().first, 0.01f)
-            assertEquals(240f, backend.clickPoints.last().second, 0.01f)
+            assertFalse(result.containsKey("control_effects"))
+            assertEquals(1, backend.clickPoints.size)
+            assertEquals(120f, backend.clickPoints.single().first, 0.01f)
+            assertEquals(240f, backend.clickPoints.single().second, 0.01f)
         }
     }
 
     @Test
-    fun `omniflow loop dismisses sparse coachmark overlay covering target point`() = runBlocking {
+    fun `omniflow loop does not dismiss sparse coachmark overlay when checkers are disabled`() = runBlocking {
         val backend = FakeBackend(
             beforeXml = COACHMARK_TARGET_OVERLAY_XML,
             afterXml = CLOCK_STOPWATCH_START_XML,
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = UIStepExecutor.execute(
+            expectSourceNotReached(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -1655,21 +1631,12 @@ class UIStepExecutorTest {
                 stepTitle = "click start",
             )
 
-            assertEquals(true, result["success"])
-            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
-            val effect = controlEffects.single() as Map<*, *>
-            assertEquals("dismiss_blocking_overlay", effect["controller"])
-            assertEquals("overlay_blocking", effect["condition"])
-            assertEquals(2, backend.clickPoints.size)
-            assertEquals(360f, backend.clickPoints.first().first, 0.01f)
-            assertEquals(970f, backend.clickPoints.first().second, 0.01f)
-            assertEquals(360f, backend.clickPoints.last().first, 0.01f)
-            assertEquals(944f, backend.clickPoints.last().second, 0.01f)
+            assertTrue(backend.clickPoints.isEmpty())
         }
     }
 
     @Test
-    fun `global checker accepts privacy notice before recorded click`() = runBlocking {
+    fun `global checker does not accept privacy notice when checkers are disabled`() = runBlocking {
         val backend = FakeBackend(
             beforeXml = PRIVACY_NOTICE_XML,
             afterXml = CLOCK_STOPWATCH_START_XML,
@@ -1695,20 +1662,15 @@ class UIStepExecutorTest {
             )
 
             assertEquals(true, result["success"])
-            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
-            val effect = controlEffects.single() as Map<*, *>
-            assertEquals("dismiss_blocking_overlay", effect["controller"])
-            assertEquals("overlay_blocking", effect["condition"])
-            assertEquals(2, backend.clickPoints.size)
-            assertEquals(360f, backend.clickPoints.first().first, 0.01f)
-            assertEquals(970f, backend.clickPoints.first().second, 0.01f)
-            assertEquals(360f, backend.clickPoints.last().first, 0.01f)
-            assertEquals(944f, backend.clickPoints.last().second, 0.01f)
+            assertFalse(result.containsKey("control_effects"))
+            assertEquals(1, backend.clickPoints.size)
+            assertEquals(360f, backend.clickPoints.single().first, 0.01f)
+            assertEquals(944f, backend.clickPoints.single().second, 0.01f)
         }
     }
 
     @Test
-    fun `global checker dismisses sparse privacy notice without explicit button`() = runBlocking {
+    fun `global checker does not dismiss sparse privacy notice when checkers are disabled`() = runBlocking {
         val backend = FakeBackend(
             beforeXml = PRIVACY_NOTICE_NO_BUTTON_XML,
             afterXml = CLOCK_STOPWATCH_START_XML,
@@ -1734,25 +1696,21 @@ class UIStepExecutorTest {
             )
 
             assertEquals(true, result["success"])
-            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
-            val effect = controlEffects.single() as Map<*, *>
-            assertEquals("dismiss_blocking_overlay", effect["controller"])
-            assertEquals("overlay_blocking", effect["condition"])
-            assertEquals(2, backend.clickPoints.size)
-            val firstClick = backend.clickPoints.first()
-            assertTrue("privacy container should be clicked first", firstClick.first in 199f..640f)
-            assertTrue("privacy container should be clicked first", firstClick.second in 66f..157f)
+            assertFalse(result.containsKey("control_effects"))
+            assertEquals(1, backend.clickPoints.size)
+            assertEquals(360f, backend.clickPoints.single().first, 0.01f)
+            assertEquals(944f, backend.clickPoints.single().second, 0.01f)
         }
     }
 
     @Test
-    fun `global checker skips first run account prompt before recorded click`() = runBlocking {
+    fun `global checker does not skip first run account prompt when checkers are disabled`() = runBlocking {
         val backend = FakeBackend(
             beforeXml = FIRST_RUN_ACCOUNT_PROMPT_XML,
             afterXml = CONTACTS_HOME_XML,
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = UIStepExecutor.execute(
+            expectSourceNotReached(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -1770,21 +1728,12 @@ class UIStepExecutorTest {
                 stepTitle = "click create contact behind first-run prompt",
             )
 
-            assertEquals(true, result["success"])
-            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
-            val effect = controlEffects.single() as Map<*, *>
-            assertEquals("dismiss_blocking_overlay", effect["controller"])
-            assertEquals("overlay_blocking", effect["condition"])
-            assertEquals(2, backend.clickPoints.size)
-            assertEquals(401f, backend.clickPoints.first().first, 0.01f)
-            assertEquals(1168f, backend.clickPoints.first().second, 0.01f)
-            assertEquals(616f, backend.clickPoints.last().first, 0.01f)
-            assertEquals(984f, backend.clickPoints.last().second, 0.01f)
+            assertTrue(backend.clickPoints.isEmpty())
         }
     }
 
     @Test
-    fun `global checker waits for first run prompt to disappear before recorded click`() = runBlocking {
+    fun `global checker does not wait for first run prompt when checkers are disabled`() = runBlocking {
         val backend = FakeBackend(
             beforeXml = FIRST_RUN_ACCOUNT_PROMPT_XML,
             afterXml = CONTACTS_HOME_XML,
@@ -1795,7 +1744,7 @@ class UIStepExecutorTest {
             ),
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = UIStepExecutor.execute(
+            expectSourceNotReached(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -1813,28 +1762,18 @@ class UIStepExecutorTest {
                 stepTitle = "click create contact after delayed first-run prompt dismissal",
             )
 
-            assertEquals(true, result["success"])
-            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
-            val effect = controlEffects.single() as Map<*, *>
-            assertEquals("dismiss_blocking_overlay", effect["controller"])
-            assertEquals(0, effect["dismiss_retry_count"])
-            assertEquals(false, effect["dismiss_still_blocking_after_retry"])
-            assertEquals(2, backend.clickPoints.size)
-            assertEquals(401f, backend.clickPoints.first().first, 0.01f)
-            assertEquals(1168f, backend.clickPoints.first().second, 0.01f)
-            assertEquals(616f, backend.clickPoints.last().first, 0.01f)
-            assertEquals(984f, backend.clickPoints.last().second, 0.01f)
+            assertTrue(backend.clickPoints.isEmpty())
         }
     }
 
     @Test
-    fun `global checker advances first run next prompt before recorded click`() = runBlocking {
+    fun `global checker does not advance first run next prompt when checkers are disabled`() = runBlocking {
         val backend = FakeBackend(
             beforeXml = CAMERA_LOCATION_PROMPT_XML,
             afterXml = CAMERA_TARGET_WITHOUT_MODE_LIST_XML,
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = UIStepExecutor.execute(
+            expectSourceNotReached(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -1851,21 +1790,12 @@ class UIStepExecutorTest {
                 stepTitle = "click shutter after camera first-run prompt",
             )
 
-            assertEquals(true, result["success"])
-            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
-            val effect = controlEffects.single() as Map<*, *>
-            assertEquals("dismiss_blocking_overlay", effect["controller"])
-            assertEquals("overlay_blocking", effect["condition"])
-            assertEquals(2, backend.clickPoints.size)
-            assertEquals(360f, backend.clickPoints.first().first, 0.01f)
-            assertEquals(1148f, backend.clickPoints.first().second, 0.01f)
-            assertEquals(360f, backend.clickPoints.last().first, 0.01f)
-            assertEquals(1136f, backend.clickPoints.last().second, 0.01f)
+            assertTrue(backend.clickPoints.isEmpty())
         }
     }
 
     @Test
-    fun `global checker resolves chained first run and permission prompts before recorded action`() = runBlocking {
+    fun `global checker does not resolve chained prompts when checkers are disabled`() = runBlocking {
         val backend = FakeBackend(
             beforeXml = CAMERA_LOCATION_PROMPT_XML,
             afterXml = CAMERA_TARGET_WITHOUT_MODE_LIST_XML,
@@ -1876,7 +1806,7 @@ class UIStepExecutorTest {
             ),
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = UIStepExecutor.execute(
+            expectSourceNotReached(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -1893,14 +1823,7 @@ class UIStepExecutorTest {
                 stepTitle = "click shutter after chained first-run prompts",
             )
 
-            assertEquals(true, result["success"])
-            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
-            assertEquals(2, controlEffects.size)
-            val controllers = controlEffects.map { (it as Map<*, *>)["controller"] }
-            assertEquals(listOf("dismiss_blocking_overlay", "auto_grant_permission"), controllers)
-            assertEquals(3, backend.clickPoints.size)
-            assertEquals(360f, backend.clickPoints.last().first, 0.01f)
-            assertEquals(1136f, backend.clickPoints.last().second, 0.01f)
+            assertTrue(backend.clickPoints.isEmpty())
         }
     }
 
@@ -1943,7 +1866,7 @@ class UIStepExecutorTest {
     }
 
     @Test
-    fun `page guard advances setup apply prompt`() = runBlocking {
+    fun `page guard does not advance setup apply prompt when checkers are disabled`() = runBlocking {
         val backend = FakeBackend(
             beforeXml = AUDIO_SETUP_PROMPT_XML,
             afterXml = AUDIO_RECORD_READY_XML,
@@ -1952,17 +1875,14 @@ class UIStepExecutorTest {
         OmniflowActionRuntime.useBackendForTesting(backend).use {
             val result = UIStepExecutor.runPageGuardOnce()
 
-            assertEquals(true, result["matched"])
-            assertEquals(true, result["executed"])
-            assertEquals("overlay_blocking", result["condition"])
-            assertEquals(1, backend.clickPoints.size)
-            assertEquals(526f, backend.clickPoints.single().first, 0.01f)
-            assertEquals(1168f, backend.clickPoints.single().second, 0.01f)
+            assertEquals(false, result["matched"])
+            assertEquals("checker_disabled", result["reason"])
+            assertTrue(backend.clickPoints.isEmpty())
         }
     }
 
     @Test
-    fun `global checker can dismiss first run prompt after package recovery`() = runBlocking {
+    fun `global checker does not dismiss first run prompt after package recovery when disabled`() = runBlocking {
         val backend = FakeBackend(
             beforeXml = EMPTY_PAGE_XML,
             afterXml = CONTACTS_HOME_XML,
@@ -1971,7 +1891,7 @@ class UIStepExecutorTest {
             postActionPackages = listOf("com.google.android.contacts", "com.google.android.contacts"),
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = UIStepExecutor.execute(
+            expectSourceNotReached(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -1992,25 +1912,16 @@ class UIStepExecutorTest {
                 stepTitle = "click create contact after package recovery and first-run prompt",
             )
 
-            assertEquals(true, result["success"])
-            assertEquals(listOf("com.google.android.contacts:false"), backend.launchRequests)
-            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
-            assertEquals(2, controlEffects.size)
-            val controllers = controlEffects.map { (it as Map<*, *>)["controller"] }
-            assertEquals(listOf("package_mismatch_recovery", "dismiss_blocking_overlay"), controllers)
-            assertEquals(2, backend.clickPoints.size)
-            assertEquals(401f, backend.clickPoints.first().first, 0.01f)
-            assertEquals(1168f, backend.clickPoints.first().second, 0.01f)
-            assertEquals(616f, backend.clickPoints.last().first, 0.01f)
-            assertEquals(984f, backend.clickPoints.last().second, 0.01f)
+            assertTrue(backend.launchRequests.isEmpty())
+            assertTrue(backend.clickPoints.isEmpty())
         }
     }
 
     @Test
-    fun `global checker skips splash ad before recorded click`() = runBlocking {
+    fun `global checker does not skip splash ad when checkers are disabled`() = runBlocking {
         val backend = FakeBackend(beforeXml = SKIP_AD_XML, afterXml = SOURCE_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = UIStepExecutor.execute(
+            expectSourceNotReached(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -2024,22 +1935,12 @@ class UIStepExecutorTest {
                 stepTitle = "click behind splash ad",
             )
 
-            assertEquals(true, result["success"])
-            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
-            val effect = controlEffects.single() as Map<*, *>
-            assertEquals("dismiss_ad_blocking", effect["controller"])
-            assertEquals("ad_blocking", effect["condition"])
-            assertEquals("dismiss", effect["action"])
-            assertEquals(2, backend.clickPoints.size)
-            assertEquals(950f, backend.clickPoints.first().first, 0.01f)
-            assertEquals(96f, backend.clickPoints.first().second, 0.01f)
-            assertEquals(120f, backend.clickPoints.last().first, 0.01f)
-            assertEquals(240f, backend.clickPoints.last().second, 0.01f)
+            assertTrue(backend.clickPoints.isEmpty())
         }
     }
 
     @Test
-    fun `page guard skips splash ad without recorded step`() = runBlocking {
+    fun `page guard does not skip splash ad when checkers are disabled`() = runBlocking {
         val backend = FakeBackend(beforeXml = SKIP_AD_XML, afterXml = SOURCE_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
             val result = UIStepExecutor.runPageGuardOnce(
@@ -2049,19 +1950,14 @@ class UIStepExecutorTest {
             )
 
             assertEquals("oob.page_guard.v1", result["schema_version"])
-            assertEquals(true, result["matched"])
-            assertEquals(true, result["executed"])
-            assertEquals("ad_blocking", result["condition"])
-            assertEquals("dismiss", result["action"])
-            assertTrue(result["button_text"].toString().contains("跳过 3"))
-            assertEquals(1, backend.clickPoints.size)
-            assertEquals(950f, backend.clickPoints.single().first, 0.01f)
-            assertEquals(96f, backend.clickPoints.single().second, 0.01f)
+            assertEquals(false, result["matched"])
+            assertEquals("checker_disabled", result["reason"])
+            assertTrue(backend.clickPoints.isEmpty())
         }
     }
 
     @Test
-    fun `shared checker budget suppresses repeated global checker triggers`() = runBlocking {
+    fun `shared checker budget is unused when checkers are disabled`() = runBlocking {
         val backend = FakeBackend(beforeXml = SKIP_AD_XML, afterXml = SKIP_AD_XML)
         val checkerBudget = UIStepExecutor.CheckerTriggerBudget()
         val step = mapOf(
@@ -2083,25 +1979,17 @@ class UIStepExecutorTest {
                 checkerBudget = checkerBudget,
             )
 
-            val firstEffects = first["control_effects"] as? List<*> ?: error("missing control effects")
-            val firstEffect = firstEffects.single() as Map<*, *>
-            assertEquals("dismiss_ad_blocking", firstEffect["controller"])
-            assertEquals(1, firstEffect["trigger_count"])
-            assertEquals(1, firstEffect["trigger_limit"])
-            assertEquals(0, firstEffect["trigger_remaining"])
+            assertFalse(first.containsKey("control_effects"))
             assertFalse(second.containsKey("control_effects"))
-            assertEquals(3, backend.clickPoints.size)
-            assertEquals(1, backend.clickPoints.count { (x, y) ->
-                abs(x - 950f) < 0.01f && abs(y - 96f) < 0.01f
-            })
+            assertEquals(2, backend.clickPoints.size)
         }
     }
 
     @Test
-    fun `global checker confirms resolver always open before recorded click`() = runBlocking {
+    fun `global checker does not confirm resolver before recorded click when disabled`() = runBlocking {
         val backend = FakeBackend(beforeXml = RESOLVER_DIALOG_XML, afterXml = SOURCE_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = UIStepExecutor.execute(
+            expectSourceNotReached(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -2115,29 +2003,19 @@ class UIStepExecutorTest {
                 stepTitle = "click behind resolver",
             )
 
-            assertEquals(true, result["success"])
-            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
-            val effect = controlEffects.single() as Map<*, *>
-            assertEquals("confirm_resolver_always", effect["controller"])
-            assertEquals("resolver_dialog", effect["condition"])
-            assertEquals("confirm_resolver_always", effect["action"])
-            assertEquals(2, backend.clickPoints.size)
-            assertEquals(810f, backend.clickPoints.first().first, 0.01f)
-            assertEquals(1690f, backend.clickPoints.first().second, 0.01f)
-            assertEquals(120f, backend.clickPoints.last().first, 0.01f)
-            assertEquals(240f, backend.clickPoints.last().second, 0.01f)
+            assertTrue(backend.clickPoints.isEmpty())
         }
     }
 
     @Test
-    fun `global checker confirms vivo resolver always open before recorded click`() = runBlocking {
+    fun `global checker does not confirm vivo resolver when checkers are disabled`() = runBlocking {
         val backend = FakeBackend(
             beforeXml = VIVO_RESOLVER_DIALOG_XML,
             afterXml = SOURCE_XML,
             currentPackage = "com.vivo.appfilter",
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = UIStepExecutor.execute(
+            expectSourceNotReached(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -2151,17 +2029,7 @@ class UIStepExecutorTest {
                 stepTitle = "click behind vivo resolver",
             )
 
-            assertEquals(true, result["success"])
-            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
-            val effect = controlEffects.single() as Map<*, *>
-            assertEquals("confirm_resolver_always", effect["controller"])
-            assertEquals("resolver_dialog", effect["condition"])
-            assertEquals("confirm_resolver_always", effect["action"])
-            assertEquals(2, backend.clickPoints.size)
-            assertEquals(630f, backend.clickPoints.first().first, 0.01f)
-            assertEquals(2124.5f, backend.clickPoints.first().second, 0.01f)
-            assertEquals(120f, backend.clickPoints.last().first, 0.01f)
-            assertEquals(240f, backend.clickPoints.last().second, 0.01f)
+            assertTrue(backend.clickPoints.isEmpty())
         }
     }
 
@@ -2201,14 +2069,14 @@ class UIStepExecutorTest {
     }
 
     @Test
-    fun `global checker selects resolver app before disabled always open`() = runBlocking {
+    fun `global checker does not select resolver app when checkers are disabled`() = runBlocking {
         val backend = FakeBackend(
             beforeXml = RESOLVER_DIALOG_DISABLED_ALWAYS_XML,
             afterXml = SOURCE_XML,
             postActionXmls = listOf(RESOLVER_DIALOG_XML, SOURCE_XML, SOURCE_XML),
         )
         OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = UIStepExecutor.execute(
+            expectSourceNotReached(
                 step = mapOf(
                     "executor" to "omniflow",
                     "tool" to "click",
@@ -2222,20 +2090,7 @@ class UIStepExecutorTest {
                 stepTitle = "click behind disabled resolver",
             )
 
-            assertEquals(true, result["success"])
-            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
-            val effect = controlEffects.single() as Map<*, *>
-            assertEquals("confirm_resolver_always", effect["controller"])
-            assertEquals("resolver_dialog", effect["condition"])
-            assertEquals("confirm_resolver_always", effect["action"])
-            assertEquals("浏览器 text1", effect["preselected_app_text"])
-            assertEquals(3, backend.clickPoints.size)
-            assertEquals(540f, backend.clickPoints[0].first, 0.01f)
-            assertEquals(1020f, backend.clickPoints[0].second, 0.01f)
-            assertEquals(810f, backend.clickPoints[1].first, 0.01f)
-            assertEquals(1690f, backend.clickPoints[1].second, 0.01f)
-            assertEquals(120f, backend.clickPoints[2].first, 0.01f)
-            assertEquals(240f, backend.clickPoints[2].second, 0.01f)
+            assertTrue(backend.clickPoints.isEmpty())
         }
     }
 
@@ -2291,7 +2146,7 @@ class UIStepExecutorTest {
     }
 
     @Test
-    fun `omniflow loop hides keyboard before covered recorded click`() = runBlocking {
+    fun `omniflow loop does not hide keyboard when checkers are disabled`() = runBlocking {
         val backend = FakeBackend(beforeXml = KEYBOARD_XML, afterXml = KEYBOARD_XML)
         OmniflowActionRuntime.useBackendForTesting(backend).use {
             val result = UIStepExecutor.execute(
@@ -2306,13 +2161,28 @@ class UIStepExecutorTest {
 
             assertEquals(true, result["success"])
             assertEquals("direct_replay", result["replay_mode"])
-            assertEquals(1, backend.hideKeyboardCount)
-            val controlEffects = result["control_effects"] as? List<*> ?: error("missing control effects")
-            assertEquals(1, controlEffects.size)
+            assertEquals(0, backend.hideKeyboardCount)
+            assertFalse(result.containsKey("control_effects"))
             val click = backend.clickPoints.single()
             assertEquals(540f, click.first, 0.01f)
             assertEquals(1720f, click.second, 0.01f)
         }
+    }
+
+    private suspend fun expectSourceNotReached(
+        step: Map<String, Any?>,
+        stepId: String,
+        stepTitle: String,
+    ) {
+        val error = try {
+            UIStepExecutor.execute(step = step, stepId = stepId, stepTitle = stepTitle)
+            null
+        } catch (e: UIStepExecutor.ExecutionException) {
+            e
+        }
+        require(error != null) { "expected OOB_FUNCTION_SOURCE_NOT_REACHED" }
+        assertEquals("OOB_FUNCTION_SOURCE_NOT_REACHED", error.errorCode)
+        assertEquals("no_anchor_match", error.diagnostics["reason"])
     }
 
     private class FakeBackend(
