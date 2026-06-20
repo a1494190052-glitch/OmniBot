@@ -145,7 +145,8 @@ helper with mixed semantics.
 
 `OobFunctionSkillProfile` owns the native Function-management skill profile:
 
-- expose the small static tool set used by `oob-function-management`
+- expose the small static tool set used by the `omniflow` skill's focused
+  `function_management` profile
 - expose registered Functions as management assets, not normal VLM action tools
 - build compact prompt candidates for agent tool selection
 - never execute Functions or mutate Function specs
@@ -562,9 +563,10 @@ Keep these pieces separate:
   and compatibility materialization for that projection
 - `OobOmniFlowToolkitService`: public tool facade and response shaping
 - builtin skill prompts: agent instructions, not executable policy
-- `omniflow-checker-maintainer`: agent-facing checklist for implementing
-  runtime checker code, contracts, and tests; executable checker policy still
-  belongs to `OmniflowCheckerRule` and `UIStepExecutor`
+- `omniflow` checker references: agent-facing checklist for implementing
+  runtime checker code, contracts, and tests. The old
+  `omniflow-checker-maintainer` directory is compatibility-only; executable
+  checker policy still belongs to `OmniflowCheckerRule` and `UIStepExecutor`
 
 Merging these would make it harder to tell whether a change affects storage,
 conversion, execution, or agent patching.
