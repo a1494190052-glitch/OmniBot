@@ -577,6 +577,68 @@ class VLMClientRequestTest {
     }
 
     @Test
+    fun `openai tool action parser rejects point tuple coordinate arguments`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "vlm-test-model",
+                turn = ChatCompletionTurn(
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        toolCalls = listOf(
+                            AssistantToolCall(
+                                id = "call_1",
+                                function = AssistantToolCallFunction(
+                                    name = "click",
+                                    arguments = """{"target_description":"Settings","x":[480,702],"y":702}"""
+                                )
+                            )
+                        )
+                    )
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary"
+        )
+
+        assertFalse(result.success)
+        assertTrue(result.step == null)
+        assertTrue(result.error.orEmpty().contains("Coordinate fields must be a single numeric scalar"))
+    }
+
+    @Test
+    fun `openai tool action parser rejects swipe tuple coordinate arguments`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "vlm-test-model",
+                turn = ChatCompletionTurn(
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        toolCalls = listOf(
+                            AssistantToolCall(
+                                id = "call_1",
+                                function = AssistantToolCallFunction(
+                                    name = "swipe",
+                                    arguments = """{"target_description":"Settings list","direction":"up","x1":[500,860],"y1":860,"x2":500,"y2":220}"""
+                                )
+                            )
+                        )
+                    )
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary"
+        )
+
+        assertFalse(result.success)
+        assertTrue(result.step == null)
+        assertTrue(result.error.orEmpty().contains("Coordinate fields must be a single numeric scalar"))
+    }
+
+    @Test
     fun `openai tool action parser rejects call tool function invocation`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(

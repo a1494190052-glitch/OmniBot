@@ -277,11 +277,10 @@ object VLMToolDefinitions {
     fun normalizeArguments(toolName: String, arguments: JsonObject): JsonObject {
         if (arguments.isEmpty()) return arguments
         val normalized = arguments.toMutableMap()
-        when (toolName) {
-            OobCanonicalActionSchema.TOOL_CLICK,
-            OobCanonicalActionSchema.TOOL_LONG_PRESS,
-            OobCanonicalActionSchema.TOOL_INPUT_TEXT -> normalizePointArguments(normalized)
-            OobCanonicalActionSchema.TOOL_SWIPE -> normalizeScrollArguments(normalized)
+        if (toolName == OobCanonicalActionSchema.TOOL_SWIPE) {
+            inferSwipeDirection(normalized)?.let { direction ->
+                normalized[OobCanonicalActionSchema.ARG_DIRECTION] = JsonPrimitive(direction)
+            }
         }
         normalizeEnumArguments(toolName, normalized)
         return JsonObject(normalized)
@@ -348,42 +347,10 @@ object VLMToolDefinitions {
         }
     }
 
-    private fun normalizePointArguments(arguments: MutableMap<String, JsonElement>) {
-        extractPoint(arguments["x"])?.let { (x, y) ->
-            arguments["x"] = buildNumericPrimitive(x)
-            if (extractScalarNumber(arguments["y"]) == null) {
-                arguments["y"] = buildNumericPrimitive(y)
-            }
-        }
-        extractPoint(arguments["y"])?.let { (x, y) ->
-            if (extractScalarNumber(arguments["x"]) == null) {
-                arguments["x"] = buildNumericPrimitive(x)
-            }
-            arguments["y"] = buildNumericPrimitive(y)
-        }
-    }
-
-    private fun normalizeScrollArguments(arguments: MutableMap<String, JsonElement>) {
-        extractPoint(arguments["x1"])?.let { (x, y) ->
-            arguments["x1"] = buildNumericPrimitive(x)
-            if (extractScalarNumber(arguments["y1"]) == null) {
-                arguments["y1"] = buildNumericPrimitive(y)
-            }
-        }
-        extractPoint(arguments["x2"])?.let { (x, y) ->
-            arguments["x2"] = buildNumericPrimitive(x)
-            if (extractScalarNumber(arguments["y2"]) == null) {
-                arguments["y2"] = buildNumericPrimitive(y)
-            }
-        }
-        if ((arguments[OobCanonicalActionSchema.ARG_DIRECTION] as? JsonPrimitive)?.contentOrNull.isNullOrBlank()) {
-            inferSwipeDirection(arguments)?.let { direction ->
-                arguments[OobCanonicalActionSchema.ARG_DIRECTION] = JsonPrimitive(direction)
-            }
-        }
-    }
-
     private fun inferSwipeDirection(arguments: Map<String, JsonElement>): String? {
+        if (!(arguments[OobCanonicalActionSchema.ARG_DIRECTION] as? JsonPrimitive)?.contentOrNull.isNullOrBlank()) {
+            return null
+        }
         val x1 = extractScalarNumber(arguments["x1"]) ?: return null
         val y1 = extractScalarNumber(arguments["y1"]) ?: return null
         val x2 = extractScalarNumber(arguments["x2"]) ?: return null
@@ -417,110 +384,6 @@ object VLMToolDefinitions {
                 arguments[field] = JsonPrimitive(canonical)
             }
         }
-    }
-
-    private fun hasCompleteScrollCoordinates(arguments: Map<String, JsonElement>): Boolean {
-        return extractScalarNumber(arguments["x1"]) != null &&
-            extractScalarNumber(arguments["y1"]) != null &&
-            extractScalarNumber(arguments["x2"]) != null &&
-            extractScalarNumber(arguments["y2"]) != null
-    }
-
-    private fun extractPoint(value: JsonElement?): Pair<Double, Double>? {
-        return when (value) {
-            is JsonArray -> {
-                if (value.size < 2) return null
-                val x = extractScalarNumber(value[0]) ?: return null
-                val y = extractScalarNumber(value[1]) ?: return null
-                x to y
-            }
-
-            is JsonObject -> {
-                val x = extractScalarNumber(value["x"]) ?: return null
-                val y = extractScalarNumber(value["y"]) ?: return null
-                x to y
-            }
-
-            is JsonPrimitive -> extractPointFromString(value.contentOrNull)
-            else -> null
-        }
-    }
-
-    private fun extractRange(value: JsonElement?): ScrollCoordinates? {
-        return when (value) {
-            is JsonArray -> {
-                if (value.size >= 4) {
-                    val x1 = extractScalarNumber(value[0]) ?: return null
-                    val y1 = extractScalarNumber(value[1]) ?: return null
-                    val x2 = extractScalarNumber(value[2]) ?: return null
-                    val y2 = extractScalarNumber(value[3]) ?: return null
-                    return ScrollCoordinates(x1, y1, x2, y2)
-                }
-                if (value.size >= 2) {
-                    val start = extractPoint(value[0]) ?: return null
-                    val end = extractPoint(value[1]) ?: return null
-                    return ScrollCoordinates(start.first, start.second, end.first, end.second)
-                }
-                null
-            }
-
-            is JsonObject -> {
-                val direct = buildScrollCoordinates(
-                    x1 = extractScalarNumber(value["x1"]),
-                    y1 = extractScalarNumber(value["y1"]),
-                    x2 = extractScalarNumber(value["x2"]),
-                    y2 = extractScalarNumber(value["y2"])
-                )
-                if (direct != null) return direct
-
-                null
-            }
-
-            is JsonPrimitive -> extractRangeFromString(value.contentOrNull)
-            else -> null
-        }
-    }
-
-    private fun extractPointFromString(raw: String?): Pair<Double, Double>? {
-        val normalized = raw?.trim().orEmpty()
-        if (normalized.isEmpty()) return null
-        if ((normalized.startsWith("[") && normalized.endsWith("]")) ||
-            (normalized.startsWith("{") && normalized.endsWith("}"))
-        ) {
-            val parsed = runCatching {
-                kotlinx.serialization.json.Json.parseToJsonElement(normalized)
-            }.getOrNull()
-            return extractPoint(parsed)
-        }
-        val numbers = NUMBER_REGEX.findAll(normalized).mapNotNull { it.value.toDoubleOrNull() }.toList()
-        if (numbers.size < 2) return null
-        return numbers[0] to numbers[1]
-    }
-
-    private fun extractRangeFromString(raw: String?): ScrollCoordinates? {
-        val normalized = raw?.trim().orEmpty()
-        if (normalized.isEmpty()) return null
-        if ((normalized.startsWith("[") && normalized.endsWith("]")) ||
-            (normalized.startsWith("{") && normalized.endsWith("}"))
-        ) {
-            val parsed = runCatching {
-                kotlinx.serialization.json.Json.parseToJsonElement(normalized)
-            }.getOrNull()
-            return extractRange(parsed)
-        }
-        val numbers = NUMBER_REGEX.findAll(normalized).mapNotNull { it.value.toDoubleOrNull() }.toList()
-        if (numbers.size < 4) return null
-        return ScrollCoordinates(numbers[0], numbers[1], numbers[2], numbers[3])
-    }
-
-    private fun buildScrollCoordinates(
-        x1: Double?,
-        y1: Double?,
-        x2: Double?,
-        y2: Double?
-    ): ScrollCoordinates? {
-        if (x1 == null || y1 == null || x2 == null || y2 == null) return null
-        return ScrollCoordinates(x1, y1, x2, y2)
     }
 
     private fun extractScalarNumber(value: JsonElement?): Double? {
@@ -731,17 +594,4 @@ object VLMToolDefinitions {
         }
     }
 
-    private data class ScrollCoordinates(
-        val x1: Double,
-        val y1: Double,
-        val x2: Double,
-        val y2: Double
-    )
-
-    private fun buildNumericPrimitive(number: Double): JsonPrimitive {
-        val asLong = number.toLong()
-        return if (number == asLong.toDouble()) JsonPrimitive(asLong) else JsonPrimitive(number)
-    }
-
-    private val NUMBER_REGEX = Regex("""[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?""")
 }
