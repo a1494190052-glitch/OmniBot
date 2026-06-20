@@ -25,6 +25,9 @@ void main() {
   test('keeps reusable command execution on the default vlm recall path', () {
     expect(omniflowToolProfileForMessage('帮我用刚才录制的联系人姓名轨迹填写 Eve'), isNull);
     expect(omniflowToolProfileForMessage('调用上一条复用指令，参数是 Bob'), isNull);
+    expect(omniflowToolProfileForMessage('执行上一条复用指令'), isNull);
+    expect(omniflowToolProfileForMessage('运行复用指令打开美团点外卖'), isNull);
+    expect(omniflowToolProfileForMessage('帮我用这个复用指令点外卖'), isNull);
     expect(omniflowToolProfileForMessage('用刚才的复用记忆填写 Bob'), isNull);
     expect(
       omniflowToolProfileForMessage('reuse the last function with name Dora'),
