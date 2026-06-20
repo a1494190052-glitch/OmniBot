@@ -191,6 +191,16 @@ class OmniAgentExecutor(
                 conversationMode = conversationMode,
                 toolExposurePolicy = toolExposurePolicy,
             )
+            val oobFunctionCandidateContext = if (toolExposurePolicy.isLightweightProfile()) {
+                OobFunctionSkillProfile.promptCandidateContext(
+                    context = context,
+                    locale = promptLocale,
+                    goal = userMessage,
+                    currentPackageName = currentPackageName,
+                )
+            } else {
+                null
+            }
             val initialMessages = buildInitialMessages(
                 promptSeed = historyRepository.buildPromptSeed(
                     conversationId = conversationId,
@@ -205,7 +215,7 @@ class OmniAgentExecutor(
                 skillsRootAndroidPath = workspaceManager.skillsRoot().absolutePath,
                 resolvedSkills = resolvedSkills,
                 memoryContext = promptMemoryContext,
-                oobFunctionCandidateContext = null,
+                oobFunctionCandidateContext = oobFunctionCandidateContext,
                 locale = promptLocale,
                 prefetchedMemoryHits = prefetchedMemoryHits,
                 toolExposurePolicy = toolExposurePolicy,

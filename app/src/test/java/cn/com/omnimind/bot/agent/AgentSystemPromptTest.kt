@@ -132,12 +132,14 @@ class AgentSystemPromptTest {
     }
 
     @Test
-    fun defaultAgentExecutorDoesNotPrefetchOmniFlowFunctionRecallForPrompt() {
+    fun defaultAgentExecutorOnlyPrefetchesOmniFlowCandidatesForLightweightProfile() {
         val source = File(
             "src/main/java/cn/com/omnimind/bot/agent/runtime/OmniAgentExecutor.kt"
         ).readText()
 
-        assertFalse(source.contains("promptCandidateContext"))
-        assertTrue(source.contains("oobFunctionCandidateContext = null"))
+        assertTrue(source.contains("if (toolExposurePolicy.isLightweightProfile())"))
+        assertTrue(source.contains("OobFunctionSkillProfile.promptCandidateContext"))
+        assertTrue(source.contains("currentPackageName = currentPackageName"))
+        assertTrue(source.contains("} else {\n                null\n            }"))
     }
 }
