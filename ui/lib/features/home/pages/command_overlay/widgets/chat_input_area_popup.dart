@@ -18,6 +18,13 @@ mixin _ChatInputAreaPopupMixin on _ChatInputAreaStateBase {
           tooltip: context.l10n.chatInputViewCurrentTrajectoryTooltip,
           onTap: widget.onViewCurrentTrajectoryTap!,
         ),
+      if (widget.onOpenFunctionLibraryTap != null)
+        _TrajectoryPopupAction(
+          icon: Icons.bookmarks_outlined,
+          label: context.l10n.memoryCommandsTitle,
+          tooltip: context.l10n.omniflowViewFunctionLibrary,
+          onTap: widget.onOpenFunctionLibraryTap!,
+        ),
       if (widget.onManualRecordingTap != null)
         _TrajectoryPopupAction(
           icon: Icons.fiber_manual_record_rounded,

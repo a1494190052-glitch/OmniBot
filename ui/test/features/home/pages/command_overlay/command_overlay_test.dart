@@ -63,31 +63,31 @@ void main() {
     messenger.setMockMethodCallHandler(speechChannel, null);
   });
 
-  testWidgets('overlay input exposes reusable command shortcut', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.lightTheme,
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        locale: const Locale('zh'),
-        home: const CommandOverlay(),
-      ),
-    );
-    await tester.pump();
+  testWidgets(
+    'overlay input keeps reusable command shortcuts out of default UI',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.lightTheme,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('zh'),
+          home: const CommandOverlay(),
+        ),
+      );
+      await tester.pump();
 
-    await tester.tap(
-      find.byKey(const ValueKey('chat-input-manual-recording-button')),
-    );
-    await tester.pump();
-
-    expect(
-      find.byKey(const ValueKey('chat-input-trajectory-popup')),
-      findsOneWidget,
-    );
-    expect(find.text('复用指令'), findsOneWidget);
-    expect(find.text('录制轨迹'), findsOneWidget);
-    expect(find.text('当前轨迹'), findsOneWidget);
-  });
+      expect(
+        find.byKey(const ValueKey('chat-input-manual-recording-button')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('chat-input-trajectory-popup')),
+        findsNothing,
+      );
+      expect(find.text('复用指令'), findsNothing);
+      expect(find.text('录制轨迹'), findsNothing);
+      expect(find.text('当前轨迹'), findsNothing);
+    },
+  );
 }

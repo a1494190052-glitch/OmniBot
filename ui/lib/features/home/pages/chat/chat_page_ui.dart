@@ -1441,20 +1441,10 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                               });
                             }
                           : null,
-                      onViewTrajectoriesTap: _activeMode == ChatPageMode.normal
-                          ? _openRunLogListFromShortcut
-                          : null,
-                      onViewCurrentTrajectoryTap:
-                          _activeMode == ChatPageMode.normal
-                          ? _openLatestRunLogFromShortcut
-                          : null,
-                      onOpenFunctionLibraryTap:
-                          _activeMode == ChatPageMode.normal
-                          ? _openFunctionLibraryFromShortcut
-                          : null,
-                      onManualRecordingTap: _activeMode == ChatPageMode.normal
-                          ? _startManualRecordingFromShortcut
-                          : null,
+                      // Keep OmniFlow/RunLog capabilities available through
+                      // agent tools and natural-language commands, without
+                      // adding default composer shortcuts that diverge from
+                      // the main chat interaction.
                       onInputHeightChanged: _handleInputAreaHeightChanged,
                       onClearSelectedModelOverride:
                           _activeMode == ChatPageMode.normal &&

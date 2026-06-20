@@ -478,6 +478,7 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
   bool get _hasTrajectoryPopupAction =>
       widget.onViewTrajectoriesTap != null ||
       widget.onViewCurrentTrajectoryTap != null ||
+      widget.onOpenFunctionLibraryTap != null ||
       widget.onManualRecordingTap != null;
   bool get _showDebugScreenshotToggle =>
       _debugScreenshotToggleAvailable && _hasManualRecordingAction;

@@ -1095,10 +1095,6 @@ class _CommandOverlayState extends State<CommandOverlay> {
                   onToggleOpenClaw: _setOpenClawEnabled,
                   onLongPressOpenClaw: () =>
                       _showOpenClawCommandPanel(expand: true),
-                  onViewTrajectoriesTap: _openRunLogListFromShortcut,
-                  onViewCurrentTrajectoryTap: _openLatestRunLogFromShortcut,
-                  onOpenFunctionLibraryTap: _openFunctionLibraryFromShortcut,
-                  onManualRecordingTap: _startManualRecordingFromShortcut,
                   annotationEnabled: _annotationMode,
                   onToggleAnnotation: _toggleAnnotationMode,
                   useFrostedGlass: true, // command_overlay 使用毛玻璃效果
