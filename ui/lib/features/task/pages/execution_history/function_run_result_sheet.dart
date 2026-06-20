@@ -125,27 +125,21 @@ class _FunctionRunResultSheetState extends State<_FunctionRunResultSheet> {
     if (functionId.isEmpty) return;
     setState(() => _continuing = true);
     try {
-      final next = await AssistsMessageService.runOobReusableFunction(
-        functionId: functionId,
-        arguments: widget.arguments,
-        localReplayResult: _result.rawJson,
-      );
+      final started =
+          await AssistsMessageService.runOobReusableFunctionWithAgent(
+            taskId:
+                'oob-function-continue-${DateTime.now().millisecondsSinceEpoch}',
+            functionId: functionId,
+            arguments: widget.arguments,
+            localReplayResult: _result.rawJson,
+          );
       if (!mounted) return;
-      setState(() {
-        _result = next;
-        _continuing = false;
-      });
+      setState(() => _continuing = false);
       showToast(
-        next.success
+        started
             ? _text(context, '已交给 Agent 继续执行', 'Continuing with Agent')
-            : (_resultErrorText(next).isNotEmpty
-                  ? _resultErrorText(next)
-                  : _text(
-                      context,
-                      'Agent 继续执行失败',
-                      'Agent continuation failed',
-                    )),
-        type: next.success ? ToastType.success : ToastType.error,
+            : _text(context, 'Agent 继续执行失败', 'Agent continuation failed'),
+        type: started ? ToastType.success : ToastType.error,
       );
     } catch (error) {
       if (!mounted) return;

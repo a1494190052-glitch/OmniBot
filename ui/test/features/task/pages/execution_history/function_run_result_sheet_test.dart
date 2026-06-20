@@ -261,19 +261,8 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, (call) async {
           calls.add(call);
-          return <String, dynamic>{
-            'success': true,
-            'function_id': 'search_settings',
-            'execution_status': 'started_agent_fallback',
-            'terminal_state': <String, dynamic>{
-              'status': 'started_agent_fallback',
-              'execution_status': 'started_agent_fallback',
-              'taskId': 'task-agent-2',
-              'model_required': true,
-              'step_count': 2,
-              'success_step_count': 1,
-            },
-          };
+          expect(call.method, 'createAgentTask');
+          return 'SUCCESS';
         });
 
     final result = UtgManualRunResult.fromMap(<String, dynamic>{
@@ -340,16 +329,16 @@ void main() {
 
     expect(calls, hasLength(1));
     final args = Map<String, dynamic>.from(calls.single.arguments as Map);
-    expect(args['function_id'], 'search_settings');
-    expect(args.containsKey('allowVlmFallback'), isFalse);
+    expect(args['toolProfile'], 'function_management');
+    expect(args['allowedTools'], contains('oob_function_run'));
+    expect(args['userMessage'], contains('Function id: search_settings'));
+    expect(args['userMessage'].toString(), contains('bluetooth'));
     expect(
-      Map<String, dynamic>.from(args['arguments'] as Map)['query'],
-      'bluetooth',
+      args['userMessage'].toString(),
+      contains('Previous local replay result:'),
     );
-    final localReplayResult = Map<String, dynamic>.from(
-      args['localReplayResult'] as Map,
-    );
-    expect(localReplayResult['success'], isFalse);
+    expect(args['userMessage'].toString(), contains('"success":false'));
+    expect(args['userMessage'].toString(), contains('"needs_agent":true'));
   });
 }
 

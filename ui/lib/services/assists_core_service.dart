@@ -3401,13 +3401,21 @@ class AssistsMessageService {
     Map<String, dynamic> arguments = const {},
     int? conversationId,
     String? conversationMode,
+    Map<String, dynamic>? localReplayResult,
   }) {
     final normalizedFunctionId = functionId.trim();
     final safeArguments = _jsonSafeMap(arguments);
+    final replayContext = localReplayResult == null
+        ? const <String, dynamic>{}
+        : _compactOobFunctionRunContext(localReplayResult);
     final prompt = <String>[
       '执行已保存的复用指令。',
       'Function id: $normalizedFunctionId',
       if (safeArguments.isNotEmpty) 'Arguments: ${jsonEncode(safeArguments)}',
+      if (replayContext.isNotEmpty) ...[
+        'Previous local replay result: ${jsonEncode(replayContext)}',
+        '如果上一轮本地执行停在需要 runtime resolve / Agent 的步骤，请继续使用 oob_function_run，并根据失败上下文补充 runtime_resolve_goal。',
+      ],
     ].join('\n');
     return createAgentTask(
       taskId: taskId,
@@ -3417,6 +3425,91 @@ class AssistsMessageService {
       toolProfile: 'function_management',
       allowedTools: const ['oob_function_run'],
     );
+  }
+
+  static Map<String, dynamic> _compactOobFunctionRunContext(
+    Map<String, dynamic> value,
+  ) {
+    final source = _jsonSafeMap(value);
+    final terminalState = _jsonSafeMap(
+      source['terminal_state'] is Map<String, dynamic>
+          ? source['terminal_state'] as Map<String, dynamic>
+          : source['terminal_state'] is Map
+          ? Map<String, dynamic>.from(source['terminal_state'] as Map)
+          : const <String, dynamic>{},
+    );
+    final context = _jsonSafeMap(
+      source['context'] is Map<String, dynamic>
+          ? source['context'] as Map<String, dynamic>
+          : source['context'] is Map
+          ? Map<String, dynamic>.from(source['context'] as Map)
+          : const <String, dynamic>{},
+    );
+    final rawSteps =
+        context['step_results'] ??
+        terminalState['step_results'] ??
+        source['step_results'];
+    final steps = rawSteps is List
+        ? rawSteps
+              .whereType<Map>()
+              .map(
+                (step) => _compactOobFunctionRunStep(
+                  step.map((key, item) => MapEntry(key.toString(), item)),
+                ),
+              )
+              .where((step) => step.isNotEmpty)
+              .take(8)
+              .toList(growable: false)
+        : const <Map<String, dynamic>>[];
+    final compact = <String, dynamic>{
+      'success': source['success'],
+      'function_id': source['function_id'],
+      'execution_status':
+          source['execution_status'] ?? terminalState['execution_status'],
+      'runner': source['runner'],
+      'error_code': source['error_code'],
+      'error_message': source['error_message'],
+      'step_count': terminalState['step_count'] ?? source['step_count'],
+      'success_step_count':
+          terminalState['success_step_count'] ?? source['success_step_count'],
+      'completed_step_count':
+          terminalState['completed_step_count'] ??
+          source['completed_step_count'],
+      'resume_from_step':
+          terminalState['resume_from_step'] ?? source['resume_from_step'],
+      'current_step_index':
+          terminalState['current_step_index'] ?? source['current_step_index'],
+      'model_required':
+          terminalState['model_required'] ??
+          context['model_required'] ??
+          source['model_required'],
+      'fallback_available':
+          terminalState['fallback_available'] ??
+          context['fallback_available'] ??
+          source['fallback_available'],
+      if (steps.isNotEmpty) 'step_results': steps,
+    };
+    return compact..removeWhere((_, item) => item == null || item == '');
+  }
+
+  static Map<String, dynamic> _compactOobFunctionRunStep(
+    Map<String, dynamic> step,
+  ) {
+    final compact = <String, dynamic>{
+      'index': step['index'],
+      'success': step['success'],
+      'tool': step['tool'],
+      'executor': step['executor'],
+      'summary': step['summary'],
+      'error_code': step['error_code'],
+      'error_message': step['error_message'] ?? step['error'],
+      'needs_agent': step['needs_agent'],
+      'runtime_resolve_required': step['runtime_resolve_required'],
+      'runtime_resolve_available': step['runtime_resolve_available'],
+      'fallback_available': step['fallback_available'],
+      'blocked_executor': step['blocked_executor'],
+    };
+    return compact..removeWhere((_, item) => item == null || item == '');
   }
 
   static Map<String, dynamic> _jsonSafeMap(Map<String, dynamic> value) {
