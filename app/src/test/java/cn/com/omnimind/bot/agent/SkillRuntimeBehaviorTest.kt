@@ -12,6 +12,10 @@ import cn.com.omnimind.bot.agent.tool.handlers.normalizeSvgWriteContentForFileNa
 import cn.com.omnimind.bot.agent.tool.handlers.normalizeHatchPetWrite
 import java.io.File
 import java.nio.file.Files
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 class SkillRuntimeBehaviorTest {
     private fun entry(
@@ -193,6 +197,32 @@ class SkillRuntimeBehaviorTest {
                 entries = listOf(omniflowEntry)
             )
             assertTrue("Expected omniflow to match: $request", matches.any { it.entry.id == "omniflow" })
+        }
+    }
+
+    @Test
+    fun omniflowManifestDescriptionKeepsSingleSkillTriggerTermsInSync() {
+        val manifest = Json.parseToJsonElement(
+            File("src/main/assets/builtin_skills/manifest.json").readText()
+        ).jsonObject
+        val omniflowEntry = manifest["skills"]!!.jsonArray
+            .map { it.jsonObject }
+            .first { it["id"]?.jsonPrimitive?.content == "omniflow" }
+        val omniflowDescription = omniflowEntry["description"]!!
+            .jsonPrimitive
+            .content
+
+        listOf(
+            "vlm_task",
+            "update_function",
+            "runtime checker",
+            "global checker",
+            "hi 升级 checker",
+            "upgrade/update popup checker",
+            "package/open-app checker",
+            "复用指令"
+        ).forEach { phrase ->
+            assertTrue("Expected OmniFlow manifest trigger phrase: $phrase", omniflowDescription.contains(phrase))
         }
     }
 
