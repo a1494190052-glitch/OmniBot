@@ -288,6 +288,26 @@ class SkillRuntimeBehaviorTest {
     }
 
     @Test
+    fun builtinInstallCanonicalizesRetiredOmniFlowSkillIds() {
+        val retiredIds = listOf(
+            "oob-function-management",
+            "omniflow-function-enhancer",
+            "omniflow-checker-maintainer",
+            "vlm-android-gui"
+        )
+
+        retiredIds.forEach { skillId ->
+            assertEquals("omniflow", canonicalBuiltinSkillInstallId(skillId))
+            assertEquals(
+                "omniflow",
+                canonicalBuiltinSkillInstallId("/workspace/.omnibot/skills/$skillId/SKILL.md")
+            )
+        }
+        assertEquals("omniflow", canonicalBuiltinSkillInstallId("omniflow"))
+        assertEquals("hatch-pet", canonicalBuiltinSkillInstallId("hatch-pet"))
+    }
+
+    @Test
     fun builtinHatchPetSkillKeepsStandardPetOutputContract() {
         val skillFile = File("src/main/assets/builtin_skills/hatch-pet/SKILL.md")
         val text = skillFile.readText()

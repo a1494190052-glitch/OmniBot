@@ -48,6 +48,10 @@ internal fun resolveRetiredBuiltinSkillAlias(identifier: String): String {
         ?: identifier
 }
 
+internal fun canonicalBuiltinSkillInstallId(skillId: String): String {
+    return resolveRetiredBuiltinSkillAlias(skillId)
+}
+
 private fun normalizeSkillLookupForAlias(value: String): String {
     return value.trim()
         .lowercase()
@@ -433,10 +437,11 @@ class SkillIndexService(
     }
 
     fun installBuiltinSkill(skillId: String): SkillIndexEntry {
+        val canonicalSkillId = canonicalBuiltinSkillInstallId(skillId)
         val builtinStore = builtinStore()
-        builtinStore.installBuiltin(skillId, registryStore())
-        return findManagedInstalledSkill(skillId, includeDisabled = true)
-            ?: throw IllegalStateException("安装内置 skill 后索引失败：$skillId")
+        builtinStore.installBuiltin(canonicalSkillId, registryStore())
+        return findManagedInstalledSkill(canonicalSkillId, includeDisabled = true)
+            ?: throw IllegalStateException("安装内置 skill 后索引失败：$canonicalSkillId")
     }
 
     suspend fun syncOfficialSkillsRepository(): OfficialSkillsSyncResult {
