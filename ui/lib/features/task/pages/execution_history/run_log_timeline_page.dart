@@ -4159,14 +4159,12 @@ class _ReusableFunctionSpecSheetState
         'Execute the saved reusable Function.',
         'Function id: $functionId',
         if (_defaultArguments.isNotEmpty) 'Arguments: $argumentsJson',
-        'Use the oob_function_run tool only. Do not recreate, update, or discuss the schedule.',
       ].join('\n');
     }
     return [
       '执行已保存的复用指令。',
       'Function id: $functionId',
       if (_defaultArguments.isNotEmpty) 'Arguments: $argumentsJson',
-      '只使用 oob_function_run 工具。不要重新创建、更新或讨论定时任务。',
     ].join('\n');
   }
 

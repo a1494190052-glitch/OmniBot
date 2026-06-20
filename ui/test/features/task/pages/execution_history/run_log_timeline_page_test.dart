@@ -602,6 +602,14 @@ void main() {
       expect(runArgs['allowedTools'], contains('oob_function_run'));
       expect(runArgs['userMessage'], contains('Function id: fn_from_runlog'));
       expect(
+        runArgs['userMessage'],
+        isNot(contains('只使用 oob_function_run')),
+      );
+      expect(
+        runArgs['userMessage'],
+        isNot(contains('Use the oob_function_run')),
+      );
+      expect(
         methodCalls.where((call) => call.method == 'runOobReusableFunction'),
         isEmpty,
       );
@@ -1235,6 +1243,14 @@ void main() {
       expect(
         agentRunArgs['userMessage'],
         contains('Function id: fn_from_runlog'),
+      );
+      expect(
+        agentRunArgs['userMessage'],
+        isNot(contains('只使用 oob_function_run')),
+      );
+      expect(
+        agentRunArgs['userMessage'],
+        isNot(contains('Use the oob_function_run')),
       );
       await tester.pump();
 
