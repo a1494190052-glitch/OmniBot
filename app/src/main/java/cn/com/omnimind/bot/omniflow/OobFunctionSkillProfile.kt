@@ -310,7 +310,7 @@ object OobFunctionSkillProfile {
             put("name", OobFunctionToolNames.FUNCTION_RUN)
             put("displayName", "执行复用指令")
             put("toolType", "oob_function")
-            put("description", "通过 Agent tool 执行一个已注册的 OmniFlow 复用指令。只在用户明确选择/要求执行指定复用指令时使用；普通手机自动化仍优先调用 vlm_task，让本地 runtime 自动 recall 和 replay。")
+            put("description", "通过 Agent tool 执行一个已注册的 OmniFlow 复用指令。只在用户明确选择/要求执行指定复用指令时使用；普通手机自动化仍优先调用 vlm_task，让本地 runtime 自动 recall 和 replay。如果用户消息提供 Previous local replay result，先用同一个 oob_function_run 继续该 Function；当结果显示需要 bounded runtime resolve / Agent 协助时，根据失败上下文补充 runtime_resolve_goal，而不是让前端或外层流程手写下一步动作。")
             putJsonObject("parameters") {
                 put("type", "object")
                 putJsonObject("properties") {

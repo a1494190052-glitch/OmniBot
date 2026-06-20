@@ -3414,7 +3414,6 @@ class AssistsMessageService {
       if (safeArguments.isNotEmpty) 'Arguments: ${jsonEncode(safeArguments)}',
       if (replayContext.isNotEmpty) ...[
         'Previous local replay result: ${jsonEncode(replayContext)}',
-        '如果上一轮本地执行停在需要 runtime resolve / Agent 的步骤，请继续使用 oob_function_run，并根据失败上下文补充 runtime_resolve_goal。',
       ],
     ].join('\n');
     return createAgentTask(

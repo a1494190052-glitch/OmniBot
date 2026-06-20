@@ -35,7 +35,8 @@ class OobFunctionSkillProfileTest {
 
     @Test
     fun `function management profile exposes agent managed function tools`() {
-        val toolNames = OobFunctionSkillProfile.staticToolDefinitions(PromptLocale.EN_US)
+        val definitions = OobFunctionSkillProfile.staticToolDefinitions(PromptLocale.EN_US)
+        val toolNames = definitions
             .mapNotNull { definition ->
                 (definition["function"] as? JsonObject)
                     ?.get("name")
@@ -48,6 +49,16 @@ class OobFunctionSkillProfileTest {
         assertTrue(toolNames.contains(OobFunctionToolNames.FUNCTION_RUN))
         assertFalse(toolNames.contains(RunLogReplayPolicy.TOOL_CALL_TOOL))
         assertFalse(toolNames.any { it.startsWith("omniflow.call") })
+
+        val runTool = definitions
+            .mapNotNull { it["function"] as? JsonObject }
+            .first { it["name"]?.jsonPrimitive?.contentOrNull == OobFunctionToolNames.FUNCTION_RUN }
+        val runToolDescription = runTool["description"]
+            ?.jsonPrimitive
+            ?.contentOrNull
+            .orEmpty()
+        assertTrue(runToolDescription.contains("Previous local replay result"))
+        assertTrue(runToolDescription.contains("runtime_resolve_goal"))
     }
 
     @Test

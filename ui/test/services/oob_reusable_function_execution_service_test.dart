@@ -41,6 +41,47 @@ void main() {
       expect(arguments['allowedTools'], contains('oob_function_run'));
       expect(arguments['userMessage'], contains('Function id: open_settings'));
       expect(arguments['userMessage'], contains('com.android.settings'));
+      expect(arguments['userMessage'], isNot(contains('runtime_resolve_goal')));
+    });
+
+    test('keeps replay evidence factual and leaves resolve strategy to Agent', () async {
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(assistCoreChannel, (call) async {
+            calls.add(call);
+            expect(call.method, 'createAgentTask');
+            return 'SUCCESS';
+          });
+
+      final started =
+          await AssistsMessageService.runOobReusableFunctionWithAgent(
+            taskId: 'task-run-function-2',
+            functionId: 'search_settings',
+            localReplayResult: const <String, dynamic>{
+              'success': false,
+              'function_id': 'search_settings',
+              'context': <String, dynamic>{
+                'step_results': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'success': false,
+                    'needs_agent': true,
+                    'tool': 'input_text',
+                  },
+                ],
+              },
+            },
+          );
+
+      expect(started, isTrue);
+      final arguments = Map<String, dynamic>.from(
+        calls.single.arguments as Map,
+      );
+      final userMessage = arguments['userMessage'].toString();
+      expect(userMessage, contains('Function id: search_settings'));
+      expect(userMessage, contains('Previous local replay result:'));
+      expect(userMessage, contains('"needs_agent":true'));
+      expect(userMessage, isNot(contains('runtime_resolve_goal')));
+      expect(userMessage, isNot(contains('继续使用 oob_function_run')));
     });
 
     test('passes default arguments and parses local completion', () async {
