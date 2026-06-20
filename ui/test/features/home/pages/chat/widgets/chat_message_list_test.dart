@@ -623,13 +623,13 @@ void main() {
       find.byKey(const ValueKey('agent-run-process-task-1')),
       findsOneWidget,
     );
-    expect(find.text('思考'), findsOneWidget);
+    expect(find.byType(DeepThinkingCard), findsOneWidget);
     await tester.pump(const Duration(milliseconds: 120));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 320));
 
     expect(find.text('运行 git status'), findsOneWidget);
-    expect(_thinkingDetailFinder(), findsOneWidget);
+    expect(_thinkingDetailFinder(), findsNothing);
     expect(find.byType(AgentAvatarCircle), findsOneWidget);
     expect(find.byType(AgentAvatarButton), findsNothing);
   });
@@ -835,11 +835,17 @@ void main() {
     );
     await tester.tap(summaryToggle);
     await tester.pumpAndSettle();
-    expect(_thinkingDetailFinder(), findsOneWidget);
-
-    await tester.tap(find.text('思考'));
-    await tester.pumpAndSettle();
+    expect(find.byType(DeepThinkingCard), findsOneWidget);
     expect(_thinkingDetailFinder(), findsNothing);
+
+    final thinkingCard = find.byKey(
+      const ValueKey('agent-run-task-1-task-1-thinking'),
+    );
+    await tester.tap(
+      find.descendant(of: thinkingCard, matching: find.byType(InkWell)),
+    );
+    await tester.pumpAndSettle();
+    expect(_thinkingDetailFinder(), findsOneWidget);
 
     await tester.tap(summaryToggle);
     await tester.pumpAndSettle();
@@ -847,8 +853,8 @@ void main() {
 
     await tester.tap(summaryToggle);
     await tester.pumpAndSettle();
-    expect(find.text('思考'), findsOneWidget);
-    expect(_thinkingDetailFinder(), findsOneWidget);
+    expect(find.byType(DeepThinkingCard), findsOneWidget);
+    expect(_thinkingDetailFinder(), findsNothing);
   });
 
   testWidgets('single compacted browser process opens detail from header', (
@@ -880,6 +886,16 @@ void main() {
       find.byKey(const ValueKey('agent-run-process-task-2')),
       findsOneWidget,
     );
+    expect(find.byType(AgentToolSummaryCard), findsNothing);
+    await tester.tap(
+      _toolGroupToggle('task-2', [
+        'task-2-browser-navigate',
+        'task-2-browser-click',
+      ]),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+
     expect(find.byType(AgentToolSummaryCard), findsNWidgets(2));
     expect(find.text('点击登录按钮'), findsOneWidget);
 
@@ -915,22 +931,32 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 320));
 
-    expect(find.text('思考中'), findsOneWidget);
+    expect(find.byType(DeepThinkingCard), findsOneWidget);
+    expect(find.byType(AgentToolSummaryCard), findsNothing);
+    await tester.tap(
+      _toolGroupToggle('task-mixed', [
+        'task-mixed-research',
+        'task-mixed-generic',
+      ]),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+
     expect(find.text('搜索完成'), findsOneWidget);
     expect(find.text('工具完成'), findsOneWidget);
-    expect(_thinkingDetailFinder(), findsNothing);
-    expect(find.text('Thinking'), findsNothing);
+    expect(_thinkingDetailFinder(), findsOneWidget);
     expect(find.text('Web search'), findsNothing);
     expect(find.text('Tool call'), findsNothing);
 
     final thinkingSurface = find.byKey(
-      const ValueKey('agent-thinking-activity-row-task-mixed-thinking'),
+      const ValueKey('agent-run-task-mixed-task-mixed-thinking'),
     );
     expect(thinkingSurface, findsOneWidget);
     expect(find.byType(AgentToolSummaryCard), findsNWidgets(2));
     final cardWidth = tester.getSize(thinkingSurface).width;
-    expect(cardWidth, lessThan(400 * 0.9));
-    _expectUniformProcessText(tester, thinkingSurface);
+    expect(cardWidth, lessThanOrEqualTo(400));
+    final thinkingText = tester.widget<Text>(_thinkingDetailFinder());
+    expect(thinkingText.style?.fontSize, 12);
     expect(tester.takeException(), isNull);
   });
 
@@ -995,7 +1021,17 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 320));
 
-    expect(find.text('思考摘要'), findsOneWidget);
+    expect(find.byType(DeepThinkingCard), findsOneWidget);
+    expect(find.byType(AgentToolSummaryCard), findsNothing);
+    await tester.tap(
+      _toolGroupToggle('task-mixed', [
+        'task-mixed-research',
+        'task-mixed-generic',
+      ]),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+
     expect(find.text('搜索完成'), findsOneWidget);
     expect(find.text('工具完成'), findsOneWidget);
     expect(find.text('思考中'), findsNothing);
@@ -1030,6 +1066,13 @@ void main() {
       find.byKey(const ValueKey('agent-run-process-task-vlm')),
       findsOneWidget,
     );
+    expect(find.byType(AgentToolSummaryCard), findsNothing);
+    await tester.tap(
+      _toolGroupToggle('task-vlm', ['task-vlm-step-1', 'task-vlm-step-2']),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+
     expect(find.text('输入 hello'), findsOneWidget);
     expect(find.textContaining('设置按钮'), findsOneWidget);
     expect(find.text('视觉执行'), findsNothing);
@@ -1066,6 +1109,13 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 320));
 
+    expect(find.byType(AgentToolSummaryCard), findsNothing);
+    await tester.tap(
+      _toolGroupToggle('task-vlm', ['task-vlm-step-1', 'task-vlm-step-2']),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+
     expect(find.byType(AgentToolSummaryCard), findsNWidgets(2));
     expect(find.text('输入 hello'), findsOneWidget);
     expect(find.textContaining('设置按钮'), findsOneWidget);
@@ -1097,6 +1147,13 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('agent-run-summary-task-vlm')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+
+    expect(find.byType(AgentToolSummaryCard), findsNothing);
+    await tester.tap(
+      _toolGroupToggle('task-vlm', ['task-vlm-step-1', 'task-vlm-step-2']),
+    );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 320));
 
@@ -1172,7 +1229,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('思考摘要'), findsOneWidget);
+    expect(find.byType(DeepThinkingCard), findsNothing);
     expect(_thinkingDetailFinder(), findsNothing);
 
     await tester.tap(
@@ -1186,18 +1243,18 @@ void main() {
       findsOneWidget,
     );
     final thinkingRow = find.byKey(
-      const ValueKey('agent-thinking-activity-row-task-thinking-only-card'),
+      const ValueKey('agent-run-task-thinking-only-task-thinking-only-card'),
     );
     expect(thinkingRow, findsOneWidget);
     await tester.tap(thinkingRow);
     await tester.pump();
     expect(_thinkingDetailFinder(), findsOneWidget);
     final detailText = tester.widget<Text>(_thinkingDetailFinder());
-    expect(detailText.style?.fontFamily, 'monospace');
-    expect(detailText.style?.fontStyle, FontStyle.italic);
-    expect(detailText.style?.fontWeight, FontWeight.w500);
-    expect(detailText.style?.fontSize, 11);
-    expect(detailText.style?.letterSpacing ?? 0, 0);
+    expect(detailText.style?.fontFamily, 'PingFang SC');
+    expect(detailText.style?.fontStyle, isNull);
+    expect(detailText.style?.fontWeight, FontWeight.w400);
+    expect(detailText.style?.fontSize, 12);
+    expect(detailText.style?.letterSpacing, 0.33);
   });
 
   testWidgets('single tool process opens detail sheet from header', (
@@ -1448,7 +1505,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 320));
 
-    expect(find.text('思考中'), findsOneWidget);
+    expect(find.byType(DeepThinkingCard), findsOneWidget);
     expect(find.text('运行 git status'), findsOneWidget);
   });
 
@@ -1591,6 +1648,12 @@ Widget _buildLocalizedApp({
 }
 
 Finder _thinkingDetailFinder() => find.textContaining(_kThinkingDetailText);
+
+Finder _toolGroupToggle(String taskId, List<String> messageIds) {
+  return find.byKey(
+    ValueKey('agent-tool-call-group-toggle-$taskId-${messageIds.join('-')}'),
+  );
+}
 
 void _expectUniformProcessText(WidgetTester tester, Finder surface) {
   final textWidgets = find
