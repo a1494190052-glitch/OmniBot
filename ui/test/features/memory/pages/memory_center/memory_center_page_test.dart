@@ -17,6 +17,18 @@ void main() {
         resolveMemoryCenterInitialTabIndex('functions'),
         memoryCenterReusableCommandsTabIndex,
       );
+      expect(
+        resolveMemoryCenterInitialTabIndex('reusable_memory'),
+        memoryCenterReusableCommandsTabIndex,
+      );
+      expect(
+        resolveMemoryCenterInitialTabIndex('复用指令'),
+        memoryCenterReusableCommandsTabIndex,
+      );
+      expect(
+        resolveMemoryCenterInitialTabIndex('复用记忆'),
+        memoryCenterReusableCommandsTabIndex,
+      );
     },
   );
 

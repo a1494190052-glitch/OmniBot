@@ -69,8 +69,11 @@ int resolveMemoryCenterInitialTabIndex(String? raw) {
     'long_term' || 'longterm' || 'cloud' => memoryCenterLongTermTabIndex,
     'reusable' ||
     'reusable_commands' ||
+    'reusable_memory' ||
     'commands' ||
-    'functions' => memoryCenterReusableCommandsTabIndex,
+    'functions' ||
+    '复用指令' ||
+    '复用记忆' => memoryCenterReusableCommandsTabIndex,
     _ => memoryCenterShortTermTabIndex,
   };
 }
