@@ -295,6 +295,7 @@ class McpToolDefinitionsTest {
         assertEquals(listOf("function_management"), toolProfile["enum"])
         val profileDescription = toolProfile["description"].toString()
         assertTrue(profileDescription.contains("OmniFlow Functions"))
+        assertTrue(profileDescription.contains("run"))
         assertFalse(profileDescription.contains("OOB Functions"))
         assertTrue(agentRunServiceSource.contains("arguments[\"toolProfile\"]"))
         assertTrue(agentRunServiceSource.contains("arguments[\"allowedTools\"]"))
