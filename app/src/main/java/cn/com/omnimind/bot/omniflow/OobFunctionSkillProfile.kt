@@ -18,11 +18,11 @@ import kotlinx.serialization.json.putJsonObject
 /**
  * Small native profile that exposes the tools used by the OmniFlow management skill.
  *
- * Workflow rules and prompts belong in `oob-function-management/SKILL.md`.
+ * Workflow rules and prompts belong in `omniflow/SKILL.md`.
  */
 object OobFunctionSkillProfile {
     const val PROFILE = "function_management"
-    const val SKILL_ID = "oob-function-management"
+    const val SKILL_ID = "omniflow"
     private const val ENABLE_AGENT_DIRECT_FUNCTION_TOOLS = false
     private const val MAX_DYNAMIC_FUNCTION_TOOLS = 500
     private const val MAX_PROMPT_FUNCTION_CANDIDATES = 50

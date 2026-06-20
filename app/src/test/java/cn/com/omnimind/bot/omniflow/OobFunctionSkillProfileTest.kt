@@ -49,6 +49,12 @@ class OobFunctionSkillProfileTest {
         assertFalse(toolNames.any { it.startsWith("omniflow.call") })
     }
 
+    @Test
+    fun `function management profile is owned by omniflow skill`() {
+        assertEquals("function_management", OobFunctionSkillProfile.PROFILE)
+        assertEquals("omniflow", OobFunctionSkillProfile.SKILL_ID)
+    }
+
     private class MinimalContext : ContextWrapper(null) {
         override fun getApplicationContext(): Context = this
     }
