@@ -18,14 +18,6 @@ String? omniflowToolProfileForMessage(String message) {
       normalized.contains('转成') ||
       normalized.contains('增强') ||
       normalized.contains('更新') ||
-      normalized.contains('执行') ||
-      normalized.contains('运行') ||
-      normalized.contains('使用') ||
-      normalized.contains('复用') ||
-      normalized.contains('调用') ||
-      normalized.contains('用刚才') ||
-      normalized.contains('用上一条') ||
-      normalized.contains('用上次') ||
       normalized.contains('删除') ||
       normalized.contains('查看') ||
       normalized.contains('list') ||
@@ -33,12 +25,24 @@ String? omniflowToolProfileForMessage(String message) {
       normalized.contains('register') ||
       normalized.contains('enhance') ||
       normalized.contains('update') ||
-      normalized.contains('run') ||
-      normalized.contains('use') ||
-      normalized.contains('reuse') ||
-      normalized.contains('call') ||
       normalized.contains('delete');
-  return (managementIntent && (mentionsRunLog || mentionsFunction))
-      ? 'function_management'
-      : null;
+  if (managementIntent && (mentionsRunLog || mentionsFunction)) {
+    return 'function_management';
+  }
+  final executionIntent =
+      normalized.contains('执行') ||
+      (normalized.contains('运行') && !normalized.contains('运行日志')) ||
+      normalized.contains('使用') ||
+      normalized.contains('调用') ||
+      normalized.contains('用刚才') ||
+      normalized.contains('用上一条') ||
+      normalized.contains('用上次') ||
+      normalized.contains('run function') ||
+      normalized.contains('use function') ||
+      normalized.contains('reuse') ||
+      normalized.contains('call function');
+  if (executionIntent && (mentionsRunLog || mentionsFunction)) {
+    return null;
+  }
+  return null;
 }

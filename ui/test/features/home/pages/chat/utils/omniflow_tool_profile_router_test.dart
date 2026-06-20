@@ -12,28 +12,23 @@ void main() {
       'function_management',
     );
     expect(
-      omniflowToolProfileForMessage('帮我用刚才录制的联系人姓名轨迹填写 Eve'),
+      omniflowToolProfileForMessage('用上一条 runlog 注册成复用指令'),
       'function_management',
     );
-    expect(
-      omniflowToolProfileForMessage('调用上一条复用指令，参数是 Bob'),
-      'function_management',
-    );
-    expect(
-      omniflowToolProfileForMessage('查看我的复用记忆'),
-      'function_management',
-    );
-    expect(
-      omniflowToolProfileForMessage('用刚才的复用记忆填写 Bob'),
-      'function_management',
-    );
-    expect(
-      omniflowToolProfileForMessage('reuse the last function with name Dora'),
-      'function_management',
-    );
+    expect(omniflowToolProfileForMessage('查看我的复用记忆'), 'function_management');
     expect(
       omniflowToolProfileForMessage('list functions'),
       'function_management',
+    );
+  });
+
+  test('keeps reusable command execution on the default vlm recall path', () {
+    expect(omniflowToolProfileForMessage('帮我用刚才录制的联系人姓名轨迹填写 Eve'), isNull);
+    expect(omniflowToolProfileForMessage('调用上一条复用指令，参数是 Bob'), isNull);
+    expect(omniflowToolProfileForMessage('用刚才的复用记忆填写 Bob'), isNull);
+    expect(
+      omniflowToolProfileForMessage('reuse the last function with name Dora'),
+      isNull,
     );
   });
 
