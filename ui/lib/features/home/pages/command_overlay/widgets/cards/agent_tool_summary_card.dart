@@ -79,13 +79,9 @@ class _AgentToolSummaryCardState extends State<AgentToolSummaryCard> {
             palette.surfaceSecondary,
           )
         : statusColor.withValues(alpha: 0.08);
-    final cardBorderColor = context.isDarkTheme
-        ? Color.lerp(
-            palette.borderSubtle,
-            statusColor,
-            0.18,
-          )!.withValues(alpha: 0.92)
-        : Colors.transparent;
+    final cardBorder = context.isDarkTheme
+        ? null
+        : Border.all(color: Colors.transparent);
     final statusTagBackgroundColor = context.isDarkTheme
         ? Color.alphaBlend(
             statusColor.withValues(alpha: 0.14),
@@ -122,7 +118,7 @@ class _AgentToolSummaryCardState extends State<AgentToolSummaryCard> {
       titleStyle: titleStyle,
       statusLabel: status == 'running' ? typeLabel : statusLabel,
       cardBackgroundColor: cardBackgroundColor,
-      cardBorder: Border.all(color: cardBorderColor),
+      cardBorder: cardBorder,
       statusTagBackgroundColor: statusTagBackgroundColor,
       statusTagTextColor: statusTagTextColor,
     );
