@@ -39,7 +39,11 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(plan.contains("examples/unified-entry-surfaces.json"))
         assertTrue(plan.contains("## Adapter Matrix"))
         assertTrue(plan.contains("| `vlm_task` | natural-language goal"))
-        assertTrue(plan.contains("| UI Function run | concrete `function_id`"))
+        assertTrue(plan.contains("| Product UI Function run | concrete `function_id`"))
+        assertTrue(plan.contains("toolProfile=function_management"))
+        assertTrue(plan.contains("allowedTools=[oob_function_run]"))
+        assertTrue(plan.contains("| UI direct Function adapter | concrete `function_id`"))
+        assertTrue(plan.contains("Ordinary product UI should call the Agent path above"))
         assertTrue(plan.contains("| MCP Function tools | concrete Function lifecycle payloads"))
         assertTrue(plan.contains("| HTTP/debug Function run | concrete debug payloads"))
         assertTrue(plan.contains("| `RUN_VLM_RECALL_HIT` | natural-language goal for strict-hit validation"))
@@ -573,6 +577,16 @@ class UnifiedOmniFlowExecutionPlanTest {
         val assistsManager = readSource(
             "app/src/main/java/cn/com/omnimind/bot/manager/AssistsCoreManager.kt"
         )
+        val flutterAssistsService = readSource("ui/lib/services/assists_core_service.dart")
+        val functionLibraryPage = readSource(
+            "ui/lib/features/task/pages/execution_history/function_library_page.dart"
+        )
+        val runLogTimelinePage = readSource(
+            "ui/lib/features/task/pages/execution_history/run_log_timeline_page.dart"
+        )
+        val functionRunResultSheet = readSource(
+            "ui/lib/features/task/pages/execution_history/function_run_result_sheet.dart"
+        )
         val coordinator = readSource(
             "app/src/main/java/cn/com/omnimind/bot/vlm/VlmToolCoordinator.kt"
         )
@@ -594,7 +608,8 @@ class UnifiedOmniFlowExecutionPlanTest {
         val byId = surfaces.associateBy { it["id"]?.toString().orEmpty() }
         assertTrue(byId.keys.containsAll(listOf(
             "vlm_task_recall_fast_path",
-            "ui_direct_function_run",
+            "ui_agent_function_run",
+            "ui_direct_function_run_adapter",
             "ui_update_function",
             "mcp_function_lifecycle_tools",
             "http_function_run",
@@ -614,9 +629,24 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(coordinator.contains("OobOmniFlowToolkitService(context).runFunction("))
         assertTrue(coordinator.contains("tryExecuteRecallHitOnly"))
 
-        val uiRun = byId.getValue("ui_direct_function_run")
+        val uiRun = byId.getValue("ui_agent_function_run")
         assertTrue(uiRun["requires_concrete_function_id"] == true)
-        assertTrue(uiRun["arguments_field_policy"] == "nested_arguments_preserved")
+        assertTrue(uiRun["tool_profile"] == "function_management")
+        assertTrue(listAny(uiRun["allowed_tools"]).contains("oob_function_run"))
+        assertTrue(uiRun["phone_action_owner"] == "agent_profile_then_kotlin_runner")
+        assertTrue(uiRun["model_visible_function_execution_tool"] == true)
+        assertTrue(flutterAssistsService.contains("runOobReusableFunctionWithAgent"))
+        assertTrue(flutterAssistsService.contains("toolProfile: 'function_management'"))
+        assertTrue(flutterAssistsService.contains("allowedTools: const ['oob_function_run']"))
+        assertTrue(functionLibraryPage.contains("runOobReusableFunctionWithAgent"))
+        assertTrue(runLogTimelinePage.contains("runOobReusableFunctionWithAgent"))
+        assertTrue(functionRunResultSheet.contains("runOobReusableFunctionWithAgent"))
+
+        val directAdapter = byId.getValue("ui_direct_function_run_adapter")
+        assertTrue(directAdapter["requires_concrete_function_id"] == true)
+        assertTrue(directAdapter["arguments_field_policy"] == "nested_arguments_preserved")
+        assertTrue(directAdapter["debug_or_compat_only"] == true)
+        assertTrue(directAdapter["ordinary_product_ui_should_call"] == "ui_agent_function_run")
         assertTrue(assistsManager.contains("fun runOobReusableFunction("))
         assertTrue(assistsManager.contains("OobOmniFlowToolkitService(context).runFunction("))
         assertTrue(assistsManager.contains("\"arguments\" to callArguments"))

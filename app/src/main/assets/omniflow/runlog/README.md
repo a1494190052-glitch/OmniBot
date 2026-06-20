@@ -147,6 +147,11 @@ record. Do not read only the snapshot when correctness matters.
 - Flutter reusable Function card: `ui/lib/features/task/pages/execution_history/widgets/reusable_function_card.dart`
 - Flutter converter: `ui/lib/features/task/run_log/run_log_reusable_function_converter.dart`
 - Flutter service bridge: `ui/lib/services/assists_core_service.dart`
+  Product-facing Function run calls should use
+  `runOobReusableFunctionWithAgent`, which starts
+  `createAgentTask(toolProfile=function_management, allowedTools=[oob_function_run])`.
+  The lower-level `runOobReusableFunction` bridge is retained only as a
+  debug/compat adapter and for local result parsing tests.
 
 ## Executor Policy
 

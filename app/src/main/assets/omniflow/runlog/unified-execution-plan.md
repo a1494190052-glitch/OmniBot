@@ -181,7 +181,8 @@ This matrix is the implementation boundary for avoiding two execution systems:
 | Surface | Allowed Input | Owner | May Execute Phone Actions | Notes |
 | --- | --- | --- | --- | --- |
 | `vlm_task` | natural-language goal, optional package, max steps | `VlmToolCoordinator` | yes, through Kotlin only | Performs fresh observe, native recall, strict-hit replay, or ordinary VLM action loop. |
-| UI Function run | concrete `function_id`, public arguments | Flutter -> native manager -> `OobOmniFlowToolkitService` | yes, through Kotlin only | Flutter must never interpret Function steps or call Android actions itself. |
+| Product UI Function run | concrete `function_id`, public arguments | Flutter -> `createAgentTask(toolProfile=function_management, allowedTools=[oob_function_run])` | yes, through the Agent profile then Kotlin runner | Product-facing buttons hand execution to Agent; Flutter must never interpret Function steps or call Android actions itself. |
+| UI direct Function adapter | concrete `function_id`, public arguments | Flutter/native debug compatibility -> `OobOmniFlowToolkitService` | yes, through Kotlin only | Keep only as a low-level compatibility/debug adapter. Ordinary product UI should call the Agent path above. |
 | MCP Function tools | concrete Function lifecycle payloads | `McpToolExecutors` -> `OobOmniFlowToolkitService` | yes, only after native dispatch | The MCP layer is an adapter; it must not own replay semantics. |
 | HTTP/debug Function run | concrete debug payloads | debug receiver -> `OobOmniFlowToolkitService` | yes, through Kotlin only | Useful for smoke tests and diagnostics. It should not become a separate product mode. |
 | `RUN_VLM_RECALL_HIT` | natural-language goal for strict-hit validation | debug receiver -> `VlmToolCoordinator.tryExecuteRecallHitOnly` | yes, through Kotlin only | Exists to isolate the second-run fast path without starting a fresh ordinary VLM loop. |
@@ -214,6 +215,23 @@ actions if execution reaches the VLM action loop.
 
 ```json
 {
+  "tool": "agent_run",
+  "toolProfile": "function_management",
+  "allowedTools": ["oob_function_run"],
+  "userMessage": "执行已保存的复用指令。\nFunction id: open_network_settings\nArguments: {}"
+}
+```
+
+Product UI Function buttons should use the Agent path above. The Agent gets a
+focused `function_management` tool profile and can call only `oob_function_run`,
+so it can bind public arguments or continue from a local replay result without
+exposing the full ordinary tool catalog.
+
+Low-level debug or compatibility adapters may still use the native direct
+payload:
+
+```json
+{
   "tool": "run_function",
   "function_id": "open_network_settings",
   "arguments": {},
@@ -221,9 +239,10 @@ actions if execution reaches the VLM action loop.
 }
 ```
 
-Direct Function calls require a concrete `function_id`. They are valid for UI
-buttons, MCP tools, and debug tools, but they do not search by natural-language
-goal and do not mutate the saved Function.
+Direct Function calls require a concrete `function_id`. They are valid for
+debug/compatibility adapters, but ordinary product UI buttons should go through
+the focused Agent path; direct calls do not search by natural-language goal and
+do not mutate the saved Function.
 
 ```json
 {
@@ -405,8 +424,11 @@ claiming broad benchmark readiness.
 
 Flutter should stay a presentation and request surface:
 
-- Direct Function run buttons call `AssistsMessageService` and then the native
-  manager.
+- Product Function run buttons call
+  `AssistsMessageService.runOobReusableFunctionWithAgent`, which starts
+  `createAgentTask(toolProfile=function_management, allowedTools=[oob_function_run])`.
+  The lower-level `runOobReusableFunction` MethodChannel remains a debug/compat
+  adapter only.
 - RunLog save/detail/enhancement UI calls the same native conversion/update
   services.
 - UI never replays a Function by interpreting steps in Dart.
