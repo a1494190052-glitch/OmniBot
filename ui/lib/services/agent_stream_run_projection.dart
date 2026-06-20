@@ -56,7 +56,8 @@ class AgentStreamRunProjection {
       AgentStreamEventKind.completed ||
       AgentStreamEventKind.error ||
       AgentStreamEventKind.clarifyRequired ||
-      AgentStreamEventKind.permissionRequired => false,
+      AgentStreamEventKind.permissionRequired ||
+      AgentStreamEventKind.uiCard => false,
     };
   }
 

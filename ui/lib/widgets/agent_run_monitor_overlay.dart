@@ -789,6 +789,10 @@ class _AgentRunEventSummary {
         label: _t('即将完成'),
         icon: Icons.done_all_rounded,
       ),
+      AgentStreamEventKind.uiCard => _AgentRunEventSummary(
+        label: message.isEmpty ? _t('更新卡片') : message,
+        icon: Icons.view_agenda_outlined,
+      ),
     };
   }
 

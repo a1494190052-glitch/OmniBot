@@ -199,6 +199,12 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
           completedThinkingCardId: thinkingCardToFinalize,
         );
         return;
+      case AgentStreamEventKind.uiCard:
+        _applyAgentUiCardStreamEvent(
+          event,
+          completedThinkingCardId: thinkingCardToFinalize,
+        );
+        return;
       case AgentStreamEventKind.clarifyRequired:
         _applyAgentClarifyStreamEvent(
           event,
@@ -519,10 +525,7 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
         event.taskId,
         status: 'error',
         summary: event.errorMessage.trim().isEmpty
-            ? AppTextLocalizer.choose(
-                en: 'Tool step failed',
-                zh: '工具步骤失败',
-              )
+            ? AppTextLocalizer.choose(en: 'Tool step failed', zh: '工具步骤失败')
             : event.errorMessage.trim(),
       );
       if (shouldMarkError && entryId.isNotEmpty) {
@@ -812,6 +815,7 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
       case AgentStreamEventKind.toolStarted:
       case AgentStreamEventKind.toolProgress:
       case AgentStreamEventKind.toolCompleted:
+      case AgentStreamEventKind.uiCard:
       case AgentStreamEventKind.completed:
       case AgentStreamEventKind.error:
       case AgentStreamEventKind.permissionRequired:

@@ -11,7 +11,8 @@ enum AgentStreamEventKind {
   completed('completed'),
   error('error'),
   permissionRequired('permission_required'),
-  clarifyRequired('clarify_required');
+  clarifyRequired('clarify_required'),
+  uiCard('ui_card');
 
   const AgentStreamEventKind(this.value);
 
@@ -19,6 +20,9 @@ enum AgentStreamEventKind {
 
   static AgentStreamEventKind? fromValue(String raw) {
     final normalized = raw.trim().toLowerCase();
+    if (normalized == 'workbench_project_card') {
+      return AgentStreamEventKind.uiCard;
+    }
     for (final kind in AgentStreamEventKind.values) {
       if (kind.value == normalized) {
         return kind;

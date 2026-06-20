@@ -885,6 +885,7 @@ class _WebChatHomeState extends State<_WebChatHome> {
       case AgentStreamEventKind.toolStarted:
       case AgentStreamEventKind.toolProgress:
       case AgentStreamEventKind.permissionRequired:
+      case AgentStreamEventKind.uiCard:
         break;
     }
   }
@@ -915,6 +916,9 @@ class _WebChatHomeState extends State<_WebChatHome> {
         case AgentStreamEventKind.toolCompleted:
           _upsertWebToolCard(event);
           didChange = true;
+          break;
+        case AgentStreamEventKind.uiCard:
+          didChange = _upsertWebUiCards(event);
           break;
         case AgentStreamEventKind.clarifyRequired:
           didChange = _upsertWebAssistantMessage(

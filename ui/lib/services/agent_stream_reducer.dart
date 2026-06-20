@@ -270,6 +270,10 @@ class AgentStreamReducer {
         activeToolEntryIds = const <String>{};
         activeToolFallbackEntryIds = const <String>{};
         break;
+      case AgentStreamEventKind.uiCard:
+        clearActiveThinkingEntryId = true;
+        activeThinkingEntryId = null;
+        break;
     }
 
     final nextState = previousState.copyWith(

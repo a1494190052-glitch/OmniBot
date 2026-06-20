@@ -1667,6 +1667,14 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
           completedThinkingCardId: thinkingCardToFinalize,
         );
         return;
+      case AgentStreamEventKind.uiCard:
+        _applyAgentUiCardStreamEvent(
+          runtime,
+          binding,
+          event,
+          completedThinkingCardId: thinkingCardToFinalize,
+        );
+        return;
       case AgentStreamEventKind.clarifyRequired:
         _applyAgentClarifyStreamEvent(
           runtime,
@@ -2052,6 +2060,72 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     schedulePersistRuntimeConversation(
       conversationId: binding.conversationId,
       mode: binding.mode,
+    );
+  }
+
+  void _applyAgentUiCardStreamEvent(
+    ChatConversationRuntimeState runtime,
+    _TaskBinding binding,
+    AgentStreamEvent event, {
+    String? completedThinkingCardId,
+  }) {
+    final cards = extractAgentStreamUiCards(event);
+    if (cards.isEmpty) {
+      return;
+    }
+
+    runtime.isAiResponding = true;
+    _finalizeThinkingCard(
+      runtime,
+      event.taskId,
+      cardId: completedThinkingCardId,
+    );
+    for (final card in cards) {
+      _upsertAgentUiCard(runtime: runtime, event: event, card: card);
+    }
+    notifyListeners();
+    schedulePersistRuntimeConversation(
+      conversationId: binding.conversationId,
+      mode: binding.mode,
+    );
+  }
+
+  void _upsertAgentUiCard({
+    required ChatConversationRuntimeState runtime,
+    required AgentStreamEvent event,
+    required AgentStreamUiCard card,
+  }) {
+    final streamMeta = ensureAgentStreamMessageMeta(
+      _streamMetaFromEvent(event),
+      entryId: card.id,
+    );
+    final index = runtime.messages.indexWhere(
+      (message) =>
+          message.id == card.id ||
+          (message.cardData?['cardId'] ?? '').toString().trim() == card.id,
+    );
+    if (index == -1) {
+      runtime.messages.insert(
+        0,
+        ChatMessageModel.cardMessage(
+          card.cardData,
+          id: card.id,
+          streamMeta: streamMeta,
+        ).copyWith(
+          createAt: DateTime.fromMillisecondsSinceEpoch(event.createdAtMs),
+        ),
+      );
+      return;
+    }
+    final existingCardData = Map<String, dynamic>.from(
+      runtime.messages[index].cardData ?? const <String, dynamic>{},
+    );
+    runtime.messages[index] = runtime.messages[index].copyWith(
+      content: {
+        'cardData': <String, dynamic>{...existingCardData, ...card.cardData},
+        'id': card.id,
+      },
+      streamMeta: streamMeta,
     );
   }
 
@@ -3159,6 +3233,7 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       case AgentStreamEventKind.toolStarted:
       case AgentStreamEventKind.toolProgress:
       case AgentStreamEventKind.toolCompleted:
+      case AgentStreamEventKind.uiCard:
       case AgentStreamEventKind.completed:
       case AgentStreamEventKind.error:
       case AgentStreamEventKind.permissionRequired:
