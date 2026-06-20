@@ -52,6 +52,13 @@ internal fun canonicalBuiltinSkillInstallId(skillId: String): String {
     return resolveRetiredBuiltinSkillAlias(skillId)
 }
 
+internal fun normalizedSkillLookupTerms(value: String): Set<String> {
+    val raw = normalizeSkillLookupForAlias(value)
+    if (raw.isBlank()) return emptySet()
+    val alias = normalizeSkillLookupForAlias(resolveRetiredBuiltinSkillAlias(value))
+    return linkedSetOf(raw, alias).filterTo(linkedSetOf()) { it.isNotBlank() }
+}
+
 private fun normalizeSkillLookupForAlias(value: String): String {
     return value.trim()
         .lowercase()
@@ -360,17 +367,17 @@ class SkillIndexService(
         identifier: String,
         includeDisabled: Boolean
     ): SkillIndexEntry? {
-        val normalizedIdentifier = normalizeSkillLookup(resolveRetiredBuiltinSkillAlias(identifier))
-        if (normalizedIdentifier.isBlank()) return null
+        val normalizedIdentifiers = normalizedSkillLookupTerms(identifier)
+        if (normalizedIdentifiers.isEmpty()) return null
         val entries = listSkillsForManagement().filter { entry ->
             entry.installed && (includeDisabled || entry.enabled)
         }
-        return entries.firstOrNull { normalizeSkillLookup(it.id) == normalizedIdentifier }
-            ?: entries.firstOrNull { normalizeSkillLookup(it.name) == normalizedIdentifier }
-            ?: entries.firstOrNull { normalizeSkillLookup(it.shellSkillFilePath) == normalizedIdentifier }
-            ?: entries.firstOrNull { normalizeSkillLookup(it.skillFilePath) == normalizedIdentifier }
-            ?: entries.firstOrNull { normalizeSkillLookup(it.shellRootPath) == normalizedIdentifier }
-            ?: entries.firstOrNull { normalizeSkillLookup(it.rootPath) == normalizedIdentifier }
+        return entries.firstOrNull { normalizeSkillLookup(it.id) in normalizedIdentifiers }
+            ?: entries.firstOrNull { normalizeSkillLookup(it.name) in normalizedIdentifiers }
+            ?: entries.firstOrNull { normalizeSkillLookup(it.shellSkillFilePath) in normalizedIdentifiers }
+            ?: entries.firstOrNull { normalizeSkillLookup(it.skillFilePath) in normalizedIdentifiers }
+            ?: entries.firstOrNull { normalizeSkillLookup(it.shellRootPath) in normalizedIdentifiers }
+            ?: entries.firstOrNull { normalizeSkillLookup(it.rootPath) in normalizedIdentifiers }
     }
 
     fun installSkillFromDirectory(sourcePath: String): SkillIndexEntry {
@@ -783,12 +790,21 @@ object SkillTriggerMatcher {
         var score = 0.0
         val normalizedId = normalize(entry.id)
         val normalizedName = normalize(entry.name)
+        val normalizedAliases = normalizedSkillLookupTerms(entry.id)
         if (normalizedId.isNotBlank() && normalizedMessage.contains(normalizedId)) {
             score += 1.0
         }
         if (normalizedName.isNotBlank() && normalizedMessage.contains(normalizedName)) {
             score += 0.9
         }
+        RETIRED_BUILTIN_SKILL_ALIAS_TARGETS
+            .filterValues { normalizeSkillLookupForAlias(it) in normalizedAliases }
+            .keys
+            .forEach { retiredId ->
+                if (normalizedMessage.contains(normalize(retiredId))) {
+                    score += 1.0
+                }
+            }
         extractCandidatePhrases(entry.description).forEach { phrase ->
             if (phrase.isNotBlank() && normalizedMessage.contains(normalize(phrase))) {
                 score += 0.35

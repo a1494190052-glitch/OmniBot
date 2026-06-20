@@ -45,13 +45,25 @@ class SkillsToolHandler(
             helper.requireWorkspaceStorageAccess(callback)?.let { return it }
             val query = args["query"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
             val limit = args["limit"]?.jsonPrimitive?.intOrNull?.coerceIn(1, 200) ?: SharedHelper.DEFAULT_SKILLS_LIST_LIMIT
-            val normalizedQuery = query.lowercase()
+            val normalizedQueries = normalizedSkillLookupTerms(query)
             val entries = skillIndexService.listInstalledSkills()
                 .filter { entry ->
                     val compatibility = SkillCompatibilityChecker.evaluate(entry)
                     if (!compatibility.available) return@filter false
-                    if (normalizedQuery.isBlank()) true
-                    else listOf(entry.id, entry.name, entry.description, entry.shellSkillFilePath, entry.shellRootPath).any { it.lowercase().contains(normalizedQuery) }
+                    if (normalizedQueries.isEmpty()) {
+                        true
+                    } else {
+                        val searchable = listOf(
+                            entry.id,
+                            entry.name,
+                            entry.description,
+                            entry.shellSkillFilePath,
+                            entry.shellRootPath
+                        ).flatMap { normalizedSkillLookupTerms(it) }
+                        normalizedQueries.any { queryTerm ->
+                            searchable.any { field -> field.contains(queryTerm) || queryTerm.contains(field) }
+                        }
+                    }
                 }
                 .take(limit)
             val items = entries.map { entry ->

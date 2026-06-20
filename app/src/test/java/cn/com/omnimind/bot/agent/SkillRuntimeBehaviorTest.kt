@@ -308,6 +308,34 @@ class SkillRuntimeBehaviorTest {
     }
 
     @Test
+    fun retiredOmniFlowSkillNamesMatchSingleOmniFlowEntry() {
+        val omniflowEntry = entry(
+            id = "omniflow",
+            description = "Single OOB Android GUI automation and OmniFlow reusable workflow skill."
+        )
+        val retiredIds = listOf(
+            "oob-function-management",
+            "omniflow-function-enhancer",
+            "omniflow-checker-maintainer",
+            "vlm-android-gui"
+        )
+
+        retiredIds.forEach { retiredId ->
+            assertEquals(
+                setOf(retiredId.replace("-", ""), "omniflow"),
+                normalizedSkillLookupTerms(retiredId)
+            )
+
+            val matches = SkillTriggerMatcher.resolveMatches(
+                userMessage = "请使用 $retiredId",
+                entries = listOf(omniflowEntry)
+            )
+
+            assertTrue("Expected $retiredId to resolve to omniflow", matches.any { it.entry.id == "omniflow" })
+        }
+    }
+
+    @Test
     fun builtinHatchPetSkillKeepsStandardPetOutputContract() {
         val skillFile = File("src/main/assets/builtin_skills/hatch-pet/SKILL.md")
         val text = skillFile.readText()
