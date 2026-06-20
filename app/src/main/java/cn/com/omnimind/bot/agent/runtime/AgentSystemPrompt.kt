@@ -162,10 +162,7 @@ object AgentSystemPrompt {
 
         val oobFunctionCandidateSection = oobFunctionCandidateContext
             ?.takeIf { it.isNotBlank() }
-            ?: when (locale) {
-                PromptLocale.ZH_CN -> "本轮没有命中的 OmniFlow Function 候选；继续使用普通工具或 `vlm_task` 完成任务。"
-                PromptLocale.EN_US -> "No OmniFlow Function candidates matched this turn; continue with regular tools or `vlm_task`."
-            }
+            .orEmpty()
 
         return when (locale) {
             PromptLocale.ZH_CN -> """

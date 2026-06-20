@@ -3,6 +3,7 @@ package cn.com.omnimind.bot.agent
 import cn.com.omnimind.baselib.i18n.PromptLocale
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -77,5 +78,55 @@ class AgentSystemPromptTest {
         assertTrue(prompt.contains("Skills:"))
         assertTrue(prompt.contains("action=shell.exec"))
         assertTrue(prompt.contains("android_privileged_session_*"))
+    }
+
+    @Test
+    fun buildOmitsEmptyOmniFlowCandidatePlaceholderFromDefaultPrompt() {
+        val prompt = AgentSystemPrompt.build(
+            workspace = AgentWorkspaceDescriptor(
+                id = "conversation-1",
+                rootPath = "/workspace",
+                androidRootPath = "/data/user/0/cn.com.omnimind.bot/workspace",
+                uriRoot = "omnibot://workspace",
+                currentCwd = "/workspace/demo",
+                androidCurrentCwd = "/data/user/0/cn.com.omnimind.bot/workspace/demo",
+                shellRootPath = "/workspace",
+                retentionPolicy = "shared_root"
+            ),
+            installedSkills = emptyList(),
+            skillsRootShellPath = "/workspace/.omnibot/skills",
+            skillsRootAndroidPath = "/data/user/0/cn.com.omnimind.bot/workspace/.omnibot/skills",
+            resolvedSkills = emptyList(),
+            memoryContext = null,
+            locale = PromptLocale.EN_US
+        )
+
+        assertFalse(prompt.contains("No OmniFlow Function candidates matched this turn"))
+        assertFalse(prompt.contains("本轮没有命中的 OmniFlow Function 候选"))
+    }
+
+    @Test
+    fun buildIncludesOmniFlowCandidateContextWhenProvided() {
+        val prompt = AgentSystemPrompt.build(
+            workspace = AgentWorkspaceDescriptor(
+                id = "conversation-1",
+                rootPath = "/workspace",
+                androidRootPath = "/data/user/0/cn.com.omnimind.bot/workspace",
+                uriRoot = "omnibot://workspace",
+                currentCwd = "/workspace/demo",
+                androidCurrentCwd = "/data/user/0/cn.com.omnimind.bot/workspace/demo",
+                shellRootPath = "/workspace",
+                retentionPolicy = "shared_root"
+            ),
+            installedSkills = emptyList(),
+            skillsRootShellPath = "/workspace/.omnibot/skills",
+            skillsRootAndroidPath = "/data/user/0/cn.com.omnimind.bot/workspace/.omnibot/skills",
+            resolvedSkills = emptyList(),
+            memoryContext = null,
+            oobFunctionCandidateContext = "OmniFlow runtime recall is available through vlm_task.",
+            locale = PromptLocale.EN_US
+        )
+
+        assertTrue(prompt.contains("OmniFlow runtime recall is available through vlm_task."))
     }
 }
