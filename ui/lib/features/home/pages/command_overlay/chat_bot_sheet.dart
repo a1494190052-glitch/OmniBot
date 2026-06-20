@@ -19,7 +19,6 @@ import 'package:ui/features/home/pages/command_overlay/utils/deep_thinking_parse
 import 'package:ui/features/home/pages/chat/utils/agent_run_timeline.dart';
 import 'package:ui/features/home/pages/chat/utils/stream_text_merge.dart';
 import 'package:ui/features/home/pages/chat/utils/chat_card_message_helpers.dart';
-import 'package:ui/features/home/pages/chat/utils/omniflow_tool_profile_router.dart';
 import 'package:ui/features/home/pages/chat/utils/deep_thinking_persistence.dart';
 import 'package:ui/features/home/pages/chat/utils/keyboard_inset_motion_tracker.dart';
 import 'package:ui/features/home/pages/chat/widgets/agent_run_group_message.dart';
@@ -1876,14 +1875,12 @@ class _ChatBotSheetState extends State<ChatBotSheet>
       final userMessage = userMessageOverride?.trim().isNotEmpty == true
           ? userMessageOverride!.trim()
           : _latestUserUtterance();
-      final toolProfile = omniflowToolProfileForMessage(userMessage);
       final success = await AssistsMessageService.createAgentTask(
         taskId: aiMessageId,
         userMessage: userMessage,
         attachments: attachments,
         conversationId: _currentConversationId,
         conversationMode: ConversationMode.normal.storageValue,
-        toolProfile: toolProfile,
       );
 
       return success;

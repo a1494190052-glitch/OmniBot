@@ -62,7 +62,6 @@ import 'package:ui/utils/ui.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/features/home/pages/chat/utils/agent_runtime_attachment_payload.dart';
 import 'package:ui/features/home/pages/chat/utils/chat_card_message_helpers.dart';
-import 'package:ui/features/home/pages/chat/utils/omniflow_tool_profile_router.dart';
 import 'package:ui/features/home/pages/chat/utils/codex_slash_commands.dart';
 import 'package:ui/features/home/pages/chat/utils/deep_thinking_persistence.dart';
 import 'package:ui/features/home/pages/chat/utils/composer_keyboard_metrics_tracker.dart';
