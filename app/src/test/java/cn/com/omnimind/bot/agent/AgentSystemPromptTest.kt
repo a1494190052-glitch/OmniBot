@@ -3,6 +3,7 @@ package cn.com.omnimind.bot.agent
 import cn.com.omnimind.baselib.i18n.PromptLocale
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import java.io.File
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
@@ -128,5 +129,15 @@ class AgentSystemPromptTest {
         )
 
         assertTrue(prompt.contains("OmniFlow runtime recall is available through vlm_task."))
+    }
+
+    @Test
+    fun defaultAgentExecutorDoesNotPrefetchOmniFlowFunctionRecallForPrompt() {
+        val source = File(
+            "src/main/java/cn/com/omnimind/bot/agent/runtime/OmniAgentExecutor.kt"
+        ).readText()
+
+        assertFalse(source.contains("promptCandidateContext"))
+        assertTrue(source.contains("oobFunctionCandidateContext = null"))
     }
 }

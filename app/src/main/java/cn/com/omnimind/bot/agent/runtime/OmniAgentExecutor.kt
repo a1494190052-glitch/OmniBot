@@ -151,14 +151,6 @@ class OmniAgentExecutor(
                 memoryService.buildPromptContext()
             }.getOrNull()
             val promptLocale = AppLocaleManager.resolvePromptLocale(context)
-            val oobFunctionCandidateContext = if (lightweightToolProfile) {
-                null
-            } else OobFunctionSkillProfile.promptCandidateContext(
-                context = context,
-                locale = promptLocale,
-                goal = userMessage,
-                currentPackageName = currentPackageName,
-            ).takeIf { it.isNotBlank() }
             val ltmIndex = if (lightweightToolProfile) {
                 null
             } else runCatching {
@@ -213,7 +205,7 @@ class OmniAgentExecutor(
                 skillsRootAndroidPath = workspaceManager.skillsRoot().absolutePath,
                 resolvedSkills = resolvedSkills,
                 memoryContext = promptMemoryContext,
-                oobFunctionCandidateContext = oobFunctionCandidateContext,
+                oobFunctionCandidateContext = null,
                 locale = promptLocale,
                 prefetchedMemoryHits = prefetchedMemoryHits,
                 toolExposurePolicy = toolExposurePolicy,
