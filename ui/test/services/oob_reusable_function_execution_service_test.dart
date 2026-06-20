@@ -15,6 +15,34 @@ void main() {
   });
 
   group('OOB reusable Function execution bridge', () {
+    test('starts agent managed execution with focused Function tool', () async {
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(assistCoreChannel, (call) async {
+            calls.add(call);
+            expect(call.method, 'createAgentTask');
+            return 'SUCCESS';
+          });
+
+      final started =
+          await AssistsMessageService.runOobReusableFunctionWithAgent(
+            taskId: 'task-run-function-1',
+            functionId: ' open_settings ',
+            arguments: const {'package_name': 'com.android.settings'},
+          );
+
+      expect(started, isTrue);
+      expect(calls, hasLength(1));
+      final arguments = Map<String, dynamic>.from(
+        calls.single.arguments as Map,
+      );
+      expect(arguments['taskId'], 'task-run-function-1');
+      expect(arguments['toolProfile'], 'function_management');
+      expect(arguments['allowedTools'], contains('oob_function_run'));
+      expect(arguments['userMessage'], contains('Function id: open_settings'));
+      expect(arguments['userMessage'], contains('com.android.settings'));
+    });
+
     test('passes default arguments and parses local completion', () async {
       final calls = <MethodCall>[];
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger

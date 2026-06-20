@@ -527,7 +527,7 @@ void main() {
   );
 
   testWidgets(
-    'RunLog local execution registers the run and executes the generated reusable Function',
+    'RunLog execution registers the run and starts agent managed reusable Function',
     (tester) async {
       final methodCalls = <MethodCall>[];
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -567,28 +567,8 @@ void main() {
                 },
               };
             }
-            if (call.method == 'runOobReusableFunction') {
-              return <String, dynamic>{
-                'success': true,
-                'function_id': 'fn_from_runlog',
-                'goal': 'oob_reusable_function_run:fn_from_runlog',
-                'execution_status': 'completed_local',
-                'terminal_state': <String, dynamic>{
-                  'status': 'completed_local',
-                  'execution_status': 'completed_local',
-                  'runner': 'oob_omniflow_replay',
-                  'step_count': 1,
-                  'success_step_count': 1,
-                },
-                'step_results': <Map<String, dynamic>>[
-                  <String, dynamic>{
-                    'success': true,
-                    'tool': 'open_app',
-                    'executor': 'omniflow',
-                    'duration_ms': 12,
-                  },
-                ],
-              };
+            if (call.method == 'createAgentTask') {
+              return 'SUCCESS';
             }
             return null;
           });
@@ -615,12 +595,17 @@ void main() {
       expect(convertArgs['register'], isTrue);
 
       final runCall = methodCalls.singleWhere(
-        (call) => call.method == 'runOobReusableFunction',
+        (call) => call.method == 'createAgentTask',
       );
       final runArgs = Map<String, dynamic>.from(runCall.arguments as Map);
-      expect(runArgs['function_id'], 'fn_from_runlog');
-      expect(runArgs['arguments'], isA<Map>());
-      expect(find.text('RunLog 重放结果'), findsOneWidget);
+      expect(runArgs['toolProfile'], 'function_management');
+      expect(runArgs['allowedTools'], contains('oob_function_run'));
+      expect(runArgs['userMessage'], contains('Function id: fn_from_runlog'));
+      expect(
+        methodCalls.where((call) => call.method == 'runOobReusableFunction'),
+        isEmpty,
+      );
+      expect(find.text('RunLog 重放结果'), findsNothing);
     },
   );
 
@@ -1160,19 +1145,8 @@ void main() {
             if (call.method == 'updateOobFunction') {
               return updateCompleter.future;
             }
-            if (call.method == 'runOobReusableFunction') {
-              return <String, dynamic>{
-                'success': true,
-                'function_id': 'fn_from_runlog',
-                'goal': 'oob_reusable_function_run:fn_from_runlog',
-                'execution_status': 'completed_local',
-                'terminal_state': <String, dynamic>{
-                  'status': 'completed_local',
-                  'runner': 'oob_omniflow_replay',
-                  'step_count': 1,
-                  'success_step_count': 1,
-                },
-              };
+            if (call.method == 'createAgentTask') {
+              return 'SUCCESS';
             }
             if (call.method == 'registerOobReusableFunction') {
               final args = Map<String, dynamic>.from(call.arguments as Map);
@@ -1247,8 +1221,20 @@ void main() {
         hasLength(1),
       );
       expect(
-        methodCalls.where((call) => call.method == 'runOobReusableFunction'),
+        methodCalls.where((call) => call.method == 'createAgentTask'),
         hasLength(1),
+      );
+      final agentRunCall = methodCalls.singleWhere(
+        (call) => call.method == 'createAgentTask',
+      );
+      final agentRunArgs = Map<String, dynamic>.from(
+        agentRunCall.arguments as Map,
+      );
+      expect(agentRunArgs['toolProfile'], 'function_management');
+      expect(agentRunArgs['allowedTools'], contains('oob_function_run'));
+      expect(
+        agentRunArgs['userMessage'],
+        contains('Function id: fn_from_runlog'),
       );
       await tester.pump();
 

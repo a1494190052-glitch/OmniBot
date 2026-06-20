@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:ui/features/task/pages/execution_history/function_run_result_sheet.dart';
 import 'package:ui/features/task/pages/execution_history/run_log_timeline_page.dart';
 import 'package:ui/features/task/pages/execution_history/widgets/reusable_function_card.dart';
 import 'package:ui/features/task/run_log/run_log_reusable_function_converter.dart';
@@ -230,15 +229,20 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
       if (!mounted) return;
       final arguments = await _resolveRunArguments(context, spec);
       if (!mounted || arguments == null) return;
-      final started = await AssistsMessageService.runOobReusableFunctionWithAgent(
-        taskId: 'oob-function-run-${DateTime.now().millisecondsSinceEpoch}',
-        functionId: group.primary.functionId,
-        arguments: arguments,
-      );
+      final started =
+          await AssistsMessageService.runOobReusableFunctionWithAgent(
+            taskId: 'oob-function-run-${DateTime.now().millisecondsSinceEpoch}',
+            functionId: group.primary.functionId,
+            arguments: arguments,
+          );
       if (!mounted) return;
       showToast(
         started
-            ? _text(context, '复用指令已交给 Agent 执行', 'Reusable command is running in Agent')
+            ? _text(
+                context,
+                '复用指令已交给 Agent 执行',
+                'Reusable command is running in Agent',
+              )
             : _text(context, '复用指令执行启动失败', 'Failed to start reusable command'),
         type: started ? ToastType.success : ToastType.error,
         duration: const Duration(seconds: 3),
@@ -2055,60 +2059,4 @@ String _text(BuildContext context, String zh, String en) {
     en: en,
     locale: Localizations.localeOf(context),
   );
-}
-
-String _runSuccessMessage(BuildContext context, UtgManualRunResult result) {
-  final progressText = _runProgressText(context, result);
-  if (result.completedVlmFallback) {
-    return _appendRunProgress(
-      _text(context, '复用指令已通过 VLM 执行完成', 'Reusable command completed by VLM'),
-      progressText,
-    );
-  }
-  if (result.startedAgentFallback) {
-    final taskId = result.taskId;
-    return _appendRunProgress(
-      _text(
-        context,
-        taskId.isEmpty ? '已交给 Agent 继续执行' : '已交给 Agent 继续执行：$taskId',
-        taskId.isEmpty ? 'Handed off to Agent' : 'Handed off to Agent: $taskId',
-      ),
-      progressText,
-    );
-  }
-  if (result.completedLocal) {
-    return _appendRunProgress(
-      _text(context, '复用指令已本地执行完成', 'Reusable command completed locally'),
-      progressText,
-    );
-  }
-  return _appendRunProgress(
-    _text(context, '复用指令已开始执行', 'Reusable command started'),
-    progressText,
-  );
-}
-
-String _runFailureMessage(BuildContext context, UtgManualRunResult result) {
-  final progressText = _runProgressText(context, result);
-  final error = result.errorMessage?.trim();
-  return _appendRunProgress(
-    error == null || error.isEmpty ? _text(context, '执行失败', 'Failed') : error,
-    progressText,
-  );
-}
-
-String _runProgressText(BuildContext context, UtgManualRunResult result) {
-  final currentStepNumber = result.currentStepNumber;
-  final stepCount = result.stepCount;
-  if (currentStepNumber != null && currentStepNumber > 0) {
-    final value = stepCount > 0
-        ? '$currentStepNumber/$stepCount'
-        : '$currentStepNumber';
-    return _text(context, '执行到第 $value 步', 'Step $value');
-  }
-  return '';
-}
-
-String _appendRunProgress(String message, String progressText) {
-  return progressText.isEmpty ? message : '$message · $progressText';
 }
