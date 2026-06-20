@@ -67,6 +67,8 @@ class WorkspaceScheduledTaskScheduler(
         val notificationEnabled: Boolean = true,
         val oobFunctionId: String? = null,
         val oobFunctionArguments: Map<String, Any?> = emptyMap(),
+        // Compatibility for generic scheduled subagents. Reusable Function schedules
+        // derive their focused policy at execution time from oobFunctionId.
         val toolProfile: String? = null,
         val allowedTools: List<String> = emptyList()
     )
@@ -258,9 +260,10 @@ class WorkspaceScheduledTaskScheduler(
             "scheduledTaskTitle" to task.title,
             "scheduleNotificationEnabled" to task.notificationEnabled
         )
-        task.toolProfile?.takeIf { it.isNotBlank() }?.let { args["toolProfile"] = it }
-        if (task.allowedTools.isNotEmpty()) {
-            args["allowedTools"] = task.allowedTools
+        scheduledSubagentToolProfile(task)?.let { args["toolProfile"] = it }
+        val allowedTools = scheduledSubagentAllowedTools(task)
+        if (allowedTools.isNotEmpty()) {
+            args["allowedTools"] = allowedTools
         }
         AssistsCoreManager(appContext).createAgentTask(
             MethodCall("createAgentTask", args),
@@ -416,11 +419,23 @@ class WorkspaceScheduledTaskScheduler(
             notificationEnabled = notificationEnabled,
             oobFunctionId = reusableFunctionId,
             oobFunctionArguments = reusableFunctionArguments,
-            toolProfile = toolProfile ?: OobFunctionSkillProfile.PROFILE.takeIf { !reusableFunctionId.isNullOrEmpty() },
-            allowedTools = allowedTools.ifEmpty {
-                listOf(OobFunctionToolNames.FUNCTION_RUN).takeIf { !reusableFunctionId.isNullOrEmpty() } ?: emptyList()
-            }
+            toolProfile = toolProfile,
+            allowedTools = allowedTools
         )
+    }
+
+    private fun scheduledSubagentToolProfile(task: StoredTask): String? {
+        if (!task.oobFunctionId.isNullOrBlank()) {
+            return OobFunctionSkillProfile.PROFILE
+        }
+        return task.toolProfile?.takeIf { it.isNotBlank() }
+    }
+
+    private fun scheduledSubagentAllowedTools(task: StoredTask): List<String> {
+        if (!task.oobFunctionId.isNullOrBlank()) {
+            return listOf(OobFunctionToolNames.FUNCTION_RUN)
+        }
+        return task.allowedTools
     }
 
     private fun loadFlutterScheduledTaskMaps(): MutableList<MutableMap<String, Any?>> {
