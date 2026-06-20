@@ -254,6 +254,8 @@ class ScheduledTaskSchedulerService {
             scheduledTaskId: task.id,
             scheduledTaskTitle: task.title,
             scheduleNotificationEnabled: task.notificationEnabled,
+            toolProfile: _firstNonBlank([task.suggestionData?['toolProfile']]),
+            allowedTools: _stringList(task.suggestionData?['allowedTools']),
           );
         }
       }
@@ -272,6 +274,24 @@ class ScheduledTaskSchedulerService {
     } catch (e) {
       debugPrint('ScheduledTaskSchedulerService: Execute task error - $e');
     }
+  }
+
+  static String? _firstNonBlank(Iterable<dynamic> values) {
+    for (final value in values) {
+      final text = value?.toString().trim() ?? '';
+      if (text.isNotEmpty) return text;
+    }
+    return null;
+  }
+
+  static List<String> _stringList(dynamic value) {
+    if (value is Iterable) {
+      return value
+          .map((item) => item.toString().trim())
+          .where((item) => item.isNotEmpty)
+          .toList(growable: false);
+    }
+    return const <String>[];
   }
 
   /// 取消定时任务

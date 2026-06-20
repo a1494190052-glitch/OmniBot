@@ -70,7 +70,10 @@ class AgentScheduleBridgeService {
     return {
       'success': true,
       'taskId': normalizedTask.id,
-      'summary': AppTextLocalizer.choose(en: 'Created scheduled task “${normalizedTask.title}”', zh: '已创建定时任务”${normalizedTask.title}”'),
+      'summary': AppTextLocalizer.choose(
+        en: 'Created scheduled task “${normalizedTask.title}”',
+        zh: '已创建定时任务”${normalizedTask.title}”',
+      ),
       'task': _toSummaryMap(normalizedTask),
     };
   }
@@ -158,6 +161,14 @@ class AgentScheduleBridgeService {
                 existing.subagentPrompt ??
                 existing.suggestionData?['subagentPrompt'] ??
                 '',
+            'toolProfile':
+                raw['toolProfile'] ??
+                existing.suggestionData?['toolProfile'] ??
+                '',
+            'allowedTools':
+                raw['allowedTools'] ??
+                existing.suggestionData?['allowedTools'] ??
+                const <String>[],
           }, baseUpdated.targetKind)
         : existing.suggestionData;
     final updated = baseUpdated.copyWith(
@@ -184,7 +195,10 @@ class AgentScheduleBridgeService {
     return {
       'success': true,
       'taskId': updated.id,
-      'summary': AppTextLocalizer.choose(en: 'Updated scheduled task “${updated.title}”', zh: '已更新定时任务”${updated.title}”'),
+      'summary': AppTextLocalizer.choose(
+        en: 'Updated scheduled task “${updated.title}”',
+        zh: '已更新定时任务”${updated.title}”',
+      ),
       'task': _toSummaryMap(updated),
     };
   }
@@ -220,7 +234,10 @@ class AgentScheduleBridgeService {
     return {
       'success': true,
       'taskId': taskId,
-      'summary': AppTextLocalizer.choose(en: 'Deleted scheduled task “${existing.title}”', zh: '已删除定时任务”${existing.title}”'),
+      'summary': AppTextLocalizer.choose(
+        en: 'Deleted scheduled task “${existing.title}”',
+        zh: '已删除定时任务”${existing.title}”',
+      ),
       'task': _toSummaryMap(existing),
     };
   }
@@ -250,7 +267,14 @@ class AgentScheduleBridgeService {
       if (prompt == null || prompt.isEmpty) {
         throw ArgumentError('SubAgent 定时任务缺少 subagentPrompt');
       }
-      return {'targetKind': 'subagent', 'subagentPrompt': prompt};
+      return {
+        'targetKind': 'subagent',
+        'subagentPrompt': prompt,
+        if ((raw['toolProfile']?.toString().trim() ?? '').isNotEmpty)
+          'toolProfile': raw['toolProfile'].toString().trim(),
+        if (_stringList(raw['allowedTools']).isNotEmpty)
+          'allowedTools': _stringList(raw['allowedTools']),
+      };
     }
 
     final goal = raw['goal']?.toString();
@@ -263,6 +287,16 @@ class AgentScheduleBridgeService {
       'needSummary': false,
       'targetKind': 'vlm',
     };
+  }
+
+  static List<String> _stringList(dynamic value) {
+    if (value is Iterable) {
+      return value
+          .map((item) => item.toString().trim())
+          .where((item) => item.isNotEmpty)
+          .toList(growable: false);
+    }
+    return const <String>[];
   }
 
   static Map<String, dynamic> _toSummaryMap(ScheduledTask task) {

@@ -62,7 +62,9 @@ class WorkspaceScheduledTaskScheduler(
         val parentConversationId: String? = null,
         val parentConversationMode: String? = null,
         val subagentPrompt: String? = null,
-        val notificationEnabled: Boolean = true
+        val notificationEnabled: Boolean = true,
+        val toolProfile: String? = null,
+        val allowedTools: List<String> = emptyList()
     )
 
     private class NoopResult(
@@ -252,6 +254,10 @@ class WorkspaceScheduledTaskScheduler(
             "scheduledTaskTitle" to task.title,
             "scheduleNotificationEnabled" to task.notificationEnabled
         )
+        task.toolProfile?.takeIf { it.isNotBlank() }?.let { args["toolProfile"] = it }
+        if (task.allowedTools.isNotEmpty()) {
+            args["allowedTools"] = task.allowedTools
+        }
         AssistsCoreManager(appContext).createAgentTask(
             MethodCall("createAgentTask", args),
             NoopResult(task.taskId, "createAgentTask")
@@ -372,6 +378,14 @@ class WorkspaceScheduledTaskScheduler(
         val notificationEnabled = (rawTask["notificationEnabled"] as? Boolean)
             ?: existing?.notificationEnabled
             ?: true
+        val toolProfile = rawTask["toolProfile"]?.toString()?.trim()?.ifEmpty { null }
+            ?: suggestionData?.get("toolProfile")?.toString()?.trim()?.ifEmpty { null }
+            ?: existing?.toolProfile
+        val allowedTools = stringList(rawTask["allowedTools"]).ifEmpty {
+            stringList(suggestionData?.get("allowedTools"))
+        }.ifEmpty {
+            existing?.allowedTools ?: emptyList()
+        }
 
         return StoredTask(
             taskId = taskId,
@@ -389,7 +403,9 @@ class WorkspaceScheduledTaskScheduler(
             parentConversationId = parentConversationId,
             parentConversationMode = parentConversationMode,
             subagentPrompt = subagentPrompt,
-            notificationEnabled = notificationEnabled
+            notificationEnabled = notificationEnabled,
+            toolProfile = toolProfile,
+            allowedTools = allowedTools
         )
     }
 
@@ -486,11 +502,15 @@ class WorkspaceScheduledTaskScheduler(
         payload["parentConversationMode"] = task.parentConversationMode
         payload["subagentPrompt"] = task.subagentPrompt
         payload["notificationEnabled"] = task.notificationEnabled
+        payload["toolProfile"] = task.toolProfile
+        payload["allowedTools"] = task.allowedTools
         if (task.targetKind == "subagent") {
             payload["suggestionData"] = mapOf(
                 "targetKind" to "subagent",
-                "subagentPrompt" to (task.subagentPrompt ?: "")
-            )
+                "subagentPrompt" to (task.subagentPrompt ?: ""),
+                "toolProfile" to task.toolProfile,
+                "allowedTools" to task.allowedTools
+            ).filterValues { it != null }
         } else {
             payload["suggestionData"] = mapOf(
                 "targetKind" to "vlm",
@@ -643,6 +663,18 @@ class WorkspaceScheduledTaskScheduler(
             is Float -> value.toLong()
             is String -> value.toLongOrNull()
             else -> null
+        }
+    }
+
+    private fun stringList(value: Any?): List<String> {
+        return when (value) {
+            is Iterable<*> -> value.mapNotNull { item ->
+                item?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+            }
+            is Array<*> -> value.mapNotNull { item ->
+                item?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+            }
+            else -> emptyList()
         }
     }
 }

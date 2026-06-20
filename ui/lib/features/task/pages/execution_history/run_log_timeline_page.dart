@@ -4142,6 +4142,8 @@ class _ReusableFunctionSpecSheetState
     return {
       'targetKind': 'subagent',
       'subagentPrompt': _scheduledFunctionPrompt(functionId),
+      'toolProfile': 'function_management',
+      'allowedTools': const ['oob_function_run'],
       'notificationEnabled': true,
       'source': 'run_log_reusable_function',
       'sourceRunId': widget.runId,
@@ -4154,29 +4156,17 @@ class _ReusableFunctionSpecSheetState
     final argumentsJson = _prettyUserJson(_defaultArguments);
     if (_localeValue(context, zh: false, en: true)) {
       return [
-        'Execute this already registered OOB reusable Function now. Do not create, update, or discuss the schedule.',
-        '',
-        'Reusable Function ID: $functionId',
-        'Arguments JSON:',
-        argumentsJson,
-        '',
-        'Execution rule: run the OOB reusable Function with the arguments above. The runtime executes canonical {tool,args} steps locally; validation mismatch returns an explicit failure for the agent to decide the next action.',
-        '',
-        'Reusable Function JSON:',
-        _functionJsonForUser,
+        'Execute the saved reusable Function.',
+        'Function id: $functionId',
+        if (_defaultArguments.isNotEmpty) 'Arguments: $argumentsJson',
+        'Use the oob_function_run tool only. Do not recreate, update, or discuss the schedule.',
       ].join('\n');
     }
     return [
-      '现在执行这个已经注册的 OOB 复用指令。不要创建、修改或讨论定时任务。',
-      '',
-      '复用指令 ID: $functionId',
-      'Arguments JSON:',
-      argumentsJson,
-      '',
-      '执行规则：用上面的参数运行 OOB 复用指令。运行时本地执行标准 {tool,args} 步骤；校验不匹配时返回明确失败，由 agent 决定下一步。',
-      '',
-      '复用指令 JSON:',
-      _functionJsonForUser,
+      '执行已保存的复用指令。',
+      'Function id: $functionId',
+      if (_defaultArguments.isNotEmpty) 'Arguments: $argumentsJson',
+      '只使用 oob_function_run 工具。不要重新创建、更新或讨论定时任务。',
     ].join('\n');
   }
 
