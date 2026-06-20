@@ -132,6 +132,47 @@ class AgentSystemPromptTest {
     }
 
     @Test
+    fun installedSkillIndexShowsOmniFlowAsSingleRuntimeEntry() {
+        val prompt = AgentSystemPrompt.build(
+            workspace = AgentWorkspaceDescriptor(
+                id = "conversation-1",
+                rootPath = "/workspace",
+                androidRootPath = "/data/user/0/cn.com.omnimind.bot/workspace",
+                uriRoot = "omnibot://workspace",
+                currentCwd = "/workspace/demo",
+                androidCurrentCwd = "/data/user/0/cn.com.omnimind.bot/workspace/demo",
+                shellRootPath = "/workspace",
+                retentionPolicy = "shared_root"
+            ),
+            installedSkills = listOf(
+                SkillIndexEntry(
+                    id = "omniflow",
+                    name = "omniflow",
+                    description = "Single OOB Android GUI automation and OmniFlow reusable workflow skill.",
+                    rootPath = "/workspace/.omnibot/skills/omniflow",
+                    shellRootPath = "/workspace/.omnibot/skills/omniflow",
+                    skillFilePath = "/workspace/.omnibot/skills/omniflow/SKILL.md",
+                    shellSkillFilePath = "/workspace/.omnibot/skills/omniflow/SKILL.md",
+                    hasScripts = false,
+                    hasReferences = true,
+                    hasAssets = false,
+                    hasEvals = false
+                )
+            ),
+            skillsRootShellPath = "/workspace/.omnibot/skills",
+            skillsRootAndroidPath = "/data/user/0/cn.com.omnimind.bot/workspace/.omnibot/skills",
+            resolvedSkills = emptyList(),
+            memoryContext = null,
+            locale = PromptLocale.ZH_CN
+        )
+
+        assertTrue(prompt.contains("用 vlm_task 操作手机界面"))
+        assertTrue(prompt.contains("管理或执行复用指令"))
+        assertTrue(prompt.contains("用 update_function 修复 checker"))
+        assertTrue(prompt.contains("涉及手机界面自动化、VLM 执行、RunLog、复用指令、update_function 或 checker 时。"))
+    }
+
+    @Test
     fun defaultAgentExecutorOnlyPrefetchesOmniFlowCandidatesForLightweightProfile() {
         val source = File(
             "src/main/java/cn/com/omnimind/bot/agent/runtime/OmniAgentExecutor.kt"

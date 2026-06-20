@@ -320,6 +320,11 @@ object AgentSystemPrompt {
                     "找个处理 PDF 的 skill",
                     "有没有网页自动化 skill",
                     "安装一个研究整理 skill"
+                ),
+                "omniflow" to listOf(
+                    "用 vlm_task 操作手机界面",
+                    "管理或执行复用指令",
+                    "用 update_function 修复 checker"
                 )
             )
             PromptLocale.EN_US -> mapOf(
@@ -337,6 +342,11 @@ object AgentSystemPrompt {
                     "find a PDF handling skill",
                     "check whether a browser automation skill exists",
                     "install a research workflow skill"
+                ),
+                "omniflow" to listOf(
+                    "run phone UI automation with vlm_task",
+                    "manage or execute reusable commands",
+                    "repair checkers with update_function"
                 )
             )
         }
@@ -447,6 +457,9 @@ object AgentSystemPrompt {
         }.joinToString(", ")
         return when (locale) {
             PromptLocale.ZH_CN -> {
+                if (skill.id == "omniflow") {
+                    return "涉及手机界面自动化、VLM 执行、RunLog、复用指令、update_function 或 checker 时。"
+                }
                 if (capabilityReason.isBlank()) {
                     "准备执行该类任务，或索引讲解不足时。"
                 } else {
@@ -454,6 +467,9 @@ object AgentSystemPrompt {
                 }
             }
             PromptLocale.EN_US -> {
+                if (skill.id == "omniflow") {
+                    return "For phone UI automation, VLM execution, RunLogs, reusable commands, update_function, or checkers."
+                }
                 if (capabilityReason.isBlank()) {
                     "Before executing this kind of task, or when the index explanation is not enough."
                 } else {
