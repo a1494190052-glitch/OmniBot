@@ -275,7 +275,9 @@ data class UIContext(
     @SerialName("priority_event_type")
     val priorityEventType: String? = null,  // Event type (e.g., "file_received")
     @SerialName("suggest_completion")
-    val suggestCompletion: Boolean = false  // Hint that task should complete
+    val suggestCompletion: Boolean = false,  // Hint that task should complete
+    @SerialName("allowed_vlm_tool_names")
+    val allowedVlmToolNames: List<String> = emptyList()
     // 注意：screenshot不在这里，会单独传递（对应Python中的exclude=True）
 ) {
     fun activeGoal(): String = currentStepGoal.ifBlank { overallTask }
@@ -383,6 +385,8 @@ data class VLMRequestEnvelope(
     val currentUserText: String,
     val dynamicFunctionToolNames: Set<String> = emptySet(),
     val toolNames: List<String> = emptyList(),
+    val defaultToolCount: Int = 0,
+    val selectedBaseToolNames: Set<String> = emptySet(),
     val systemPromptChars: Int = 0,
     val currentUserTextChars: Int = currentUserText.length,
 )
@@ -395,6 +399,7 @@ data class OperationResult(
     val providerRunLogJson: String? = null,
     val providerRunLogPath: String? = null,
     val canonicalRunLogPath: String? = null,
+    val diagnostics: Map<String, String> = emptyMap(),
 )
 
 @Serializable

@@ -20,6 +20,62 @@ Enhancement is deliberately out of this critical path. Auto-registration must
 save the replayable Function first; semantic upgrade/enhancement is a later
 offline/background step started explicitly from UI, MCP, or HTTP tooling.
 
+## Current Verified Evidence
+
+Latest real-phone evidence on `ABNU025605001996`:
+
+- Composed mainline gate:
+  `runtime/mainline-acceptance/20260619T225501-real-device-after-tool-budget/mainline-acceptance-report.json`
+  passed Android unit tests, Flutter UI/l10n tests, OmniFlow Python offline
+  contract, manual recording smoke, and VLM recall-loop smoke.
+- Manual recording smoke:
+  `runtime/mainline-acceptance/20260619T225501-real-device-after-tool-budget/manual_recording_device_smoke.log`
+  started a recording, recorded one click and one swipe, finished RunLog
+  `human_1781880940582_cd058af2`, converted it, and registered Function
+  `oob_fn_human_trajectory_cd058af2`.
+- VLM recall loop smoke:
+  `runtime/mainline-acceptance/20260619T225501-real-device-after-tool-budget/vlm_recall_loop_device_smoke.log`
+  seeded a successful VLM RunLog, registered Function
+  `oob_fn_vlm_task_badc602097`, returned native recall `hit`, executed
+  `RUN_VLM_RECALL_HIT` through `omniflow_recall_hit`, completed the second
+  `vlm_task` through the same fast path, and kept enhance offline-only.
+- Online VLM recall loop:
+  `runtime/real-device-vlm-recall-loop/20260619T224919-online-after-tool-budget/vlm-accuracy-report.json`
+  passed first-run registration, strict recall hit, native replay, second fast
+  path, and offline-only enhance policy with the configured online binding.
+
+Latest real-phone online bottleneck:
+
+- After narrowing model-visible tools, the latest real-provider parse-only probe
+  `runtime/runlogs/20260619-225120.vlm.parse_only.after_tool_budget.json`
+  sent only `click,finished,feedback,abort` for the single-step "click settings
+  search box" task. It returned a native `click` tool call without executing the
+  action, with `prompt_chars=2161`, `vlm_stream_ms=1976`, `build_request_ms=5`,
+  and `parse_response_ms=7`.
+- For the latest online settings run
+  `runtime/real-device-vlm-recall-loop/20260619T224919-online-after-tool-budget/first-vlm.json`,
+  the first click was handled by `VLMIndexedActionProposer` and the second
+  `finished` step was handled by `vlm_goal_completion_fast_path`.
+- That run produced no online token usage and no `vlm_stream_ms` because the
+  native indexed action and current-page completion fast paths avoided the
+  provider call.
+- The remaining measured bottleneck was action dispatch: `action_dispatch_ms=471`
+  for the click, with `action_executor_action_ms=170` and
+  `action_executor_post_delay_ms=300`.
+- When an ordinary online provider call is unavoidable, historical real-phone
+  logs still show provider streaming as the dominant latency bucket. Optimize by
+  avoiding unnecessary provider calls first; then make post-action settle delay
+  conditional only after preserving page-stability guarantees.
+- Parse-only diagnostics now include request, context-budget, response, and
+  phase timing fields so `scripts/oob-vlm-runlog-performance-report.py` can
+  aggregate online probes directly instead of relying on manual prompt reading.
+
+Provider/request failures are now classified separately in RunLog diagnostics:
+`provider_auth_or_configuration_failed`, `provider_network_failed`,
+`provider_tool_schema_rejected`, `provider_streaming_failed`, and native
+response contract violations. These are provider/runtime diagnostics; they are
+not a reason to restore legacy text-action parsing.
+
 ## Single Runtime Boundary
 
 Keep in Kotlin/OOB-native:

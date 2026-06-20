@@ -281,6 +281,164 @@ class OobVlmRunLogAutoRegistrarTest {
     }
 
     @Test
+    fun `vlm recall direct hit accepts exact catalog match for same package runlog function`() {
+        val context = OobOmniFlowLoopAcceptanceTest.TempFilesContext()
+        try {
+            val workspaceStore = WorkspaceFunctionStore(context.root)
+            val service = OobOmniFlowToolkitService(context, workspaceStore)
+            val goal = "在美团打开外卖页面并搜索奶茶，不下单不支付"
+            val functionId = "oob_fn_vlm_task_meituan_takeout_search"
+
+            val register = service.registerFunction(
+                mapOf(
+                    "function_spec" to reusableFunctionSpec(
+                        functionId = functionId,
+                        name = goal,
+                        description = goal,
+                        source = mapOf(
+                            "kind" to "run_log",
+                            "goal" to goal,
+                            "tool_name" to "vlm_task",
+                            "behavior_identity" to mapOf(
+                                "stable" to true,
+                                "hash" to "meituansearch",
+                                "strategy" to "vlm_goal_package_actions_v1",
+                                "payload" to mapOf(
+                                    "goal" to goal,
+                                    "source_package" to "com.sankuai.meituan",
+                                ),
+                            ),
+                        ),
+                    )
+                )
+            )
+            assertEquals(true, register["success"])
+
+            val recall = service.recall(
+                mapOf(
+                    "goal" to goal,
+                    "current_package" to "com.sankuai.meituan",
+                    "current_xml" to "",
+                    "k" to 10,
+                    "auto_execute" to true,
+                    "include_debug" to true,
+                )
+            )
+
+            assertEquals(true, recall["success"])
+            assertEquals("hit", recall["decision"])
+            assertEquals("function_catalog_exact_match_direct_function_hit", recall["reason"])
+            val hit = recall["hit"] as? Map<*, *>
+            assertEquals(functionId, hit?.get("function_id"))
+            assertEquals("catalog_exact_match_same_package_goal", hit?.get("direct_hit_policy"))
+            assertEquals("function_catalog", hit?.get("recall_scope"))
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `vlm recall catalog direct hit uses replay step packages after startup bridge`() {
+        val context = OobOmniFlowLoopAcceptanceTest.TempFilesContext()
+        try {
+            val workspaceStore = WorkspaceFunctionStore(context.root)
+            val service = OobOmniFlowToolkitService(context, workspaceStore)
+            val goal = "在美团打开外卖页面并搜索奶茶，不下单不支付"
+            val functionId = "oob_fn_vlm_task_meituan_startup_bridge"
+
+            val register = service.registerFunction(
+                mapOf(
+                    "function_spec" to mapOf(
+                        "schema_version" to "oob.reusable_function.v1",
+                        "function_id" to functionId,
+                        "name" to goal,
+                        "description" to goal,
+                        "parameters" to emptyList<Map<String, Any?>>(),
+                        "source" to mapOf(
+                            "kind" to "run_log",
+                            "goal" to goal,
+                            "tool_name" to "vlm_task",
+                            "source_package" to "com.hihonor.systemmanager",
+                        ),
+                        "execution" to mapOf(
+                            "kind" to "tool_sequence",
+                            "steps" to listOf(
+                                mapOf(
+                                    "id" to "step_1",
+                                    "title" to "点击 允许按钮",
+                                    "tool" to "click",
+                                    "omniflow_action" to "click",
+                                    "args" to mapOf(
+                                        "target_description" to "允许按钮",
+                                        "x" to 750,
+                                        "y" to 2136,
+                                    ),
+                                    "source_context" to mapOf(
+                                        "src_ctx" to mapOf(
+                                            "page" to "<hierarchy package=\"com.hihonor.systemmanager\" />",
+                                            "package_name" to "com.hihonor.systemmanager",
+                                        )
+                                    ),
+                                ),
+                                mapOf(
+                                    "id" to "step_2",
+                                    "title" to "点击 外卖",
+                                    "tool" to "click",
+                                    "omniflow_action" to "click",
+                                    "args" to mapOf(
+                                        "target_description" to "外卖",
+                                        "x" to 349,
+                                        "y" to 536,
+                                    ),
+                                    "source_context" to mapOf(
+                                        "src_ctx" to mapOf(
+                                            "page" to "<hierarchy package=\"com.sankuai.meituan\" />",
+                                            "package_name" to "com.sankuai.meituan",
+                                        )
+                                    ),
+                                ),
+                                mapOf(
+                                    "id" to "step_3",
+                                    "title" to "完成任务",
+                                    "tool" to "finished",
+                                    "omniflow_action" to "finished",
+                                    "args" to emptyMap<String, Any?>(),
+                                    "source_context" to mapOf(
+                                        "src_ctx" to mapOf(
+                                            "page" to "<hierarchy package=\"com.sankuai.meituan\" />",
+                                            "package_name" to "com.sankuai.meituan",
+                                        )
+                                    ),
+                                ),
+                            )
+                        )
+                    )
+                )
+            )
+            assertEquals(true, register["success"])
+
+            val recall = service.recall(
+                mapOf(
+                    "goal" to goal,
+                    "current_package" to "com.sankuai.meituan",
+                    "current_xml" to "",
+                    "k" to 10,
+                    "auto_execute" to true,
+                    "include_debug" to true,
+                )
+            )
+
+            assertEquals(true, recall["success"])
+            assertEquals("hit", recall["decision"])
+            val hit = recall["hit"] as? Map<*, *>
+            assertEquals(functionId, hit?.get("function_id"))
+            assertEquals("catalog_exact_match_same_package_goal", hit?.get("direct_hit_policy"))
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `vlm recall direct hit ignores duplicate behavior identity functions`() {
         val context = OobOmniFlowLoopAcceptanceTest.TempFilesContext()
         try {
@@ -401,6 +559,113 @@ class OobVlmRunLogAutoRegistrarTest {
             assertEquals("hit", recall["decision"])
             val hit = recall["hit"] as? Map<*, *>
             assertNotNull(hit?.get("function_id"))
+            val capabilities = recall["node_function_capabilities"] as? List<*>
+            assertEquals(2, capabilities?.size)
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `vlm recall direct hit ignores equivalent no-arg vlm functions with different click titles`() {
+        val context = OobOmniFlowLoopAcceptanceTest.TempFilesContext()
+        try {
+            val workspaceStore = WorkspaceFunctionStore(context.root)
+            val service = OobOmniFlowToolkitService(context, workspaceStore)
+            val firstRegister = service.registerFunction(
+                mapOf(
+                    "function_spec" to reusableVlmSequenceSpec(
+                        functionId = "oob_fn_vlm_task_indexed_mobile_network",
+                        goal = "打开网络设置",
+                        clickTitle = "indexed evidence matched visible target: 移动网络",
+                    )
+                )
+            )
+            val duplicateRegister = service.registerFunction(
+                mapOf(
+                    "function_spec" to reusableVlmSequenceSpec(
+                        functionId = "oob_fn_vlm_task_click_mobile_network",
+                        goal = "打开网络设置",
+                        clickTitle = "点击 移动网络选项",
+                    )
+                )
+            )
+            assertEquals(true, firstRegister["success"])
+            assertEquals(true, duplicateRegister["success"])
+
+            val recall = service.recall(
+                mapOf(
+                    "goal" to "打开网络设置",
+                    "current_package" to "com.example.settings",
+                    "current_xml" to SOURCE_XML,
+                    "k" to 10,
+                    "auto_execute" to true,
+                    "include_debug" to true,
+                )
+            )
+
+            assertEquals(true, recall["success"])
+            assertEquals("hit", recall["decision"])
+            val hit = recall["hit"] as? Map<*, *>
+            assertNotNull(hit?.get("function_id"))
+            val capabilities = recall["node_function_capabilities"] as? List<*>
+            assertEquals(2, capabilities?.size)
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `vlm recall direct hit folds same-goal startup bridge functions with optional defaults`() {
+        val context = OobOmniFlowLoopAcceptanceTest.TempFilesContext()
+        try {
+            val workspaceStore = WorkspaceFunctionStore(context.root)
+            val service = OobOmniFlowToolkitService(context, workspaceStore)
+            val goal = "在美团打开外卖页面并搜索奶茶，不下单不支付"
+            val firstFunctionId = "oob_fn_vlm_task_meituan_startup_a"
+            val secondFunctionId = "oob_fn_vlm_task_meituan_startup_b"
+
+            val firstRegister = service.registerFunction(
+                mapOf(
+                    "function_spec" to startupBridgeSearchSpec(
+                        functionId = firstFunctionId,
+                        goal = goal,
+                        clickTitle = "点击 外卖奶茶搜索框",
+                        extraClosePopup = true,
+                    )
+                )
+            )
+            val secondRegister = service.registerFunction(
+                mapOf(
+                    "function_spec" to startupBridgeSearchSpec(
+                        functionId = secondFunctionId,
+                        goal = goal,
+                        clickTitle = "点击 搜索框，用于输入商家或商品名称",
+                        extraClosePopup = false,
+                    )
+                )
+            )
+            assertEquals(true, firstRegister["success"])
+            assertEquals(true, secondRegister["success"])
+
+            val recall = service.recall(
+                mapOf(
+                    "goal" to goal,
+                    "current_package" to "com.hihonor.systemmanager",
+                    "current_xml" to HONOR_LAUNCH_PROMPT_XML,
+                    "k" to 10,
+                    "auto_execute" to true,
+                    "include_debug" to true,
+                )
+            )
+
+            assertEquals(true, recall["success"])
+            assertEquals("hit", recall["decision"])
+            assertEquals("udeg_page_match_direct_function_hit", recall["reason"])
+            val hit = recall["hit"] as? Map<*, *>
+            assertNotNull(hit?.get("function_id"))
+            assertEquals("top1_high_confidence_margin", hit?.get("direct_hit_policy"))
+            assertEquals("udeg_node", hit?.get("recall_scope"))
             val capabilities = recall["node_function_capabilities"] as? List<*>
             assertEquals(2, capabilities?.size)
         } finally {
@@ -536,6 +801,147 @@ class OobVlmRunLogAutoRegistrarTest {
         }
     }
 
+    private fun startupBridgeSearchSpec(
+        functionId: String,
+        goal: String,
+        clickTitle: String,
+        extraClosePopup: Boolean,
+    ): Map<String, Any?> {
+        val steps = mutableListOf<Map<String, Any?>>(
+            mapOf(
+                "id" to "step_1",
+                "title" to "open_app: com.hihonor.systemmanager",
+                "tool" to "open_app",
+                "omniflow_action" to "open_app",
+                "args" to mapOf("package_name" to "com.hihonor.systemmanager"),
+                "source_context" to mapOf(
+                    "src_ctx" to mapOf(
+                        "page" to HONOR_LAUNCH_PROMPT_XML,
+                        "package_name" to "com.hihonor.systemmanager",
+                    )
+                ),
+            ),
+            mapOf(
+                "id" to "step_2",
+                "title" to "点击 允许按钮，用于授权打开美团应用",
+                "tool" to "click",
+                "omniflow_action" to "click",
+                "args" to mapOf(
+                    "target_description" to "允许按钮，用于授权打开美团应用",
+                    "x" to 750,
+                    "y" to 2136,
+                ),
+                "source_context" to mapOf(
+                    "src_ctx" to mapOf(
+                        "page" to HONOR_LAUNCH_PROMPT_XML,
+                        "package_name" to "com.hihonor.systemmanager",
+                    ),
+                    "dst_ctx" to mapOf(
+                        "package_name" to "com.sankuai.meituan",
+                    ),
+                ),
+            ),
+            mapOf(
+                "id" to "step_3",
+                "title" to clickTitle,
+                "tool" to "click",
+                "omniflow_action" to "click",
+                "args" to mapOf(
+                    "target_description" to clickTitle.removePrefix("点击 "),
+                    "x" to 476,
+                    "y" to 261,
+                ),
+                "source_context" to mapOf(
+                    "src_ctx" to mapOf(
+                        "page" to MEITUAN_SEARCH_XML,
+                        "package_name" to "com.sankuai.meituan",
+                    )
+                ),
+            ),
+        )
+        if (extraClosePopup) {
+            steps += mapOf(
+                "id" to "step_4",
+                "title" to "点击 关闭语音搜索弹窗的 X 按钮",
+                "tool" to "click",
+                "omniflow_action" to "click",
+                "args" to mapOf(
+                    "target_description" to "关闭语音搜索弹窗的 X 按钮",
+                    "x" to 943,
+                    "y" to 1628,
+                ),
+                "source_context" to mapOf(
+                    "src_ctx" to mapOf(
+                        "page" to MEITUAN_SEARCH_XML,
+                        "package_name" to "com.sankuai.meituan",
+                    )
+                ),
+            )
+        }
+        steps += listOf(
+            mapOf(
+                "id" to "step_input",
+                "title" to "输入文本 搜索框",
+                "tool" to "input_text",
+                "omniflow_action" to "input_text",
+                "args" to mapOf(
+                    "target_description" to "搜索框",
+                    "text" to "奶茶",
+                    "x" to 442,
+                    "y" to 181,
+                ),
+                "source_context" to mapOf(
+                    "src_ctx" to mapOf(
+                        "page" to MEITUAN_SEARCH_XML,
+                        "package_name" to "com.sankuai.meituan",
+                    )
+                ),
+            ),
+            mapOf(
+                "id" to "step_done",
+                "title" to "完成任务",
+                "tool" to "finished",
+                "omniflow_action" to "finished",
+                "args" to mapOf("content" to "已成功搜索奶茶，页面显示结果列表"),
+                "source_context" to mapOf(
+                    "src_ctx" to mapOf(
+                        "page" to MEITUAN_SEARCH_XML,
+                        "package_name" to "com.sankuai.meituan",
+                    )
+                ),
+            ),
+        )
+        return mapOf(
+            "schema_version" to "oob.reusable_function.v1",
+            "function_id" to functionId,
+            "name" to goal,
+            "description" to goal,
+            "parameters" to mapOf(
+                "type" to "object",
+                "properties" to mapOf(
+                    "input_text" to mapOf(
+                        "type" to "string",
+                        "description" to "Text for input_text",
+                        "default" to "奶茶",
+                        "x_oob_bindings" to listOf("$.execution.steps[3].args.text"),
+                    )
+                ),
+                "required" to emptyList<String>(),
+                "additionalProperties" to false,
+            ),
+            "source" to mapOf(
+                "kind" to "run_log",
+                "goal" to goal,
+                "tool_name" to "vlm_task",
+                "source_package" to "com.hihonor.systemmanager",
+            ),
+            "execution" to mapOf(
+                "kind" to "tool_sequence",
+                "steps" to steps,
+            ),
+        )
+    }
+
     private fun finishEvent(
         runId: String,
         source: String,
@@ -605,6 +1011,71 @@ class OobVlmRunLogAutoRegistrarTest {
         )
     )
 
+    private fun reusableVlmSequenceSpec(
+        functionId: String,
+        goal: String,
+        clickTitle: String,
+    ): Map<String, Any?> = mapOf(
+        "schema_version" to "oob.reusable_function.v1",
+        "function_id" to functionId,
+        "name" to goal,
+        "description" to goal,
+        "parameters" to emptyList<Map<String, Any?>>(),
+        "source" to mapOf(
+            "kind" to "run_log",
+            "goal" to goal,
+            "tool_name" to "vlm_task",
+        ),
+        "execution" to mapOf(
+            "kind" to "tool_sequence",
+            "steps" to listOf(
+                mapOf(
+                    "id" to "step_1",
+                    "title" to "open_app: com.example.settings",
+                    "tool" to "open_app",
+                    "omniflow_action" to "open_app",
+                    "args" to mapOf("package_name" to "com.example.settings"),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf(
+                            "page" to SOURCE_XML,
+                            "package_name" to "com.example.settings",
+                        )
+                    ),
+                ),
+                mapOf(
+                    "id" to "step_2",
+                    "title" to clickTitle,
+                    "tool" to "click",
+                    "omniflow_action" to "click",
+                    "args" to mapOf(
+                        "target_description" to "Network",
+                        "x" to 540,
+                        "y" to 280,
+                    ),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf(
+                            "page" to SOURCE_XML,
+                            "package_name" to "com.example.settings",
+                        )
+                    ),
+                ),
+                mapOf(
+                    "id" to "step_3",
+                    "title" to "完成任务",
+                    "tool" to "finished",
+                    "omniflow_action" to "finished",
+                    "args" to emptyMap<String, Any?>(),
+                    "source_context" to mapOf(
+                        "src_ctx" to mapOf(
+                            "page" to AFTER_XML,
+                            "package_name" to "com.example.settings",
+                        )
+                    ),
+                ),
+            )
+        )
+    )
+
     private companion object {
         const val SOURCE_XML = """
             <hierarchy bounds="[0,0][1080,1920]">
@@ -618,6 +1089,23 @@ class OobVlmRunLogAutoRegistrarTest {
             <hierarchy bounds="[0,0][1080,1920]">
               <node index="0" package="com.example.settings" class="android.widget.TextView" text="Network settings" bounds="[40,80][1040,180]" />
               <node index="1" package="com.example.settings" class="android.widget.Switch" text="Wi-Fi" clickable="true" enabled="true" visible-to-user="true" bounds="[40,220][1040,340]" />
+            </hierarchy>
+        """
+
+        const val HONOR_LAUNCH_PROMPT_XML = """
+            <hierarchy bounds="[0,0][1080,2400]">
+              <node index="0" package="com.hihonor.systemmanager" class="android.widget.TextView" text="荣耀安全提示" bounds="[350,1572][710,1653]" />
+              <node index="1" package="com.hihonor.systemmanager" class="android.widget.TextView" text="小万 想要打开 美团 是否允许" bounds="[120,1689][940,1754]" />
+              <node index="2" package="com.hihonor.systemmanager" class="android.widget.Button" text="拒绝" clickable="true" bounds="[108,2070][512,2202]" />
+              <node index="3" package="com.hihonor.systemmanager" class="android.widget.Button" text="允许" clickable="true" bounds="[548,2070][952,2202]" />
+            </hierarchy>
+        """
+
+        const val MEITUAN_SEARCH_XML = """
+            <hierarchy bounds="[0,0][1080,2400]">
+              <node index="0" package="com.sankuai.meituan" class="android.widget.TextView" text="外卖" clickable="true" bounds="[40,440][240,620]" />
+              <node index="1" package="com.sankuai.meituan" class="android.widget.EditText" text="搜索商家或商品" clickable="true" focusable="true" bounds="[120,120][860,220]" />
+              <node index="2" package="com.sankuai.meituan" class="android.widget.TextView" text="搜索" clickable="true" bounds="[880,120][1040,220]" />
             </hierarchy>
         """
     }

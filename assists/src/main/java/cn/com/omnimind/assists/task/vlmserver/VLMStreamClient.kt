@@ -2,6 +2,7 @@ package cn.com.omnimind.assists.task.vlmserver
 
 import cn.com.omnimind.assists.controller.http.HttpController
 import cn.com.omnimind.baselib.llm.ChatCompletionRequest
+import cn.com.omnimind.baselib.llm.ChatCompletionTool
 import cn.com.omnimind.baselib.llm.ReasoningStreamUpdatePolicy
 import cn.com.omnimind.baselib.util.OmniLog
 import kotlinx.coroutines.CompletableDeferred
@@ -27,6 +28,15 @@ interface VLMStreamClient {
     ): SceneChatCompletionTurn
 }
 
+internal class VLMStreamRequestException(
+    val statusCode: Int?,
+    val reason: String,
+    val responseBody: String?,
+    val requestVariant: String?
+) : RuntimeException(
+    "scene stream request failed${statusCode?.let { "($it)" }.orEmpty()}: $reason"
+)
+
 class HttpVLMStreamClient(
     private val scope: CoroutineScope,
     private val requestOp: suspend (ChatCompletionRequest, EventSourceListener) -> SceneChatCompletionStreamHandle =
@@ -50,20 +60,12 @@ class HttpVLMStreamClient(
         val request: ChatCompletionRequest
     )
 
-    private class StreamRequestFailure(
-        val statusCode: Int?,
-        val reason: String,
-        val responseBody: String?
-    ) : RuntimeException(
-        "scene stream request failed${statusCode?.let { "($it)" }.orEmpty()}: $reason"
-    )
-
     override suspend fun streamTurn(
         request: ChatCompletionRequest,
         onReasoningUpdate: (suspend (String) -> Unit)?
     ): SceneChatCompletionTurn {
         val variants = buildRequestVariants(request)
-        var lastFailure: StreamRequestFailure? = null
+        var lastFailure: VLMStreamRequestException? = null
 
         for ((index, variant) in variants.withIndex()) {
             try {
@@ -75,7 +77,7 @@ class HttpVLMStreamClient(
                     request = variant.request,
                     onReasoningUpdate = onReasoningUpdate
                 )
-            } catch (error: StreamRequestFailure) {
+            } catch (error: VLMStreamRequestException) {
                 lastFailure = error
                 val canRetryVariant = error.statusCode == 400 && index < variants.lastIndex
                 if (canRetryVariant) {
@@ -226,10 +228,11 @@ class HttpVLMStreamClient(
                     ?: sanitizeReason(t?.message)
                     ?: "unknown stream failure"
                 streamDone.completeExceptionally(
-                    StreamRequestFailure(
+                    VLMStreamRequestException(
                         statusCode = response?.code,
                         reason = reason,
-                        responseBody = responseBody
+                        responseBody = responseBody,
+                        requestVariant = variantName
                     )
                 )
             }
@@ -259,7 +262,11 @@ class HttpVLMStreamClient(
             }
         }
 
+        val withoutToolStrict = request.copy(tools = request.tools.withoutStrictSchema())
+        val hasStrictToolSchema = request.tools.any { it.function.strict != null }
+
         add("default", request)
+        if (hasStrictToolSchema) add("no_tool_strict", withoutToolStrict)
         add(
             "no_thinking_controls",
             request.copy(
@@ -268,10 +275,26 @@ class HttpVLMStreamClient(
                 thinking = null
             )
         )
+        if (hasStrictToolSchema) {
+            add(
+                "no_tool_strict_no_thinking_controls",
+                withoutToolStrict.copy(
+                    enableThinking = null,
+                    reasoningEffort = null,
+                    thinking = null
+                )
+            )
+        }
         add(
             "no_parallel_tool_calls",
             request.copy(parallelToolCalls = null)
         )
+        if (hasStrictToolSchema) {
+            add(
+                "no_tool_strict_no_parallel_tool_calls",
+                withoutToolStrict.copy(parallelToolCalls = null)
+            )
+        }
         add(
             "no_stream_options",
             request.copy(streamOptions = null)
@@ -290,6 +313,19 @@ class HttpVLMStreamClient(
                     maxTokens = null
                 )
             )
+            if (hasStrictToolSchema) {
+                add(
+                    "minimal_required_tools",
+                    withoutToolStrict.copy(
+                        streamOptions = null,
+                        parallelToolCalls = null,
+                        temperature = null,
+                        topP = null,
+                        maxCompletionTokens = normalizedMaxCompletionTokens,
+                        maxTokens = null
+                    )
+                )
+            }
             return variants
         }
 
@@ -316,6 +352,16 @@ class HttpVLMStreamClient(
         )
         return variants
     }
+
+    private fun List<ChatCompletionTool>.withoutStrictSchema(): List<ChatCompletionTool> =
+        map { tool ->
+            val function = tool.function
+            if (function.strict == null) {
+                tool
+            } else {
+                tool.copy(function = function.copy(strict = null))
+            }
+        }
 
     private fun extractResponseBody(response: Response?): String? {
         val body = runCatching { response?.body?.string() }.getOrNull()?.trim().orEmpty()

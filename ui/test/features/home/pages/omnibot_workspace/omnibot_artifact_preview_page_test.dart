@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ui/features/home/pages/omnibot_workspace/omnibot_artifact_preview_page.dart';
+import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/theme/app_theme.dart';
 import 'package:ui/theme/omni_theme_palette.dart';
 import 'package:ui/widgets/image_preview_overlay.dart';
@@ -37,6 +38,7 @@ void main() {
   late File imageFile;
 
   setUp(() async {
+    AppTextLocalizer.setResolvedLocale(const Locale('zh'));
     tempDir = await Directory.systemTemp.createTemp(
       'omnibot_artifact_preview_test_',
     );
@@ -51,6 +53,7 @@ void main() {
   });
 
   tearDown(() async {
+    AppTextLocalizer.clearResolvedLocale();
     if (await tempDir.exists()) {
       await tempDir.delete(recursive: true);
     }
@@ -61,6 +64,7 @@ void main() {
   ) async {
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh'),
         home: DefaultAssetBundle(
           bundle: _SvgTestAssetBundle(),
           child: OmnibotArtifactPreviewPage(
@@ -92,8 +96,22 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 250));
 
-    expect(find.text('系统打开'), findsOneWidget);
-    expect(find.text('分享文件'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Text &&
+            (widget.data == '系统打开' || widget.data == 'Open with system'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Text &&
+            (widget.data == '分享文件' || widget.data == 'Share file'),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('artifact preview keeps path and editor surfaces dark', (
@@ -101,6 +119,7 @@ void main() {
   ) async {
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh'),
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
         themeMode: ThemeMode.dark,
@@ -150,6 +169,7 @@ void main() {
   ) async {
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh'),
         home: OmnibotArtifactPreviewPage(
           path: imageFile.path,
           title: 'preview.png',

@@ -69,6 +69,7 @@ class VLMToolDefinitionsTest {
 
             assertTrue(required.contains("x"))
             assertTrue(required.contains("y"))
+            assertTrue(tool.function.strict == true)
             assertFalse(description.contains("prefer element_index", ignoreCase = true))
             assertFalse(description.contains("fallback only", ignoreCase = true))
             assertTrue(elementIndexDescription.contains("cannot replace required coordinates"))

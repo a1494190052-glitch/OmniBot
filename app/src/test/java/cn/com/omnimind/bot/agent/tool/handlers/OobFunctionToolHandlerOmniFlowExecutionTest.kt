@@ -166,6 +166,10 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
                 val results = stepResults(run)
                 assertEquals(2, results.size)
                 results.forEach { step ->
+                    val wait = step["pre_action_ready_wait"] as? Map<*, *>
+                        ?: error("missing pre-action ready wait")
+                    assertEquals("settled", wait["status"])
+                    assertEquals("no_semantic_target", wait["reason"])
                     val timing = step["timing"] as? Map<*, *> ?: error("missing step timing")
                     val phaseMs = timing["phase_ms"] as? Map<*, *> ?: error("missing phase timing")
                     assertTrue("missing observe timing", phaseMs.containsKey("observe_ms"))
@@ -173,6 +177,61 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
                     assertTrue("missing action transfer timing", phaseMs.containsKey("action_transfer_ms"))
                     assertTrue("missing act timing", phaseMs.containsKey("act_ms"))
                 }
+            }
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `function replay stops safely on slider verification page`() = runBlocking {
+        val context = TempFilesContext()
+        val backend = RecordingBackend(
+            currentXml = """
+                <hierarchy rotation="0">
+                  <node text="身份核实" class="android.webkit.WebView" package="com.sankuai.meituan" bounds="[35,600][1025,1815]">
+                    <node text="请拖动下方滑块完成拼图" resource-id="puzzleSliderTitle" class="android.widget.TextView" package="com.sankuai.meituan" bounds="[86,678][974,753]" />
+                    <node resource-id="puzzleSliderBox" class="android.view.View" package="com.sankuai.meituan" clickable="true" enabled="true" bounds="[86,1518][218,1653]" />
+                  </node>
+                </hierarchy>
+            """.trimIndent(),
+            currentPackage = "com.sankuai.meituan",
+            currentActivity = "YodaRouterTransparentActivity",
+        )
+        try {
+            val spec = functionSpec(
+                functionId = "blocked_by_slider_challenge",
+                steps = listOf(
+                    mapOf(
+                        "id" to "search_click",
+                        "title" to "Click search",
+                        "kind" to "omniflow_action",
+                        "executor" to "omniflow",
+                        "model_free" to true,
+                        "scriptable" to true,
+                        "tool" to "click",
+                        "callable_tool" to "click",
+                        "args" to mapOf("target_description" to "搜索", "x" to 920, "y" to 180),
+                    )
+                ),
+            )
+            OmniflowActionRuntime.useBackendForTesting(backend).use {
+                val run = handler(context, WorkspaceFunctionStore(context.root)).runMaterializedFunction(
+                    functionId = "blocked_by_slider_challenge",
+                    spec = spec,
+                    materializedSpec = OobReusableFunctionStore.materialize(spec, emptyMap()),
+                    allowAgentFallback = false,
+                )
+
+                assertEquals(false, run["success"])
+                assertEquals("OOB_RISK_CHALLENGE_REQUIRES_USER", run["error_code"])
+                assertEquals(true, run["requires_user_action"])
+                assertEquals(0, backend.clickCount)
+                val challenge = run["risk_challenge"] as? Map<*, *> ?: error("missing challenge")
+                assertEquals("slider_challenge", challenge["kind"])
+                val step = stepResults(run).single()
+                assertEquals("OOB_RISK_CHALLENGE_REQUIRES_USER", step["error_code"])
+                assertEquals(true, step["requires_user_action"])
             }
         } finally {
             context.root.deleteRecursively()

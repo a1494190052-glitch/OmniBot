@@ -75,6 +75,7 @@ class VlmToolHandler(
         return try {
             helper.ensureRunActive()
             val goal = args["goal"]?.jsonPrimitive?.content ?: throw IllegalArgumentException("Missing goal")
+            val stepSkillGuidance = buildVlmStepSkillGuidance(resolvedSkills)
             val packageName = firstString(args, "packageName", "package_name")
             val needSummary = firstBoolean(args, "needSummary", "need_summary") ?: false
             val startFromCurrent = firstBoolean(args, "startFromCurrent", "start_from_current", "skipGoHome", "skip_go_home") ?: false
@@ -156,7 +157,7 @@ class VlmToolHandler(
                         packageName = if (safeArgs.startFromCurrent) null else safeArgs.packageName,
                         needSummary = safeArgs.needSummary,
                         skipGoHome = safeArgs.startFromCurrent,
-                        stepSkillGuidance = resolvedSkills.joinToString("\n\n") { it.stepGuidance() },
+                        stepSkillGuidance = stepSkillGuidance,
                         disableOmniFlowRecall = safeArgs.disableOmniFlowRecall,
                         allowOmniFlowFunctionAutoExecute = false
                     ),
@@ -182,7 +183,7 @@ class VlmToolHandler(
                     packageName = if (safeArgs.startFromCurrent) null else safeArgs.packageName,
                     needSummary = safeArgs.needSummary,
                     skipGoHome = safeArgs.startFromCurrent,
-                    stepSkillGuidance = resolvedSkills.joinToString("\n\n") { it.stepGuidance() },
+                    stepSkillGuidance = stepSkillGuidance,
                     disableOmniFlowRecall = safeArgs.disableOmniFlowRecall,
                     allowOmniFlowFunctionAutoExecute = safeArgs.allowOmniFlowFunctionAutoExecute
                 ),
@@ -280,6 +281,10 @@ class VlmToolHandler(
                 AgentVlmUiSession.endTask(vlmTaskId)
             }
         }
+    }
+
+    internal fun buildVlmStepSkillGuidance(resolvedSkills: List<ResolvedSkillContext>): String {
+        return resolvedSkills.joinToString("\n\n") { it.vlmStepGuidance() }
     }
 
     private fun sanitizeVlmExecutionArgs(

@@ -373,9 +373,17 @@ object VlmRecallGuidanceBuilder {
         val pageSimilarity = doubleArg(payload["page_similarity"], payload["pageSimilarity"])
         val textScore = doubleArg(payload["text_score"], payload["textScore"])
         if (score < DIRECT_HIT_MIN_SCORE) return false
-        if (pageSimilarity < DIRECT_HIT_MIN_PAGE_SCORE) return false
         if (textScore < DIRECT_HIT_MIN_TEXT_SCORE) return false
+        if (isStrictCatalogDirectHit(payload)) return true
+        if (pageSimilarity < DIRECT_HIT_MIN_PAGE_SCORE) return false
         return true
+    }
+
+    private fun isStrictCatalogDirectHit(payload: Map<String, Any?>): Boolean {
+        if (!boolArg(payload["strict_direct_hit"], payload["strictDirectHit"])) return false
+        val scope = firstNonBlank(payload["recall_scope"], payload["recallScope"]).lowercase()
+        val policy = firstNonBlank(payload["direct_hit_policy"], payload["directHitPolicy"]).lowercase()
+        return scope == "function_catalog" && policy == "catalog_exact_match_same_package_goal"
     }
 
     private fun doubleArg(vararg values: Any?): Double {

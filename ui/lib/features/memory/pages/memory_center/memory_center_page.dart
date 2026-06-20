@@ -11,6 +11,7 @@ import 'package:ui/features/memory/pages/memory_center/widgets/batch_delete_conf
 import 'package:ui/features/memory/pages/memory_center/widgets/edit_task_sheet.dart';
 import 'package:ui/features/memory/pages/memory_center/widgets/mem0_memory_editor_sheet.dart';
 import 'package:ui/features/memory/pages/memory_center/widgets/mem0_memory_section.dart';
+import 'package:ui/features/task/pages/execution_history/function_library_page.dart';
 
 import 'package:ui/features/memory/pages/memory_center/widgets/tag_section.dart';
 import 'package:ui/features/memory/pages/memory_center/widgets/memory_card.dart';
@@ -26,7 +27,6 @@ import '../../models/memory_model.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/features/memory/pages/memory_center/widgets/memory_card_list.dart';
 import 'package:ui/theme/app_text_styles.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/widgets/common_app_bar.dart';
 
@@ -186,6 +186,7 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
   bool _isMem0Mutating = false;
   static const int _localMemoryTab = 0;
   static const int _cloudMemoryTab = 1;
+  static const int _reusableCommandTab = 2;
   int _currentMemoryTab = _localMemoryTab;
   late PageController _memoryPageController;
 
@@ -960,7 +961,6 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
         .toSet();
 
     final filteredCards = favoritesCards;
-    final hasMem0Section = _mem0Snapshot.shouldShowSection || _isMem0Loading;
 
     return Scaffold(
       backgroundColor: palette.pageBackground,
@@ -998,8 +998,6 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
                         Expanded(
                           child: _isLoading
                               ? _buildLoadingIndicator()
-                              : favoritesCards.isEmpty && !hasMem0Section
-                              ? _buildEmptyState()
                               : _buildContent(filteredCards),
                         ),
                         // 选择模式下的底部删除按钮栏
@@ -1235,12 +1233,9 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
             AnimatedAlign(
               duration: const Duration(milliseconds: 280),
               curve: Curves.easeOutCubic,
-              alignment: Alignment(
-                _currentMemoryTab == _localMemoryTab ? -1.0 : 1.0,
-                0,
-              ),
+              alignment: Alignment(-1.0 + _currentMemoryTab.clamp(0, 2), 0),
               child: FractionallySizedBox(
-                widthFactor: 1 / 2,
+                widthFactor: 1 / 3,
                 child: Container(
                   margin: const EdgeInsets.symmetric(horizontal: 1),
                   decoration: BoxDecoration(
@@ -1292,6 +1287,10 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
                 _buildMemoryTabButton(
                   label: context.l10n.memoryLongTermTitle,
                   tabIndex: _cloudMemoryTab,
+                ),
+                _buildMemoryTabButton(
+                  label: _chooseMemoryTabText(zh: '复用指令', en: 'Reusable'),
+                  tabIndex: _reusableCommandTab,
                 ),
               ],
             ),
@@ -1418,6 +1417,14 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
     );
   }
 
+  String _chooseMemoryTabText({required String zh, required String en}) {
+    return AppTextLocalizer.choose(
+      zh: zh,
+      en: en,
+      locale: Localizations.localeOf(context),
+    );
+  }
+
   Widget _buildContent(List<MemoryCardModel> filteredCards) {
     final hasLocalMemories = favoritesCards.isNotEmpty;
     final hasMem0Section = _mem0Snapshot.shouldShowSection || _isMem0Loading;
@@ -1457,6 +1464,7 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
               children: [
                 _buildLocalMemoryPage(filteredCards, hasLocalMemories),
                 _buildCloudMemoryPage(hasMem0Section),
+                const FunctionLibraryEmbed(),
               ],
             ),
           ),
@@ -1931,47 +1939,6 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
                 fontSize: AppTextStyles.fontSizeMain,
                 height: AppTextStyles.lineHeightH2,
               ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          SvgPicture.asset(
-            'assets/common/empty_record.svg',
-            fit: BoxFit.contain,
-            errorBuilder: (ctx, err, stack) => Icon(
-              Icons.favorite_border,
-              size: 72,
-              color: Colors.grey.shade400,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            context.l10n.memoryNoMemories,
-            style: TextStyle(
-              fontSize: AppTextStyles.fontSizeH3,
-              fontWeight: AppTextStyles.fontWeightMedium,
-              color: AppColors.primaryBlue,
-              height: AppTextStyles.lineHeightH1,
-              letterSpacing: AppTextStyles.letterSpacingWide,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            context.l10n.memoryNoMemoriesDesc,
-            style: TextStyle(
-              fontSize: AppTextStyles.fontSizeMain,
-              fontWeight: AppTextStyles.fontWeightRegular,
-              color: context.omniPalette.textSecondary,
-              height: AppTextStyles.lineHeightH3,
-              letterSpacing: AppTextStyles.letterSpacingWide,
             ),
           ),
         ],

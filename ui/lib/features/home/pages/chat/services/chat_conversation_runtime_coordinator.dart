@@ -685,6 +685,11 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     final existingCardData = Map<String, dynamic>.from(
       runtime.messages[index].cardData ?? const {},
     );
+    if ((existingCardData['status'] ?? '').toString() != 'running') {
+      runtime.activeToolCardId = null;
+      notifyListeners();
+      return;
+    }
     existingCardData['status'] = 'interrupted';
     existingCardData['success'] = false;
     if (summary != null && summary.trim().isNotEmpty) {
@@ -1475,6 +1480,7 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
               isError: false,
               renderMarkdown: true,
               markdownRenderedLength: batch?.lastFlushedText.length,
+              emitVoiceUpdate: true,
             );
           }
         }
@@ -1531,9 +1537,30 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     );
     final thinkingCardId = _resolveThinkingCardId(runtime, taskId);
     if (thinkingCardId != null) {
+      final hasThinkingContent =
+          (runtime.currentThinkingMessages[taskId] ?? '').trim().isNotEmpty ||
+          runtime.deepThinkingContent.trim().isNotEmpty ||
+          runtime.messages.any((message) {
+            if (message.type != 2 || message.id != thinkingCardId) {
+              return false;
+            }
+            return (message.cardData?['thinkingContent'] ?? '')
+                .toString()
+                .trim()
+                .isNotEmpty;
+          });
+      if (!hasThinkingContent) {
+        runtime.messages.removeWhere((message) {
+          final cardData = message.cardData;
+          return message.type == 2 &&
+              cardData?['type'] == 'deep_thinking' &&
+              (cardData?['taskID'] ?? '').toString() == taskId;
+        });
+      } else {
+        _finalizeThinkingCardsForTask(runtime, taskId);
+      }
       runtime.currentThinkingStage = ThinkingStage.complete.value;
       runtime.isDeepThinking = false;
-      _finalizeThinkingCardsForTask(runtime, taskId);
       runtime.currentThinkingMessages.remove(taskId);
       runtime.deepThinkingContent = '';
       runtime.lastAgentTaskId = null;
@@ -2413,12 +2440,24 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       initialLatestText: previous.isNotEmpty ? previous : visibleThinking,
       initialFlushedText: visibleThinking,
     );
+    _applyThinkingUpdate(
+      runtime,
+      binding,
+      taskId,
+      merged,
+      notifyAfterUpdate: false,
+      schedulePersistence: false,
+    );
     if (shouldFlush) {
-      _flushThinkingBatch(
+      final batch = _streamingTextBatchFor(
         runtime,
         taskId,
         _StreamingTextStreamKind.pureChatThinking,
-        schedulePersistence: true,
+      );
+      batch?.markFlushed();
+      schedulePersistRuntimeConversation(
+        conversationId: binding.conversationId,
+        mode: binding.mode,
       );
     }
   }

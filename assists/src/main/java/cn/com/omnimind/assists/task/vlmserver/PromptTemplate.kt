@@ -32,6 +32,9 @@ object PromptTemplate {
         } else {
             sceneId
         }
+        if (resolvedSceneId == "scene.vlm.operation.primary") {
+            return buildToolActionSystemPrompt(locale)
+        }
         val runtimeProfile = ModelSceneRegistry.getRuntimeProfile(resolvedSceneId)
         val parser = runtimeProfile?.responseParser ?: ModelSceneRegistry.ResponseParser.TEXT_CONTENT
         if (parser == ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS) {
@@ -145,9 +148,7 @@ object PromptTemplate {
             appendLine("${t(locale, "当前时间", "Current time")}: ${TimeUtil.getCurrentTimeString()}")
             appendLine("${t(locale, "用户任务", "User task")}: ${context.overallTask}")
             appendLine("${t(locale, "当前子目标", "Current sub-goal")}: ${context.activeGoal()}")
-            appendLine(
-                "${t(locale, "技能提示", "Skill guidance")}: ${context.stepSkillGuidance.ifEmpty { t(locale, "无", "None") }}"
-            )
+            appendLine("${t(locale, "技能提示", "Skill guidance")}: ${renderSkillGuidance(context, locale)}")
             if (priorityEventSection.isNotBlank()) {
                 appendLine(priorityEventSection)
             }
@@ -162,8 +163,43 @@ object PromptTemplate {
                 appendLine(it)
             }
             appendLine()
-            appendLine(VLMToolDefinitions.renderCompactActionSchemaGuide(locale))
+            appendLine(
+                VLMToolDefinitions.renderCompactActionSchemaGuide(
+                    locale = locale,
+                    allowedToolNames = selectedAllowedToolNames(context)
+                        .map(String::trim)
+                        .filter(String::isNotEmpty)
+                        .toSet()
+                        .takeIf { it.isNotEmpty() }
+                )
+            )
         }.trim()
+    }
+
+    private fun renderSkillGuidance(context: UIContext, locale: PromptLocale): String {
+        val raw = context.stepSkillGuidance.trim()
+        if (raw.isEmpty()) return t(locale, "无", "None")
+        val compacted = raw
+            .lineSequence()
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .filterNot { line ->
+                line.contains("schema.required", ignoreCase = true) ||
+                    line.contains("tool_call", ignoreCase = true) ||
+                    line.contains("tools[]", ignoreCase = true) ||
+                    line.contains("function_id", ignoreCase = true) ||
+                    line.contains("call_tool", ignoreCase = true)
+            }
+            .distinct()
+            .joinToString(" ")
+            .ifBlank { raw.replace(Regex("""\s+"""), " ") }
+        return compactLine(compacted, MAX_SKILL_GUIDANCE_CHARS)
+    }
+
+    private fun selectedAllowedToolNames(context: UIContext): List<String> {
+        return context.allowedVlmToolNames.ifEmpty {
+            VLMAllowedToolSelector.select(context).toList()
+        }
     }
 
     private fun renderCoordinateSystemBlock(context: UIContext, locale: PromptLocale): String {
@@ -454,6 +490,7 @@ object PromptTemplate {
     private const val MAX_FOCUSED_INSTALLED_APPS = 12
     private const val MAX_APP_QUERY_TERMS = 24
     private const val MAX_PAGE_EXPLANATION_CHARS = 1_200
+    private const val MAX_SKILL_GUIDANCE_CHARS = 480
     private const val MAX_RECENT_RESULT_STEPS = 2
     private const val MAX_RECENT_RESULT_CHARS = 180
     private val APP_QUERY_STOP_WORDS = setOf(

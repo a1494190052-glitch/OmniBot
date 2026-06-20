@@ -48,7 +48,10 @@ class VLMClient(
         val modelOverride = resolveVlmModelOverride(model)
         val dynamicFunctionToolNames = VLMToolDefinitions
             .dynamicFunctionToolNamesFromDefinitions(context.dynamicToolDefinitions)
-        val promptContext = context.withDynamicFunctionCallToolGuidance(dynamicFunctionToolNames)
+        val selectedBaseToolNames = VLMAllowedToolSelector.select(context)
+        val promptContext = context
+            .withDynamicFunctionCallToolGuidance(dynamicFunctionToolNames)
+            .copy(allowedVlmToolNames = selectedBaseToolNames.toList())
         val systemPrompt = systemPromptBuilder(sceneId)
         val currentUserText = turnPromptBuilder(promptContext, sceneId)
         val historyMessages = conversationState.historyMessages()
@@ -63,15 +66,16 @@ class VLMClient(
             retryState = retryState
         )
         val imageCount = listOf(screenshot, effectiveMarkedScreenshot).count { !it.isNullOrBlank() }
-        val baseTools = VLMToolDefinitions.tools()
+        val baseTools = VLMToolDefinitions.tools(allowedToolNames = selectedBaseToolNames)
         val dynamicTools = VLMToolDefinitions
             .dynamicToolsFromDefinitions(promptContext.dynamicToolDefinitions)
             .filterNot { it.function.name in dynamicFunctionToolNames }
         val tools = (baseTools + dynamicTools).distinctBy { it.function.name }
+        val defaultToolCount = VLMToolDefinitions.tools().size
 
         OmniLog.i(
             TAG,
-            "buildUIOperationRequest scene=$model historyRounds=${conversationState.roundCount()} historyMessages=${historyMessages.size} totalMessages=${messages.size} currentImages=$imageCount visualPolicy=screenshot+compact_indexed_evidence marked=${includeMarkedScreenshot && !markedScreenshot.isNullOrBlank()} retry=${retryState?.retryIndex ?: 0} tools=${tools.size} recalledTools=${dynamicFunctionToolNames.size}"
+            "buildUIOperationRequest scene=$model historyRounds=${conversationState.roundCount()} historyMessages=${historyMessages.size} totalMessages=${messages.size} currentImages=$imageCount visualPolicy=screenshot+compact_indexed_evidence marked=${includeMarkedScreenshot && !markedScreenshot.isNullOrBlank()} retry=${retryState?.retryIndex ?: 0} tools=${tools.size}/$defaultToolCount recalledTools=${dynamicFunctionToolNames.size}"
         )
 
         return VLMRequestEnvelope(
@@ -93,6 +97,8 @@ class VLMClient(
             currentUserText = currentUserText,
             dynamicFunctionToolNames = dynamicFunctionToolNames,
             toolNames = tools.map { it.function.name },
+            defaultToolCount = defaultToolCount,
+            selectedBaseToolNames = selectedBaseToolNames,
             systemPromptChars = systemPrompt.length,
             currentUserTextChars = currentUserText.length,
         )

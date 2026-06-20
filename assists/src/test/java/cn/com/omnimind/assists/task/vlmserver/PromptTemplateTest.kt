@@ -60,9 +60,11 @@ class PromptTemplateTest {
             assertTrue(prompt.contains("schema.required"))
             assertTrue(prompt.contains("assistant.content may be empty"))
             assertTrue(prompt.contains("about-20-word summary only"))
-            assertTrue(prompt.contains("click, long_press, input_text"))
+            assertTrue(prompt.contains("click"))
+            assertFalse(prompt.contains("input_text"))
+            assertFalse(prompt.contains("long_press only for context menus"))
             assertTrue(prompt.contains("Action choice: use click for visible buttons"))
-            assertTrue(prompt.contains("use input_text when known text must be typed"))
+            assertFalse(prompt.contains("use input_text when known text must be typed"))
             assertTrue(prompt.contains("first decide whether the user's goal is already satisfied"))
             assertTrue(prompt.contains("search box or input field"))
             assertFalse(prompt.contains("required=["))
@@ -70,6 +72,28 @@ class PromptTemplateTest {
             assertFalse(prompt.contains("observation/thought JSON"))
             assertFalse(prompt.contains("\"action\":\"swipe\""))
             assertFalse(prompt.contains("Accessibility tree"))
+        } finally {
+            Locale.setDefault(previousLocale)
+        }
+    }
+
+    @Test
+    fun `turn prompt includes input text for search query tasks`() {
+        val previousLocale = Locale.getDefault()
+        Locale.setDefault(Locale.US)
+        try {
+            val prompt = PromptTemplate.buildTurnUserPrompt(
+                UIContext(
+                    overallTask = "Search cats in Xiaohongshu",
+                    targetPackageName = "com.xingin.xhs",
+                    currentPackageName = "com.xingin.xhs"
+                )
+            )
+
+            assertTrue(prompt.contains("Allowed tools this turn"))
+            assertTrue(prompt.contains("click"))
+            assertTrue(prompt.contains("input_text"))
+            assertTrue(prompt.contains("use input_text when known text must be typed"))
         } finally {
             Locale.setDefault(previousLocale)
         }

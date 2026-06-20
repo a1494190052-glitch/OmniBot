@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/services/app_background_service.dart';
 import 'package:ui/theme/app_theme.dart';
 import 'package:ui/theme/omni_theme_palette.dart';
@@ -7,6 +8,14 @@ import 'package:ui/widgets/app_background_widgets.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    AppTextLocalizer.setResolvedLocale(const Locale('zh'));
+  });
+
+  tearDown(() {
+    AppTextLocalizer.clearResolvedLocale();
+  });
 
   testWidgets('preview renders dedicated layers for chat and workspace', (
     tester,
@@ -25,6 +34,7 @@ void main() {
 
     await tester.pumpWidget(
       const MaterialApp(
+        locale: Locale('zh'),
         home: Scaffold(
           body: Center(
             child: SizedBox(
@@ -44,10 +54,11 @@ void main() {
       find.byKey(const ValueKey('app-background-preview-chat')),
       findsOneWidget,
     );
-    expect(find.textContaining('聊天文本 ·'), findsOneWidget);
+    expect(find.textContaining('聊天 ·'), findsOneWidget);
 
     await tester.pumpWidget(
       const MaterialApp(
+        locale: Locale('zh'),
         home: Scaffold(
           body: Center(
             child: SizedBox(
@@ -67,7 +78,7 @@ void main() {
       find.byKey(const ValueKey('app-background-preview-workspace')),
       findsOneWidget,
     );
-    expect(find.textContaining('聊天文本 ·'), findsNothing);
+    expect(find.textContaining('聊天 ·'), findsNothing);
   });
 
   testWidgets('preview drag reports normalized focal point updates', (
@@ -78,6 +89,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh'),
         home: Scaffold(
           body: SizedBox(
             width: 280,
@@ -122,6 +134,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh'),
         home: Scaffold(
           body: SizedBox(
             width: 280,
@@ -191,6 +204,7 @@ void main() {
 
     await tester.pumpWidget(
       const MaterialApp(
+        locale: Locale('zh'),
         home: Scaffold(
           body: Center(
             child: SizedBox(
@@ -206,13 +220,13 @@ void main() {
       ),
     );
 
-    final titleWidget = tester.widget<Text>(find.text('这是一段聊天文本示例'));
+    final titleWidget = tester.widget<Text>(find.text('聊天文本颜色'));
     expect(titleWidget.style?.color, const Color(0xFF1D3E7B));
     expect(
       titleWidget.style?.fontSize,
       closeTo(11 * resolvedChatTextScale(config), 0.01),
     );
-    expect(find.textContaining('聊天文本 · 自定义颜色'), findsOneWidget);
+    expect(find.textContaining('聊天 · 自定义颜色'), findsOneWidget);
   });
 
   testWidgets('preview uses dark fallback surface in dark mode', (
@@ -232,6 +246,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh'),
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
         themeMode: ThemeMode.dark,

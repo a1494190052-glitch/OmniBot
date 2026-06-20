@@ -2890,6 +2890,7 @@ _CheckerRuleEnhancement _checkerRuleEnhancement(
       .toSet();
   final usedIds = <String>{...existingIds};
   final signatureToId = <String, String>{};
+  final coreSignatureToId = <String, String>{};
   for (final rule in existingRules) {
     final sanitized = _sanitizeCheckerRule(
       rule,
@@ -2897,10 +2898,9 @@ _CheckerRuleEnhancement _checkerRuleEnhancement(
       reserveId: false,
     );
     if (sanitized == null) continue;
-    signatureToId[_checkerRuleSignature(sanitized)] = _firstNonBlank([
-      rule['id'],
-      sanitized['id'],
-    ]);
+    final checkerId = _firstNonBlank([rule['id'], sanitized['id']]);
+    signatureToId[_checkerRuleSignature(sanitized)] = checkerId;
+    coreSignatureToId[_checkerRuleCoreSignature(sanitized)] = checkerId;
   }
 
   final newRules = <Map<String, dynamic>>[];
@@ -2916,6 +2916,9 @@ _CheckerRuleEnhancement _checkerRuleEnhancement(
       continue;
     }
     signatureToId[signature] = _firstNonBlank([sanitized['id']]);
+    coreSignatureToId[_checkerRuleCoreSignature(sanitized)] = _firstNonBlank([
+      sanitized['id'],
+    ]);
     newRules.add(sanitized);
   }
 
@@ -2925,7 +2928,9 @@ _CheckerRuleEnhancement _checkerRuleEnhancement(
     final derived = _deriveCheckerRuleFromOptionalStep(steps[index], index);
     if (derived == null) continue;
     final signature = _checkerRuleSignature(derived);
-    var checkerId = signatureToId[signature];
+    var checkerId =
+        signatureToId[signature] ??
+        coreSignatureToId[_checkerRuleCoreSignature(derived)];
     if (checkerId == null || checkerId.isEmpty) {
       final rule = _sanitizeCheckerRule(
         derived,
@@ -2935,6 +2940,7 @@ _CheckerRuleEnhancement _checkerRuleEnhancement(
       if (rule == null) continue;
       checkerId = _firstNonBlank([rule['id']]);
       signatureToId[signature] = checkerId;
+      coreSignatureToId[_checkerRuleCoreSignature(rule)] = checkerId;
       newRules.add(rule);
     }
     derivedAssets.add(
@@ -3023,6 +3029,10 @@ Map<String, dynamic>? _sanitizeCheckerRule(
   if (action.isEmpty || !_isSupportedCheckerPair(condition, action)) {
     return null;
   }
+  final phase = _normalizeCheckerPhase(
+    _firstNonBlank([raw['phase'], raw['timing'], raw['stage']]),
+    condition: condition,
+  );
   final rawParams = _asStringKeyMap(raw['params']);
   final packageName = _firstNonBlank([
     rawParams['package_name'],
@@ -3043,6 +3053,7 @@ Map<String, dynamic>? _sanitizeCheckerRule(
     'id': id,
     'condition': condition,
     'action': action,
+    'phase': phase,
     'enabled': _asBool(raw['enabled']) ?? true,
     'params': params,
   };
@@ -3061,6 +3072,7 @@ Map<String, dynamic>? _deriveCheckerRuleFromOptionalStep(
     'id': 'optional_checker_step_${index}_$condition',
     'condition': condition,
     'action': action,
+    'phase': _normalizeCheckerPhase('', condition: condition),
     'enabled': true,
     'params': {},
   };
@@ -3229,7 +3241,30 @@ bool _isSupportedCheckerPair(String condition, String action) =>
     (condition == 'package_mismatch' && action == 'open_app') ||
     (condition == 'app_upgrade_prompt' && action == 'dismiss');
 
+String _normalizeCheckerPhase(String raw, {required String condition}) {
+  if (condition == 'app_upgrade_prompt') {
+    return 'post_action';
+  }
+  final text = raw.trim().toLowerCase().replaceAll('-', '_');
+  return switch (text) {
+    'pre_transfer' || 'before_transfer' || 'before_replay' => 'pre_transfer',
+    'pre_action' || 'before_action' || 'before_step' => 'pre_action',
+    'post_action' || 'after_action' || 'after_step' => 'post_action',
+    _ => 'pre_action',
+  };
+}
+
 String _checkerRuleSignature(Map<String, dynamic> rule) {
+  final params = _asStringKeyMap(rule['params']);
+  return [
+    rule['phase'],
+    rule['condition'],
+    rule['action'],
+    params['package_name'] ?? '',
+  ].map((value) => value?.toString() ?? '').join('|');
+}
+
+String _checkerRuleCoreSignature(Map<String, dynamic> rule) {
   final params = _asStringKeyMap(rule['params']);
   return [
     rule['condition'],

@@ -8,6 +8,19 @@ This is the debug-device path for validating the OOB-native loop:
 
 The Python OmniFlow package installed in the built-in Alpine environment is not the phone executor for this loop. It is a development/evaluation/provider toolchain. Android execution, permission checks, fresh observe, recall, argument resolution, and replay stay in Kotlin.
 
+## User-Facing Examples
+
+These examples are safe to show in UI, docs, and smoke fixtures. They describe
+the `vlm_task` entry shape only; the model output contract remains a single
+OpenAI native tool call for ordinary UI actions.
+
+- `打开网络设置` / `Open network settings`
+- `点击设置搜索框` / `Tap the Settings search field`
+- `在小红书搜索猫咪` / `Search cats in Xiaohongshu`
+
+Do not teach users or models to output `function_id`, `call_tool`, or legacy
+text-action JSON as the VLM action response.
+
 ## Preconditions
 
 - Install a `develop` debug build.

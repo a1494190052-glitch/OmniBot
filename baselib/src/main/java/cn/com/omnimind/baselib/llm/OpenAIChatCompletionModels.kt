@@ -79,7 +79,8 @@ data class ChatCompletionTool(
 data class ChatCompletionFunction(
     val name: String,
     val description: String = "",
-    val parameters: JsonObject = JsonObject(emptyMap())
+    val parameters: JsonObject = JsonObject(emptyMap()),
+    val strict: Boolean? = null
 )
 
 @Serializable

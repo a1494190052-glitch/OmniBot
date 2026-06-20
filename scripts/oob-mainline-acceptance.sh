@@ -230,7 +230,7 @@ run_flutter_ui_gates() {
 }
 
 run_install_gate() {
-  ./gradlew --no-daemon :app:installDevelopStandardDebug \
+  ANDROID_SERIAL="$DEVICE_SERIAL" ./gradlew --no-daemon :app:installDevelopStandardDebug \
     -Ptarget=lib/main_standard.dart \
     -x :app:flutterPubGetForWebBundle
 }

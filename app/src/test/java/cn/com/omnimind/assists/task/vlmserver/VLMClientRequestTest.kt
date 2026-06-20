@@ -149,6 +149,87 @@ class VLMClientRequestTest {
     }
 
     @Test
+    fun `operation request injects a narrowed canonical tool set for ordinary click tasks`() {
+        val client = VLMClient(
+            systemPromptBuilder = { "system prompt" },
+            turnPromptBuilder = { context, _ ->
+                PromptTemplate.buildTurnUserPrompt(context, "scene.vlm.operation.primary")
+            }
+        )
+
+        val envelope = client.buildUIOperationRequest(
+            context = UIContext(overallTask = "点击设置搜索框"),
+            screenshot = null,
+            conversationState = VLMConversationState()
+        )
+
+        val toolNames = envelope.request.tools.map { it.function.name }
+        assertTrue(toolNames.contains("click"))
+        assertTrue(toolNames.contains("finished"))
+        assertTrue(toolNames.contains("feedback"))
+        assertTrue(toolNames.contains("abort"))
+        assertFalse(toolNames.contains("input_text"))
+        assertFalse(toolNames.contains("swipe"))
+        assertFalse(toolNames.contains("press_key"))
+        assertFalse(toolNames.contains("wait"))
+        assertFalse(toolNames.contains("long_press"))
+        assertFalse(toolNames.contains("open_app"))
+        assertFalse(toolNames.contains("info"))
+        assertTrue(envelope.defaultToolCount > toolNames.size)
+        assertEquals(toolNames.toSet(), envelope.selectedBaseToolNames)
+        assertTrue(
+            envelope.currentUserText.contains("Allowed tools this turn") ||
+                envelope.currentUserText.contains("本轮允许工具")
+        )
+        assertFalse(envelope.currentUserText.contains("long_press only for context menus"))
+    }
+
+    @Test
+    fun `operation request keeps input tool when task asks to type text`() {
+        val client = VLMClient(
+            systemPromptBuilder = { "system prompt" },
+            turnPromptBuilder = { context, _ ->
+                PromptTemplate.buildTurnUserPrompt(context, "scene.vlm.operation.primary")
+            }
+        )
+
+        val envelope = client.buildUIOperationRequest(
+            context = UIContext(overallTask = "点击搜索框并输入奶茶"),
+            screenshot = null,
+            conversationState = VLMConversationState()
+        )
+
+        val toolNames = envelope.request.tools.map { it.function.name }
+        assertTrue(toolNames.contains("click"))
+        assertTrue(toolNames.contains("input_text"))
+        assertTrue(toolNames.contains("finished"))
+        assertFalse(toolNames.contains("swipe"))
+        assertFalse(toolNames.contains("wait"))
+    }
+
+    @Test
+    fun `operation request keeps open app tool when target package is not current`() {
+        val client = VLMClient(
+            systemPromptBuilder = { "system prompt" },
+            turnPromptBuilder = { context, _ -> PromptTemplate.buildTurnUserPrompt(context, "scene.vlm.operation.primary") }
+        )
+
+        val envelope = client.buildUIOperationRequest(
+            context = UIContext(
+                overallTask = "打开设置",
+                targetPackageName = "com.android.settings",
+                currentPackageName = "com.android.launcher"
+            ),
+            screenshot = null,
+            conversationState = VLMConversationState()
+        )
+
+        val toolNames = envelope.request.tools.map { it.function.name }
+        assertTrue(toolNames.contains("open_app"))
+        assertTrue(envelope.currentUserText.contains("open_app"))
+    }
+
+    @Test
     fun `protocol retry request can omit unchanged screenshot`() {
         val client = VLMClient(
             systemPromptBuilder = { "system prompt" },

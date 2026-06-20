@@ -629,6 +629,40 @@ class VLMOperationService(
                 )
                 markPhase("indexed_evidence_ms", indexedEvidenceStartedAt)
                 _context = _context.copy(pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics())
+                VLMGoalCompletionHeuristic.matchCurrentPage(
+                    goal = _context.activeGoal(),
+                    currentXml = beforeXml,
+                    currentPackageName = pageSnapshot.packageName,
+                    trace = _context.trace,
+                )?.let { match ->
+                    val completionStep = VLMGoalCompletionHeuristic.buildCurrentPageFinishedStep(
+                        currentXml = beforeXml,
+                        currentPackageName = pageSnapshot.packageName,
+                        match = match,
+                    ).copy(
+                        pageDiagnostics = _context.pageDiagnostics +
+                            phaseDiagnostics() +
+                            buildContextBudgetDiagnostics(_context) +
+                            linkedMapOf(
+                                "vlm_goal_completion_fast_path" to "true",
+                                "action_dispatch_ms" to "0",
+                                "action_executor_action_ms" to "0",
+                                "action_executor_post_delay_ms" to "0",
+                                "action_executor_total_ms" to "0",
+                            )
+                    )
+                    OmniLog.i(
+                        Tag,
+                        "Current page satisfies goal; skipping online VLM stream for step=$stepIndex target=${match.target}"
+                    )
+                    return VLMOperationResult(
+                        success = true,
+                        step = completionStep,
+                        context = _context,
+                        error = null,
+                        screenshot = if (summary) screenshot else null,
+                    )
+                }
                 val markedScreenshot = if (SEND_MARKED_SCREENSHOT_BY_DEFAULT) {
                     val markedScreenshotStartedAt = System.currentTimeMillis()
                     VLMIndexedPageContext.renderMarkedScreenshot(
@@ -648,7 +682,7 @@ class VLMOperationService(
                 val maxToolCallRetries = 2
                 var toolCallRetryCount = 0
                 var retryState: VLMToolCallRetryState? = null
-                var vlmResult: VLMResult
+                var vlmResult: VLMResult? = null
                 var sceneTurn: SceneChatCompletionTurn? = null
                 var lastRequestEnvelope: VLMRequestEnvelope? = null
                 var currentUserTextSnapshot = ""
@@ -656,7 +690,38 @@ class VLMOperationService(
                 lastReasoningOverlay = ""
                 lastReasoningOverlayAt = 0L
 
-                while (true) {
+                val indexedProposalStartedAt = System.currentTimeMillis()
+                val indexedProposal = VLMIndexedActionProposer.propose(
+                    context = _context,
+                    currentXml = beforeXml,
+                    displayWidth = pageSnapshot.displayWidth,
+                    displayHeight = pageSnapshot.displayHeight,
+                    stepIndex = stepIndex
+                )
+                markPhase("indexed_action_proposal_ms", indexedProposalStartedAt)
+                if (indexedProposal != null) {
+                    _context = _context.copy(
+                        pageDiagnostics = _context.pageDiagnostics +
+                            phaseDiagnostics() +
+                            buildContextBudgetDiagnostics(_context) +
+                            indexedProposal.diagnostics
+                    )
+                    vlmResult = VLMResult(
+                        success = true,
+                        step = indexedProposal.step,
+                        thinking = VLMThinkingContext(
+                            observation = indexedProposal.step.observation,
+                            thought = indexedProposal.step.thought,
+                            summary = indexedProposal.step.summary
+                        )
+                    )
+                    OmniLog.i(
+                        Tag,
+                        "Indexed action proposal matched; skipping online VLM stream for step=$stepIndex action=${indexedProposal.step.action.name}"
+                    )
+                }
+
+                while (vlmResult == null) {
                     val includeCurrentScreenshot = true
                     val requestScreenshot = screenshot.takeIf { includeCurrentScreenshot }
                     val requestMarkedScreenshot = markedScreenshot.takeIf { includeCurrentScreenshot }
@@ -698,7 +763,9 @@ class VLMOperationService(
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        val streamError = buildStreamFailureMessage(e)
+                        markPhase("vlm_stream_ms", httpClientStartTime)
+                        val streamFailure = VLMStreamFailureClassifier.classify(e)
+                        val streamError = streamFailure.message
                         OmniLog.e(Tag, "VLM stream request failed: $streamError")
                         val failureStep = UIStep(
                             observation = "STREAM_ERROR",
@@ -707,7 +774,9 @@ class VLMOperationService(
                             result = "VLM流式请求失败",
                             tokenUsage = usageAggregate(),
                             tokenUsageAttempts = usageAttemptsSnapshot(),
-                            pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics()
+                            pageDiagnostics = _context.pageDiagnostics +
+                                phaseDiagnostics() +
+                                streamFailure.diagnostics
                         )
                         return VLMOperationResult(
                             success = false,
@@ -764,49 +833,52 @@ class VLMOperationService(
                     _context = _context.copy(pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics())
                     safePauseCheck("after_parse_${stabilityAttempt}_retry_$toolCallRetryCount")
 
+                    val parsedResult = vlmResult
                     if (
-                        vlmResult.shouldRetryForToolCall &&
-                        vlmResult.step == null &&
+                        parsedResult.shouldRetryForToolCall &&
+                        parsedResult.step == null &&
                         toolCallRetryCount < maxToolCallRetries
                     ) {
-                        val thinkingText = buildThinkingOverlayText(vlmResult.thinking)
+                        val thinkingText = buildThinkingOverlayText(parsedResult.thinking)
                         if (!isSubTask && thinkingText.isNotBlank()) {
                             emitReasoningOverlay(thinkingText)
                         }
                         toolCallRetryCount++
                         retryState = VLMToolCallRetryState(
                             retryIndex = toolCallRetryCount,
-                            thinking = vlmResult.thinking ?: VLMThinkingContext(),
-                            failureReason = vlmResult.error
+                            thinking = parsedResult.thinking ?: VLMThinkingContext(),
+                            failureReason = parsedResult.error
                         )
-                        val retryReason = vlmResult.error?.takeIf { it.isNotBlank() }
+                        val retryReason = parsedResult.error?.takeIf { it.isNotBlank() }
                             ?: "模型未返回标准 tool_calls"
                         OmniLog.w(
                             Tag,
-                            "$retryReason，进入协议纠偏重试 $toolCallRetryCount/$maxToolCallRetries; finish_reason=${vlmResult.thinking?.finishReason.orEmpty()}"
+                            "$retryReason，进入协议纠偏重试 $toolCallRetryCount/$maxToolCallRetries; finish_reason=${parsedResult.thinking?.finishReason.orEmpty()}"
                         )
+                        vlmResult = null
                         continue
                     }
 
                     break
                 }
 
-                if (!vlmResult.success || vlmResult.step == null) {
+                val resolvedVlmResult = vlmResult!!
+                if (!resolvedVlmResult.success || resolvedVlmResult.step == null) {
                     parseFailureCount++
-                    val resolvedError = resolveVlmFailureMessage(vlmResult)
+                    val resolvedError = resolveVlmFailureMessage(resolvedVlmResult)
                     OmniLog.e(
                         Tag,
                         "Parse VLM response failed (#$parseFailureCount): $resolvedError"
                     )
-                    val finalThinkingText = buildThinkingOverlayText(vlmResult.thinking)
+                    val finalThinkingText = buildThinkingOverlayText(resolvedVlmResult.thinking)
                     if (!isSubTask && finalThinkingText.isNotBlank()) {
                         emitReasoningOverlay(finalThinkingText)
                     }
 
                     val failureStep = UIStep(
-                        observation = vlmResult.thinking?.observation?.ifBlank { "VLM响应解析失败" }
+                        observation = resolvedVlmResult.thinking?.observation?.ifBlank { "VLM响应解析失败" }
                             ?: "VLM响应解析失败",
-                        thought = buildParseFailureThought(vlmResult),
+                        thought = buildParseFailureThought(resolvedVlmResult),
                         action = RecordAction(content = "解析失败: $resolvedError"),
                         result = "解析失败，第${parseFailureCount}次失败",
                         tokenUsage = usageAggregate(),
@@ -825,7 +897,7 @@ class VLMOperationService(
                     )
                 }
 
-                var processedStep = vlmResult.step!!
+                var processedStep = resolvedVlmResult.step!!
                 // normalizeOpenAppAction 需要判断模型类型
                 processedStep = normalizeOpenAppAction(processedStep, _context, model)
 
@@ -995,7 +1067,7 @@ class VLMOperationService(
                     finishedAtMs = actionFinishedAtMs,
                     tokenUsage = usageAggregate(),
                     tokenUsageAttempts = usageAttemptsSnapshot(),
-                    pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics()
+                    pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics() + executedStep.pageDiagnostics
                 )
                 if (processedStep.action is GetStateAction) {
                     finalStep = finalStep.copy(
@@ -1197,6 +1269,8 @@ class VLMOperationService(
             "vlm_request_parallel_tool_calls" to envelope.request.parallelToolCalls?.toString().orEmpty(),
             "vlm_request_tool_count" to envelope.toolNames.size.toString(),
             "vlm_request_tool_names" to envelope.toolNames.joinToString(",").take(4000),
+            "vlm_request_default_tool_count" to envelope.defaultToolCount.toString(),
+            "vlm_request_selected_base_tool_names" to envelope.selectedBaseToolNames.joinToString(",").take(4000),
             "vlm_request_dynamic_function_tool_count" to envelope.dynamicFunctionToolNames.size.toString(),
             "vlm_request_dynamic_function_tool_names" to
                 envelope.dynamicFunctionToolNames.joinToString(",").take(4000),
@@ -1217,22 +1291,6 @@ class VLMOperationService(
     private fun normalizeOverlayText(text: String, maxLen: Int): String {
         val normalized = text.replace("\r\n", "\n").trim()
         return if (normalized.length <= maxLen) normalized else "..." + normalized.takeLast(maxLen - 3)
-    }
-
-    private fun buildStreamFailureMessage(error: Exception): String {
-        val message = error.message?.trim().orEmpty()
-        if (message.isBlank()) {
-            return "模型或服务商不支持标准流式工具调用"
-        }
-        return if (
-            message.contains("stream", ignoreCase = true) ||
-            message.contains("event-stream", ignoreCase = true) ||
-            message.contains("sse", ignoreCase = true)
-        ) {
-            "模型或服务商不支持标准流式工具调用: $message"
-        } else {
-            message
-        }
     }
 
     private fun needsPreciseLocation(action: UIAction): Boolean {

@@ -27,6 +27,7 @@ ENTRY_SURFACE_CONTRACT = (
     ROOT
     / "app/src/main/assets/omniflow/runlog/examples/unified-entry-surfaces.json"
 )
+OOB_CANONICAL_ACTION_SCHEMA = ROOT / "schemas/oob/oob_canonical_actions.v1.json"
 UNIFIED_PLAN = (
     ROOT / "app/src/main/assets/omniflow/runlog/unified-execution-plan.md"
 )
@@ -66,7 +67,28 @@ def main() -> int:
     pyproject = read_text(omniflow_root / "pyproject.toml", failures)
     vlm_example = read_json(VLM_EXAMPLE, failures)
     entry_contract = read_json(ENTRY_SURFACE_CONTRACT, failures)
+    oob_action_schema = read_json(OOB_CANONICAL_ACTION_SCHEMA, failures)
+    omniflow_action_schema = read_json(
+        omniflow_root / "schemas/oob/oob_canonical_actions.v1.json",
+        failures,
+    )
     unified_plan = read_text(UNIFIED_PLAN, failures)
+
+    if isinstance(oob_action_schema, dict) and isinstance(omniflow_action_schema, dict):
+        assert_equal(
+            oob_action_schema,
+            omniflow_action_schema,
+            "OOB and OmniFlow canonical action schema",
+            failures,
+        )
+        report["checks"]["canonical_action_schema_version"] = oob_action_schema.get(
+            "schema_version"
+        )
+        report["checks"]["canonical_action_tools"] = [
+            tool.get("name")
+            for tool in oob_action_schema.get("tools", [])
+            if isinstance(tool, dict)
+        ]
 
     tool_names = parse_standalone_tool_names(mcp_server)
     report["checks"]["python_mcp_tools"] = tool_names
@@ -179,6 +201,22 @@ def main() -> int:
         require_phase(phases, "offline_enhance", failures)
         first_tool = nested_get(phases, "first_vlm_run", "tool_payload", "tool")
         assert_equal(first_tool, "vlm_task", "first VLM run tool", failures)
+        first_args = nested_get(phases, "first_vlm_run", "tool_payload", "arguments")
+        if not isinstance(first_args, dict):
+            failures.append("first VLM run arguments must be an object")
+            first_args = {}
+        if "goal" not in first_args:
+            failures.append("first VLM run arguments must use goal")
+        if "operation" in first_args:
+            failures.append("first VLM run arguments must not use legacy operation")
+        second_args = nested_get(phases, "second_fast_vlm_run", "tool_payload", "arguments")
+        if not isinstance(second_args, dict):
+            failures.append("second fast VLM run arguments must be an object")
+            second_args = {}
+        if "goal" not in second_args:
+            failures.append("second fast VLM run arguments must use goal")
+        if "operation" in second_args:
+            failures.append("second fast VLM run arguments must not use legacy operation")
         fast_route = nested_get(
             phases,
             "second_fast_vlm_run",

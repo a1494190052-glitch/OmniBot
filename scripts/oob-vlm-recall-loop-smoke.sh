@@ -53,7 +53,8 @@ Options:
   --model-id ID             Optional model id for the receiver.
   --skill-id ID             Built-in skill guidance id. Default: vlm-android-gui.
   --output-dir DIR          Keep all phase JSON files and write
-                            vlm-accuracy-report.{json,md} in DIR.
+                            vlm-accuracy-report.{json,md} plus
+                            vlm-performance-report.{json,md} in DIR.
   --offline-seed            Debug-only: seed a successful vlm_task RunLog from
                             the live page instead of calling the online VLM in
                             phase 1. This validates native auto-register,
@@ -235,6 +236,8 @@ SECOND_JSON="$WORK_DIR/second-vlm.json"
 ENHANCE_JSON="$WORK_DIR/enhance-offline.json"
 REPORT_JSON="$WORK_DIR/vlm-accuracy-report.json"
 REPORT_MD="$WORK_DIR/vlm-accuracy-report.md"
+PERF_REPORT_JSON="$WORK_DIR/vlm-performance-report.json"
+PERF_REPORT_MD="$WORK_DIR/vlm-performance-report.md"
 
 cleanup() {
   if [[ "$KEEP_WORK_DIR" -eq 0 ]]; then
@@ -259,6 +262,47 @@ read_app_file() {
 clear_app_file() {
   local path="$1"
   "${ADB[@]}" shell run-as "$PACKAGE_NAME" rm -f "$path" >/dev/null 2>&1 || true
+}
+
+is_device_locked() {
+  local trust window
+  window="$("${ADB[@]}" shell dumpsys window 2>/dev/null | tr -d '\r' || true)"
+  if grep -Eq 'isKeyguardShowing=true|mDreamingLockscreen=true|mIsShowing=true' <<<"$window"; then
+    return 0
+  fi
+  trust="$("${ADB[@]}" shell dumpsys trust 2>/dev/null | tr -d '\r' || true)"
+  if grep -Eq '\(current\).*deviceLocked=1' <<<"$trust"; then
+    return 0
+  fi
+  return 1
+}
+
+check_accessibility_ready() {
+  local enabled services component
+  component="$PACKAGE_NAME/com.google.android.accessibility.selecttospeak.SelectToSpeakService"
+  enabled="$("${ADB[@]}" shell settings get secure accessibility_enabled 2>/dev/null | tr -d '\r' || true)"
+  services="$("${ADB[@]}" shell settings get secure enabled_accessibility_services 2>/dev/null | tr -d '\r' || true)"
+  if [[ "$enabled" != "1" || "$services" != *"$component"* ]]; then
+    cat >&2 <<EOF
+OOB accessibility service is not enabled for $PACKAGE_NAME.
+  accessibility_enabled=${enabled:-<empty>}
+  enabled_accessibility_services=${services:-<empty>}
+Expected service: $component
+EOF
+    return 1
+  fi
+}
+
+preflight_device_ready() {
+  if is_device_locked; then
+    cat >&2 <<EOF
+Device $DEVICE_SERIAL is locked or showing keyguard. Unlock it before running
+VLM/recall smoke; otherwise Accessibility can return empty XML and the test
+cannot distinguish device state from VLM logic failures.
+EOF
+    return 1
+  fi
+  check_accessibility_ready
 }
 
 wait_for_result_file() {
@@ -298,10 +342,14 @@ else:
     convert = data.get("convert") if isinstance(data.get("convert"), dict) else {}
     recall = data.get("recall") if isinstance(data.get("recall"), dict) else {}
     outcome = data.get("outcome") if isinstance(data.get("outcome"), dict) else {}
+    binding = data.get("effective_binding") if isinstance(data.get("effective_binding"), dict) else {}
     summary = {
         "success": data.get("success"),
         "phase": data.get("phase"),
         "run_id": data.get("run_id"),
+        "provider_profile_id": binding.get("providerProfileId") or binding.get("profileId"),
+        "provider_base_url": binding.get("baseUrl"),
+        "model_id": binding.get("modelId"),
         "function_id": (
             data.get("function_id")
             or convert.get("function_id")
@@ -385,14 +433,17 @@ contract_markers = [
     "returned text instead of native tool_call",
 ]
 if any(marker in haystack for marker in contract_markers):
-    binding = data.get("configured_binding") if isinstance(data.get("configured_binding"), dict) else {}
+    binding = data.get("effective_binding") if isinstance(data.get("effective_binding"), dict) else {}
+    if not binding:
+        binding = data.get("configured_binding") if isinstance(data.get("configured_binding"), dict) else {}
     diagnostic = {
         "success": False,
         "phase": "first_vlm_provider_blocker",
         "reason": "provider_tool_call_contract_violation",
         "run_id": data.get("run_id"),
         "outcome_status": outcome.get("status"),
-        "profile_id": binding.get("profileId"),
+        "profile_id": binding.get("providerProfileId") or binding.get("profileId"),
+        "base_url": binding.get("baseUrl"),
         "model_id": binding.get("modelId"),
         "hint": "Use a VLM provider/model that returns OpenAI native tool_calls; text action wrappers are intentionally rejected.",
     }
@@ -402,14 +453,17 @@ if any(marker in haystack for marker in contract_markers):
 if not any(marker in haystack for marker in provider_markers):
     raise SystemExit(0)
 
-binding = data.get("configured_binding") if isinstance(data.get("configured_binding"), dict) else {}
+binding = data.get("effective_binding") if isinstance(data.get("effective_binding"), dict) else {}
+if not binding:
+    binding = data.get("configured_binding") if isinstance(data.get("configured_binding"), dict) else {}
 diagnostic = {
     "success": False,
     "phase": "first_vlm_provider_blocker",
     "reason": "provider_auth_or_configuration_failed",
     "run_id": data.get("run_id"),
     "outcome_status": outcome.get("status"),
-    "profile_id": binding.get("profileId"),
+    "profile_id": binding.get("providerProfileId") or binding.get("profileId"),
+    "base_url": binding.get("baseUrl"),
     "model_id": binding.get("modelId"),
     "hint": "Configure a reachable VLM model provider before running recall/replay smoke.",
 }
@@ -553,11 +607,23 @@ PY
 }
 
 reset_start_page() {
+  "${ADB[@]}" shell cmd statusbar collapse >/dev/null 2>&1 || true
+  "${ADB[@]}" shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true
   "${ADB[@]}" shell am force-stop "$TARGET_PACKAGE" >/dev/null 2>&1 || true
   if ! "${ADB[@]}" shell am start -a "$START_INTENT_ACTION" >/dev/null 2>&1; then
     "${ADB[@]}" shell monkey -p "$TARGET_PACKAGE" 1 >/dev/null 2>&1 || true
   fi
   sleep "$SETTLE_SECONDS"
+  "${ADB[@]}" shell cmd statusbar collapse >/dev/null 2>&1 || true
+  local deadline=$((SECONDS + 8))
+  while (( SECONDS < deadline )); do
+    local focused
+    focused="$("${ADB[@]}" shell dumpsys window 2>/dev/null | tr -d '\r' | grep -E 'mCurrentFocus|mFocusedApp' | head -20 || true)"
+    if [[ "$focused" == *"$TARGET_PACKAGE"* ]]; then
+      return 0
+    fi
+    sleep 1
+  done
 }
 
 echo "== OOB VLM recall loop smoke =="
@@ -575,6 +641,7 @@ if ! "${ADB[@]}" shell run-as "$PACKAGE_NAME" pwd >/dev/null 2>&1; then
   echo "Cannot run-as $PACKAGE_NAME. Install the develop debug APK first." >&2
   exit 2
 fi
+preflight_device_ready
 
 optional_model_args=()
 if [[ -n "${PROFILE_ID// }" ]]; then
@@ -712,6 +779,18 @@ if [[ "$KEEP_WORK_DIR" -eq 1 ]]; then
     --strict >/dev/null
   echo "accuracy_report=$REPORT_JSON"
   echo "accuracy_markdown=$REPORT_MD"
+  if [[ -x scripts/oob-vlm-runlog-performance-report.py ]]; then
+    echo "== Phase 7: write VLM performance report =="
+    scripts/oob-vlm-runlog-performance-report.py \
+      "$WORK_DIR" \
+      --output "$PERF_REPORT_JSON" \
+      --markdown "$PERF_REPORT_MD" \
+      --slow-limit 8 >/dev/null
+    echo "performance_report=$PERF_REPORT_JSON"
+    echo "performance_markdown=$PERF_REPORT_MD"
+  else
+    echo "performance_report_skipped=missing scripts/oob-vlm-runlog-performance-report.py" >&2
+  fi
 fi
 
 echo "== VLM recall loop smoke passed =="

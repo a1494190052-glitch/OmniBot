@@ -28,6 +28,12 @@ class DebugVlmRecallHitReceiver : BroadcastReceiver() {
         val packageName = intent?.getStringExtra("packageName")
             ?: intent?.getStringExtra("package_name")
         val waitTimeoutMs = intent.readWaitTimeoutMs()
+        val skipGoHome = intent.readBooleanExtra(
+            "skipGoHome",
+            "skip_go_home",
+            "startFromCurrent",
+            "start_from_current",
+        ) ?: false
 
         scope.launch {
             val result = runCatching {
@@ -36,6 +42,7 @@ class DebugVlmRecallHitReceiver : BroadcastReceiver() {
                     goal = goal,
                     packageName = packageName?.trim()?.takeIf { it.isNotEmpty() },
                     waitTimeoutMs = waitTimeoutMs,
+                    skipGoHome = skipGoHome,
                 ).withRequestId(requestId)
             }.getOrElse { error ->
                 linkedMapOf<String, Any?>(
@@ -44,6 +51,7 @@ class DebugVlmRecallHitReceiver : BroadcastReceiver() {
                     "phase" to "exception",
                     "goal" to goal,
                     "packageName" to packageName,
+                    "skipGoHome" to skipGoHome,
                     "error_message" to error.message.orEmpty(),
                     "error_type" to error.javaClass.name,
                 )
@@ -59,6 +67,7 @@ class DebugVlmRecallHitReceiver : BroadcastReceiver() {
         goal: String,
         packageName: String?,
         waitTimeoutMs: Long?,
+        skipGoHome: Boolean,
     ): Map<String, Any?> {
         if (!AssistsUtil.Core.isInitialized()) {
             AssistsUtil.Core.initCore(context)
@@ -73,7 +82,7 @@ class DebugVlmRecallHitReceiver : BroadcastReceiver() {
                 packageName = packageName,
                 waitTimeoutMs = waitTimeoutMs,
                 needSummary = false,
-                skipGoHome = true,
+                skipGoHome = skipGoHome,
                 disableOmniFlowRecall = false,
                 allowOmniFlowFunctionAutoExecute = true,
             ),
@@ -92,6 +101,7 @@ class DebugVlmRecallHitReceiver : BroadcastReceiver() {
             "phase" to if (outcome == null) "no_direct_hit" else "executed",
             "goal" to goal,
             "packageName" to packageName,
+            "skipGoHome" to skipGoHome,
             "task_id" to taskId,
             "wait_timeout_ms" to waitTimeoutMs,
             "outcome" to outcomePayload,
@@ -135,6 +145,14 @@ class DebugVlmRecallHitReceiver : BroadcastReceiver() {
         if (intent.hasExtra("timeoutSeconds")) {
             val seconds = intent.getIntExtra("timeoutSeconds", 0)
             return seconds.takeIf { it > 0 }?.toLong()?.times(1000L)
+        }
+        return null
+    }
+
+    private fun Intent?.readBooleanExtra(vararg names: String): Boolean? {
+        val intent = this ?: return null
+        for (name in names) {
+            if (intent.hasExtra(name)) return intent.getBooleanExtra(name, false)
         }
         return null
     }

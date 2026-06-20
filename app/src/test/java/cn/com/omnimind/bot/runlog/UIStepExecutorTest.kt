@@ -1,10 +1,13 @@
 package cn.com.omnimind.bot.runlog
 
+import cn.com.omnimind.baselib.runlog.OobPrimitiveActionLedger
+import cn.com.omnimind.baselib.runlog.OobPrimitiveActionRiskPolicy
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import kotlin.math.abs
 
@@ -154,6 +157,129 @@ class UIStepExecutorTest {
             val args = executed["args"] as Map<*, *>
             assertEquals(1L, (args["time_ms"] as Number).toLong())
             assertTrue("wait should not dispatch clicks", backend.clickPoints.isEmpty())
+        }
+    }
+
+    @Test
+    fun `execute records successful primitive replay click`() = runBlocking {
+        OobPrimitiveActionLedger.resetForTesting()
+        val backend = FakeBackend(beforeXml = SOURCE_XML, afterXml = AFTER_XML)
+        try {
+            OmniflowActionRuntime.useBackendForTesting(backend).use {
+                val result = UIStepExecutor.execute(
+                    step = mapOf(
+                        "executor" to "omniflow",
+                        "tool" to "click",
+                        "function_id" to "safe_function",
+                        "args" to mapOf(
+                            "x" to 120,
+                            "y" to 240,
+                            "target_description" to "Open",
+                        ),
+                    ),
+                    stepId = "step_safe_click",
+                    stepTitle = "click open",
+                )
+
+                assertEquals(true, result["success"])
+                assertEquals(listOf(120f to 240f), backend.clickPoints)
+                val record = OobPrimitiveActionLedger.recentRecordsForTesting().single()
+                assertEquals("omniflow_replay", record.source)
+                assertEquals("click", record.tool)
+                assertEquals("safe_function", record.functionId)
+                assertEquals("step_safe_click", record.stepId)
+                assertEquals(true, record.success)
+                assertEquals(false, record.blocked)
+                assertEquals("com.example", record.packageName)
+                assertTrue(record.beforeXmlSha256.isNotBlank())
+            }
+        } finally {
+            OobPrimitiveActionLedger.resetForTesting()
+        }
+    }
+
+    @Test
+    fun `execute blocks dangerous primitive replay click before backend dispatch`() = runBlocking {
+        OobPrimitiveActionLedger.resetForTesting()
+        val backend = FakeBackend(beforeXml = SOURCE_XML, afterXml = AFTER_XML)
+        try {
+            OmniflowActionRuntime.useBackendForTesting(backend).use {
+                try {
+                    UIStepExecutor.execute(
+                        step = mapOf(
+                            "executor" to "omniflow",
+                            "tool" to "click",
+                            "args" to mapOf(
+                                "x" to 560,
+                                "y" to 1720,
+                                "target_description" to "提交订单",
+                            ),
+                        ),
+                        stepId = "step_submit_order",
+                        stepTitle = "submit order",
+                    )
+                    fail("dangerous primitive click should be blocked")
+                } catch (error: UIStepExecutor.ExecutionException) {
+                    assertEquals(
+                        OobPrimitiveActionRiskPolicy.ERROR_DANGEROUS_ACTION_BLOCKED,
+                        error.errorCode,
+                    )
+                }
+
+                assertTrue("backend click should not run", backend.clickPoints.isEmpty())
+                val record = OobPrimitiveActionLedger.recentRecordsForTesting().single()
+                assertEquals("omniflow_replay", record.source)
+                assertEquals("click", record.tool)
+                assertEquals(false, record.success)
+                assertEquals(true, record.blocked)
+                assertEquals(OobPrimitiveActionRiskPolicy.ERROR_DANGEROUS_ACTION_BLOCKED, record.errorCode)
+            }
+        } finally {
+            OobPrimitiveActionLedger.resetForTesting()
+        }
+    }
+
+    @Test
+    fun `execute blocks dangerous primitive replay swipe before backend dispatch`() = runBlocking {
+        OobPrimitiveActionLedger.resetForTesting()
+        val backend = FakeBackend(beforeXml = CAPTCHA_XML, afterXml = CAPTCHA_XML)
+        try {
+            OmniflowActionRuntime.useBackendForTesting(backend).use {
+                try {
+                    UIStepExecutor.execute(
+                        step = mapOf(
+                            "executor" to "omniflow",
+                            "tool" to "swipe",
+                            "args" to mapOf(
+                                "target_description" to "拖动下方滑块完成验证",
+                                "x1" to 100,
+                                "y1" to 900,
+                                "x2" to 900,
+                                "y2" to 900,
+                                "direction" to "right",
+                            ),
+                        ),
+                        stepId = "step_slider_verification",
+                        stepTitle = "drag slider verification",
+                    )
+                    fail("dangerous primitive swipe should be blocked")
+                } catch (error: UIStepExecutor.ExecutionException) {
+                    assertEquals(
+                        OobPrimitiveActionRiskPolicy.ERROR_DANGEROUS_ACTION_BLOCKED,
+                        error.errorCode,
+                    )
+                }
+
+                assertTrue("backend swipe should not run", backend.swipeRequests.isEmpty())
+                val record = OobPrimitiveActionLedger.recentRecordsForTesting().single()
+                assertEquals("omniflow_replay", record.source)
+                assertEquals("swipe", record.tool)
+                assertEquals(false, record.success)
+                assertEquals(true, record.blocked)
+                assertEquals(OobPrimitiveActionRiskPolicy.ERROR_DANGEROUS_ACTION_BLOCKED, record.errorCode)
+            }
+        } finally {
+            OobPrimitiveActionLedger.resetForTesting()
         }
     }
 
@@ -1221,33 +1347,44 @@ class UIStepExecutorTest {
 
     @Test
     fun `input text uses target metadata instead of focused node fallback`() = runBlocking {
+        OobPrimitiveActionLedger.resetForTesting()
         val backend = FakeBackend(beforeXml = INPUT_FORM_XML, afterXml = INPUT_FORM_XML)
-        OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = UIStepExecutor.execute(
-                step = mapOf(
-                    "executor" to "omniflow",
-                    "tool" to "input_text",
-                    "args" to mapOf(
-                        "text" to "Alice",
-                        "target_description" to "First name",
-                        "node_resource_id" to "app:id/first_name",
-                        "x" to 180,
-                        "y" to 232,
+        try {
+            OmniflowActionRuntime.useBackendForTesting(backend).use {
+                val result = UIStepExecutor.execute(
+                    step = mapOf(
+                        "executor" to "omniflow",
+                        "tool" to "input_text",
+                        "args" to mapOf(
+                            "text" to "Alice",
+                            "target_description" to "First name",
+                            "node_resource_id" to "app:id/first_name",
+                            "x" to 180,
+                            "y" to 232,
+                        ),
                     ),
-                ),
-                stepId = "step_input",
-                stepTitle = "type first name",
-            )
+                    stepId = "step_input",
+                    stepTitle = "type first name",
+                )
 
-            assertEquals(true, result["success"])
-            assertEquals(1, backend.inputRequests.size)
-            val request = backend.inputRequests.single()
-            assertEquals("Alice", request["text"])
-            assertEquals("First name", request["targetDescription"])
-            assertEquals("app:id/first_name", request["nodeResourceId"])
-            assertEquals(180f, request["x"])
-            assertEquals(232f, request["y"])
-            assertEquals(0, backend.focusedInputCount)
+                assertEquals(true, result["success"])
+                assertEquals(1, backend.inputRequests.size)
+                val request = backend.inputRequests.single()
+                assertEquals("Alice", request["text"])
+                assertEquals("First name", request["targetDescription"])
+                assertEquals("app:id/first_name", request["nodeResourceId"])
+                assertEquals(180f, request["x"])
+                assertEquals(232f, request["y"])
+                assertEquals(0, backend.focusedInputCount)
+                val record = OobPrimitiveActionLedger.recentRecordsForTesting().single()
+                assertEquals("input_text", record.tool)
+                assertEquals("<redacted>", record.args["text"])
+                assertEquals(true, record.args["text_present"])
+                assertEquals(5, record.args["text_length"])
+                assertEquals(true, record.args["text_redacted"])
+            }
+        } finally {
+            OobPrimitiveActionLedger.resetForTesting()
         }
     }
 
@@ -2355,6 +2492,8 @@ class UIStepExecutorTest {
     companion object {
         private const val SOURCE_XML =
             "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[100,200][300,280]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"Open\" class=\"android.widget.Button\" resource-id=\"app:id/open\"/></hierarchy>"
+        private const val CAPTCHA_XML =
+            "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[80,780][1000,860]\" enabled=\"true\" visible-to-user=\"true\" text=\"拖动下方滑块完成验证\" class=\"android.widget.TextView\"/><node bounds=\"[80,900][1000,1010]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" text=\"滑块\" class=\"android.view.View\"/></hierarchy>"
         private const val INPUT_FORM_XML =
             "<hierarchy bounds=\"[0,0][1080,1920]\"><node bounds=\"[100,200][760,264]\" enabled=\"true\" visible-to-user=\"true\" editable=\"true\" focusable=\"true\" text=\"\" hint-text=\"First name\" class=\"android.widget.EditText\" resource-id=\"app:id/first_name\"/></hierarchy>"
         private const val WEBVIEW_SOURCE_XML =

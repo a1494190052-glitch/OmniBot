@@ -89,7 +89,7 @@ class VLMIndexedPageContextTest {
             maxElements = 1,
         )
 
-        assertTrue(rendered.contains("#0 center=(360,112)"))
+        assertTrue(rendered.contains("#0 center=(500,88)"))
         assertTrue(rendered.contains("node_id=\"search_bar\""))
         assertTrue(rendered.contains("text=\"Search\""))
         assertTrue(rendered.contains("desc=\"Search input\""))
@@ -106,9 +106,9 @@ class VLMIndexedPageContextTest {
         )
 
         assertTrue(rendered.contains("Forms:"))
-        assertTrue(rendered.contains("role=focused_editable label=\"First name\""))
-        assertTrue(rendered.contains("role=editable label=\"Last name\""))
-        assertTrue(rendered.contains("role=selection_row label=\"Mobile Phone\""))
+        assertTrue(rendered.contains("role=focused_editable input_text label=\"First name\""))
+        assertTrue(rendered.contains("role=editable input_text label=\"Last name\""))
+        assertTrue(rendered.contains("role=selection_row input_text label=\"Mobile Phone\""))
     }
 
     @Test

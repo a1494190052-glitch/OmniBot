@@ -285,7 +285,12 @@ class VLMActionPostProcessorTest {
         val step = UIStep(
             observation = "clock timer keypad",
             thought = "enter timer value",
-            action = TypeAction(content = "130")
+            action = InputTextAction(
+                targetDescription = "timer input",
+                text = "130",
+                x = 360f,
+                y = 640f
+            )
         )
 
         val result = VLMActionPostProcessor.correct(
@@ -315,7 +320,12 @@ class VLMActionPostProcessorTest {
         val step = UIStep(
             observation = "focused edit field",
             thought = "enter text",
-            action = TypeAction(content = "130")
+            action = InputTextAction(
+                targetDescription = "focused edit field",
+                text = "130",
+                x = 360f,
+                y = 640f
+            )
         )
 
         val result = VLMActionPostProcessor.correct(
@@ -337,7 +347,12 @@ class VLMActionPostProcessorTest {
         val step = UIStep(
             observation = "contact editor with phone field focused",
             thought = "The phone number is already entered. Open the Mobile Phone label selector so the label can be changed to Work.",
-            action = TypeAction(content = "Work"),
+            action = InputTextAction(
+                targetDescription = "focused field",
+                text = "Work",
+                x = 356f,
+                y = 1112f
+            ),
             summary = "Next change the phone label to Work."
         )
 
@@ -367,7 +382,12 @@ class VLMActionPostProcessorTest {
         val step = UIStep(
             observation = "contact editor with first name already focused",
             thought = "The next step is to enter the last name Smith in the Last name field.",
-            action = TypeAction(content = "Smith"),
+            action = InputTextAction(
+                targetDescription = "focused field",
+                text = "Smith",
+                x = 356f,
+                y = 660f
+            ),
             summary = "Next change the last name to Smith."
         )
 
@@ -398,7 +418,12 @@ class VLMActionPostProcessorTest {
         val step = UIStep(
             observation = "contact editor with phone field focused",
             thought = "Enter the phone number in the Phone field.",
-            action = TypeAction(content = "415-555-0130")
+            action = InputTextAction(
+                targetDescription = "Phone",
+                text = "415-555-0130",
+                x = 356f,
+                y = 1112f
+            )
         )
 
         val result = VLMActionPostProcessor.correct(
@@ -1179,8 +1204,8 @@ class VLMActionPostProcessorTest {
 
         assertTrue(result.applied)
         assertEquals("ordered_goal_search_query", result.reason)
-        val action = result.step.action as TypeAction
-        assertEquals("Languages & input", action.content)
+        val action = result.step.action as InputTextAction
+        assertEquals("Languages & input", action.text)
     }
 
     @Test

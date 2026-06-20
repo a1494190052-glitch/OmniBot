@@ -45,15 +45,11 @@ class OobFunctionGraphStepRunner(
             val pathTitle = primitiveStep["title"]?.toString()?.takeIf { it.isNotBlank() }
                 ?: "$stepTitle path ${index + 1}"
             val startedAtMs = System.currentTimeMillis()
-            val preActionReadyWait = if (index > 0) {
-                UIStepExecutor.waitForReplayActionReady(
-                    step = primitiveStep,
-                    recoveryStep = path[index - 1],
-                    stopRequested = stopRequested,
-                )
-            } else {
-                emptyMap()
-            }
+            val preActionReadyWait = UIStepExecutor.waitForReplayActionReady(
+                step = primitiveStep,
+                recoveryStep = path.getOrNull(index - 1),
+                stopRequested = stopRequested,
+            )
             val result = try {
                 val executionResult = UIStepExecutor.execute(
                     step = primitiveStep,

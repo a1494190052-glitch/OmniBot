@@ -45,9 +45,13 @@ object VLMToolDefinitions {
     private fun OobCanonicalActionSchema.LocalizedText.text(locale: PromptLocale): String =
         t(locale, zhCn, enUs)
 
-    private fun buildToolSpecs(locale: PromptLocale): List<ToolSpec> =
+    private fun buildToolSpecs(
+        locale: PromptLocale,
+        allowedToolNames: Set<String>? = null
+    ): List<ToolSpec> =
         OobCanonicalActionSchema.modelVisibleTools
             .filterNot { it.name in HIDDEN_BASE_TOOL_NAMES }
+            .filter { schema -> allowedToolNames == null || schema.name in allowedToolNames }
             .map { schema ->
             ToolSpec(
                 name = schema.name,
@@ -62,17 +66,24 @@ object VLMToolDefinitions {
             )
         }
 
-    private fun toolSpecs(locale: PromptLocale = currentLocale()): List<ToolSpec> {
-        return buildToolSpecs(locale)
+    private fun toolSpecs(
+        locale: PromptLocale = currentLocale(),
+        allowedToolNames: Set<String>? = null
+    ): List<ToolSpec> {
+        return buildToolSpecs(locale, allowedToolNames)
     }
 
-    fun tools(locale: PromptLocale = currentLocale()): List<ChatCompletionTool> {
-        return toolSpecs(locale).map { spec ->
+    fun tools(
+        locale: PromptLocale = currentLocale(),
+        allowedToolNames: Set<String>? = null
+    ): List<ChatCompletionTool> {
+        return toolSpecs(locale, allowedToolNames).map { spec ->
             ChatCompletionTool(
                 function = ChatCompletionFunction(
                     name = spec.name,
                     description = spec.description,
-                    parameters = spec.parameters
+                    parameters = spec.parameters,
+                    strict = true
                 )
             )
         }
@@ -141,7 +152,7 @@ object VLMToolDefinitions {
         val guides = toolSpecs(locale).joinToString(separator = "\n") { it.promptGuide }
         return buildString {
             appendLine(guides)
-            appendLine(actionChoiceGuide(locale))
+            appendLine(actionChoiceGuide(locale, null))
             append(
                 t(
                     locale,
@@ -152,8 +163,13 @@ object VLMToolDefinitions {
         }
     }
 
-    fun renderCompactActionSchemaGuide(locale: PromptLocale = currentLocale()): String {
-        val toolNames = toolSpecs(locale).joinToString(separator = ", ") { it.name }
+    fun renderCompactActionSchemaGuide(
+        locale: PromptLocale = currentLocale(),
+        allowedToolNames: Set<String>? = null
+    ): String {
+        val selectedSpecs = toolSpecs(locale, allowedToolNames)
+        val toolNames = selectedSpecs.joinToString(separator = ", ") { it.name }
+        val selectedNames = selectedSpecs.mapTo(linkedSetOf()) { it.name }
         return buildString {
             appendLine("${t(locale, "本轮允许工具", "Allowed tools this turn")}: $toolNames")
             appendLine(
@@ -170,7 +186,7 @@ object VLMToolDefinitions {
                     "Optional element_index/scrollable_index values are supplemental grounding hints only; they cannot replace coordinates or other fields listed in the selected tool's schema.required."
                 )
             )
-            appendLine(actionChoiceGuide(locale))
+            appendLine(actionChoiceGuide(locale, selectedNames))
             appendLine(
                 t(
                     locale,
@@ -188,12 +204,52 @@ object VLMToolDefinitions {
         }.trim()
     }
 
-    private fun actionChoiceGuide(locale: PromptLocale): String {
-        return t(
-            locale,
-            "操作选择：click 用于点击可见按钮、列表项、标签、搜索框或输入框聚焦；input_text 用于向可见输入目标输入已知文本；long_press 只用于上下文菜单、拖拽起点或页面明确需要长按；swipe 用于目标不在当前可见区域、列表翻页或横向切换；open_app 用于当前不在目标应用且目标包名明确；press_key 用于系统 back/home/enter；wait 只用于页面明确加载、动画或等待外部状态；finished 只在目标已完成；info/require_user_choice/require_user_confirmation 用于必须询问用户；feedback/abort 用于当前上下文不匹配或无法继续。",
-            "Action choice: use click for visible buttons, list items, tabs, search boxes, or focusing an input field; use input_text when known text must be typed into a visible input target; use long_press only for context menus, drag starts, or screens that clearly require a long press; use swipe when the target is not currently visible, a list must move, or horizontal switching is needed; use open_app when the target app is not current and its package is known; use press_key for system back/home/enter; use wait only for clear loading, animation, or external state; use finished only after the goal is complete; use info/require_user_choice/require_user_confirmation only when user input is required; use feedback/abort when the context mismatches or cannot continue."
-        )
+    private fun actionChoiceGuide(locale: PromptLocale, allowedToolNames: Set<String>?): String {
+        val visibleNames = allowedToolNames
+            ?: toolSpecs(locale).mapTo(linkedSetOf()) { it.name }
+        fun has(name: String): Boolean = name in visibleNames
+
+        val zh = buildList {
+            if (has("click")) add("click 用于点击可见按钮、列表项、标签、搜索框或输入框聚焦")
+            if (has("input_text")) add("input_text 用于向可见输入目标输入已知文本")
+            if (has("long_press")) add("long_press 只用于上下文菜单、拖拽起点或页面明确需要长按")
+            if (has("swipe")) add("swipe 用于目标不在当前可见区域、列表翻页或横向切换")
+            if (has("open_app")) add("open_app 用于当前不在目标应用且目标包名明确")
+            if (has("press_key")) add("press_key 用于系统 back/home/enter")
+            if (has("wait")) add("wait 只用于页面明确加载、动画或等待外部状态")
+            if (has("finished")) add("finished 只在目标已完成")
+            val userTools = listOf("info", "require_user_choice", "require_user_confirmation")
+                .filter(::has)
+            if (userTools.isNotEmpty()) {
+                add("${userTools.joinToString("/")} 用于必须询问用户")
+            }
+            val fallbackTools = listOf("feedback", "abort").filter(::has)
+            if (fallbackTools.isNotEmpty()) {
+                add("${fallbackTools.joinToString("/")} 用于当前上下文不匹配或无法继续")
+            }
+        }.joinToString("；")
+
+        val en = buildList {
+            if (has("click")) add("use click for visible buttons, list items, tabs, search boxes, or focusing an input field")
+            if (has("input_text")) add("use input_text when known text must be typed into a visible input target")
+            if (has("long_press")) add("use long_press only for context menus, drag starts, or screens that clearly require a long press")
+            if (has("swipe")) add("use swipe when the target is not currently visible, a list must move, or horizontal switching is needed")
+            if (has("open_app")) add("use open_app when the target app is not current and its package is known")
+            if (has("press_key")) add("use press_key for system back/home/enter")
+            if (has("wait")) add("use wait only for clear loading, animation, or external state")
+            if (has("finished")) add("use finished only after the goal is complete")
+            val userTools = listOf("info", "require_user_choice", "require_user_confirmation")
+                .filter(::has)
+            if (userTools.isNotEmpty()) {
+                add("use ${userTools.joinToString("/")} only when user input is required")
+            }
+            val fallbackTools = listOf("feedback", "abort").filter(::has)
+            if (fallbackTools.isNotEmpty()) {
+                add("use ${fallbackTools.joinToString("/")} when the context mismatches or cannot continue")
+            }
+        }.joinToString("; ")
+
+        return t(locale, "操作选择：$zh。", "Action choice: $en.")
     }
 
     fun responseContract(locale: PromptLocale = currentLocale()): String {

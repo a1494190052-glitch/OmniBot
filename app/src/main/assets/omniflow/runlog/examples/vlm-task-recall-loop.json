@@ -10,6 +10,92 @@
     "mcp_offline_update_function"
   ],
   "enhancement_policy": "offline_only",
+  "visible_examples": {
+    "zh": [
+      {
+        "title": "打开网络设置",
+        "tool_payload": {
+          "tool": "vlm_task",
+          "arguments": {
+            "goal": "打开网络设置",
+            "packageName": "com.android.settings",
+            "allowOmniFlowFunctionAutoExecute": true,
+            "maxSteps": 3
+          }
+        }
+      },
+      {
+        "title": "点击设置搜索框",
+        "tool_payload": {
+          "tool": "vlm_task",
+          "arguments": {
+            "goal": "点击设置搜索框",
+            "packageName": "com.android.settings",
+            "allowOmniFlowFunctionAutoExecute": true,
+            "maxSteps": 2
+          }
+        }
+      },
+      {
+        "title": "在小红书搜索猫咪",
+        "tool_payload": {
+          "tool": "vlm_task",
+          "arguments": {
+            "goal": "在小红书搜索猫咪",
+            "packageName": "com.xingin.xhs",
+            "allowOmniFlowFunctionAutoExecute": true,
+            "maxSteps": 6
+          }
+        }
+      }
+    ],
+    "en": [
+      {
+        "title": "Open network settings",
+        "tool_payload": {
+          "tool": "vlm_task",
+          "arguments": {
+            "goal": "Open network settings",
+            "packageName": "com.android.settings",
+            "allowOmniFlowFunctionAutoExecute": true,
+            "maxSteps": 3
+          }
+        }
+      },
+      {
+        "title": "Tap the Settings search field",
+        "tool_payload": {
+          "tool": "vlm_task",
+          "arguments": {
+            "goal": "Tap the Settings search field",
+            "packageName": "com.android.settings",
+            "allowOmniFlowFunctionAutoExecute": true,
+            "maxSteps": 2
+          }
+        }
+      },
+      {
+        "title": "Search cats in Xiaohongshu",
+        "tool_payload": {
+          "tool": "vlm_task",
+          "arguments": {
+            "goal": "Search cats in Xiaohongshu",
+            "packageName": "com.xingin.xhs",
+            "allowOmniFlowFunctionAutoExecute": true,
+            "maxSteps": 6
+          }
+        }
+      }
+    ]
+  },
+  "example_policy": {
+    "model_output_contract": "native_openai_tool_calls_only",
+    "forbidden_model_output_fields": [
+      "function_id",
+      "call_tool",
+      "legacy_text_action_json"
+    ]
+  },
   "steps": [
     {
       "phase": "first_vlm_run",
@@ -17,7 +103,7 @@
       "tool_payload": {
         "tool": "vlm_task",
         "arguments": {
-          "operation": "打开网络设置",
+          "goal": "打开网络设置",
           "packageName": "com.android.settings",
           "allowOmniFlowFunctionAutoExecute": true,
           "registerRunLog": true,
@@ -53,7 +139,7 @@
       "tool_payload": {
         "tool": "vlm_task",
         "arguments": {
-          "operation": "打开网络设置",
+          "goal": "打开网络设置",
           "packageName": "com.android.settings",
           "allowOmniFlowFunctionAutoExecute": true,
           "startFromCurrent": true,

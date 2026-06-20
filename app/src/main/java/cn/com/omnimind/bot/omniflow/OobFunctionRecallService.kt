@@ -120,9 +120,25 @@ class OobFunctionRecallService(
                 )
             }
         }
-        val directHit = nodeCapabilityRanking.functions.firstOrNull()?.takeIf { candidate ->
+        val nodeDirectHit = nodeCapabilityRanking.functions.firstOrNull()?.takeIf { candidate ->
             allowDirectExecutionDecision &&
                 isHighConfidenceFunctionHit(candidate, nodeCapabilityRanking.functions.drop(1).firstOrNull())
+        }
+        val catalogDirectHit = recallRanking.catalogFunctions.firstOrNull()?.takeIf { candidate ->
+            allowDirectExecutionDecision &&
+                nodeDirectHit == null &&
+                isHighConfidenceCatalogFunctionHit(
+                    candidate = candidate,
+                    nextCandidate = recallRanking.catalogFunctions.drop(1).firstOrNull(),
+                    goal = goal,
+                    currentPackage = currentPackage,
+                )
+        }
+        val directHit = nodeDirectHit ?: catalogDirectHit
+        val directHitPolicy = when (directHit) {
+            null -> null
+            nodeDirectHit -> "top1_high_confidence_margin"
+            else -> "catalog_exact_match_same_package_goal"
         }
         val decision = when {
             directHit != null -> "hit"
@@ -143,7 +159,13 @@ class OobFunctionRecallService(
                     "text_score" to roundScore(it.textScore),
                     "page_similarity" to roundScore(it.pageScore),
                     "strict_direct_hit" to true,
-                    "direct_hit_policy" to "top1_high_confidence_margin",
+                    "direct_hit_policy" to directHitPolicy,
+                    "recall_scope" to if (it.node.isEmpty()) "function_catalog" else "udeg_node",
+                    "source" to if (it.node.isEmpty()) {
+                        "oob_agent_visible_function_catalog"
+                    } else {
+                        "oob_udeg_node_function_recall"
+                    },
                     "requires_arguments" to !isNoArgumentFunction(it.spec),
                     "resolve_policy" to argumentResolvePolicy(it.spec),
                     "udeg_node" to it.node,
@@ -183,6 +205,8 @@ class OobFunctionRecallService(
             ),
             "count" to candidates.size,
             "reason" to when {
+                directHit != null && directHit.node.isEmpty() ->
+                    "function_catalog_exact_match_direct_function_hit"
                 directHit != null -> "udeg_page_match_direct_function_hit"
                 nodeCandidates.isEmpty() && currentXml.isBlank() ->
                     if (ranked.isNotEmpty()) {
@@ -217,7 +241,11 @@ class OobFunctionRecallService(
                 )
             ),
             "source" to if (nodeCandidates.isNotEmpty()) {
-                "oob_native_udeg_page_match"
+                if (directHit != null && directHit.node.isEmpty()) {
+                    "oob_native_function_catalog_recall"
+                } else {
+                    "oob_native_udeg_page_match"
+                }
             } else if (recallRanking.catalogFunctions.isNotEmpty()) {
                 "oob_native_function_catalog_recall"
             } else {
@@ -322,6 +350,7 @@ class OobFunctionRecallService(
             }
             .sortedWith(
                 compareByDescending<RankedFunction> { it.score }
+                    .thenByDescending { functionFreshnessMs(it.spec) }
                     .thenBy { it.functionId }
             )
             .take(topK.coerceIn(1, MAX_RECALLED_FUNCTIONS))
@@ -680,15 +709,7 @@ class OobFunctionRecallService(
     }
 
     private fun packageScopeMatches(spec: Map<String, Any?>, currentPackage: String): Boolean {
-        val constraints = mapArg(spec["constraints"])
-        val source = mapArg(spec["source"])
-        val candidates = listOf(
-            constraints["package_name"],
-            constraints["packageName"],
-            source["package_name"],
-            source["packageName"],
-        ).map { it?.toString()?.trim().orEmpty() }
-        return candidates.any { it.isNotEmpty() && it == currentPackage }
+        return packageScopes(spec).contains(currentPackage)
     }
 
     private fun candidateMap(
@@ -735,8 +756,213 @@ class OobFunctionRecallService(
         if (nextCandidate != null && sameBehaviorIdentity(candidate.spec, nextCandidate.spec)) {
             return true
         }
+        if (nextCandidate != null && duplicateDirectHitCandidate(candidate, nextCandidate)) {
+            return true
+        }
         val margin = candidate.score - (nextCandidate?.score ?: 0.0)
         return nextCandidate == null || margin >= DIRECT_HIT_MIN_MARGIN
+    }
+
+    private fun isHighConfidenceCatalogFunctionHit(
+        candidate: RankedFunction,
+        nextCandidate: RankedFunction?,
+        goal: String,
+        currentPackage: String,
+    ): Boolean {
+        if (candidate.score < DIRECT_HIT_MIN_SCORE) return false
+        if (candidate.textScore < DIRECT_HIT_MIN_TEXT_SCORE) return false
+        if (!candidate.reason.contains("catalog_exact_match")) return false
+        if (!isReusableVlmFunction(candidate.spec)) return false
+        if (!catalogGoalMatches(candidate.spec, goal)) return false
+        if (!catalogPackageMatches(candidate.spec, currentPackage)) return false
+        if (nextCandidate != null && sameCatalogDirectHitIntent(candidate, nextCandidate, goal, currentPackage)) {
+            return true
+        }
+        val margin = candidate.score - (nextCandidate?.score ?: 0.0)
+        return nextCandidate == null || margin >= DIRECT_HIT_MIN_MARGIN
+    }
+
+    private fun sameCatalogDirectHitIntent(
+        candidate: RankedFunction,
+        nextCandidate: RankedFunction,
+        goal: String,
+        currentPackage: String,
+    ): Boolean {
+        if (nextCandidate.score < DIRECT_HIT_MIN_SCORE) return false
+        if (nextCandidate.textScore < DIRECT_HIT_MIN_TEXT_SCORE) return false
+        if (!nextCandidate.reason.contains("catalog_exact_match")) return false
+        if (!isReusableVlmFunction(nextCandidate.spec)) return false
+        if (!catalogGoalMatches(nextCandidate.spec, goal)) return false
+        if (!catalogPackageMatches(nextCandidate.spec, currentPackage)) return false
+        if (sameBehaviorIdentity(candidate.spec, nextCandidate.spec)) return true
+        return sameGoalIdentity(candidate.spec, nextCandidate.spec) &&
+            packageScopes(candidate.spec).intersect(packageScopes(nextCandidate.spec)).isNotEmpty()
+    }
+
+    private fun duplicateDirectHitCandidate(
+        candidate: RankedFunction,
+        nextCandidate: RankedFunction,
+    ): Boolean {
+        if (nextCandidate.score < DIRECT_HIT_MIN_SCORE) return false
+        if (nextCandidate.pageScore < DIRECT_HIT_MIN_PAGE_SCORE) return false
+        if (nextCandidate.textScore < DIRECT_HIT_MIN_TEXT_SCORE) return false
+        if (!sameNode(candidate, nextCandidate)) return false
+        if (!samePackageScope(candidate.spec, nextCandidate.spec, candidate.node, nextCandidate.node)) return false
+        if (!bothReusableVlmFunctions(candidate.spec, nextCandidate.spec)) return false
+        if (!sameGoalIdentity(candidate.spec, nextCandidate.spec)) return false
+        if (sameReplayShape(candidate.spec, nextCandidate.spec)) return true
+        return samePublicArgumentContract(candidate.spec, nextCandidate.spec)
+    }
+
+    private fun sameNode(first: RankedFunction, second: RankedFunction): Boolean {
+        val firstNodeId = firstNonBlank(first.node["node_id"])
+        val secondNodeId = firstNonBlank(second.node["node_id"])
+        return firstNodeId.isNotBlank() && firstNodeId == secondNodeId
+    }
+
+    private fun samePackageScope(
+        first: Map<String, Any?>,
+        second: Map<String, Any?>,
+        firstNode: Map<String, Any?>,
+        secondNode: Map<String, Any?>,
+    ): Boolean {
+        val firstPackage = packageScope(first).ifBlank { firstNonBlank(firstNode["package_name"]) }
+        val secondPackage = packageScope(second).ifBlank { firstNonBlank(secondNode["package_name"]) }
+        val sharedPackages = packageScopes(first).intersect(packageScopes(second))
+        return (firstPackage.isNotBlank() && firstPackage == secondPackage) || sharedPackages.isNotEmpty()
+    }
+
+    private fun packageScope(spec: Map<String, Any?>): String {
+        return packageScopes(spec).firstOrNull().orEmpty()
+    }
+
+    private fun packageScopes(spec: Map<String, Any?>): Set<String> {
+        val constraints = mapArg(spec["constraints"])
+        val source = mapArg(spec["source"])
+        val metadata = mapArg(spec["metadata"])
+        val sourceBehaviorIdentity = mapArg(source["behavior_identity"])
+        val metadataBehaviorIdentity = mapArg(metadata["oob_behavior_identity"])
+        val sourceBehaviorPayload = mapArg(sourceBehaviorIdentity["payload"])
+        val metadataBehaviorPayload = mapArg(metadataBehaviorIdentity["payload"])
+        return buildList {
+            listOf(
+                constraints["package_name"],
+                constraints["packageName"],
+                source["package_name"],
+                source["packageName"],
+                source["source_package"],
+                source["sourcePackage"],
+                sourceBehaviorPayload["source_package"],
+                sourceBehaviorPayload["sourcePackage"],
+                metadataBehaviorPayload["source_package"],
+                metadataBehaviorPayload["sourcePackage"],
+            ).map { firstNonBlank(it) }
+                .filterTo(this) { it.isNotBlank() }
+            materializedSteps(spec).forEach { step ->
+                addAll(stepPackageScopes(step))
+            }
+        }.toSet()
+    }
+
+    private fun stepPackageScopes(step: Map<String, Any?>): Set<String> {
+        val args = mapArg(step["args"])
+        val sourceContext = mapArg(step["source_context"])
+        val srcCtx = mapArg(sourceContext["src_ctx"])
+        val dstCtx = mapArg(sourceContext["dst_ctx"])
+        val sourceAction = mapArg(sourceContext["action"])
+        return listOf(
+            args["package_name"],
+            args["packageName"],
+            srcCtx["package_name"],
+            srcCtx["packageName"],
+            dstCtx["package_name"],
+            dstCtx["packageName"],
+            sourceAction["package_name"],
+            sourceAction["packageName"],
+        ).map { firstNonBlank(it) }
+            .filter { it.isNotBlank() }
+            .toSet()
+    }
+
+    private fun catalogPackageMatches(spec: Map<String, Any?>, currentPackage: String): Boolean =
+        currentPackage.isNotBlank() && packageScopes(spec).contains(currentPackage)
+
+    private fun catalogGoalMatches(spec: Map<String, Any?>, goal: String): Boolean =
+        goal.isNotBlank() && semanticGoalIdentity(spec) == normalizeText(goal)
+
+    private fun isReusableVlmFunction(spec: Map<String, Any?>): Boolean {
+        val source = mapArg(spec["source"])
+        val tool = normalizeText(firstNonBlank(source["tool_name"], source["toolName"]))
+        val kind = normalizeText(firstNonBlank(source["kind"], spec["function_kind"]))
+        return tool == "vlm_task" && kind == "run_log"
+    }
+
+    private fun bothReusableVlmFunctions(
+        first: Map<String, Any?>,
+        second: Map<String, Any?>,
+    ): Boolean {
+        val firstSource = mapArg(first["source"])
+        val secondSource = mapArg(second["source"])
+        val firstTool = normalizeText(firstNonBlank(firstSource["tool_name"], firstSource["toolName"]))
+        val secondTool = normalizeText(firstNonBlank(secondSource["tool_name"], secondSource["toolName"]))
+        val firstKind = normalizeText(firstNonBlank(firstSource["kind"], first["function_kind"]))
+        val secondKind = normalizeText(firstNonBlank(secondSource["kind"], second["function_kind"]))
+        val firstLooksVlm = firstTool == "vlm_task" || firstKind == "run_log"
+        val secondLooksVlm = secondTool == "vlm_task" || secondKind == "run_log"
+        return firstLooksVlm && secondLooksVlm
+    }
+
+    private fun sameGoalIdentity(
+        first: Map<String, Any?>,
+        second: Map<String, Any?>,
+    ): Boolean {
+        val firstGoal = semanticGoalIdentity(first)
+        val secondGoal = semanticGoalIdentity(second)
+        return firstGoal.isNotBlank() && firstGoal == secondGoal
+    }
+
+    private fun semanticGoalIdentity(spec: Map<String, Any?>): String {
+        val source = mapArg(spec["source"])
+        return normalizeText(
+            firstNonBlank(
+                source["goal"],
+                spec["name"],
+                spec["description"],
+            )
+        )
+    }
+
+    private fun sameReplayShape(
+        first: Map<String, Any?>,
+        second: Map<String, Any?>,
+    ): Boolean {
+        val firstShape = replayShapeKey(first)
+        return firstShape.isNotBlank() && firstShape == replayShapeKey(second)
+    }
+
+    private fun samePublicArgumentContract(
+        first: Map<String, Any?>,
+        second: Map<String, Any?>,
+    ): Boolean {
+        val firstSchema = inputSchema(first)
+        val secondSchema = inputSchema(second)
+        val firstProperties = mapArg(firstSchema["properties"]).keys.toSet()
+        val secondProperties = mapArg(secondSchema["properties"]).keys.toSet()
+        val firstRequired = listArg(firstSchema["required"])
+            .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
+            .toSet()
+        val secondRequired = listArg(secondSchema["required"])
+            .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
+            .toSet()
+        return firstProperties == secondProperties && firstRequired == secondRequired
+    }
+
+    private fun replayShapeKey(spec: Map<String, Any?>): String {
+        val steps = materializedSteps(spec)
+            .mapNotNull { step -> normalizeText(firstNonBlank(step["tool"])).takeIf { it.isNotBlank() } }
+            .filterNot { it == "wait" }
+        if (steps.isEmpty()) return ""
+        return steps.joinToString("|")
     }
 
     private fun sameBehaviorIdentity(
@@ -895,6 +1121,19 @@ class OobFunctionRecallService(
             is String -> value.trim().toDoubleOrNull() ?: 0.0
             else -> 0.0
         }
+
+    private fun functionFreshnessMs(spec: Map<String, Any?>): Long {
+        val source = mapArg(spec["source"])
+        val registry = mapArg(spec["_oob_registry"])
+        return firstNonBlank(
+            source["converted_at"],
+            source["convertedAt"],
+            registry["updated_at"],
+            registry["updatedAt"],
+            registry["registered_at"],
+            registry["registeredAt"],
+        ).toLongOrNull() ?: 0L
+    }
 
     private data class RankedFunction(
         val spec: Map<String, Any?>,

@@ -101,6 +101,12 @@ object LocalDeviceHttpHostManager {
                     val status = if (result["success"] == true) HttpStatusCode.OK else HttpStatusCode.BadRequest
                     call.respond(status, result)
                 }
+                get("/primitive_action_log") {
+                    call.respond(exportPrimitiveActionLog(context, call.request.queryParameters.toSingleValueMap()))
+                }
+                post("/primitive_action_log") {
+                    call.respond(exportPrimitiveActionLog(context, call.receiveMap()))
+                }
                 post("/omniflow/tool") {
                     val body = call.receiveMap()
                     val result = executeOmniFlowTool(context, body)
@@ -137,6 +143,19 @@ object LocalDeviceHttpHostManager {
     private suspend fun executeAction(context: Context, body: Map<String, Any?>): Map<String, Any?> =
         runCatching {
             McpToolExecutors.executeAct(context, body) + mapOf("source" to "oob_local_device_http_host")
+        }.getOrElse { error ->
+            linkedMapOf(
+                "success" to false,
+                "error" to error.message.orEmpty().ifBlank { error::class.java.simpleName },
+                "source" to "oob_local_device_http_host",
+            )
+        }
+
+    private suspend fun exportPrimitiveActionLog(context: Context, body: Map<String, Any?>): Map<String, Any?> =
+        runCatching {
+            McpToolExecutors.executePrimitiveActionLog(context, body) + mapOf(
+                "source" to "oob_local_device_http_host",
+            )
         }.getOrElse { error ->
             linkedMapOf(
                 "success" to false,

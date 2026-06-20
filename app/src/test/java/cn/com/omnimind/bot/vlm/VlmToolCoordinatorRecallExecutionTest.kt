@@ -262,6 +262,61 @@ class VlmToolCoordinatorRecallExecutionTest {
     }
 
     @Test
+    fun `parse only uses indexed action proposal before streaming`() = runBlocking {
+        var streamCalled = false
+        val streamClient = object : VLMStreamClient {
+            override suspend fun streamTurn(
+                request: ChatCompletionRequest,
+                onReasoningUpdate: (suspend (String) -> Unit)?
+            ): SceneChatCompletionTurn {
+                streamCalled = true
+                throw AssertionError("parse-only should not stream when indexed evidence is sufficient")
+            }
+        }
+
+        val result = VlmToolCoordinator.parseOnlyNextAction(
+            context = UIContext(
+                overallTask = "点击设置搜索框",
+                currentStepGoal = "点击设置搜索框",
+                targetPackageName = "com.android.settings",
+                currentPackageName = "com.android.settings",
+            ),
+            snapshot = VLMCurrentPageSnapshot(
+                packageName = "com.android.settings",
+                xml = """
+                    <hierarchy>
+                      <node bounds="[0,0][720,1280]">
+                        <node text="Settings" bounds="[48,256][312,353]" />
+                        <node text="Search settings" clickable="true" bounds="[152,426][421,480]" />
+                      </node>
+                    </hierarchy>
+                """.trimIndent(),
+                screenshotBase64 = "RAW_IMAGE",
+                displayWidth = 720,
+                displayHeight = 1280,
+                capturedAtMs = 1234L,
+            ),
+            streamClient = streamClient,
+            vlmClient = VLMClient(
+                systemPromptBuilder = { "test vlm system prompt" },
+                turnPromptBuilder = { ctx, _ -> ctx.activeGoal() },
+            ),
+        )
+
+        assertFalse(streamCalled)
+        assertTrue(result.success)
+        assertEquals("click", result.toolName)
+        assertEquals("matched", result.pageDiagnostics["indexed_action_proposal"])
+        assertEquals("click", result.pageDiagnostics["indexed_action_proposal_tool"])
+        assertTrue(result.phaseMs.containsKey("indexed_action_proposal_ms"))
+        assertFalse(result.phaseMs.containsKey("vlm_stream_ms"))
+        assertEquals(emptyList<String>(), result.toolNames)
+        val action = requireNotNull(result.action)
+        assertEquals("click", action["tool"])
+        assertEquals("Search settings", action["target_description"])
+    }
+
+    @Test
     fun `vlm requests default to runtime recall auto execution`() {
         val request = VlmTaskRequest(
             goal = "open settings",
@@ -496,6 +551,68 @@ class VlmToolCoordinatorRecallExecutionTest {
     }
 
     @Test
+    fun `runtime resolve filters internal replay fields before function execution`() = runBlocking {
+        val request = VlmTaskRequest(
+            goal = "小红书查看猫猫",
+            packageName = "com.xingin.xhs",
+            allowOmniFlowFunctionAutoExecute = true,
+        )
+        val state = TaskState(
+            taskId = "task-runtime-resolve-filter-internal",
+            goal = request.goal,
+            status = TaskStatus.RUNNING,
+        )
+        var capturedArguments: Map<String, Any?> = emptyMap()
+
+        val outcome = VlmToolCoordinator.tryExecuteRecallHitIfAllowed(
+            request = request,
+            taskState = state,
+            recallGuidance = VlmRecallGuidance(
+                decision = "hit",
+                guidance = "OmniFlow recall checked for this VLM step.",
+                payload = mapOf(
+                    "success" to true,
+                    "decision" to "hit",
+                    "hit" to mapOf(
+                        "function_id" to "xhs_search_keyword",
+                        "input_schema" to mapOf(
+                            "type" to "object",
+                            "required" to listOf("keyword"),
+                            "properties" to mapOf(
+                                "keyword" to mapOf("type" to "string")
+                            ),
+                        ),
+                    ),
+                ),
+                directHitFunctionId = "xhs_search_keyword",
+            ),
+            progressReporter = { _, _ -> },
+            runFunction = { _, arguments ->
+                capturedArguments = arguments
+                mapOf("success" to true)
+            },
+            resolveProvider = resolveRecall(
+                mapOf(
+                    "keyword" to "猫猫",
+                    "function_id" to "wrong_function",
+                    "x" to 10,
+                    "y" to 20,
+                    "node_id" to "node-1",
+                ),
+                resolveCalls = 1,
+                reason = "runtime_verifier_execute",
+            ),
+        )
+
+        assertNotNull(outcome)
+        assertEquals(VlmToolOutcomeStatus.FINISHED, outcome?.status)
+        assertEquals(mapOf("keyword" to "猫猫"), capturedArguments)
+        assertEquals(TaskStatus.FINISHED, state.status)
+        val executionSummary = outcome?.toPayload()?.get("omniflowExecutionSummary") as Map<*, *>
+        assertEquals(1, executionSummary["resolve_calls"])
+    }
+
+    @Test
     fun `argument resolve and replay step resolve share compact resolve call metric`() = runBlocking {
         val request = VlmTaskRequest(
             goal = "小红书查看猫猫",
@@ -566,7 +683,7 @@ class VlmToolCoordinatorRecallExecutionTest {
     }
 
     @Test
-    fun `runtime resolve with no public arguments executes selected recall hit`() = runBlocking {
+    fun `strict recall hit with no public arguments skips runtime resolve`() = runBlocking {
         val request = VlmTaskRequest(
             goal = "open settings",
             packageName = "com.android.settings",
@@ -604,13 +721,17 @@ class VlmToolCoordinatorRecallExecutionTest {
                     "actions_executed" to 1,
                 )
             },
-            resolveProvider = resolveRecall(reason = "no_public_arguments"),
+            resolveProvider = { _, _, _ ->
+                error("runtime resolve should not be called for no-argument strict hits")
+            },
         )
 
         assertNotNull(outcome)
         assertEquals(VlmToolOutcomeStatus.FINISHED, outcome?.status)
         assertTrue(called)
         assertEquals(TaskStatus.FINISHED, state.status)
+        val executionSummary = outcome?.toPayload()?.get("omniflowExecutionSummary") as Map<*, *>
+        assertEquals(0, executionSummary["resolve_calls"])
     }
 
     @Test
@@ -792,6 +913,14 @@ class VlmToolCoordinatorRecallExecutionTest {
             assertEquals("warm_memory_goal_match", result.pageDiagnostics["omniflow_recall_hit_reason"])
             assertEquals(goal, result.pageDiagnostics["omniflow_recall_goal"])
             assertEquals(warmMemory.length.toString(), result.pageDiagnostics["omniflow_recall_warm_memory_chars"])
+            assertEquals("true", result.pageDiagnostics["vlm_request_has_tools"])
+            assertTrue(result.pageDiagnostics["vlm_request_tool_count"]!!.toInt() >= 4)
+            assertTrue(result.pageDiagnostics["vlm_request_tool_names"]!!.contains("click"))
+            assertTrue(result.pageDiagnostics["vlm_request_current_user_text_chars"]!!.toInt() > 0)
+            assertTrue(result.pageDiagnostics["vlm_context_current_page_summary_chars"]!!.toInt() > 0)
+            assertEquals("1", result.pageDiagnostics["vlm_response_tool_call_count"])
+            assertEquals("click", result.pageDiagnostics["vlm_response_tool_names"])
+            assertEquals("vlm-test-model", result.pageDiagnostics["vlm_response_resolved_model"])
             assertTrue(result.phaseMs.containsKey("function_recall_ms"))
             assertTrue(result.phaseMs.containsKey("vlm_stream_ms"))
             val action = requireNotNull(result.action)

@@ -3,6 +3,9 @@ package cn.com.omnimind.bot.runlog
 import cn.com.omnimind.bot.runlog.OobActionCodec.boolArg
 import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
 import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
+import cn.com.omnimind.baselib.runlog.OobPrimitiveActionLedger
+import cn.com.omnimind.baselib.runlog.OobPrimitiveActionRecord
+import cn.com.omnimind.baselib.runlog.OobPrimitiveActionRiskPolicy
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -324,9 +327,22 @@ object UIStepExecutor {
         var executedActionArgs: Map<String, Any?> = emptyMap()
         var preDispatchWait: Map<String, Any?> = emptyMap()
         var expectedOpenAppPackageName: String? = null
+        enforcePrimitiveActionRisk(
+            source = "omniflow_replay",
+            tool = action,
+            args = args,
+            stepId = stepId,
+            step = step,
+            getState = ::getState,
+        )
+        val primitiveStartedAtMs = System.currentTimeMillis()
+        var primitiveSuccess = false
+        var primitiveErrorCode = ""
+        var primitiveErrorMessage = ""
         val summary = timing.measure("act_ms") {
-            runWithStopPolling(stopRequested) {
-                when (action) {
+            try {
+                runWithStopPolling(stopRequested) {
+                    when (action) {
                     OobActionCodec.ACTION_CLICK -> {
                         val x = numberArg(args, "x")?.toFloat()
                             ?: throw IllegalArgumentException("click requires x")
@@ -511,6 +527,15 @@ object UIStepExecutor {
                                         extraMeta = mapOf("retry_reason" to "input_text_observe_retry"),
                                     )
                                     args = normalizeArgsMap(remapResult.args)
+                                    enforcePrimitiveActionRisk(
+                                        source = "omniflow_replay",
+                                        tool = action,
+                                        args = args,
+                                        stepId = stepId,
+                                        step = step,
+                                        getState = ::getState,
+                                        recordBlocked = false,
+                                    )
                                     actionTransferApplied = transferRequested && remapResult.meta["applied"] == true
                                 }
                             }
@@ -547,8 +572,34 @@ object UIStepExecutor {
                         OobActionCodec.ACTION_FINISHED
                     }
 
-                    else -> throw IllegalArgumentException("Unsupported omniflow action: $action")
+                        else -> throw IllegalArgumentException("Unsupported omniflow action: $action")
+                    }
+                }.also {
+                    primitiveSuccess = true
                 }
+            } catch (error: Exception) {
+                primitiveErrorCode = if (error is ExecutionException) {
+                    error.errorCode
+                } else {
+                    "OOB_PRIMITIVE_ACTION_EXCEPTION"
+                }
+                primitiveErrorMessage = error.message.orEmpty()
+                throw error
+            } finally {
+                recordPrimitiveAction(
+                    source = "omniflow_replay",
+                    tool = action,
+                    args = executedActionArgs.ifEmpty { args },
+                    stepId = stepId,
+                    step = step,
+                    startedAtMs = primitiveStartedAtMs,
+                    success = primitiveSuccess,
+                    errorCode = primitiveErrorCode,
+                    errorMessage = primitiveErrorMessage,
+                    blocked = primitiveErrorCode == OobPrimitiveActionRiskPolicy.ERROR_DANGEROUS_ACTION_BLOCKED,
+                    state = currentState,
+                    diagnostics = actionDispatchWarning,
+                )
             }
         }
         throwIfStopRequested(stopRequested)
@@ -711,6 +762,102 @@ object UIStepExecutor {
         transferRequested -> "action_transfer_skipped"
         else -> "direct_replay"
     }
+
+    private suspend fun enforcePrimitiveActionRisk(
+        source: String,
+        tool: String,
+        args: Map<String, Any?>,
+        stepId: String,
+        step: Map<String, Any?>,
+        getState: suspend (String) -> ReplayState,
+        recordBlocked: Boolean = true,
+    ) {
+        if (!shouldApplyPrimitivePolicy(tool)) return
+        val state = getState("primitive_action_risk_check")
+        val snapshot = state.snapshot
+        val risk = OobPrimitiveActionRiskPolicy.evaluate(
+            tool = tool,
+            args = args,
+            pageXml = snapshot.xml,
+            packageName = snapshot.effectivePackage(),
+            activityName = snapshot.activityName,
+        )
+        if (risk.allowed) return
+        val now = System.currentTimeMillis()
+        if (recordBlocked) {
+            recordPrimitiveAction(
+                source = source,
+                tool = tool,
+                args = args,
+                stepId = stepId,
+                step = step,
+                startedAtMs = now,
+                finishedAtMs = now,
+                success = false,
+                errorCode = risk.errorCode,
+                errorMessage = risk.reason,
+                blocked = true,
+                state = state,
+                diagnostics = risk.diagnostics(),
+            )
+        }
+        throw ExecutionException(
+            errorCode = risk.errorCode,
+            message = risk.reason,
+            diagnostics = risk.diagnostics(),
+        )
+    }
+
+    private fun recordPrimitiveAction(
+        source: String,
+        tool: String,
+        args: Map<String, Any?>,
+        stepId: String,
+        step: Map<String, Any?>,
+        startedAtMs: Long,
+        success: Boolean,
+        errorCode: String,
+        errorMessage: String,
+        blocked: Boolean,
+        state: ReplayState?,
+        diagnostics: Map<String, Any?>,
+        finishedAtMs: Long = System.currentTimeMillis(),
+    ) {
+        if (!shouldRecordPrimitiveAction(tool)) return
+        val snapshot = state?.snapshot
+        OobPrimitiveActionLedger.record(
+            OobPrimitiveActionRecord(
+                source = source,
+                tool = tool,
+                args = compactReplayActionArgs(args),
+                functionId = OobActionCodec.firstNonBlank(step["function_id"], step["functionId"]),
+                stepId = stepId,
+                packageName = snapshot?.effectivePackage().orEmpty(),
+                activityName = snapshot?.activityName.orEmpty(),
+                beforeXmlSha256 = OobPrimitiveActionLedger.xmlSha256(snapshot?.xml.orEmpty()),
+                beforeXmlChars = snapshot?.xml?.length ?: 0,
+                startedAtMs = startedAtMs,
+                finishedAtMs = finishedAtMs,
+                success = success,
+                blocked = blocked,
+                errorCode = errorCode,
+                errorMessage = errorMessage,
+                diagnostics = diagnostics,
+            )
+        )
+    }
+
+    private fun shouldApplyPrimitivePolicy(tool: String): Boolean =
+        tool in setOf(
+            OobActionCodec.ACTION_CLICK,
+            OobActionCodec.ACTION_LONG_PRESS,
+            OobActionCodec.ACTION_INPUT_TEXT,
+            OobActionCodec.ACTION_SWIPE,
+            OobActionCodec.ACTION_PRESS_KEY,
+        )
+
+    private fun shouldRecordPrimitiveAction(tool: String): Boolean =
+        OobPrimitiveActionLedger.shouldRecordForPlanner(tool)
 
     private fun postActionObserveMeta(
         action: String,

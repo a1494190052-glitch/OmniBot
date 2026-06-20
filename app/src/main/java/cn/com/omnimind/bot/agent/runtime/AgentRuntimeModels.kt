@@ -173,6 +173,27 @@ data class ResolvedSkillContext(
         return if (base.length <= maxChars) base else base.take(maxChars) + "\n..."
     }
 
+    fun vlmStepGuidance(maxChars: Int = 900): String {
+        val base = if (skillId == "vlm-android-gui" || frontmatter["name"] == "vlm-android-gui") {
+            VLM_ANDROID_GUI_COMPACT_GUIDANCE
+        } else {
+            stepGuidance(maxChars = maxChars)
+        }
+        return if (base.length <= maxChars) base else base.take(maxChars) + "\n..."
+    }
+
+    private companion object {
+        private val VLM_ANDROID_GUI_COMPACT_GUIDANCE = listOf(
+            "Use one fresh observation for each action turn.",
+            "Choose exactly one executable UI action per step.",
+            "Prefer visible label, role, node_id, element_index, or scrollable_index; use coordinates only as fallback.",
+            "If an editable field is focused, use input_text; otherwise ground the field before typing.",
+            "Call finished only when the requested final state is directly visible.",
+            "Replay registered Functions only when current package and page evidence match; otherwise fall back to live VLM.",
+            "Do not call update_function or enhance inline before RunLog registration, direct replay, recall-hit replay, or debug convert-and-replay."
+        ).joinToString("\n")
+    }
+
 }
 
 data class SkillCompatibilityResult(

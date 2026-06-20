@@ -7,6 +7,7 @@ import android.view.Display
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.assists.task.vlmserver.VLMIndexedPageContext
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
+import cn.com.omnimind.baselib.runlog.OobPrimitiveActionLedger
 import cn.com.omnimind.baselib.util.ImageQuality
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
@@ -325,17 +326,12 @@ object McpToolExecutors {
         val startedAtMs = System.currentTimeMillis()
         val settleDelayMs = (longArg(request, "settle_delay_ms", "settleDelayMs") ?: 1_000L)
             .coerceIn(0L, 10_000L)
-        if (!OobActionCodec.coordinateActions.contains(normalized.tool) &&
-            normalized.tool == "wait"
-        ) {
-            val timeMs = ((normalized.args["time_ms"]?.toString()?.toDoubleOrNull()
-                ?: ((normalized.args["time_s"]?.toString()?.toDoubleOrNull() ?: 0.0) * 1000.0))
-                .toLong())
-                .coerceIn(0L, 10_000L)
-            delay(timeMs)
-        } else {
-            OmniflowActionHandler().dispatch(normalized.tool, normalized.args)
-        }
+        OobPrimitiveActionLedger.bind(context)
+        OmniflowActionHandler(primitiveSource = "mcp_act").dispatch(
+            action = normalized.tool,
+            args = normalized.args,
+            diagnostics = mapOf("source_action_type" to normalized.sourceActionType),
+        )
         if (settleDelayMs > 0L && normalized.tool != "finished") {
             delay(settleDelayMs)
         }
@@ -360,6 +356,26 @@ object McpToolExecutors {
             "duration_ms" to (System.currentTimeMillis() - startedAtMs),
             "package_name" to packageName.takeIf { it.isNotBlank() },
             "activity_name" to activityName.takeIf { it.isNotBlank() },
+        ).filterValues { it != null }
+    }
+
+    suspend fun executePrimitiveActionLog(
+        context: Context,
+        args: Map<String, Any?>?,
+    ): Map<String, Any?> = withContext(Dispatchers.IO) {
+        val limit = (intArg(args, "limit") ?: 100).coerceIn(1, 500)
+        OobPrimitiveActionLedger.bind(context)
+        val records = OobPrimitiveActionLedger.readRecentRecords(context, limit)
+        val recordFile = OobPrimitiveActionLedger.recordFile(context)
+        linkedMapOf<String, Any?>(
+            "success" to true,
+            "schema_version" to OobPrimitiveActionLedger.SCHEMA_VERSION,
+            "source" to "oob_accessibility_runtime",
+            "limit" to limit,
+            "count" to records.size,
+            "record_file_exists" to recordFile.exists(),
+            "record_file_bytes" to recordFile.takeIf { it.exists() }?.length(),
+            "records" to records,
         ).filterValues { it != null }
     }
 

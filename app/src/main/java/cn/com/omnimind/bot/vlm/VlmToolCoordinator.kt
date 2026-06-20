@@ -33,6 +33,8 @@ import cn.com.omnimind.assists.task.vlmserver.VLMClient
 import cn.com.omnimind.assists.task.vlmserver.VLMConversationState
 import cn.com.omnimind.assists.task.vlmserver.VLMCurrentPageSnapshot
 import cn.com.omnimind.assists.task.vlmserver.VLMFirstStepOptimizer
+import cn.com.omnimind.assists.task.vlmserver.VLMGoalCompletionHeuristic
+import cn.com.omnimind.assists.task.vlmserver.VLMIndexedActionProposer
 import cn.com.omnimind.assists.task.vlmserver.VLMIndexedPageContext
 import cn.com.omnimind.assists.task.vlmserver.VLMPageContextProviderRegistry
 import cn.com.omnimind.assists.task.vlmserver.VLMPageContextRequest
@@ -649,6 +651,106 @@ object VlmToolCoordinator {
                 displayHeight = snapshot.displayHeight,
             )
         }
+        val contextBudgetDiagnostics = buildContextBudgetDiagnostics(workingContext)
+        VLMGoalCompletionHeuristic.matchCurrentPage(
+            goal = workingContext.activeGoal(),
+            currentXml = snapshot.xml,
+            currentPackageName = snapshot.packageName,
+            trace = workingContext.trace,
+        )?.let { match ->
+            val step = VLMGoalCompletionHeuristic.buildCurrentPageFinishedStep(
+                currentXml = snapshot.xml,
+                currentPackageName = snapshot.packageName,
+                match = match,
+            )
+            val diagnostics = workingContext.pageDiagnostics +
+                contextBudgetDiagnostics +
+                phaseMs.mapValues { it.value.toString() } +
+                step.pageDiagnostics +
+                linkedMapOf(
+                    "vlm_goal_completion_fast_path" to "true",
+                    "action_dispatch_ms" to "0",
+                    "action_executor_action_ms" to "0",
+                    "action_executor_post_delay_ms" to "0",
+                    "action_executor_total_ms" to "0",
+                )
+            return VlmParseOnlyResult(
+                success = true,
+                model = model,
+                packageName = snapshot.packageName,
+                xmlChars = snapshot.xml?.length ?: 0,
+                screenshotIncluded = !snapshot.screenshotBase64.isNullOrBlank(),
+                promptChars = 0,
+                parsed = true,
+                toolName = step.action.name,
+                action = step.action.toDebugMap(),
+                error = null,
+                finishReason = null,
+                rawContentPreview = "",
+                reasoningPreview = "",
+                observationPreview = step.observation.take(1000),
+                thoughtPreview = step.thought.take(2000),
+                summaryPreview = step.summary.take(1000),
+                toolNames = emptyList(),
+                dynamicFunctionToolNames = emptyList(),
+                requestVariant = null,
+                requestHadTools = null,
+                requestToolChoice = null,
+                requestParallelToolCalls = null,
+                currentUserTextPreview = "",
+                pageDiagnostics = diagnostics,
+                phaseMs = phaseMs.toMap(),
+            )
+        }
+        val indexedProposal = timed("indexed_action_proposal_ms") {
+            VLMIndexedActionProposer.propose(
+                context = workingContext,
+                currentXml = snapshot.xml,
+                displayWidth = snapshot.displayWidth,
+                displayHeight = snapshot.displayHeight,
+                stepIndex = workingContext.stepsUsed,
+            )
+        }
+        if (indexedProposal != null) {
+            val step = indexedProposal.step
+            val diagnostics = workingContext.pageDiagnostics +
+                contextBudgetDiagnostics +
+                phaseMs.mapValues { it.value.toString() } +
+                indexedProposal.diagnostics +
+                linkedMapOf(
+                    "action_dispatch_ms" to "0",
+                    "action_executor_action_ms" to "0",
+                    "action_executor_post_delay_ms" to "0",
+                    "action_executor_total_ms" to "0",
+                )
+            return VlmParseOnlyResult(
+                success = true,
+                model = model,
+                packageName = snapshot.packageName,
+                xmlChars = snapshot.xml?.length ?: 0,
+                screenshotIncluded = !snapshot.screenshotBase64.isNullOrBlank(),
+                promptChars = 0,
+                parsed = true,
+                toolName = step.action.name,
+                action = step.action.toDebugMap(),
+                error = null,
+                finishReason = null,
+                rawContentPreview = "",
+                reasoningPreview = "",
+                observationPreview = step.observation.take(1000),
+                thoughtPreview = step.thought.take(2000),
+                summaryPreview = step.summary.take(1000),
+                toolNames = emptyList(),
+                dynamicFunctionToolNames = emptyList(),
+                requestVariant = null,
+                requestHadTools = null,
+                requestToolChoice = null,
+                requestParallelToolCalls = null,
+                currentUserTextPreview = "",
+                pageDiagnostics = diagnostics,
+                phaseMs = phaseMs.toMap(),
+            )
+        }
         val requestEnvelope = timed("build_request_ms") {
             vlmClient.buildUIOperationRequest(
                 context = workingContext,
@@ -671,6 +773,43 @@ object VlmToolCoordinator {
         }
         val action = parsed.step?.action
         val thinking = parsed.thinking
+        val responseContentPreview = thinking?.rawContent
+            .orEmpty()
+            .ifBlank { thinking?.reasoning.orEmpty() }
+            .trim()
+            .take(4000)
+        val requestDiagnostics = linkedMapOf(
+            "vlm_request_has_tools" to requestEnvelope.request.tools.isNotEmpty().toString(),
+            "vlm_request_tool_choice" to requestEnvelope.request.toolChoice?.toString().orEmpty(),
+            "vlm_request_parallel_tool_calls" to requestEnvelope.request.parallelToolCalls?.toString().orEmpty(),
+            "vlm_request_tool_count" to requestEnvelope.toolNames.size.toString(),
+            "vlm_request_tool_names" to requestEnvelope.toolNames.joinToString(",").take(4000),
+            "vlm_request_default_tool_count" to requestEnvelope.defaultToolCount.toString(),
+            "vlm_request_selected_base_tool_names" to requestEnvelope.selectedBaseToolNames.joinToString(",").take(4000),
+            "vlm_request_dynamic_function_tool_count" to requestEnvelope.dynamicFunctionToolNames.size.toString(),
+            "vlm_request_dynamic_function_tool_names" to requestEnvelope.dynamicFunctionToolNames.joinToString(",").take(4000),
+            "vlm_request_system_prompt_chars" to requestEnvelope.systemPromptChars.toString(),
+            "vlm_request_current_user_text_chars" to requestEnvelope.currentUserTextChars.toString(),
+        )
+        val responseDiagnostics = linkedMapOf(
+            "vlm_stream_request_variant" to turn.requestVariant.orEmpty(),
+            "vlm_stream_request_had_tools" to turn.requestHadTools?.toString().orEmpty(),
+            "vlm_stream_request_tool_choice" to turn.requestToolChoice.orEmpty(),
+            "vlm_stream_request_parallel_tool_calls" to turn.requestParallelToolCalls?.toString().orEmpty(),
+            "vlm_response_route" to turn.route.orEmpty(),
+            "vlm_response_resolved_model" to turn.resolvedModel,
+            "vlm_response_finish_reason" to turn.turn.finishReason.orEmpty(),
+            "vlm_response_tool_call_count" to (turn.turn.message.toolCalls?.size ?: 0).toString(),
+            "vlm_response_tool_names" to turn.turn.message.toolCalls
+                .orEmpty()
+                .map { it.function.name }
+                .joinToString(",")
+                .take(4000),
+        ).apply {
+            if (responseContentPreview.isNotBlank()) {
+                this["vlm_response_raw_content_preview"] = responseContentPreview
+            }
+        }
         return VlmParseOnlyResult(
             success = parsed.success,
             model = model,
@@ -696,12 +835,10 @@ object VlmToolCoordinator {
             requestParallelToolCalls = turn.requestParallelToolCalls,
             currentUserTextPreview = requestEnvelope.currentUserText.take(DRY_RUN_PROMPT_PREVIEW_CHARS),
             pageDiagnostics = recalledFunctionDiagnostics(requestEnvelope.dynamicFunctionToolNames) +
-                workingContext.pageDiagnostics + linkedMapOf(
-                "vlm_stream_request_variant" to turn.requestVariant.orEmpty(),
-                "vlm_stream_request_had_tools" to turn.requestHadTools?.toString().orEmpty(),
-                "vlm_stream_request_tool_choice" to turn.requestToolChoice.orEmpty(),
-                "vlm_stream_request_parallel_tool_calls" to turn.requestParallelToolCalls?.toString().orEmpty(),
-            ),
+                workingContext.pageDiagnostics +
+                contextBudgetDiagnostics +
+                requestDiagnostics +
+                responseDiagnostics,
             phaseMs = phaseMs.toMap(),
         )
     }
@@ -1247,7 +1384,19 @@ object VlmToolCoordinator {
         val functionId = candidate["function_id"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
             ?: return null
         val argumentResolve = runCatching {
-            if (resolveProvider != null) {
+            if (canExecuteRecallHitWithoutRuntimeResolve(candidate, recallGuidance)) {
+                RuntimeResolveResult(
+                    arguments = emptyMap(),
+                    reason = "no_arguments_required",
+                    resolveCalls = 0,
+                )
+            } else if (canExecuteRecallHitWithSchemaDefaults(candidate, recallGuidance)) {
+                RuntimeResolveResult(
+                    arguments = defaultFunctionArguments(candidate),
+                    reason = "schema_defaults",
+                    resolveCalls = 0,
+                )
+            } else if (resolveProvider != null) {
                 resolveProvider(goal, candidate, recallGuidance)
             } else {
                 verifyAndResolveRecallFunctionWithSmallModel(goal, candidate, recallGuidance)
@@ -1258,10 +1407,11 @@ object VlmToolCoordinator {
                 missingRequiredArguments = requiredFunctionArgumentNames(candidate),
             ).copy(resolveCalls = 1)
         }
-        if (!argumentResolve.accepted) {
+        val normalizedResolve = normalizeRecallRuntimeResolve(candidate, argumentResolve)
+        if (!normalizedResolve.accepted) {
             taskState.executionRoute = "omniflow_recall_verifier_no:$functionId"
             taskState.addChatMessage(
-                "[SYSTEM] OmniFlow recall verifier rejected Function $functionId: ${argumentResolve.reason.ifBlank { "no" }}. Continue with ordinary VLM actions."
+                "[SYSTEM] OmniFlow recall verifier rejected Function $functionId: ${normalizedResolve.reason.ifBlank { "no" }}. Continue with ordinary VLM actions."
             )
             taskState.markStateChanged()
             emitProgress(
@@ -1272,18 +1422,18 @@ object VlmToolCoordinator {
                 mapOf(
                     "summary" to "召回复用指令未通过本轮校验，继续普通 VLM 执行",
                     "function_id" to functionId,
-                    "runtimeResolveReason" to argumentResolve.reason,
-                    "runtimeResolveCalls" to argumentResolve.resolveCalls,
+                    "runtimeResolveReason" to normalizedResolve.reason,
+                    "runtimeResolveCalls" to normalizedResolve.resolveCalls,
                 )
             )
             return null
         }
-        if (argumentResolve.missingRequiredArguments.isNotEmpty()) {
+        if (normalizedResolve.missingRequiredArguments.isNotEmpty()) {
             val pending = PendingOmniFlowFunctionCall(
                 functionId = functionId,
                 goal = goal,
-                arguments = argumentResolve.arguments,
-                requiredArgumentNames = argumentResolve.missingRequiredArguments,
+                arguments = normalizedResolve.arguments,
+                requiredArgumentNames = normalizedResolve.missingRequiredArguments,
                 allArgumentNames = functionArgumentNames(candidate),
             )
             taskState.pendingOmniFlowFunctionCall = pending
@@ -1301,9 +1451,9 @@ object VlmToolCoordinator {
                 mapOf(
                     "summary" to "召回复用指令命中，但需要补充参数",
                     "function_id" to functionId,
-                    "arguments" to argumentResolve.arguments,
-                    "missingArguments" to argumentResolve.missingRequiredArguments,
-                    "runtimeResolveReason" to argumentResolve.reason,
+                    "arguments" to normalizedResolve.arguments,
+                    "missingArguments" to normalizedResolve.missingRequiredArguments,
+                    "runtimeResolveReason" to normalizedResolve.reason,
                 )
             )
             return taskState.toOutcome(
@@ -1312,7 +1462,7 @@ object VlmToolCoordinator {
                 waitingQuestion = taskState.waitingQuestion,
             )
         }
-        val functionArguments = argumentResolve.arguments
+        val functionArguments = normalizedResolve.arguments
         if (recallHitRequiresArguments(recallGuidance)) {
             taskState.addChatMessage(
                 "[SYSTEM] OmniFlow recall hit $functionId requires arguments; runtime resolve returned fields before Function execution: ${functionArguments.keys.joinToString(",")}"
@@ -1328,7 +1478,7 @@ object VlmToolCoordinator {
                 "omniflowRecallDecision" to recallGuidance.decision,
                 "function_id" to functionId,
                 "arguments" to functionArguments,
-                "runtimeResolveReason" to argumentResolve.reason,
+                "runtimeResolveReason" to normalizedResolve.reason,
             )
         )
         val result = runCatching { runFunction(functionId, functionArguments) }.getOrElse { error ->
@@ -1337,7 +1487,9 @@ object VlmToolCoordinator {
                 "error" to error.message.orEmpty(),
                 "error_type" to error.javaClass.name,
             )
-        }.withRuntimeResolveCalls(argumentResolve.resolveCalls)
+        }
+            .withRuntimeResolveCalls(normalizedResolve.resolveCalls)
+            .withRuntimeResolveCallMetric(normalizedResolve.resolveCalls)
         taskState.omniflowExecutionSummary = compactOmniFlowExecutionSummary(result)
         val success = result["success"] == true
         if (!success) {
@@ -1830,6 +1982,57 @@ object VlmToolCoordinator {
         )
     }
 
+    private fun canExecuteRecallHitWithoutRuntimeResolve(
+        candidate: Map<String, Any?>,
+        recallGuidance: VlmRecallGuidance,
+    ): Boolean =
+        hasExplicitNoArgumentContract(candidate) &&
+            !recallHitRequiresArguments(recallGuidance) &&
+            functionArgumentNames(candidate).isEmpty() &&
+            requiredFunctionArgumentNames(candidate).isEmpty()
+
+    private fun hasExplicitNoArgumentContract(candidate: Map<String, Any?>): Boolean {
+        val rawRequiresArguments = candidate["requires_arguments"] ?: candidate["requiresArguments"]
+        if (rawRequiresArguments != null && !boolValue(rawRequiresArguments)) return true
+        val resolvePolicy = firstNonBlank(candidate["resolve_policy"], candidate["resolvePolicy"])
+            .lowercase()
+        if (resolvePolicy == "no_arguments_required") return true
+        val schema = mapValue(candidate["inputSchema"]).ifEmpty { mapValue(candidate["input_schema"]) }
+        if (schema.isEmpty()) return false
+        val properties = mapValue(schema["properties"])
+        val required = listValue(schema["required"])
+            .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
+            .filterNot(::isInternalFunctionParamName)
+        return properties.keys.none { !isInternalFunctionParamName(it) } && required.isEmpty()
+    }
+
+    private fun canExecuteRecallHitWithSchemaDefaults(
+        candidate: Map<String, Any?>,
+        recallGuidance: VlmRecallGuidance,
+    ): Boolean {
+        if (!recallHitRequiresArguments(recallGuidance)) return false
+        val names = functionArgumentNames(candidate)
+        if (names.isEmpty()) return false
+        val required = requiredFunctionArgumentNames(candidate)
+        val defaults = defaultFunctionArguments(candidate)
+        return names.all { name -> !isBlankArgumentValue(defaults[name]) } &&
+            required.all { name -> !isBlankArgumentValue(defaults[name]) }
+    }
+
+    private fun defaultFunctionArguments(candidate: Map<String, Any?>): Map<String, Any?> {
+        val schema = mapValue(candidate["inputSchema"]).ifEmpty { mapValue(candidate["input_schema"]) }
+        val names = functionArgumentNames(candidate).toSet()
+        return mapValue(schema["properties"])
+            .mapNotNull { (name, rawSpec) ->
+                if (name !in names) return@mapNotNull null
+                val spec = mapValue(rawSpec)
+                if (!spec.containsKey("default")) return@mapNotNull null
+                val value = spec["default"]
+                if (isBlankArgumentValue(value)) null else name to value
+            }
+            .toMap()
+    }
+
     private fun functionArgumentNames(candidate: Map<String, Any?>): List<String> {
         val schema = mapValue(candidate["inputSchema"]).ifEmpty { mapValue(candidate["input_schema"]) }
         return mapValue(schema["properties"]).keys
@@ -1846,6 +2049,40 @@ object VlmToolCoordinator {
             .filterNot(::isInternalFunctionParamName)
             .filter { knownNames.isEmpty() || it in knownNames }
             .distinct()
+    }
+
+    private fun normalizeRecallRuntimeResolve(
+        candidate: Map<String, Any?>,
+        resolve: RuntimeResolveResult,
+    ): RuntimeResolveResult {
+        if (!resolve.accepted) return resolve
+        val publicNames = functionArgumentNames(candidate)
+        val filteredArguments = if (publicNames.isEmpty()) {
+            emptyMap()
+        } else {
+            resolve.arguments.filterKeys { key -> key in publicNames }
+        }
+        val requiredNames = requiredFunctionArgumentNames(candidate).ifEmpty {
+            if (candidateRequiresArguments(candidate)) publicNames.take(1) else emptyList()
+        }
+        val missingNames = (resolve.missingRequiredArguments + requiredNames.filter { name ->
+            isBlankArgumentValue(filteredArguments[name])
+        })
+            .mapNotNull { it.trim().takeIf(String::isNotEmpty) }
+            .filter { name -> publicNames.isEmpty() || name in publicNames || name == GENERIC_ARGUMENT_NAME }
+            .distinct()
+        val reason = if (filteredArguments.size != resolve.arguments.size) {
+            listOf(resolve.reason, "internal_arguments_filtered")
+                .filter { it.isNotBlank() }
+                .joinToString(";")
+        } else {
+            resolve.reason
+        }
+        return resolve.copy(
+            arguments = filteredArguments,
+            missingRequiredArguments = missingNames,
+            reason = reason,
+        )
     }
 
     private fun fillMissingArgumentsFromReply(
@@ -2081,6 +2318,16 @@ object VlmToolCoordinator {
         )
     }
 
+    private fun buildContextBudgetDiagnostics(context: UIContext): Map<String, String> =
+        linkedMapOf(
+            "vlm_context_current_page_summary_chars" to context.currentPageSummary.length.toString(),
+            "vlm_context_step_skill_guidance_chars" to context.stepSkillGuidance.length.toString(),
+            "vlm_context_running_summary_chars" to context.runningSummary.length.toString(),
+            "vlm_context_key_memory_count" to context.keyMemory.size.toString(),
+            "vlm_context_installed_app_count" to context.installedApplications.size.toString(),
+            "vlm_context_dynamic_tool_definition_count" to context.dynamicToolDefinitions.size.toString(),
+        )
+
     private fun JsonElement.toPlainAny(): Any? =
         when (this) {
             is JsonNull -> null
@@ -2238,6 +2485,19 @@ object VlmToolCoordinator {
             normalized["execution_summary"] = summary
         }
         return normalized
+    }
+
+    private fun Map<String, Any?>.withRuntimeResolveCallMetric(resolveCalls: Int): Map<String, Any?> {
+        val summary = mapValue(this["execution_summary"])
+        val existingTopLevel = numberValue(this["resolve_calls"])
+            ?: numberValue(this["runtime_resolve_calls"])
+        val existingSummary = numberValue(summary["resolve_calls"])
+            ?: numberValue(summary["runtime_resolve_calls"])
+        if (existingTopLevel != null || existingSummary != null) return this
+        return linkedMapOf<String, Any?>().apply {
+            putAll(this@withRuntimeResolveCallMetric)
+            put("resolve_calls", resolveCalls)
+        }
     }
 
     private fun numberValue(value: Any?): Int? =

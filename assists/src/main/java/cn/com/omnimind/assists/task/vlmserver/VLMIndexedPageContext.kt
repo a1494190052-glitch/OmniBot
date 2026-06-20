@@ -258,6 +258,63 @@ object VLMIndexedPageContext {
         )
     }
 
+    fun focusedEditableTarget(
+        currentXml: String?,
+        displayWidth: Int,
+        displayHeight: Int,
+    ): IndexedTarget? {
+        val snapshot = buildIndexedSnapshot(currentXml, displayWidth, displayHeight) ?: return null
+        val node = snapshot.focusedEditable ?: return null
+        val index = snapshot.candidates.indexOfFirst { candidate ->
+            if (node.nodeId.isNotBlank() && candidate.nodeId == node.nodeId) {
+                true
+            } else {
+                candidate.bounds == node.bounds && candidate.displayLabel == node.displayLabel
+            }
+        }
+        return IndexedTarget(
+            index = index,
+            label = node.displayLabel.take(MAX_LABEL_CHARS),
+            centerX = node.bounds.centerX,
+            centerY = node.bounds.centerY,
+            nodeId = node.nodeId.takeIf { it.isNotBlank() }
+        )
+    }
+
+    fun uniqueFormFieldTarget(
+        currentXml: String?,
+        displayWidth: Int,
+        displayHeight: Int,
+        preferEditable: Boolean = false,
+    ): IndexedTarget? {
+        val snapshot = buildIndexedSnapshot(currentXml, displayWidth, displayHeight) ?: return null
+        val fields = snapshot.formFields
+            .filter { it.actionable }
+            .let { candidates ->
+                if (!preferEditable) {
+                    candidates
+                } else {
+                    candidates.filter { it.editable || it.focusable || it.clickable }
+                }
+            }
+        if (fields.size != 1) return null
+        val node = fields.first()
+        val index = snapshot.candidates.indexOfFirst { candidate ->
+            if (node.nodeId.isNotBlank() && candidate.nodeId == node.nodeId) {
+                true
+            } else {
+                candidate.bounds == node.bounds && candidate.displayLabel == node.displayLabel
+            }
+        }
+        return IndexedTarget(
+            index = index,
+            label = node.formLabel.take(MAX_LABEL_CHARS),
+            centerX = node.bounds.centerX,
+            centerY = node.bounds.centerY,
+            nodeId = node.nodeId.takeIf { it.isNotBlank() }
+        )
+    }
+
     fun uniqueElementTargetByDescription(
         currentXml: String?,
         displayWidth: Int,
@@ -284,6 +341,48 @@ object VLMIndexedPageContext {
             )
         val best = scored.firstOrNull() ?: return null
         val competing = scored.drop(1).firstOrNull()
+        if (competing != null && best.score - competing.score < MIN_UNIQUE_MATCH_MARGIN) {
+            return null
+        }
+        return IndexedTarget(
+            index = best.index,
+            label = best.node.displayLabel.take(MAX_LABEL_CHARS),
+            centerX = best.node.bounds.centerX,
+            centerY = best.node.bounds.centerY,
+            nodeId = best.node.nodeId.takeIf { it.isNotBlank() }
+        )
+    }
+
+    fun visibleElementTargetByDescription(
+        currentXml: String?,
+        displayWidth: Int,
+        displayHeight: Int,
+        targetDescription: String,
+        preferEditable: Boolean = false
+    ): IndexedTarget? {
+        val query = normalizeMatchText(targetDescription)
+        if (query.isBlank()) return null
+        val snapshot = buildIndexedSnapshot(currentXml, displayWidth, displayHeight) ?: return null
+        val scored = snapshot.candidates
+            .mapIndexedNotNull { index, node ->
+                val score = descriptionMatchScore(query, node, preferEditable)
+                if (score >= MIN_UNIQUE_MATCH_SCORE) {
+                    IndexedNodeScore(index = index, node = node, score = score)
+                } else {
+                    null
+                }
+            }
+            .sortedWith(
+                compareByDescending<IndexedNodeScore> { it.score }
+                    .thenBy { if (it.node.scrollable && !it.node.editable) 1 else 0 }
+                    .thenBy { it.node.bounds.area }
+                    .thenBy { it.node.bounds.top }
+                    .thenBy { it.node.bounds.left }
+            )
+        val best = scored.firstOrNull() ?: return null
+        val competing = scored.drop(1).firstOrNull { candidate ->
+            !candidate.node.isBroadContainerFor(best.node)
+        }
         if (competing != null && best.score - competing.score < MIN_UNIQUE_MATCH_MARGIN) {
             return null
         }
@@ -778,6 +877,12 @@ object VLMIndexedPageContext {
             listOf(text, contentDesc, hintText, descendantText, resourceTail(), role)
                 .joinToString(" ")
                 .lowercase()
+
+        fun isBroadContainerFor(target: PageNode): Boolean {
+            if (this === target) return false
+            if (!scrollable || editable || !bounds.contains(target.bounds)) return false
+            return bounds.area >= target.bounds.area * MIN_CONTAINER_AREA_RATIO
+        }
     }
 
     private data class Rect(
@@ -791,6 +896,12 @@ object VLMIndexedPageContext {
         val area: Float get() = width * height
         val centerX: Float get() = (left + right) / 2f
         val centerY: Float get() = (top + bottom) / 2f
+
+        fun contains(other: Rect): Boolean =
+            left <= other.left &&
+                top <= other.top &&
+                right >= other.right &&
+                bottom >= other.bottom
 
         fun toBitmapRect(screen: Rect, widthScale: Float, heightScale: Float): RectF =
             RectF(
@@ -842,6 +953,7 @@ object VLMIndexedPageContext {
     private const val MARKED_SCREENSHOT_JPEG_QUALITY = 92
     private const val MIN_UNIQUE_MATCH_SCORE = 82
     private const val MIN_UNIQUE_MATCH_MARGIN = 8
+    private const val MIN_CONTAINER_AREA_RATIO = 3.0f
     private val FORM_FIELD_TERMS = setOf(
         "name",
         "phone",

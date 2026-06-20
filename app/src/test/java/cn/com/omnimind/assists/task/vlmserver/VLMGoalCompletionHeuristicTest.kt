@@ -55,6 +55,46 @@ class VLMGoalCompletionHeuristicTest {
     }
 
     @Test
+    fun `matches direct click search box goal after successful click`() {
+        val step = UIStep(
+            observation = "Settings",
+            thought = "Tap search field",
+            action = ClickAction(targetDescription = "设置页面顶部的搜索框，用于搜索设置项", x = 593f, y = 573f),
+            result = "点击坐标 (593.0, 573.0) 成功",
+            observationXml = """<node text="搜索设置项" class="android.widget.AutoCompleteTextView" editable="true" />""",
+            packageName = "com.android.settings",
+        )
+
+        val match = VLMGoalCompletionHeuristic.match(
+            goal = "点击设置搜索框",
+            step = step,
+        )
+
+        assertNotNull(match)
+        assertEquals("搜索框", match!!.target)
+        assertEquals("direct_click_target", match.keyword)
+    }
+
+    @Test
+    fun `does not finish click search box goal when input remains`() {
+        val step = UIStep(
+            observation = "Settings",
+            thought = "Tap search field",
+            action = ClickAction(targetDescription = "设置页面顶部的搜索框，用于搜索设置项", x = 593f, y = 573f),
+            result = "点击坐标 (593.0, 573.0) 成功",
+            observationXml = """<node text="搜索设置项" class="android.widget.AutoCompleteTextView" editable="true" />""",
+            packageName = "com.android.settings",
+        )
+
+        val match = VLMGoalCompletionHeuristic.match(
+            goal = "点击设置搜索框并输入蓝牙",
+            step = step,
+        )
+
+        assertNull(match)
+    }
+
+    @Test
     fun `builds synthetic finished ui step`() {
         val source = UIStep(
             observation = "Settings",

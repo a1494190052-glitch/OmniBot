@@ -40,6 +40,8 @@ class OobFunctionToolHandler(
         OobFunctionToolDelegationExecutor(runResultBuilder),
     private val accessibilityPreflightGuard: OobFunctionAccessibilityPreflightGuard =
         OobFunctionAccessibilityPreflightGuard(runResultBuilder),
+    private val riskChallengeGuard: OobFunctionRiskChallengeGuard =
+        OobFunctionRiskChallengeGuard(runResultBuilder),
     private val goToNavigator: OobFunctionGoToNavigator =
         OobFunctionGoToNavigator(context, runResultBuilder),
 ) : ToolHandler {
@@ -309,11 +311,7 @@ class OobFunctionToolHandler(
         val argumentSourcesByStepIndex =
             OobFunctionArgumentBindingValidator.argumentSourcesByStepIndex(materializedSpec)
         val normalizedResumeFromStep = resumeFromStep.coerceIn(0, steps.size)
-        val activeSteps = if (normalizedResumeFromStep > 0) {
-            steps.drop(normalizedResumeFromStep)
-        } else {
-            steps
-        }
+        val activeSteps = steps.drop(normalizedResumeFromStep)
         val preflightFailure = timing.measure("accessibility_preflight_ms") {
             accessibilityPreflightGuard.failureIfBlocked(
                 functionId = functionId,
@@ -324,6 +322,18 @@ class OobFunctionToolHandler(
             )
         }
         preflightFailure?.let {
+            return runResultBuilder.withRunnerTiming(it, timing.finish())
+        }
+        val riskChallengeStartedAt = System.nanoTime()
+        val riskChallengeFailure = riskChallengeGuard.failureIfBlocked(
+            functionId = functionId,
+            spec = spec,
+            auditRunId = auditRunId,
+            startedAtMs = runStartedAtMs,
+            steps = activeSteps,
+        )
+        timing.recordElapsed("risk_challenge_preflight_ms", riskChallengeStartedAt)
+        riskChallengeFailure?.let {
             return runResultBuilder.withRunnerTiming(it, timing.finish())
         }
         val sourceStartCheckStartedAt = System.nanoTime()
@@ -394,7 +404,9 @@ class OobFunctionToolHandler(
             delegatedToolUsed = delegatedToolUsed,
             allowAgentFallback = allowAgentFallback,
             failureReason = failureReason,
-        ).also { it.putAll(OobFunctionArgumentBindingValidator.runtimeDiagnostics(materializedSpec)) }
+        ).also {
+            it.putAll(OobFunctionArgumentBindingValidator.runtimeDiagnostics(materializedSpec))
+        }
         fun isUserCompletedReplay(): Boolean =
             frontendSession?.isUserFinishedRequested() == true &&
                 stepResults.size >= activeSteps.size &&
@@ -495,15 +507,11 @@ class OobFunctionToolHandler(
                 }
 
                 UIStepExecutor.isUIStep(step) -> {
-                    val preActionReadyWait = if (index > 0) {
-                        UIStepExecutor.waitForReplayActionReady(
-                            step = step,
-                            recoveryStep = steps.getOrNull(index - 1),
-                            stopRequested = replayStopRequested,
-                        )
-                    } else {
-                        emptyMap()
-                    }
+                    val preActionReadyWait = UIStepExecutor.waitForReplayActionReady(
+                        step = step,
+                        recoveryStep = steps.getOrNull(index - 1),
+                        stopRequested = replayStopRequested,
+                    )
                     val blockedResult = preActionReadyBlockedStep(
                         step = step,
                         stepId = stepId,
@@ -1278,27 +1286,23 @@ class OobFunctionToolHandler(
                             "args" to resolvedArgs,
                             "source_context" to step.sourceContext,
                         )
-                        val preActionReadyWait = if (absIdx > 0) {
-                            val recoveryStep = fn.executableSteps.getOrNull(absIdx - 1)
-                                ?.takeIf { RunLogReplayPolicy.omniflowActions.contains(it.toolName) }
-                                ?.let { previous ->
-                                    linkedMapOf<String, Any?>(
-                                        "id" to previous.id,
-                                        "title" to previous.title,
-                                        "tool" to previous.toolName,
-                                        "executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
-                                        "args" to previous.resolveArguments(emptyMap()),
-                                        "source_context" to previous.sourceContext,
-                                    )
-                                }
-                            UIStepExecutor.waitForReplayActionReady(
-                                step = syntheticStep,
-                                recoveryStep = recoveryStep,
-                                stopRequested = replayStopRequested,
-                            )
-                        } else {
-                            emptyMap()
-                        }
+                        val recoveryStep = fn.executableSteps.getOrNull(absIdx - 1)
+                            ?.takeIf { RunLogReplayPolicy.omniflowActions.contains(it.toolName) }
+                            ?.let { previous ->
+                                linkedMapOf<String, Any?>(
+                                    "id" to previous.id,
+                                    "title" to previous.title,
+                                    "tool" to previous.toolName,
+                                    "executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
+                                    "args" to previous.resolveArguments(emptyMap()),
+                                    "source_context" to previous.sourceContext,
+                                )
+                            }
+                        val preActionReadyWait = UIStepExecutor.waitForReplayActionReady(
+                            step = syntheticStep,
+                            recoveryStep = recoveryStep,
+                            stopRequested = replayStopRequested,
+                        )
                         val blockedResult = preActionReadyBlockedStep(
                             step = syntheticStep,
                             stepId = step.id,

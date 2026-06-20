@@ -154,6 +154,47 @@ clear_app_file() {
   "${ADB[@]}" shell run-as "$PACKAGE_NAME" rm -f "$path" >/dev/null 2>&1 || true
 }
 
+is_device_locked() {
+  local trust window
+  window="$("${ADB[@]}" shell dumpsys window 2>/dev/null | tr -d '\r' || true)"
+  if grep -Eq 'isKeyguardShowing=true|mDreamingLockscreen=true|mIsShowing=true' <<<"$window"; then
+    return 0
+  fi
+  trust="$("${ADB[@]}" shell dumpsys trust 2>/dev/null | tr -d '\r' || true)"
+  if grep -Eq '\(current\).*deviceLocked=1' <<<"$trust"; then
+    return 0
+  fi
+  return 1
+}
+
+check_accessibility_ready() {
+  local enabled services component
+  component="$PACKAGE_NAME/com.google.android.accessibility.selecttospeak.SelectToSpeakService"
+  enabled="$("${ADB[@]}" shell settings get secure accessibility_enabled 2>/dev/null | tr -d '\r' || true)"
+  services="$("${ADB[@]}" shell settings get secure enabled_accessibility_services 2>/dev/null | tr -d '\r' || true)"
+  if [[ "$enabled" != "1" || "$services" != *"$component"* ]]; then
+    cat >&2 <<EOF
+OOB accessibility service is not enabled for $PACKAGE_NAME.
+  accessibility_enabled=${enabled:-<empty>}
+  enabled_accessibility_services=${services:-<empty>}
+Expected service: $component
+EOF
+    return 1
+  fi
+}
+
+preflight_device_ready() {
+  if is_device_locked; then
+    cat >&2 <<EOF
+Device $DEVICE_SERIAL is locked or showing keyguard. Unlock it before running
+manual recording smoke; otherwise Accessibility and overlay gesture capture
+cannot be verified reliably.
+EOF
+    return 1
+  fi
+  check_accessibility_ready
+}
+
 wait_for_result_file() {
   local path="$1"
   local label="$2"
@@ -323,6 +364,7 @@ if ! "${ADB[@]}" shell run-as "$PACKAGE_NAME" pwd >/dev/null 2>&1; then
   echo "Cannot run-as $PACKAGE_NAME. Install the develop debug APK first." >&2
   exit 2
 fi
+preflight_device_ready
 
 clear_app_file "$START_FILE"
 clear_app_file "$GESTURE_FILE"

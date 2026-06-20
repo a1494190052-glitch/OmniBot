@@ -211,7 +211,7 @@ class OmniCaptureAction(
         return false
     }
     private fun getActualRootNode(): AccessibilityNodeInfo? =
-        selectCurrentWindowRoot()?.root
+        selectCurrentWindowRoots().firstOrNull()?.root
 
     private data class WindowRoot(
         val root: AccessibilityNodeInfo,
@@ -224,7 +224,7 @@ class OmniCaptureAction(
         val accessibilityFocused: Boolean,
     )
 
-    private fun selectForegroundWindowRoot(): WindowRoot? {
+    private fun selectForegroundWindowRoots(): List<WindowRoot> {
         val windows = service.windows ?: emptyList()
         return windows
             .asSequence()
@@ -248,17 +248,24 @@ class OmniCaptureAction(
                 }
             }
             .sortedWith(
-                compareByDescending<WindowRoot> { it.layer }
-                    .thenByDescending { captureWindowTypePriority(it.type) }
+                compareByDescending<WindowRoot> { captureWindowTypePriority(it.type) }
                     .thenByDescending { if (it.active) 1 else 0 }
                     .thenByDescending { if (it.accessibilityFocused) 1 else 0 }
                     .thenByDescending { if (it.focused) 1 else 0 }
+                    .thenByDescending { it.layer }
             )
-            .firstOrNull()
+            .toList()
     }
 
     private fun selectCurrentWindowRoot(): WindowRoot? =
-        selectForegroundWindowRoot() ?: activeWindowRoot()
+        selectCurrentWindowRoots().firstOrNull()
+
+    private fun selectCurrentWindowRoots(): List<WindowRoot> {
+        val roots = mutableListOf<WindowRoot>()
+        roots.addAll(selectForegroundWindowRoots())
+        activeWindowRoot()?.let(roots::add)
+        return roots.distinctBy { System.identityHashCode(it.root) }
+    }
 
     private fun activeWindowRoot(): WindowRoot? {
         val root = service.rootInActiveWindow ?: return null
@@ -322,6 +329,9 @@ class OmniCaptureAction(
         if (packageName == SYSTEM_UI_PACKAGE && !hasMeaningfulSystemUiContent(root)) {
             return true
         }
+        if (packageName.isBlank() && className.isBlank() && root.childCount == 0) {
+            return true
+        }
         return false
     }
 
@@ -363,8 +373,12 @@ class OmniCaptureAction(
 //        if (isMineHalfScreen()) {
 //            return xml
 //        }
-        val rootNode = getActualRootNode()
-        runCatching { rootNode?.refresh() }
+        val rootNodes = selectCurrentWindowRoots().map { it.root }
+        if (rootNodes.isEmpty()) {
+            return null
+        }
+        rootNodes.forEach { rootNode ->
+            runCatching { rootNode.refresh() }
 //        val rstartTime=System.currentTimeMillis()
         // 在 API 33+ 上，先预取整个树结构
 
@@ -376,23 +390,35 @@ class OmniCaptureAction(
 //        }
 //        if (withOld){
 //            val rootNode = service.rootInActiveWindow ?: return null
-            val xmlTree = XmlTreeUtils.buildXmlTree(rootNode) ?: return null
-            xml = XmlTreeUtils.serializeXml(xmlTree)
+            val xmlTree = XmlTreeUtils.buildXmlTree(rootNode) ?: return@forEach
+            val candidateXml = XmlTreeUtils.serializeXml(xmlTree)
+            if (candidateXml.contains("<node")) {
+                xml = candidateXml
+                OmniLog.d("CaptureServer", "xml used time ${System.currentTimeMillis()-startTime}")
+                return xml
+            }
+        }
 //        }else{
 //            xml = XmlTreeUtils.buildXmlDirectly(rootNode) ?: return null
 
 //        }
-        OmniLog.d("CaptureServer", "xml used time ${System.currentTimeMillis()-startTime}")
+        OmniLog.d("CaptureServer", "xml empty after ${rootNodes.size} roots, used time ${System.currentTimeMillis()-startTime}")
 
         // 使用优化的直接生成 XML 方法，避免构建中间树结构
-        return xml
+        return null
     }
 
     fun getNodeMap(): Map<String, AccessibilityNode>? {
-        val rootNode = getActualRootNode() ?: return null
-        runCatching { rootNode.refresh() }
-        val xmlTree = XmlTreeUtils.buildXmlTree(rootNode) ?: return null
-        return XmlTreeUtils.extractNodeMap(xmlTree)
+        selectCurrentWindowRoots().forEach { windowRoot ->
+            val rootNode = windowRoot.root
+            runCatching { rootNode.refresh() }
+            val xmlTree = XmlTreeUtils.buildXmlTree(rootNode) ?: return@forEach
+            val nodeMap = XmlTreeUtils.extractNodeMap(xmlTree)
+            if (nodeMap.isNotEmpty()) {
+                return nodeMap
+            }
+        }
+        return null
     }
 }
 

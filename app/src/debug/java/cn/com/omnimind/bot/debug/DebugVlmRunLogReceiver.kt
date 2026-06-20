@@ -139,6 +139,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             AssistsUtil.Core.initCore(context)
         }
         val configuredBinding = configureVlmBindingIfRequested(context, profileId, modelId)
+        val effectiveBinding = effectiveVlmBindingPayload()
         waitForAccessibility()
 
         if (offlineSeed) {
@@ -190,6 +191,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
                 "wait_timeout_ms" to waitTimeoutMs,
                 "step_skill_guidance_chars" to stepSkillGuidance.length,
                 "configured_binding" to configuredBinding,
+                "effective_binding" to effectiveBinding,
                 "parse_result" to result.toPayload(),
             )
         }
@@ -256,6 +258,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             "wait_timeout_ms" to waitTimeoutMs,
             "step_skill_guidance_chars" to stepSkillGuidance.length,
             "configured_binding" to configuredBinding,
+            "effective_binding" to effectiveBinding,
             "outcome" to outcomePayload,
             "vlm_task_finished" to vlmTaskFinished,
             "run_id" to runId,
@@ -296,7 +299,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun seedSuccessfulVlmRunLog(
+    private suspend fun seedSuccessfulVlmRunLog(
         context: Context,
         goal: String,
         targetPackageName: String?,
@@ -311,10 +314,9 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
         configuredBinding: Map<String, Any?>?,
     ): Map<String, Any?> {
         val runId = "debug-vlm-seed-${System.currentTimeMillis()}"
-        val currentPackage = AccessibilityController.getPackageName()?.trim().orEmpty()
-            .ifBlank { targetPackageName.orEmpty() }
-        val currentXml = AccessibilityController.getCaptureScreenShotXml(true)?.trim().orEmpty()
-        require(currentXml.isNotBlank()) { "current accessibility XML is empty" }
+        val currentSnapshot = waitForUsableAccessibilitySnapshot(targetPackageName)
+        val currentPackage = currentSnapshot.packageName
+        val currentXml = currentSnapshot.xml
 
         InternalRunLogStore.beginRun(
             context = context,
@@ -389,6 +391,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             "wait_timeout_ms" to waitTimeoutMs,
             "step_skill_guidance_chars" to stepSkillGuidance.length,
             "configured_binding" to configuredBinding,
+            "effective_binding" to effectiveVlmBindingPayload(),
             "outcome" to linkedMapOf(
                 "success" to true,
                 "status" to "FINISHED",
@@ -456,6 +459,23 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
         )
     }
 
+    private fun effectiveVlmBindingPayload(): Map<String, Any?> {
+        val sceneId = "scene.vlm.operation.primary"
+        val binding = SceneModelBindingStore.getBinding(sceneId)
+        val profile = binding?.providerProfileId?.let(ModelProviderConfigStore::getProfile)
+        return linkedMapOf(
+            "sceneId" to sceneId,
+            "providerProfileId" to binding?.providerProfileId,
+            "modelId" to binding?.modelId,
+            "profileName" to profile?.name,
+            "baseUrl" to profile?.baseUrl,
+            "protocolType" to profile?.protocolType,
+            "wireApi" to profile?.wireApi,
+            "apiKeyConfigured" to (profile?.apiKey?.isNotBlank() == true),
+            "configured" to (profile?.isConfigured() == true),
+        ).filterValues { it != null }
+    }
+
     private suspend fun waitForAccessibility() {
         repeat(50) {
             if (AssistsService.instance != null) return
@@ -463,6 +483,39 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
         }
         error("OOB accessibility service is not bound")
     }
+
+    private suspend fun waitForUsableAccessibilitySnapshot(
+        targetPackageName: String?,
+        timeoutMs: Long = 5_000L,
+    ): AccessibilitySnapshot {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        var lastPackage = ""
+        var lastXmlChars = 0
+        while (System.currentTimeMillis() < deadline) {
+            lastPackage = AccessibilityController.getPackageName()?.trim().orEmpty()
+            val xml = AccessibilityController.getCaptureScreenShotXml(true)?.trim().orEmpty()
+            lastXmlChars = xml.length
+            if (xml.hasUsableAccessibilityNodes()) {
+                return AccessibilitySnapshot(
+                    packageName = lastPackage.ifBlank { targetPackageName.orEmpty() },
+                    xml = xml,
+                )
+            }
+            delay(200L)
+        }
+        error(
+            "current accessibility XML is empty or unusable after ${timeoutMs}ms; " +
+                "lastPackage=${lastPackage.ifBlank { "<blank>" }}, lastXmlChars=$lastXmlChars"
+        )
+    }
+
+    private fun String.hasUsableAccessibilityNodes(): Boolean =
+        contains("<node") && !contains("<hierarchy />")
+
+    private data class AccessibilitySnapshot(
+        val packageName: String,
+        val xml: String,
+    )
 
     private fun Intent?.decodeBase64Extra(name: String): String? {
         val raw = this?.getStringExtra(name)?.trim()?.takeIf { it.isNotEmpty() } ?: return null
@@ -517,7 +570,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             frontmatter = mapOf("name" to normalizedSkillId),
             bodyMarkdown = body,
             triggerReason = "debug_vlm_runlog"
-        ).stepGuidance()
+        ).vlmStepGuidance()
     }
 
     companion object {

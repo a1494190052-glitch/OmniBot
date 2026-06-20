@@ -414,6 +414,43 @@ class VlmRecallGuidanceBuilderTest {
     }
 
     @Test
+    fun `catalog exact match direct hit does not require page similarity`() {
+        assertEquals(
+            "meituan_takeout_search",
+            VlmRecallGuidanceBuilder.directHitFunctionId(
+                mapOf(
+                    "success" to true,
+                    "decision" to "hit",
+                    "hit" to mapOf(
+                        "function_id" to "meituan_takeout_search",
+                        "score" to 1.0,
+                        "page_similarity" to 0.0,
+                        "text_score" to 1.0,
+                        "strict_direct_hit" to true,
+                        "recall_scope" to "function_catalog",
+                        "direct_hit_policy" to "catalog_exact_match_same_package_goal",
+                    ),
+                )
+            )
+        )
+        assertNull(
+            VlmRecallGuidanceBuilder.directHitFunctionId(
+                mapOf(
+                    "success" to true,
+                    "decision" to "hit",
+                    "hit" to mapOf(
+                        "function_id" to "legacy_without_catalog_policy",
+                        "score" to 1.0,
+                        "page_similarity" to 0.0,
+                        "text_score" to 1.0,
+                        "strict_direct_hit" to true,
+                    ),
+                )
+            )
+        )
+    }
+
+    @Test
     fun `parameterized hit is runtime executable after runtime resolve`() {
         val payload = mapOf(
             "success" to true,

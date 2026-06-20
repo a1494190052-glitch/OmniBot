@@ -9,12 +9,6 @@ import 'package:ui/services/special_permission.dart';
 import 'package:ui/widgets/image_preview_overlay.dart';
 
 const _fileChannel = MethodChannel('cn.com.omnimind.bot/file_save');
-const _workspacePaths = OmnibotWorkspacePaths(
-  rootPath: '/data/user/0/cn.com.omnimind.bot/workspace',
-  shellRootPath: '/workspace',
-  internalRootPath: '/data/user/0/cn.com.omnimind.bot/workspace/.omnibot',
-);
-
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -36,7 +30,13 @@ void main() {
     await imageFile.writeAsBytes(largePngBytes);
     fileChannelCalls = <MethodCall>[];
 
-    OmnibotResourceService.debugSetWorkspacePaths(_workspacePaths);
+    OmnibotResourceService.debugSetWorkspacePaths(
+      OmnibotWorkspacePaths(
+        rootPath: tempDir.parent.path,
+        shellRootPath: '/workspace',
+        internalRootPath: '${tempDir.parent.path}/.omnibot',
+      ),
+    );
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(spePermission, (call) async {
@@ -168,7 +168,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.longPress(find.byKey(boundsKey));
+    await tester.longPress(
+      find.byType(OmnibotInteractiveImageView),
+      warnIfMissed: false,
+    );
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    });
     await tester.pumpAndSettle();
 
     expect(fileChannelCalls, hasLength(1));

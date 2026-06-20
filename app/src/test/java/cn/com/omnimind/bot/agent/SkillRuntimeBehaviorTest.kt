@@ -74,6 +74,50 @@ class SkillRuntimeBehaviorTest {
     }
 
     @Test
+    fun vlmStepGuidanceKeepsExecutionRulesWithinCompactBudget() {
+        val skill = ResolvedSkillContext(
+            skillId = "vlm-android-gui",
+            frontmatter = mapOf("name" to "vlm-android-gui"),
+            bodyMarkdown = """
+                ---
+                name: vlm-android-gui
+                ---
+
+                # VLM Android GUI Skill
+
+                ## GUI Action Policy
+
+                - Pass `package_name` when the target app is known; otherwise derive the package from installed-app or current-state evidence.
+                - Use one fresh observation for each action turn: current package, Accessibility XML, indexed UI evidence, screenshot, display size, previous action result, and short history.
+                - Choose exactly one executable UI action per step, then validate from the returned post-action observation before choosing the next step.
+                - Prefer stable UI evidence: visible label, role, `node_id`, `element_index`, or `scrollable_index`. Include absolute screen-pixel coordinates only as fallback.
+                - If an editable field is focused, use `input_text`. If it is visible but not focused, ground the field by label/index/coordinates before typing.
+                - Do not finish after a single action unless the requested final state is directly visible.
+
+                ## RunLog And Function Flow
+
+                Replay registered Functions when the current package and page evidence match. Fall back to live VLM execution when guards fail, targets are missing, or user intent diverges.
+                Auto-registration saves the replayable Function first. Do not call update_function or enhance inline before VLM RunLog registration, direct replay, recall-hit replay, or debug convert-and-replay.
+
+                ## Validation
+
+                Verify at least two visible UI states for nontrivial workflows.
+            """.trimIndent(),
+            triggerReason = "test"
+        )
+
+        val guidance = skill.vlmStepGuidance(maxChars = 900)
+
+        assertTrue(guidance.length <= 900)
+        assertTrue(guidance.contains("fresh observation"))
+        assertTrue(guidance.contains("exactly one executable UI action"))
+        assertTrue(guidance.contains("current package and page evidence match"))
+        assertTrue(guidance.contains("fall back to live VLM"))
+        assertTrue(guidance.contains("Do not call update_function or enhance inline"))
+        assertFalse(guidance.contains("Verify at least two visible UI states"))
+    }
+
+    @Test
     fun resolveMatchesHatchPetFromStructuredChinesePetPrompt() {
         val matches = SkillTriggerMatcher.resolveMatches(
             userMessage = """

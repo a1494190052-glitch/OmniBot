@@ -1,6 +1,9 @@
 package cn.com.omnimind.bot.agent.tool.handlers
 
 import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
+import cn.com.omnimind.baselib.runlog.OobPrimitiveActionLedger
+import cn.com.omnimind.baselib.runlog.OobPrimitiveActionRecord
+import cn.com.omnimind.baselib.runlog.OobPrimitiveActionRiskPolicy
 import cn.com.omnimind.bot.agent.AgentCallback
 import cn.com.omnimind.bot.agent.AgentExecutionEnvironment
 import cn.com.omnimind.bot.agent.AgentToolExecutionHandle
@@ -9,9 +12,11 @@ import cn.com.omnimind.bot.agent.ToolExecutionResult
 import cn.com.omnimind.bot.runlog.OobActionCodec
 import cn.com.omnimind.bot.runlog.OmniflowActionBackend
 import cn.com.omnimind.bot.runlog.OmniflowActionRuntime
+import cn.com.omnimind.bot.runlog.RunLogPagePackageInference
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
 import cn.com.omnimind.baselib.llm.AssistantToolCall
 import cn.com.omnimind.baselib.util.OmniLog
+import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -23,6 +28,7 @@ import kotlinx.serialization.json.JsonObject
  */
 class OmniflowActionHandler(
     private val backendProvider: () -> OmniflowActionBackend = { OmniflowActionRuntime.backend },
+    private val primitiveSource: String = SOURCE_AGENT_ACTION,
 ) : ToolHandler {
     private val backend get() = backendProvider()
 
@@ -62,7 +68,68 @@ class OmniflowActionHandler(
     // Dispatch — exhaustive over OobCanonicalActionSchema.replayableToolNames
     // -----------------------------------------------------------------------
 
-    suspend fun dispatch(action: String, args: Map<String, Any?>) {
+    suspend fun dispatch(
+        action: String,
+        args: Map<String, Any?>,
+        source: String = primitiveSource,
+        diagnostics: Map<String, Any?> = emptyMap(),
+    ) {
+        val canonicalAction = OobActionCodec.canonicalActionForName(action)
+            ?: OobActionCodec.normalizeName(action)
+        val startedAtMs = System.currentTimeMillis()
+        val snapshot = primitiveSnapshot()
+        val risk = OobPrimitiveActionRiskPolicy.evaluate(
+            tool = canonicalAction,
+            args = args,
+            pageXml = snapshot.xml,
+            packageName = snapshot.packageName,
+            activityName = snapshot.activityName,
+        )
+        if (!risk.allowed) {
+            val now = System.currentTimeMillis()
+            recordPrimitiveAction(
+                source = source,
+                action = canonicalAction,
+                args = args,
+                snapshot = snapshot,
+                startedAtMs = startedAtMs,
+                finishedAtMs = now,
+                success = false,
+                blocked = true,
+                errorCode = risk.errorCode,
+                errorMessage = risk.reason,
+                diagnostics = diagnostics + risk.diagnostics(),
+            )
+            throw IllegalStateException("${risk.errorCode}: ${risk.reason}")
+        }
+
+        var success = false
+        var errorCode = ""
+        var errorMessage = ""
+        try {
+            dispatchUnchecked(canonicalAction, args)
+            success = true
+        } catch (error: Exception) {
+            errorCode = "OOB_PRIMITIVE_ACTION_EXCEPTION"
+            errorMessage = error.message.orEmpty()
+            throw error
+        } finally {
+            recordPrimitiveAction(
+                source = source,
+                action = canonicalAction,
+                args = args,
+                snapshot = snapshot,
+                startedAtMs = startedAtMs,
+                success = success,
+                blocked = false,
+                errorCode = errorCode,
+                errorMessage = errorMessage,
+                diagnostics = diagnostics,
+            )
+        }
+    }
+
+    private suspend fun dispatchUnchecked(action: String, args: Map<String, Any?>) {
         fun float(key: String, default: Float = 0f) =
             args[key]?.toString()?.toFloatOrNull() ?: default
         fun long(key: String, default: Long = 0L) =
@@ -147,6 +214,9 @@ class OmniflowActionHandler(
             OobActionCodec.ACTION_PRESS_KEY -> {
                 backend.pressHotKey(pressKey(str("key")))
             }
+            OobActionCodec.ACTION_WAIT -> {
+                delay(waitMs(args))
+            }
             OobActionCodec.ACTION_FINISHED -> {
                 // No-op: execution loop handles termination
             }
@@ -158,6 +228,7 @@ class OmniflowActionHandler(
     }
 
     private companion object {
+        const val SOURCE_AGENT_ACTION = "agent_primitive_action"
         const val TAG = "OmniflowActionHandler"
 
         fun pressKey(raw: String): String =
@@ -167,5 +238,70 @@ class OmniflowActionHandler(
                 "enter" -> "ENTER"
                 else -> throw IllegalArgumentException("press_key requires key=back/home/enter")
             }
+
+        fun waitMs(args: Map<String, Any?>): Long {
+            val explicitMs = OobActionCodec.longArg(
+                args["time_ms"],
+                args["duration_ms"],
+                defaultValue = -1L,
+            )
+            if (explicitMs >= 0L) return explicitMs.coerceIn(0L, 10_000L)
+            val seconds = args["time_s"]?.toString()?.trim()?.toDoubleOrNull() ?: 1.0
+            return (seconds.coerceAtLeast(0.0) * 1000.0).toLong().coerceIn(0L, 10_000L)
+        }
+    }
+
+    private data class PrimitiveSnapshot(
+        val xml: String,
+        val rawPackageName: String,
+        val activityName: String,
+    ) {
+        val packageName: String =
+            RunLogPagePackageInference.effectivePackage(rawPackageName, xml, activityName)
+    }
+
+    private fun primitiveSnapshot(): PrimitiveSnapshot =
+        PrimitiveSnapshot(
+            xml = runCatching { backend.currentXml()?.trim().orEmpty() }.getOrDefault(""),
+            rawPackageName = runCatching { backend.currentPackageName()?.trim().orEmpty() }.getOrDefault(""),
+            activityName = runCatching { backend.currentActivityName()?.trim().orEmpty() }.getOrDefault(""),
+        )
+
+    private fun recordPrimitiveAction(
+        source: String,
+        action: String,
+        args: Map<String, Any?>,
+        snapshot: PrimitiveSnapshot,
+        startedAtMs: Long,
+        success: Boolean,
+        blocked: Boolean,
+        errorCode: String,
+        errorMessage: String,
+        diagnostics: Map<String, Any?>,
+        finishedAtMs: Long = System.currentTimeMillis(),
+    ) {
+        if (!OobPrimitiveActionLedger.shouldRecordForPlanner(action)) return
+        OobPrimitiveActionLedger.record(
+            OobPrimitiveActionRecord(
+                source = source,
+                tool = action,
+                args = args,
+                taskId = OobActionCodec.firstNonBlank(args["task_id"], args["taskId"]),
+                runId = OobActionCodec.firstNonBlank(args["run_id"], args["runId"]),
+                functionId = OobActionCodec.firstNonBlank(args["function_id"], args["functionId"]),
+                stepId = OobActionCodec.firstNonBlank(args["step_id"], args["stepId"]),
+                packageName = snapshot.packageName,
+                activityName = snapshot.activityName,
+                beforeXmlSha256 = OobPrimitiveActionLedger.xmlSha256(snapshot.xml),
+                beforeXmlChars = snapshot.xml.length,
+                startedAtMs = startedAtMs,
+                finishedAtMs = finishedAtMs,
+                success = success,
+                blocked = blocked,
+                errorCode = errorCode,
+                errorMessage = errorMessage,
+                diagnostics = diagnostics,
+            )
+        )
     }
 }

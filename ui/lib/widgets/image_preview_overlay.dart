@@ -25,6 +25,7 @@ class MemoryImageSource extends ImagePreviewSource {
 }
 
 const double _kDefaultPreviewViewportFraction = 0.8;
+const Duration _kFileShareLongPressDuration = Duration(milliseconds: 500);
 
 /// Lightweight full-screen image preview overlay with pinch-to-zoom and swipe.
 ///
@@ -391,6 +392,11 @@ class _OmnibotInteractiveImageViewState
   ImageStream? _imageStream;
   ImageStreamListener? _imageStreamListener;
   Size? _intrinsicImageSize;
+  int? _shareLongPressPointer;
+  Offset? _shareLongPressStart;
+  Duration? _shareLongPressStartTime;
+  bool _shareLongPressDispatched = false;
+  int _shareLongPressToken = 0;
 
   @override
   void didChangeDependencies() {
@@ -434,11 +440,79 @@ class _OmnibotInteractiveImageViewState
         mimeType: metadata.mimeType,
       );
       if (!shared) {
-        showToast(AppTextLocalizer.choose(en: 'Share failed, please try again later', zh: '分享失败，请稍后重试'), type: ToastType.error);
+        showToast(
+          AppTextLocalizer.choose(
+            en: 'Share failed, please try again later',
+            zh: '分享失败，请稍后重试',
+          ),
+          type: ToastType.error,
+        );
       }
     } catch (error) {
-      showToast(AppTextLocalizer.choose(en: 'Share failed: $error', zh: '分享失败：$error'), type: ToastType.error);
+      showToast(
+        AppTextLocalizer.choose(en: 'Share failed: $error', zh: '分享失败：$error'),
+        type: ToastType.error,
+      );
     }
+  }
+
+  void _handleSharePointerDown(PointerDownEvent event) {
+    if (!widget.enableFileShareOnLongPress) {
+      return;
+    }
+    if (_shareLongPressPointer != null) {
+      _cancelShareLongPress();
+      return;
+    }
+    _shareLongPressPointer = event.pointer;
+    _shareLongPressStart = event.position;
+    _shareLongPressStartTime = event.timeStamp;
+    _shareLongPressDispatched = false;
+    final token = ++_shareLongPressToken;
+    Future<void>.delayed(_kFileShareLongPressDuration, () {
+      if (!mounted ||
+          _shareLongPressToken != token ||
+          _shareLongPressPointer != event.pointer) {
+        return;
+      }
+      _shareLongPressDispatched = true;
+      _shareLongPressPointer = null;
+      _shareLongPressStart = null;
+      _shareLongPressStartTime = null;
+      _handleLongPress();
+    });
+  }
+
+  void _handleSharePointerMove(PointerMoveEvent event) {
+    if (event.pointer != _shareLongPressPointer) {
+      return;
+    }
+    final start = _shareLongPressStart;
+    if (start == null || (event.position - start).distance > 12) {
+      _cancelShareLongPress();
+    }
+  }
+
+  void _handleSharePointerEnd(PointerEvent event) {
+    if (event.pointer == _shareLongPressPointer) {
+      final startTime = _shareLongPressStartTime;
+      final shouldDispatch =
+          !_shareLongPressDispatched &&
+          startTime != null &&
+          event.timeStamp - startTime >= _kFileShareLongPressDuration;
+      _cancelShareLongPress();
+      if (shouldDispatch) {
+        _handleLongPress();
+      }
+    }
+  }
+
+  void _cancelShareLongPress() {
+    _shareLongPressPointer = null;
+    _shareLongPressStart = null;
+    _shareLongPressStartTime = null;
+    _shareLongPressDispatched = false;
+    _shareLongPressToken += 1;
   }
 
   @override
@@ -478,22 +552,25 @@ class _OmnibotInteractiveImageViewState
           height: boundsSize.height,
           child: FittedBox(fit: BoxFit.scaleDown, child: image),
         );
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: widget.onTap,
-          onLongPress: widget.enableFileShareOnLongPress
-              ? _handleLongPress
-              : null,
-          onDoubleTapDown: (details) => _handleDoubleTap(details),
-          child: InteractiveViewer(
-            transformationController: _transformController,
-            minScale: 1.0,
-            maxScale: 5.0,
-            onInteractionEnd: (_) {
-              final scale = _transformController.value.getMaxScaleOnAxis();
-              widget.onScaleChanged?.call(scale > 1.05);
-            },
-            child: Center(child: imageBounds),
+        return Listener(
+          onPointerDown: _handleSharePointerDown,
+          onPointerMove: _handleSharePointerMove,
+          onPointerUp: _handleSharePointerEnd,
+          onPointerCancel: _handleSharePointerEnd,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: widget.onTap,
+            onDoubleTapDown: (details) => _handleDoubleTap(details),
+            child: InteractiveViewer(
+              transformationController: _transformController,
+              minScale: 1.0,
+              maxScale: 5.0,
+              onInteractionEnd: (_) {
+                final scale = _transformController.value.getMaxScaleOnAxis();
+                widget.onScaleChanged?.call(scale > 1.05);
+              },
+              child: Center(child: imageBounds),
+            ),
           ),
         );
       },
@@ -501,6 +578,10 @@ class _OmnibotInteractiveImageViewState
   }
 
   void _resolveIntrinsicImageSize() {
+    final fastSize = _resolveIntrinsicImageSizeFast(widget.source);
+    if (fastSize != null && _intrinsicImageSize != fastSize) {
+      _intrinsicImageSize = fastSize;
+    }
     final provider = _imageProvider(widget.source);
     final stream = provider.resolve(createLocalImageConfiguration(context));
     if (_imageStream?.key == stream.key) {
@@ -550,11 +631,15 @@ class _OmnibotInteractiveImageViewState
       return Size(maxWidth, maxHeight);
     }
 
-    final fittedSize = applyBoxFit(
-      BoxFit.contain,
-      intrinsicSize,
-      Size(maxWidth, maxHeight),
-    ).destination;
+    final scale = [
+      maxWidth / intrinsicSize.width,
+      maxHeight / intrinsicSize.height,
+      1.0,
+    ].reduce((a, b) => a < b ? a : b);
+    final fittedSize = Size(
+      intrinsicSize.width * scale,
+      intrinsicSize.height * scale,
+    );
     final fillsViewportHeight = fittedSize.height >= maxHeight - 0.5;
     if (!fillsViewportHeight) {
       return fittedSize;
@@ -616,6 +701,109 @@ class _OmnibotInteractiveImageViewState
     };
   }
 
+  static Size? _resolveIntrinsicImageSizeFast(ImagePreviewSource source) {
+    try {
+      final bytes = switch (source) {
+        MemoryImageSource(bytes: final b) => b,
+        FileImageSource(path: final p) => File(p).readAsBytesSync(),
+        NetworkImageSource() => null,
+      };
+      if (bytes == null) return null;
+      return _decodeImageHeaderSize(bytes);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Size? _decodeImageHeaderSize(Uint8List bytes) {
+    if (bytes.length >= 24 &&
+        bytes[0] == 0x89 &&
+        bytes[1] == 0x50 &&
+        bytes[2] == 0x4E &&
+        bytes[3] == 0x47) {
+      final data = ByteData.sublistView(bytes);
+      return Size(
+        data.getUint32(16, Endian.big).toDouble(),
+        data.getUint32(20, Endian.big).toDouble(),
+      );
+    }
+    if (bytes.length >= 12 &&
+        bytes[0] == 0x52 &&
+        bytes[1] == 0x49 &&
+        bytes[2] == 0x46 &&
+        bytes[3] == 0x46 &&
+        bytes[8] == 0x57 &&
+        bytes[9] == 0x45 &&
+        bytes[10] == 0x42 &&
+        bytes[11] == 0x50) {
+      return _decodeWebpHeaderSize(bytes);
+    }
+    if (bytes.length >= 4 && bytes[0] == 0xFF && bytes[1] == 0xD8) {
+      return _decodeJpegHeaderSize(bytes);
+    }
+    return null;
+  }
+
+  static Size? _decodeWebpHeaderSize(Uint8List bytes) {
+    if (bytes.length < 30) return null;
+    final chunk = String.fromCharCodes(bytes.sublist(12, 16));
+    final data = ByteData.sublistView(bytes);
+    if (chunk == 'VP8 ' && bytes.length >= 30) {
+      return Size(
+        data.getUint16(26, Endian.little).toDouble(),
+        data.getUint16(28, Endian.little).toDouble(),
+      );
+    }
+    if (chunk == 'VP8L' && bytes.length >= 25) {
+      final b0 = bytes[21];
+      final b1 = bytes[22];
+      final b2 = bytes[23];
+      final b3 = bytes[24];
+      final width = 1 + (((b1 & 0x3F) << 8) | b0);
+      final height = 1 + (((b3 & 0x0F) << 10) | (b2 << 2) | ((b1 & 0xC0) >> 6));
+      return Size(width.toDouble(), height.toDouble());
+    }
+    if (chunk == 'VP8X' && bytes.length >= 30) {
+      final width = 1 + bytes[24] + (bytes[25] << 8) + (bytes[26] << 16);
+      final height = 1 + bytes[27] + (bytes[28] << 8) + (bytes[29] << 16);
+      return Size(width.toDouble(), height.toDouble());
+    }
+    return null;
+  }
+
+  static Size? _decodeJpegHeaderSize(Uint8List bytes) {
+    final data = ByteData.sublistView(bytes);
+    var offset = 2;
+    while (offset + 9 < bytes.length) {
+      if (bytes[offset] != 0xFF) {
+        offset += 1;
+        continue;
+      }
+      final marker = bytes[offset + 1];
+      offset += 2;
+      if (marker == 0xD9 || marker == 0xDA) return null;
+      if (offset + 2 > bytes.length) return null;
+      final segmentLength = data.getUint16(offset, Endian.big);
+      if (segmentLength < 2 || offset + segmentLength > bytes.length) {
+        return null;
+      }
+      final isStartOfFrame =
+          marker >= 0xC0 &&
+          marker <= 0xCF &&
+          marker != 0xC4 &&
+          marker != 0xC8 &&
+          marker != 0xCC;
+      if (isStartOfFrame && segmentLength >= 7) {
+        return Size(
+          data.getUint16(offset + 5, Endian.big).toDouble(),
+          data.getUint16(offset + 3, Endian.big).toDouble(),
+        );
+      }
+      offset += segmentLength;
+    }
+    return null;
+  }
+
   static bool _isSameSource(ImagePreviewSource a, ImagePreviewSource b) {
     return switch ((a, b)) {
       (FileImageSource(path: final ap), FileImageSource(path: final bp)) =>
@@ -635,9 +823,16 @@ class _OmnibotInteractiveImageViewState
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Icon(Icons.broken_image_outlined, size: 48, color: Colors.white54),
+        const Icon(
+          Icons.broken_image_outlined,
+          size: 48,
+          color: Colors.white54,
+        ),
         const SizedBox(height: 8),
-        Text(AppTextLocalizer.choose(en: 'Unable to load image', zh: '无法加载图片'), style: const TextStyle(color: Colors.white54, fontSize: 14)),
+        Text(
+          AppTextLocalizer.choose(en: 'Unable to load image', zh: '无法加载图片'),
+          style: const TextStyle(color: Colors.white54, fontSize: 14),
+        ),
       ],
     );
   }
