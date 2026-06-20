@@ -328,6 +328,8 @@ class AgentScheduleBridgeService {
   }
 
   static Map<String, dynamic> _toSummaryMap(ScheduledTask task) {
+    final suggestionData = task.suggestionData ?? const <String, dynamic>{};
+    final functionId = suggestionData['oobFunctionId']?.toString().trim() ?? '';
     return {
       'taskId': task.id,
       'title': task.title,
@@ -347,6 +349,12 @@ class AgentScheduleBridgeService {
       'parentConversationMode': task.parentConversationMode,
       'subagentPrompt': task.subagentPrompt,
       'notificationEnabled': task.notificationEnabled,
+      if (functionId.isNotEmpty) ...{
+        'oobFunctionId': functionId,
+        'oobFunctionArguments': _stringKeyMap(
+          suggestionData['oobFunctionArguments'],
+        ),
+      },
     };
   }
 }

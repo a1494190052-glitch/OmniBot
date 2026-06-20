@@ -31,6 +31,14 @@ void main() {
       });
 
       expect(result['success'], true);
+      final summary = Map<String, dynamic>.from(result['task'] as Map);
+      expect(summary['oobFunctionId'], 'open_settings');
+      expect(summary['oobFunctionArguments'], {
+        'package_name': 'com.android.settings',
+      });
+      expect(summary.containsKey('toolProfile'), false);
+      expect(summary.containsKey('allowedTools'), false);
+
       final task = await ScheduledTaskStorageService.getScheduledTaskById(
         'schedule-open-settings',
       );
