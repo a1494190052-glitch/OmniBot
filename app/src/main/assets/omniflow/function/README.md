@@ -564,9 +564,9 @@ Keep these pieces separate:
 - `OobOmniFlowToolkitService`: public tool facade and response shaping
 - builtin skill prompts: agent instructions, not executable policy
 - `omniflow` checker references: agent-facing checklist for implementing
-  runtime checker code, contracts, and tests. The old
-  `omniflow-checker-maintainer` directory is compatibility-only; executable
-  checker policy still belongs to `OmniflowCheckerRule` and `UIStepExecutor`
+  runtime checker code, contracts, and tests. Retired focused checker skills
+  are not bundled; executable checker policy still belongs to
+  `OmniflowCheckerRule` and `UIStepExecutor`
 
 Merging these would make it harder to tell whether a change affects storage,
 conversion, execution, or agent patching.

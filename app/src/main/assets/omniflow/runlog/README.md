@@ -139,7 +139,7 @@ record. Do not read only the snapshot when correctness matters.
 - Local checker rules: `app/src/main/java/cn/com/omnimind/bot/runlog/OmniflowCheckerRule.kt`
   Checker detection/execution lives in `UIStepExecutor`; the
   `omniflow` skill references are the active agent maintenance checklist. The
-  old `omniflow-checker-maintainer` directory is compatibility-only.
+  retired focused checker skill is no longer bundled.
 - Page/package inference helper: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogPagePackageInference.kt`
 - Function backend ownership: `app/src/main/assets/omniflow/function/README.md`
 - Workspace Function save: `app/src/main/java/cn/com/omnimind/bot/omniflow/WorkspaceFunctionStore.kt`

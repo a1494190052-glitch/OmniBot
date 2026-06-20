@@ -225,7 +225,6 @@ class UnifiedOmniFlowExecutionPlanTest {
     fun `builtin skills treat reusable memory as compatibility wording`() {
         val manifest = readSource("app/src/main/assets/builtin_skills/manifest.json")
         val omniflow = readSource("app/src/main/assets/builtin_skills/omniflow/SKILL.md")
-        val management = readSource("app/src/main/assets/builtin_skills/oob-function-management/SKILL.md")
         val zhArb = readJsonMap("ui/lib/l10n/app_zh.arb")
         val enArb = readJsonMap("ui/lib/l10n/app_en.arb")
 
@@ -233,7 +232,6 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(omniflow.contains("\"复用记忆\""))
         assertTrue(omniflow.contains("compatibility phrase for saved"))
         assertTrue(omniflow.contains("keep the product wording as \"复用指令\""))
-        assertTrue(management.contains("\"复用记忆\""))
         assertTrue(zhArb["memoryCommandsTitle"] == "复用指令")
         assertTrue(zhArb["functionLibraryTitle"] == "复用指令库")
         assertTrue(
@@ -248,17 +246,19 @@ class UnifiedOmniFlowExecutionPlanTest {
     fun `builtin skills expose a single omniflow entry`() {
         val manifest = readSource("app/src/main/assets/builtin_skills/manifest.json")
         val omniflow = readSource("app/src/main/assets/builtin_skills/omniflow/SKILL.md")
+        val enhancement = readSource("app/src/main/assets/builtin_skills/omniflow/references/function-enhancement.md")
+        val checkers = readSource("app/src/main/assets/builtin_skills/omniflow/references/checkers.md")
         val vlm = readSource("app/src/main/assets/builtin_skills/vlm-android-gui/SKILL.md")
-        val compatibilitySkills = listOf(
+        val retiredSkillAssets = listOf(
             "app/src/main/assets/builtin_skills/oob-function-management/SKILL.md",
             "app/src/main/assets/builtin_skills/omniflow-function-enhancer/SKILL.md",
             "app/src/main/assets/builtin_skills/omniflow-checker-maintainer/SKILL.md",
-        ).joinToString("\n") { readSource(it) }
-        val compatibilityAgentPrompts = listOf(
             "app/src/main/assets/builtin_skills/oob-function-management/agents/openai.yaml",
             "app/src/main/assets/builtin_skills/omniflow-function-enhancer/agents/openai.yaml",
             "app/src/main/assets/builtin_skills/omniflow-checker-maintainer/agents/openai.yaml",
-        ).joinToString("\n") { readSource(it) }
+            "app/src/main/assets/builtin_skills/omniflow-function-enhancer/references/enhancement-rubric.md",
+            "app/src/main/assets/builtin_skills/omniflow-function-enhancer/references/runtime-contract.md",
+        )
 
         assertTrue(manifest.contains("\"id\": \"omniflow\""))
         assertTrue(manifest.contains("\"id\": \"vlm-android-gui\""))
@@ -270,16 +270,19 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(omniflow.contains("checker maintenance"))
         assertTrue(omniflow.contains("runtime checker"))
         assertTrue(omniflow.contains("upgrade/update popup checker"))
+        assertTrue(enhancement.contains("Runtime Contract"))
+        assertTrue(enhancement.contains("Parameter Rubric"))
+        assertTrue(enhancement.contains("auto_analyze_with_model=true"))
+        assertTrue(enhancement.contains("observe -> checker -> action_transfer -> execute"))
+        assertTrue(checkers.contains("app_upgrade_prompt"))
+        assertTrue(checkers.contains("permission_dialog"))
         assertTrue(vlm.contains("For saved RunLogs, reusable Functions"))
         assertTrue(vlm.contains("use the `omniflow` skill"))
         assertTrue(vlm.contains("`update_function`"))
         assertFalse(vlm.contains("`oob_function_update`"))
-        assertTrue(compatibilitySkills.contains("Compatibility-only retired entry"))
-        assertTrue(compatibilitySkills.contains("use omniflow"))
-        assertTrue(compatibilityAgentPrompts.contains("Use \$omniflow"))
-        assertFalse(compatibilityAgentPrompts.contains("Use \$oob-function-management"))
-        assertFalse(compatibilityAgentPrompts.contains("Use \$omniflow-function-enhancer"))
-        assertFalse(compatibilityAgentPrompts.contains("Use \$omniflow-checker-maintainer"))
+        retiredSkillAssets.forEach { path ->
+            assertFalse("Retired OmniFlow skill asset must not be bundled: $path", sourceExists(path))
+        }
     }
 
     @Test

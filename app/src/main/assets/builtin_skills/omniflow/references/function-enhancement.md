@@ -163,3 +163,69 @@ Every enhancement attempt ends in exactly one status:
 - `partial`: some safe changes were saved, but part of the enhancement failed
   or was skipped.
 - `failed`: no usable enhancement was produced.
+
+Use `enhanced` only when at least one saved section changed the Function in a
+way that a future user can actually benefit from, and every required section
+returned a valid patch.
+
+Use `unchanged` when patches are valid but normalize to the same Function, or
+when every proposed change is too vague to improve recall or runtime resolve.
+
+Use `partial` when a useful patch was applied but one or more sections failed,
+returned invalid JSON, referenced missing step indexes, or attempted unsafe
+bindings.
+
+Use `failed` when no safe patch remains after validation, the model returns no
+parseable JSON, or the save operation cannot preserve the existing Function.
+
+## Runtime Contract
+
+- This is the saved Function enhancement pass; RunLog is provenance only.
+- Enhancement is offline editing only; do not execute the Function while
+  enhancing it.
+- Model-backed enhancement must be an explicit offline/background job with
+  `auto_analyze_with_model=true`; online calls should only collect analysis
+  context.
+- A Function is an executable action stack. At runtime, Flow expands it into
+  primitive actions and runs every action through
+  `observe -> checker -> action_transfer -> execute`.
+- Do not describe a Function as a one-shot fixed replay. Each action must be
+  grounded against a fresh live observation before it is accepted.
+- Header enhancement must write a compact but detailed reusable description
+  that helps the Agent decide when to call the Function later. Include the
+  user-visible operation sequence, required app/page conditions, runtime
+  inputs, and success signal when known; avoid coordinates and internal
+  implementation details.
+- Per-step enhancement must label every executable step/action with what it
+  does and why it exists in the trajectory. Each step needs a concise title, a
+  concrete description/action_purpose, importance, cleanup_action, and
+  cleanup_reason.
+- Per-step enhancement may mark steps with useful/merge/drop/noise/
+  optional_checker metadata, but this metadata must not rewrite executable
+  steps by itself.
+- If there is no safe useful improvement for a section, return the current or
+  fallback shape for that section rather than inventing content.
+
+## Parameter Rubric
+
+Good runtime parameter candidates:
+
+- Contact or recipient names: `contact_name`, `recipient_name`.
+- Phone numbers: `phone_number`.
+- Search queries: `search_query`.
+- Message bodies: `message_text`.
+- Dates or times typed by the user: `target_date`, `target_time`.
+- URLs or domains: `target_url`, `website`.
+- Object names visible in a task: `target_item`, `playlist_name`,
+  `document_name`.
+
+Reject:
+
+- Coordinates: `x`, `y`, `start_x`, `end_y`.
+- Bounds and dimensions: `bounds`, `left`, `top`, `width`, `height`.
+- Screenshot, XML, node id, or page vector values.
+- Paths that do not exist in the current Function.
+
+If an enhancement only changes the name but does not explain when to call it,
+what it does, and how success is recognized, treat the enhancement as
+incomplete.
