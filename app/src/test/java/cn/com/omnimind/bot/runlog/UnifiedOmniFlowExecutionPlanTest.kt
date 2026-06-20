@@ -262,6 +262,8 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(omniflow.contains("upgrade/update popup checker"))
         assertTrue(vlm.contains("For saved RunLogs, reusable Functions"))
         assertTrue(vlm.contains("use the `omniflow` skill"))
+        assertTrue(vlm.contains("`update_function`"))
+        assertFalse(vlm.contains("`oob_function_update`"))
     }
 
     @Test

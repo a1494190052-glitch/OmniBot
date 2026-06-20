@@ -53,6 +53,6 @@ it must not block direct replay or the second-run recall fast path.
 ## Useful Tooling
 
 - `vlm_task`: live device automation.
-- `oob_function_list`, `oob_function_get`, `oob_function_register`, `oob_function_update`, `oob_function_delete`, `oob_function_clear`: reusable Function lifecycle.
+- `oob_function_list`, `oob_function_get`, `oob_function_register`, `update_function`, `oob_function_delete`, `oob_function_clear`: reusable Function lifecycle.
 - `oob_run_log_list`, `oob_run_log_get`, `oob_run_log_convert`: RunLog inspection and conversion.
 - `omniflow.recall`, `omniflow.ingest_run_log`, `omniflow.explore_replay`: OmniFlow recall, ingestion, and replay exploration.
