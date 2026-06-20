@@ -1,6 +1,6 @@
 ---
 name: omniflow-function-enhancer
-description: Enhance or repair an existing OmniFlow reusable Function created from a RunLog. Use for 增强, update_function, Function 纠错, "应该点 A 而不是点 B", runtime parameters, agent_reuse metadata, cleanup/noise annotations, background enhancement status, and explicit enhanced unchanged partial failed reporting.
+description: Compatibility-only retired entry for old OmniFlow Function enhancement prompts. Do not trigger this skill directly; use omniflow for enhancement, update_function, Function correction, runtime parameters, agent_reuse metadata, and cleanup/noise annotation.
 ---
 
 # OmniFlow Function Updater

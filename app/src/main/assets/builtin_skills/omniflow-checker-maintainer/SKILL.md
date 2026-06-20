@@ -1,6 +1,6 @@
 ---
 name: omniflow-checker-maintainer
-description: Implement and maintain OmniFlow runtime checkers for OOB Android GUI replay. Use when the user asks to add, generate, repair, or debug checker code, global checker, hi 升级 checker, upgrade/update popup checker, package/open-app checker, or supported checker_rules that need Kotlin runtime changes.
+description: Compatibility-only retired entry for old OmniFlow checker maintenance prompts. Do not trigger this skill directly; use omniflow for runtime checkers, global checker, upgrade/update popup checker, package/open-app checker, and checker_rules runtime changes.
 ---
 
 # OmniFlow Checker Maintainer

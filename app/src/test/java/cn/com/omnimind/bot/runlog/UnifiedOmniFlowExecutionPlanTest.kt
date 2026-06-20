@@ -249,6 +249,11 @@ class UnifiedOmniFlowExecutionPlanTest {
         val manifest = readSource("app/src/main/assets/builtin_skills/manifest.json")
         val omniflow = readSource("app/src/main/assets/builtin_skills/omniflow/SKILL.md")
         val vlm = readSource("app/src/main/assets/builtin_skills/vlm-android-gui/SKILL.md")
+        val compatibilitySkills = listOf(
+            "app/src/main/assets/builtin_skills/oob-function-management/SKILL.md",
+            "app/src/main/assets/builtin_skills/omniflow-function-enhancer/SKILL.md",
+            "app/src/main/assets/builtin_skills/omniflow-checker-maintainer/SKILL.md",
+        ).joinToString("\n") { readSource(it) }
         val compatibilityAgentPrompts = listOf(
             "app/src/main/assets/builtin_skills/oob-function-management/agents/openai.yaml",
             "app/src/main/assets/builtin_skills/omniflow-function-enhancer/agents/openai.yaml",
@@ -269,6 +274,8 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(vlm.contains("use the `omniflow` skill"))
         assertTrue(vlm.contains("`update_function`"))
         assertFalse(vlm.contains("`oob_function_update`"))
+        assertTrue(compatibilitySkills.contains("Compatibility-only retired entry"))
+        assertTrue(compatibilitySkills.contains("use omniflow"))
         assertTrue(compatibilityAgentPrompts.contains("Use \$omniflow"))
         assertFalse(compatibilityAgentPrompts.contains("Use \$oob-function-management"))
         assertFalse(compatibilityAgentPrompts.contains("Use \$omniflow-function-enhancer"))
