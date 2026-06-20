@@ -284,6 +284,10 @@ class McpToolDefinitionsTest {
         }
         val schema = tool["inputSchema"] as Map<*, *>
         val properties = schema["properties"] as Map<*, *>
+        val agentRunServiceSource = listOf(
+            File("app/src/main/java/cn/com/omnimind/bot/webchat/AgentRunService.kt"),
+            File("src/main/java/cn/com/omnimind/bot/webchat/AgentRunService.kt"),
+        ).first { it.exists() }.readText()
 
         assertTrue(properties.containsKey("toolProfile"))
         assertTrue(properties.containsKey("allowedTools"))
@@ -292,6 +296,8 @@ class McpToolDefinitionsTest {
         val profileDescription = toolProfile["description"].toString()
         assertTrue(profileDescription.contains("OmniFlow Functions"))
         assertFalse(profileDescription.contains("OOB Functions"))
+        assertTrue(agentRunServiceSource.contains("arguments[\"toolProfile\"]"))
+        assertTrue(agentRunServiceSource.contains("arguments[\"allowedTools\"]"))
     }
 
     @Test

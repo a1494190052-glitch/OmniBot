@@ -334,6 +334,12 @@ class AgentRunService(
             "terminalEnvironment" to AgentRunRequestNormalizer.normalizeMap(request["terminalEnvironment"]),
             "modelOverride" to AgentRunRequestNormalizer.normalizeMap(request["modelOverride"])
         )
+        request["toolProfile"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let {
+            arguments["toolProfile"] = it
+        }
+        AgentRunRequestNormalizer.normalizeStringList(request["allowedTools"])
+            .takeIf { it.isNotEmpty() }
+            ?.let { arguments["allowedTools"] = it }
         invokeManager("createAgentTask", arguments) {
             manager.createAgentTask(it, this)
         }
