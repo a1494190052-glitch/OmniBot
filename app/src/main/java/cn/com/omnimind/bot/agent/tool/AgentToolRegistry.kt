@@ -153,7 +153,12 @@ class AgentToolRegistry(
         }
         toolsForModel = toolsByName.values.toList()
 
-        // Debug dump: full registered tool list to verify which ones the LLM actually receives.
+        val toolTypeCounts = runtimeDescriptors.values
+            .groupingBy { it.toolType.ifBlank { "builtin" } }
+            .eachCount()
+            .toSortedMap()
+            .entries
+            .joinToString(",") { (toolType, count) -> "$toolType=$count" }
         OmniLog.i(
             tag,
                 "registered_tools count=${toolsForModel.size} " +
@@ -162,7 +167,7 @@ class AgentToolRegistry(
                 "tool_allowlist_size=${allowedToolNames?.size ?: 0} " +
                 "subagent_present=${"subagent_dispatch" in runtimeDescriptors.keys} " +
                 "memory_load_present=${"memory_load" in runtimeDescriptors.keys} " +
-                "names=[${runtimeDescriptors.keys.joinToString(",")}]"
+                "tool_type_counts=[$toolTypeCounts]"
         )
     }
 
