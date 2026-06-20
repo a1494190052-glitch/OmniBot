@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:simple_gradient_text/simple_gradient_text.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
@@ -50,6 +51,28 @@ class SystemAppConfig {
     required this.svgIcon,
     required this.packageNames,
   });
+}
+
+@visibleForTesting
+const int memoryCenterShortTermTabIndex = 0;
+
+@visibleForTesting
+const int memoryCenterLongTermTabIndex = 1;
+
+@visibleForTesting
+const int memoryCenterReusableCommandsTabIndex = 2;
+
+@visibleForTesting
+int resolveMemoryCenterInitialTabIndex(String? raw) {
+  final normalized = raw?.trim().toLowerCase().replaceAll('-', '_') ?? '';
+  return switch (normalized) {
+    'long_term' || 'longterm' || 'cloud' => memoryCenterLongTermTabIndex,
+    'reusable' ||
+    'reusable_commands' ||
+    'commands' ||
+    'functions' => memoryCenterReusableCommandsTabIndex,
+    _ => memoryCenterShortTermTabIndex,
+  };
 }
 
 class MemoryCenterPage extends StatefulWidget {
@@ -186,9 +209,9 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
   Mem0MemorySnapshot _mem0Snapshot = Mem0MemorySnapshot.unconfigured();
   bool _isMem0Loading = false;
   bool _isMem0Mutating = false;
-  static const int _localMemoryTab = 0;
-  static const int _cloudMemoryTab = 1;
-  static const int _reusableCommandTab = 2;
+  static const int _localMemoryTab = memoryCenterShortTermTabIndex;
+  static const int _cloudMemoryTab = memoryCenterLongTermTabIndex;
+  static const int _reusableCommandTab = memoryCenterReusableCommandsTabIndex;
   int _currentMemoryTab = _localMemoryTab;
   late PageController _memoryPageController;
 
@@ -197,18 +220,6 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
       return;
     }
     setState(fn);
-  }
-
-  int _initialMemoryTabIndex(String? raw) {
-    final normalized = raw?.trim().toLowerCase().replaceAll('-', '_') ?? '';
-    return switch (normalized) {
-      'long_term' || 'longterm' || 'cloud' => _cloudMemoryTab,
-      'reusable' ||
-      'reusable_commands' ||
-      'commands' ||
-      'functions' => _reusableCommandTab,
-      _ => _localMemoryTab,
-    };
   }
 
   // ignore: unused_element
@@ -236,7 +247,7 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     )..repeat();
-    _currentMemoryTab = _initialMemoryTabIndex(widget.initialTab);
+    _currentMemoryTab = resolveMemoryCenterInitialTabIndex(widget.initialTab);
     _memoryPageController = PageController(initialPage: _currentMemoryTab);
 
     _loadData();
