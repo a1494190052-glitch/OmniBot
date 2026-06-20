@@ -24,7 +24,8 @@ private const val OFFICIAL_SKILLS_DIRECTORY_NAME = "OmniBotSkills"
 private val RETIRED_BUILTIN_SKILL_IDS = setOf(
     "omniflow-checker-maintainer",
     "omniflow-function-enhancer",
-    "oob-function-management"
+    "oob-function-management",
+    "vlm-android-gui"
 )
 
 internal fun shouldHideRetiredBuiltinSkill(skillId: String, source: String?): Boolean {

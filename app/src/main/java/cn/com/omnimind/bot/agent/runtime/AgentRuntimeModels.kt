@@ -174,12 +174,20 @@ data class ResolvedSkillContext(
     }
 
     fun vlmStepGuidance(maxChars: Int = 900): String {
-        val base = if (skillId == "vlm-android-gui" || frontmatter["name"] == "vlm-android-gui") {
+        val base = if (isOobGuiAutomationSkill()) {
             VLM_ANDROID_GUI_COMPACT_GUIDANCE
         } else {
-            stepGuidance(maxChars = maxChars)
+            ""
         }
         return if (base.length <= maxChars) base else base.take(maxChars) + "\n..."
+    }
+
+    private fun isOobGuiAutomationSkill(): Boolean {
+        val skillName = frontmatter["name"].orEmpty()
+        return skillId == "omniflow" ||
+            skillName == "omniflow" ||
+            skillId == "vlm-android-gui" ||
+            skillName == "vlm-android-gui"
     }
 
     private companion object {

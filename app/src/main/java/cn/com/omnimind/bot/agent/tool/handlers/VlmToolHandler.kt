@@ -284,7 +284,11 @@ class VlmToolHandler(
     }
 
     internal fun buildVlmStepSkillGuidance(resolvedSkills: List<ResolvedSkillContext>): String {
-        return resolvedSkills.joinToString("\n\n") { it.vlmStepGuidance() }
+        return resolvedSkills
+            .map { it.vlmStepGuidance() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .joinToString("\n\n")
     }
 
     private fun sanitizeVlmExecutionArgs(

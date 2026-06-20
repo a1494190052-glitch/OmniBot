@@ -74,18 +74,18 @@ class SkillRuntimeBehaviorTest {
     }
 
     @Test
-    fun vlmStepGuidanceKeepsExecutionRulesWithinCompactBudget() {
+    fun omniflowVlmStepGuidanceKeepsExecutionRulesWithinCompactBudget() {
         val skill = ResolvedSkillContext(
-            skillId = "vlm-android-gui",
-            frontmatter = mapOf("name" to "vlm-android-gui"),
+            skillId = "omniflow",
+            frontmatter = mapOf("name" to "omniflow"),
             bodyMarkdown = """
                 ---
-                name: vlm-android-gui
+                name: omniflow
                 ---
 
-                # VLM Android GUI Skill
+                # OmniFlow
 
-                ## GUI Action Policy
+                ## Online VLM Execution
 
                 - Pass `package_name` when the target app is known; otherwise derive the package from installed-app or current-state evidence.
                 - Use one fresh observation for each action turn: current package, Accessibility XML, indexed UI evidence, screenshot, display size, previous action result, and short history.
@@ -115,6 +115,25 @@ class SkillRuntimeBehaviorTest {
         assertTrue(guidance.contains("fall back to live VLM"))
         assertTrue(guidance.contains("Do not call update_function or enhance inline"))
         assertFalse(guidance.contains("Verify at least two visible UI states"))
+    }
+
+    @Test
+    fun vlmStepGuidanceSkipsUnrelatedSkills() {
+        val skill = ResolvedSkillContext(
+            skillId = "skill-creator",
+            frontmatter = mapOf("name" to "skill-creator"),
+            bodyMarkdown = """
+                # Skill Creator
+
+                ## Step Guidance Essentials
+
+                - Create files in .omnibot/skills.
+                - Write examples and references.
+            """.trimIndent(),
+            triggerReason = "test"
+        )
+
+        assertEquals("", skill.vlmStepGuidance())
     }
 
     @Test
@@ -182,7 +201,8 @@ class SkillRuntimeBehaviorTest {
         val retiredIds = listOf(
             "oob-function-management",
             "omniflow-function-enhancer",
-            "omniflow-checker-maintainer"
+            "omniflow-checker-maintainer",
+            "vlm-android-gui"
         )
 
         retiredIds.forEach { skillId ->
@@ -205,7 +225,6 @@ class SkillRuntimeBehaviorTest {
         }
 
         assertFalse(shouldHideRetiredBuiltinSkill("omniflow", null))
-        assertFalse(shouldHideRetiredBuiltinSkill("vlm-android-gui", "builtin"))
     }
 
     @Test

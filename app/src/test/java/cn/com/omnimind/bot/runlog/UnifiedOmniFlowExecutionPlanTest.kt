@@ -202,31 +202,34 @@ class UnifiedOmniFlowExecutionPlanTest {
     }
 
     @Test
-    fun `vlm android gui skill keeps enhancement out of online replay path`() {
-        val skill = readSource(
-            "app/src/main/assets/builtin_skills/vlm-android-gui/SKILL.md"
+    fun `omniflow vlm reference keeps enhancement out of online replay path`() {
+        val skill = readSource("app/src/main/assets/builtin_skills/omniflow/SKILL.md")
+        val vlm = readSource(
+            "app/src/main/assets/builtin_skills/omniflow/references/vlm-online-execution.md"
         )
 
-        assertTrue(skill.contains("Auto-registration saves the replayable Function first"))
-        assertTrue(skill.contains("Do not call"))
-        assertTrue(skill.contains("`update_function`"))
-        assertTrue(skill.contains("`enhance`"))
-        assertTrue(skill.contains("inline before VLM"))
-        assertTrue(skill.contains("RunLog registration"))
-        assertTrue(skill.contains("recall-hit replay"))
-        assertTrue(skill.contains("debug"))
-        assertTrue(skill.contains("convert-and-replay"))
-        assertTrue(skill.contains("Enhancement is an explicit offline/background maintenance"))
-        assertTrue(skill.contains("must not block direct replay"))
-        assertTrue(skill.contains("second-run recall fast path"))
-        assertTrue(skill.contains("Tool Boundary"))
-        assertTrue(skill.contains("`vlm_task` is the online device-automation entry"))
-        assertTrue(skill.contains("only"))
-        assertTrue(skill.contains("model-visible action entry"))
-        assertTrue(skill.contains("switch to the `omniflow` skill"))
-        assertFalse(skill.contains("`oob_function_list`"))
-        assertFalse(skill.contains("`oob_run_log_list`"))
-        assertFalse(skill.contains("`omniflow.recall`"))
+        assertTrue(skill.contains("references/vlm-online-execution.md"))
+        assertTrue(vlm.contains("Auto-registration saves the replayable Function first"))
+        assertTrue(vlm.contains("Do not call"))
+        assertTrue(vlm.contains("`update_function`"))
+        assertTrue(vlm.contains("`enhance`"))
+        assertTrue(vlm.contains("inline before VLM"))
+        assertTrue(vlm.contains("RunLog registration"))
+        assertTrue(vlm.contains("recall-hit replay"))
+        assertTrue(vlm.contains("debug"))
+        assertTrue(vlm.contains("convert-and-replay"))
+        assertTrue(vlm.contains("Enhancement is an explicit offline/background maintenance"))
+        assertTrue(vlm.contains("must not block direct replay"))
+        assertTrue(vlm.contains("second-run recall fast path"))
+        assertTrue(vlm.contains("Tool Boundary"))
+        assertTrue(vlm.contains("`vlm_task` is the online device-automation entry"))
+        assertTrue(vlm.contains("only"))
+        assertTrue(vlm.contains("model-visible action entry"))
+        assertTrue(vlm.contains("native"))
+        assertTrue(vlm.contains("tool_calls"))
+        assertFalse(vlm.contains("`oob_function_list`"))
+        assertFalse(vlm.contains("`oob_run_log_list`"))
+        assertFalse(vlm.contains("`omniflow.recall`"))
     }
 
     @Test
@@ -256,12 +259,11 @@ class UnifiedOmniFlowExecutionPlanTest {
         val manifestMap = readJsonMap("app/src/main/assets/builtin_skills/manifest.json")
         val manifestSkills = listMaps(manifestMap["skills"])
         val skillIds = manifestSkills.mapNotNull { it["id"]?.toString() }.toSet()
-        val vlmManifest = manifestSkills.first { it["id"] == "vlm-android-gui" }
         val omniflowManifest = manifestSkills.first { it["id"] == "omniflow" }
         val omniflow = readSource("app/src/main/assets/builtin_skills/omniflow/SKILL.md")
         val enhancement = readSource("app/src/main/assets/builtin_skills/omniflow/references/function-enhancement.md")
         val checkers = readSource("app/src/main/assets/builtin_skills/omniflow/references/checkers.md")
-        val vlm = readSource("app/src/main/assets/builtin_skills/vlm-android-gui/SKILL.md")
+        val vlm = readSource("app/src/main/assets/builtin_skills/omniflow/references/vlm-online-execution.md")
         val retiredSkillAssets = listOf(
             "app/src/main/assets/builtin_skills/oob-function-management/SKILL.md",
             "app/src/main/assets/builtin_skills/omniflow-function-enhancer/SKILL.md",
@@ -274,17 +276,17 @@ class UnifiedOmniFlowExecutionPlanTest {
         )
 
         assertTrue(manifest.contains("\"id\": \"omniflow\""))
-        assertTrue(manifest.contains("\"id\": \"vlm-android-gui\""))
+        assertFalse(manifest.contains("\"id\": \"vlm-android-gui\""))
         assertTrue(skillIds.contains("omniflow"))
-        assertTrue(skillIds.contains("vlm-android-gui"))
-        assertFalse(vlmManifest["hasReferences"] == true)
-        assertFalse(sourceExists("app/src/main/assets/builtin_skills/vlm-android-gui/references"))
+        assertFalse(skillIds.contains("vlm-android-gui"))
         assertTrue(omniflowManifest["hasReferences"] == true)
         assertTrue(sourceExists("app/src/main/assets/builtin_skills/omniflow/references"))
         assertFalse(manifest.contains("\"id\": \"oob-function-management\""))
         assertFalse(manifest.contains("\"id\": \"omniflow-function-enhancer\""))
         assertFalse(manifest.contains("\"id\": \"omniflow-checker-maintainer\""))
         assertTrue(omniflow.contains("Single Entry Point"))
+        assertTrue(omniflow.contains("VLM Android GUI"))
+        assertTrue(omniflow.contains("references/vlm-online-execution.md"))
         assertTrue(omniflow.contains("Function enhancement"))
         assertTrue(omniflow.contains("checker maintenance"))
         assertTrue(omniflow.contains("runtime checker"))
@@ -295,8 +297,8 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(enhancement.contains("observe -> checker -> action_transfer -> execute"))
         assertTrue(checkers.contains("app_upgrade_prompt"))
         assertTrue(checkers.contains("permission_dialog"))
-        assertTrue(vlm.contains("For saved RunLogs, reusable Functions"))
-        assertTrue(vlm.contains("use the `omniflow` skill"))
+        assertTrue(vlm.contains("Native Tool Call Contract"))
+        assertTrue(vlm.contains("Ordinary online VLM output must be OpenAI-compatible native"))
         assertTrue(vlm.contains("`update_function`"))
         assertFalse(vlm.contains("Function enhancement skill"))
         assertFalse(vlm.contains("`oob_function_update`"))
