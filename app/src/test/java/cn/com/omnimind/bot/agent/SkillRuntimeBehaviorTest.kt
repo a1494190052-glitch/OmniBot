@@ -154,6 +154,30 @@ class SkillRuntimeBehaviorTest {
     }
 
     @Test
+    fun resolveMatchesOmniFlowFromLegacyFunctionEnhancementAndCheckerPhrases() {
+        val omniflowSkill = File("src/main/assets/builtin_skills/omniflow/SKILL.md")
+            .readText()
+        val omniflowEntry = entry(
+            id = "omniflow",
+            description = omniflowSkill
+        )
+        val requests = listOf(
+            "把上一条 runlog 注册成复用指令",
+            "增强 function，应该点外卖而不是点美食",
+            "给这个复用指令加一个 hi 升级 checker",
+            "debug package open-app checker"
+        )
+
+        requests.forEach { request ->
+            val matches = SkillTriggerMatcher.resolveMatches(
+                userMessage = request,
+                entries = listOf(omniflowEntry)
+            )
+            assertTrue("Expected omniflow to match: $request", matches.any { it.entry.id == "omniflow" })
+        }
+    }
+
+    @Test
     fun builtinHatchPetSkillKeepsStandardPetOutputContract() {
         val skillFile = File("src/main/assets/builtin_skills/hatch-pet/SKILL.md")
         val text = skillFile.readText()

@@ -5,6 +5,7 @@ import com.google.gson.Gson
 import java.nio.file.Files
 import java.nio.file.Paths
 import java.nio.file.attribute.PosixFilePermission
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -241,6 +242,26 @@ class UnifiedOmniFlowExecutionPlanTest {
         )
         assertTrue(!zhArb.values.any { it == "复用记忆" })
         assertTrue(enArb["memoryCommandsTitle"] == "Reusable Commands")
+    }
+
+    @Test
+    fun `builtin skills expose a single omniflow entry`() {
+        val manifest = readSource("app/src/main/assets/builtin_skills/manifest.json")
+        val omniflow = readSource("app/src/main/assets/builtin_skills/omniflow/SKILL.md")
+        val vlm = readSource("app/src/main/assets/builtin_skills/vlm-android-gui/SKILL.md")
+
+        assertTrue(manifest.contains("\"id\": \"omniflow\""))
+        assertTrue(manifest.contains("\"id\": \"vlm-android-gui\""))
+        assertFalse(manifest.contains("\"id\": \"oob-function-management\""))
+        assertFalse(manifest.contains("\"id\": \"omniflow-function-enhancer\""))
+        assertFalse(manifest.contains("\"id\": \"omniflow-checker-maintainer\""))
+        assertTrue(omniflow.contains("Single Entry Point"))
+        assertTrue(omniflow.contains("Function enhancement"))
+        assertTrue(omniflow.contains("checker maintenance"))
+        assertTrue(omniflow.contains("runtime checker"))
+        assertTrue(omniflow.contains("upgrade/update popup checker"))
+        assertTrue(vlm.contains("For saved RunLogs, reusable Functions"))
+        assertTrue(vlm.contains("use the `omniflow` skill"))
     }
 
     @Test

@@ -1,13 +1,19 @@
 ---
 name: vlm-android-gui
-description: Use for OOB VLM Android GUI automation, vlm_task execution, OmniFlow replay, reusable Function generation, and RunLog validation.
+description: Use for OOB online VLM Android GUI automation, vlm_task execution, native tool_calls, prompt/tool schema debugging, indexed UI evidence, grounding, live action dispatch, and VLM RunLog latency/accuracy validation.
 ---
 
 # VLM Android GUI Skill
 
 ## Scope
 
-Use this skill when the task requires OOB to observe and operate the current Android UI, record a manual or VLM run, convert a RunLog into an OmniFlow Function, or replay a registered Function.
+Use this skill when the task requires OOB to observe and operate the current
+Android UI through online VLM execution.
+
+For saved RunLogs, reusable Functions, Function enhancement, replay debugging,
+or checker maintenance, use the `omniflow` skill. VLM may produce RunLogs and
+may let native runtime recall replay a Function, but Function management stays
+in OmniFlow.
 
 Do not use this skill for uploaded-image Q&A, static document analysis, generic web browsing, or non-device terminal work unless the device workflow explicitly needs it.
 
@@ -23,13 +29,12 @@ Do not use this skill for uploaded-image Q&A, static document analysis, generic 
 - For permission or onboarding screens, choose safe visible actions such as Continue, Allow, OK, or Skip when that is consistent with the user goal.
 - Do not finish after a single action unless the requested final state is directly visible. For multi-step goals, keep a checklist and finish only after the named targets are verified.
 
-## RunLog And Function Flow
+## RunLog And OmniFlow Bridge
 
 1. Start `vlm_task` for the user goal. The native runtime records an Internal RunLog with tool cards, token usage, timing, observations, and completion status.
 2. Use RunLog evidence to inspect what actually happened. Prefer recorded observations and action results over guessed state.
-3. Convert high-signal RunLogs into reusable OmniFlow Functions only when the task has stable intent, repeatable UI targets, and clear parameters.
-4. Register or update Functions through the OmniFlow Function tools. Keep Function specs small, parameterized, and tied to observed UI evidence.
-5. Replay registered Functions when the current package and page evidence match. Fall back to live VLM execution when guards fail, targets are missing, or user intent diverges.
+3. If the task becomes RunLog conversion, Function registration, Function update, or checker maintenance, switch to `omniflow`.
+4. During online execution, native runtime recall may replay a matching Function before ordinary VLM actions. Fall back to live VLM execution when guards fail, targets are missing, or user intent diverges.
 
 Auto-registration saves the replayable Function first. Do not call
 `update_function`, `enhance`, or a Function enhancement skill inline before VLM

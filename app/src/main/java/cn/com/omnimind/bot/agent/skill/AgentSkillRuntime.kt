@@ -21,6 +21,11 @@ private const val SKILL_REGISTRY_FILE_NAME = ".skill_registry.json"
 private const val OFFICIAL_SKILLS_GITHUB_REPOSITORY_URL = "https://github.com/omnimind-ai/OmniBotSkills"
 private const val OFFICIAL_SKILLS_CNB_REPOSITORY_URL = "https://cnb.cool/o.a/OmniBotSkills"
 private const val OFFICIAL_SKILLS_DIRECTORY_NAME = "OmniBotSkills"
+private val RETIRED_BUILTIN_SKILL_IDS = setOf(
+    "omniflow-checker-maintainer",
+    "omniflow-function-enhancer",
+    "oob-function-management"
+)
 
 private data class BuiltinSkillManifest(
     val skills: List<BuiltinSkillAsset> = emptyList()
@@ -120,8 +125,10 @@ private class BuiltinSkillAssetStore(
 
     fun seedMissingBuiltins(registryStore: SkillRegistryStore) {
         val registry = registryStore.read()
-        var changed = false
-        listBuiltins().forEach { builtin ->
+        val builtins = listBuiltins()
+        val currentBuiltinIds = builtins.mapTo(mutableSetOf()) { it.id }
+        var changed = cleanupObsoleteBuiltinSkills(registry, currentBuiltinIds)
+        builtins.forEach { builtin ->
             val registryEntry = registry[builtin.id]
             if (registryEntry?.installState == INSTALL_STATE_REMOVED_BUILTIN) {
                 return@forEach
@@ -155,6 +162,40 @@ private class BuiltinSkillAssetStore(
         if (changed) {
             registryStore.write(registry)
         }
+    }
+
+    private fun cleanupObsoleteBuiltinSkills(
+        registry: LinkedHashMap<String, SkillRegistryEntry>,
+        currentBuiltinIds: Set<String>
+    ): Boolean {
+        var changed = false
+        val obsoleteIds = RETIRED_BUILTIN_SKILL_IDS
+
+        obsoleteIds.forEach { skillId ->
+            if (skillId in currentBuiltinIds) {
+                return@forEach
+            }
+            val registryEntry = registry[skillId] ?: return@forEach
+            if (registryEntry.source != BUILTIN_SOURCE) {
+                return@forEach
+            }
+            val targetDir = File(workspaceManager.skillsRoot(), skillId)
+            if (targetDir.exists() && targetDir.deleteRecursively()) {
+                changed = true
+            }
+            if (registryEntry.enabled ||
+                registryEntry.installState != INSTALL_STATE_REMOVED_BUILTIN
+            ) {
+                registry[skillId] = SkillRegistryEntry(
+                    enabled = false,
+                    source = BUILTIN_SOURCE,
+                    installState = INSTALL_STATE_REMOVED_BUILTIN
+                )
+                changed = true
+            }
+        }
+
+        return changed
     }
 
     private fun builtinSkillContentUnchanged(builtin: BuiltinSkillAsset, targetDir: File): Boolean {
@@ -508,6 +549,12 @@ class SkillIndexService(
             ?: emptyMap()
         val registryState = registry[id]
         val builtinAsset = builtinAssets[id]
+        if (registryState?.source == BUILTIN_SOURCE && builtinAsset == null) {
+            return null
+        }
+        if (id in RETIRED_BUILTIN_SKILL_IDS && registryState?.source != USER_SOURCE) {
+            return null
+        }
         val shellRootPath = workspaceManager.shellPathForAndroid(canonicalSkillDir)
             ?: canonicalSkillDir.absolutePath
         val shellSkillFilePath = workspaceManager.shellPathForAndroid(skillFile)

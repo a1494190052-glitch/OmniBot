@@ -1,6 +1,6 @@
 ---
 name: omniflow
-description: OmniFlow reusable Android GUI workflow skill. Use when the user wants to reuse, register, update, enhance, analyze, or debug OOB RunLogs and saved Functions, including update_function, RunLog evidence, replay results, checker design, action cleanup, "应该点 A 而不是 B", "保存为复用指令", "复用记忆", "增强 function", and ad/popup optional checkers.
+description: OmniFlow reusable Android GUI workflow skill. Use when the user wants to reuse, run, register, update, enhance, repair, analyze, or debug OOB RunLogs and saved Functions, including update_function, RunLog evidence, replay results, checker design, runtime checker, global checker, hi 升级 checker, upgrade/update popup checker, package/open-app checker, action cleanup, "应该点 A 而不是 B", "保存为复用指令", "复用记忆", "增强 function", and ad/popup optional checkers.
 ---
 
 # OmniFlow
@@ -11,6 +11,14 @@ Functions through runtime recall/resolve, and learning from replay evidence.
 
 Native Kotlin/MCP code provides storage, replay, UDEG indexing, and tool
 backends. The agent behavior belongs in this skill and its references.
+
+## Single Entry Point
+
+This skill is the one agent-facing entry for OmniFlow Function lifecycle,
+enhancement, correction, checker design, RunLog evidence, and replay debugging.
+Older focused entries such as Function management, Function enhancement, and
+checker maintenance are folded into this skill. Keep their behavior here or in
+the `references/` files instead of adding another model-visible skill.
 
 ## Runtime Boundary
 
@@ -38,8 +46,10 @@ run through OOB-native OmniFlow.
 - RunLog success/failure evidence or `run_id`: read `references/runlog-evidence.md`.
 - Replay failure or local runner result analysis: read `references/replay-fallback.md`.
 - Ads, popups, permission nudges, skip/close buttons: read `references/checkers.md`.
-- New or broken runtime checker implementation, including a global checker that
-  needs Kotlin changes: use the `omniflow-checker-maintainer` skill.
+- New or broken runtime checker implementation, including a global checker,
+  upgrade/update popup checker, package/open-app checker, or Kotlin runtime
+  change: read `references/checkers.md`, then update the runtime checker code
+  and focused tests.
 - Noisy, duplicate, or unclear actions: read `references/canonical-actions.md`.
 - Tool name choice or legacy compatibility: read `references/tools.md`.
 
