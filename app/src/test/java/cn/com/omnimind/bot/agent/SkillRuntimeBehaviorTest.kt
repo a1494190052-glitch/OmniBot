@@ -205,12 +205,23 @@ class SkillRuntimeBehaviorTest {
         val manifest = Json.parseToJsonElement(
             File("src/main/assets/builtin_skills/manifest.json").readText()
         ).jsonObject
+        val skillIds = manifest["skills"]!!.jsonArray
+            .map { it.jsonObject["id"]!!.jsonPrimitive.content }
         val omniflowEntry = manifest["skills"]!!.jsonArray
             .map { it.jsonObject }
             .first { it["id"]?.jsonPrimitive?.content == "omniflow" }
         val omniflowDescription = omniflowEntry["description"]!!
             .jsonPrimitive
             .content
+
+        listOf(
+            "oob-function-management",
+            "omniflow-function-enhancer",
+            "omniflow-checker-maintainer",
+            "vlm-android-gui"
+        ).forEach { retiredId ->
+            assertFalse("Retired focused skill must not be model-visible: $retiredId", retiredId in skillIds)
+        }
 
         listOf(
             "vlm_task",
