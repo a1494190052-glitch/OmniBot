@@ -14,6 +14,8 @@ import cn.com.omnimind.baselib.database.Conversation
 import cn.com.omnimind.baselib.database.DatabaseHelper
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.manager.AssistsCoreManager
+import cn.com.omnimind.bot.omniflow.OobFunctionSkillProfile
+import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
 import cn.com.omnimind.bot.util.AssistsUtil
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -63,6 +65,8 @@ class WorkspaceScheduledTaskScheduler(
         val parentConversationMode: String? = null,
         val subagentPrompt: String? = null,
         val notificationEnabled: Boolean = true,
+        val oobFunctionId: String? = null,
+        val oobFunctionArguments: Map<String, Any?> = emptyMap(),
         val toolProfile: String? = null,
         val allowedTools: List<String> = emptyList()
     )
@@ -378,6 +382,12 @@ class WorkspaceScheduledTaskScheduler(
         val notificationEnabled = (rawTask["notificationEnabled"] as? Boolean)
             ?: existing?.notificationEnabled
             ?: true
+        val reusableFunctionId = rawTask["oobFunctionId"]?.toString()?.trim()?.ifEmpty { null }
+            ?: suggestionData?.get("oobFunctionId")?.toString()?.trim()?.ifEmpty { null }
+            ?: existing?.oobFunctionId
+        val reusableFunctionArguments = mapArg(rawTask["oobFunctionArguments"])
+            .ifEmpty { mapArg(suggestionData?.get("oobFunctionArguments")) }
+            .ifEmpty { existing?.oobFunctionArguments ?: emptyMap() }
         val toolProfile = rawTask["toolProfile"]?.toString()?.trim()?.ifEmpty { null }
             ?: suggestionData?.get("toolProfile")?.toString()?.trim()?.ifEmpty { null }
             ?: existing?.toolProfile
@@ -404,8 +414,12 @@ class WorkspaceScheduledTaskScheduler(
             parentConversationMode = parentConversationMode,
             subagentPrompt = subagentPrompt,
             notificationEnabled = notificationEnabled,
-            toolProfile = toolProfile,
-            allowedTools = allowedTools
+            oobFunctionId = reusableFunctionId,
+            oobFunctionArguments = reusableFunctionArguments,
+            toolProfile = toolProfile ?: OobFunctionSkillProfile.PROFILE.takeIf { !reusableFunctionId.isNullOrEmpty() },
+            allowedTools = allowedTools.ifEmpty {
+                listOf(OobFunctionToolNames.FUNCTION_RUN).takeIf { !reusableFunctionId.isNullOrEmpty() } ?: emptyList()
+            }
         )
     }
 
@@ -502,15 +516,17 @@ class WorkspaceScheduledTaskScheduler(
         payload["parentConversationMode"] = task.parentConversationMode
         payload["subagentPrompt"] = task.subagentPrompt
         payload["notificationEnabled"] = task.notificationEnabled
-        payload["toolProfile"] = task.toolProfile
-        payload["allowedTools"] = task.allowedTools
         if (task.targetKind == "subagent") {
-            payload["suggestionData"] = mapOf(
-                "targetKind" to "subagent",
-                "subagentPrompt" to (task.subagentPrompt ?: ""),
-                "toolProfile" to task.toolProfile,
-                "allowedTools" to task.allowedTools
-            ).filterValues { it != null }
+            payload.remove("toolProfile")
+            payload.remove("allowedTools")
+            payload["suggestionData"] = buildMap<String, Any?> {
+                put("targetKind", "subagent")
+                put("subagentPrompt", task.subagentPrompt ?: "")
+                task.oobFunctionId?.takeIf { it.isNotBlank() }?.let { functionId ->
+                    put("oobFunctionId", functionId)
+                    put("oobFunctionArguments", task.oobFunctionArguments)
+                }
+            }
         } else {
             payload["suggestionData"] = mapOf(
                 "targetKind" to "vlm",
@@ -675,6 +691,18 @@ class WorkspaceScheduledTaskScheduler(
                 item?.toString()?.trim()?.takeIf { it.isNotEmpty() }
             }
             else -> emptyList()
+        }
+    }
+
+    private fun mapArg(value: Any?): Map<String, Any?> {
+        return when (value) {
+            is Map<*, *> -> value.entries
+                .mapNotNull { entry ->
+                    val key = entry.key?.toString()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                    key to entry.value
+                }
+                .toMap()
+            else -> emptyMap()
         }
     }
 }

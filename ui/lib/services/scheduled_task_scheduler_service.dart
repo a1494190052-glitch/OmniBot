@@ -6,6 +6,16 @@ import 'package:ui/services/scheduled_task_storage_service.dart';
 import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/services/conversation_service.dart';
 
+class ScheduledSubagentAgentPolicy {
+  final String? toolProfile;
+  final List<String> allowedTools;
+
+  const ScheduledSubagentAgentPolicy({
+    this.toolProfile,
+    this.allowedTools = const [],
+  });
+}
+
 /// 定时任务调度服务
 /// 负责管理定时任务的执行调度和倒计时提醒
 class ScheduledTaskSchedulerService {
@@ -245,6 +255,7 @@ class ScheduledTaskSchedulerService {
           if (normalizedConversationId == null) {
             throw Exception('SubAgent conversation create failed');
           }
+          final agentPolicy = subagentAgentPolicyForTask(task);
           await AssistsMessageService.createAgentTask(
             taskId:
                 'subagent_schedule_${DateTime.now().millisecondsSinceEpoch}_${task.id}',
@@ -254,8 +265,8 @@ class ScheduledTaskSchedulerService {
             scheduledTaskId: task.id,
             scheduledTaskTitle: task.title,
             scheduleNotificationEnabled: task.notificationEnabled,
-            toolProfile: _firstNonBlank([task.suggestionData?['toolProfile']]),
-            allowedTools: _stringList(task.suggestionData?['allowedTools']),
+            toolProfile: agentPolicy.toolProfile,
+            allowedTools: agentPolicy.allowedTools,
           );
         }
       }
@@ -274,6 +285,36 @@ class ScheduledTaskSchedulerService {
     } catch (e) {
       debugPrint('ScheduledTaskSchedulerService: Execute task error - $e');
     }
+  }
+
+  static ScheduledSubagentAgentPolicy subagentAgentPolicyForTask(
+    ScheduledTask task,
+  ) {
+    return ScheduledSubagentAgentPolicy(
+      toolProfile: _subagentToolProfile(task),
+      allowedTools: _subagentAllowedTools(task),
+    );
+  }
+
+  static String? _subagentToolProfile(ScheduledTask task) {
+    if (_isReusableFunctionSchedule(task)) {
+      return AssistsMessageService.oobReusableFunctionAgentToolProfile;
+    }
+    return _firstNonBlank([task.suggestionData?['toolProfile']]);
+  }
+
+  static List<String> _subagentAllowedTools(ScheduledTask task) {
+    if (_isReusableFunctionSchedule(task)) {
+      return AssistsMessageService.oobReusableFunctionAgentAllowedTools;
+    }
+    return _stringList(task.suggestionData?['allowedTools']);
+  }
+
+  static bool _isReusableFunctionSchedule(ScheduledTask task) {
+    final suggestionData = task.suggestionData;
+    if (suggestionData == null) return false;
+    final functionId = suggestionData['oobFunctionId']?.toString().trim() ?? '';
+    return functionId.isNotEmpty;
   }
 
   static String? _firstNonBlank(Iterable<dynamic> values) {

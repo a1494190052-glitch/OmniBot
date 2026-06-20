@@ -50,8 +50,8 @@ void main() {
       suggestionData: const {
         'targetKind': 'subagent',
         'subagentPrompt': '每晚整理一下今天的新闻',
-        'toolProfile': 'function_management',
-        'allowedTools': ['oob_function_run'],
+        'oobFunctionId': 'daily_news',
+        'oobFunctionArguments': {'topic': 'news'},
       },
     );
 
@@ -67,7 +67,7 @@ void main() {
     expect(restored.subagentPrompt, '每晚整理一下今天的新闻');
     expect(restored.notificationEnabled, true);
     expect(restored.suggestionData?['targetKind'], 'subagent');
-    expect(restored.suggestionData?['toolProfile'], 'function_management');
-    expect(restored.suggestionData?['allowedTools'], ['oob_function_run']);
+    expect(restored.suggestionData?['oobFunctionId'], 'daily_news');
+    expect(restored.suggestionData?['oobFunctionArguments'], {'topic': 'news'});
   });
 }
