@@ -84,6 +84,23 @@ class OobOmniFlowLoopAcceptanceTest {
     }
 
     @Test
+    fun `default agent tool registry keeps OmniFlow management behind focused profile`() {
+        val context = TempFilesContext()
+        try {
+            val registry = AgentToolRegistry(context, discoveredServers = emptyList())
+
+            val names = registry.toolsForModel.map { it.function.name }.toSet()
+
+            assertTrue(names.contains("vlm_task"))
+            OobFunctionToolNames.profileTools.forEach { toolName ->
+                assertFalse("default registry must not expose $toolName", names.contains(toolName))
+            }
+        } finally {
+            context.root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `simple function registration builds structured spec and UDEG recall candidate`() = runBlocking {
         val context = TempFilesContext()
         try {
