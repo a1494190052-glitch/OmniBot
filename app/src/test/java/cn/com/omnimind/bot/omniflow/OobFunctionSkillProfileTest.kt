@@ -56,6 +56,49 @@ class OobFunctionSkillProfileTest {
         assertEquals("omniflow", OobFunctionSkillProfile.SKILL_ID)
     }
 
+    @Test
+    fun `prompt candidate context includes reusable function summaries without direct calls`() {
+        val prompt = OobFunctionSkillProfile.buildPromptCandidateContext(
+            candidates = listOf(
+                mapOf(
+                    "function_id" to "oob_fn_order_lunch",
+                    "name" to "点外卖",
+                    "description" to "打开外卖应用并复用常用午餐下单流程",
+                    "score" to 0.91,
+                    "metadata" to mapOf(
+                        "agent_reuse" to mapOf(
+                            "reuse_when" to "用户要点午餐或外卖",
+                            "success_signal" to "进入订单确认页"
+                        )
+                    ),
+                    "input_schema" to mapOf(
+                        "type" to "object",
+                        "properties" to mapOf(
+                            "restaurant" to mapOf(
+                                "type" to "string",
+                                "x_oob_bindings" to listOf("steps[0].args.text")
+                            ),
+                            "dish" to mapOf(
+                                "type" to "string",
+                                "x_oob_bindings" to listOf("steps[1].args.text")
+                            )
+                        )
+                    )
+                )
+            ),
+            locale = PromptLocale.ZH_CN
+        )
+
+        assertTrue(prompt.contains("候选复用指令"))
+        assertTrue(prompt.contains("`oob_fn_order_lunch`"))
+        assertTrue(prompt.contains("点外卖"))
+        assertTrue(prompt.contains("restaurant"))
+        assertTrue(prompt.contains("dish"))
+        assertTrue(prompt.contains("不要尝试调用 function_recall"))
+        assertTrue(prompt.contains("继续走 vlm_task"))
+        assertTrue(prompt.contains("oob_function_run"))
+    }
+
     private class MinimalContext : ContextWrapper(null) {
         override fun getApplicationContext(): Context = this
     }

@@ -83,8 +83,14 @@ object OobFunctionSkillProfile {
         }.onFailure {
             OmniLog.w("OobFunctionSkillProfile", "load prompt Function candidates failed: ${it.message}")
         }.getOrDefault(emptyList())
-        if (candidates.isEmpty()) return ""
+        return buildPromptCandidateContext(candidates, locale)
+    }
 
+    internal fun buildPromptCandidateContext(
+        candidates: List<Map<String, Any?>>,
+        locale: PromptLocale,
+    ): String {
+        if (candidates.isEmpty()) return ""
         return buildString {
             when (locale) {
                 PromptLocale.ZH_CN -> {
@@ -92,13 +98,18 @@ object OobFunctionSkillProfile {
                     appendLine("- Function 是可组合的复用片段；召回、runtime resolve 和重放由本地运行时处理。")
                     appendLine("- Function recall 是运行时内部流程，不是模型工具；不要尝试调用 function_recall、call_tool(function_id) 或隐藏 Function tool。")
                     appendLine("- 如需管理/查看已保存 Function，用 list/get/update/delete 工具；手机 UI 自动化继续走 vlm_task。")
+                    appendLine("- 候选复用指令（只作上下文；执行仍由 vlm_task 的本地 runtime 选择，或由显式复用指令 UI 调用 oob_function_run）：")
                 }
                 PromptLocale.EN_US -> {
                     appendLine("OmniFlow Function recall has been checked for this user goal.")
                     appendLine("- A Function is a saved mobile workflow segment; recall, runtime resolve, and replay are handled by the local runtime.")
                     appendLine("- Function recall is an internal runtime flow, not a model tool; do not call function_recall, call_tool(function_id), or hidden Function tools.")
                     appendLine("- Use list/get/update/delete tools to manage saved Functions. Continue phone UI automation through vlm_task.")
+                    appendLine("- Candidate reusable Functions (context only; execution is still selected by the local vlm_task runtime, or by explicit product UI through oob_function_run):")
                 }
+            }
+            candidates.forEachIndexed { index, spec ->
+                appendLine(formatPromptCandidate(index + 1, spec, locale))
             }
         }.trim()
     }
