@@ -26,7 +26,7 @@
       "description": "Use for OOB online VLM Android GUI automation, vlm_task execution, native tool_calls, prompt/tool schema debugging, indexed UI evidence, grounding, live action dispatch, and VLM RunLog latency/accuracy validation.",
       "assetPath": "builtin_skills/vlm-android-gui",
       "hasScripts": false,
-      "hasReferences": true,
+      "hasReferences": false,
       "hasAssets": false,
       "hasEvals": false
     },

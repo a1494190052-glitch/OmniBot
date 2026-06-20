@@ -253,6 +253,11 @@ class UnifiedOmniFlowExecutionPlanTest {
     @Test
     fun `builtin skills expose a single omniflow entry`() {
         val manifest = readSource("app/src/main/assets/builtin_skills/manifest.json")
+        val manifestMap = readJsonMap("app/src/main/assets/builtin_skills/manifest.json")
+        val manifestSkills = listMaps(manifestMap["skills"])
+        val skillIds = manifestSkills.mapNotNull { it["id"]?.toString() }.toSet()
+        val vlmManifest = manifestSkills.first { it["id"] == "vlm-android-gui" }
+        val omniflowManifest = manifestSkills.first { it["id"] == "omniflow" }
         val omniflow = readSource("app/src/main/assets/builtin_skills/omniflow/SKILL.md")
         val enhancement = readSource("app/src/main/assets/builtin_skills/omniflow/references/function-enhancement.md")
         val checkers = readSource("app/src/main/assets/builtin_skills/omniflow/references/checkers.md")
@@ -270,6 +275,12 @@ class UnifiedOmniFlowExecutionPlanTest {
 
         assertTrue(manifest.contains("\"id\": \"omniflow\""))
         assertTrue(manifest.contains("\"id\": \"vlm-android-gui\""))
+        assertTrue(skillIds.contains("omniflow"))
+        assertTrue(skillIds.contains("vlm-android-gui"))
+        assertFalse(vlmManifest["hasReferences"] == true)
+        assertFalse(sourceExists("app/src/main/assets/builtin_skills/vlm-android-gui/references"))
+        assertTrue(omniflowManifest["hasReferences"] == true)
+        assertTrue(sourceExists("app/src/main/assets/builtin_skills/omniflow/references"))
         assertFalse(manifest.contains("\"id\": \"oob-function-management\""))
         assertFalse(manifest.contains("\"id\": \"omniflow-function-enhancer\""))
         assertFalse(manifest.contains("\"id\": \"omniflow-checker-maintainer\""))
