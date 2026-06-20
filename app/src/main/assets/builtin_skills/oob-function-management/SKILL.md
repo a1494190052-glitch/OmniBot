@@ -1,6 +1,6 @@
 ---
 name: oob-function-management
-description: Compatibility-only retired entry for old OmniFlow Function management prompts. Do not trigger this skill directly; use omniflow for RunLog registration, "保存为复用指令", update_function, and reusable Function lifecycle work.
+description: Compatibility-only retired entry for old OmniFlow Function management prompts. Do not trigger this skill directly; use omniflow for RunLog registration, "保存为复用指令", "复用记忆", update_function, and reusable Function lifecycle work.
 ---
 
 # OmniFlow Function Management
