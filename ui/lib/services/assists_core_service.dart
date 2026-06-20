@@ -3403,19 +3403,11 @@ class AssistsMessageService {
     String? conversationMode,
     Map<String, dynamic>? localReplayResult,
   }) {
-    final normalizedFunctionId = functionId.trim();
-    final safeArguments = _jsonSafeMap(arguments);
-    final replayContext = localReplayResult == null
-        ? const <String, dynamic>{}
-        : _compactOobFunctionRunContext(localReplayResult);
-    final prompt = <String>[
-      '执行已保存的复用指令。',
-      'Function id: $normalizedFunctionId',
-      if (safeArguments.isNotEmpty) 'Arguments: ${jsonEncode(safeArguments)}',
-      if (replayContext.isNotEmpty) ...[
-        'Previous local replay result: ${jsonEncode(replayContext)}',
-      ],
-    ].join('\n');
+    final prompt = oobReusableFunctionAgentMessage(
+      functionId: functionId,
+      arguments: arguments,
+      localReplayResult: localReplayResult,
+    );
     return createAgentTask(
       taskId: taskId,
       userMessage: prompt,
@@ -3424,6 +3416,26 @@ class AssistsMessageService {
       toolProfile: 'function_management',
       allowedTools: const ['oob_function_run'],
     );
+  }
+
+  static String oobReusableFunctionAgentMessage({
+    required String functionId,
+    Map<String, dynamic> arguments = const {},
+    Map<String, dynamic>? localReplayResult,
+  }) {
+    final normalizedFunctionId = functionId.trim();
+    final safeArguments = _jsonSafeMap(arguments);
+    final replayContext = localReplayResult == null
+        ? const <String, dynamic>{}
+        : _compactOobFunctionRunContext(localReplayResult);
+    return <String>[
+      '执行已保存的复用指令。',
+      'Function id: $normalizedFunctionId',
+      if (safeArguments.isNotEmpty) 'Arguments: ${jsonEncode(safeArguments)}',
+      if (replayContext.isNotEmpty) ...[
+        'Previous local replay result: ${jsonEncode(replayContext)}',
+      ],
+    ].join('\n');
   }
 
   static Map<String, dynamic> _compactOobFunctionRunContext(

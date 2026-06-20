@@ -15,6 +15,20 @@ void main() {
   });
 
   group('OOB reusable Function execution bridge', () {
+    test('builds factual reusable Function Agent message for all UI entrypoints', () {
+      final message = AssistsMessageService.oobReusableFunctionAgentMessage(
+        functionId: ' search_settings ',
+        arguments: const {'keyword': 'wifi'},
+      );
+
+      expect(message, contains('执行已保存的复用指令。'));
+      expect(message, contains('Function id: search_settings'));
+      expect(message, contains('"keyword":"wifi"'));
+      expect(message, isNot(contains('runtime_resolve_goal')));
+      expect(message, isNot(contains('只使用 oob_function_run')));
+      expect(message, isNot(contains('Use the oob_function_run')));
+    });
+
     test('starts agent managed execution with focused Function tool', () async {
       final calls = <MethodCall>[];
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger

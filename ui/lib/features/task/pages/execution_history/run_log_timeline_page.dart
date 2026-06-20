@@ -4141,7 +4141,10 @@ class _ReusableFunctionSpecSheetState
   Map<String, dynamic> _scheduleSuggestionData(String functionId) {
     return {
       'targetKind': 'subagent',
-      'subagentPrompt': _scheduledFunctionPrompt(functionId),
+      'subagentPrompt': AssistsMessageService.oobReusableFunctionAgentMessage(
+        functionId: functionId,
+        arguments: _defaultArguments,
+      ),
       'toolProfile': 'function_management',
       'allowedTools': const ['oob_function_run'],
       'notificationEnabled': true,
@@ -4150,22 +4153,6 @@ class _ReusableFunctionSpecSheetState
       'oobFunctionId': functionId,
       'oobFunctionArguments': _defaultArguments,
     };
-  }
-
-  String _scheduledFunctionPrompt(String functionId) {
-    final argumentsJson = _prettyUserJson(_defaultArguments);
-    if (_localeValue(context, zh: false, en: true)) {
-      return [
-        'Execute the saved reusable Function.',
-        'Function id: $functionId',
-        if (_defaultArguments.isNotEmpty) 'Arguments: $argumentsJson',
-      ].join('\n');
-    }
-    return [
-      '执行已保存的复用指令。',
-      'Function id: $functionId',
-      if (_defaultArguments.isNotEmpty) 'Arguments: $argumentsJson',
-    ].join('\n');
   }
 
   String get _packageNameForSchedule {
