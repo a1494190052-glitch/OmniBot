@@ -67,7 +67,7 @@ class McpToolDefinitionsTest {
         OobFunctionToolNames.RUN_LOG_CONVERT to "OobFunctionToolNames.RUN_LOG_CONVERT",
     )
 
-    private val omniFlowDispatchedToolNames = OobFunctionToolNames.profileTools + setOf(
+    private val omniFlowDispatchedToolNames = OobFunctionToolNames.mcpLifecycleTools + setOf(
         "omniflow.recall",
         "omniflow.ingest_run_log",
         "omniflow.explore_replay",
@@ -297,7 +297,7 @@ class McpToolDefinitionsTest {
     @Test
     fun functionManagementDescriptionsUseRuntimeOwnedOmniFlowLanguage() {
         val descriptions = McpToolDefinitions.fixedTools
-            .filter { (it["name"] as? String) in OobFunctionToolNames.profileTools }
+            .filter { (it["name"] as? String) in OobFunctionToolNames.mcpLifecycleTools }
             .joinToString("\n") { it["description"].toString() }
 
         assertTrue(descriptions.contains("OmniFlow Function"))

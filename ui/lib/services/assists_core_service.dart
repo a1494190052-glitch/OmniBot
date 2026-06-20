@@ -3395,6 +3395,30 @@ class AssistsMessageService {
     return UtgManualRunResult.fromMap(_jsonSafeDynamicMap(result));
   }
 
+  static Future<bool> runOobReusableFunctionWithAgent({
+    required String taskId,
+    required String functionId,
+    Map<String, dynamic> arguments = const {},
+    int? conversationId,
+    String? conversationMode,
+  }) {
+    final normalizedFunctionId = functionId.trim();
+    final safeArguments = _jsonSafeMap(arguments);
+    final prompt = <String>[
+      '执行已保存的复用指令。',
+      'Function id: $normalizedFunctionId',
+      if (safeArguments.isNotEmpty) 'Arguments: ${jsonEncode(safeArguments)}',
+    ].join('\n');
+    return createAgentTask(
+      taskId: taskId,
+      userMessage: prompt,
+      conversationId: conversationId,
+      conversationMode: conversationMode,
+      toolProfile: 'function_management',
+      allowedTools: const ['oob_function_run'],
+    );
+  }
+
   static Map<String, dynamic> _jsonSafeMap(Map<String, dynamic> value) {
     final safe = _jsonSafeValue(value);
     if (safe is Map<String, dynamic>) {

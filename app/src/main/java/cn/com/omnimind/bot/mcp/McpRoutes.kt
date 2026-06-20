@@ -239,7 +239,7 @@ object McpRoutes {
     }
 
     private val OMNIFLOW_MCP_TOOL_NAMES: Set<String> =
-        OobFunctionToolNames.profileTools + setOf(
+        OobFunctionToolNames.mcpLifecycleTools + setOf(
             "omniflow.recall",
             "omniflow.ingest_run_log",
             "omniflow.explore_replay",

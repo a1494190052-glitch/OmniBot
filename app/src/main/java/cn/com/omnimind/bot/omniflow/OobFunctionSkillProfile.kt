@@ -293,6 +293,38 @@ object OobFunctionSkillProfile {
         }
     }
 
+    private val oobFunctionRunTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", OobFunctionToolNames.FUNCTION_RUN)
+            put("displayName", "执行复用指令")
+            put("toolType", "oob_function")
+            put("description", "通过 Agent tool 执行一个已注册的 OmniFlow 复用指令。只在用户明确选择/要求执行指定复用指令时使用；普通手机自动化仍优先调用 vlm_task，让本地 runtime 自动 recall 和 replay。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("function_id") {
+                        put("type", "string")
+                        put("description", "要执行的复用指令 Function id。")
+                    }
+                    putJsonObject("arguments") {
+                        put("type", "object")
+                        put("description", "公开参数名到值的映射。")
+                    }
+                    putJsonObject("runtime_resolve_goal") {
+                        put("type", "string")
+                        put("description", "可选。复用过程中需要一次 bounded runtime resolve 时使用的用户目标。")
+                    }
+                    putJsonObject("runtime_resolve_budget") {
+                        put("type", "integer")
+                        put("description", "可选。允许 runtime resolve 的次数，默认由本地 runtime 控制。")
+                    }
+                }
+                putJsonArray("required") { add("function_id") }
+            }
+        }
+    }
+
     private val updateFunctionTool: JsonObject = buildJsonObject {
         put("type", "function")
         putJsonObject("function") {
@@ -393,6 +425,7 @@ object OobFunctionSkillProfile {
         oobFunctionListTool,
         oobFunctionGetTool,
         oobFunctionRegisterTool,
+        oobFunctionRunTool,
         updateFunctionTool,
         oobFunctionDeleteTool,
         oobFunctionClearTool,

@@ -146,6 +146,7 @@ class OobFunctionToolHandler(
     private fun lifecycleProgress(toolName: String): String = when (toolName) {
         OobFunctionToolNames.FUNCTION_UPDATE -> "正在更新复用指令"
         OobFunctionToolNames.FUNCTION_REGISTER -> "正在注册复用指令"
+        OobFunctionToolNames.FUNCTION_RUN -> "正在执行复用指令"
         OobFunctionToolNames.FUNCTION_GET -> "正在读取复用指令"
         OobFunctionToolNames.FUNCTION_LIST -> "正在读取复用指令列表"
         OobFunctionToolNames.RUN_LOG_GET -> "正在读取 RunLog"
@@ -172,6 +173,13 @@ class OobFunctionToolHandler(
                 }
             }
             OobFunctionToolNames.FUNCTION_REGISTER -> "复用指令已注册。"
+            OobFunctionToolNames.FUNCTION_RUN -> {
+                if (payload["success"] == true) {
+                    "复用指令执行完成。"
+                } else {
+                    "复用指令执行失败。"
+                }
+            }
             OobFunctionToolNames.RUN_LOG_CONVERT -> "RunLog 转换完成。"
             OobFunctionToolNames.FUNCTION_GET -> "已读取复用指令。"
             OobFunctionToolNames.FUNCTION_LIST -> "已读取复用指令列表。"

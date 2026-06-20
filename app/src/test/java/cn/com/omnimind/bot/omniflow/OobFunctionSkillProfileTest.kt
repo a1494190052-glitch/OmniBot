@@ -34,7 +34,7 @@ class OobFunctionSkillProfileTest {
     }
 
     @Test
-    fun `function management profile exposes lifecycle tools only`() {
+    fun `function management profile exposes agent managed function tools`() {
         val toolNames = OobFunctionSkillProfile.staticToolDefinitions(PromptLocale.EN_US)
             .mapNotNull { definition ->
                 (definition["function"] as? JsonObject)
@@ -45,6 +45,7 @@ class OobFunctionSkillProfileTest {
             .toSet()
 
         assertEquals(OobFunctionToolNames.profileTools, toolNames)
+        assertTrue(toolNames.contains(OobFunctionToolNames.FUNCTION_RUN))
         assertFalse(toolNames.contains(RunLogReplayPolicy.TOOL_CALL_TOOL))
         assertFalse(toolNames.any { it.startsWith("omniflow.call") })
     }

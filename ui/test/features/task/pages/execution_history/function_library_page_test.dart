@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -902,11 +900,10 @@ void main() {
   });
 
   testWidgets(
-    'Reusable Function run button invokes local execution and shows running state',
+    'Reusable Function run button starts agent managed execution',
     (tester) async {
-      final runCompleter = Completer<Map<String, dynamic>>();
       final methodCalls = <MethodCall>[];
-      var runCalls = 0;
+      var agentRunCalls = 0;
 
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(assistCoreChannel, (call) async {
@@ -936,9 +933,9 @@ void main() {
                 ],
               };
             }
-            if (call.method == 'runOobReusableFunction') {
-              runCalls += 1;
-              return runCompleter.future;
+            if (call.method == 'createAgentTask') {
+              agentRunCalls += 1;
+              return 'SUCCESS';
             }
             if (call.method == 'getOobReusableFunction') {
               return <String, dynamic>{
@@ -968,69 +965,19 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('执行'));
-      await tester.pump();
-
-      expect(runCalls, 1);
-      expect(find.text('执行中'), findsOneWidget);
-      expect(find.textContaining('复用指令执行中'), findsOneWidget);
-      expect(find.textContaining('准备执行复用指令'), findsOneWidget);
-      final runCall = methodCalls.singleWhere(
-        (call) => call.method == 'runOobReusableFunction',
-      );
-      expect(
-        Map<String, dynamic>.from(runCall.arguments as Map)['function_id'],
-        'open_settings',
-      );
-      expect(
-        Map<String, dynamic>.from(
-          Map<String, dynamic>.from(runCall.arguments as Map)['arguments']
-              as Map,
-        ),
-        containsPair('package_name', 'com.android.settings'),
-      );
-
-      runCompleter.complete(<String, dynamic>{
-        'success': true,
-        'function_id': 'open_settings',
-        'goal': 'oob_reusable_function_run:open_settings',
-        'timing': <String, dynamic>{
-          'started_at_ms': 1700000000000,
-          'finished_at_ms': 1700000002450,
-          'runner_duration_ms': 2450,
-          'phase_ms': <String, dynamic>{
-            'parse_request_ms': 3,
-            'read_current_package_ms': 4,
-            'read_current_page_ms': 5,
-            'page_match_ms': 6,
-            'rank_functions_ms': 7,
-            'segment_match_ms': 8,
-          },
-        },
-        'execution_status': 'completed_local',
-        'terminal_state': <String, dynamic>{
-          'status': 'completed_local',
-          'execution_status': 'completed_local',
-        },
-        'context': <String, dynamic>{
-          'step_results': <Map<String, dynamic>>[
-            <String, dynamic>{
-              'success': true,
-              'tool': 'open_app',
-              'executor': 'omniflow',
-              'duration_ms': 120,
-              'compile_kind': 'hit',
-              'compile_result': <String, dynamic>{
-                'compile_status': 'hit',
-                'function_id': 'open_settings',
-              },
-            },
-          ],
-        },
-      });
       await tester.pumpAndSettle();
 
-      expect(find.text('复用指令执行结果'), findsNothing);
+      expect(agentRunCalls, 1);
+      final agentCall = methodCalls.singleWhere(
+        (call) => call.method == 'createAgentTask',
+      );
+      final agentArgs = Map<String, dynamic>.from(agentCall.arguments as Map);
+      expect(agentArgs['toolProfile'], 'function_management');
+      expect(agentArgs['allowedTools'], contains('oob_function_run'));
+      expect(agentArgs['userMessage'], contains('Function id: open_settings'));
+      expect(agentArgs['userMessage'], contains('com.android.settings'));
 
+      expect(find.text('复用指令执行结果'), findsNothing);
       expect(find.text('执行'), findsOneWidget);
       expect(find.textContaining('复用指令执行中'), findsNothing);
     },
@@ -1081,19 +1028,8 @@ void main() {
               ],
             };
           }
-          if (call.method == 'runOobReusableFunction') {
-            return <String, dynamic>{
-              'success': true,
-              'function_id': 'search_settings',
-              'execution_status': 'completed_local',
-              'terminal_state': <String, dynamic>{
-                'status': 'completed_local',
-                'execution_status': 'completed_local',
-              },
-              'context': <String, dynamic>{
-                'step_results': <Map<String, dynamic>>[],
-              },
-            };
+          if (call.method == 'createAgentTask') {
+            return 'SUCCESS';
           }
           return null;
         });
@@ -1122,15 +1058,14 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, '执行'));
     await tester.pumpAndSettle();
 
-    final runCall = methodCalls.singleWhere(
-      (call) => call.method == 'runOobReusableFunction',
+    final agentCall = methodCalls.singleWhere(
+      (call) => call.method == 'createAgentTask',
     );
-    final runArgs = Map<String, dynamic>.from(runCall.arguments as Map);
-    expect(runArgs['function_id'], 'search_settings');
-    expect(
-      Map<String, dynamic>.from(runArgs['arguments'] as Map),
-      containsPair('query', 'wifi'),
-    );
+    final agentArgs = Map<String, dynamic>.from(agentCall.arguments as Map);
+    expect(agentArgs['toolProfile'], 'function_management');
+    expect(agentArgs['allowedTools'], contains('oob_function_run'));
+    expect(agentArgs['userMessage'], contains('Function id: search_settings'));
+    expect(agentArgs['userMessage'], contains('"query":"wifi"'));
     expect(find.text('复用指令执行结果'), findsNothing);
   });
 
@@ -1138,7 +1073,6 @@ void main() {
     tester,
   ) async {
     final methodCalls = <MethodCall>[];
-    final runCompleter = Completer<Map<String, dynamic>>();
     var deleted = false;
 
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -1200,8 +1134,8 @@ void main() {
               },
             };
           }
-          if (call.method == 'runOobReusableFunction') {
-            return runCompleter.future;
+          if (call.method == 'createAgentTask') {
+            return 'SUCCESS';
           }
           if (call.method == 'deleteOobReusableFunction') {
             deleted = true;
@@ -1253,38 +1187,15 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('执行'));
-    await tester.pump();
-
-    expect(find.text('执行中'), findsOneWidget);
-    expect(find.textContaining('复用指令执行中'), findsOneWidget);
-    expect(find.textContaining('准备执行复用指令'), findsOneWidget);
-    final runCall = methodCalls.singleWhere(
-      (call) => call.method == 'runOobReusableFunction',
-    );
-    expect(
-      Map<String, dynamic>.from(runCall.arguments as Map)['function_id'],
-      'open_settings',
-    );
-
-    runCompleter.complete(<String, dynamic>{
-      'success': true,
-      'function_id': 'open_settings',
-      'execution_status': 'completed_local',
-      'terminal_state': <String, dynamic>{
-        'status': 'completed_local',
-        'execution_status': 'completed_local',
-      },
-      'context': <String, dynamic>{
-        'step_results': <Map<String, dynamic>>[
-          <String, dynamic>{
-            'success': true,
-            'tool': 'open_app',
-            'executor': 'omniflow',
-          },
-        ],
-      },
-    });
     await tester.pumpAndSettle();
+
+    final agentCall = methodCalls.singleWhere(
+      (call) => call.method == 'createAgentTask',
+    );
+    final agentArgs = Map<String, dynamic>.from(agentCall.arguments as Map);
+    expect(agentArgs['toolProfile'], 'function_management');
+    expect(agentArgs['allowedTools'], contains('oob_function_run'));
+    expect(agentArgs['userMessage'], contains('Function id: open_settings'));
 
     expect(find.text('复用指令执行结果'), findsNothing);
 

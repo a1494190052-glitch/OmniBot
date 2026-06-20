@@ -230,30 +230,20 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
       if (!mounted) return;
       final arguments = await _resolveRunArguments(context, spec);
       if (!mounted || arguments == null) return;
-      final result = await AssistsMessageService.runOobReusableFunction(
+      final started = await AssistsMessageService.runOobReusableFunctionWithAgent(
+        taskId: 'oob-function-run-${DateTime.now().millisecondsSinceEpoch}',
         functionId: group.primary.functionId,
         arguments: arguments,
       );
       if (!mounted) return;
       showToast(
-        result.success
-            ? _runSuccessMessage(context, result)
-            : _runFailureMessage(context, result),
-        type: result.success ? ToastType.success : ToastType.error,
+        started
+            ? _text(context, '复用指令已交给 Agent 执行', 'Reusable command is running in Agent')
+            : _text(context, '复用指令执行启动失败', 'Failed to start reusable command'),
+        type: started ? ToastType.success : ToastType.error,
         duration: const Duration(seconds: 3),
       );
       if (mounted) setState(() => _runningIds.remove(group.signature));
-      if (!result.success && mounted) {
-        await showFunctionRunResultSheet(
-          context,
-          result: result,
-          title: _text(context, '复用指令执行结果', 'Reusable command result'),
-          arguments: arguments,
-        );
-      }
-      if (result.success && mounted) {
-        await _load();
-      }
     } catch (e) {
       if (!mounted) return;
       showToast(e.toString(), type: ToastType.error);
