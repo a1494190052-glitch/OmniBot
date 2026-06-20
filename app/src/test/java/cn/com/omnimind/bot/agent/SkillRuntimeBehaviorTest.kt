@@ -247,6 +247,11 @@ class SkillRuntimeBehaviorTest {
         )
 
         retiredIds.forEach { skillId ->
+            assertEquals("omniflow", resolveRetiredBuiltinSkillAlias(skillId))
+            assertEquals(
+                "omniflow",
+                resolveRetiredBuiltinSkillAlias("/workspace/.omnibot/skills/$skillId/SKILL.md")
+            )
             assertTrue(
                 "Expected retired builtin to be hidden without registry source: $skillId",
                 shouldHideRetiredBuiltinSkill(skillId, null)
@@ -266,6 +271,8 @@ class SkillRuntimeBehaviorTest {
         }
 
         assertFalse(shouldHideRetiredBuiltinSkill("omniflow", null))
+        assertEquals("omniflow", resolveRetiredBuiltinSkillAlias("omniflow"))
+        assertEquals("custom-skill", resolveRetiredBuiltinSkillAlias("custom-skill"))
     }
 
     @Test

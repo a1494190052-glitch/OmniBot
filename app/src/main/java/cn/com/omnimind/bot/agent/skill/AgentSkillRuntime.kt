@@ -28,8 +28,35 @@ private val RETIRED_BUILTIN_SKILL_IDS = setOf(
     "vlm-android-gui"
 )
 
+private val RETIRED_BUILTIN_SKILL_ALIAS_TARGETS = RETIRED_BUILTIN_SKILL_IDS
+    .associateWith { "omniflow" }
+
 internal fun shouldHideRetiredBuiltinSkill(skillId: String, source: String?): Boolean {
     return skillId in RETIRED_BUILTIN_SKILL_IDS && source != USER_SOURCE
+}
+
+internal fun resolveRetiredBuiltinSkillAlias(identifier: String): String {
+    val normalizedIdentifier = normalizeSkillLookupForAlias(identifier)
+    if (normalizedIdentifier.isBlank()) return identifier
+    return RETIRED_BUILTIN_SKILL_ALIAS_TARGETS.entries
+        .firstOrNull { (retiredId, _) ->
+            val normalizedRetiredId = normalizeSkillLookupForAlias(retiredId)
+            normalizedIdentifier == normalizedRetiredId ||
+                normalizedIdentifier.endsWith("/$normalizedRetiredId")
+        }
+        ?.value
+        ?: identifier
+}
+
+private fun normalizeSkillLookupForAlias(value: String): String {
+    return value.trim()
+        .lowercase()
+        .replace('\\', '/')
+        .removeSuffix("/skill.md")
+        .removeSuffix("/")
+        .replace(Regex("\\s+"), "")
+        .replace("-", "")
+        .replace("_", "")
 }
 
 private data class BuiltinSkillManifest(
@@ -329,7 +356,7 @@ class SkillIndexService(
         identifier: String,
         includeDisabled: Boolean
     ): SkillIndexEntry? {
-        val normalizedIdentifier = normalizeSkillLookup(identifier)
+        val normalizedIdentifier = normalizeSkillLookup(resolveRetiredBuiltinSkillAlias(identifier))
         if (normalizedIdentifier.isBlank()) return null
         val entries = listSkillsForManagement().filter { entry ->
             entry.installed && (includeDisabled || entry.enabled)
@@ -634,14 +661,7 @@ class SkillIndexService(
     }
 
     private fun normalizeSkillLookup(value: String): String {
-        return value.trim()
-            .lowercase()
-            .replace('\\', '/')
-            .removeSuffix("/skill.md")
-            .removeSuffix("/")
-            .replace(Regex("\\s+"), "")
-            .replace("-", "")
-            .replace("_", "")
+        return normalizeSkillLookupForAlias(value)
     }
 
     private fun sourceRank(source: String): Int {
