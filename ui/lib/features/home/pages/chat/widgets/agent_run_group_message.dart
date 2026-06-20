@@ -139,8 +139,6 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
     final visibleMessages = widget.group.visibleMessagesOldestFirst;
     final hasProcessMessages = processMessages.isNotEmpty;
     final isRunLogOnly = widget.group.isRunLogOnly;
-    final showRunLogButton =
-        !widget.group.isActiveRun && widget.group.runLogId.trim().isNotEmpty;
     final showProcessToggle = hasProcessMessages;
 
     return Column(
@@ -164,7 +162,6 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
               ? () => _openRunLog(context)
               : null,
           showToggle: showProcessToggle,
-          showRunLogButton: showRunLogButton,
         ),
         _buildAnimatedProcessSection(processMessages),
         ...visibleMessages.map(
@@ -313,7 +310,6 @@ class _AgentRunSummaryHeader extends StatelessWidget {
     required this.isRunLogOnly,
     required this.onTap,
     required this.showToggle,
-    required this.showRunLogButton,
   });
 
   final AgentRunTimelineGroup group;
@@ -328,7 +324,6 @@ class _AgentRunSummaryHeader extends StatelessWidget {
   final bool isRunLogOnly;
   final VoidCallback? onTap;
   final bool showToggle;
-  final bool showRunLogButton;
 
   @override
   Widget build(BuildContext context) {
@@ -446,15 +441,6 @@ class _AgentRunSummaryHeader extends StatelessWidget {
                     },
                   ),
                 ),
-                if (showRunLogButton) ...[
-                  const SizedBox(width: 6),
-                  _RunLogHeaderButton(
-                    key: ValueKey('agent-run-runlog-$taskId'),
-                    taskId: taskId,
-                    runLogId: runLogId,
-                    iconColor: labelColor,
-                  ),
-                ],
                 if (showToggle) ...[
                   const SizedBox(width: 8),
                   AnimatedRotation(

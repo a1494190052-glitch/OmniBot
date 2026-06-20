@@ -1075,7 +1075,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('multi-step VLM card opens full RunLog from one click', (
+  testWidgets('multi-step VLM card keeps RunLog shortcut out of header', (
     tester,
   ) async {
     final controller = ScrollController();
@@ -1103,16 +1103,14 @@ void main() {
     expect(find.byType(AgentToolSummaryCard), findsNWidgets(2));
     expect(find.text('查看完整 RunLog'), findsNothing);
     expect(find.text('输入 hello'), findsOneWidget);
-
-    await tester.tap(find.byKey(const ValueKey('agent-run-runlog-task-vlm')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('暂无步骤数据'), findsOneWidget);
-    expect(find.textContaining('没有工具调用'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('agent-run-runlog-task-vlm')),
+      findsNothing,
+    );
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('VLM run header exposes full runlog without expanding steps', (
+  testWidgets('VLM run header uses main-like process toggle only', (
     tester,
   ) async {
     final controller = ScrollController();
@@ -1135,22 +1133,21 @@ void main() {
 
     expect(
       find.byKey(const ValueKey('agent-run-runlog-task-vlm')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('agent-run-process-task-vlm')),
+      findsNothing,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('agent-run-summary-task-vlm')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+
+    expect(
+      find.byKey(const ValueKey('agent-run-process-task-vlm')),
       findsOneWidget,
     );
-    expect(
-      find.byKey(const ValueKey('agent-run-process-task-vlm')),
-      findsNothing,
-    );
-
-    await tester.tap(find.byKey(const ValueKey('agent-run-runlog-task-vlm')));
-    await tester.pumpAndSettle();
-
-    expect(
-      find.byKey(const ValueKey('agent-run-process-task-vlm')),
-      findsNothing,
-    );
-    expect(find.text('暂无步骤数据'), findsOneWidget);
-    expect(find.textContaining('没有工具调用'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

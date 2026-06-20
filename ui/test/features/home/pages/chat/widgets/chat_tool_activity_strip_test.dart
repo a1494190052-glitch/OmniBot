@@ -681,7 +681,7 @@ void main() {
     },
   );
 
-  testWidgets('VLM activity row exposes full RunLog affordance', (
+  testWidgets('VLM activity row keeps RunLog affordance out of default UI', (
     tester,
   ) async {
     final messages = [
@@ -723,8 +723,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Settings'), findsOneWidget);
-    expect(find.byIcon(Icons.description_outlined), findsOneWidget);
-    expect(find.byTooltip('查看完整执行记录'), findsOneWidget);
+    expect(find.byIcon(Icons.description_outlined), findsNothing);
+    expect(find.byTooltip('查看完整执行记录'), findsNothing);
   });
 
   testWidgets('running-only strip hides completed tool cards entirely', (

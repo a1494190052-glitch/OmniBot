@@ -42,7 +42,6 @@ const double _kToolActivityDrawerHorizontalPadding = 6;
 const double _kToolActivityDrawerVerticalPadding = 6;
 const double _kToolActivityDrawerMaxHeight = 264;
 const double _kToolActivityStatusSlotWidth = 48;
-const double _kToolActivityRunLogSlotWidth = 22;
 const double _kToolActivityTrailingSlotWidth = 24;
 const double _kToolActivityAccentWidth = 3;
 const double _kToolActivityAccentGap = 7;
@@ -700,9 +699,7 @@ class _ActivityDrawerSurface extends StatelessWidget {
             crossFadeState: expanded
                 ? CrossFadeState.showSecond
                 : CrossFadeState.showFirst,
-            firstChild: const SizedBox.shrink(
-              key: ValueKey('collapsed-panel'),
-            ),
+            firstChild: const SizedBox.shrink(key: ValueKey('collapsed-panel')),
             secondChild: SizedBox(
               height: historyHeight,
               child: _HistoryDrawer(
@@ -1003,14 +1000,12 @@ class ToolActivityRow extends StatelessWidget {
     this.leadingInset = 0,
     this.onTap,
     this.trailing,
-    this.showRunLogButton = true,
   });
 
   final Map<String, dynamic> card;
   final double leadingInset;
   final VoidCallback? onTap;
   final Widget? trailing;
-  final bool showRunLogButton;
 
   @override
   Widget build(BuildContext context) {
@@ -1025,9 +1020,6 @@ class ToolActivityRow extends StatelessWidget {
         : Color.lerp(AppColors.text, activityColor, 0.12)!;
     final status = (card['status'] ?? 'running').toString();
     final statusLabel = resolveAgentToolStatusLabel(card, locale: locale);
-    final runLogId = showRunLogButton
-        ? AgentToolCardPolicy.runLogRef(card).runLogId
-        : '';
     final rowBackgroundColor = context.isDarkTheme
         ? Color.alphaBlend(
             activityColor.withValues(alpha: 0.10),
@@ -1108,11 +1100,6 @@ class ToolActivityRow extends StatelessWidget {
                             ),
                           ),
                         ),
-                        if (runLogId.isNotEmpty)
-                          SizedBox(
-                            width: _kToolActivityRunLogSlotWidth,
-                            child: _RunLogActivityButton(runLogId: runLogId),
-                          ),
                       ],
                     ),
                   ),
@@ -1183,32 +1170,6 @@ class _ActivityRowText extends StatelessWidget {
             ),
           ),
       ],
-    );
-  }
-}
-
-class _RunLogActivityButton extends StatelessWidget {
-  const _RunLogActivityButton({required this.runLogId});
-
-  final String runLogId;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = context.isDarkTheme
-        ? context.omniPalette.textSecondary
-        : const Color(0xFF657891);
-    return Tooltip(
-      message: AppTextLocalizer.text(
-        '查看完整执行记录',
-        locale: Localizations.localeOf(context),
-      ),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => showRunLogTimelineSheet(context, runId: runLogId),
-        child: Center(
-          child: Icon(Icons.description_outlined, size: 14, color: color),
-        ),
-      ),
     );
   }
 }
