@@ -27,6 +27,10 @@ private val RETIRED_BUILTIN_SKILL_IDS = setOf(
     "oob-function-management"
 )
 
+internal fun shouldHideRetiredBuiltinSkill(skillId: String, source: String?): Boolean {
+    return skillId in RETIRED_BUILTIN_SKILL_IDS && source != USER_SOURCE
+}
+
 private data class BuiltinSkillManifest(
     val skills: List<BuiltinSkillAsset> = emptyList()
 )
@@ -552,7 +556,7 @@ class SkillIndexService(
         if (registryState?.source == BUILTIN_SOURCE && builtinAsset == null) {
             return null
         }
-        if (id in RETIRED_BUILTIN_SKILL_IDS && registryState?.source != USER_SOURCE) {
+        if (shouldHideRetiredBuiltinSkill(id, registryState?.source)) {
             return null
         }
         val shellRootPath = workspaceManager.shellPathForAndroid(canonicalSkillDir)

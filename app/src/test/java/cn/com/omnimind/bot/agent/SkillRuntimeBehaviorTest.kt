@@ -178,6 +178,37 @@ class SkillRuntimeBehaviorTest {
     }
 
     @Test
+    fun retiredOmniFlowBuiltinSkillsAreHiddenUnlessUserInstalled() {
+        val retiredIds = listOf(
+            "oob-function-management",
+            "omniflow-function-enhancer",
+            "omniflow-checker-maintainer"
+        )
+
+        retiredIds.forEach { skillId ->
+            assertTrue(
+                "Expected retired builtin to be hidden without registry source: $skillId",
+                shouldHideRetiredBuiltinSkill(skillId, null)
+            )
+            assertTrue(
+                "Expected retired builtin to be hidden when it came from bundled assets: $skillId",
+                shouldHideRetiredBuiltinSkill(skillId, "builtin")
+            )
+            assertTrue(
+                "Expected retired builtin to be hidden when it came from official sync: $skillId",
+                shouldHideRetiredBuiltinSkill(skillId, "official")
+            )
+            assertFalse(
+                "User-installed skills are user content and must not be hidden: $skillId",
+                shouldHideRetiredBuiltinSkill(skillId, "user")
+            )
+        }
+
+        assertFalse(shouldHideRetiredBuiltinSkill("omniflow", null))
+        assertFalse(shouldHideRetiredBuiltinSkill("vlm-android-gui", "builtin"))
+    }
+
+    @Test
     fun builtinHatchPetSkillKeepsStandardPetOutputContract() {
         val skillFile = File("src/main/assets/builtin_skills/hatch-pet/SKILL.md")
         val text = skillFile.readText()
