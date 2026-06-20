@@ -273,6 +273,7 @@ class UnifiedOmniFlowExecutionPlanTest {
             "app/src/main/assets/builtin_skills/omniflow-checker-maintainer/agents/openai.yaml",
             "app/src/main/assets/builtin_skills/omniflow-function-enhancer/references/enhancement-rubric.md",
             "app/src/main/assets/builtin_skills/omniflow-function-enhancer/references/runtime-contract.md",
+            "app/src/main/assets/builtin_skills/vlm-android-gui/SKILL.md",
         )
 
         assertTrue(manifest.contains("\"id\": \"omniflow\""))
