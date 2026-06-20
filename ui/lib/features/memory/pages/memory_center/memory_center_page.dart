@@ -1315,7 +1315,7 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
                   tabIndex: _cloudMemoryTab,
                 ),
                 _buildMemoryTabButton(
-                  label: _chooseMemoryTabText(zh: '复用指令', en: 'Reusable'),
+                  label: context.l10n.memoryCommandsTitle,
                   tabIndex: _reusableCommandTab,
                 ),
               ],
