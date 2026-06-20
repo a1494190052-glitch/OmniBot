@@ -50,9 +50,10 @@ it must not block direct replay or the second-run recall fast path.
 - If an action produces no expected state change, re-ground on the latest observation instead of repeating the same action.
 - Keep claims tied to returned tool results, RunLog entries, or Function replay output.
 
-## Useful Tooling
+## Tool Boundary
 
-- `vlm_task`: live device automation.
-- `oob_function_list`, `oob_function_get`, `oob_function_register`, `update_function`, `oob_function_delete`, `oob_function_clear`: reusable Function lifecycle.
-- `oob_run_log_list`, `oob_run_log_get`, `oob_run_log_convert`: RunLog inspection and conversion.
-- `omniflow.recall`, `omniflow.ingest_run_log`, `omniflow.explore_replay`: OmniFlow recall, ingestion, and replay exploration.
+- `vlm_task` is the online device-automation entry for this skill and the only
+  model-visible action entry it should point the Agent toward.
+- For RunLog inspection, Function lifecycle, replay debugging, checker design,
+  or offline enhancement, switch to the `omniflow` skill instead of listing or
+  calling those management tools from this VLM skill.

@@ -219,6 +219,14 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(skill.contains("Enhancement is an explicit offline/background maintenance"))
         assertTrue(skill.contains("must not block direct replay"))
         assertTrue(skill.contains("second-run recall fast path"))
+        assertTrue(skill.contains("Tool Boundary"))
+        assertTrue(skill.contains("`vlm_task` is the online device-automation entry"))
+        assertTrue(skill.contains("only"))
+        assertTrue(skill.contains("model-visible action entry"))
+        assertTrue(skill.contains("switch to the `omniflow` skill"))
+        assertFalse(skill.contains("`oob_function_list`"))
+        assertFalse(skill.contains("`oob_run_log_list`"))
+        assertFalse(skill.contains("`omniflow.recall`"))
     }
 
     @Test
