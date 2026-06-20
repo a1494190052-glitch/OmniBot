@@ -174,24 +174,21 @@ data class ResolvedSkillContext(
     }
 
     fun vlmStepGuidance(maxChars: Int = 900): String {
-        val base = if (isOobGuiAutomationSkill()) {
-            VLM_ANDROID_GUI_COMPACT_GUIDANCE
+        val base = if (isOmniFlowSkill()) {
+            OMNIFLOW_COMPACT_GUIDANCE
         } else {
             ""
         }
         return if (base.length <= maxChars) base else base.take(maxChars) + "\n..."
     }
 
-    private fun isOobGuiAutomationSkill(): Boolean {
+    private fun isOmniFlowSkill(): Boolean {
         val skillName = frontmatter["name"].orEmpty()
-        return skillId == "omniflow" ||
-            skillName == "omniflow" ||
-            skillId == "vlm-android-gui" ||
-            skillName == "vlm-android-gui"
+        return skillId == "omniflow" || skillName == "omniflow"
     }
 
     private companion object {
-        private val VLM_ANDROID_GUI_COMPACT_GUIDANCE = listOf(
+        private val OMNIFLOW_COMPACT_GUIDANCE = listOf(
             "Use one fresh observation for each action turn.",
             "Choose exactly one executable UI action per step.",
             "Prefer visible label, role, node_id, element_index, or scrollable_index; use coordinates only as fallback.",

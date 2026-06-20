@@ -141,6 +141,18 @@ class SkillRuntimeBehaviorTest {
     }
 
     @Test
+    fun vlmStepGuidanceDoesNotTreatRetiredVlmSkillAsSeparateEntry() {
+        val skill = ResolvedSkillContext(
+            skillId = "vlm-android-gui",
+            frontmatter = mapOf("name" to "vlm-android-gui"),
+            bodyMarkdown = "# Retired VLM skill",
+            triggerReason = "test"
+        )
+
+        assertEquals("", skill.vlmStepGuidance())
+    }
+
+    @Test
     fun resolveMatchesHatchPetFromStructuredChinesePetPrompt() {
         val matches = SkillTriggerMatcher.resolveMatches(
             userMessage = """
