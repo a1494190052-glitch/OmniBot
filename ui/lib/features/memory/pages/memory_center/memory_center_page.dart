@@ -53,7 +53,9 @@ class SystemAppConfig {
 }
 
 class MemoryCenterPage extends StatefulWidget {
-  const MemoryCenterPage({super.key});
+  const MemoryCenterPage({super.key, this.initialTab});
+
+  final String? initialTab;
 
   @override
   State<MemoryCenterPage> createState() => MemoryCenterPageState();
@@ -197,6 +199,18 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
     setState(fn);
   }
 
+  int _initialMemoryTabIndex(String? raw) {
+    final normalized = raw?.trim().toLowerCase().replaceAll('-', '_') ?? '';
+    return switch (normalized) {
+      'long_term' || 'longterm' || 'cloud' => _cloudMemoryTab,
+      'reusable' ||
+      'reusable_commands' ||
+      'commands' ||
+      'functions' => _reusableCommandTab,
+      _ => _localMemoryTab,
+    };
+  }
+
   // ignore: unused_element
   void _onTagSelectionChanged(Set<String> next, String triggerId) {
     _safeSetState(() {
@@ -222,6 +236,7 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     )..repeat();
+    _currentMemoryTab = _initialMemoryTabIndex(widget.initialTab);
     _memoryPageController = PageController(initialPage: _currentMemoryTab);
 
     _loadData();

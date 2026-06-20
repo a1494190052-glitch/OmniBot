@@ -14,7 +14,10 @@ class RunLogShortcutController {
   }
 
   static Future<void> openFunctionLibrary() async {
-    GoRouterManager.push('/task/function_library');
+    GoRouterManager.push(
+      '/memory/memory_center_page',
+      queryParams: const {'tab': 'reusable_commands'},
+    );
   }
 
   static Future<void> openLatestRunLog({

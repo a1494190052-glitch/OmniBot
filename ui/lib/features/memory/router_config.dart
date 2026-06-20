@@ -7,7 +7,7 @@ List<GoRoute> memoryRoutes = [
     path: '/memory/memory_center_page',
     name: 'memory/memory_center_page',
     builder: (context, state) {
-      return MemoryCenterPage();
+      return MemoryCenterPage(initialTab: state.uri.queryParameters['tab']);
     },
   ),
 ];
