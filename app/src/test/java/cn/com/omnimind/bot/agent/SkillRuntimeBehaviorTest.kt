@@ -325,6 +325,8 @@ class SkillRuntimeBehaviorTest {
                 setOf(retiredId.replace("-", ""), "omniflow"),
                 normalizedSkillLookupTerms(retiredId)
             )
+            assertTrue(skillEntryMatchesLookupQuery(omniflowEntry, retiredId))
+            assertTrue(skillEntryMatchesLookupQuery(omniflowEntry, "/workspace/.omnibot/skills/$retiredId/SKILL.md"))
 
             val matches = SkillTriggerMatcher.resolveMatches(
                 userMessage = "请使用 $retiredId",

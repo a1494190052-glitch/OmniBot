@@ -59,6 +59,21 @@ internal fun normalizedSkillLookupTerms(value: String): Set<String> {
     return linkedSetOf(raw, alias).filterTo(linkedSetOf()) { it.isNotBlank() }
 }
 
+internal fun skillEntryMatchesLookupQuery(entry: SkillIndexEntry, query: String): Boolean {
+    val normalizedQueries = normalizedSkillLookupTerms(query)
+    if (normalizedQueries.isEmpty()) return true
+    val searchable = listOf(
+        entry.id,
+        entry.name,
+        entry.description,
+        entry.shellSkillFilePath,
+        entry.shellRootPath
+    ).flatMap { normalizedSkillLookupTerms(it) }
+    return normalizedQueries.any { queryTerm ->
+        searchable.any { field -> field.contains(queryTerm) || queryTerm.contains(field) }
+    }
+}
+
 private fun normalizeSkillLookupForAlias(value: String): String {
     return value.trim()
         .lowercase()
