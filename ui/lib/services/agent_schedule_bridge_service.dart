@@ -151,7 +151,9 @@ class AgentScheduleBridgeService {
     final updatedSuggestionData =
         raw.containsKey('goal') ||
             raw.containsKey('subagentPrompt') ||
-            raw.containsKey('targetKind')
+            raw.containsKey('targetKind') ||
+            raw.containsKey('oobFunctionId') ||
+            raw.containsKey('oobFunctionArguments')
         ? _buildSuggestionData({
             ...raw,
             'targetKind': baseUpdated.targetKind,
@@ -169,6 +171,14 @@ class AgentScheduleBridgeService {
                 raw['allowedTools'] ??
                 existing.suggestionData?['allowedTools'] ??
                 const <String>[],
+            'oobFunctionId':
+                raw['oobFunctionId'] ??
+                existing.suggestionData?['oobFunctionId'] ??
+                '',
+            'oobFunctionArguments':
+                raw['oobFunctionArguments'] ??
+                existing.suggestionData?['oobFunctionArguments'] ??
+                const <String, dynamic>{},
           }, baseUpdated.targetKind)
         : existing.suggestionData;
     final updated = baseUpdated.copyWith(
@@ -267,6 +277,15 @@ class AgentScheduleBridgeService {
       if (prompt == null || prompt.isEmpty) {
         throw ArgumentError('SubAgent 定时任务缺少 subagentPrompt');
       }
+      final functionId = raw['oobFunctionId']?.toString().trim() ?? '';
+      if (functionId.isNotEmpty) {
+        return {
+          'targetKind': 'subagent',
+          'subagentPrompt': prompt,
+          'oobFunctionId': functionId,
+          'oobFunctionArguments': _stringKeyMap(raw['oobFunctionArguments']),
+        };
+      }
       return {
         'targetKind': 'subagent',
         'subagentPrompt': prompt,
@@ -297,6 +316,15 @@ class AgentScheduleBridgeService {
           .toList(growable: false);
     }
     return const <String>[];
+  }
+
+  static Map<String, dynamic> _stringKeyMap(dynamic value) {
+    if (value is Map) {
+      return value.map<String, dynamic>(
+        (key, value) => MapEntry(key.toString(), value),
+      );
+    }
+    return const <String, dynamic>{};
   }
 
   static Map<String, dynamic> _toSummaryMap(ScheduledTask task) {
