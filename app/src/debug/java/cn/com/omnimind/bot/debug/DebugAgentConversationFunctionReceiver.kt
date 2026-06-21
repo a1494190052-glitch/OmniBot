@@ -128,7 +128,7 @@ class DebugAgentConversationFunctionReceiver : BroadcastReceiver() {
         )
         return linkedMapOf<String, Any?>(
             "success" to (functionRegistered && runSuccess),
-            "source" to "debug_agent_conversation_function_management",
+            "source" to "debug_agent_conversation_omniflow",
             "agent_path" to "MCP/WebChat AgentRunService -> AssistsCoreManager -> OmniAgentExecutor -> AgentToolRegistry/Router",
             "conversation_id" to conversationId,
             "task_id" to taskId,
@@ -206,7 +206,7 @@ class DebugAgentConversationFunctionReceiver : BroadcastReceiver() {
 
         private fun buildDefaultUserMessage(functionId: String, targetPackage: String): String =
             """
-            Use the available OOB Function management tools to create and verify a reusable instruction.
+            Use the available OmniFlow reusable-command tools to create and verify a reusable instruction.
             Register a reusable instruction with functionId "$functionId".
             Name it "Debug agent conversation open settings".
             Description: "Open Android Settings from an agent conversation."

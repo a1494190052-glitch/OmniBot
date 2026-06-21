@@ -106,7 +106,7 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
         val workspaceManager = AgentWorkspaceManager(context)
         val workspace = workspaceManager.buildWorkspaceDescriptor(
             conversationId = null,
-            agentRunId = "debug-agent-function-management",
+            agentRunId = "debug-agent-omniflow",
         )
         val registry = AgentToolRegistry(
             context = context,
@@ -130,7 +130,7 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
                     onReasoningUpdate: (suspend (String) -> Unit)?,
                     onContentUpdate: (suspend (String) -> Unit)?,
                 ): ChatCompletionTurn {
-                    error("Subagent dispatch is not part of debug Function management validation")
+                    error("Subagent dispatch is not part of debug OmniFlow validation")
                 }
             },
             toolExecutorProvider = { router },
@@ -146,7 +146,7 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
             subagentDispatcher = subagentDispatcher,
         )
         val env = DefaultAgentExecutionEnvironment(
-            agentRunId = "debug-agent-function-management",
+            agentRunId = "debug-agent-omniflow",
             userMessage = "Validate OOB Function registration and listing through Agent tools; runtime replay is checked locally after registration.",
             currentPackageName = currentBefore,
             runtimeContextRepository = AgentRuntimeContextRepository(context),
@@ -263,7 +263,7 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
 
         return linkedMapOf<String, Any?>(
             "success" to success,
-            "source" to "debug_agent_tool_registry_router_function_management",
+            "source" to "debug_agent_tool_registry_router_omniflow",
             "agent_path" to "AgentToolRegistry -> AgentToolRouter -> OobFunctionToolHandler",
             "function_id" to functionId,
             "target_package" to targetPackage,
@@ -475,7 +475,7 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
     companion object {
         private const val TAG = "DebugAgentFunctionManagement"
         private const val RESULT_FILE = "debug-agent-function-management-result.json"
-        private const val DEFAULT_FUNCTION_ID = "debug_agent_function_management_open_settings"
+        private const val DEFAULT_FUNCTION_ID = "debug_agent_omniflow_open_settings"
         private const val DEFAULT_TARGET_PACKAGE = "com.android.settings"
         private const val RUNTIME_OBSERVE_ATTEMPTS = 50
         private const val RUNTIME_OBSERVE_INTERVAL_MS = 200L
