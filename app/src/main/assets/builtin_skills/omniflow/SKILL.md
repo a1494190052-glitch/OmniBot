@@ -1,11 +1,11 @@
 ---
 name: omniflow
-description: Single OOB phone automation, VLM execution, reusable command, and checker-management skill. Use for Android vlm_task execution, native tool_calls, prompt/tool schema debugging, indexed UI evidence, grounding, live action dispatch, latency/accuracy validation, and 复用指令 / 轨迹 / execution-record workflows: save, run, register, update, enhance, repair, analyze, or debug reusable commands, RunLogs, and saved Functions, including update_function, automatic checker creation/management, RunLog evidence, replay results, runtime checker, global checker, hi 升级 checker, upgrade/update popup checker, package/open-app checker, action cleanup, "应该点 A 而不是 B", "保存为复用指令", "复用记忆", "增强 function", and ad/popup optional checkers.
+description: Single OOB automation skill for Android VLM execution, reusable commands, execution records, and checker management. Use for Android vlm_task execution, native tool_calls, prompt/tool schema debugging, indexed UI evidence, grounding, live action dispatch, latency/accuracy validation, and 复用指令 / 轨迹 / execution-record workflows: save, run, register, update, enhance, repair, analyze, or debug reusable commands, RunLogs, and saved Functions, including update_function, automatic checker creation/management, RunLog evidence, replay results, runtime checker, global checker, hi 升级 checker, upgrade/update popup checker, package/open-app checker, action cleanup, "应该点 A 而不是 B", "保存为复用指令", "复用记忆", "增强 function", and ad/popup optional checkers.
 ---
 
-# OmniFlow
+# OOB Automation
 
-Use OmniFlow for OOB Android GUI behavior: online VLM execution, saving
+Use this one skill for OOB Android GUI behavior: online VLM execution, saving
 execution records as 复用指令, managing saved reusable commands, enhancing or
 correcting them, running them through runtime recall/resolve, and learning from
 execution evidence. RunLog and Function are internal storage/runtime names for
@@ -16,12 +16,38 @@ backends. The agent behavior belongs in this skill and its references.
 
 ## Single Entry Point
 
-This skill is the one agent-facing entry for OOB Android GUI automation,
-复用指令 lifecycle, enhancement, correction, checker design, execution-record
-evidence, and replay debugging. Older focused entries such as VLM Android GUI,
-Function lifecycle management, Function enhancement, and checker maintenance are
-folded into this skill. Keep their behavior here or in the `references/` files
-instead of adding another model-visible skill.
+This skill is the one agent-facing entry for OOB Android GUI automation. All
+VLM Android GUI work, 复用指令 lifecycle, enhancement, correction, checker
+design, execution-record evidence, Python dev compatibility, and replay
+debugging route through this skill.
+
+Older focused entries such as VLM Android GUI, Function lifecycle management,
+Function enhancement, and checker maintenance are folded into this skill. Keep
+their behavior here or in the `references/` files instead of adding another
+model-visible skill.
+
+## Unified Skill Map
+
+- **VLM online execution** lives in `references/vlm-online-execution.md`. Use
+  it for `vlm_task`, native `tool_calls`, prompt/tool schema issues, indexed UI
+  evidence, grounding, action dispatch, latency, and accuracy.
+- **Reusable command runtime** lives in `references/unified-design.md`,
+  `references/function-management.md`, `references/function-enhancement.md`,
+  `references/runlog-evidence.md`, and `references/replay-fallback.md`. Use
+  these for 复用指令 registration, recall, replay, runtime resolve, update, and
+  evidence-based repair.
+- **Checker management** lives in `references/checkers.md`. Use it for
+  automatic checker creation/management, runtime checker, global checker,
+  upgrade/update popup checker, package/open-app checker, permission prompts,
+  ads, and optional obstruction cleanup.
+- **Action cleanup and schema discipline** live in
+  `references/canonical-actions.md` and `references/tools.md`. Use them to keep
+  canonical action names, tool names, and legacy compatibility boundaries
+  consistent.
+
+Do not create a separate built-in VLM skill, checker skill, Function skill, or
+Python OmniFlow skill. Add or update a reference file under this skill when the
+agent needs more guidance.
 
 ## Checker Auto Management
 

@@ -23,7 +23,7 @@
     {
       "id": "omniflow",
       "name": "omniflow",
-      "description": "Single OOB phone automation, VLM execution, reusable command, and checker-management skill. Use for Android vlm_task execution, native tool_calls, prompt/tool schema debugging, indexed UI evidence, grounding, live action dispatch, latency/accuracy validation, and 复用指令 / 轨迹 / execution-record workflows: save, run, register, update, enhance, repair, analyze, or debug reusable commands, RunLogs, and saved Functions, including update_function, automatic checker creation/management, RunLog evidence, replay results, runtime checker, global checker, hi 升级 checker, upgrade/update popup checker, package/open-app checker, action cleanup, \"应该点 A 而不是 B\", \"保存为复用指令\", \"复用记忆\", \"增强 function\", and ad/popup optional checkers.",
+      "description": "Single OOB automation skill for Android VLM execution, reusable commands, execution records, and checker management. Use for Android vlm_task execution, native tool_calls, prompt/tool schema debugging, indexed UI evidence, grounding, live action dispatch, latency/accuracy validation, and 复用指令 / 轨迹 / execution-record workflows: save, run, register, update, enhance, repair, analyze, or debug reusable commands, RunLogs, and saved Functions, including update_function, automatic checker creation/management, RunLog evidence, replay results, runtime checker, global checker, hi 升级 checker, upgrade/update popup checker, package/open-app checker, action cleanup, \"应该点 A 而不是 B\", \"保存为复用指令\", \"复用记忆\", \"增强 function\", and ad/popup optional checkers.",
       "assetPath": "builtin_skills/omniflow",
       "hasScripts": false,
       "hasReferences": true,
