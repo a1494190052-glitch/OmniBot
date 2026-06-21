@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:ui/models/agent_stream_event.dart';
 import 'package:ui/services/agent_schedule_bridge_service.dart';
+import 'package:ui/services/agent_tool_profile_normalizer.dart';
 import 'package:ui/services/app_state_service.dart';
 import 'package:ui/services/codex_tool_call_parser.dart';
 import 'package:ui/services/model_provider_config_service.dart';
@@ -4097,8 +4098,11 @@ class AssistsMessageService {
       if (terminalEnvironment != null && terminalEnvironment.isNotEmpty) {
         args['terminalEnvironment'] = terminalEnvironment;
       }
-      if (toolProfile != null && toolProfile.trim().isNotEmpty) {
-        args['toolProfile'] = toolProfile.trim();
+      final canonicalToolProfile = AgentToolProfileNormalizer.canonicalize(
+        toolProfile,
+      );
+      if (canonicalToolProfile != null && canonicalToolProfile.isNotEmpty) {
+        args['toolProfile'] = canonicalToolProfile;
       }
       if (allowedTools.isNotEmpty) {
         args['allowedTools'] = allowedTools

@@ -1,5 +1,6 @@
 import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/models/scheduled_task.dart';
+import 'package:ui/services/agent_tool_profile_normalizer.dart';
 import 'package:ui/services/scheduled_task_scheduler_service.dart';
 import 'package:ui/services/scheduled_task_storage_service.dart';
 
@@ -286,11 +287,13 @@ class AgentScheduleBridgeService {
           'oobFunctionArguments': _stringKeyMap(raw['oobFunctionArguments']),
         };
       }
+      final canonicalToolProfile = AgentToolProfileNormalizer.canonicalize(
+        raw['toolProfile']?.toString(),
+      );
       return {
         'targetKind': 'subagent',
         'subagentPrompt': prompt,
-        if ((raw['toolProfile']?.toString().trim() ?? '').isNotEmpty)
-          'toolProfile': raw['toolProfile'].toString().trim(),
+        if (canonicalToolProfile != null) 'toolProfile': canonicalToolProfile,
         if (_stringList(raw['allowedTools']).isNotEmpty)
           'allowedTools': _stringList(raw['allowedTools']),
       };

@@ -1,15 +1,37 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:ui/models/scheduled_task.dart';
 import 'package:ui/services/agent_schedule_bridge_service.dart';
+import 'package:ui/services/scheduled_task_scheduler_service.dart';
 import 'package:ui/services/scheduled_task_storage_service.dart';
 import 'package:ui/services/storage_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  const assistCoreChannel = MethodChannel(
+    'cn.com.omnimind.bot/AssistCoreEvent',
+  );
+
   setUp(() async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(assistCoreChannel, (call) async {
+          switch (call.method) {
+            case 'deleteWorkspaceScheduledTask':
+              return {'deleted': true};
+            case 'syncWorkspaceScheduledTasks':
+              return {'count': 0};
+          }
+          return null;
+        });
     SharedPreferences.setMockInitialValues(<String, Object>{});
     await StorageService.init();
+  });
+
+  tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(assistCoreChannel, null);
   });
 
   test(
@@ -52,4 +74,32 @@ void main() {
       expect(suggestionData?.containsKey('allowedTools'), false);
     },
   );
+
+  test('canonicalizes stored subagent tool profile when scheduling', () {
+    final task = ScheduledTask(
+      id: 'schedule-subagent-legacy-profile',
+      title: 'legacy profile',
+      packageName: '',
+      nodeId: '',
+      suggestionId: '',
+      targetKind: 'subagent',
+      subagentPrompt: 'run task',
+      type: ScheduledTaskType.fixedTime,
+      fixedTime: '09:30',
+      createdAt: 1,
+      suggestionData: const {
+        'targetKind': 'subagent',
+        'subagentPrompt': 'run task',
+        'toolProfile': ' function-management ',
+        'allowedTools': ['oob_function_run'],
+      },
+    );
+
+    final policy = ScheduledTaskSchedulerService.subagentAgentPolicyForTask(
+      task,
+    );
+
+    expect(policy.toolProfile, 'omniflow');
+    expect(policy.allowedTools, ['oob_function_run']);
+  });
 }

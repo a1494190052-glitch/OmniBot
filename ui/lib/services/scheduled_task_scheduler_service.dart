@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:ui/models/scheduled_task.dart';
 import 'package:ui/models/conversation_model.dart';
+import 'package:ui/services/agent_tool_profile_normalizer.dart';
 import 'package:ui/services/scheduled_task_storage_service.dart';
 import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/services/conversation_service.dart';
@@ -300,7 +301,9 @@ class ScheduledTaskSchedulerService {
     if (_isReusableFunctionSchedule(task)) {
       return AssistsMessageService.oobReusableFunctionAgentToolProfile;
     }
-    return _firstNonBlank([task.suggestionData?['toolProfile']]);
+    return AgentToolProfileNormalizer.canonicalize(
+      _firstNonBlank([task.suggestionData?['toolProfile']]),
+    );
   }
 
   static List<String> _subagentAllowedTools(ScheduledTask task) {
