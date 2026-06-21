@@ -323,6 +323,7 @@ class UnifiedOmniFlowExecutionPlanTest {
             "omniflow-function-enhancer",
             "omniflow-checker-maintainer",
             "vlm-android-gui",
+            "oob-agent-core",
         ).forEach { retiredId ->
             val path = "app/src/main/assets/builtin_skills/$retiredId"
             assertFalse("Retired OmniFlow skill directory must not be bundled: $path", sourceExists(path))
