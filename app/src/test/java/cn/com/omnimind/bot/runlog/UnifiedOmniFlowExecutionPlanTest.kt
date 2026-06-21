@@ -647,6 +647,9 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(functionLibraryPage.contains("runOobReusableFunctionWithAgent"))
         assertTrue(runLogTimelinePage.contains("runOobReusableFunctionWithAgent"))
         assertTrue(functionRunResultSheet.contains("runOobReusableFunctionWithAgent"))
+        assertFalse(functionLibraryPage.contains("runOobReusableFunction("))
+        assertFalse(runLogTimelinePage.contains("runOobReusableFunction("))
+        assertFalse(functionRunResultSheet.contains("runOobReusableFunction("))
 
         val directAdapter = byId.getValue("ui_direct_function_run_adapter")
         assertTrue(directAdapter["requires_concrete_function_id"] == true)
