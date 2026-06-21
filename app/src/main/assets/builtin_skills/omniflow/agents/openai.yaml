@@ -1,4 +1,4 @@
 interface:
-  display_name: "OmniFlow"
-  short_description: "Run phone tasks and manage reusable commands"
-  default_prompt: "Use $omniflow for Android phone automation, 复用指令, execution records, and optional checker management. Keep normal device work on vlm_task with native tool_calls, use saved 复用指令 only through the runtime path, and report in product wording unless implementation details are requested."
+  display_name: "OOB Automation"
+  short_description: "Run Android tasks and manage reusable commands"
+  default_prompt: "Use $omniflow as the single OOB automation skill for Android phone automation, 复用指令, execution records, and optional checker management. Keep normal device work on vlm_task with native tool_calls, use saved 复用指令 only through the runtime path, and report in product wording unless implementation details are requested."

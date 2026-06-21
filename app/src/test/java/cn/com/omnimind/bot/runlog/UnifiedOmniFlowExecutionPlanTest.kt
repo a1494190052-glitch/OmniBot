@@ -268,6 +268,7 @@ class UnifiedOmniFlowExecutionPlanTest {
         val enhancement = readSource("app/src/main/assets/builtin_skills/omniflow/references/function-enhancement.md")
         val checkers = readSource("app/src/main/assets/builtin_skills/omniflow/references/checkers.md")
         val vlm = readSource("app/src/main/assets/builtin_skills/omniflow/references/vlm-online-execution.md")
+        val agentInterface = readSource("app/src/main/assets/builtin_skills/omniflow/agents/openai.yaml")
         val runlogReadme = readSource("app/src/main/assets/omniflow/runlog/README.md")
         val functionReadme = readSource("app/src/main/assets/omniflow/function/README.md")
         val retiredSkillAssets = listOf(
@@ -318,6 +319,9 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(vlm.contains("`update_function`"))
         assertFalse(vlm.contains("Function enhancement skill"))
         assertFalse(vlm.contains("`oob_function_update`"))
+        assertTrue(agentInterface.contains("display_name: \"OOB Automation\""))
+        assertTrue(agentInterface.contains("single OOB automation skill"))
+        assertFalse(agentInterface.contains("display_name: \"OmniFlow\""))
         listOf(runlogReadme, functionReadme).forEach { asset ->
             assertTrue(asset.contains("OobFunctionSkillProfile"))
             assertFalse(asset.contains("Function-management skill profile"))
