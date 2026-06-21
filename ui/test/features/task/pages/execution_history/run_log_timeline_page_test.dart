@@ -199,7 +199,8 @@ void main() {
     );
     expect(find.text('已完成 · 1 步'), findsOneWidget);
     expect(find.text('在线 VLM 成本'), findsNothing);
-    expect(_richTextContaining('VLM Token  1.23k'), findsOneWidget);
+    expect(find.text('在线模型用量'), findsNothing);
+    expect(_richTextContaining('模型用量  1.23k'), findsOneWidget);
     expect(_richTextContaining('VLM 调用  2'), findsNothing);
     expect(_richTextContaining('步骤  1'), findsAtLeastNWidgets(1));
     expect(_richTextContaining('输入  1.00k'), findsNothing);
@@ -220,7 +221,7 @@ void main() {
     expect(find.textContaining('复用指令执行记录 · 第 1 步'), findsOneWidget);
     expect(find.text('复用指令动作'), findsOneWidget);
     expect(_richTextContaining('执行方式  复用指令'), findsOneWidget);
-    expect(_richTextContaining('Token  1.23k · P1000/C234'), findsOneWidget);
+    expect(_richTextContaining('模型用量  1.23k · P1000/C234'), findsOneWidget);
     expect(_richTextContaining('VLM 决策 / OmniFlow 本地重放'), findsNothing);
     expect(_richTextContaining('重放  OmniFlow 本地'), findsNothing);
     expect(find.textContaining('Visual task'), findsNothing);
@@ -250,7 +251,7 @@ void main() {
     expect(_selectableTextContaining('route_result'), findsNothing);
   });
 
-  testWidgets('VLM-only runlog uses a single red VLM source badge', (
+  testWidgets('VLM-only runlog uses a single automatic source badge', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -261,17 +262,17 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('VLM'), findsOneWidget);
+    expect(find.text('自动执行'), findsOneWidget);
     expect(find.text('OmniFlow'), findsNothing);
-    final vlmBadge = tester.widget<Text>(find.text('VLM').first);
+    final vlmBadge = tester.widget<Text>(find.text('自动执行').first);
     expect(vlmBadge.style?.color, const Color(0xFFDB2777));
 
     await tester.tap(find.textContaining('视觉执行'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('VLM 执行记录 · 第 1 步'), findsOneWidget);
-    expect(find.text('VLM 动作'), findsOneWidget);
-    expect(_richTextContaining('执行方式  VLM'), findsOneWidget);
+    expect(find.textContaining('自动执行记录 · 第 1 步'), findsOneWidget);
+    expect(find.text('自动执行动作'), findsOneWidget);
+    expect(_richTextContaining('执行方式  自动执行'), findsOneWidget);
     expect(_richTextContaining('OmniFlow'), findsNothing);
   });
 
@@ -352,7 +353,7 @@ void main() {
     expect(find.text('第 2 步'), findsOneWidget);
     expect(find.text('第 3 步'), findsOneWidget);
     expect(find.text('视觉执行 打开 Settings'), findsOneWidget);
-    expect(find.text('内部 VLM 动作'), findsNothing);
+    expect(find.text('内部自动执行动作'), findsNothing);
     expect(find.text('打开应用 com.android.settings'), findsOneWidget);
     expect(find.text('点击 Network & internet'), findsOneWidget);
     expect(find.text('1.2s'), findsOneWidget);
@@ -361,8 +362,8 @@ void main() {
     await tester.tap(find.text('点击 Network & internet'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('VLM 执行记录 · 第 3 步'), findsOneWidget);
-    expect(find.text('内部 VLM 动作'), findsNothing);
+    expect(find.textContaining('自动执行记录 · 第 3 步'), findsOneWidget);
+    expect(find.text('内部自动执行动作'), findsNothing);
     expect(find.text('点击 Network & internet'), findsWidgets);
   });
 

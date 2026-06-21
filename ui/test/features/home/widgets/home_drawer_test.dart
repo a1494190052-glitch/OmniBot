@@ -256,7 +256,9 @@ void main() {
     );
   });
 
-  testWidgets('project shortcut opens project management page', (tester) async {
+  testWidgets('omits project shortcut but keeps execution history shortcut', (
+    tester,
+  ) async {
     final router = GoRouter(
       navigatorKey: GoRouterManager.rootNavigatorKey,
       initialLocation: '/drawer',
@@ -277,9 +279,9 @@ void main() {
           builder: (context, state) => const Scaffold(body: Text('chat route')),
         ),
         GoRoute(
-          path: '/workbench/projects',
+          path: '/task/execution_history',
           builder: (context, state) =>
-              const Scaffold(body: Text('project management route')),
+              const Scaffold(body: Text('execution history route')),
         ),
       ],
     );
@@ -287,10 +289,17 @@ void main() {
     await tester.pumpWidget(MaterialApp.router(routerConfig: router));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('项目'));
+    expect(find.byTooltip('项目'), findsNothing);
+    expect(find.byTooltip('轨迹'), findsOneWidget);
+    expect(find.byTooltip('设置'), findsOneWidget);
+    expect(find.byTooltip('记忆中心'), findsOneWidget);
+    expect(find.byTooltip('技能仓库'), findsOneWidget);
+    expect(find.byTooltip('定时'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('轨迹'));
     await tester.pumpAndSettle();
 
-    expect(find.text('project management route'), findsOneWidget);
+    expect(find.text('execution history route'), findsOneWidget);
     expect(find.text('chat route'), findsNothing);
   });
 

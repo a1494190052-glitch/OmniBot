@@ -269,7 +269,7 @@ class ReusableFunctionCard extends StatelessWidget {
                     _MetricPill(
                       label: _text(context, '执行方式', 'Mode'),
                       value: hasAgentSteps!
-                          ? _text(context, '需 VLM', 'VLM')
+                          ? _text(context, '需自动执行', 'Auto')
                           : _text(context, '无需模型', 'Local'),
                       color: hasAgentSteps!
                           ? Colors.orange.shade700

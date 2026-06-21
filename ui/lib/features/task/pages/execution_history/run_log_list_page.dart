@@ -137,8 +137,8 @@ class _RunLogListPageState extends State<RunLogListPage> {
         title: l10n.executionHistoryEmpty,
         subtitle: _text(
           context,
-          '执行一次 Agent 或 VLM 任务后会出现在这里。',
-          'Execution records will appear here after an Agent or VLM task.',
+          '执行一次手机任务后会出现在这里。',
+          'Execution records will appear here after a phone task.',
         ),
         actionLabel: l10n.localModelsRefresh,
         onAction: _load,
@@ -465,7 +465,7 @@ String _routeStatusLabel(BuildContext context, String raw) {
     return _text(context, '复用命中', 'Reuse hit');
   }
   if (normalized.contains('miss') || normalized.contains('vlm')) {
-    return _text(context, 'VLM 执行', 'VLM execution');
+    return _text(context, '自动执行', 'Automatic execution');
   }
   return raw
       .trim()

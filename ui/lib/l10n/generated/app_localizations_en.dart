@@ -745,7 +745,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get trajectoryNoRecords => 'No execution records';
 
   @override
-  String get trajectoryNoRecordsDesc => 'VLM tasks will be displayed here';
+  String get trajectoryNoRecordsDesc => 'Phone tasks will be displayed here';
 
   @override
   String get trajectoryAll => 'All';

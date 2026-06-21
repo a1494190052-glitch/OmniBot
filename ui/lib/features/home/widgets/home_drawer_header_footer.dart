@@ -35,11 +35,6 @@ extension _HomeDrawerHeaderFooter on HomeDrawerState {
         onTap: () => _navigateTo('/memory/memory_center_page'),
       ),
       _DrawerShortcutAction(
-        label: context.l10n.workbenchProjectSection,
-        svgString: _kDrawerProjectIconSvg,
-        onTap: () => _navigateTo('/workbench/projects'),
-      ),
-      _DrawerShortcutAction(
         label: context.l10n.skillStoreTitle,
         svgString: _kDrawerSkillStoreIconSvg,
         onTap: () => _navigateTo('/home/skill_store'),

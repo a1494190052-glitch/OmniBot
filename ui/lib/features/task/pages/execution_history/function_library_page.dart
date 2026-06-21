@@ -475,7 +475,7 @@ OobFunctionRunProgressEvent _fallbackRunningProgressEvent(
       : function.displayName;
   final message = AppTextLocalizer.choose(
     zh: '准备执行复用指令',
-    en: 'Preparing reusable function',
+    en: 'Preparing reusable command',
   );
   final raw = <String, dynamic>{
     'status': 'started',

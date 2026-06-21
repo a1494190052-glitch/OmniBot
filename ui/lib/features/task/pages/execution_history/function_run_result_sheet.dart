@@ -890,7 +890,7 @@ String _runStateText(
   String? rawStatus,
 }) {
   if (result.completedVlmFallback) {
-    return _text(context, 'VLM 执行完成', 'Completed by VLM');
+    return _text(context, '自动执行完成', 'Completed automatically');
   }
   if (result.startedAgentFallback) {
     return _text(context, '已交给 Agent 继续执行', 'Handed off to Agent');

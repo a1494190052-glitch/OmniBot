@@ -1336,7 +1336,7 @@ class _RunLogOverviewCard extends StatelessWidget {
         MapEntry(_text(context, '耗时', 'Duration'), _formatMs(durationMs)),
       if (tokenSummary.totalTokens != null)
         MapEntry(
-          _text(context, 'VLM Token', 'VLM tokens'),
+          _text(context, '模型用量', 'Model usage'),
           _formatTokens(tokenSummary.totalTokens!),
         ),
     ];
@@ -1660,7 +1660,7 @@ class _RunLogDebugSheet extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          _text(context, 'RunLog 调试信息', 'RunLog debug info'),
+                          _text(context, '执行记录调试信息', 'Execution debug info'),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -1710,8 +1710,8 @@ class _RunLogDebugSheet extends StatelessWidget {
                               ? _EmptyDebugText(
                                   text: _text(
                                     context,
-                                    '当前 RunLog 没有记录 thinking/reasoning 字段。',
-                                    'No thinking/reasoning fields were recorded in this RunLog.',
+                                    '当前执行记录没有记录 thinking/reasoning 字段。',
+                                    'No thinking/reasoning fields were recorded in this execution record.',
                                   ),
                                 )
                               : Column(
@@ -2105,7 +2105,7 @@ class _NestedVlmStepsPreview extends StatelessWidget {
             ),
             const SizedBox(width: 5),
             Text(
-              _text(context, '内部 VLM 动作', 'Internal VLM actions'),
+              _text(context, '内部自动执行动作', 'Internal automatic actions'),
               style: TextStyle(
                 color: palette.textSecondary,
                 fontSize: 11,
@@ -2705,8 +2705,8 @@ class _StepDetailSheetState extends State<_StepDetailSheet> {
                               _CollapsibleSection(
                                 title: _text(
                                   context,
-                                  '在线 VLM 成本',
-                                  'Online VLM cost',
+                                  '在线模型用量',
+                                  'Online model usage',
                                 ),
                                 copyValue: _prettyJson({
                                   'token_usage': snapshot.tokenUsage,
@@ -3076,7 +3076,7 @@ class _ReusableFunctionSpecSheetState
                                       ? _text(
                                           context,
                                           'Agent 增强结果',
-                                          'Agent enhanced Function',
+                                          'Agent enhanced reusable command',
                                         )
                                       : hasRegisteredFunction
                                       ? _text(
@@ -3087,7 +3087,7 @@ class _ReusableFunctionSpecSheetState
                                       : _text(
                                           context,
                                           '本地生成结果',
-                                          'Locally prepared Function',
+                                          'Locally prepared reusable command',
                                         ),
                                   style: TextStyle(
                                     fontSize: 12,
@@ -5751,8 +5751,8 @@ class _FunctionApiStatusBox extends StatelessWidget {
     if (result.completedVlmFallback) {
       return _text(
         context,
-        '执行：VLM 执行完成$stepText',
-        'Run: completed by VLM$stepText',
+        '执行：自动执行完成$stepText',
+        'Run: completed automatically$stepText',
       );
     }
     if (result.startedAgentFallback) {
@@ -6156,7 +6156,7 @@ class _SummaryGrid extends StatelessWidget {
         ),
       if (snapshot.tokenUsageIsVlmCost)
         MapEntry(
-          _text(context, 'VLM Token', 'VLM tokens'),
+          _text(context, '模型用量', 'Model usage'),
           snapshot.tokenUsageLabel(context),
         ),
       if (snapshot.packageName.isNotEmpty)
@@ -6967,7 +6967,7 @@ class _RunLogStepSnapshot {
       return context.l10n.executionRouteAiPlanning;
     }
     if (compileKind == 'vlm_step' || compileKind == 'vlm') {
-      return _text(context, 'VLM 执行', 'VLM execution');
+      return _text(context, '自动执行', 'Automatic execution');
     }
     return compileKind;
   }
@@ -7012,7 +7012,7 @@ class _RunLogStepSnapshot {
         'Execution: ${_userVisibleString(compileKind)}',
       if (success != null) 'Success: $success',
       if (durationMs != null) 'Duration: ${_formatMs(durationMs!)}',
-      if (tokenUsageIsVlmCost) 'VLM Token Usage: ${tokenUsageLabelTextOnly()}',
+      if (tokenUsageIsVlmCost) 'Model usage: ${tokenUsageLabelTextOnly()}',
       if (packageName.isNotEmpty) 'Package: $packageName',
       if (prompt.isNotEmpty) 'Prompt Source: $promptSource',
     ];
@@ -7638,7 +7638,7 @@ Color _runLogStepSourceColor(BuildContext context, _RunLogStepSource source) {
 String _runLogStepSourceLabel(BuildContext context, _RunLogStepSource source) {
   switch (source) {
     case _RunLogStepSource.agentVlm:
-      return 'VLM';
+      return _text(context, '自动执行', 'Automatic');
     case _RunLogStepSource.human:
       return _text(context, '人类', 'Human');
     case _RunLogStepSource.omniflowReplay:
@@ -7651,7 +7651,7 @@ String _runLogStepSourceLabel(BuildContext context, _RunLogStepSource source) {
 String _runLogStepDetailTitle(BuildContext context, _RunLogStepSource source) {
   switch (source) {
     case _RunLogStepSource.agentVlm:
-      return _text(context, 'VLM 执行记录', 'VLM run');
+      return _text(context, '自动执行记录', 'Automatic run');
     case _RunLogStepSource.human:
       return _text(context, '人类接管记录', 'Human takeover');
     case _RunLogStepSource.omniflowReplay:
@@ -7667,7 +7667,7 @@ String _runLogStepActionPanelTitle(
 ) {
   switch (source) {
     case _RunLogStepSource.agentVlm:
-      return _text(context, 'VLM 动作', 'VLM action');
+      return _text(context, '自动执行动作', 'Automatic action');
     case _RunLogStepSource.human:
       return _text(context, '人类操作', 'Human action');
     case _RunLogStepSource.omniflowReplay:
@@ -8606,15 +8606,19 @@ String _userVisibleJsonKey(String key) => _userVisibleString(key);
 
 String _userVisibleString(String value) {
   return value
+      .replaceAll(RegExp(r'RunLog', caseSensitive: false), 'execution_record')
+      .replaceAll(RegExp(r'OmniFlow', caseSensitive: false), 'reusable_command')
+      .replaceAll(RegExp(r'\bVLM\b', caseSensitive: false), 'automatic')
       .replaceAll(RegExp('compile', caseSensitive: false), 'execution')
       .replaceAll('编译', '执行')
+      .replaceAll('运行日志', '执行记录')
       .replaceAll(RegExp(r'参考\s*function', caseSensitive: false), '参考复用指令')
       .replaceAll(
         RegExp(r'reusable[_\s-]*function', caseSensitive: false),
-        'reusable_instruction',
+        'reusable_command',
       )
-      .replaceAll(RegExp(r'Function'), 'Instruction')
-      .replaceAll(RegExp(r'function'), 'instruction')
+      .replaceAll(RegExp(r'Function'), 'Command')
+      .replaceAll(RegExp(r'function'), 'command')
       .replaceAll('函数', '复用指令');
 }
 

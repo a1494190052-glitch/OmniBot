@@ -406,7 +406,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('执行步骤 · 1'), findsOneWidget);
-    expect(find.text('VLM'), findsOneWidget);
+    expect(find.text('自动执行'), findsOneWidget);
     expect(find.text('视觉执行 识别当前屏幕'), findsOneWidget);
     expect(find.textContaining('agent · vlm_task'), findsNothing);
 
@@ -415,8 +415,8 @@ void main() {
     await tester.tap(find.text('视觉执行 识别当前屏幕'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('VLM 执行记录 · 第 1 步'), findsOneWidget);
-    expect(find.text('VLM 动作'), findsOneWidget);
+    expect(find.textContaining('自动执行记录 · 第 1 步'), findsOneWidget);
+    expect(find.text('自动执行动作'), findsOneWidget);
   });
 
   testWidgets('Reusable Function library shows native run progress events', (
@@ -899,89 +899,88 @@ void main() {
     expect(find.text('删除步骤'), findsOneWidget);
   });
 
-  testWidgets(
-    'Reusable Function run button starts agent managed execution',
-    (tester) async {
-      final methodCalls = <MethodCall>[];
-      var agentRunCalls = 0;
+  testWidgets('Reusable Function run button starts agent managed execution', (
+    tester,
+  ) async {
+    final methodCalls = <MethodCall>[];
+    var agentRunCalls = 0;
 
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(assistCoreChannel, (call) async {
-            methodCalls.add(call);
-            if (call.method == 'listOobReusableFunctions') {
-              return <String, dynamic>{
-                'success': true,
-                'count': 1,
-                'functions': <Map<String, dynamic>>[
-                  <String, dynamic>{
-                    'function_id': 'open_settings',
-                    'name': '打开 Settings',
-                    'description': '打开 Android 设置',
-                    'step_count': 1,
-                    'parameter_names': <String>['package_name'],
-                    'registered_at': '1700000000000',
-                    'step_summaries': <Map<String, dynamic>>[
-                      <String, dynamic>{
-                        'index': 0,
-                        'title': '打开 Settings',
-                        'kind': 'omniflow_action',
-                        'executor': 'omniflow',
-                        'tool': 'open_app',
-                      },
-                    ],
-                  },
-                ],
-              };
-            }
-            if (call.method == 'createAgentTask') {
-              agentRunCalls += 1;
-              return 'SUCCESS';
-            }
-            if (call.method == 'getOobReusableFunction') {
-              return <String, dynamic>{
-                'success': true,
-                'function_id': 'open_settings',
-                'parameters': <Map<String, dynamic>>[
-                  <String, dynamic>{
-                    'name': 'package_name',
-                    'type': 'string',
-                    'required': true,
-                    'default': 'com.android.settings',
-                  },
-                ],
-              };
-            }
-            return null;
-          });
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(assistCoreChannel, (call) async {
+          methodCalls.add(call);
+          if (call.method == 'listOobReusableFunctions') {
+            return <String, dynamic>{
+              'success': true,
+              'count': 1,
+              'functions': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'function_id': 'open_settings',
+                  'name': '打开 Settings',
+                  'description': '打开 Android 设置',
+                  'step_count': 1,
+                  'parameter_names': <String>['package_name'],
+                  'registered_at': '1700000000000',
+                  'step_summaries': <Map<String, dynamic>>[
+                    <String, dynamic>{
+                      'index': 0,
+                      'title': '打开 Settings',
+                      'kind': 'omniflow_action',
+                      'executor': 'omniflow',
+                      'tool': 'open_app',
+                    },
+                  ],
+                },
+              ],
+            };
+          }
+          if (call.method == 'createAgentTask') {
+            agentRunCalls += 1;
+            return 'SUCCESS';
+          }
+          if (call.method == 'getOobReusableFunction') {
+            return <String, dynamic>{
+              'success': true,
+              'function_id': 'open_settings',
+              'parameters': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'name': 'package_name',
+                  'type': 'string',
+                  'required': true,
+                  'default': 'com.android.settings',
+                },
+              ],
+            };
+          }
+          return null;
+        });
 
-      await tester.pumpWidget(
-        const MaterialApp(
-          locale: Locale('zh'),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: FunctionLibraryPage(),
-        ),
-      );
-      await tester.pumpAndSettle();
+    await tester.pumpWidget(
+      const MaterialApp(
+        locale: Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: FunctionLibraryPage(),
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      await tester.tap(find.text('执行'));
-      await tester.pumpAndSettle();
+    await tester.tap(find.text('执行'));
+    await tester.pumpAndSettle();
 
-      expect(agentRunCalls, 1);
-      final agentCall = methodCalls.singleWhere(
-        (call) => call.method == 'createAgentTask',
-      );
-      final agentArgs = Map<String, dynamic>.from(agentCall.arguments as Map);
-      expect(agentArgs['toolProfile'], 'omniflow');
-      expect(agentArgs['allowedTools'], contains('oob_function_run'));
-      expect(agentArgs['userMessage'], contains('Function id: open_settings'));
-      expect(agentArgs['userMessage'], contains('com.android.settings'));
+    expect(agentRunCalls, 1);
+    final agentCall = methodCalls.singleWhere(
+      (call) => call.method == 'createAgentTask',
+    );
+    final agentArgs = Map<String, dynamic>.from(agentCall.arguments as Map);
+    expect(agentArgs['toolProfile'], 'omniflow');
+    expect(agentArgs['allowedTools'], contains('oob_function_run'));
+    expect(agentArgs['userMessage'], contains('Function id: open_settings'));
+    expect(agentArgs['userMessage'], contains('com.android.settings'));
 
-      expect(find.text('复用指令执行结果'), findsNothing);
-      expect(find.text('执行'), findsOneWidget);
-      expect(find.textContaining('复用指令执行中'), findsNothing);
-    },
-  );
+    expect(find.text('复用指令执行结果'), findsNothing);
+    expect(find.text('执行'), findsOneWidget);
+    expect(find.textContaining('复用指令执行中'), findsNothing);
+  });
 
   testWidgets('Reusable Function run asks for missing required arguments', (
     tester,

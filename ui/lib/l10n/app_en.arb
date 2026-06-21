@@ -220,7 +220,7 @@
   "skillLoadFailed": "Failed to load skills",
   "trajectoryTitle": "Trajectory",
   "trajectoryNoRecords": "No execution records",
-  "trajectoryNoRecordsDesc": "VLM tasks will be displayed here",
+  "trajectoryNoRecordsDesc": "Phone tasks will be displayed here",
   "trajectoryAll": "All",
   "trajectoryTaskRecords": "Task Records",
   "trajectorySelectedCount": "{n} selected",
