@@ -784,8 +784,8 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       _functionPanelStatus = _RunLogFunctionPanelStatus.enhancing;
       _functionPanelMessage = _text(
         context,
-        'Agent 已将这个 Function 加入后台增强队列。',
-        'Agent queued this Function for background enhancement.',
+        'Agent 已将这个复用指令加入后台增强队列。',
+        'Agent queued this reusable command for background enhancement.',
       );
       _functionPanelError = null;
     });
@@ -806,8 +806,8 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
         _functionPanelStatus = _RunLogFunctionPanelStatus.failed;
         _functionPanelMessage = _text(
           context,
-          '后台增强启动失败，当前 Function 保持原样。',
-          'Failed to start background enhancement. The current Function is unchanged.',
+          '后台增强启动失败，当前复用指令保持原样。',
+          'Failed to start background enhancement. The current reusable command is unchanged.',
         );
         _functionPanelError = e.toString();
       });
@@ -3594,8 +3594,8 @@ class _ReusableFunctionSpecSheetState
       _enhancementStatus = RunLogReusableFunctionEnhancementStatus.enhancing;
       _enhancementMessage = _text(
         context,
-        'Agent 已将这个 Function 加入后台增强队列。',
-        'Agent queued this Function for background enhancement.',
+        'Agent 已将这个复用指令加入后台增强队列。',
+        'Agent queued this reusable command for background enhancement.',
       );
       _apiError = null;
     });
@@ -3637,8 +3637,8 @@ class _ReusableFunctionSpecSheetState
         _enhancementStatus = RunLogReusableFunctionEnhancementStatus.failed;
         _enhancementMessage = _text(
           context,
-          '后台增强启动失败，当前 Function 保持原样。',
-          'Failed to start background enhancement. The current Function is unchanged.',
+          '后台增强启动失败，当前复用指令保持原样。',
+          'Failed to start background enhancement. The current reusable command is unchanged.',
         );
         _apiError = e.toString();
       });
@@ -3806,7 +3806,7 @@ class _ReusableFunctionSpecSheetState
         final message = _text(
           context,
           '注册返回缺少复用指令 ID',
-          'Registration returned no reusable Function ID',
+          'Registration returned no reusable command ID',
         );
         setState(() {
           _isImporting = false;
@@ -5615,8 +5615,8 @@ class _EnhancementStatusBox extends StatelessWidget {
       case RunLogReusableFunctionEnhancementStatus.enhanced:
         return _text(
           context,
-          '已产生可用增强并写回 Function 库。',
-          'Useful enhancement was produced and written back to the function library.',
+          '已产生可用增强并写回复用指令库。',
+          'Useful enhancement was produced and written back to the reusable command library.',
         );
       case RunLogReusableFunctionEnhancementStatus.partial:
         return _text(
@@ -5627,14 +5627,14 @@ class _EnhancementStatusBox extends StatelessWidget {
       case RunLogReusableFunctionEnhancementStatus.unchanged:
         return _text(
           context,
-          'Agent 已检查当前 Function，没有安全可应用的变化。',
-          'Agent checked the function and found no safe applicable change.',
+          'Agent 已检查当前复用指令，没有安全可应用的变化。',
+          'Agent checked the reusable command and found no safe applicable change.',
         );
       case RunLogReusableFunctionEnhancementStatus.failed:
         return _text(
           context,
-          '没有写入增强结果，当前 Function 保持原样。',
-          'No enhancement was written. The current function is unchanged.',
+          '没有写入增强结果，当前复用指令保持原样。',
+          'No enhancement was written. The current reusable command is unchanged.',
         );
       case RunLogReusableFunctionEnhancementStatus.none:
         return '';

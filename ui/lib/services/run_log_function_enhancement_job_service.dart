@@ -228,7 +228,7 @@ class RunLogFunctionEnhancementJobService {
         .toString()
         .trim();
     if (functionId.isEmpty) {
-      throw Exception('function_id 为空，无法增强 Function');
+      throw Exception('function_id 为空，无法增强复用指令');
     }
     final now = DateTime.now().toUtc();
     final sequence = _jobSequence++;
@@ -241,8 +241,8 @@ class RunLogFunctionEnhancementJobService {
       phase: RunLogFunctionEnhancementJobPhase.queued,
       enhancementStatus: RunLogReusableFunctionEnhancementStatus.enhancing,
       message: useEnglish
-          ? 'Agent queued background enhancement for this Function.'
-          : 'Agent 已将这个 Function 加入后台增强队列。',
+          ? 'Agent queued background enhancement for this reusable command.'
+          : 'Agent 已将这个复用指令加入后台增强队列。',
       useEnglish: useEnglish,
       createdAt: now,
       updatedAt: now,
@@ -334,8 +334,8 @@ class RunLogFunctionEnhancementJobService {
               phase: RunLogFunctionEnhancementJobPhase.failed,
               enhancementStatus: RunLogReusableFunctionEnhancementStatus.failed,
               message: job.useEnglish
-                  ? 'This Function was not saved yet, and automatic save before enhancement failed.'
-                  : '这个 Function 还未保存，增强前自动保存失败。',
+                  ? 'This reusable command was not saved yet, and automatic save before enhancement failed.'
+                  : '这个复用指令还未保存，增强前自动保存失败。',
               registrationResult: <String, dynamic>{
                 ...bootstrapResult.rawJson,
                 'success': false,
@@ -372,8 +372,8 @@ class RunLogFunctionEnhancementJobService {
             phase: RunLogFunctionEnhancementJobPhase.failed,
             enhancementStatus: RunLogReusableFunctionEnhancementStatus.failed,
             message: job.useEnglish
-                ? 'Agent generated an enhancement, but saving the Function failed. The current Function is unchanged.'
-                : 'Agent 已生成增强结果，但保存 Function 失败；当前 Function 保持原样。',
+                ? 'Agent generated an enhancement, but saving the reusable command failed. The current reusable command is unchanged.'
+                : 'Agent 已生成增强结果，但保存复用指令失败；当前复用指令保持原样。',
             registrationResult: saveJson,
             error:
                 _updateFunctionErrorMessage(saveJson) ??
@@ -394,8 +394,8 @@ class RunLogFunctionEnhancementJobService {
             phase: RunLogFunctionEnhancementJobPhase.failed,
             enhancementStatus: RunLogReusableFunctionEnhancementStatus.failed,
             message: job.useEnglish
-                ? 'update_function did not return updated_function. The current Function is unchanged.'
-                : 'update_function 未返回 updated_function；当前 Function 保持原样。',
+                ? 'update_function did not return updated_function. The current reusable command is unchanged.'
+                : 'update_function 未返回 updated_function；当前复用指令保持原样。',
             registrationResult: saveJson,
             error: job.useEnglish
                 ? 'update_function missing updated_function'
@@ -424,8 +424,8 @@ class RunLogFunctionEnhancementJobService {
             phase: RunLogFunctionEnhancementJobPhase.failed,
             enhancementStatus: RunLogReusableFunctionEnhancementStatus.failed,
             message: job.useEnglish
-                ? 'Agent enhanced and saved this Function, but automatic registration failed.'
-                : 'Agent 已增强并保存 Function，但自动注册失败。',
+                ? 'Agent enhanced and saved this reusable command, but automatic registration failed.'
+                : 'Agent 已增强并保存复用指令，但自动注册失败。',
             enhancedFunctionJson: updatedFunction,
             registrationResult: registerJson,
             error:
@@ -458,8 +458,8 @@ class RunLogFunctionEnhancementJobService {
           phase: RunLogFunctionEnhancementJobPhase.failed,
           enhancementStatus: RunLogReusableFunctionEnhancementStatus.failed,
           message: current.useEnglish
-              ? 'Agent enhancement failed. Keeping the current Function.'
-              : 'Agent 增强失败，当前 Function 保持原样。',
+              ? 'Agent enhancement failed. Keeping the current reusable command.'
+              : 'Agent 增强失败，当前复用指令保持原样。',
           error: error.toString(),
         ),
       );
@@ -543,7 +543,7 @@ class RunLogFunctionEnhancementJobService {
             : 'Agent 增强已部分应用、保存并注册。';
       case RunLogReusableFunctionEnhancementStatus.unchanged:
         return useEnglish
-            ? 'Agent checked this Function, found no safe change, and registered it.'
+            ? 'Agent checked this reusable command, found no safe change, and registered it.'
             : 'Agent 已检查，没有安全可应用的变化，并已注册。';
       case RunLogReusableFunctionEnhancementStatus.failed:
         return useEnglish ? 'Agent enhancement failed.' : 'Agent 增强失败。';

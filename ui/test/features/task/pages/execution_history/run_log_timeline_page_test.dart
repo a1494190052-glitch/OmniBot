@@ -601,10 +601,7 @@ void main() {
       expect(runArgs['toolProfile'], 'omniflow');
       expect(runArgs['allowedTools'], contains('oob_function_run'));
       expect(runArgs['userMessage'], contains('Function id: fn_from_runlog'));
-      expect(
-        runArgs['userMessage'],
-        isNot(contains('只使用 oob_function_run')),
-      );
+      expect(runArgs['userMessage'], isNot(contains('只使用 oob_function_run')));
       expect(
         runArgs['userMessage'],
         isNot(contains('Use the oob_function_run')),
@@ -900,7 +897,7 @@ void main() {
       await _pumpUntilFound(
         tester,
         find.text(
-          '当前复用指令已可直接回放；语义升级是离线后台步骤，不会阻塞 VLM 自动注册和下一次快速执行。',
+          '当前复用指令已可直接执行；语义升级会在后台离线处理，不会阻塞保存或下一次快速执行。',
           skipOffstage: false,
         ),
       );
