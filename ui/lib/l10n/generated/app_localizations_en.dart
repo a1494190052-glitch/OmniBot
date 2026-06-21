@@ -220,7 +220,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsMcpToggleFailed => 'Failed to toggle MCP';
 
   @override
-  String get settingsOobFunctionAsToolTitle => 'OmniFlow command recall';
+  String get settingsOobFunctionAsToolTitle => 'Reusable command recall';
 
   @override
   String get settingsOobFunctionAsToolSubtitle =>
@@ -228,7 +228,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsOobFunctionAsToolToggleFailed =>
-      'Failed to update OmniFlow command recall setting';
+      'Failed to update reusable command recall setting';
 
   @override
   String get settingsCopiedAddress => 'Address copied';
@@ -444,7 +444,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get chatToolOutputCopied => 'Copied tool output';
 
   @override
-  String get chatViewRunLogTooltip => 'View Run Log';
+  String get chatViewRunLogTooltip => 'View execution record';
 
   @override
   String get chatFallbackReply =>
@@ -1832,7 +1832,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get alpineOmniFlowDev =>
-      'OmniFlow Python CLI / provider dev tools; does not replace native reusable commands';
+      'Reusable command Python CLI / provider dev tools; does not replace native reusable commands';
 
   @override
   String get alpineSshClient => 'SSH Client';
@@ -2152,11 +2152,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get homeDrawerLateNightSub2 => 'Say good night to today';
 
   @override
-  String get omniflowPanelTitle => 'OmniFlow Trajectory Panel';
+  String get omniflowPanelTitle => 'Reusable command trace panel';
 
   @override
   String get omniflowPanelDesc =>
-      'Manage OmniFlow reusable commands: view, execute, or delete saved commands.';
+      'Manage reusable commands: view, execute, or delete saved commands.';
 
   @override
   String get omniflowFunctionList => 'Reusable command list';
@@ -2168,17 +2168,17 @@ class AppLocalizationsEn extends AppLocalizations {
   String get omniflowFunctionSearchHint => 'Filter by name, description, etc.';
 
   @override
-  String get omniflowSettings => 'OmniFlow Settings';
+  String get omniflowSettings => 'Reusable command settings';
 
   @override
   String get omniflowSettingsSubtitle =>
       'Record reusable action sequences to accelerate tasks';
 
   @override
-  String get omniflowEnablePreHook => 'Enable OmniFlow Acceleration';
+  String get omniflowEnablePreHook => 'Enable reusable command acceleration';
 
   @override
-  String get omniflowAutoStartProvider => 'OmniFlow Auto-start';
+  String get omniflowAutoStartProvider => 'Reusable command auto-start';
 
   @override
   String get omniflowRefresh => 'Refresh';
@@ -2196,13 +2196,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get omniflowSaveConfig => 'Save';
 
   @override
-  String get omniflowConfigSaved => 'OmniFlow config saved';
+  String get omniflowConfigSaved => 'Reusable command config saved';
 
   @override
-  String get omniflowConfigSaveFailed => 'Failed to save OmniFlow config';
+  String get omniflowConfigSaveFailed =>
+      'Failed to save reusable command config';
 
   @override
-  String get omniflowConfigLoadFailed => 'Failed to load OmniFlow config';
+  String get omniflowConfigLoadFailed =>
+      'Failed to load reusable command config';
 
   @override
   String get omniflowFunctionsLoadFailed => 'Failed to load reusable commands';
@@ -2218,7 +2220,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'Service address not configured';
 
   @override
-  String get omniflowSkillLibrary => 'OmniFlow Skill Library';
+  String get omniflowSkillLibrary => 'Reusable command skill library';
 
   @override
   String get omniflowServiceStatus => 'Service Status';
@@ -2268,7 +2270,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get omniflowClearAllDataConfirm =>
-      'Confirm clear all OmniFlow data?\n\nThis will delete:\n• All reusable commands\n• All Run Logs\n• All Shared Pages\n\nThis action cannot be undone!';
+      'Confirm clear all reusable command data?\n\nThis will delete:\n• All reusable commands\n• All execution records\n• All shared pages\n\nThis action cannot be undone!';
 
   @override
   String get omniflowCancel => 'Cancel';
@@ -2278,7 +2280,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String omniflowClearSuccess(Object functions, Object runLogs) {
-    return 'Cleared: $functions reusable commands, $runLogs run logs';
+    return 'Cleared: $functions reusable commands, $runLogs execution records';
   }
 
   @override
@@ -2746,7 +2748,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get omniflowAssetFunctionDetail => 'Reusable command details';
 
   @override
-  String get omniflowAssetRunLogDetail => 'Run Log Details';
+  String get omniflowAssetRunLogDetail => 'Execution record details';
 
   @override
   String get omniflowAssetCopyJson => 'Copy JSON';
@@ -2779,13 +2781,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get omniflowAssetLoadFailed => 'Failed to load';
 
   @override
-  String get omniflowAssetRunLogNotReady => 'Run log not yet persisted';
+  String get omniflowAssetRunLogNotReady =>
+      'Execution record not yet persisted';
 
   @override
-  String get omniflowAssetRunLogIndexFailed => 'Failed to read run log index';
+  String get omniflowAssetRunLogIndexFailed =>
+      'Failed to read execution record index';
 
   @override
-  String get omniflowAssetReplayTitle => 'Replay Run Log';
+  String get omniflowAssetReplayTitle => 'Replay execution record';
 
   @override
   String get omniflowAssetReplayConfirm => 'Replay this execution?';
@@ -2987,7 +2991,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get omniflowUpdateBridgeModeHint =>
-      'Current connection remains Bridge; only the device package was updated.';
+      'Current connection remains Bridge; only the reusable command package on the device was updated.';
 
   @override
   String get omniflowUpdateRestartRequired =>

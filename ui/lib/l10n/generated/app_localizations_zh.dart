@@ -201,13 +201,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsMcpToggleFailed => 'MCP 开关失败';
 
   @override
-  String get settingsOobFunctionAsToolTitle => 'OmniFlow 复用指令召回';
+  String get settingsOobFunctionAsToolTitle => '复用指令召回';
 
   @override
   String get settingsOobFunctionAsToolSubtitle => 'VLM 任务中通过运行时召回和重放复用已保存流程';
 
   @override
-  String get settingsOobFunctionAsToolToggleFailed => 'OmniFlow 复用指令召回开关失败';
+  String get settingsOobFunctionAsToolToggleFailed => '复用指令召回开关失败';
 
   @override
   String get settingsCopiedAddress => '已复制访问地址';
@@ -1709,8 +1709,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get alpineCodex => 'OpenAI Codex CLI 与 app-server 桥接';
 
   @override
-  String get alpineOmniFlowDev =>
-      'OmniFlow Python CLI / provider 开发工具，不替代小万原生复用指令';
+  String get alpineOmniFlowDev => '复用指令 Python CLI / provider 开发工具，不替代小万原生复用指令';
 
   @override
   String get alpineSshClient => 'SSH 客户端';
@@ -2026,10 +2025,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get homeDrawerLateNightSub2 => '好好和今天说晚安～';
 
   @override
-  String get omniflowPanelTitle => 'OmniFlow 轨迹面板';
+  String get omniflowPanelTitle => '复用指令轨迹面板';
 
   @override
-  String get omniflowPanelDesc => '管理 OmniFlow 复用指令：查看、执行或删除复用指令资产。';
+  String get omniflowPanelDesc => '管理复用指令：查看、执行或删除已保存指令。';
 
   @override
   String get omniflowFunctionList => '复用指令列表';
@@ -2041,16 +2040,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get omniflowFunctionSearchHint => '按名称、描述等关键字过滤';
 
   @override
-  String get omniflowSettings => 'OmniFlow 设置';
+  String get omniflowSettings => '复用指令设置';
 
   @override
   String get omniflowSettingsSubtitle => '记录高频可复用操作段，加速任务执行';
 
   @override
-  String get omniflowEnablePreHook => '启用 OmniFlow 执行加速';
+  String get omniflowEnablePreHook => '启用复用指令执行加速';
 
   @override
-  String get omniflowAutoStartProvider => 'OmniFlow 自启动';
+  String get omniflowAutoStartProvider => '复用指令自启动';
 
   @override
   String get omniflowRefresh => '刷新';
@@ -2068,13 +2067,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get omniflowSaveConfig => '保存';
 
   @override
-  String get omniflowConfigSaved => 'OmniFlow 配置已保存';
+  String get omniflowConfigSaved => '复用指令配置已保存';
 
   @override
-  String get omniflowConfigSaveFailed => '保存 OmniFlow 配置失败';
+  String get omniflowConfigSaveFailed => '保存复用指令配置失败';
 
   @override
-  String get omniflowConfigLoadFailed => '加载 OmniFlow 配置失败';
+  String get omniflowConfigLoadFailed => '加载复用指令配置失败';
 
   @override
   String get omniflowFunctionsLoadFailed => '加载复用指令列表失败';
@@ -2089,7 +2088,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get omniflowServiceAddressNotConfigured => '服务地址未配置';
 
   @override
-  String get omniflowSkillLibrary => 'OmniFlow 技能库';
+  String get omniflowSkillLibrary => '复用指令技能库';
 
   @override
   String get omniflowServiceStatus => '服务状态';
@@ -2138,7 +2137,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get omniflowClearAllDataConfirm =>
-      '确认清空所有 OmniFlow 数据？\n\n这将删除：\n• 所有复用指令\n• 所有 Run Logs\n• 所有 Shared Pages\n\n此操作不可恢复！';
+      '确认清空所有复用指令数据？\n\n这将删除：\n• 所有复用指令\n• 所有执行记录\n• 所有共享页面\n\n此操作不可恢复！';
 
   @override
   String get omniflowCancel => '取消';
@@ -2148,7 +2147,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String omniflowClearSuccess(Object functions, Object runLogs) {
-    return '已清空：$functions 条复用指令，$runLogs 条 RunLog';
+    return '已清空：$functions 条复用指令，$runLogs 条执行记录';
   }
 
   @override
@@ -2844,8 +2843,7 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get omniflowUpdateBridgeModeHint =>
-      '当前连接仍是 Bridge；这次只更新了设备里的 OmniFlow 包。';
+  String get omniflowUpdateBridgeModeHint => '当前连接仍是 Bridge；这次只更新了设备里的复用指令包。';
 
   @override
   String get omniflowUpdateRestartRequired => '设备包已更新；请手动重启本地内置 Provider 后生效。';

@@ -479,7 +479,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsOobFunctionAsToolTitle.
   ///
   /// In zh, this message translates to:
-  /// **'OmniFlow 复用指令召回'**
+  /// **'复用指令召回'**
   String get settingsOobFunctionAsToolTitle;
 
   /// No description provided for @settingsOobFunctionAsToolSubtitle.
@@ -491,7 +491,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsOobFunctionAsToolToggleFailed.
   ///
   /// In zh, this message translates to:
-  /// **'OmniFlow 复用指令召回开关失败'**
+  /// **'复用指令召回开关失败'**
   String get settingsOobFunctionAsToolToggleFailed;
 
   /// No description provided for @settingsCopiedAddress.
@@ -3287,7 +3287,7 @@ abstract class AppLocalizations {
   /// No description provided for @alpineOmniFlowDev.
   ///
   /// In zh, this message translates to:
-  /// **'OmniFlow Python CLI / provider 开发工具，不替代小万原生复用指令'**
+  /// **'复用指令 Python CLI / provider 开发工具，不替代小万原生复用指令'**
   String get alpineOmniFlowDev;
 
   /// No description provided for @alpineSshClient.
@@ -3899,13 +3899,13 @@ abstract class AppLocalizations {
   /// No description provided for @omniflowPanelTitle.
   ///
   /// In zh, this message translates to:
-  /// **'OmniFlow 轨迹面板'**
+  /// **'复用指令轨迹面板'**
   String get omniflowPanelTitle;
 
   /// No description provided for @omniflowPanelDesc.
   ///
   /// In zh, this message translates to:
-  /// **'管理 OmniFlow 复用指令：查看、执行或删除复用指令资产。'**
+  /// **'管理复用指令：查看、执行或删除已保存指令。'**
   String get omniflowPanelDesc;
 
   /// No description provided for @omniflowFunctionList.
@@ -3929,7 +3929,7 @@ abstract class AppLocalizations {
   /// No description provided for @omniflowSettings.
   ///
   /// In zh, this message translates to:
-  /// **'OmniFlow 设置'**
+  /// **'复用指令设置'**
   String get omniflowSettings;
 
   /// No description provided for @omniflowSettingsSubtitle.
@@ -3941,13 +3941,13 @@ abstract class AppLocalizations {
   /// No description provided for @omniflowEnablePreHook.
   ///
   /// In zh, this message translates to:
-  /// **'启用 OmniFlow 执行加速'**
+  /// **'启用复用指令执行加速'**
   String get omniflowEnablePreHook;
 
   /// No description provided for @omniflowAutoStartProvider.
   ///
   /// In zh, this message translates to:
-  /// **'OmniFlow 自启动'**
+  /// **'复用指令自启动'**
   String get omniflowAutoStartProvider;
 
   /// No description provided for @omniflowRefresh.
@@ -3983,19 +3983,19 @@ abstract class AppLocalizations {
   /// No description provided for @omniflowConfigSaved.
   ///
   /// In zh, this message translates to:
-  /// **'OmniFlow 配置已保存'**
+  /// **'复用指令配置已保存'**
   String get omniflowConfigSaved;
 
   /// No description provided for @omniflowConfigSaveFailed.
   ///
   /// In zh, this message translates to:
-  /// **'保存 OmniFlow 配置失败'**
+  /// **'保存复用指令配置失败'**
   String get omniflowConfigSaveFailed;
 
   /// No description provided for @omniflowConfigLoadFailed.
   ///
   /// In zh, this message translates to:
-  /// **'加载 OmniFlow 配置失败'**
+  /// **'加载复用指令配置失败'**
   String get omniflowConfigLoadFailed;
 
   /// No description provided for @omniflowFunctionsLoadFailed.
@@ -4025,7 +4025,7 @@ abstract class AppLocalizations {
   /// No description provided for @omniflowSkillLibrary.
   ///
   /// In zh, this message translates to:
-  /// **'OmniFlow 技能库'**
+  /// **'复用指令技能库'**
   String get omniflowSkillLibrary;
 
   /// No description provided for @omniflowServiceStatus.
@@ -4121,7 +4121,7 @@ abstract class AppLocalizations {
   /// No description provided for @omniflowClearAllDataConfirm.
   ///
   /// In zh, this message translates to:
-  /// **'确认清空所有 OmniFlow 数据？\n\n这将删除：\n• 所有复用指令\n• 所有 Run Logs\n• 所有 Shared Pages\n\n此操作不可恢复！'**
+  /// **'确认清空所有复用指令数据？\n\n这将删除：\n• 所有复用指令\n• 所有执行记录\n• 所有共享页面\n\n此操作不可恢复！'**
   String get omniflowClearAllDataConfirm;
 
   /// No description provided for @omniflowCancel.
@@ -4139,7 +4139,7 @@ abstract class AppLocalizations {
   /// No description provided for @omniflowClearSuccess.
   ///
   /// In zh, this message translates to:
-  /// **'已清空：{functions} 条复用指令，{runLogs} 条 RunLog'**
+  /// **'已清空：{functions} 条复用指令，{runLogs} 条执行记录'**
   String omniflowClearSuccess(Object functions, Object runLogs);
 
   /// No description provided for @omniflowClearFailed.
@@ -5417,7 +5417,7 @@ abstract class AppLocalizations {
   /// No description provided for @omniflowUpdateBridgeModeHint.
   ///
   /// In zh, this message translates to:
-  /// **'当前连接仍是 Bridge；这次只更新了设备里的 OmniFlow 包。'**
+  /// **'当前连接仍是 Bridge；这次只更新了设备里的复用指令包。'**
   String get omniflowUpdateBridgeModeHint;
 
   /// No description provided for @omniflowUpdateRestartRequired.
