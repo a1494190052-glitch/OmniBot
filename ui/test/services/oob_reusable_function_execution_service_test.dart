@@ -37,7 +37,7 @@ void main() {
     test('exposes one focused Agent tool policy for reusable Function UI', () {
       expect(
         AssistsMessageService.oobReusableFunctionAgentToolProfile,
-        'function_management',
+        'omniflow',
       );
       expect(AssistsMessageService.oobReusableFunctionAgentAllowedTools, [
         'oob_function_run',
@@ -66,7 +66,7 @@ void main() {
         calls.single.arguments as Map,
       );
       expect(arguments['taskId'], 'task-run-function-1');
-      expect(arguments['toolProfile'], 'function_management');
+      expect(arguments['toolProfile'], 'omniflow');
       expect(arguments['allowedTools'], contains('oob_function_run'));
       expect(arguments['userMessage'], contains('Function id: open_settings'));
       expect(arguments['userMessage'], contains('com.android.settings'));
@@ -352,7 +352,7 @@ void main() {
           task,
         );
 
-        expect(policy.toolProfile, 'function_management');
+        expect(policy.toolProfile, 'omniflow');
         expect(policy.allowedTools, ['oob_function_run']);
       },
     );

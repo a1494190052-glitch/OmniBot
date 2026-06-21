@@ -972,7 +972,7 @@ void main() {
         (call) => call.method == 'createAgentTask',
       );
       final agentArgs = Map<String, dynamic>.from(agentCall.arguments as Map);
-      expect(agentArgs['toolProfile'], 'function_management');
+      expect(agentArgs['toolProfile'], 'omniflow');
       expect(agentArgs['allowedTools'], contains('oob_function_run'));
       expect(agentArgs['userMessage'], contains('Function id: open_settings'));
       expect(agentArgs['userMessage'], contains('com.android.settings'));
@@ -1062,7 +1062,7 @@ void main() {
       (call) => call.method == 'createAgentTask',
     );
     final agentArgs = Map<String, dynamic>.from(agentCall.arguments as Map);
-    expect(agentArgs['toolProfile'], 'function_management');
+    expect(agentArgs['toolProfile'], 'omniflow');
     expect(agentArgs['allowedTools'], contains('oob_function_run'));
     expect(agentArgs['userMessage'], contains('Function id: search_settings'));
     expect(agentArgs['userMessage'], contains('"query":"wifi"'));
@@ -1193,7 +1193,7 @@ void main() {
       (call) => call.method == 'createAgentTask',
     );
     final agentArgs = Map<String, dynamic>.from(agentCall.arguments as Map);
-    expect(agentArgs['toolProfile'], 'function_management');
+    expect(agentArgs['toolProfile'], 'omniflow');
     expect(agentArgs['allowedTools'], contains('oob_function_run'));
     expect(agentArgs['userMessage'], contains('Function id: open_settings'));
 

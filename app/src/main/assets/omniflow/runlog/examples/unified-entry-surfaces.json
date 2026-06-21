@@ -40,14 +40,14 @@
       "adapter": "AssistsMessageService.runOobReusableFunctionWithAgent -> createAgentTask",
       "input_shape": "function_id_plus_public_arguments",
       "delegates_to": [
-        "Agent profile function_management",
+        "Agent profile omniflow",
         "oob_function_run"
       ],
       "may_execute_phone_actions": true,
       "phone_action_owner": "agent_profile_then_kotlin_runner",
       "requires_concrete_function_id": true,
       "model_visible_function_execution_tool": true,
-      "tool_profile": "function_management",
+      "tool_profile": "omniflow",
       "allowed_tools": [
         "oob_function_run"
       ],

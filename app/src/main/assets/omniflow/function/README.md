@@ -146,7 +146,7 @@ helper with mixed semantics.
 `OobFunctionSkillProfile` owns the native Function-management skill profile:
 
 - expose the small static tool set used by the `omniflow` skill's focused
-  `function_management` profile
+  `omniflow` profile
 - expose registered Functions as management assets, not normal VLM action tools
 - build compact prompt candidates for agent tool selection
 - never execute Functions or mutate Function specs

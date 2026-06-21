@@ -598,7 +598,7 @@ void main() {
         (call) => call.method == 'createAgentTask',
       );
       final runArgs = Map<String, dynamic>.from(runCall.arguments as Map);
-      expect(runArgs['toolProfile'], 'function_management');
+      expect(runArgs['toolProfile'], 'omniflow');
       expect(runArgs['allowedTools'], contains('oob_function_run'));
       expect(runArgs['userMessage'], contains('Function id: fn_from_runlog'));
       expect(
@@ -1238,7 +1238,7 @@ void main() {
       final agentRunArgs = Map<String, dynamic>.from(
         agentRunCall.arguments as Map,
       );
-      expect(agentRunArgs['toolProfile'], 'function_management');
+      expect(agentRunArgs['toolProfile'], 'omniflow');
       expect(agentRunArgs['allowedTools'], contains('oob_function_run'));
       expect(
         agentRunArgs['userMessage'],

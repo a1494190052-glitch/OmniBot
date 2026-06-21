@@ -386,8 +386,8 @@ BEHAVIOR:
                 ),
                 "toolProfile" to mapOf(
                     "type" to "string",
-                    "enum" to listOf("function_management"),
-                    "description" to "Optional focused tool exposure profile. Use function_management when the Agent only needs to list, inspect, register, convert, run, update, or delete OmniFlow Functions; this keeps regular Agent behavior unchanged while reducing tool-schema tokens."
+                    "enum" to listOf("omniflow"),
+                    "description" to "Optional focused tool exposure profile. Use omniflow when the Agent only needs to list, inspect, register, convert, run, update, or delete OmniFlow Functions; this keeps regular Agent behavior unchanged while reducing tool-schema tokens. Legacy function_management inputs are still accepted and normalized."
                 ),
                 "allowedTools" to mapOf(
                     "type" to "array",

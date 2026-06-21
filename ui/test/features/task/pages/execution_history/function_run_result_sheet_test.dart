@@ -329,7 +329,7 @@ void main() {
 
     expect(calls, hasLength(1));
     final args = Map<String, dynamic>.from(calls.single.arguments as Map);
-    expect(args['toolProfile'], 'function_management');
+    expect(args['toolProfile'], 'omniflow');
     expect(args['allowedTools'], contains('oob_function_run'));
     expect(args['userMessage'], contains('Function id: search_settings'));
     expect(args['userMessage'].toString(), contains('bluetooth'));

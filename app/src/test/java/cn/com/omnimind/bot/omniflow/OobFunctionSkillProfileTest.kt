@@ -63,8 +63,12 @@ class OobFunctionSkillProfileTest {
 
     @Test
     fun `function management profile is owned by omniflow skill`() {
-        assertEquals("function_management", OobFunctionSkillProfile.PROFILE)
+        assertEquals("omniflow", OobFunctionSkillProfile.PROFILE)
+        assertEquals("function_management", OobFunctionSkillProfile.LEGACY_PROFILE)
         assertEquals("omniflow", OobFunctionSkillProfile.SKILL_ID)
+        assertEquals("omniflow", OobFunctionSkillProfile.canonicalProfile(" function-management "))
+        assertEquals("omniflow", OobFunctionSkillProfile.canonicalProfile("function_management"))
+        assertTrue(OobFunctionSkillProfile.isProfile("function_management"))
     }
 
     @Test

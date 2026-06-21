@@ -41,7 +41,9 @@ data class AgentToolExposurePolicy(
 
         fun fromRaw(profile: String?, allowedTools: Collection<*>?): AgentToolExposurePolicy {
             return AgentToolExposurePolicy(
-                profile = normalizeProfile(profile).takeIf { it.isNotEmpty() },
+                profile = OobFunctionSkillProfile
+                    .canonicalProfile(profile)
+                    .takeIf { it.isNotEmpty() },
                 allowedTools = allowedTools
                     ?.mapNotNull { normalizeToolName(it?.toString()) }
                     ?.toSet()

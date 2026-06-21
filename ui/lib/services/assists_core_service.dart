@@ -1998,8 +1998,7 @@ class AgentAiConfigChangedEvent {
 }
 
 class AssistsMessageService {
-  static const String oobReusableFunctionAgentToolProfile =
-      'function_management';
+  static const String oobReusableFunctionAgentToolProfile = 'omniflow';
   static const List<String> oobReusableFunctionAgentAllowedTools = [
     'oob_function_run',
   ];

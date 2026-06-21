@@ -292,7 +292,7 @@ class McpToolDefinitionsTest {
         assertTrue(properties.containsKey("toolProfile"))
         assertTrue(properties.containsKey("allowedTools"))
         val toolProfile = properties["toolProfile"] as Map<*, *>
-        assertEquals(listOf("function_management"), toolProfile["enum"])
+        assertEquals(listOf("omniflow"), toolProfile["enum"])
         val profileDescription = toolProfile["description"].toString()
         assertTrue(profileDescription.contains("OmniFlow Functions"))
         assertTrue(profileDescription.contains("run"))

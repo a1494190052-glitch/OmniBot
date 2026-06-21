@@ -21,7 +21,8 @@ import kotlinx.serialization.json.putJsonObject
  * Workflow rules and prompts belong in `omniflow/SKILL.md`.
  */
 object OobFunctionSkillProfile {
-    const val PROFILE = "function_management"
+    const val PROFILE = "omniflow"
+    const val LEGACY_PROFILE = "function_management"
     const val SKILL_ID = "omniflow"
     private const val ENABLE_AGENT_DIRECT_FUNCTION_TOOLS = false
     private const val MAX_DYNAMIC_FUNCTION_TOOLS = 500
@@ -32,10 +33,18 @@ object OobFunctionSkillProfile {
         OobFunctionToolNames.profileTools
 
     fun isProfile(profile: String?): Boolean =
-        normalizeProfile(profile) == PROFILE
+        canonicalProfile(profile) == PROFILE
 
     fun allowedToolsForProfile(profile: String?): Set<String>? =
         if (isProfile(profile)) toolNames else null
+
+    fun canonicalProfile(profile: String?): String {
+        val normalized = normalizeProfile(profile)
+        return when (normalized) {
+            PROFILE, LEGACY_PROFILE -> PROFILE
+            else -> normalized
+        }
+    }
 
     fun staticToolDefinitions(locale: PromptLocale): List<JsonObject> =
         functionManagementToolDefinitions.map { definition ->
