@@ -110,7 +110,7 @@ class OobFunctionSkillProfileTest {
         assertTrue(prompt.contains("restaurant"))
         assertTrue(prompt.contains("dish"))
         assertTrue(prompt.contains("不要尝试调用 function_recall"))
-        assertTrue(prompt.contains("继续走 vlm_task"))
+        assertTrue(prompt.contains("普通手机自动化仍走 vlm_task"))
         assertTrue(prompt.contains("oob_function_run"))
     }
 

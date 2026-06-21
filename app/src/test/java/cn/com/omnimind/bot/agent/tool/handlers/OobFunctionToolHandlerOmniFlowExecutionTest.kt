@@ -1822,6 +1822,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
             assertTrue(result is ToolExecutionResult.Error)
             result as ToolExecutionResult.Error
             assertTrue(result.message.contains("Direct Function tool execution is disabled"))
+            assertTrue(result.message.contains("oob_function_run"))
             assertTrue(result.message.contains("vlm_task"))
         } finally {
             context.root.deleteRecursively()
@@ -1910,6 +1911,7 @@ class OobFunctionToolHandlerOmniFlowExecutionTest {
                 assertTrue(result is ToolExecutionResult.Error)
                 result as ToolExecutionResult.Error
                 assertTrue(result.message.contains("Direct call_tool(function_id) execution is disabled"))
+                assertTrue(result.message.contains("oob_function_run"))
                 assertTrue(result.message.contains("vlm_task"))
                 assertEquals(emptyList<String>(), backend.inputTexts)
             }

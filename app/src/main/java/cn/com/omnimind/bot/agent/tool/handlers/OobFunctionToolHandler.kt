@@ -96,7 +96,7 @@ class OobFunctionToolHandler(
         return if (getSpec(toolName) != null) {
             cn.com.omnimind.bot.agent.ToolExecutionResult.Error(
                 toolName,
-                "Direct Function tool execution is disabled. Use vlm_task so OmniFlow runtime recall can select, resolve, and replay the Function."
+                "Direct Function tool execution is disabled. Use oob_function_run in the omniflow profile for explicit reusable-command execution, or vlm_task for ordinary phone UI automation."
             )
         } else {
             cn.com.omnimind.bot.agent.ToolExecutionResult.Error(
@@ -206,7 +206,7 @@ class OobFunctionToolHandler(
         if (functionId.isNotEmpty()) {
             return cn.com.omnimind.bot.agent.ToolExecutionResult.Error(
                 toolName,
-                "Direct call_tool(function_id) execution is disabled. Use vlm_task so OmniFlow runtime recall can select, resolve, and replay the Function."
+                "Direct call_tool(function_id) execution is disabled. Use oob_function_run in the omniflow profile for explicit reusable-command execution, or vlm_task for ordinary phone UI automation."
             )
         }
 
