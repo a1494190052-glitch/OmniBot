@@ -1086,36 +1086,6 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
     return true;
   }
 
-  @override
-  Future<void> _startManualRecordingFromShortcut(
-    bool recordDebugScreenshots,
-  ) async {
-    if (_isAiResponding) return;
-    await _startManualRecordingFlow(
-      '录制轨迹',
-      recordDebugScreenshots: recordDebugScreenshots,
-    );
-  }
-
-  @override
-  Future<void> _openRunLogListFromShortcut() async {
-    await RunLogShortcutController.openRunLogList();
-  }
-
-  @override
-  Future<void> _openFunctionLibraryFromShortcut() async {
-    await RunLogShortcutController.openFunctionLibrary();
-  }
-
-  @override
-  Future<void> _openLatestRunLogFromShortcut() async {
-    await RunLogShortcutController.openLatestRunLog(
-      context: context,
-      isMounted: () => mounted,
-      isBusy: _isAiResponding,
-    );
-  }
-
   Future<void> _startManualRecordingFlow(
     String messageText, {
     required bool recordDebugScreenshots,

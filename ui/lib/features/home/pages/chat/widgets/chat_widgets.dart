@@ -2522,11 +2522,6 @@ class ChatInputWrapper extends StatelessWidget {
   final FutureOr<void> Function()? onCodexRunSettingsOpened;
   final CodexPermissionMode? codexPermissionMode;
   final ValueChanged<CodexPermissionMode>? onCodexPermissionModeChanged;
-  final FutureOr<void> Function()? onViewTrajectoriesTap;
-  final FutureOr<void> Function()? onViewCurrentTrajectoryTap;
-  final FutureOr<void> Function()? onOpenFunctionLibraryTap;
-  final FutureOr<void> Function(bool recordDebugScreenshots)?
-  onManualRecordingTap;
   final bool useIndependentSendButton;
   final bool translucent;
 
@@ -2562,10 +2557,6 @@ class ChatInputWrapper extends StatelessWidget {
     this.onCodexRunSettingsOpened,
     this.codexPermissionMode,
     this.onCodexPermissionModeChanged,
-    this.onViewTrajectoriesTap,
-    this.onViewCurrentTrajectoryTap,
-    this.onOpenFunctionLibraryTap,
-    this.onManualRecordingTap,
     this.useIndependentSendButton = true,
     this.translucent = false,
   });
@@ -2610,10 +2601,6 @@ class ChatInputWrapper extends StatelessWidget {
             codexPermissionMode: codexPermissionMode,
             onCodexPermissionModeChanged: onCodexPermissionModeChanged,
             onInputHeightChanged: onInputHeightChanged,
-            onViewTrajectoriesTap: onViewTrajectoriesTap,
-            onViewCurrentTrajectoryTap: onViewCurrentTrajectoryTap,
-            onOpenFunctionLibraryTap: onOpenFunctionLibraryTap,
-            onManualRecordingTap: onManualRecordingTap,
             useIndependentSendButton: useIndependentSendButton,
           ),
         ],

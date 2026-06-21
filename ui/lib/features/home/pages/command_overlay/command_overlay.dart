@@ -12,7 +12,6 @@ import 'package:ui/services/screen_dialog_service.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/constants/openclaw/openclaw_keys.dart';
 import 'package:ui/features/home/pages/common/openclaw_connection_checker.dart';
-import 'package:ui/features/home/pages/command_overlay/services/run_log_shortcut_controller.dart';
 import 'package:ui/utils/data_parser.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/widgets/image/cached_image.dart';
@@ -528,34 +527,6 @@ class _CommandOverlayState extends State<CommandOverlay> {
     _messageController.clear();
 
     _showChatSheet(initialMessage: text);
-  }
-
-  Future<void> _openRunLogListFromShortcut() async {
-    await RunLogShortcutController.openRunLogList();
-  }
-
-  Future<void> _openFunctionLibraryFromShortcut() async {
-    await RunLogShortcutController.openFunctionLibrary();
-  }
-
-  Future<void> _openLatestRunLogFromShortcut() async {
-    await RunLogShortcutController.openLatestRunLog(
-      context: context,
-      isMounted: () => mounted,
-      isBusy: _isChatSheetVisible,
-    );
-  }
-
-  Future<void> _startManualRecordingFromShortcut(
-    bool recordDebugScreenshots,
-  ) async {
-    if (_isChatSheetVisible) return;
-    _messageController.clear();
-    _inputFocusNode.unfocus();
-    _showChatSheet(
-      initialMessage: '录制轨迹',
-      initialManualRecordingDebugScreenshots: recordDebugScreenshots,
-    );
   }
 
   void _showChatSheet({

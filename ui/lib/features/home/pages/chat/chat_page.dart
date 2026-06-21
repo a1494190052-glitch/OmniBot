@@ -21,7 +21,6 @@ import '../../../../services/assists_core_service.dart';
 import '../../widgets/home_drawer.dart';
 import '../authorize/authorize_page_args.dart';
 import '../command_overlay/services/manual_recording_flow_controller.dart';
-import '../command_overlay/services/run_log_shortcut_controller.dart';
 import '../command_overlay/widgets/chat_input_area.dart';
 import '../command_overlay/services/tool_card_detail_gesture_gate.dart';
 import '../common/openclaw_connection_checker.dart';
@@ -2071,14 +2070,6 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   Future<bool> _ensureNormalChatModelConfigurationForSend();
 
   Future<void> _sendMessage({String? text});
-
-  Future<void> _startManualRecordingFromShortcut(bool recordDebugScreenshots);
-
-  Future<void> _openRunLogListFromShortcut();
-
-  Future<void> _openFunctionLibraryFromShortcut();
-
-  Future<void> _openLatestRunLogFromShortcut();
 
   Future<void> _retryUserMessageText(
     String text, {
