@@ -1,4 +1,0 @@
-name,description,parameters
-navigate_to_app,Open a specific app from the home screen.,"{'app_name': 'Which app do you want to open? [Phone, Messages, Clock, Chrome, Camera]'}"
-search,Perform a search using the search bar on the home screen.,{'search_query': 'What do you want to search for?'}
-view_date,View or select the current date on the home screen.,{'date': 'Which date do you want to view or select?'}

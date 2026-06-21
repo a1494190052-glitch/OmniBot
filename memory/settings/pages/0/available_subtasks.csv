@@ -1,6 +1,0 @@
-name,description,parameters
-navigate_to_app,Open a specific app from the home screen.,"{'app_name': 'Which app do you want to open? [Phone, Messages, Clock, Chrome, Camera]'}"
-search,Perform a search using the search bar.,{'search_query': 'What do you want to search for?'}
-initiate_voice_search,Start a voice search using the microphone.,{}
-initiate_image_search,Start an image search using Google Lens.,{}
-view_date,View or change the current date.,{}

@@ -45,6 +45,25 @@ fun flutterCommand(): String {
     return executableName
 }
 
+fun flutterWebBundleMode(): String = prop("OOB_FLUTTER_WEB_MODE")
+    .ifBlank { "auto" }
+    .lowercase()
+
+fun shouldBundleFlutterWebForRequestedTasks(): Boolean {
+    val requestedTasks = gradle.startParameter.taskNames
+        .map { it.substringAfterLast(':') }
+        .map { it.lowercase() }
+    return when (flutterWebBundleMode()) {
+        "include", "always", "true", "1", "yes" -> true
+        "skip", "exclude", "none", "off", "false", "0", "no" -> false
+        else -> requestedTasks.any { taskName ->
+            taskName.contains("release") ||
+                taskName == "assembleproduction" ||
+                taskName == "bundleproduction"
+        }
+    }
+}
+
 val omnibotImageBaseUrl = prop("OMNIBOT_IMAGE_BASE_URL")
     .ifBlank { "https://cloud.omnimind.com.cn" }
 val omnibotImageModel = prop("OMNIBOT_IMAGE_MODEL")
@@ -261,7 +280,9 @@ kotlin {
 }
 
 tasks.named("preBuild").configure {
-    dependsOn(syncFlutterWebBundle)
+    if (shouldBundleFlutterWebForRequestedTasks()) {
+        dependsOn(syncFlutterWebBundle)
+    }
 }
 dependencies {
     implementation(project(":flutter"))
