@@ -150,6 +150,11 @@ class App : BaseApplication() {
             )
         }
         runCatching {
+            val guidanceManager = cn.com.omnimind.bot.vlm.VlmGuidanceManager.getInstance(this)
+            guidanceManager.initialize()
+            cn.com.omnimind.assists.task.vlmserver.VLMPostTaskHookRegistry.register(guidanceManager)
+        }
+        runCatching {
             ShizukuCapabilityManager.get(this)
         }
 

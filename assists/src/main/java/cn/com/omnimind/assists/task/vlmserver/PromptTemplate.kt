@@ -64,6 +64,12 @@ object PromptTemplate {
     }
 
     private fun buildToolActionSystemPrompt(locale: PromptLocale): String {
+        val base = buildHardcodedSystemPrompt(locale)
+        val extra = VLMSystemPromptRegistry.get()
+        return if (extra.isNullOrBlank()) base else "$base\n\n$extra"
+    }
+
+    private fun buildHardcodedSystemPrompt(locale: PromptLocale): String {
         return t(
             locale,
             """

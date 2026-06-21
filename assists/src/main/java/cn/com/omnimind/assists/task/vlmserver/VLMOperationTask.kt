@@ -1001,6 +1001,19 @@ open class VLMOperationTask(
                                 summaryUnavailable = true
                             )
                         )
+                        val executedFunctionId = taskExecutionReport.executionTrace
+                            .mapNotNull { (it.action as? FunctionRunAction)?.functionId }
+                            .lastOrNull()
+                        cancelScope.launch {
+                            VLMPostTaskHookRegistry.notify(
+                                goal = goal,
+                                packageName = taskExecutionReport.finalContext.targetPackageName
+                                    .takeIf { it.isNotBlank() },
+                                executedFunctionId = executedFunctionId,
+                                success = true,
+                                executionTrace = taskExecutionReport.executionTrace,
+                            )
+                        }
                     } else {
                         val errorMessage = finishMessage.ifBlank { "任务执行失败" }
                         notifyTerminalResult(
