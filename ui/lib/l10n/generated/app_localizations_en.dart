@@ -2593,7 +2593,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get executionVlmExecution => 'VLM Execution';
+  String get executionVlmExecution => 'Visual task';
 
   @override
   String get executionActionOpenApp => 'Open App';

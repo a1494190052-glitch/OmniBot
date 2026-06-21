@@ -876,7 +876,7 @@
   "functionLibraryDetailFunctionSchema": "复用指令 Schema",
   "executionReuseHit": "复用指令",
   "executionReuseHitWithFunction": "复用指令 · {functionId}",
-  "executionVlmExecution": "VLM 执行",
+  "executionVlmExecution": "视觉执行",
   "executionActionOpenApp": "打开应用",
   "executionActionClick": "点击",
   "executionActionClickNode": "点击元素",

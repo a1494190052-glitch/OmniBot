@@ -2453,7 +2453,7 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get executionVlmExecution => 'VLM 执行';
+  String get executionVlmExecution => '视觉执行';
 
   @override
   String get executionActionOpenApp => '打开应用';

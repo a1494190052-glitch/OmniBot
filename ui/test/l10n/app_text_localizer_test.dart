@@ -85,6 +85,7 @@ void main() {
   test('localized reusable command surfaces avoid VLM provider wording', () {
     final checkedKeys = const [
       'alpineOmniFlowDev',
+      'executionVlmExecution',
       'omniflowAssetVlmExecution',
     ];
 
