@@ -984,7 +984,11 @@ String _localizeToolUiText(String value, {Locale? locale}) {
       );
     case 'OmniFlow':
     case '工作流':
-      return AppTextLocalizer.choose(en: 'OmniFlow', zh: '工作流', locale: locale);
+      return AppTextLocalizer.choose(
+        en: 'Reusable command',
+        zh: '复用指令',
+        locale: locale,
+      );
     case 'Reusable command':
     case 'Reusable memory':
     case '复用指令':

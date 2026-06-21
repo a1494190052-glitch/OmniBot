@@ -736,6 +736,7 @@ void main() {
         'status': 'running',
         'toolType': 'oob_function',
         'toolName': 'oob_function_run',
+        'toolTitle': 'OmniFlow',
         'summary': 'Preparing tool call...',
       }),
     ];
@@ -755,6 +756,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('复用指令'), findsOneWidget);
+    expect(find.text('OmniFlow'), findsNothing);
+    expect(find.text('工作流'), findsNothing);
     expect(find.text('工作流操作'), findsNothing);
     expect(find.text('OmniFlow activity'), findsNothing);
   });

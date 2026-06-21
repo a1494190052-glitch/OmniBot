@@ -1112,7 +1112,7 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
       insertResultMessage: _insertManualRecordingResultMessage,
       openRunLogTimeline: (runId) {
         unawaited(
-          showRunLogTimelineSheet(context, runId: runId, title: '手动录制 RunLog'),
+          showRunLogTimelineSheet(context, runId: runId, title: '手动录制轨迹'),
         );
       },
       onFinally: () {

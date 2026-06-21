@@ -610,6 +610,9 @@ String _localizedActivityText(BuildContext context, String value) {
         locale: locale,
       );
     case 'OmniFlow activity':
+    case 'OmniFlow':
+    case '工作流操作':
+    case '工作流':
       return AppTextLocalizer.choose(
         en: 'Reusable command',
         zh: '复用指令',
