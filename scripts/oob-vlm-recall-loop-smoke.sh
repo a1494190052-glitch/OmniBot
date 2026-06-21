@@ -20,7 +20,7 @@ TIMEOUT_SECONDS="${OOB_VLM_SMOKE_TIMEOUT_SECONDS:-180}"
 SETTLE_SECONDS="${OOB_VLM_SMOKE_SETTLE_SECONDS:-2}"
 PROFILE_ID="${OOB_PROVIDER_PROFILE_ID:-}"
 MODEL_ID="${OMNIMIND_MODEL:-${OPENAI_MODEL:-}}"
-SKILL_ID="${OOB_VLM_SMOKE_SKILL_ID:-vlm-android-gui}"
+SKILL_ID="${OOB_VLM_SMOKE_SKILL_ID:-omniflow}"
 OUTPUT_DIR="${OOB_VLM_SMOKE_OUTPUT_DIR:-}"
 RAW_JSON=0
 OFFLINE_SEED="${OOB_VLM_SMOKE_OFFLINE_SEED:-0}"
@@ -51,7 +51,7 @@ Options:
   --settle SECONDS          Delay after opening the start page. Default: 2.
   --profile-id ID           Optional model provider profile id for the receiver.
   --model-id ID             Optional model id for the receiver.
-  --skill-id ID             Built-in skill guidance id. Default: vlm-android-gui.
+  --skill-id ID             Built-in skill guidance id. Default: omniflow.
   --output-dir DIR          Keep all phase JSON files and write
                             vlm-accuracy-report.{json,md} plus
                             vlm-performance-report.{json,md} in DIR.
