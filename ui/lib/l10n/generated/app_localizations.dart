@@ -3287,7 +3287,7 @@ abstract class AppLocalizations {
   /// No description provided for @alpineOmniFlowDev.
   ///
   /// In zh, this message translates to:
-  /// **'复用指令 Python CLI / provider 开发工具，不替代小万原生复用指令'**
+  /// **'复用指令 Python CLI 开发工具链，不替代小万原生复用指令'**
   String get alpineOmniFlowDev;
 
   /// No description provided for @alpineSshClient.
@@ -4697,7 +4697,7 @@ abstract class AppLocalizations {
   /// No description provided for @executionVlmExecution.
   ///
   /// In zh, this message translates to:
-  /// **'VLM 执行'**
+  /// **'视觉执行'**
   String get executionVlmExecution;
 
   /// No description provided for @executionActionOpenApp.
@@ -4889,7 +4889,7 @@ abstract class AppLocalizations {
   /// No description provided for @omniflowAssetVlmExecution.
   ///
   /// In zh, this message translates to:
-  /// **'VLM 执行'**
+  /// **'视觉执行'**
   String get omniflowAssetVlmExecution;
 
   /// No description provided for @omniflowAssetSteps.
