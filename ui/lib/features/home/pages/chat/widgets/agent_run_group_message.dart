@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:ui/features/home/pages/chat/tool_activity_utils.dart';
 import 'package:ui/features/home/pages/chat/utils/agent_run_timeline.dart';
@@ -5,7 +7,6 @@ import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/card_widget_factory.dart'
     show OnBeforeTaskExecute, OnRequestAuthorize;
 import 'package:ui/features/home/pages/command_overlay/widgets/message_bubble.dart';
-import 'package:ui/features/task/pages/execution_history/run_log_timeline_page.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/models/chat_message_model.dart';
 import 'package:ui/services/agent_avatar_service.dart';
@@ -143,8 +144,6 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
     final processMessages = widget.group.processMessagesOldestFirst;
     final visibleMessages = widget.group.visibleMessagesOldestFirst;
     final hasProcessMessages = processMessages.isNotEmpty;
-    final isRunLogOnly = widget.group.isRunLogOnly;
-    final showProcessToggle = hasProcessMessages;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -153,20 +152,11 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
           key: ValueKey('agent-run-summary-${widget.group.taskId}'),
           group: widget.group,
           taskId: widget.group.taskId,
-          runLogId: widget.group.runLogId,
-          isActiveRun: widget.group.isActiveRun,
           expanded: widget.expanded,
-          thinkingCount: widget.group.thinkingCount,
-          toolCount: widget.group.toolCount,
-          outputSegmentCount: widget.group.outputSegmentCount,
-          latestProcessSummary: _latestProcessSummary(context, processMessages),
-          isRunLogOnly: isRunLogOnly,
           onTap: hasProcessMessages
               ? () => _toggleProcessSection(processMessages)
-              : isRunLogOnly
-              ? () => _openRunLog(context)
               : null,
-          showToggle: showProcessToggle,
+          showToggle: hasProcessMessages,
         ),
         _buildAnimatedProcessSection(processMessages),
         ...visibleMessages.map(
@@ -188,13 +178,6 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
         ),
       ],
     );
-  }
-
-  void _openRunLog(BuildContext context) {
-    final runLogId = widget.group.runLogId.trim().isEmpty
-        ? widget.group.taskId
-        : widget.group.runLogId.trim();
-    showRunLogTimelineSheet(context, runId: runLogId);
   }
 
   void _toggleProcessSection(List<ChatMessageModel> processMessages) {
@@ -337,36 +320,6 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
       }
     }
     return null;
-  }
-
-  String _latestProcessSummary(
-    BuildContext context,
-    List<ChatMessageModel> processMessages,
-  ) {
-    final locale = Localizations.localeOf(context);
-    for (final message in processMessages.reversed) {
-      final cardData = message.cardData;
-      final cardType = (cardData?['type'] ?? '').toString();
-      if (cardType == kAgentToolSummaryCardType && cardData != null) {
-        final title = resolveAgentToolTitle(cardData, locale: locale).trim();
-        if (title.isNotEmpty) {
-          return title;
-        }
-      }
-      if (cardType == 'deep_thinking') {
-        final text = (cardData?['thinkingContent'] ?? '').toString().trim();
-        if (text.isNotEmpty) {
-          final firstLine = text
-              .split('\n')
-              .map((line) => line.trim())
-              .firstWhere((line) => line.isNotEmpty, orElse: () => '');
-          if (firstLine.isNotEmpty) {
-            return firstLine;
-          }
-        }
-      }
-    }
-    return '';
   }
 }
 
@@ -541,28 +494,14 @@ class _AgentRunSummaryHeader extends StatelessWidget {
     super.key,
     required this.group,
     required this.taskId,
-    required this.runLogId,
-    required this.isActiveRun,
     required this.expanded,
-    required this.thinkingCount,
-    required this.toolCount,
-    required this.outputSegmentCount,
-    required this.latestProcessSummary,
-    required this.isRunLogOnly,
     required this.onTap,
     required this.showToggle,
   });
 
   final AgentRunTimelineGroup group;
   final String taskId;
-  final String runLogId;
-  final bool isActiveRun;
   final bool expanded;
-  final int thinkingCount;
-  final int toolCount;
-  final int outputSegmentCount;
-  final String latestProcessSummary;
-  final bool isRunLogOnly;
   final VoidCallback? onTap;
   final bool showToggle;
 
@@ -570,25 +509,15 @@ class _AgentRunSummaryHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final locale = Localizations.localeOf(context);
     final palette = context.omniPalette;
-    final label = AppTextLocalizer.choose(
-      zh: '步骤',
-      en: 'Steps',
+    final baseLabel = AppTextLocalizer.choose(
+      zh: '已处理',
+      en: 'Processed',
       locale: locale,
     );
-    if (isRunLogOnly) {
-      return _RunLogOnlySummaryHeader(
-        taskId: taskId,
-        runLogId: runLogId,
-        label: label,
-        onTap: onTap,
-      );
-    }
-    final statusLabel = isRunLogOnly
-        ? AppTextLocalizer.choose(zh: '已记录', en: 'Logged', locale: locale)
-        : isActiveRun
-        ? AppTextLocalizer.choose(zh: '进行中', en: 'Running', locale: locale)
-        : AppTextLocalizer.choose(zh: '已完成', en: 'Done', locale: locale);
-    final summary = _summaryText(locale);
+    final elapsedLabel = _agentRunElapsedLabel(group);
+    final label = elapsedLabel.isEmpty
+        ? baseLabel
+        : '$baseLabel  $elapsedLabel';
     final labelColor = expanded ? palette.textSecondary : palette.textTertiary;
     final lineColor = expanded
         ? palette.textSecondary.withValues(
@@ -626,19 +555,28 @@ class _AgentRunSummaryHeader extends StatelessWidget {
                 Expanded(
                   child: LayoutBuilder(
                     builder: (context, constraints) {
-                      final showSummary =
-                          summary.isNotEmpty && constraints.maxWidth >= 142;
-                      final showDivider = constraints.maxWidth >= 188;
+                      const labelLineGap = 10.0;
+                      const minLineWidth = 24.0;
+                      final toggleWidth = showToggle ? 24.0 : 0.0;
+                      final labelMaxWidth = math.max(
+                        0.0,
+                        constraints.maxWidth -
+                            labelLineGap -
+                            minLineWidth -
+                            toggleWidth,
+                      );
                       return Row(
                         children: [
-                          Flexible(
+                          ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: labelMaxWidth,
+                            ),
                             child: Text(
                               label,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                fontSize:
-                                    _AgentRunGroupMessageState._processFontSize,
+                                fontSize: 11,
                                 fontWeight: FontWeight.w600,
                                 color: labelColor,
                                 fontFamily: 'PingFang SC',
@@ -646,35 +584,22 @@ class _AgentRunSummaryHeader extends StatelessWidget {
                               ),
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          _ProcessStatusPill(
-                            label: statusLabel,
-                            isActiveRun: isActiveRun,
-                            expanded: expanded,
+                          const SizedBox(width: labelLineGap),
+                          Expanded(
+                            child: Container(height: 1, color: lineColor),
                           ),
-                          if (showSummary) ...[
-                            const SizedBox(width: 8),
-                            Flexible(
-                              child: Text(
-                                summary,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: _AgentRunGroupMessageState
-                                      ._processFontSize,
-                                  fontWeight: FontWeight.w500,
-                                  color: palette.textTertiary,
-                                  letterSpacing: 0,
-                                  height: 1.1,
-                                ),
+                          if (showToggle) ...[
+                            const SizedBox(width: 6),
+                            AnimatedRotation(
+                              turns: expanded ? 0 : -0.25,
+                              duration:
+                                  _AgentRunGroupMessageState._kToggleDuration,
+                              curve: Curves.easeInOutCubicEmphasized,
+                              child: Icon(
+                                Icons.keyboard_arrow_down_rounded,
+                                size: 18,
+                                color: labelColor,
                               ),
-                            ),
-                          ],
-                          if (showDivider) ...[
-                            const SizedBox(width: 10),
-                            SizedBox(
-                              width: 42,
-                              child: Container(height: 1, color: lineColor),
                             ),
                           ],
                         ],
@@ -682,138 +607,6 @@ class _AgentRunSummaryHeader extends StatelessWidget {
                     },
                   ),
                 ),
-                if (showToggle) ...[
-                  const SizedBox(width: 8),
-                  AnimatedRotation(
-                    turns: expanded ? 0 : -0.25,
-                    duration: _AgentRunGroupMessageState._kToggleDuration,
-                    curve: Curves.easeInOutCubicEmphasized,
-                    child: Icon(
-                      Icons.keyboard_arrow_down_rounded,
-                      size: 18,
-                      color: labelColor,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  String _summaryText(Locale locale) {
-    final parts = <String>[];
-    final stepCount = thinkingCount + toolCount;
-    if (stepCount > 0) {
-      parts.add(
-        AppTextLocalizer.choose(
-          zh: '$stepCount 步',
-          en: '$stepCount ${stepCount == 1 ? 'step' : 'steps'}',
-          locale: locale,
-        ),
-      );
-    }
-    if (outputSegmentCount > 0) {
-      parts.add(
-        AppTextLocalizer.choose(
-          zh: '$outputSegmentCount 段输出',
-          en: '$outputSegmentCount output ${outputSegmentCount == 1 ? 'segment' : 'segments'}',
-          locale: locale,
-        ),
-      );
-    }
-    final trimmed = latestProcessSummary.trim();
-    if (trimmed.isNotEmpty) {
-      parts.add(trimmed);
-    }
-    return parts.join(' · ');
-  }
-}
-
-class _RunLogOnlySummaryHeader extends StatelessWidget {
-  const _RunLogOnlySummaryHeader({
-    required this.taskId,
-    required this.runLogId,
-    required this.label,
-    required this.onTap,
-  });
-
-  final String taskId;
-  final String runLogId;
-  final String label;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final locale = Localizations.localeOf(context);
-    final palette = context.omniPalette;
-    final labelColor = palette.textTertiary;
-    final statusLabel = AppTextLocalizer.choose(
-      zh: '无可展开步骤',
-      en: 'No steps',
-      locale: locale,
-    );
-    return Padding(
-      padding: const EdgeInsets.only(top: 6, bottom: 1),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(10),
-          splashColor: palette.accentPrimary.withValues(alpha: 0.06),
-          highlightColor: Colors.transparent,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(2, 2, 2, 2),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                ValueListenableBuilder<AgentAvatarState>(
-                  valueListenable: AgentAvatarService.avatarStateNotifier,
-                  builder: (context, state, _) {
-                    return AgentAvatarCircle(
-                      key: ValueKey('agent-run-avatar-$taskId'),
-                      state: state,
-                      size: 24,
-                    );
-                  },
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Row(
-                    children: [
-                      Text(
-                        label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: _AgentRunGroupMessageState._processFontSize,
-                          fontWeight: FontWeight.w600,
-                          color: labelColor,
-                          fontFamily: 'PingFang SC',
-                          letterSpacing: 0,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          statusLabel,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize:
-                                _AgentRunGroupMessageState._processFontSize,
-                            fontWeight: FontWeight.w500,
-                            color: palette.textTertiary,
-                            letterSpacing: 0,
-                            height: 1.1,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
               ],
             ),
           ),
@@ -823,43 +616,48 @@ class _RunLogOnlySummaryHeader extends StatelessWidget {
   }
 }
 
-class _ProcessStatusPill extends StatelessWidget {
-  const _ProcessStatusPill({
-    required this.label,
-    required this.isActiveRun,
-    required this.expanded,
-  });
-
-  final String label;
-  final bool isActiveRun;
-  final bool expanded;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.omniPalette;
-    final color = isActiveRun
-        ? palette.accentPrimary
-        : (expanded ? palette.textSecondary : palette.textTertiary);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: context.isDarkTheme ? 0.12 : 0.08),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-        child: Text(
-          label,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: _AgentRunGroupMessageState._processFontSize,
-            fontWeight: FontWeight.w600,
-            color: color,
-            letterSpacing: 0,
-            height: 1,
-          ),
-        ),
-      ),
-    );
+String _agentRunElapsedLabel(AgentRunTimelineGroup group) {
+  int? earliestMs;
+  int? latestMs;
+  void visit(Iterable<ChatMessageModel> messages) {
+    for (final message in messages) {
+      final ms = message.createAt.millisecondsSinceEpoch;
+      if (ms <= 0) {
+        continue;
+      }
+      if (earliestMs == null || ms < earliestMs!) {
+        earliestMs = ms;
+      }
+      if (latestMs == null || ms > latestMs!) {
+        latestMs = ms;
+      }
+    }
   }
+
+  visit(group.processMessagesNewestFirst);
+  visit(group.visibleMessagesNewestFirst);
+  if (earliestMs == null || latestMs == null || latestMs! <= earliestMs!) {
+    return '';
+  }
+  final elapsedSec = ((latestMs! - earliestMs!) / 1000).round();
+  if (elapsedSec < 1) {
+    return '';
+  }
+  if (elapsedSec < 60) {
+    return '${elapsedSec}s';
+  }
+  final minutes = elapsedSec ~/ 60;
+  final remainingSeconds = elapsedSec % 60;
+  if (minutes < 60) {
+    if (remainingSeconds == 0) {
+      return '${minutes}m';
+    }
+    return '${minutes}m ${remainingSeconds}s';
+  }
+  final hours = minutes ~/ 60;
+  final remainingMinutes = minutes % 60;
+  if (remainingMinutes == 0) {
+    return '${hours}h';
+  }
+  return '${hours}h ${remainingMinutes}m';
 }

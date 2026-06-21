@@ -606,9 +606,10 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 320));
 
-    expect(find.text('步骤'), findsOneWidget);
-    expect(find.text('已完成'), findsOneWidget);
-    expect(find.textContaining('2 步'), findsOneWidget);
+    expect(find.text('已处理'), findsOneWidget);
+    expect(find.text('步骤'), findsNothing);
+    expect(find.text('已完成'), findsNothing);
+    expect(find.textContaining('2 步'), findsNothing);
     expect(find.text('最终回答'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('agent-run-avatar-task-1')),
@@ -654,7 +655,8 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 320));
 
-    expect(find.text('步骤'), findsOneWidget);
+    expect(find.text('已处理'), findsOneWidget);
+    expect(find.text('步骤'), findsNothing);
     expect(find.text('最终回答'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -680,9 +682,10 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 320));
 
-    expect(find.text('Steps'), findsOneWidget);
-    expect(find.text('Done'), findsOneWidget);
-    expect(find.textContaining('2 steps'), findsOneWidget);
+    expect(find.text('Processed'), findsOneWidget);
+    expect(find.text('Steps'), findsNothing);
+    expect(find.text('Done'), findsNothing);
+    expect(find.textContaining('2 steps'), findsNothing);
     expect(find.textContaining('1 thought'), findsNothing);
     expect(find.textContaining('1 tool'), findsNothing);
     expect(find.textContaining('1 thoughts'), findsNothing);
@@ -711,8 +714,9 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 320));
 
-    expect(find.text('步骤'), findsOneWidget);
-    expect(find.text('无可展开步骤'), findsOneWidget);
+    expect(find.text('已处理'), findsOneWidget);
+    expect(find.text('步骤'), findsNothing);
+    expect(find.text('无可展开步骤'), findsNothing);
     expect(find.text('已记录'), findsNothing);
     expect(find.text('运行记录'), findsNothing);
     expect(find.text('直接回答'), findsOneWidget);
@@ -728,20 +732,14 @@ void main() {
       findsNothing,
     );
 
-    await tester.tap(
-      find.byKey(const ValueKey('agent-run-summary-task-text-only')),
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 320));
-
     expect(
       find.byKey(const ValueKey('agent-run-process-task-text-only')),
       findsNothing,
     );
     expect(find.text('直接回答'), findsOneWidget);
-    expect(find.text('暂无步骤数据'), findsOneWidget);
+    expect(find.text('暂无步骤数据'), findsNothing);
     expect(find.text('RunLog 已记录'), findsNothing);
-    expect(find.textContaining('没有工具调用'), findsOneWidget);
+    expect(find.textContaining('没有工具调用'), findsNothing);
   });
 
   testWidgets('text-only runlog entry localizes in English', (tester) async {
@@ -765,21 +763,16 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 320));
 
-    expect(find.text('Steps'), findsOneWidget);
-    expect(find.text('No steps'), findsOneWidget);
+    expect(find.text('Processed'), findsOneWidget);
+    expect(find.text('Steps'), findsNothing);
+    expect(find.text('No steps'), findsNothing);
     expect(find.text('Logged'), findsNothing);
     expect(find.text('RunLog'), findsNothing);
     expect(find.text('运行记录'), findsNothing);
     expect(find.text('已记录'), findsNothing);
     expect(find.byTooltip('View execution record'), findsNothing);
 
-    await tester.tap(
-      find.byKey(const ValueKey('agent-run-summary-task-text-only')),
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 320));
-
-    expect(find.text('No step data'), findsOneWidget);
+    expect(find.text('No step data'), findsNothing);
     expect(find.text('暂无步骤数据'), findsNothing);
     expect(find.text('RunLog logged'), findsNothing);
   });
@@ -807,8 +800,9 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 320));
 
-    expect(find.text('Steps'), findsOneWidget);
-    expect(find.text('No steps'), findsOneWidget);
+    expect(find.text('Processed'), findsOneWidget);
+    expect(find.text('Steps'), findsNothing);
+    expect(find.text('No steps'), findsNothing);
     expect(find.text('Logged'), findsNothing);
     expect(find.text('RunLog'), findsNothing);
     expect(find.byIcon(Icons.keyboard_arrow_down_rounded), findsNothing);
@@ -1499,8 +1493,9 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 32));
 
-    expect(find.text('步骤'), findsOneWidget);
-    expect(find.text('进行中'), findsOneWidget);
+    expect(find.text('已处理'), findsOneWidget);
+    expect(find.text('步骤'), findsNothing);
+    expect(find.text('进行中'), findsNothing);
     expect(find.byType(DeepThinkingCard), findsNothing);
     expect(
       find.byKey(const ValueKey('agent-run-process-task-1')),
@@ -1557,8 +1552,9 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 320));
 
-    expect(find.text('步骤'), findsOneWidget);
-    expect(find.text('已完成'), findsOneWidget);
+    expect(find.text('已处理'), findsOneWidget);
+    expect(find.text('步骤'), findsNothing);
+    expect(find.text('已完成'), findsNothing);
     expect(
       find.byKey(const ValueKey('agent-run-process-task-1')),
       findsNothing,
