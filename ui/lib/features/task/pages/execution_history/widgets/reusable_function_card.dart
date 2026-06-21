@@ -216,7 +216,7 @@ class ReusableFunctionCard extends StatelessWidget {
                   ),
                   if (sourceRunCount > 0)
                     _MetricPill(
-                      label: 'RunLogs',
+                      label: _text(context, '轨迹', 'Traces'),
                       value: sourceRunCount.toString(),
                       onTap: onRunLogsTap,
                       color: onRunLogsTap == null
@@ -377,7 +377,7 @@ class _MetricPill extends StatelessWidget {
     final handler = onTap;
     if (handler == null) return content;
     return Tooltip(
-      message: _text(context, '查看执行记录', 'View Run Logs'),
+      message: _text(context, '查看轨迹', 'View traces'),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: handler,

@@ -171,7 +171,7 @@ void main() {
       expect(find.text('状态 已注册'), findsNothing);
       expect(find.text('步骤 3'), findsOneWidget);
       expect(find.text('参数 1'), findsOneWidget);
-      expect(find.text('RunLogs 2'), findsOneWidget);
+      expect(find.text('轨迹 2'), findsOneWidget);
       expect(find.text('执行 3'), findsOneWidget);
       expect(find.text('成功 3'), findsOneWidget);
       expect(find.text('执行 4'), findsOneWidget);
@@ -307,7 +307,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('RunLogs 2'));
+    await tester.tap(find.text('轨迹 2'));
     await tester.pumpAndSettle();
 
     expect(find.text('执行记录 · 2'), findsOneWidget);
@@ -1160,7 +1160,7 @@ void main() {
     expect(find.text('状态 已注册'), findsNothing);
     expect(find.text('步骤 1'), findsOneWidget);
     expect(find.text('参数 1'), findsOneWidget);
-    expect(find.text('RunLogs 1'), findsOneWidget);
+    expect(find.text('轨迹 1'), findsOneWidget);
     expect(find.text('执行'), findsOneWidget);
     expect(find.byIcon(Icons.info_outline_rounded), findsOneWidget);
     expect(find.byIcon(Icons.delete_outline_rounded), findsOneWidget);
