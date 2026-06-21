@@ -1,6 +1,6 @@
 ---
 name: omniflow
-description: Single OOB phone automation and reusable command skill. Use for online Android VLM automation, vlm_task execution, native tool_calls, prompt/tool schema debugging, indexed UI evidence, grounding, live action dispatch, latency/accuracy validation, and 复用指令 / 轨迹 / execution-record workflows: save, run, register, update, enhance, repair, analyze, or debug reusable commands, RunLogs, and saved Functions, including update_function, RunLog evidence, replay results, checker design, runtime checker, global checker, hi 升级 checker, upgrade/update popup checker, package/open-app checker, action cleanup, "应该点 A 而不是 B", "保存为复用指令", "复用记忆", "增强 function", and ad/popup optional checkers.
+description: Single OOB phone automation, VLM execution, reusable command, and checker-management skill. Use for Android vlm_task execution, native tool_calls, prompt/tool schema debugging, indexed UI evidence, grounding, live action dispatch, latency/accuracy validation, and 复用指令 / 轨迹 / execution-record workflows: save, run, register, update, enhance, repair, analyze, or debug reusable commands, RunLogs, and saved Functions, including update_function, automatic checker creation/management, RunLog evidence, replay results, runtime checker, global checker, hi 升级 checker, upgrade/update popup checker, package/open-app checker, action cleanup, "应该点 A 而不是 B", "保存为复用指令", "复用记忆", "增强 function", and ad/popup optional checkers.
 ---
 
 # OmniFlow
@@ -22,6 +22,23 @@ evidence, and replay debugging. Older focused entries such as VLM Android GUI,
 Function lifecycle management, Function enhancement, and checker maintenance are
 folded into this skill. Keep their behavior here or in the `references/` files
 instead of adding another model-visible skill.
+
+## Checker Auto Management
+
+When the user asks to create, fix, add, remove, or automatically manage a
+checker, keep the work inside this skill:
+
+1. Inspect current 复用指令 metadata, execution evidence, and
+   `references/checkers.md`.
+2. If the checker is already expressible, update checker metadata through
+   `update_function`; do not add new runtime code.
+3. If runtime support is missing, add only a generic XML-backed checker type,
+   update the canonical checker schema, and add focused runtime tests.
+4. Keep checker actions optional and conditional. They may clear ads, popups,
+   permission prompts, update prompts, or package/open-app interruptions only
+   when live page evidence proves the obstruction exists.
+5. Never create app-specific shortcuts, password/captcha bypasses, hidden user
+   consent bypasses, network calls, or model-only checker decisions.
 
 ## Runtime Boundary
 

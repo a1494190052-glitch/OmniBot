@@ -240,6 +240,7 @@ class SkillRuntimeBehaviorTest {
             "execution-record",
             "vlm_task",
             "update_function",
+            "automatic checker creation/management",
             "runtime checker",
             "global checker",
             "hi 升级 checker",
