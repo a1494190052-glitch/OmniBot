@@ -79,15 +79,6 @@ object McpToolExecutors {
             "disableRecall",
             "disable_recall",
         )
-        val allowOmniFlowFunctionAutoExecute = !disableOmniFlowRecall &&
-            boolArgOrDefault(
-                requestArgs,
-                default = false,
-                "allowOmniFlowFunctionAutoExecute",
-                "allow_omniflow_function_auto_execute",
-                "autoExecuteOmniFlowFunction",
-                "auto_execute_omniflow_function",
-            )
         val request = VlmTaskRequest(
             goal = goal,
             model = requestArgs["model"] as? String,
@@ -97,7 +88,6 @@ object McpToolExecutors {
             needSummary = shouldSummary,
             skipGoHome = startFromCurrent,
             disableOmniFlowRecall = disableOmniFlowRecall,
-            allowOmniFlowFunctionAutoExecute = allowOmniFlowFunctionAutoExecute
         )
 
         try {
@@ -882,28 +872,6 @@ object McpToolExecutors {
         
         OmniLog.d(TAG, "Sending reply to task $taskId: $reply")
 
-        if (taskState.pendingOmniFlowFunctionCall != null) {
-            val outcome = VlmToolCoordinator.executePendingOmniFlowFunctionCall(
-                taskState = taskState,
-                reply = reply,
-                runFunction = { functionId, arguments ->
-                    OobOmniFlowToolkitService(context).runFunction(
-                        linkedMapOf(
-                            "function_id" to functionId,
-                            "goal" to taskState.goal,
-                            "arguments" to arguments,
-                            "frontend_run_id" to taskState.taskId,
-                            "frontend_task_id" to taskState.taskId,
-                            "frontend_parent" to "vlm_task",
-                        )
-                    )
-                },
-            )
-            if (outcome != null) {
-                return@withContext outcomeToMcpResponse(outcome)
-            }
-        }
-        
         val success = AssistsUtil.Core.provideUserInputToVLMTask(reply)
         if (!success) {
             return@withContext McpResponseBuilder.buildErrorText("Failed to send reply to task")

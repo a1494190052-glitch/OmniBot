@@ -76,7 +76,6 @@ class OobFunctionRunner(
                     skipGoHome = true,
                     stepSkillGuidance = request.oneStepGuidance(),
                     disableOmniFlowRecall = true,
-                    allowOmniFlowFunctionAutoExecute = false,
                 ),
                 scope = this,
             ).toPayload()

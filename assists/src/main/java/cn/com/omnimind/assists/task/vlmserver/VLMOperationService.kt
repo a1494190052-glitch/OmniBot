@@ -285,15 +285,7 @@ class VLMOperationService(
                     )
                 }
 
-                if (result.error?.contains("解析失败") == true ||
-                    result.error?.contains("定位失败") == true ||
-                    result.error?.contains("不支持的操作类型") == true ||
-                    result.error?.contains("Failed to parse response") == true ||
-                    result.error?.contains("Serializer for subclass") == true
-                ) {
-                    stepIndex++
-                    continue
-                } else if (result.step?.action?.isRecoverableDeviceAction() == true) {
+                if (result.step?.action?.isRecoverableDeviceAction() == true) {
                     stepIndex++
                     continue
                 } else {
@@ -340,22 +332,6 @@ class VLMOperationService(
                     finalContext = context,
                     error = null,
                     summaryScreenshotList = summaryScreenshotList
-                )
-            }
-            VLMGoalCompletionHeuristic.match(goal, step)?.let { match ->
-                val completionStep = VLMGoalCompletionHeuristic.buildFinishedStep(step, match)
-                context = updateContext(completionStep, context)
-                executionTrace.add(completionStep)
-                onStepCompleted(stepIndex + 1, completionStep, true, null)
-                return TaskExecutionReport(
-                    success = true,
-                    goal = goal,
-                    totalSteps = executionTrace.size,
-                    executionTrace = executionTrace,
-                    finalContext = context,
-                    error = null,
-                    summaryScreenshotList = summaryScreenshotList,
-                    doneReason = "goal_page_matched"
                 )
             }
             if (step.action is InfoAction) {
@@ -525,15 +501,6 @@ class VLMOperationService(
         )
     }
 
-    /**
-     * 移除尾部的 WaitAction，避免深度递归导致栈溢出
-     */
-    fun List<UIStep>.cleanTopWaitAction(): List<UIStep> {
-        if (isEmpty()) return this
-        // 迭代式处理，O(n)，无递归栈风险
-        return dropLastWhile { it.action is WaitAction }
-    }
-
     suspend fun executeSingleStep(
         context: UIContext,
         model: String = "scene.vlm.operation.primary",
@@ -581,34 +548,13 @@ class VLMOperationService(
                     pageDiagnostics = emptyMap(),
                     dynamicToolDefinitions = emptyList(),
                     displayWidth = pageSnapshot.displayWidth,
-                    displayHeight = pageSnapshot.displayHeight
+                    displayHeight = pageSnapshot.displayHeight,
+                    currentPackageName = pageSnapshot.packageName.orEmpty(),
                 )
                 _context = _context.copy(pageDiagnostics = phaseDiagnostics())
-                val firstStepStartedAt = System.currentTimeMillis()
-                _context = VLMFirstStepOptimizer.enrichContext(
-                    context = _context,
-                    currentXml = beforeXml,
-                    currentPackageName = pageSnapshot.packageName,
-                    stepIndex = stepIndex
-                )
-                markPhase("first_step_optimizer_ms", firstStepStartedAt)
-                _context = _context.copy(pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics())
-                val pageSkillStartedAt = System.currentTimeMillis()
-                _context = VLMPageContextProviderRegistry.enrich(
-                    VLMPageContextRequest(
-                        context = _context,
-                        currentXml = beforeXml,
-                        currentPackageName = pageSnapshot.packageName,
-                        screenshotBase64 = screenshot,
-                        stepIndex = stepIndex,
-                        snapshot = pageSnapshot
-                    )
-                )
-                markPhase("page_skill_ms", pageSkillStartedAt)
-                _context = _context.copy(pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics())
                 val functionRecallStartedAt = System.currentTimeMillis()
                 _context = VLMRecallContextProviderRegistry.enrich(
-                    VLMPageContextRequest(
+                    VLMRecallContextRequest(
                         context = _context,
                         currentXml = beforeXml,
                         currentPackageName = pageSnapshot.packageName,
@@ -629,54 +575,6 @@ class VLMOperationService(
                 )
                 markPhase("indexed_evidence_ms", indexedEvidenceStartedAt)
                 _context = _context.copy(pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics())
-                VLMGoalCompletionHeuristic.matchCurrentPage(
-                    goal = _context.activeGoal(),
-                    currentXml = beforeXml,
-                    currentPackageName = pageSnapshot.packageName,
-                    trace = _context.trace,
-                )?.let { match ->
-                    val completionStep = VLMGoalCompletionHeuristic.buildCurrentPageFinishedStep(
-                        currentXml = beforeXml,
-                        currentPackageName = pageSnapshot.packageName,
-                        match = match,
-                    ).copy(
-                        pageDiagnostics = _context.pageDiagnostics +
-                            phaseDiagnostics() +
-                            buildContextBudgetDiagnostics(_context) +
-                            linkedMapOf(
-                                "vlm_goal_completion_fast_path" to "true",
-                                "action_dispatch_ms" to "0",
-                                "action_executor_action_ms" to "0",
-                                "action_executor_post_delay_ms" to "0",
-                                "action_executor_total_ms" to "0",
-                            )
-                    )
-                    OmniLog.i(
-                        Tag,
-                        "Current page satisfies goal; skipping online VLM stream for step=$stepIndex target=${match.target}"
-                    )
-                    return VLMOperationResult(
-                        success = true,
-                        step = completionStep,
-                        context = _context,
-                        error = null,
-                        screenshot = if (summary) screenshot else null,
-                    )
-                }
-                val markedScreenshot = if (SEND_MARKED_SCREENSHOT_BY_DEFAULT) {
-                    val markedScreenshotStartedAt = System.currentTimeMillis()
-                    VLMIndexedPageContext.renderMarkedScreenshot(
-                        screenshotBase64 = screenshot,
-                        currentXml = beforeXml,
-                        displayWidth = pageSnapshot.displayWidth,
-                        displayHeight = pageSnapshot.displayHeight
-                    ).also {
-                        markPhase("marked_screenshot_ms", markedScreenshotStartedAt)
-                    }
-                } else {
-                    null
-                }
-
                 // Note: Compactor 已移至 executeTask 主循环，在超时计时之外执行
 
                 val maxToolCallRetries = 2
@@ -690,50 +588,16 @@ class VLMOperationService(
                 lastReasoningOverlay = ""
                 lastReasoningOverlayAt = 0L
 
-                val indexedProposalStartedAt = System.currentTimeMillis()
-                val indexedProposal = VLMIndexedActionProposer.propose(
-                    context = _context,
-                    currentXml = beforeXml,
-                    displayWidth = pageSnapshot.displayWidth,
-                    displayHeight = pageSnapshot.displayHeight,
-                    stepIndex = stepIndex
-                )
-                markPhase("indexed_action_proposal_ms", indexedProposalStartedAt)
-                if (indexedProposal != null) {
-                    _context = _context.copy(
-                        pageDiagnostics = _context.pageDiagnostics +
-                            phaseDiagnostics() +
-                            buildContextBudgetDiagnostics(_context) +
-                            indexedProposal.diagnostics
-                    )
-                    vlmResult = VLMResult(
-                        success = true,
-                        step = indexedProposal.step,
-                        thinking = VLMThinkingContext(
-                            observation = indexedProposal.step.observation,
-                            thought = indexedProposal.step.thought,
-                            summary = indexedProposal.step.summary
-                        )
-                    )
-                    OmniLog.i(
-                        Tag,
-                        "Indexed action proposal matched; skipping online VLM stream for step=$stepIndex action=${indexedProposal.step.action.name}"
-                    )
-                }
-
                 while (vlmResult == null) {
-                    val includeCurrentScreenshot = true
-                    val requestScreenshot = screenshot.takeIf { includeCurrentScreenshot }
-                    val requestMarkedScreenshot = markedScreenshot.takeIf { includeCurrentScreenshot }
                     val requestBuildStartedAt = System.currentTimeMillis()
                     val requestEnvelope = vlmClient.buildUIOperationRequest(
                         context = _context,
-                        screenshot = requestScreenshot,
-                        markedScreenshot = requestMarkedScreenshot,
+                        screenshot = screenshot,
+                        markedScreenshot = null,
                         conversationState = conversationState,
                         model = model,
                         retryState = retryState,
-                        includeMarkedScreenshot = SEND_MARKED_SCREENSHOT_BY_DEFAULT && includeCurrentScreenshot
+                        includeMarkedScreenshot = false
                     )
                     markPhase("request_build_ms", requestBuildStartedAt)
                     lastRequestEnvelope = requestEnvelope
@@ -746,7 +610,7 @@ class VLMOperationService(
                     )
                     OmniLog.i(
                         Tag,
-                        "Dispatching VLM stream request: attempt=$stabilityAttempt toolRetry=$toolCallRetryCount scene=$model activeGoal=${_context.activeGoal()} traceSize=${_context.trace.size} historyRounds=${conversationState.roundCount()} currentScreenshot=$includeCurrentScreenshot"
+                        "Dispatching VLM stream request: attempt=$stabilityAttempt toolRetry=$toolCallRetryCount scene=$model activeGoal=${_context.activeGoal()} traceSize=${_context.trace.size} historyRounds=${conversationState.roundCount()}"
                     )
 
                     safePauseCheck("before_http_${stabilityAttempt}_retry_$toolCallRetryCount")
@@ -898,8 +762,7 @@ class VLMOperationService(
                 }
 
                 var processedStep = resolvedVlmResult.step!!
-                // normalizeOpenAppAction 需要判断模型类型
-                processedStep = normalizeOpenAppAction(processedStep, _context, model)
+                processedStep = normalizeOpenAppAction(processedStep, _context)
 
                 if (processedStep.action is FeedbackAction) {
                     val feedbackAction = processedStep.action as FeedbackAction
@@ -1565,10 +1428,7 @@ class VLMOperationService(
         }
     }
 
-    /**
-     * 将 open_app 动作中的应用名/别名映射为真实包名
-     */
-    private fun normalizeOpenAppAction(step: UIStep, context: UIContext, model: String): UIStep {
+    private fun normalizeOpenAppAction(step: UIStep, context: UIContext): UIStep {
         val action = step.action
         if (action !is OpenAppAction) return step
 
@@ -1590,16 +1450,6 @@ class VLMOperationService(
 
         // 直接匹配包名
         installedApps.keys.firstOrNull { it.equals(input, ignoreCase = true) }?.let { return it }
-
-        val lower = input.lowercase()
-        val aliasMap = mapOf(
-            "小红书" to "com.xingin.xhs",
-            "xhs" to "com.xingin.xhs",
-            "xiaohongshu" to "com.xingin.xhs"
-        )
-        aliasMap[lower]?.let { aliasPkg ->
-            if (installedApps.containsKey(aliasPkg)) return aliasPkg
-        }
 
         // 精确匹配应用名
         installedApps.entries.firstOrNull {
@@ -1840,7 +1690,6 @@ private const val MIN_USABLE_XML_NODE_COUNT = 3
 private const val MIN_TINY_XML_NODE_COUNT = 1
 private const val MIN_USABLE_XML_AREA = 180_000
 private const val MIN_APP_XML_AREA_RATIO = 0.28
-private const val SEND_MARKED_SCREENSHOT_BY_DEFAULT = false
 private const val MAX_GET_STATE_NODE_SCAN = 180
 private const val MAX_GET_STATE_VISIBLE_TEXTS = 18
 private const val MAX_GET_STATE_ACTIONABLES = 18

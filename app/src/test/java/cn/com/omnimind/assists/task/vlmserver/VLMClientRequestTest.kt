@@ -149,7 +149,7 @@ class VLMClientRequestTest {
     }
 
     @Test
-    fun `operation request injects a narrowed canonical tool set for ordinary click tasks`() {
+    fun `operation request injects ordinary canonical planner tools for click tasks`() {
         val client = VLMClient(
             systemPromptBuilder = { "system prompt" },
             turnPromptBuilder = { context, _ ->
@@ -168,20 +168,20 @@ class VLMClientRequestTest {
         assertTrue(toolNames.contains("finished"))
         assertTrue(toolNames.contains("feedback"))
         assertTrue(toolNames.contains("abort"))
-        assertFalse(toolNames.contains("input_text"))
-        assertFalse(toolNames.contains("swipe"))
-        assertFalse(toolNames.contains("press_key"))
-        assertFalse(toolNames.contains("wait"))
-        assertFalse(toolNames.contains("long_press"))
-        assertFalse(toolNames.contains("open_app"))
-        assertFalse(toolNames.contains("info"))
-        assertTrue(envelope.defaultToolCount > toolNames.size)
+        assertTrue(toolNames.contains("input_text"))
+        assertTrue(toolNames.contains("swipe"))
+        assertTrue(toolNames.contains("press_key"))
+        assertTrue(toolNames.contains("wait"))
+        assertTrue(toolNames.contains("long_press"))
+        assertTrue(toolNames.contains("open_app"))
+        assertTrue(toolNames.contains("info"))
+        assertEquals(envelope.defaultToolCount, toolNames.size)
         assertEquals(toolNames.toSet(), envelope.selectedBaseToolNames)
         assertTrue(
             envelope.currentUserText.contains("Allowed tools this turn") ||
                 envelope.currentUserText.contains("本轮允许工具")
         )
-        assertFalse(envelope.currentUserText.contains("long_press only for context menus"))
+        assertTrue(envelope.currentUserText.contains("long_press"))
     }
 
     @Test
@@ -203,8 +203,8 @@ class VLMClientRequestTest {
         assertTrue(toolNames.contains("click"))
         assertTrue(toolNames.contains("input_text"))
         assertTrue(toolNames.contains("finished"))
-        assertFalse(toolNames.contains("swipe"))
-        assertFalse(toolNames.contains("wait"))
+        assertTrue(toolNames.contains("swipe"))
+        assertTrue(toolNames.contains("wait"))
     }
 
     @Test

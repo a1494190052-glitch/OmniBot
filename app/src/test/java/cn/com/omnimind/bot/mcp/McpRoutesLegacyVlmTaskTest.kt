@@ -1,6 +1,7 @@
 package cn.com.omnimind.bot.mcp
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class McpRoutesLegacyVlmTaskTest {
@@ -16,7 +17,6 @@ class McpRoutesLegacyVlmTaskTest {
                 needSummary = false,
                 skipGoHome = true,
                 disableOmniFlowRecall = true,
-                allowOmniFlowFunctionAutoExecute = true,
             )
         )
 
@@ -28,6 +28,6 @@ class McpRoutesLegacyVlmTaskTest {
         assertEquals(false, args["needSummary"])
         assertEquals(true, args["skipGoHome"])
         assertEquals(true, args["disableOmniFlowRecall"])
-        assertEquals(true, args["allowOmniFlowFunctionAutoExecute"])
+        assertFalse(args.containsKey("allowOmniFlowFunctionAutoExecute"))
     }
 }

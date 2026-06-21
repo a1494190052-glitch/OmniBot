@@ -9,8 +9,6 @@ import cn.com.omnimind.assists.api.bean.VlmTaskTerminalResult
 import cn.com.omnimind.assists.api.interfaces.OnMessagePushListener
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.assists.controller.http.HttpController
-import cn.com.omnimind.assists.util.pollUntilReady
-import cn.com.omnimind.assists.util.TreeEditDistance
 import cn.com.omnimind.assists.task.vlmserver.AbortAction
 import cn.com.omnimind.assists.task.vlmserver.ClickAction
 import cn.com.omnimind.assists.task.vlmserver.FeedbackAction
@@ -32,19 +30,14 @@ import cn.com.omnimind.assists.task.vlmserver.UIContext
 import cn.com.omnimind.assists.task.vlmserver.VLMClient
 import cn.com.omnimind.assists.task.vlmserver.VLMConversationState
 import cn.com.omnimind.assists.task.vlmserver.VLMCurrentPageSnapshot
-import cn.com.omnimind.assists.task.vlmserver.VLMFirstStepOptimizer
-import cn.com.omnimind.assists.task.vlmserver.VLMGoalCompletionHeuristic
-import cn.com.omnimind.assists.task.vlmserver.VLMIndexedActionProposer
 import cn.com.omnimind.assists.task.vlmserver.VLMIndexedPageContext
-import cn.com.omnimind.assists.task.vlmserver.VLMPageContextProviderRegistry
-import cn.com.omnimind.assists.task.vlmserver.VLMPageContextRequest
+import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextRequest
 import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextProviderRegistry
 import cn.com.omnimind.assists.task.vlmserver.VLMStreamClient
 import cn.com.omnimind.assists.task.vlmserver.WaitAction
 import cn.com.omnimind.baselib.util.ImageQuality
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.mcp.McpTaskManager
-import cn.com.omnimind.bot.mcp.PendingOmniFlowFunctionCall
 import cn.com.omnimind.bot.mcp.TaskState
 import cn.com.omnimind.bot.mcp.TaskStatus
 import cn.com.omnimind.bot.mcp.VlmTaskRequest
@@ -56,7 +49,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -193,35 +185,6 @@ data class VlmParseOnlyResult(
 
 typealias VlmToolProgressReporter = suspend (progress: String, extras: Map<String, Any?>) -> Unit
 
-data class VlmFunctionRuntimeSelectionDecision(
-    val allowed: Boolean,
-    val reason: String,
-    val functionId: String? = null,
-)
-
-data class RuntimeResolveResult(
-    val accepted: Boolean = true,
-    val arguments: Map<String, Any?> = emptyMap(),
-    val missingRequiredArguments: List<String> = emptyList(),
-    val reason: String = "",
-    val resolveCalls: Int = 0,
-) {
-    companion object {
-        fun failed(reason: String, missingRequiredArguments: List<String> = emptyList()): RuntimeResolveResult =
-            RuntimeResolveResult(
-                accepted = false,
-                missingRequiredArguments = missingRequiredArguments,
-                reason = reason,
-            )
-    }
-}
-
-typealias RuntimeResolveProvider = suspend (
-    goal: String,
-    candidate: Map<String, Any?>,
-    recallGuidance: VlmRecallGuidance,
-) -> RuntimeResolveResult
-
 object VlmToolCoordinator {
     private const val TAG = "[VlmToolCoordinator]"
     private const val MIN_WAIT_TIMEOUT_MS = 30_000L
@@ -229,27 +192,8 @@ object VlmToolCoordinator {
     private const val DEFAULT_MAX_STEPS = 12
     private const val MAX_MAX_STEPS = 64
     private const val DRY_RUN_PROMPT_PREVIEW_CHARS = 6000
-    private const val GENERIC_ARGUMENT_NAME = "value"
-    private const val RECALL_DECISION_MODEL = "scene.dispatch.model"
-    private val argumentJson = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-    }
-    private val INTERNAL_FUNCTION_PARAM_NAMES = setOf(
-        "package_name", "package", "target_description", "target",
-        "selector", "node_id", "node_resource_id", "element_index", "scrollable_index",
-        "x", "y", "x1", "y1", "x2", "y2", "bounds", "clear", "duration_ms",
-    )
-    internal const val RUNTIME_SELECTION_AUTO_EXECUTE_DISABLED = "auto_execute_disabled"
-    internal const val RUNTIME_SELECTION_NO_STRICT_HIT = "no_strict_hit"
-    internal const val RUNTIME_SELECTION_STRICT_HIT = "strict_hit"
 
     private val mainHandler = Handler(Looper.getMainLooper())
-
-    fun hasPendingOmniFlowFunctionCall(taskId: String?): Boolean {
-        val normalizedTaskId = taskId?.trim()?.takeIf { it.isNotEmpty() } ?: return false
-        return McpTaskManager.getTask(normalizedTaskId)?.pendingOmniFlowFunctionCall != null
-    }
 
     suspend fun executeNewTask(
         context: Context,
@@ -339,46 +283,7 @@ object VlmToolCoordinator {
             mapOf("summary" to "正在启动视觉执行任务")
         )
 
-        val (recallGuidance, recallBaseRequest) = buildRecallGuidanceAfterOptionalPrelaunch(
-            context = context,
-            request = boundedRequest,
-        )
-        taskState.omniflowRecall = recallGuidance.payload.takeIf { it.isNotEmpty() }
-        taskState.vlmRequest = recallBaseRequest
-        if (recallGuidance.guidance.isNotBlank()) {
-            taskState.executionRoute = "vlm_with_omniflow_recall:${recallGuidance.decision}"
-            taskState.markStateChanged()
-            emitProgress(
-                progressReporter,
-                taskId,
-                taskState.status,
-                    "OmniFlow 召回",
-                    mapOf(
-                    "summary" to "已完成 fresh observe 与 Function recall；命中时由本地 runtime resolve/replay 接管，否则继续普通 VLM 执行",
-                    "omniflowRecallDecision" to recallGuidance.decision,
-                    "omniflowRecall" to recallGuidance.payload,
-                )
-            )
-        }
-        tryExecuteRecallHitIfAllowed(
-            request = boundedRequest,
-            taskState = taskState,
-            recallGuidance = recallGuidance,
-            progressReporter = progressReporter,
-            runFunction = { functionId, arguments ->
-                OobOmniFlowToolkitService(context).runFunction(
-                    linkedMapOf(
-                        "function_id" to functionId,
-                        "goal" to boundedRequest.goal,
-                        "arguments" to arguments,
-                        "frontend_run_id" to taskId,
-                        "frontend_task_id" to taskId,
-                        "frontend_parent" to "vlm_task",
-                    )
-                )
-            },
-        )?.let { return@withContext it }
-        val executionRequest = taskState.vlmRequest ?: recallBaseRequest
+        val executionRequest = prepareFastStartupRequest(boundedRequest, taskState)
 
         val startResult = startVlmTaskInternal(
             context,
@@ -429,80 +334,6 @@ object VlmToolCoordinator {
         )
     }
 
-    suspend fun tryExecuteRecallHitOnly(
-        context: Context,
-        request: VlmTaskRequest,
-        scope: CoroutineScope,
-        taskIdOverride: String = UUID.randomUUID().toString(),
-        progressReporter: VlmToolProgressReporter = { _, _ -> },
-    ): VlmToolOutcome? = withContext(Dispatchers.IO) {
-        if (request.disableOmniFlowRecall || !request.allowOmniFlowFunctionAutoExecute) {
-            return@withContext null
-        }
-        val taskId = taskIdOverride.trim().takeIf { it.isNotEmpty() } ?: UUID.randomUUID().toString()
-        val needSummary = request.needSummary == true
-        val boundedRequest = request.copy(maxSteps = resolveMaxSteps(request.maxSteps))
-        val missingPermissions = missingAutomationPermissions(context)
-        if (missingPermissions.isNotEmpty() || !ScreenStateUtil.isOperable()) {
-            return@withContext null
-        }
-        val (recallGuidance, recallBaseRequest) = buildRecallGuidanceAfterOptionalPrelaunch(
-            context = context,
-            request = boundedRequest,
-        )
-        if (recallGuidance.directHitFunctionId.isNullOrBlank()) {
-            return@withContext null
-        }
-
-        val taskState = McpTaskManager.createTask(
-            taskId = taskId,
-            goal = boundedRequest.goal,
-            status = TaskStatus.RUNNING,
-            needSummary = needSummary,
-        )
-        taskState.vlmRequest = recallBaseRequest
-        taskState.omniflowRecall = recallGuidance.payload.takeIf { it.isNotEmpty() }
-        taskState.executionRoute = "omniflow_recall_hit:${recallGuidance.decision}"
-        taskState.message = "命中 OmniFlow Function"
-        taskState.markStateChanged()
-        emitProgress(
-            progressReporter,
-            taskId,
-            taskState.status,
-            "召回命中",
-            mapOf(
-                "summary" to "OmniFlow recall 命中；由本地 runtime resolve/replay 执行 Function",
-                "omniflowRecallDecision" to recallGuidance.decision,
-                "omniflowRecall" to recallGuidance.payload,
-            ),
-        )
-        tryExecuteRecallHitIfAllowed(
-            request = boundedRequest,
-            taskState = taskState,
-            recallGuidance = recallGuidance,
-            progressReporter = progressReporter,
-            runFunction = { functionId, arguments ->
-                OobOmniFlowToolkitService(context).runFunction(
-                    linkedMapOf(
-                        "function_id" to functionId,
-                        "goal" to boundedRequest.goal,
-                        "arguments" to arguments,
-                        "frontend_run_id" to taskId,
-                        "frontend_task_id" to taskId,
-                        "frontend_parent" to "vlm_task",
-                    )
-                )
-            },
-        )?.let { outcome ->
-            if (outcome.status != VlmToolOutcomeStatus.WAITING_INPUT) {
-                McpTaskManager.scheduleTaskCleanup(taskId, scope)
-            }
-            return@withContext outcome
-        }
-        McpTaskManager.scheduleTaskCleanup(taskId, scope)
-        null
-    }
-
     fun cancelTask(
         taskId: String,
         scope: CoroutineScope? = null,
@@ -514,11 +345,9 @@ object VlmToolCoordinator {
         if (state != null && state.status !in setOf(TaskStatus.FINISHED, TaskStatus.ERROR, TaskStatus.CANCELLED)) {
             state.status = TaskStatus.CANCELLED
             state.message = message
-            state.pendingOmniFlowFunctionCall = null
             state.addChatMessage("[SYSTEM] VLM task cancelled")
             state.markStateChanged()
         }
-        McpTaskManager.clearPendingOmniFlowClarifyTask(normalizedTaskId)
         runCatching {
             AssistsUtil.Core.cancelRunningTask(normalizedTaskId)
         }.onFailure {
@@ -543,10 +372,8 @@ object VlmToolCoordinator {
             state.status = TaskStatus.FINISHED
             state.message = message
             state.finishedContent = message
-            state.pendingOmniFlowFunctionCall = null
             state.addChatMessage("[SYSTEM] VLM task completed by user")
             state.markStateChanged()
-            McpTaskManager.clearPendingOmniFlowClarifyTask(normalizedTaskId)
         }
         val nativeCompleted = runCatching {
             AssistsUtil.Core.completeRunningTask(normalizedTaskId, message)
@@ -618,17 +445,10 @@ object VlmToolCoordinator {
             pageDiagnostics = emptyMap(),
             dynamicToolDefinitions = emptyList(),
             displayWidth = snapshot.displayWidth,
-            displayHeight = snapshot.displayHeight
+            displayHeight = snapshot.displayHeight,
+            currentPackageName = snapshot.packageName.orEmpty(),
         )
-        workingContext = timed("first_step_optimizer_ms") {
-            VLMFirstStepOptimizer.enrichContext(
-                context = workingContext,
-                currentXml = snapshot.xml,
-                currentPackageName = snapshot.packageName,
-                stepIndex = 0,
-            )
-        }
-        val pageRequest = VLMPageContextRequest(
+        val recallRequest = VLMRecallContextRequest(
             context = workingContext,
             currentXml = snapshot.xml,
             currentPackageName = snapshot.packageName,
@@ -637,11 +457,8 @@ object VlmToolCoordinator {
             snapshot = snapshot,
             disableOmniFlowRecall = disableOmniFlowRecall,
         )
-        workingContext = timed("page_context_ms") {
-            VLMPageContextProviderRegistry.enrich(pageRequest)
-        }
         workingContext = timed("function_recall_ms") {
-            VLMRecallContextProviderRegistry.enrich(pageRequest.copy(context = workingContext))
+            VLMRecallContextProviderRegistry.enrich(recallRequest.copy(context = workingContext))
         }
         workingContext = timed("indexed_evidence_ms") {
             VLMIndexedPageContext.enrich(
@@ -652,105 +469,6 @@ object VlmToolCoordinator {
             )
         }
         val contextBudgetDiagnostics = buildContextBudgetDiagnostics(workingContext)
-        VLMGoalCompletionHeuristic.matchCurrentPage(
-            goal = workingContext.activeGoal(),
-            currentXml = snapshot.xml,
-            currentPackageName = snapshot.packageName,
-            trace = workingContext.trace,
-        )?.let { match ->
-            val step = VLMGoalCompletionHeuristic.buildCurrentPageFinishedStep(
-                currentXml = snapshot.xml,
-                currentPackageName = snapshot.packageName,
-                match = match,
-            )
-            val diagnostics = workingContext.pageDiagnostics +
-                contextBudgetDiagnostics +
-                phaseMs.mapValues { it.value.toString() } +
-                step.pageDiagnostics +
-                linkedMapOf(
-                    "vlm_goal_completion_fast_path" to "true",
-                    "action_dispatch_ms" to "0",
-                    "action_executor_action_ms" to "0",
-                    "action_executor_post_delay_ms" to "0",
-                    "action_executor_total_ms" to "0",
-                )
-            return VlmParseOnlyResult(
-                success = true,
-                model = model,
-                packageName = snapshot.packageName,
-                xmlChars = snapshot.xml?.length ?: 0,
-                screenshotIncluded = !snapshot.screenshotBase64.isNullOrBlank(),
-                promptChars = 0,
-                parsed = true,
-                toolName = step.action.name,
-                action = step.action.toDebugMap(),
-                error = null,
-                finishReason = null,
-                rawContentPreview = "",
-                reasoningPreview = "",
-                observationPreview = step.observation.take(1000),
-                thoughtPreview = step.thought.take(2000),
-                summaryPreview = step.summary.take(1000),
-                toolNames = emptyList(),
-                dynamicFunctionToolNames = emptyList(),
-                requestVariant = null,
-                requestHadTools = null,
-                requestToolChoice = null,
-                requestParallelToolCalls = null,
-                currentUserTextPreview = "",
-                pageDiagnostics = diagnostics,
-                phaseMs = phaseMs.toMap(),
-            )
-        }
-        val indexedProposal = timed("indexed_action_proposal_ms") {
-            VLMIndexedActionProposer.propose(
-                context = workingContext,
-                currentXml = snapshot.xml,
-                displayWidth = snapshot.displayWidth,
-                displayHeight = snapshot.displayHeight,
-                stepIndex = workingContext.stepsUsed,
-            )
-        }
-        if (indexedProposal != null) {
-            val step = indexedProposal.step
-            val diagnostics = workingContext.pageDiagnostics +
-                contextBudgetDiagnostics +
-                phaseMs.mapValues { it.value.toString() } +
-                indexedProposal.diagnostics +
-                linkedMapOf(
-                    "action_dispatch_ms" to "0",
-                    "action_executor_action_ms" to "0",
-                    "action_executor_post_delay_ms" to "0",
-                    "action_executor_total_ms" to "0",
-                )
-            return VlmParseOnlyResult(
-                success = true,
-                model = model,
-                packageName = snapshot.packageName,
-                xmlChars = snapshot.xml?.length ?: 0,
-                screenshotIncluded = !snapshot.screenshotBase64.isNullOrBlank(),
-                promptChars = 0,
-                parsed = true,
-                toolName = step.action.name,
-                action = step.action.toDebugMap(),
-                error = null,
-                finishReason = null,
-                rawContentPreview = "",
-                reasoningPreview = "",
-                observationPreview = step.observation.take(1000),
-                thoughtPreview = step.thought.take(2000),
-                summaryPreview = step.summary.take(1000),
-                toolNames = emptyList(),
-                dynamicFunctionToolNames = emptyList(),
-                requestVariant = null,
-                requestHadTools = null,
-                requestToolChoice = null,
-                requestParallelToolCalls = null,
-                currentUserTextPreview = "",
-                pageDiagnostics = diagnostics,
-                phaseMs = phaseMs.toMap(),
-            )
-        }
         val requestEnvelope = timed("build_request_ms") {
             vlmClient.buildUIOperationRequest(
                 context = workingContext,
@@ -914,35 +632,7 @@ object VlmToolCoordinator {
                 )
                 val boundedRequest = request.copy(maxSteps = resolveMaxSteps(request.maxSteps))
                 taskState.vlmRequest = boundedRequest
-                val (recallGuidance, recallBaseRequest) = buildRecallGuidanceAfterOptionalPrelaunch(
-                    context = context,
-                    request = boundedRequest,
-                )
-                taskState.omniflowRecall = recallGuidance.payload.takeIf { it.isNotEmpty() }
-                taskState.vlmRequest = recallBaseRequest
-                if (recallGuidance.guidance.isNotBlank()) {
-                    taskState.executionRoute = "vlm_with_omniflow_recall:${recallGuidance.decision}"
-                    taskState.markStateChanged()
-                }
-                tryExecuteRecallHitIfAllowed(
-                    request = boundedRequest,
-                    taskState = taskState,
-                    recallGuidance = recallGuidance,
-                    progressReporter = progressReporter,
-                    runFunction = { functionId, arguments ->
-                        OobOmniFlowToolkitService(context).runFunction(
-                            linkedMapOf(
-                                "function_id" to functionId,
-                                "goal" to boundedRequest.goal,
-                                "arguments" to arguments,
-                                "frontend_run_id" to taskId,
-                                "frontend_task_id" to taskId,
-                                "frontend_parent" to "vlm_task",
-                            )
-                        )
-                    },
-                )?.let { return@withContext it }
-                val executionRequest = taskState.vlmRequest ?: recallBaseRequest
+                val executionRequest = prepareFastStartupRequest(boundedRequest, taskState)
                 val startResult = startVlmTaskInternal(
                     context,
                     executionRequest,
@@ -1282,78 +972,28 @@ object VlmToolCoordinator {
         }
     }
 
-    internal suspend fun buildRecallGuidanceAfterOptionalPrelaunch(
-        context: Context,
+    internal fun prepareFastStartupRequest(
         request: VlmTaskRequest,
-    ): Pair<VlmRecallGuidance, VlmTaskRequest> {
-        val targetPackage = request.packageName?.trim().orEmpty()
-        if (request.disableOmniFlowRecall) {
-            return VlmRecallGuidance(
-                decision = "disabled",
-                guidance = "",
-                payload = mapOf(
-                    "success" to false,
-                    "recall_disabled" to true,
-                    "reason" to "request_disable_omniflow_recall",
-                ),
-            ) to request
-        }
-        val shouldPrelaunchForRecall = targetPackage.isNotEmpty() && !request.skipGoHome
-        val observedRequest = if (shouldPrelaunchForRecall) {
-            val launched = runCatching {
-                AccessibilityController.launchApplication(targetPackage) { _, _ -> }
-            }.onFailure { error ->
-                OmniLog.w(TAG, "Recall prelaunch failed target=$targetPackage error=${error.message}")
-            }.isSuccess
-            if (launched) {
-                pollUntilReady(intervalMs = 300L, timeoutMs = 2000L) {
-                    runCatching { AccessibilityController.getCaptureScreenShotXml(true) }.getOrNull()
-                        ?.trim()?.takeIf { it.isNotEmpty() }
-                }
-                request.copy(skipGoHome = true)
+        taskState: TaskState,
+    ): VlmTaskRequest {
+        taskState.vlmRequest = request
+        taskState.omniflowRecall = startupDeferredRecallPayload(request)
+        taskState.executionRoute = "vlm"
+        taskState.markStateChanged()
+        return request
+    }
+
+    private fun startupDeferredRecallPayload(request: VlmTaskRequest): Map<String, Any?> =
+        linkedMapOf(
+            "success" to false,
+            "decision" to if (request.disableOmniFlowRecall) "disabled" else "deferred",
+            "pre_run_recall_skipped" to true,
+            "reason" to if (request.disableOmniFlowRecall) {
+                "request_disable_omniflow_recall"
             } else {
-                request
-            }
-        } else {
-            request
-        }
-        val observation = waitForRecallObservation()
-        val currentPackage = observation.packageName
-        val guidance = VlmRecallGuidanceBuilder.build(
-            context = context,
-            goal = request.goal,
-            targetPackageName = request.packageName,
-            currentPackageName = currentPackage,
-            currentXml = observation.xml,
-            allowDirectExecutionDecision = true,
+                "startup_fast_path_deferred_to_vlm_step"
+            },
         )
-        return guidance to observedRequest
-    }
-
-    private data class RecallObservation(
-        val packageName: String?,
-        val xml: String?,
-    )
-
-    private suspend fun waitForRecallObservation(): RecallObservation {
-        var lastPackage: String? = null
-        var previousXml: String? = null
-        val stableXml = pollUntilReady(intervalMs = 300L, timeoutMs = 3000L) {
-            val pkg = runCatching { AccessibilityController.getPackageName() }.getOrNull()
-                ?.trim()?.takeIf { it.isNotEmpty() }
-            if (pkg != null) lastPackage = pkg
-            val current = runCatching { AccessibilityController.getCaptureScreenShotXml(true) }.getOrNull()
-                ?.trim()?.takeIf { it.isNotEmpty() }
-            val prev = previousXml
-            previousXml = current
-            if (current != null && prev != null) {
-                val similarity = runCatching { TreeEditDistance.getSimilarity(prev, current) }.getOrDefault(0f)
-                current.takeIf { similarity >= 0.85 }
-            } else null
-        }
-        val currentPackage = runCatching { AccessibilityController.getPackageName() }.getOrNull()
-        return RecallObservation(currentPackage ?: lastPackage, stableXml ?: previousXml)
-    }
 
     private suspend fun emitProgress(
         reporter: VlmToolProgressReporter,
@@ -1372,889 +1012,6 @@ object VlmToolCoordinator {
         )
     }
 
-    internal suspend fun tryExecuteRecallHit(
-        taskState: TaskState,
-        goal: String,
-        recallGuidance: VlmRecallGuidance,
-        progressReporter: VlmToolProgressReporter,
-        runFunction: suspend (String, Map<String, Any?>) -> Map<String, Any?>,
-        resolveProvider: RuntimeResolveProvider? = null,
-    ): VlmToolOutcome? {
-        val candidate = executableRecallCandidate(recallGuidance) ?: return null
-        val functionId = candidate["function_id"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
-            ?: return null
-        val argumentResolve = runCatching {
-            if (canExecuteRecallHitWithoutRuntimeResolve(candidate, recallGuidance)) {
-                RuntimeResolveResult(
-                    arguments = emptyMap(),
-                    reason = "no_arguments_required",
-                    resolveCalls = 0,
-                )
-            } else if (canExecuteRecallHitWithSchemaDefaults(candidate, recallGuidance)) {
-                RuntimeResolveResult(
-                    arguments = defaultFunctionArguments(candidate),
-                    reason = "schema_defaults",
-                    resolveCalls = 0,
-                )
-            } else if (resolveProvider != null) {
-                resolveProvider(goal, candidate, recallGuidance)
-            } else {
-                verifyAndResolveRecallFunctionWithSmallModel(goal, candidate, recallGuidance)
-            }
-        }.getOrElse { error ->
-            RuntimeResolveResult.failed(
-                reason = "runtime_resolve_model_failed:${error.message.orEmpty()}",
-                missingRequiredArguments = requiredFunctionArgumentNames(candidate),
-            ).copy(resolveCalls = 1)
-        }
-        val normalizedResolve = normalizeRecallRuntimeResolve(candidate, argumentResolve)
-        if (!normalizedResolve.accepted) {
-            taskState.executionRoute = "omniflow_recall_verifier_no:$functionId"
-            taskState.addChatMessage(
-                "[SYSTEM] OmniFlow recall verifier rejected Function $functionId: ${normalizedResolve.reason.ifBlank { "no" }}. Continue with ordinary VLM actions."
-            )
-            taskState.markStateChanged()
-            emitProgress(
-                progressReporter,
-                taskState.taskId,
-                taskState.status,
-                "召回跳过",
-                mapOf(
-                    "summary" to "召回复用指令未通过本轮校验，继续普通 VLM 执行",
-                    "function_id" to functionId,
-                    "runtimeResolveReason" to normalizedResolve.reason,
-                    "runtimeResolveCalls" to normalizedResolve.resolveCalls,
-                )
-            )
-            return null
-        }
-        if (normalizedResolve.missingRequiredArguments.isNotEmpty()) {
-            val pending = PendingOmniFlowFunctionCall(
-                functionId = functionId,
-                goal = goal,
-                arguments = normalizedResolve.arguments,
-                requiredArgumentNames = normalizedResolve.missingRequiredArguments,
-                allArgumentNames = functionArgumentNames(candidate),
-            )
-            taskState.pendingOmniFlowFunctionCall = pending
-            taskState.status = TaskStatus.WAITING_INPUT
-            taskState.waitingQuestion = buildOmniFlowArgumentQuestion(pending)
-            taskState.message = "等待 OmniFlow Function 参数"
-            taskState.executionRoute = "omniflow_lookup_waiting_arguments:$functionId"
-            taskState.addChatMessage("[AGENT QUESTION] ${taskState.waitingQuestion}")
-            taskState.markStateChanged()
-            emitProgress(
-                progressReporter,
-                taskState.taskId,
-                taskState.status,
-                "等待参数",
-                mapOf(
-                    "summary" to "召回复用指令命中，但需要补充参数",
-                    "function_id" to functionId,
-                    "arguments" to normalizedResolve.arguments,
-                    "missingArguments" to normalizedResolve.missingRequiredArguments,
-                    "runtimeResolveReason" to normalizedResolve.reason,
-                )
-            )
-            return taskState.toOutcome(
-                status = VlmToolOutcomeStatus.WAITING_INPUT,
-                message = taskState.waitingQuestion ?: "请补充 OmniFlow Function 参数。",
-                waitingQuestion = taskState.waitingQuestion,
-            )
-        }
-        val functionArguments = normalizedResolve.arguments
-        if (recallHitRequiresArguments(recallGuidance)) {
-            taskState.addChatMessage(
-                "[SYSTEM] OmniFlow recall hit $functionId requires arguments; runtime resolve returned fields before Function execution: ${functionArguments.keys.joinToString(",")}"
-            )
-        }
-        emitProgress(
-            progressReporter,
-            taskState.taskId,
-            taskState.status,
-            "召回执行",
-            mapOf(
-                "summary" to "命中可直接执行的 OmniFlow Function",
-                "omniflowRecallDecision" to recallGuidance.decision,
-                "function_id" to functionId,
-                "arguments" to functionArguments,
-                "runtimeResolveReason" to normalizedResolve.reason,
-            )
-        )
-        val result = runCatching { runFunction(functionId, functionArguments) }.getOrElse { error ->
-            linkedMapOf<String, Any?>(
-                "success" to false,
-                "error" to error.message.orEmpty(),
-                "error_type" to error.javaClass.name,
-            )
-        }
-            .withRuntimeResolveCalls(normalizedResolve.resolveCalls)
-            .withRuntimeResolveCallMetric(normalizedResolve.resolveCalls)
-        taskState.omniflowExecutionSummary = compactOmniFlowExecutionSummary(result)
-        val success = result["success"] == true
-        if (!success) {
-            val reason = recallFallbackReason(result)
-            taskState.status = TaskStatus.ERROR
-            taskState.message = "召回复用指令执行失败: $reason"
-            taskState.errorCode = firstNonBlank(result["error_code"], result["errorCode"]).ifBlank {
-                "OMNIFLOW_FUNCTION_FAILED"
-            }
-            taskState.pendingOmniFlowFunctionCall = null
-            McpTaskManager.clearPendingOmniFlowClarifyTask(taskState.taskId)
-            taskState.executionRoute = "omniflow_recall_failed:$functionId"
-            taskState.addChatMessage(
-                "[SYSTEM] OmniFlow recall hit $functionId failed in local replay: $reason. " +
-                    "Runtime resolve for a failed replay step must stay inside the Function runner; the normal VLM will not reselect or call hidden Functions."
-            )
-            taskState.markStateChanged()
-            emitProgress(
-                progressReporter,
-                taskState.taskId,
-                taskState.status,
-                "执行失败",
-                mapOf(
-                    "summary" to taskState.message,
-                    "function_id" to functionId,
-                    "arguments" to functionArguments,
-                    "omniflowExecutionSummary" to taskState.omniflowExecutionSummary,
-                )
-            )
-            return taskState.toOutcome(
-                status = VlmToolOutcomeStatus.ERROR,
-                message = taskState.message,
-                errorMessage = taskState.message,
-                errorCode = taskState.errorCode,
-            )
-        }
-
-        val runId = result["run_id"]?.toString()?.trim().orEmpty()
-        val actionsExecuted = result["actions_executed"]?.toString()?.trim().orEmpty()
-        val message = buildString {
-            append("已通过召回复用指令完成: ")
-            append(functionId)
-            if (runId.isNotEmpty()) append(" (run_id=$runId)")
-        }
-        taskState.status = TaskStatus.FINISHED
-        taskState.message = message
-        taskState.finishedContent = message
-        taskState.summaryText = listOfNotNull(
-            "OmniFlow recall hit executed successfully.",
-            "function_id=$functionId",
-            runId.takeIf { it.isNotEmpty() }?.let { "run_id=$it" },
-            actionsExecuted.takeIf { it.isNotEmpty() }?.let { "actions_executed=$it" },
-        ).joinToString("\n")
-        taskState.executionRoute = "omniflow_recall_hit:$functionId"
-        taskState.pendingOmniFlowFunctionCall = null
-        McpTaskManager.clearPendingOmniFlowClarifyTask(taskState.taskId)
-        taskState.addChatMessage("[SYSTEM] $message")
-        taskState.markStateChanged()
-        emitProgress(
-            progressReporter,
-            taskState.taskId,
-            taskState.status,
-            "执行完成",
-            mapOf(
-                "summary" to message,
-                "function_id" to functionId,
-                "arguments" to functionArguments,
-                "omniflowExecutionSummary" to taskState.omniflowExecutionSummary,
-            )
-        )
-        return taskState.toOutcome(VlmToolOutcomeStatus.FINISHED)
-    }
-
-    suspend fun executePendingOmniFlowFunctionCall(
-        taskState: TaskState,
-        reply: String,
-        progressReporter: VlmToolProgressReporter = { _, _ -> },
-        runFunction: suspend (String, Map<String, Any?>) -> Map<String, Any?>,
-    ): VlmToolOutcome? {
-        val pending = taskState.pendingOmniFlowFunctionCall ?: return null
-        val replyArguments = fillMissingArgumentsFromReply(pending, reply)
-        val arguments = pending.arguments + replyArguments
-        val missing = missingPendingArgumentNames(pending, arguments)
-        if (missing.isNotEmpty()) {
-            val nextPending = pending.copy(arguments = arguments, requiredArgumentNames = missing)
-            taskState.pendingOmniFlowFunctionCall = nextPending
-            taskState.status = TaskStatus.WAITING_INPUT
-            taskState.waitingQuestion = buildOmniFlowArgumentQuestion(nextPending)
-            taskState.message = "等待 OmniFlow Function 参数"
-            taskState.addChatMessage("[AGENT QUESTION] ${taskState.waitingQuestion}")
-            taskState.markStateChanged()
-            emitProgress(
-                progressReporter,
-                taskState.taskId,
-                taskState.status,
-                "等待参数",
-                mapOf(
-                    "summary" to "仍缺少 OmniFlow Function 参数",
-                    "function_id" to pending.functionId,
-                    "arguments" to arguments,
-                    "missingArguments" to missing,
-                )
-            )
-            return taskState.toOutcome(
-                status = VlmToolOutcomeStatus.WAITING_INPUT,
-                message = taskState.waitingQuestion ?: "请补充 OmniFlow Function 参数。",
-                waitingQuestion = taskState.waitingQuestion,
-            )
-        }
-
-        taskState.status = TaskStatus.RUNNING
-        taskState.waitingQuestion = null
-        taskState.message = "执行召回复用指令"
-        taskState.addChatMessage("User replied: $reply")
-        taskState.markStateChanged()
-        emitProgress(
-            progressReporter,
-            taskState.taskId,
-            taskState.status,
-            "召回执行",
-            mapOf(
-                "summary" to "参数已确认，直接执行召回复用指令",
-                "function_id" to pending.functionId,
-                "arguments" to arguments,
-            )
-        )
-        val result = runCatching { runFunction(pending.functionId, arguments) }.getOrElse { error ->
-            linkedMapOf<String, Any?>(
-                "success" to false,
-                "error" to error.message.orEmpty(),
-                "error_type" to error.javaClass.name,
-            )
-        }
-        taskState.omniflowExecutionSummary = compactOmniFlowExecutionSummary(result)
-        val success = result["success"] == true
-        if (!success) {
-            val reason = recallFallbackReason(result)
-            taskState.status = TaskStatus.ERROR
-            taskState.message = "召回复用指令执行失败: $reason"
-            taskState.errorCode = firstNonBlank(result["error_code"], result["errorCode"]).ifBlank {
-                "OMNIFLOW_FUNCTION_FAILED"
-            }
-            taskState.pendingOmniFlowFunctionCall = null
-            McpTaskManager.clearPendingOmniFlowClarifyTask(taskState.taskId)
-            taskState.executionRoute = "omniflow_lookup_failed:${pending.functionId}"
-            taskState.addChatMessage("[SYSTEM] OmniFlow Function ${pending.functionId} failed after parameter confirmation: $reason")
-            taskState.markStateChanged()
-            emitProgress(
-                progressReporter,
-                taskState.taskId,
-                taskState.status,
-                "执行失败",
-                mapOf(
-                    "summary" to taskState.message,
-                    "function_id" to pending.functionId,
-                    "arguments" to arguments,
-                    "omniflowExecutionSummary" to taskState.omniflowExecutionSummary,
-                )
-            )
-            return taskState.toOutcome(
-                status = VlmToolOutcomeStatus.ERROR,
-                message = taskState.message,
-                errorMessage = taskState.message,
-                errorCode = taskState.errorCode,
-            )
-        }
-
-        val runId = result["run_id"]?.toString()?.trim().orEmpty()
-        val actionsExecuted = result["actions_executed"]?.toString()?.trim().orEmpty()
-        val message = buildString {
-            append("已通过召回复用指令完成: ")
-            append(pending.functionId)
-            if (runId.isNotEmpty()) append(" (run_id=$runId)")
-        }
-        taskState.status = TaskStatus.FINISHED
-        taskState.message = message
-        taskState.finishedContent = message
-        taskState.summaryText = listOfNotNull(
-            "OmniFlow recall hit executed successfully.",
-            "function_id=${pending.functionId}",
-            runId.takeIf { it.isNotEmpty() }?.let { "run_id=$it" },
-            actionsExecuted.takeIf { it.isNotEmpty() }?.let { "actions_executed=$it" },
-        ).joinToString("\n")
-        taskState.pendingOmniFlowFunctionCall = null
-        McpTaskManager.clearPendingOmniFlowClarifyTask(taskState.taskId)
-        taskState.executionRoute = "omniflow_recall_hit:${pending.functionId}"
-        taskState.addChatMessage("[SYSTEM] $message")
-        taskState.markStateChanged()
-        emitProgress(
-            progressReporter,
-            taskState.taskId,
-            taskState.status,
-            "执行完成",
-            mapOf(
-                "summary" to message,
-                "function_id" to pending.functionId,
-                "arguments" to arguments,
-                "omniflowExecutionSummary" to taskState.omniflowExecutionSummary,
-            )
-        )
-        return taskState.toOutcome(VlmToolOutcomeStatus.FINISHED)
-    }
-
-    internal suspend fun tryExecuteRecallHitIfAllowed(
-        request: VlmTaskRequest,
-        taskState: TaskState,
-        recallGuidance: VlmRecallGuidance,
-        progressReporter: VlmToolProgressReporter,
-        runFunction: suspend (String, Map<String, Any?>) -> Map<String, Any?>,
-        resolveProvider: RuntimeResolveProvider? = null,
-    ): VlmToolOutcome? {
-        val selection = evaluateFunctionRuntimeSelection(request, recallGuidance)
-        if (!selection.allowed) {
-            return null
-        }
-        return tryExecuteRecallHit(
-            taskState = taskState,
-            goal = request.goal,
-            recallGuidance = recallGuidance,
-            progressReporter = progressReporter,
-            runFunction = runFunction,
-            resolveProvider = resolveProvider,
-        )
-    }
-
-    internal fun evaluateFunctionRuntimeSelection(
-        request: VlmTaskRequest,
-        recallGuidance: VlmRecallGuidance,
-    ): VlmFunctionRuntimeSelectionDecision {
-        val hit = mapValue(recallGuidance.payload["hit"])
-        val candidateFunctionId = firstNonBlank(
-            recallGuidance.directHitFunctionId,
-            hit["function_id"],
-            recallGuidance.payload["function_id"],
-        ).takeIf { it.isNotBlank() }
-        if (!request.allowOmniFlowFunctionAutoExecute) {
-            return VlmFunctionRuntimeSelectionDecision(
-                allowed = false,
-                reason = RUNTIME_SELECTION_AUTO_EXECUTE_DISABLED,
-                functionId = candidateFunctionId,
-            )
-        }
-        val strictFunctionId = recallGuidance.directHitFunctionId?.trim()?.takeIf { it.isNotEmpty() }
-            ?: return VlmFunctionRuntimeSelectionDecision(
-                allowed = false,
-                reason = RUNTIME_SELECTION_NO_STRICT_HIT,
-                functionId = candidateFunctionId,
-            )
-        return VlmFunctionRuntimeSelectionDecision(
-            allowed = true,
-            reason = RUNTIME_SELECTION_STRICT_HIT,
-            functionId = strictFunctionId,
-        )
-    }
-
-    private suspend fun verifyAndResolveRecallFunctionWithSmallModel(
-        goal: String,
-        candidate: Map<String, Any?>,
-        recallGuidance: VlmRecallGuidance,
-    ): RuntimeResolveResult {
-        // Runtime-owned verifier for Function replay. It decides execute/no and
-        // resolves only public Function arguments; it never exposes Function
-        // calls as ordinary model-visible tools.
-        val allNames = functionArgumentNames(candidate)
-        val requiredNames = requiredFunctionArgumentNames(candidate).ifEmpty {
-            if (candidateRequiresArguments(candidate)) allNames.take(1) else emptyList()
-        }
-        val raw = HttpController.postLLMRequest(
-            RECALL_DECISION_MODEL,
-            buildRecallFunctionVerifierPrompt(
-                goal = goal,
-                candidate = candidate,
-                recallGuidance = recallGuidance,
-            ),
-            responseJsonObject = true,
-            maxTokens = 160,
-            temperature = 0.0,
-            reasoningEffort = "no",
-        ).message
-        val resolved = parseRecallFunctionVerifierResolve(raw)
-            ?: return RuntimeResolveResult.failed(
-                reason = "runtime_verifier_unparseable",
-                missingRequiredArguments = requiredNames,
-            ).copy(resolveCalls = 1)
-        if (!resolved.accepted) {
-            return resolved.copy(resolveCalls = 1)
-        }
-        val arguments = if (allNames.isEmpty()) {
-            emptyMap()
-        } else {
-            resolved.arguments.filterKeys { it in allNames }
-        }
-        val missing = requiredNames.filter { name -> isBlankArgumentValue(arguments[name]) }
-        return if (missing.isEmpty()) {
-            val genericMissing = if (candidateRequiresArguments(candidate) && allNames.isEmpty()) {
-                listOf(GENERIC_ARGUMENT_NAME)
-            } else {
-                emptyList()
-            }
-            if (genericMissing.isNotEmpty()) {
-                RuntimeResolveResult(
-                    accepted = true,
-                    arguments = emptyMap(),
-                    missingRequiredArguments = genericMissing,
-                    reason = resolved.reason.ifBlank { "argument_schema_missing" },
-                    resolveCalls = 1,
-                )
-            } else {
-                RuntimeResolveResult(
-                    accepted = true,
-                    arguments = arguments,
-                    reason = resolved.reason.ifBlank {
-                        if (allNames.isEmpty()) "runtime_verifier_execute_no_public_arguments" else "runtime_verifier_execute"
-                    },
-                    resolveCalls = 1,
-                )
-            }
-        } else {
-            RuntimeResolveResult(
-                accepted = true,
-                arguments = arguments,
-                missingRequiredArguments = missing,
-                reason = resolved.reason.ifBlank { "missing_required_arguments" },
-                resolveCalls = 1,
-            )
-        }
-    }
-
-    private fun buildRecallFunctionVerifierPrompt(
-        goal: String,
-        candidate: Map<String, Any?>,
-        recallGuidance: VlmRecallGuidance,
-    ): String = buildString {
-        appendLine("OmniFlow runtime recall verifier.")
-        appendLine("Return only one compact JSON object:")
-        appendLine("""{"decision":"execute|no","arguments":{},"missing_required_arguments":[],"reason":"<=12 words"}""")
-        appendLine("Use execute only when the recalled Function is clearly the right reusable sub-route for the current user goal and page.")
-        appendLine("Use no when the goal is different, the page/function purpose is uncertain, or replay could perform the wrong operation.")
-        appendLine("If execute and public parameters can be inferred from the goal, put them in arguments.")
-        appendLine("If execute but required public parameters cannot be inferred, list their public names in missing_required_arguments.")
-        appendLine("Resolve only public business parameters from input_schema. Never output function_id, package_name, target_description, x, y, selector, node_id, resource_id, or coordinates.")
-        appendLine("Keep output under 80 tokens. No markdown.")
-        appendLine()
-        appendLine("User goal:")
-        appendLine(goal.take(1000))
-        appendLine()
-        appendLine("Recall decision=${recallGuidance.decision}")
-        appendLine("Function candidate:")
-        appendLine(candidateForDecisionPrompt(candidate))
-    }
-
-    private fun candidateForDecisionPrompt(candidate: Map<String, Any?>): String =
-        linkedMapOf<String, Any?>(
-            "name" to candidate["name"],
-            "title" to candidate["title"],
-            "description" to candidate["description"],
-            "score" to candidate["score"],
-            "reason" to candidate["reason"],
-            "public_arguments" to publicArgumentPromptSpec(candidate).takeIf { it.isNotEmpty() },
-            "requires_arguments" to candidate["requires_arguments"],
-            "step_summaries" to compactStepSummaries(candidate).takeIf { it.isNotEmpty() },
-        )
-            .filterValues { it != null }
-            .entries
-            .joinToString("\n") { (key, value) -> "$key=$value" }
-
-    private fun publicArgumentPromptSpec(candidate: Map<String, Any?>): List<Map<String, Any?>> {
-        val schema = mapValue(candidate["input_schema"]).ifEmpty { mapValue(candidate["inputSchema"]) }
-        val required = listValue(schema["required"])
-            .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
-            .filterNot(::isInternalFunctionParamName)
-            .toSet()
-        return mapValue(schema["properties"]).entries
-            .mapNotNull { (rawName, rawSpec) ->
-                val name = rawName.trim()
-                if (name.isEmpty() || isInternalFunctionParamName(name)) return@mapNotNull null
-                val spec = mapValue(rawSpec)
-                linkedMapOf<String, Any?>(
-                    "name" to name,
-                    "type" to firstNonBlank(spec["type"]).ifBlank { "string" },
-                    "required" to (name in required),
-                    "description" to firstNonBlank(spec["description"]).take(80).takeIf { it.isNotBlank() },
-                ).filterValues { it != null }
-            }
-            .take(6)
-    }
-
-    private fun compactStepSummaries(candidate: Map<String, Any?>): List<Map<String, Any?>> =
-        listValue(candidate["step_summaries"])
-            .mapNotNull { raw ->
-                val step = mapValue(raw)
-                if (step.isEmpty()) return@mapNotNull null
-                linkedMapOf<String, Any?>(
-                    "tool" to firstNonBlank(step["tool"], step["action"]).take(40).takeIf { it.isNotBlank() },
-                    "title" to firstNonBlank(step["title"], step["summary"], step["description"]).take(80).takeIf { it.isNotBlank() },
-                ).filterValues { it != null }
-            }
-            .take(3)
-
-    internal fun parseRecallFunctionVerifierResolveForTest(raw: String): RuntimeResolveResult? =
-        parseRecallFunctionVerifierResolve(raw)
-
-    private fun parseRecallFunctionVerifierResolve(raw: String): RuntimeResolveResult? {
-        val resolveMap = extractJsonObjectMap(raw).takeIf { it.isNotEmpty() } ?: return null
-        val decision = firstNonBlank(
-            resolveMap["decision"],
-            resolveMap["action"],
-            resolveMap["use"],
-            resolveMap["accepted"],
-            resolveMap["should_execute"],
-            resolveMap["shouldExecute"],
-        ).lowercase()
-        val accepted = when {
-            decision in setOf("execute", "yes", "true", "use", "accept", "accepted", "run") -> true
-            decision in setOf("no", "false", "reject", "skip", "none") -> false
-            boolValue(resolveMap["accepted"]) || boolValue(resolveMap["should_execute"]) || boolValue(resolveMap["shouldExecute"]) -> true
-            else -> false
-        }
-        val arguments = mapValue(resolveMap["arguments"])
-        val reason = firstNonBlank(
-            resolveMap["reason"],
-            resolveMap["message"],
-        )
-        val missing = listValue(
-            resolveMap["missing_required_arguments"]
-                ?: resolveMap["missingRequiredArguments"]
-        )
-            .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
-        return RuntimeResolveResult(
-            accepted = accepted,
-            arguments = arguments,
-            missingRequiredArguments = missing,
-            reason = reason.ifBlank { if (accepted) "runtime_verifier_execute" else "runtime_verifier_no" },
-        )
-    }
-
-    private fun extractJsonObjectMap(raw: String): Map<String, Any?> {
-        val trimmed = raw.trim()
-        if (trimmed.isBlank()) return emptyMap()
-        val candidates = listOf(
-            trimmed,
-            stripJsonFence(trimmed),
-            Regex("""\{.*\}""", options = setOf(RegexOption.DOT_MATCHES_ALL)).find(trimmed)?.value.orEmpty(),
-        )
-        candidates.forEach { candidate ->
-            if (candidate.isBlank()) return@forEach
-            runCatching {
-                mapValue((argumentJson.parseToJsonElement(candidate) as? JsonObject)?.toPlainAny())
-            }
-                .getOrNull()
-                ?.takeIf { it.isNotEmpty() }
-                ?.let { return it }
-        }
-        return emptyMap()
-    }
-
-    private fun stripJsonFence(text: String): String {
-        val trimmed = text.trim()
-        return Regex(
-            pattern = "^```(?:json)?\\s*([\\s\\S]*?)\\s*```$",
-            options = setOf(RegexOption.IGNORE_CASE),
-        ).matchEntire(trimmed)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.trim()
-            ?: trimmed
-    }
-
-    private fun boolValue(raw: Any?): Boolean =
-        when (raw) {
-            is Boolean -> raw
-            is Number -> raw.toInt() != 0
-            is String -> raw.trim().lowercase() in setOf("true", "1", "yes", "y", "use", "execute", "accept", "accepted")
-            else -> false
-        }
-
-    private fun executableRecallCandidate(recallGuidance: VlmRecallGuidance): Map<String, Any?>? {
-        val strictId = recallGuidance.directHitFunctionId?.trim().orEmpty()
-        if (strictId.isEmpty()) return null
-        val hit = mapValue(recallGuidance.payload["hit"])
-        if (hit["function_id"]?.toString()?.trim() == strictId) return hit
-        listValue(recallGuidance.payload["candidates"])
-            .mapNotNull { mapValue(it).takeIf { candidate -> candidate.isNotEmpty() } }
-            .firstOrNull { it["function_id"]?.toString()?.trim() == strictId }
-            ?.let { return it }
-        return linkedMapOf(
-            "function_id" to strictId,
-            "score" to 1.0,
-            "strict_direct_hit" to true,
-        )
-    }
-
-    private fun canExecuteRecallHitWithoutRuntimeResolve(
-        candidate: Map<String, Any?>,
-        recallGuidance: VlmRecallGuidance,
-    ): Boolean =
-        hasExplicitNoArgumentContract(candidate) &&
-            !recallHitRequiresArguments(recallGuidance) &&
-            functionArgumentNames(candidate).isEmpty() &&
-            requiredFunctionArgumentNames(candidate).isEmpty()
-
-    private fun hasExplicitNoArgumentContract(candidate: Map<String, Any?>): Boolean {
-        val rawRequiresArguments = candidate["requires_arguments"] ?: candidate["requiresArguments"]
-        if (rawRequiresArguments != null && !boolValue(rawRequiresArguments)) return true
-        val resolvePolicy = firstNonBlank(candidate["resolve_policy"], candidate["resolvePolicy"])
-            .lowercase()
-        if (resolvePolicy == "no_arguments_required") return true
-        val schema = mapValue(candidate["inputSchema"]).ifEmpty { mapValue(candidate["input_schema"]) }
-        if (schema.isEmpty()) return false
-        val properties = mapValue(schema["properties"])
-        val required = listValue(schema["required"])
-            .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
-            .filterNot(::isInternalFunctionParamName)
-        return properties.keys.none { !isInternalFunctionParamName(it) } && required.isEmpty()
-    }
-
-    private fun canExecuteRecallHitWithSchemaDefaults(
-        candidate: Map<String, Any?>,
-        recallGuidance: VlmRecallGuidance,
-    ): Boolean {
-        if (!recallHitRequiresArguments(recallGuidance)) return false
-        val names = functionArgumentNames(candidate)
-        if (names.isEmpty()) return false
-        val required = requiredFunctionArgumentNames(candidate)
-        val defaults = defaultFunctionArguments(candidate)
-        return names.all { name -> !isBlankArgumentValue(defaults[name]) } &&
-            required.all { name -> !isBlankArgumentValue(defaults[name]) }
-    }
-
-    private fun defaultFunctionArguments(candidate: Map<String, Any?>): Map<String, Any?> {
-        val schema = mapValue(candidate["inputSchema"]).ifEmpty { mapValue(candidate["input_schema"]) }
-        val names = functionArgumentNames(candidate).toSet()
-        return mapValue(schema["properties"])
-            .mapNotNull { (name, rawSpec) ->
-                if (name !in names) return@mapNotNull null
-                val spec = mapValue(rawSpec)
-                if (!spec.containsKey("default")) return@mapNotNull null
-                val value = spec["default"]
-                if (isBlankArgumentValue(value)) null else name to value
-            }
-            .toMap()
-    }
-
-    private fun functionArgumentNames(candidate: Map<String, Any?>): List<String> {
-        val schema = mapValue(candidate["inputSchema"]).ifEmpty { mapValue(candidate["input_schema"]) }
-        return mapValue(schema["properties"]).keys
-            .map { it.trim() }
-            .filter { it.isNotEmpty() && !isInternalFunctionParamName(it) }
-            .distinct()
-    }
-
-    private fun requiredFunctionArgumentNames(candidate: Map<String, Any?>): List<String> {
-        val schema = mapValue(candidate["inputSchema"]).ifEmpty { mapValue(candidate["input_schema"]) }
-        val knownNames = functionArgumentNames(candidate).toSet()
-        return listValue(schema["required"])
-            .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
-            .filterNot(::isInternalFunctionParamName)
-            .filter { knownNames.isEmpty() || it in knownNames }
-            .distinct()
-    }
-
-    private fun normalizeRecallRuntimeResolve(
-        candidate: Map<String, Any?>,
-        resolve: RuntimeResolveResult,
-    ): RuntimeResolveResult {
-        if (!resolve.accepted) return resolve
-        val publicNames = functionArgumentNames(candidate)
-        val filteredArguments = if (publicNames.isEmpty()) {
-            emptyMap()
-        } else {
-            resolve.arguments.filterKeys { key -> key in publicNames }
-        }
-        val requiredNames = requiredFunctionArgumentNames(candidate).ifEmpty {
-            if (candidateRequiresArguments(candidate)) publicNames.take(1) else emptyList()
-        }
-        val missingNames = (resolve.missingRequiredArguments + requiredNames.filter { name ->
-            isBlankArgumentValue(filteredArguments[name])
-        })
-            .mapNotNull { it.trim().takeIf(String::isNotEmpty) }
-            .filter { name -> publicNames.isEmpty() || name in publicNames || name == GENERIC_ARGUMENT_NAME }
-            .distinct()
-        val reason = if (filteredArguments.size != resolve.arguments.size) {
-            listOf(resolve.reason, "internal_arguments_filtered")
-                .filter { it.isNotBlank() }
-                .joinToString(";")
-        } else {
-            resolve.reason
-        }
-        return resolve.copy(
-            arguments = filteredArguments,
-            missingRequiredArguments = missingNames,
-            reason = reason,
-        )
-    }
-
-    private fun fillMissingArgumentsFromReply(
-        pending: PendingOmniFlowFunctionCall,
-        reply: String,
-    ): Map<String, Any?> {
-        val parsed = parseArgumentObject(reply)
-        if (parsed.isNotEmpty()) {
-            val allowed = pending.allArgumentNames.toSet()
-            if (allowed.isEmpty()) return parsed
-            val filtered = parsed.filterKeys { it in allowed }
-            if (filtered.isNotEmpty()) return filtered
-            if (pending.requiredArgumentNames.size == 1 && parsed.size == 1) {
-                return mapOf(pending.requiredArgumentNames.single() to parsed.values.first())
-            }
-        }
-        val trimmed = reply.trim()
-        if (trimmed.isBlank()) return emptyMap()
-        if (pending.requiredArgumentNames.size == 1) {
-            return mapOf(pending.requiredArgumentNames.single() to trimmed)
-        }
-        return emptyMap()
-    }
-
-    private fun missingPendingArgumentNames(
-        pending: PendingOmniFlowFunctionCall,
-        arguments: Map<String, Any?>,
-    ): List<String> =
-        pending.requiredArgumentNames.filter { name ->
-            if (name == GENERIC_ARGUMENT_NAME && pending.allArgumentNames.isEmpty()) {
-                arguments.isEmpty()
-            } else {
-                isBlankArgumentValue(arguments[name])
-            }
-        }
-
-    private fun parseArgumentObject(text: String): Map<String, Any?> {
-        val trimmed = text.trim()
-        val jsonText = when {
-            trimmed.startsWith("{") && trimmed.endsWith("}") -> trimmed
-            else -> Regex("""\{.*}""").find(trimmed)?.value.orEmpty()
-        }
-        if (jsonText.isNotBlank()) {
-            runCatching {
-                mapValue((argumentJson.parseToJsonElement(jsonText) as? JsonObject)?.toPlainAny())
-            }
-                .getOrNull()
-                ?.takeIf { it.isNotEmpty() }
-                ?.let { return it }
-        }
-        val pairs = Regex("""([A-Za-z_][A-Za-z0-9_-]*)\s*[:=：]\s*([^,，\n]+)""")
-            .findAll(trimmed)
-            .mapNotNull { match ->
-                val key = match.groupValues.getOrNull(1)?.trim().orEmpty()
-                val value = match.groupValues.getOrNull(2)?.trim()?.trim('"', '\'', '“', '”').orEmpty()
-                if (key.isNotBlank() && value.isNotBlank()) key to value else null
-            }
-            .toMap()
-        return pairs
-    }
-
-    private fun buildOmniFlowArgumentQuestion(
-        pending: PendingOmniFlowFunctionCall,
-    ): String {
-        val missing = pending.requiredArgumentNames.filter { it != GENERIC_ARGUMENT_NAME }
-        return if (missing.isEmpty()) {
-            "命中 OmniFlow 复用指令，需要补充参数。请直接回复参数 JSON，例如 {\"keyword\":\"猫猫\"}。"
-        } else if (missing.size == 1) {
-            "命中 OmniFlow 复用指令，请补充参数 `${missing.single()}`。可直接回复值，或回复 JSON。"
-        } else {
-            "命中 OmniFlow 复用指令，请补充参数：${missing.joinToString(", ")}。请用 JSON 回复。"
-        }
-    }
-
-    private fun isBlankArgumentValue(value: Any?): Boolean =
-        value == null || value.toString().trim().isBlank()
-
-    private fun buildFunctionToolResultGuidance(
-        arguments: Map<String, Any?>,
-        result: Map<String, Any?>,
-    ): String {
-        val toolResult = linkedMapOf<String, Any?>(
-            "success" to (result["success"] == true),
-            "result" to (
-                result["result"]
-                    ?: result["message"]
-                    ?: result["summary"]
-                    ?: "Function replay executed."
-                ),
-        )
-        return buildString {
-            appendLine("OmniFlow runtime already selected and executed one Function replay before this VLM turn.")
-            appendLine("Treat this as the previous tool result, not as automatic task completion.")
-            appendLine("Continue from the fresh page observation. If the user goal is now complete, call finished; otherwise choose the next tool.")
-            appendLine("Do not call the same Function again unless the fresh page clearly shows it is still needed.")
-            appendLine(
-                JSONObject(
-                    linkedMapOf(
-                        "arguments" to arguments,
-                        "tool_result" to toolResult,
-                    )
-                ).toString()
-            )
-        }
-    }
-
-    private fun JSONObject.toMap(): Map<String, Any?> {
-        val result = linkedMapOf<String, Any?>()
-        keys().forEach { key ->
-            result[key] = when (val value = opt(key)) {
-                is JSONObject -> value.toMap()
-                org.json.JSONObject.NULL -> null
-                else -> value
-            }
-        }
-        return result
-    }
-
-    private fun mapValue(raw: Any?): Map<String, Any?> =
-        (raw as? Map<*, *>)?.entries
-            ?.associate { (key, value) -> key.toString() to value }
-            ?: emptyMap()
-
-    private fun listValue(raw: Any?): List<Any?> =
-        when (raw) {
-            is List<*> -> raw
-            else -> emptyList()
-        }
-
-    private fun recallHitRequiresArguments(recallGuidance: VlmRecallGuidance): Boolean {
-        val hit = mapValue(recallGuidance.payload["hit"])
-        return candidateRequiresArguments(hit) || candidateRequiresArguments(recallGuidance.payload)
-    }
-
-    private fun candidateRequiresArguments(candidate: Map<String, Any?>): Boolean {
-        if (candidate.isEmpty()) return false
-        val raw = candidate["requires_arguments"] ?: candidate["requiresArguments"]
-        if (raw != null) {
-            return when (raw) {
-                is Boolean -> raw
-                is Number -> raw.toInt() != 0
-                is String -> raw.trim().lowercase() in setOf("true", "1", "yes", "y")
-                else -> false
-            }
-        }
-        val schema = mapValue(candidate["inputSchema"]).ifEmpty { mapValue(candidate["input_schema"]) }
-        if (schema.isEmpty()) return false
-        val required = listValue(schema["required"])
-            .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
-            .filterNot(::isInternalFunctionParamName)
-        if (required.isNotEmpty()) return true
-        return mapValue(schema["properties"]).keys.any { !isInternalFunctionParamName(it) }
-    }
-
-    private fun isInternalFunctionParamName(name: String): Boolean =
-        name.trim().replace(Regex("""([a-z0-9])([A-Z])"""), "$1_$2")
-            .replace(Regex("""[^A-Za-z0-9]+"""), "_")
-            .trim('_').lowercase() in INTERNAL_FUNCTION_PARAM_NAMES
-
-    private fun firstNonBlank(vararg values: Any?): String =
-        values.firstNotNullOfOrNull { value ->
-            value?.toString()?.trim()?.takeIf { it.isNotEmpty() }
-        }.orEmpty()
-
-    private fun recallFallbackReason(result: Map<String, Any?>): String =
-        listOf(
-            result["error"],
-            result["error_message"],
-            result["phase"],
-        ).firstNotNullOfOrNull { value ->
-            value?.toString()?.trim()?.takeIf { it.isNotEmpty() }
-        } ?: "unknown"
 
     private fun UIAction.toDebugMap(): Map<String, Any?> =
         when (this) {
@@ -2420,84 +1177,6 @@ object VlmToolCoordinator {
             omniflowRecall = omniflowRecall,
             omniflowExecutionSummary = omniflowExecutionSummary,
         )
-    }
-
-    private fun compactOmniFlowExecutionSummary(result: Map<String, Any?>): Map<String, Any?>? {
-        val summary = mapValue(result["execution_summary"])
-        val source = if (summary.isNotEmpty()) summary else result
-        val success = source["success"] ?: result["success"]
-        val compact = linkedMapOf<String, Any?>(
-            "success" to success,
-            "steps" to firstPresent(source, result, "steps", "step_count", "actions_executed"),
-            "resolve_calls" to firstPresent(
-                source,
-                result,
-                "resolve_calls",
-                "runtime_resolve_calls",
-            ),
-            "model_calls" to firstPresent(source, result, "model_calls"),
-            "tokens" to firstPresent(source, result, "tokens", "total_tokens"),
-            "elapsed_ms" to firstPresent(source, result, "elapsed_ms", "duration_ms"),
-            "failure_reason" to if (success == true) {
-                null
-            } else {
-                firstNonBlank(
-                    source["failure_reason"],
-                    result["failure_reason"],
-                    result["error_code"],
-                    result["errorCode"],
-                    result["error_message"],
-                    result["error"],
-                ).takeIf { it.isNotBlank() }
-            },
-        ).filterValues { it != null && it.toString().isNotBlank() }
-        return compact.takeIf { it.isNotEmpty() }
-    }
-
-    private fun firstPresent(
-        primary: Map<String, Any?>,
-        secondary: Map<String, Any?>,
-        vararg keys: String,
-    ): Any? {
-        keys.forEach { key ->
-            primary[key]?.let { return it }
-        }
-        keys.forEach { key ->
-            secondary[key]?.let { return it }
-        }
-        return null
-    }
-
-    private fun Map<String, Any?>.withRuntimeResolveCalls(extraResolveCalls: Int): Map<String, Any?> {
-        if (extraResolveCalls <= 0) return this
-        val normalized = linkedMapOf<String, Any?>().apply { putAll(this@withRuntimeResolveCalls) }
-        val existingTopLevel = numberValue(normalized["resolve_calls"])
-            ?: numberValue(normalized["runtime_resolve_calls"])
-            ?: 0
-        val summary = mapValue(normalized["execution_summary"]).toMutableMap()
-        val existingSummary = numberValue(summary["resolve_calls"])
-            ?: numberValue(summary["runtime_resolve_calls"])
-            ?: 0
-        val resolveCalls = maxOf(existingTopLevel, existingSummary) + extraResolveCalls
-        normalized["resolve_calls"] = resolveCalls
-        if (summary.isNotEmpty()) {
-            summary["resolve_calls"] = resolveCalls
-            normalized["execution_summary"] = summary
-        }
-        return normalized
-    }
-
-    private fun Map<String, Any?>.withRuntimeResolveCallMetric(resolveCalls: Int): Map<String, Any?> {
-        val summary = mapValue(this["execution_summary"])
-        val existingTopLevel = numberValue(this["resolve_calls"])
-            ?: numberValue(this["runtime_resolve_calls"])
-        val existingSummary = numberValue(summary["resolve_calls"])
-            ?: numberValue(summary["runtime_resolve_calls"])
-        if (existingTopLevel != null || existingSummary != null) return this
-        return linkedMapOf<String, Any?>().apply {
-            putAll(this@withRuntimeResolveCallMetric)
-            put("resolve_calls", resolveCalls)
-        }
     }
 
     private fun numberValue(value: Any?): Int? =

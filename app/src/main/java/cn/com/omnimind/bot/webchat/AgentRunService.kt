@@ -1,12 +1,7 @@
 package cn.com.omnimind.bot.webchat
 
 import android.content.Context
-import cn.com.omnimind.assists.AgentVlmUiSession
 import cn.com.omnimind.bot.manager.AssistsCoreManager
-import cn.com.omnimind.bot.mcp.McpTaskManager
-import cn.com.omnimind.bot.mcp.McpToolExecutors
-import cn.com.omnimind.bot.mcp.TaskStatus
-import cn.com.omnimind.bot.vlm.VlmToolCoordinator
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -364,34 +359,6 @@ class AgentRunService(
     }
 
     suspend fun clarifyTask(taskId: String?, reply: String): Map<String, Any?> {
-        resolvePendingOmniFlowClarifyTaskId(taskId)?.let { pendingTaskId ->
-            val result = McpToolExecutors.executeTaskReply(
-                context = context,
-                args = mapOf(
-                    "taskId" to pendingTaskId,
-                    "reply" to reply
-                )
-            )
-            val state = McpTaskManager.getTask(pendingTaskId)
-            publishPendingOmniFlowClarifyResult(
-                runTaskId = taskId,
-                pendingTaskId = pendingTaskId,
-                state = state
-            )
-            if (state?.status != TaskStatus.WAITING_INPUT) {
-                AgentVlmUiSession.endTask(pendingTaskId)
-                McpTaskManager.clearPendingOmniFlowClarifyTask(taskId)
-                McpTaskManager.clearPendingOmniFlowClarifyTask(pendingTaskId)
-            }
-            return mapOf(
-                "taskId" to taskId,
-                "resolvedTaskId" to pendingTaskId,
-                "status" to "submitted",
-                "route" to "omniflow_pending_function",
-                "result" to result
-            )
-        }
-
         val manager = AssistsCoreManager.sharedInstanceOrCreate(context)
         invokeManager(
             method = "provideUserInputToVLMTask",
@@ -403,92 +370,6 @@ class AgentRunService(
             "taskId" to taskId,
             "status" to "submitted"
         )
-    }
-
-    private fun resolvePendingOmniFlowClarifyTaskId(taskId: String?): String? {
-        val normalizedTaskId = taskId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-        if (VlmToolCoordinator.hasPendingOmniFlowFunctionCall(normalizedTaskId)) {
-            return normalizedTaskId
-        }
-        McpTaskManager.resolvePendingOmniFlowClarifyTask(normalizedTaskId)?.let { return it }
-        return AgentVlmUiSession.activeTaskIdsForRun(normalizedTaskId)
-            .firstOrNull(VlmToolCoordinator::hasPendingOmniFlowFunctionCall)
-    }
-
-    private fun publishPendingOmniFlowClarifyResult(
-        runTaskId: String?,
-        pendingTaskId: String,
-        state: cn.com.omnimind.bot.mcp.TaskState?
-    ) {
-        val normalizedRunTaskId = runTaskId?.trim()?.takeIf { it.isNotEmpty() } ?: pendingTaskId
-        val now = System.currentTimeMillis()
-        val base = linkedMapOf<String, Any?>(
-            "schema_version" to "oob.agent_event.v1",
-            "trace_id" to normalizedRunTaskId,
-            "run_id" to normalizedRunTaskId,
-            "parent_span_id" to normalizedRunTaskId,
-            "channel" to "agent_stream",
-            "taskId" to normalizedRunTaskId,
-            "resolvedTaskId" to pendingTaskId,
-            "pendingTaskId" to pendingTaskId,
-            "createdAt" to now,
-            "timestamp_ms" to now,
-            "seq" to 0,
-            "route" to "omniflow_pending_function",
-        )
-        when (state?.status) {
-            TaskStatus.WAITING_INPUT -> {
-                val question = state.waitingQuestion?.trim().orEmpty()
-                if (question.isEmpty()) return
-                RealtimeHub.publish(
-                    "agent_stream_event",
-                    base + mapOf(
-                        "event" to "clarify_required",
-                        "kind" to "clarify_required",
-                        "status" to "blocked",
-                        "span_id" to "$normalizedRunTaskId-omniflow-clarify",
-                        "entryId" to "$normalizedRunTaskId-omniflow-clarify",
-                        "isFinal" to true,
-                        "text" to question,
-                        "question" to question,
-                        "missingFields" to (
-                            state.pendingOmniFlowFunctionCall?.requiredArgumentNames ?: emptyList<String>()
-                        ),
-                    )
-                )
-            }
-            TaskStatus.FINISHED -> {
-                RealtimeHub.publish(
-                    "agent_stream_event",
-                    base + mapOf(
-                        "event" to "completed",
-                        "kind" to "completed",
-                        "status" to "ok",
-                        "span_id" to "$normalizedRunTaskId-omniflow-completed",
-                        "isFinal" to true,
-                        "success" to true,
-                        "text" to state.message,
-                    )
-                )
-            }
-            TaskStatus.ERROR, TaskStatus.CANCELLED -> {
-                val message = state.message.ifBlank { "OmniFlow 复用指令执行失败" }
-                RealtimeHub.publish(
-                    "agent_stream_event",
-                    base + mapOf(
-                        "event" to "error",
-                        "kind" to "error",
-                        "status" to "error",
-                        "span_id" to "$normalizedRunTaskId-omniflow-error",
-                        "isFinal" to true,
-                        "success" to false,
-                        "text" to message,
-                        "error" to message,
-                    )
-                )
-            }
-            TaskStatus.RUNNING, TaskStatus.USER_PAUSED, TaskStatus.SCREEN_LOCKED, null -> Unit
-        }
     }
 
     private suspend fun invokeManager(

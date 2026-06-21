@@ -37,7 +37,6 @@ class VlmToolHandler(
         val waitTimeoutMs: Long?,
         val model: String?,
         val disableOmniFlowRecall: Boolean,
-        val allowOmniFlowFunctionAutoExecute: Boolean,
         val parseOnly: Boolean = false,
     )
 
@@ -68,7 +67,6 @@ class VlmToolHandler(
         toolHandle: AgentToolExecutionHandle
     ): ToolExecutionResult {
         val vlmTaskId = UUID.randomUUID().toString()
-        var keepVlmUiSessionForClarify = false
         toolHandle.bindStopAction {
             VlmToolCoordinator.cancelTask(vlmTaskId, scope)
         }
@@ -89,15 +87,6 @@ class VlmToolHandler(
                 "disableRecall",
                 "disable_recall"
             ) ?: false
-            val explicitAllowOmniFlowFunctionAutoExecute = firstBoolean(
-                args,
-                "allowOmniFlowFunctionAutoExecute",
-                "allow_omniflow_function_auto_execute",
-                "autoExecuteOmniFlowFunction",
-                "auto_execute_omniflow_function",
-            )
-            val allowOmniFlowFunctionAutoExecute = !disableOmniFlowRecall &&
-                (explicitAllowOmniFlowFunctionAutoExecute ?: false)
             val parseOnly = firstBoolean(args, "parseOnly", "parse_only", "dryRun", "dry_run") ?: false
             val rawArgs = VlmExecutionArgs(
                 goal = goal,
@@ -108,7 +97,6 @@ class VlmToolHandler(
                 waitTimeoutMs = waitTimeoutMs,
                 model = model?.takeIf { it.isNotBlank() },
                 disableOmniFlowRecall = disableOmniFlowRecall,
-                allowOmniFlowFunctionAutoExecute = allowOmniFlowFunctionAutoExecute,
                 parseOnly = parseOnly,
             )
             val appNameToPackage = runtimeContextRepository.getAppNameToPackageMap()
@@ -159,7 +147,6 @@ class VlmToolHandler(
                         skipGoHome = safeArgs.startFromCurrent,
                         stepSkillGuidance = stepSkillGuidance,
                         disableOmniFlowRecall = safeArgs.disableOmniFlowRecall,
-                        allowOmniFlowFunctionAutoExecute = false
                     ),
                     scope = scope,
                 )
@@ -185,7 +172,6 @@ class VlmToolHandler(
                     skipGoHome = safeArgs.startFromCurrent,
                     stepSkillGuidance = stepSkillGuidance,
                     disableOmniFlowRecall = safeArgs.disableOmniFlowRecall,
-                    allowOmniFlowFunctionAutoExecute = safeArgs.allowOmniFlowFunctionAutoExecute
                 ),
                 scope = scope,
                 taskIdOverride = vlmTaskId,
@@ -241,10 +227,6 @@ class VlmToolHandler(
                 VlmToolOutcomeStatus.WAITING_INPUT -> {
                     val question = outcome.waitingQuestion ?: outcome.message.ifBlank { "请提供继续执行所需的信息。" }
                     val localizedQuestion = helper.localized(question)
-                    keepVlmUiSessionForClarify = VlmToolCoordinator.hasPendingOmniFlowFunctionCall(vlmTaskId)
-                    if (keepVlmUiSessionForClarify) {
-                        McpTaskManager.bindPendingOmniFlowClarifyTask(toolHandle.runId, vlmTaskId)
-                    }
                     callback.onClarifyRequired(localizedQuestion, null)
                     ToolExecutionResult.Clarify(localizedQuestion, null)
                 }
@@ -277,9 +259,7 @@ class VlmToolHandler(
         } catch (e: Exception) {
             ToolExecutionResult.Error(AgentToolNames.VLM_TASK, helper.localized(e.message ?: "Unknown error"))
         } finally {
-            if (!keepVlmUiSessionForClarify) {
-                AgentVlmUiSession.endTask(vlmTaskId)
-            }
+            AgentVlmUiSession.endTask(vlmTaskId)
         }
     }
 

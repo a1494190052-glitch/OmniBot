@@ -294,7 +294,6 @@ object McpRoutes {
             "needSummary" to payload.needSummary,
             "skipGoHome" to payload.skipGoHome,
             "disableOmniFlowRecall" to payload.disableOmniFlowRecall,
-            "allowOmniFlowFunctionAutoExecute" to payload.allowOmniFlowFunctionAutoExecute,
         )
 
     private suspend fun handleLegacyTaskReply(
@@ -321,15 +320,6 @@ object McpRoutes {
                 HttpStatusCode.Conflict,
                 mapOf("error" to "Task is not waiting for input", "status" to state.status.name)
             )
-            return
-        }
-
-        if (state.pendingOmniFlowFunctionCall != null) {
-            val result = McpToolExecutors.executeTaskReply(
-                context = context,
-                args = mapOf("taskId" to taskId, "reply" to reply)
-            )
-            call.respond(HttpStatusCode.OK, result)
             return
         }
 

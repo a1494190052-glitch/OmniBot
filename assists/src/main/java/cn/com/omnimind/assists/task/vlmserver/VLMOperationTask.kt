@@ -66,8 +66,8 @@ open class VLMOperationTask(
     var isCancellationRequested: Boolean = false
         private set
     
-    private var executionRecordId: Long = -1L // 执行记录 ID，用于任务结束时更新状态
-    private var isSubTask: Boolean = false // 标识当前任务是否为子任务
+    private var executionRecordId: Long = -1L
+    private var isSubTask: Boolean = false
 
     @Volatile
     private var pauseRequested: Boolean = false
@@ -77,19 +77,13 @@ open class VLMOperationTask(
     private val terminalFinalized = AtomicBoolean(false)
     private val completedVlmStepCardIds = mutableSetOf<String>()
 
-    // INFO动作等待通道：用于挂起任务等待用户回复
     private val userInputChannel = Channel<String>(Channel.Factory.UNLIMITED)
-
-    // 用户主动暂停通道：用于用户点击"接管"按钮时暂停任务
     private val userPauseChannel = Channel<Unit>(Channel.Factory.CONFLATED)
     private var manualTraceCardSeq: Int = 0
-
-    // 总结Sheet准备就绪通道：用于等待ChatBotSheet加载完成后再推送总结
     private val summarySheetReadyChannel = Channel<Unit>(Channel.Factory.CONFLATED)
 
     private var goal: String? = null
-    private var taskStartTime = 0L//任务开始时间
-    private var setStartWithNotShowReadFlag = false
+    private var taskStartTime = 0L
 
     fun appendExternalMemory(memory: String): Boolean {
         val trimmed = memory.trim()
@@ -157,7 +151,7 @@ open class VLMOperationTask(
             VlmTaskTerminalResult(
                 status = VlmTaskTerminalStatus.WAITING_INPUT,
                 message = infoMessage,
-                needSummary = needSummary || hasSummaryIntent(goal),
+                needSummary = needSummary,
                 waitingQuestion = infoMessage
             )
         )
@@ -177,7 +171,6 @@ open class VLMOperationTask(
         OmniLog.d(Tag, "收到用户确认：$userConfirmation")
 
         AccessibilityController.hideKeyboard()
-        setStartWithNotShowReadFlag = true
         onTaskStarted()
         taskStartTime = System.currentTimeMillis()
         return "用户已完成操作：$userConfirmation"
@@ -234,7 +227,6 @@ open class VLMOperationTask(
             appendManualTrace(manualTraceResult)
         }
         AccessibilityController.Companion.hideKeyboard()
-        setStartWithNotShowReadFlag = true
         onTaskStarted()
         taskStartTime = System.currentTimeMillis()
     }
@@ -313,7 +305,7 @@ open class VLMOperationTask(
                     status = VlmTaskTerminalStatus.CANCELLED,
                     message = message,
                     errorMessage = message,
-                    needSummary = needSummary || hasSummaryIntent(goal)
+                    needSummary = needSummary
                 )
             )
             onTaskStop(TaskFinishType.CANCEL, message)
@@ -339,7 +331,7 @@ open class VLMOperationTask(
                     status = VlmTaskTerminalStatus.FINISHED,
                     message = message,
                     finishedContent = message,
-                    needSummary = needSummary || hasSummaryIntent(goal)
+                    needSummary = needSummary
                 )
             )
             onTaskStop(TaskFinishType.FINISH, message)
@@ -853,9 +845,9 @@ open class VLMOperationTask(
                 "enter" -> "确认"
                 else -> "按键 ${action.key}"
             }
+            is WaitAction -> "等待"
             is GetStateAction -> "刷新页面状态"
             is FunctionRunAction -> "执行工具 ${action.functionId}"
-            is WaitAction -> "旧版停留"
             is RecordAction -> "记录信息"
             is FinishedAction -> "完成任务"
             is RequireUserChoiceAction -> "请求用户选择"
@@ -894,12 +886,15 @@ open class VLMOperationTask(
             )
             is OpenAppAction -> linkedMapOf("package_name" to action.packageName)
             is PressKeyAction -> linkedMapOf("key" to action.key)
+            is WaitAction -> linkedMapOf(
+                "time_s" to action.timeS,
+                "duration_ms" to action.durationMs
+            )
             is GetStateAction -> linkedMapOf("reason" to action.reason)
             is FunctionRunAction -> linkedMapOf(
                 "function_id" to action.functionId,
                 "arguments" to action.arguments.toRunLogAny()
             )
-            is WaitAction -> emptyMap()
             is RecordAction -> linkedMapOf("content" to action.content)
             is FinishedAction -> linkedMapOf("content" to action.content)
             is RequireUserChoiceAction -> linkedMapOf(
@@ -945,7 +940,6 @@ open class VLMOperationTask(
             AccessibilityController.Companion.hideKeyboard()
             val currentPackageName = packageName ?: (AccessibilityController.Companion.getPackageName() ?: "")
             val installedApps = AccessibilityController.Companion.mapInstalledApplications()
-            val shouldSummary = (needSummary || hasSummaryIntent(goal))
             InternalRunLogStore.beginRun(
                 context = context,
                 runId = id,
@@ -960,52 +954,26 @@ open class VLMOperationTask(
                 goal,
                 currentPackageName,
                 "vlm",
-                // 总结任务使用时间戳作为 suggestionId，确保每次总结独立记录不会聚合
-                if (shouldSummary) "${System.currentTimeMillis()}" else goal,
+                if (needSummary) "${System.currentTimeMillis()}" else goal,
                 null,
-                if (shouldSummary) "summary" else "vlm"
-            )
-            OmniLog.d(
-                Tag,
-                "VLM Summary Decision: needSummary=$needSummary shouldSummary=${
-                    (needSummary || hasSummaryIntent(goal))
-                }"
+                if (needSummary) "summary" else "vlm"
             )
             OmniLog.d(Tag, "VLM Operation Task Is Running ! skipGoHome=$skipGoHome")
             try {
                 taskStartTime = System.currentTimeMillis()
-                val taskExecutionReport = if (!isSubTask) {
-                    executeOpenAppFastPath(
-                        goal = goal,
-                        installedApps = installedApps,
-                        packageName = packageName
-                    ) ?: vlmOperationService.executeTask(
-                        goal = goal,
-                        installedApps = installedApps,
-                        model = model ?: "scene.vlm.operation.primary",
-                        maxSteps = maxSteps,
-                        packageName = packageName,
-                        skipGoHome = skipGoHome,
-                        summary = shouldSummary,
-                        currentStepGoal = goal,
-                        stepSkillGuidance = stepSkillGuidance,
-                        disableOmniFlowRecall = disableOmniFlowRecall
-                    )
-                } else {
-                    vlmOperationService.executeTask(
-                        goal = goal,
-                        installedApps = installedApps,
-                        model = model ?: "scene.vlm.operation.primary",
-                        maxSteps = maxSteps,
-                        packageName = packageName,
-                        skipGoHome = skipGoHome,  // 使用传入的 skipGoHome 参数
-                        summary = shouldSummary,
-                        currentStepGoal = goal,
-                        stepSkillGuidance = stepSkillGuidance,
-                        disableOmniFlowRecall = disableOmniFlowRecall
-
-                    )
-                }
+                val shouldSummary = needSummary
+                val taskExecutionReport = vlmOperationService.executeTask(
+                    goal = goal,
+                    installedApps = installedApps,
+                    model = model ?: "scene.vlm.operation.primary",
+                    maxSteps = maxSteps,
+                    packageName = packageName,
+                    skipGoHome = skipGoHome,
+                    summary = shouldSummary,
+                    currentStepGoal = goal,
+                    stepSkillGuidance = stepSkillGuidance,
+                    disableOmniFlowRecall = disableOmniFlowRecall
+                )
                 OmniLog.d(Tag, "VLM Operation Task Finished: $taskExecutionReport")
                 throwIfCancellationRequested("task_report_ready")
                 val finishType = when {
@@ -1071,7 +1039,7 @@ open class VLMOperationTask(
                             status = VlmTaskTerminalStatus.ERROR,
                             message = e.message ?: "应用未授权，已被隐私设置限制",
                             errorMessage = e.message ?: "应用未授权，已被隐私设置限制",
-                            needSummary = needSummary || hasSummaryIntent(goal)
+                            needSummary = needSummary
                         )
                     )
                     onTaskStop(TaskFinishType.ERROR, e.message ?: "应用未授权，已被隐私设置限制")
@@ -1091,7 +1059,7 @@ open class VLMOperationTask(
                             status = VlmTaskTerminalStatus.ERROR,
                             message = e.message ?: "请求过于频繁",
                             errorMessage = e.message ?: "请求过于频繁",
-                            needSummary = needSummary || hasSummaryIntent(goal)
+                            needSummary = needSummary
                         )
                     )
                     onTaskStop(TaskFinishType.ERROR, e.message)
@@ -1115,7 +1083,7 @@ open class VLMOperationTask(
                             status = VlmTaskTerminalStatus.ERROR,
                             message = e.message ?: "任务执行异常",
                             errorMessage = e.message ?: "任务执行异常",
-                            needSummary = needSummary || hasSummaryIntent(goal)
+                            needSummary = needSummary
                         )
                     )
                     onTaskStop(TaskFinishType.ERROR, e.message ?: "任务执行异常")
@@ -1127,14 +1095,10 @@ open class VLMOperationTask(
     }
 
     override suspend fun onTaskStarted() {
-        if (setStartWithNotShowReadFlag) {
-            setStartWithNotShowReadFlag = false
-        } else if (!isSubTask) {  // 子任务时不显示"小万即将为您执行任务..."提示
+        if (!isSubTask) {
             executionTaskEventApi?.onReadyStartVLMTask(this)
         }
-
         super.onTaskStarted()
-
     }
 
     /**
@@ -1195,153 +1159,6 @@ open class VLMOperationTask(
         TaskFinishType.CANCEL -> "cancelled"
         TaskFinishType.WAITING_INPUT -> "waiting"
         TaskFinishType.USER_PAUSED -> "paused"
-    }
-
-    private fun hasSummaryIntent(goal: String?): Boolean {
-        if (goal.isNullOrBlank()) return false
-        val keywords = listOf("总结", "汇总", "整理", "要点", "概括", "归纳", "提炼", "总结一下")
-        return keywords.any { goal.contains(it) }
-    }
-
-    private suspend fun executeOpenAppFastPath(
-        goal: String,
-        installedApps: Map<String, String>,
-        packageName: String?
-    ): TaskExecutionReport? {
-        if (packageName.isNullOrBlank()) return null
-        if (!shouldUseOpenAppFastPath(goal, packageName, installedApps)) {
-            OmniLog.i(
-                Tag,
-                "Skip open-app fast path: goal requires more than opening app. goal=$goal package=$packageName"
-            )
-            return null
-        }
-
-        val currentPackage = AccessibilityController.getPackageName().orEmpty()
-        if (currentPackage == packageName) {
-            OmniLog.i(Tag, "Open-app fast path hit: already in target package=$packageName")
-            val now = System.currentTimeMillis()
-            return TaskExecutionReport(
-                success = true,
-                goal = goal,
-                totalSteps = 1,
-                executionTrace = listOf(
-                    UIStep(
-                        observation = "当前已在目标应用：$packageName",
-                        thought = "目标应用已经打开，无需重复启动。",
-                        action = OpenAppAction(packageName = packageName),
-                        result = "目标应用已打开",
-                        packageName = packageName,
-                        startedAtMs = now,
-                        finishedAtMs = now
-                    )
-                ),
-                finalContext = UIContext(
-                    overallTask = goal,
-                    currentStepGoal = goal,
-                    installedApplications = installedApps
-                ),
-                error = null
-            )
-        }
-
-        val launchStartedAt = System.currentTimeMillis()
-        val launchResult = androidDeviceOperator.launchApplication(packageName)
-        val launchFinishedAt = System.currentTimeMillis()
-        val afterLaunchPackage = AccessibilityController.getPackageName().orEmpty()
-        if (launchResult.success) {
-            OmniLog.i(
-                Tag,
-                "Open-app fast path hit: launch accepted target=$packageName observed=$afterLaunchPackage"
-            )
-            return TaskExecutionReport(
-                success = true,
-                goal = goal,
-                totalSteps = 1,
-                executionTrace = listOf(
-                    UIStep(
-                        observation = "准备打开目标应用：$packageName",
-                        thought = "启动目标应用以完成用户请求。",
-                        action = OpenAppAction(packageName = packageName),
-                        result = launchResult.message.ifBlank { "已打开目标应用" },
-                        packageName = afterLaunchPackage,
-                        startedAtMs = launchStartedAt,
-                        finishedAtMs = launchFinishedAt
-                    )
-                ),
-                finalContext = UIContext(
-                    overallTask = goal,
-                    currentStepGoal = goal,
-                    installedApplications = installedApps
-                ),
-                error = null
-            )
-        }
-
-        OmniLog.w(
-            Tag,
-            "Open-app fast path failed: pkg=$packageName, success=${launchResult.success}, current=$afterLaunchPackage"
-        )
-        return null
-    }
-
-    private fun shouldUseOpenAppFastPath(
-        goal: String,
-        packageName: String,
-        installedApps: Map<String, String>
-    ): Boolean {
-        val normalizedGoal = normalizeGoalForIntentMatching(goal)
-        if (normalizedGoal.isBlank()) {
-            return false
-        }
-
-        val openVerbs = listOf("打开", "启动", "进入", "点开").map(::normalizeGoalForIntentMatching)
-        val openVerbCount = openVerbs.sumOf { verb ->
-            Regex(Regex.escape(verb)).findAll(normalizedGoal).count()
-        }
-        if (openVerbCount != 1 || openVerbs.none { normalizedGoal.contains(it) }) {
-            return false
-        }
-
-        val appName = installedApps[packageName].orEmpty()
-        val targetTokens = buildList {
-            normalizeGoalForIntentMatching(appName).takeIf { it.isNotBlank() }?.let(::add)
-            packageName.substringAfterLast('.')
-                .takeIf { it.isNotBlank() }
-                ?.let(::normalizeGoalForIntentMatching)
-                ?.takeIf { it.length >= 3 }
-                ?.let(::add)
-        }.distinct()
-        if (targetTokens.isEmpty() || targetTokens.none { normalizedGoal.contains(it) }) {
-            return false
-        }
-
-        var remainder = normalizedGoal
-        listOf("请帮我", "帮我", "请", "麻烦你", "麻烦", "帮忙").forEach { prefix ->
-            remainder = remainder.removePrefix(normalizeGoalForIntentMatching(prefix))
-        }
-        openVerbs.forEach { verb ->
-            remainder = remainder.replaceFirst(verb, "")
-        }
-        listOf("一下", "下", "app", "应用", "软件", "客户端").forEach { filler ->
-            remainder = remainder.replaceFirst(normalizeGoalForIntentMatching(filler), "")
-        }
-        targetTokens.sortedByDescending { it.length }.forEach { token ->
-            remainder = remainder.replaceFirst(token, "")
-        }
-
-        val trailingPoliteWords = listOf("即可", "就行", "就可以", "就好", "好了", "吧", "呀", "哈", "啦")
-        trailingPoliteWords.forEach { word ->
-            remainder = remainder.removePrefix(normalizeGoalForIntentMatching(word))
-            remainder = remainder.removeSuffix(normalizeGoalForIntentMatching(word))
-        }
-        return remainder.isBlank()
-    }
-
-    private fun normalizeGoalForIntentMatching(text: String): String {
-        if (text.isBlank()) return ""
-        return text.lowercase()
-            .replace(Regex("[\\s\\p{Punct}，。！？；：、“”‘’（）【】《》·`~@#%^&*_+=|<>/\\\\-]+"), "")
     }
 
     private data class SummaryPushResult(

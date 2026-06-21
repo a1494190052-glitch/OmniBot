@@ -15,7 +15,7 @@ Verified in this branch:
 - Latest focused unit gates after parse-only fast-path alignment:
   `./gradlew --no-daemon :app:testDevelopStandardDebugUnitTest --tests cn.com.omnimind.bot.vlm.VlmToolCoordinatorRecallExecutionTest`
   and
-  `./gradlew --no-daemon :assists:testDebugUnitTest --tests cn.com.omnimind.assists.task.vlmserver.VLMIndexedActionProposerTest --tests cn.com.omnimind.assists.task.vlmserver.VLMIndexedPageContextTest`.
+  `./gradlew --no-daemon :assists:testDebugUnitTest --tests cn.com.omnimind.assists.task.vlmserver.VLMIndexedPageContextTest`.
 - Real phone manual recording smoke rerun on `ABNU025605001996`:
   `scripts/oob-manual-recording-function-smoke.sh --device ABNU025605001996 --timeout 90`
   passed on 2026-06-19 23:40, recording two gestures, creating RunLog

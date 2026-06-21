@@ -79,7 +79,7 @@ class AgentToolDefinitionsMusicTest {
     }
 
     @Test
-    fun `agent vlm task keeps recall controls internal but handler honors them`() {
+    fun `agent vlm task recall controls are not exposed to agent or handler`() {
         val vlmTool = AgentToolDefinitions.staticTools(PromptLocale.ZH_CN)
             .first { ((it["function"] as JsonObject)["name"]?.jsonPrimitive?.contentOrNull) == "vlm_task" }
         val function = vlmTool["function"] as JsonObject
@@ -92,11 +92,7 @@ class AgentToolDefinitionsMusicTest {
 
         assertFalse(properties.containsKey("disableOmniFlowRecall"))
         assertFalse(properties.containsKey("allowOmniFlowFunctionAutoExecute"))
-        assertTrue(handlerSource.contains("\"allowOmniFlowFunctionAutoExecute\""))
-        assertTrue(handlerSource.contains("\"allow_omniflow_function_auto_execute\""))
-        assertTrue(handlerSource.contains("\"autoExecuteOmniFlowFunction\""))
-        assertTrue(handlerSource.contains("allowOmniFlowFunctionAutoExecute = safeArgs.allowOmniFlowFunctionAutoExecute"))
-        assertTrue(handlerSource.contains("explicitAllowOmniFlowFunctionAutoExecute ?: false"))
+        assertFalse(handlerSource.contains("allowOmniFlowFunctionAutoExecute"))
         assertFalse(handlerSource.contains("hasOmniFlowSkillContext"))
     }
 

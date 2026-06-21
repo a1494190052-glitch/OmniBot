@@ -90,8 +90,10 @@ record. Do not read only the snapshot when correctness matters.
 - Function RunLog evidence packager: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionRunLogEvidencePackager.kt`
 - Function target repair source matcher: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionTargetSourceMatcher.kt`
 - Function recall policy: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionRecallService.kt`
-- VLM Function recall guidance: `app/src/main/java/cn/com/omnimind/bot/vlm/VlmRecallGuidanceBuilder.kt`
-- VLM UDEG page context guidance: `app/src/main/java/cn/com/omnimind/bot/vlm/OobVlmPageContextProvider.kt`
+- VLM runtime recall hook:
+  `app/src/main/java/cn/com/omnimind/bot/vlm/VlmToolCoordinator.kt`
+- VLM recall context contract:
+  `assists/src/main/java/cn/com/omnimind/assists/task/vlmserver/VLMRecallContextProvider.kt`
 - Function execution runner: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionRunner.kt`
 - Canonical in-app Function/RunLog tool names: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionToolNames.kt`
 - Function call timing: `app/src/main/java/cn/com/omnimind/bot/runlog/OobFunctionCallTiming.kt`

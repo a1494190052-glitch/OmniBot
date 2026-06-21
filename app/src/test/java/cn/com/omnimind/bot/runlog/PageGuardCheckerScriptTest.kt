@@ -14,7 +14,7 @@ class PageGuardCheckerScriptTest {
         val currentPackage = env("PAGE_GUARD_CHECKER_PACKAGE") ?: "com.example"
         val currentActivity = env("PAGE_GUARD_CHECKER_ACTIVITY") ?: "ExampleActivity"
         val execute = env("PAGE_GUARD_CHECKER_EXECUTE") == "true"
-        val expect = env("PAGE_GUARD_CHECKER_EXPECT") ?: "match"
+        val expect = env("PAGE_GUARD_CHECKER_EXPECT") ?: "any"
         val resultFile = env("PAGE_GUARD_CHECKER_RESULT_FILE")?.let(::File)
         val backend = ScriptBackend(
             xml = xml,

@@ -393,13 +393,6 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(script.contains("second_vlm_broadcast_args+=(\"\${optional_model_args[@]}\")"))
         assertTrue(script.contains("\"${'$'}{ADB[@]}\" \"${'$'}{first_vlm_broadcast_args[@]}\""))
         assertTrue(script.contains("\"${'$'}{ADB[@]}\" \"${'$'}{second_vlm_broadcast_args[@]}\""))
-        assertTrue(debugReceiver.contains("\"allowOmniFlowFunctionAutoExecute\""))
-        assertTrue(debugReceiver.contains("\"allow_omniflow_function_auto_execute\""))
-        assertTrue(debugReceiver.contains("\"auto_execute\""))
-        assertTrue(debugReceiver.contains("default = true"))
-        assertTrue(debugReceiver.contains("allowOmniFlowFunctionAutoExecute = allowOmniFlowFunctionAutoExecute"))
-        assertTrue(debugReceiver.contains("\"allow_omniflow_function_auto_execute\" to allowOmniFlowFunctionAutoExecute"))
-
         val permissions = Files.getPosixFilePermissions(scriptPath)
         assertTrue(permissions.contains(PosixFilePermission.OWNER_EXECUTE))
     }
@@ -640,27 +633,15 @@ class UnifiedOmniFlowExecutionPlanTest {
         val surfaces = listMaps(contract["entry_surfaces"])
         val byId = surfaces.associateBy { it["id"]?.toString().orEmpty() }
         assertTrue(byId.keys.containsAll(listOf(
-            "vlm_task_recall_fast_path",
             "ui_agent_function_run",
             "ui_direct_function_run_adapter",
             "ui_update_function",
             "mcp_function_lifecycle_tools",
             "http_function_run",
-            "debug_recall_hit_only",
             "python_omniflow_offline",
         )))
-
-        val vlm = byId.getValue("vlm_task_recall_fast_path")
-        assertTrue(vlm["may_execute_phone_actions"] == true)
-        assertTrue(vlm["phone_action_owner"] == "kotlin_only")
-        assertTrue(vlm["model_visible_function_execution_tool"] == false)
-        assertTrue(vlm["result_route_prefix"] == "omniflow_recall_hit")
-        assertTrue(
-            (listAny(vlm["control_flags"]).contains("disableOmniFlowRecall") &&
-                listAny(vlm["control_flags"]).contains("allowOmniFlowFunctionAutoExecute"))
-        )
-        assertTrue(coordinator.contains("OobOmniFlowToolkitService(context).runFunction("))
-        assertTrue(coordinator.contains("tryExecuteRecallHitOnly"))
+        assertFalse(byId.keys.contains("vlm_task_recall_fast_path"))
+        assertFalse(byId.keys.contains("debug_recall_hit_only"))
 
         val uiRun = byId.getValue("ui_agent_function_run")
         assertTrue(uiRun["requires_concrete_function_id"] == true)
@@ -731,10 +712,6 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(httpHost.contains("post(\"/omniflow/function/run\")"))
         assertTrue(httpHost.contains("OobOmniFlowToolkitService(context).executeTool(\"run_function\", args)"))
         assertTrue(httpHost.contains("val publicArguments = mapArg(body[\"arguments\"])"))
-
-        val debugRecall = byId.getValue("debug_recall_hit_only")
-        assertTrue(debugRecall["debug_or_dev_only"] == true)
-        assertTrue(debugRecall["result_route_prefix"] == "omniflow_recall_hit")
 
         val python = byId.getValue("python_omniflow_offline")
         assertTrue(python["may_execute_phone_actions"] == false)

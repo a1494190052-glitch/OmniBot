@@ -265,16 +265,12 @@ class McpToolDefinitionsTest {
         assertTrue(properties.containsKey("maxSteps"))
         assertTrue(properties.containsKey("startFromCurrent"))
         assertTrue(properties.containsKey("needSummary"))
-        assertTrue(properties.containsKey("allowOmniFlowFunctionAutoExecute"))
+        assertFalse(properties.containsKey("allowOmniFlowFunctionAutoExecute"))
         assertTrue(properties.containsKey("disableOmniFlowRecall"))
         assertFalse(properties.containsKey("parseOnly"))
-        val autoExecute = properties["allowOmniFlowFunctionAutoExecute"] as Map<*, *>
-        assertEquals(false, autoExecute["default"])
         val disableRecall = properties["disableOmniFlowRecall"] as Map<*, *>
         assertEquals(false, disableRecall["default"])
-        assertTrue(executorSource.contains("\"allowOmniFlowFunctionAutoExecute\""))
-        assertTrue(executorSource.contains("\"allow_omniflow_function_auto_execute\""))
-        assertTrue(executorSource.contains("val allowOmniFlowFunctionAutoExecute = !disableOmniFlowRecall"))
+        assertFalse(executorSource.contains("allowOmniFlowFunctionAutoExecute"))
     }
 
     @Test

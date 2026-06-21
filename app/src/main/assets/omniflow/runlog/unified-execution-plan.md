@@ -52,13 +52,9 @@ Latest real-phone online bottleneck:
   search box" task. It returned a native `click` tool call without executing the
   action, with `prompt_chars=2161`, `vlm_stream_ms=1976`, `build_request_ms=5`,
   and `parse_response_ms=7`.
-- For the latest online settings run
-  `runtime/real-device-vlm-recall-loop/20260619T224919-online-after-tool-budget/first-vlm.json`,
-  the first click was handled by `VLMIndexedActionProposer` and the second
-  `finished` step was handled by `vlm_goal_completion_fast_path`.
-- That run produced no online token usage and no `vlm_stream_ms` because the
-  native indexed action and current-page completion fast paths avoided the
-  provider call.
+- Online VLM execution now keeps planner as the only non-replay decision path:
+  strict Function hits are handled by local OmniFlow replay before planner;
+  otherwise the turn goes through the normal VLM planner.
 - The remaining measured bottleneck was action dispatch: `action_dispatch_ms=471`
   for the click, with `action_executor_action_ms=170` and
   `action_executor_post_delay_ms=300`.
