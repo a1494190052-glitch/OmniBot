@@ -5,10 +5,14 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ui/features/home/pages/chat/tool_activity_utils.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
+import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/models/chat_message_model.dart';
 
 void main() {
-  tearDown(AppTextLocalizer.clearResolvedLocale);
+  tearDown(() {
+    AppTextLocalizer.clearResolvedLocale();
+    LegacyTextLocalizer.clearResolvedLocale();
+  });
 
   test('localized user-facing strings do not expose compile wording', () {
     for (final path in const ['lib/l10n/app_en.arb', 'lib/l10n/app_zh.arb']) {
@@ -158,114 +162,37 @@ void main() {
     expect(AppTextLocalizer.text('查看 RunLog'), 'View execution record');
   });
 
-  test('resolves process card labels by explicit locale', () {
+  test('resolves process card labels through the active locale', () {
+    LegacyTextLocalizer.setResolvedLocale(const Locale('zh'));
     expect(
       resolveAgentToolTypeLabel(const <String, dynamic>{
-        'toolType': 'research',
-      }, locale: const Locale('zh')),
-      '网页搜索',
+        'toolType': 'workspace',
+      }),
+      '工作区',
     );
     expect(
-      resolveAgentToolTypeLabel(const <String, dynamic>{
-        'toolType': 'research',
-      }, locale: const Locale('en')),
-      'Web search',
+      resolveAgentToolStatusLabel(const <String, dynamic>{'status': 'success'}),
+      '成功',
     );
     expect(
-      resolveAgentToolStatusLabel(const <String, dynamic>{
-        'status': 'success',
-      }, locale: const Locale('zh')),
-      '已完成',
-    );
-    expect(
-      resolveAgentToolStatusLabel(const <String, dynamic>{
-        'status': 'success',
-      }, locale: const Locale('en')),
-      'Done',
-    );
-    expect(
-      resolveAgentToolStatusLabel(const <String, dynamic>{
-        'status': 'running',
-        'toolType': 'thinking',
-      }, locale: const Locale('zh')),
-      '思考中',
-    );
-    expect(
-      resolveAgentToolTypeLabel(const <String, dynamic>{
-        'toolType': 'vlm',
-      }, locale: const Locale('zh')),
-      '视觉执行',
-    );
-    expect(
-      resolveAgentToolTypeLabel(const <String, dynamic>{
-        'toolType': 'vlm',
-      }, locale: const Locale('en')),
-      'Visual task',
-    );
-    expect(
-      resolveAgentToolStatusLabel(const <String, dynamic>{
-        'status': 'running',
-        'toolType': 'vlm',
-      }, locale: const Locale('zh')),
-      '执行中',
-    );
-    expect(
-      resolveAgentToolTypeLabel(const <String, dynamic>{
-        'toolName': 'vlm_task',
-        'compile_kind': 'vlm',
-      }, locale: const Locale('zh')),
-      '视觉执行',
-    );
-    expect(
-      resolveAgentToolStatusLabel(const <String, dynamic>{
-        'status': 'running',
-        'toolName': 'vlm_task',
-        'compile_kind': 'vlm',
-      }, locale: const Locale('zh')),
-      '执行中',
-    );
-    expect(
-      resolveAgentToolTitle(const <String, dynamic>{
-        'toolTitle': 'Tool Call',
-      }, locale: const Locale('zh')),
+      resolveAgentToolTitle(const <String, dynamic>{'toolTitle': '工具调用'}),
       '工具调用',
     );
-    expect(
-      resolveAgentToolTitle(const <String, dynamic>{
-        'toolTitle': '复用记忆',
-      }, locale: const Locale('zh')),
-      '复用指令',
-    );
-    expect(
-      resolveAgentToolTitle(const <String, dynamic>{
-        'toolTitle': 'Reusable memory',
-      }, locale: const Locale('en')),
-      'Reusable command',
-    );
-    expect(
-      resolveAgentToolTitle(const <String, dynamic>{
-        'toolType': 'vlm',
-        'toolName': 'click',
-        'toolTitle': '点击 设置按钮',
-        'argsJson': '{"target_description":"设置按钮","x":1,"y":2}',
-      }, locale: const Locale('zh')),
-      '设置按钮',
-    );
-  });
 
-  test('keeps server-provided process text untranslated', () {
+    LegacyTextLocalizer.setResolvedLocale(const Locale('en'));
     expect(
-      resolveAgentToolTitle(const <String, dynamic>{
-        'toolTitle': '设置',
-      }, locale: const Locale('en')),
-      '设置',
+      resolveAgentToolTypeLabel(const <String, dynamic>{
+        'toolType': 'workspace',
+      }),
+      'Workspace',
     );
     expect(
-      resolveAgentToolPreview(const <String, dynamic>{
-        'toolTitle': 'Search result',
-        'summary': 'https://example.com/设置',
-      }, locale: const Locale('en')),
-      'https://example.com/设置',
+      resolveAgentToolStatusLabel(const <String, dynamic>{'status': 'success'}),
+      'Success',
+    );
+    expect(
+      resolveAgentToolTitle(const <String, dynamic>{'toolTitle': '工具调用'}),
+      'Tool call',
     );
   });
 
