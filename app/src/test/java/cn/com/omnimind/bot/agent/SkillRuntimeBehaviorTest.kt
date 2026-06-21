@@ -236,6 +236,8 @@ class SkillRuntimeBehaviorTest {
         }
 
         listOf(
+            "reusable command",
+            "execution-record",
             "vlm_task",
             "update_function",
             "runtime checker",
@@ -243,7 +245,8 @@ class SkillRuntimeBehaviorTest {
             "hi 升级 checker",
             "upgrade/update popup checker",
             "package/open-app checker",
-            "复用指令"
+            "复用指令",
+            "轨迹"
         ).forEach { phrase ->
             assertTrue("Expected OmniFlow manifest trigger phrase: $phrase", omniflowDescription.contains(phrase))
         }
@@ -311,7 +314,7 @@ class SkillRuntimeBehaviorTest {
     fun retiredOmniFlowSkillNamesMatchSingleOmniFlowEntry() {
         val omniflowEntry = entry(
             id = "omniflow",
-            description = "Single OOB Android GUI automation and OmniFlow reusable workflow skill."
+            description = "Single OOB phone automation and reusable command skill."
         )
         val retiredIds = listOf(
             "oob-function-management",

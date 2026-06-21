@@ -148,7 +148,7 @@ class AgentSystemPromptTest {
                 SkillIndexEntry(
                     id = "omniflow",
                     name = "omniflow",
-                    description = "Single OOB Android GUI automation and OmniFlow reusable workflow skill.",
+                    description = "Single OOB phone automation and reusable command skill.",
                     rootPath = "/workspace/.omnibot/skills/omniflow",
                     shellRootPath = "/workspace/.omnibot/skills/omniflow",
                     skillFilePath = "/workspace/.omnibot/skills/omniflow/SKILL.md",
