@@ -484,8 +484,8 @@ String _activityLabel(
       );
     case AgentToolActivityKind.omniflow:
       return AppTextLocalizer.choose(
-        zh: '工作流操作',
-        en: 'OmniFlow activity',
+        zh: '复用指令',
+        en: 'Reusable command',
         locale: locale,
       );
     case AgentToolActivityKind.mcp:
@@ -611,8 +611,8 @@ String _localizedActivityText(BuildContext context, String value) {
       );
     case 'OmniFlow activity':
       return AppTextLocalizer.choose(
-        en: 'OmniFlow activity',
-        zh: '工作流操作',
+        en: 'Reusable command',
+        zh: '复用指令',
         locale: locale,
       );
     case 'Reusable command':

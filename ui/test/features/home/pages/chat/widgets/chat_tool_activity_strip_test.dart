@@ -727,6 +727,38 @@ void main() {
     expect(find.byTooltip('查看完整执行记录'), findsNothing);
   });
 
+  testWidgets('OmniFlow activity row uses reusable command wording', (
+    tester,
+  ) async {
+    final messages = [
+      ChatMessageModel.cardMessage({
+        'type': 'agent_tool_summary',
+        'status': 'running',
+        'toolType': 'oob_function',
+        'toolName': 'oob_function_run',
+        'summary': 'Preparing tool call...',
+      }),
+    ];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        supportedLocales: const [Locale('zh'), Locale('en')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+        ],
+        home: Scaffold(body: ChatToolActivityStrip(messages: messages)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('复用指令'), findsOneWidget);
+    expect(find.text('工作流操作'), findsNothing);
+    expect(find.text('OmniFlow activity'), findsNothing);
+  });
+
   testWidgets('running-only strip hides completed tool cards entirely', (
     tester,
   ) async {

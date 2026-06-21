@@ -292,7 +292,7 @@ class AgentToolCardPolicy {
       AgentToolActivityKind.vlm => 'Visual task',
       AgentToolActivityKind.terminal => 'Terminal activity',
       AgentToolActivityKind.workspace => 'Workspace activity',
-      AgentToolActivityKind.omniflow => 'OmniFlow activity',
+      AgentToolActivityKind.omniflow => 'Reusable command',
       AgentToolActivityKind.mcp => 'MCP activity',
       AgentToolActivityKind.generic => 'Tool activity',
     };

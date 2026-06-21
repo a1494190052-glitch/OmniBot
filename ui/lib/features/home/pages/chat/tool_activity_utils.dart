@@ -860,6 +860,12 @@ String _prettifyToolName(String raw) {
   if (text.isEmpty) {
     return '';
   }
+  final rawLower = text.toLowerCase();
+  if (rawLower == 'call_tool' ||
+      rawLower.startsWith('oob_function_') ||
+      rawLower.startsWith('omniflow.')) {
+    return 'Reusable command';
+  }
   final normalized = text
       .replaceAll(RegExp(r'[_\-]+'), ' ')
       .replaceAllMapped(
@@ -972,8 +978,8 @@ String _localizeToolUiText(String value, {Locale? locale}) {
     case 'OmniFlow activity':
     case '工作流操作':
       return AppTextLocalizer.choose(
-        en: 'OmniFlow activity',
-        zh: '工作流操作',
+        en: 'Reusable command',
+        zh: '复用指令',
         locale: locale,
       );
     case 'OmniFlow':
