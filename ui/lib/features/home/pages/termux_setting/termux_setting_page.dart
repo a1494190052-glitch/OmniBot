@@ -86,7 +86,7 @@ const List<_EnvironmentDefinition> _environmentDefinitions =
       ),
       _EnvironmentDefinition(
         id: 'omniflow_dev',
-        title: 'OmniFlow dev',
+        title: 'Reusable command dev',
         descriptionKey: 'alpineOmniFlowDev',
         groupKey: 'alpineAiAgent',
       ),

@@ -116,8 +116,8 @@ void main() {
 
     AppTextLocalizer.setResolvedLocale(const Locale('en'));
     expect(AppTextLocalizer.text('已复制工具输出'), 'Copied tool output');
-    expect(AppTextLocalizer.text('查看执行记录'), 'View Run Log');
-    expect(AppTextLocalizer.text('查看 RunLog'), 'View Run Log');
+    expect(AppTextLocalizer.text('查看执行记录'), 'View execution record');
+    expect(AppTextLocalizer.text('查看 RunLog'), 'View execution record');
   });
 
   test('resolves process card labels by explicit locale', () {

@@ -810,7 +810,7 @@ class _FunctionRunLogPickerSheet extends StatelessWidget {
                           children: [
                             Text(
                               title.trim().isEmpty
-                                  ? _text(context, '执行记录', 'Run Logs')
+                                  ? _text(context, '执行记录', 'Execution records')
                                   : title.trim(),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -826,7 +826,7 @@ class _FunctionRunLogPickerSheet extends StatelessWidget {
                               _text(
                                 context,
                                 '执行记录 · ${entries.length}',
-                                'Run Logs · ${entries.length}',
+                                'Execution records · ${entries.length}',
                               ),
                               style: TextStyle(
                                 color: palette.textSecondary,
@@ -1032,7 +1032,7 @@ _FunctionRunLogStatus _functionRunLogStatus(
     return _FunctionRunLogStatus(
       icon: Icons.receipt_long_outlined,
       color: context.omniPalette.textTertiary,
-      label: _text(context, '执行记录', 'Run Log'),
+      label: _text(context, '执行记录', 'Execution record'),
     );
   }
   final rawStatus = run.runStatus.trim().toLowerCase();
