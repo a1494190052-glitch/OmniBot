@@ -475,6 +475,7 @@ class AgentToolCardPolicy {
         return firstNonBlank(<Object?>[
           args['target_description'],
           args['text'],
+          args['content'],
           args['prompt'],
           args['package_name'],
           args['key'],
@@ -557,6 +558,7 @@ class AgentToolCardPolicy {
         return firstNonBlank(<Object?>[
           args['target_description'],
           args['text'],
+          args['content'],
           args['prompt'],
           args['package_name'],
           args['key'],
