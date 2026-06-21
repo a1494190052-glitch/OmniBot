@@ -317,13 +317,13 @@ class VlmToolCoordinatorRecallExecutionTest {
     }
 
     @Test
-    fun `vlm requests default to runtime recall auto execution`() {
+    fun `vlm requests default to ordinary vlm execution without function auto execution`() {
         val request = VlmTaskRequest(
             goal = "open settings",
             packageName = "com.android.settings",
         )
 
-        assertEquals(true, request.allowOmniFlowFunctionAutoExecute)
+        assertEquals(false, request.allowOmniFlowFunctionAutoExecute)
     }
 
     @Test

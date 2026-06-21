@@ -34,8 +34,9 @@ Use cases:
 - Perform multi-step operations across different apps
 
 OMNIFLOW FUNCTION REUSE:
-- Online VLM observes the current page, and the local runtime recalls and executes high-confidence saved Functions before ordinary VLM actions.
-- Parameterized Functions are valid matches. Runtime resolve and Function replay stay inside the local runtime.
+- Ordinary vlm_task calls use the normal online VLM flow by default.
+- Set allowOmniFlowFunctionAutoExecute=true only when the caller explicitly wants the local runtime to reuse high-confidence saved Functions before ordinary VLM actions.
+- Parameterized Functions are valid matches when reuse is enabled. Runtime resolve and Function replay stay inside the local runtime.
 - The outer Agent should not call hidden Function replay tools. Checker handling, action transfer, and replay safety stay inside the local runner.
 - If replay cannot continue locally, runtime resolve may ask the VLM for only one normal UI action for the current step; it should not choose a saved Function itself.
 
@@ -96,8 +97,8 @@ WORKFLOW:
                 ),
                 "allowOmniFlowFunctionAutoExecute" to mapOf(
                     "type" to "boolean",
-                    "default" to true,
-                    "description" to "Optional: when true, a high-confidence local OmniFlow recall hit may be replayed by the native runtime before ordinary VLM actions. Set false to observe recall guidance without automatic Function replay."
+                    "default" to false,
+                    "description" to "Optional: set true only for explicit reusable-command runs. When true, a high-confidence local OmniFlow recall hit may be replayed by the native runtime before ordinary VLM actions."
                 )
             ),
             "required" to listOf("goal")

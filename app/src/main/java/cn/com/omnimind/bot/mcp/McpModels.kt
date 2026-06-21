@@ -35,7 +35,7 @@ data class VlmTaskRequest(
     val skipGoHome: Boolean = false,
     val stepSkillGuidance: String = "",
     val disableOmniFlowRecall: Boolean = false,
-    val allowOmniFlowFunctionAutoExecute: Boolean = true,
+    val allowOmniFlowFunctionAutoExecute: Boolean = false,
 )
 
 data class PendingOmniFlowFunctionCall(

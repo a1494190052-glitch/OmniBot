@@ -269,7 +269,7 @@ class McpToolDefinitionsTest {
         assertTrue(properties.containsKey("disableOmniFlowRecall"))
         assertFalse(properties.containsKey("parseOnly"))
         val autoExecute = properties["allowOmniFlowFunctionAutoExecute"] as Map<*, *>
-        assertEquals(true, autoExecute["default"])
+        assertEquals(false, autoExecute["default"])
         val disableRecall = properties["disableOmniFlowRecall"] as Map<*, *>
         assertEquals(false, disableRecall["default"])
         assertTrue(executorSource.contains("\"allowOmniFlowFunctionAutoExecute\""))

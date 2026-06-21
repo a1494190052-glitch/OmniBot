@@ -6445,7 +6445,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         if (userMessage.isBlank() || attachments.isNotEmpty()) {
             return false
         }
-        if (toolExposurePolicy.isLightweightProfile()) {
+        if (!toolExposurePolicy.isLightweightProfile()) {
             return false
         }
         val allowedTools = toolExposurePolicy.effectiveAllowedTools()

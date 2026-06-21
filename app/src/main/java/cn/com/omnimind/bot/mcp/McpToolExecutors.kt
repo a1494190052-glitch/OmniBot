@@ -82,7 +82,7 @@ object McpToolExecutors {
         val allowOmniFlowFunctionAutoExecute = !disableOmniFlowRecall &&
             boolArgOrDefault(
                 requestArgs,
-                default = true,
+                default = false,
                 "allowOmniFlowFunctionAutoExecute",
                 "allow_omniflow_function_auto_execute",
                 "autoExecuteOmniFlowFunction",

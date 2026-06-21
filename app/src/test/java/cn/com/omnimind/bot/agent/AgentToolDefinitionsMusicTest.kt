@@ -59,7 +59,7 @@ class AgentToolDefinitionsMusicTest {
     }
 
     @Test
-    fun `english vlm task description exposes omniflow runtime path`() {
+    fun `english vlm task description keeps reusable command replay opt-in`() {
         val vlmTool = AgentToolDefinitions.staticTools(PromptLocale.EN_US)
             .first { ((it["function"] as JsonObject)["name"]?.jsonPrimitive?.contentOrNull) == "vlm_task" }
         val function = vlmTool["function"] as JsonObject
@@ -68,11 +68,8 @@ class AgentToolDefinitionsMusicTest {
         val description = function["description"]?.jsonPrimitive?.contentOrNull.orEmpty()
 
         assertTrue(description.contains("One `vlm_task` call represents one complete device execution flow"))
-        assertTrue(description.contains("OmniFlow Function recall"))
-        assertTrue(description.contains("high-confidence hits enter replay"))
-        assertTrue(description.contains("same bounded runtime resolve path"))
-        assertTrue(description.contains("public arguments are missing"))
-        assertTrue(description.contains("current replay step cannot continue locally"))
+        assertTrue(description.contains("Ordinary calls use the online VLM flow by default"))
+        assertTrue(description.contains("enabled only by an explicit reusable-command entrypoint or OmniFlow skill context"))
         assertTrue(description.contains("must not directly call hidden Function replay or guard tools"))
         assertFalse(description.contains("使用视觉语言模型"))
         assertFalse(description.contains("function_id"))
