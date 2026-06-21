@@ -191,7 +191,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.info_outline_rounded).first);
       await tester.pumpAndSettle();
 
-      expect(find.text('RunLog 保存结果'), findsOneWidget);
+      expect(find.text('轨迹保存结果'), findsOneWidget);
       expect(find.text('类型 OmniFlow'), findsNothing);
       expect(find.text('状态 已注册'), findsNothing);
       expect(find.text('package_name'), findsOneWidget);
@@ -677,7 +677,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.info_outline_rounded));
     await tester.pumpAndSettle();
 
-    expect(find.text('RunLog 保存结果'), findsOneWidget);
+    expect(find.text('轨迹保存结果'), findsOneWidget);
     await tester.tap(find.byIcon(Icons.add_circle_outline_rounded));
     await tester.pumpAndSettle();
 
@@ -1177,13 +1177,13 @@ void main() {
     await tester.tap(find.byIcon(Icons.info_outline_rounded));
     await tester.pumpAndSettle();
 
-    expect(find.text('RunLog 保存结果'), findsOneWidget);
+    expect(find.text('轨迹保存结果'), findsOneWidget);
     expect(
       methodCalls.where((call) => call.method == 'getOobReusableFunction'),
       hasLength(1),
     );
 
-    Navigator.of(tester.element(find.text('RunLog 保存结果'))).pop();
+    Navigator.of(tester.element(find.text('轨迹保存结果'))).pop();
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('执行'));

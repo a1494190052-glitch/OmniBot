@@ -3081,8 +3081,8 @@ class _ReusableFunctionSpecSheetState
                                       : hasRegisteredFunction
                                       ? _text(
                                           context,
-                                          'RunLog 保存结果',
-                                          'Saved RunLog Function',
+                                          '轨迹保存结果',
+                                          'Saved trace command',
                                         )
                                       : _text(
                                           context,
@@ -7642,7 +7642,7 @@ String _runLogStepSourceLabel(BuildContext context, _RunLogStepSource source) {
     case _RunLogStepSource.human:
       return _text(context, '人类', 'Human');
     case _RunLogStepSource.omniflowReplay:
-      return 'OmniFlow';
+      return _text(context, '复用指令', 'Reusable command');
     case _RunLogStepSource.route:
       return _text(context, '工具调用', 'Tool call');
   }
@@ -7655,7 +7655,7 @@ String _runLogStepDetailTitle(BuildContext context, _RunLogStepSource source) {
     case _RunLogStepSource.human:
       return _text(context, '人类接管记录', 'Human takeover');
     case _RunLogStepSource.omniflowReplay:
-      return _text(context, 'OmniFlow 执行记录', 'OmniFlow run');
+      return _text(context, '复用指令执行记录', 'Reusable command run');
     case _RunLogStepSource.route:
       return _text(context, '工具调用', 'Tool call');
   }
@@ -7671,7 +7671,7 @@ String _runLogStepActionPanelTitle(
     case _RunLogStepSource.human:
       return _text(context, '人类操作', 'Human action');
     case _RunLogStepSource.omniflowReplay:
-      return _text(context, 'OmniFlow 动作', 'OmniFlow action');
+      return _text(context, '复用指令动作', 'Reusable command action');
     case _RunLogStepSource.route:
       return _text(context, '工具调用', 'Tool call');
   }
@@ -8054,7 +8054,7 @@ _RunLogConvertEligibility _runLogConvertEligibility(
   }
   return _RunLogConvertEligibility(
     canConvert: true,
-    message: _text(context, '注册 RunLog', 'Register RunLog'),
+    message: _text(context, '注册轨迹', 'Register trace'),
   );
 }
 

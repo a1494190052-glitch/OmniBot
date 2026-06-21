@@ -206,9 +206,9 @@ void main() {
     expect(_richTextContaining('输出  234'), findsNothing);
     expect(find.text('第 1 步'), findsOneWidget);
     expect(find.text('1.23k'), findsOneWidget);
-    expect(find.text('OmniFlow'), findsOneWidget);
+    expect(find.text('复用指令'), findsOneWidget);
     expect(find.text('VLM'), findsNothing);
-    final omniFlowBadge = tester.widget<Text>(find.text('OmniFlow').first);
+    final omniFlowBadge = tester.widget<Text>(find.text('复用指令').first);
     expect(omniFlowBadge.style?.color, const Color(0xFF0F9F8F));
     expect(find.textContaining('提示:'), findsOneWidget);
     expect(find.textContaining('Prompt:'), findsNothing);
@@ -217,9 +217,9 @@ void main() {
     await tester.tap(find.text('打开应用 com.android.settings'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('OmniFlow 执行记录 · 第 1 步'), findsOneWidget);
-    expect(find.text('OmniFlow 动作'), findsOneWidget);
-    expect(_richTextContaining('执行方式  OmniFlow'), findsOneWidget);
+    expect(find.textContaining('复用指令执行记录 · 第 1 步'), findsOneWidget);
+    expect(find.text('复用指令动作'), findsOneWidget);
+    expect(_richTextContaining('执行方式  复用指令'), findsOneWidget);
     expect(_richTextContaining('Token  1.23k · P1000/C234'), findsOneWidget);
     expect(_richTextContaining('VLM 决策 / OmniFlow 本地重放'), findsNothing);
     expect(_richTextContaining('重放  OmniFlow 本地'), findsNothing);
@@ -702,7 +702,7 @@ void main() {
         find.byKey(const ValueKey('run-log-function-status-strip')),
       );
       expect(find.text('已保存为复用指令'), findsOneWidget);
-      expect(find.text('RunLog 保存结果', skipOffstage: false), findsNothing);
+      expect(find.text('轨迹保存结果', skipOffstage: false), findsNothing);
       expect(find.text('执行步骤 · 1', skipOffstage: false), findsNothing);
 
       await tester.tap(
@@ -711,12 +711,12 @@ void main() {
       await tester.pumpAndSettle();
 
       await _pumpUntilFound(tester, find.text('执行步骤 · 1', skipOffstage: false));
-      expect(find.text('RunLog 保存结果', skipOffstage: false), findsOneWidget);
+      expect(find.text('轨迹保存结果', skipOffstage: false), findsOneWidget);
       expect(find.text('打开 Settings', skipOffstage: false), findsWidgets);
       expect(find.text('打开 Android 设置', skipOffstage: false), findsWidgets);
       expect(find.text('步骤 1', skipOffstage: false), findsOneWidget);
       expect(find.text('参数 0', skipOffstage: false), findsOneWidget);
-      expect(find.text('RunLogs 1', skipOffstage: false), findsOneWidget);
+      expect(find.text('轨迹 1', skipOffstage: false), findsOneWidget);
       expect(find.text('保存', skipOffstage: false), findsNothing);
       expect(find.text('执行', skipOffstage: false), findsOneWidget);
       expect(find.text('增强', skipOffstage: false), findsWidgets);
@@ -821,7 +821,7 @@ void main() {
       find.byKey(const ValueKey('run-log-function-status-strip')),
     );
     expect(find.text('已保存为复用指令'), findsOneWidget);
-    expect(find.text('RunLog 保存结果', skipOffstage: false), findsNothing);
+    expect(find.text('轨迹保存结果', skipOffstage: false), findsNothing);
 
     await tester.tap(
       find.byKey(const ValueKey('run-log-function-open-detail')),
@@ -831,7 +831,7 @@ void main() {
       tester,
       find.text('已有 Settings 指令', skipOffstage: false),
     );
-    expect(find.text('RunLog 保存结果', skipOffstage: false), findsOneWidget);
+    expect(find.text('轨迹保存结果', skipOffstage: false), findsOneWidget);
     expect(find.text('已经保存过的 Android 设置轨迹'), findsWidgets);
   });
 
