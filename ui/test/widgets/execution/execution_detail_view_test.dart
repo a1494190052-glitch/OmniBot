@@ -36,4 +36,34 @@ void main() {
     expect(find.text('复用指令'), findsOneWidget);
     expect(find.text('Function'), findsNothing);
   });
+
+  testWidgets('ExecutionDetailView labels RunLogs as traces', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        locale: Locale('zh'),
+        supportedLocales: [Locale('zh'), Locale('en')],
+        localizationsDelegates: [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home: Scaffold(
+          body: ExecutionDetailView(
+            detail: ExecutionDetail(
+              id: 'run_1',
+              type: ExecutionDetailType.runLog,
+              goal: '打开设置',
+              success: true,
+            ),
+            showStats: false,
+            showTimeline: false,
+            showAssetRefs: false,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('轨迹'), findsOneWidget);
+    expect(find.text('RunLog'), findsNothing);
+  });
 }

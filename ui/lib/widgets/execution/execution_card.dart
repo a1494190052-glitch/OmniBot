@@ -101,7 +101,11 @@ class ExecutionCard extends StatelessWidget {
                             en: 'Reusable command',
                             locale: Localizations.maybeLocaleOf(context),
                           )
-                        : 'RunLog',
+                        : AppTextLocalizer.choose(
+                            zh: '轨迹',
+                            en: 'Trace',
+                            locale: Localizations.maybeLocaleOf(context),
+                          ),
                     backgroundColor: detail.type == ExecutionDetailType.function
                         ? const Color(0xFFE8F0FF)
                         : const Color(0xFFF0E8FF),
