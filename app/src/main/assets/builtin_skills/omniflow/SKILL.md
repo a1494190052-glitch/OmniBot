@@ -1,34 +1,35 @@
 ---
 name: omniflow
-description: Single OOB Android GUI automation and OmniFlow reusable workflow skill. Use for online VLM Android GUI automation, vlm_task execution, native tool_calls, prompt/tool schema debugging, indexed UI evidence, grounding, live action dispatch, VLM RunLog latency/accuracy validation, and when the user wants to reuse, run, register, update, enhance, repair, analyze, or debug OOB RunLogs and saved Functions, including update_function, RunLog evidence, replay results, checker design, runtime checker, global checker, hi 升级 checker, upgrade/update popup checker, package/open-app checker, action cleanup, "应该点 A 而不是 B", "保存为复用指令", "复用记忆", "增强 function", and ad/popup optional checkers.
+description: Single OOB phone automation and reusable command skill. Use for online Android VLM automation, vlm_task execution, native tool_calls, prompt/tool schema debugging, indexed UI evidence, grounding, live action dispatch, latency/accuracy validation, and 复用指令 / 轨迹 / execution-record workflows: save, run, register, update, enhance, repair, analyze, or debug reusable commands, RunLogs, and saved Functions, including update_function, RunLog evidence, replay results, checker design, runtime checker, global checker, hi 升级 checker, upgrade/update popup checker, package/open-app checker, action cleanup, "应该点 A 而不是 B", "保存为复用指令", "复用记忆", "增强 function", and ad/popup optional checkers.
 ---
 
 # OmniFlow
 
-Use OmniFlow for OOB Android GUI behavior: online VLM execution, converting
-RunLogs into Functions, managing saved Functions, enhancing or correcting
-Functions, replaying Functions through runtime recall/resolve, and learning
-from replay evidence.
+Use OmniFlow for OOB Android GUI behavior: online VLM execution, saving
+execution records as 复用指令, managing saved reusable commands, enhancing or
+correcting them, running them through runtime recall/resolve, and learning from
+execution evidence. RunLog and Function are internal storage/runtime names for
+执行记录 and 复用指令.
 
 Native Kotlin/MCP code provides storage, replay, UDEG indexing, and tool
 backends. The agent behavior belongs in this skill and its references.
 
 ## Single Entry Point
 
-This skill is the one agent-facing entry for OOB Android GUI automation and
-OmniFlow Function lifecycle, enhancement, correction, checker design, RunLog
+This skill is the one agent-facing entry for OOB Android GUI automation,
+复用指令 lifecycle, enhancement, correction, checker design, execution-record
 evidence, and replay debugging. Older focused entries such as VLM Android GUI,
-Function lifecycle management, Function enhancement, and checker maintenance are folded
-into this skill. Keep their behavior here or in the `references/` files instead
-of adding another model-visible skill.
+Function lifecycle management, Function enhancement, and checker maintenance are
+folded into this skill. Keep their behavior here or in the `references/` files
+instead of adding another model-visible skill.
 
 ## Runtime Boundary
 
 Keep these two meanings separate:
 
-- **OOB-native OmniFlow** is the product runtime for 复用指令, 轨迹, RunLog,
-  replay, checkers, action transfer, and `vlm_task` recall/resolve. User-facing
-  Function execution must stay on this path.
+- **OOB-native OmniFlow** is the product runtime for 复用指令, 轨迹, execution
+  records, replay, checkers, action transfer, and `vlm_task` recall/resolve.
+  User-facing 复用指令 execution must stay on this path.
 - **OmniFlow Python CLI/provider in Alpine** is an optional developer and
   evaluation tool installed as `omniflow_dev` in the built-in Linux environment.
   It may run `omniflow-provider`, `omniflow-mcp`, offline evaluation, asset

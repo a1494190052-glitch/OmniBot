@@ -1,4 +1,4 @@
 interface:
   display_name: "OmniFlow"
-  short_description: "Reuse, correct, and analyze Android GUI Functions"
-  default_prompt: "Use $omniflow to register RunLogs as reusable Functions, run saved Functions through vlm_task runtime recall/replay, correct or enhance a Function through update_function, analyze RunLog evidence, and design optional checkers."
+  short_description: "Automate Android UI and manage reusable commands"
+  default_prompt: "Use $omniflow for phone automation with vlm_task, saving execution records as 复用指令, running or updating saved reusable commands, analyzing execution-record evidence, and designing optional checkers. Internally this may involve RunLogs, Functions, and update_function, but report in product wording."
