@@ -145,6 +145,11 @@ class App : BaseApplication() {
             OobVlmRunLogAutoRegistrar.bind(this)
         }
         runCatching {
+            cn.com.omnimind.assists.task.vlmserver.VLMRecallActionProviderRegistry.register(
+                cn.com.omnimind.bot.vlm.VlmRecallFunctionSelector(this)
+            )
+        }
+        runCatching {
             ShizukuCapabilityManager.get(this)
         }
 

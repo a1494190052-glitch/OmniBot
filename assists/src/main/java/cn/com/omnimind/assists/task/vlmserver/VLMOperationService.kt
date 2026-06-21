@@ -552,20 +552,15 @@ class VLMOperationService(
                     currentPackageName = pageSnapshot.packageName.orEmpty(),
                 )
                 _context = _context.copy(pageDiagnostics = phaseDiagnostics())
-                val functionRecallStartedAt = System.currentTimeMillis()
-                _context = VLMRecallContextProviderRegistry.enrich(
-                    VLMRecallContextRequest(
-                        context = _context,
-                        currentXml = beforeXml,
-                        currentPackageName = pageSnapshot.packageName,
-                        screenshotBase64 = screenshot,
-                        stepIndex = stepIndex,
-                        snapshot = pageSnapshot,
-                        disableOmniFlowRecall = disableOmniFlowRecallForCurrentTask
-                    )
+                val stepRecallRequest = VLMRecallContextRequest(
+                    context = _context,
+                    currentXml = beforeXml,
+                    currentPackageName = pageSnapshot.packageName,
+                    screenshotBase64 = screenshot,
+                    stepIndex = stepIndex,
+                    snapshot = pageSnapshot,
+                    disableOmniFlowRecall = disableOmniFlowRecallForCurrentTask,
                 )
-                markPhase("function_recall_ms", functionRecallStartedAt)
-                _context = _context.copy(pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics())
                 val indexedEvidenceStartedAt = System.currentTimeMillis()
                 _context = VLMIndexedPageContext.enrich(
                     context = _context,
@@ -581,6 +576,21 @@ class VLMOperationService(
                 var toolCallRetryCount = 0
                 var retryState: VLMToolCallRetryState? = null
                 var vlmResult: VLMResult? = null
+                val recallActionStartedAt = System.currentTimeMillis()
+                val preSelectedAction = VLMRecallActionProviderRegistry.selectAction(
+                    stepRecallRequest.copy(context = _context)
+                )
+                markPhase("recall_action_ms", recallActionStartedAt)
+                if (preSelectedAction != null) {
+                    vlmResult = VLMResult(
+                        success = true,
+                        step = UIStep(
+                            observation = "Recall matched a saved function",
+                            thought = "Executing recall-selected function instead of calling VLM",
+                            action = preSelectedAction,
+                        )
+                    )
+                }
                 var sceneTurn: SceneChatCompletionTurn? = null
                 var lastRequestEnvelope: VLMRequestEnvelope? = null
                 var currentUserTextSnapshot = ""

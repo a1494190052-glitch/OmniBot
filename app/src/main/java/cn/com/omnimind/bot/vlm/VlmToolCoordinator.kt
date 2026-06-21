@@ -31,8 +31,7 @@ import cn.com.omnimind.assists.task.vlmserver.VLMClient
 import cn.com.omnimind.assists.task.vlmserver.VLMConversationState
 import cn.com.omnimind.assists.task.vlmserver.VLMCurrentPageSnapshot
 import cn.com.omnimind.assists.task.vlmserver.VLMIndexedPageContext
-import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextRequest
-import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextProviderRegistry
+
 import cn.com.omnimind.assists.task.vlmserver.VLMStreamClient
 import cn.com.omnimind.assists.task.vlmserver.WaitAction
 import cn.com.omnimind.baselib.util.ImageQuality
@@ -448,18 +447,6 @@ object VlmToolCoordinator {
             displayHeight = snapshot.displayHeight,
             currentPackageName = snapshot.packageName.orEmpty(),
         )
-        val recallRequest = VLMRecallContextRequest(
-            context = workingContext,
-            currentXml = snapshot.xml,
-            currentPackageName = snapshot.packageName,
-            screenshotBase64 = snapshot.screenshotBase64,
-            stepIndex = 0,
-            snapshot = snapshot,
-            disableOmniFlowRecall = disableOmniFlowRecall,
-        )
-        workingContext = timed("function_recall_ms") {
-            VLMRecallContextProviderRegistry.enrich(recallRequest.copy(context = workingContext))
-        }
         workingContext = timed("indexed_evidence_ms") {
             VLMIndexedPageContext.enrich(
                 context = workingContext,
