@@ -170,7 +170,7 @@ class ManualRecordingFlowController {
             .isNotEmpty;
     showToast(
       success
-          ? (conversionSuccess ? '手动录制完成，复用指令已保存' : '手动录制完成，RunLog 已生成')
+          ? (conversionSuccess ? '手动录制完成，复用指令已保存' : '手动录制完成，轨迹已生成')
           : '手动录制失败',
       type: success ? ToastType.success : ToastType.error,
     );

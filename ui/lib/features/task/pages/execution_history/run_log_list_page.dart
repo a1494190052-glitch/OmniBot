@@ -123,10 +123,7 @@ class _RunLogListPageState extends State<RunLogListPage> {
     if (_error != null) {
       return _RunLogEmptyState(
         icon: Icons.error_outline_rounded,
-        title: AppTextLocalizer.text(
-          '加载运行日志失败',
-          locale: Localizations.localeOf(context),
-        ),
+        title: _text(context, '加载执行记录失败', 'Failed to load execution records'),
         subtitle: _error!,
         actionLabel: _text(context, '重试', 'Retry'),
         onAction: _load,

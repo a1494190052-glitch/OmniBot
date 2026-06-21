@@ -62,7 +62,7 @@ Map<String, dynamic> manualRecordingResultAgentToolCardData(
     if (error.isNotEmpty) error,
     if (recordingMode.isNotEmpty) recordingMode,
     if (functionId.isNotEmpty) '复用指令 $functionId',
-    if (runId.isNotEmpty) 'RunLog $runId',
+    if (runId.isNotEmpty) '轨迹 $runId',
   ];
   final cardId = _firstNonBlank([
     cardData['cardId'],

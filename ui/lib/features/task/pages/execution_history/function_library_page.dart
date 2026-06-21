@@ -694,7 +694,7 @@ Future<void> _openRunLogsForGroup({
     if (!context.mounted) return;
     if (entries.isEmpty) {
       showToast(
-        _text(context, '暂无可查看的执行记录', 'No RunLogs available'),
+        _text(context, '暂无可查看的执行记录', 'No execution records available'),
         type: ToastType.error,
       );
     }
@@ -986,8 +986,11 @@ String _functionRunLogTitle(BuildContext context, _FunctionRunLogEntry entry) {
   ]);
   if (title.isNotEmpty) return title;
   final id = entry.runId.trim();
-  if (id.length > 14) return 'RunLog ${id.substring(0, 14)}';
-  return id.isEmpty ? _text(context, '执行记录', 'Run Log') : 'RunLog $id';
+  final traceLabel = _text(context, '轨迹', 'Trace');
+  if (id.length > 14) return '$traceLabel ${id.substring(0, 14)}';
+  return id.isEmpty
+      ? _text(context, '执行记录', 'Execution record')
+      : '$traceLabel $id';
 }
 
 String _functionRunLogMeta(BuildContext context, _FunctionRunLogEntry entry) {
@@ -1715,8 +1718,8 @@ Future<void> _startHumanTrajectoryLearningFlow({
         !conversionSuccess
             ? _text(
                 context,
-                '手动录制完成，RunLog 已生成；复用指令生成失败',
-                'Recording completed and RunLog was created; reusable command conversion failed',
+                '手动录制完成，轨迹已生成；复用指令生成失败',
+                'Recording completed and trace was created; reusable command conversion failed',
               )
             : functionId.isEmpty
             ? _text(context, '已保存复用指令', 'Reusable command saved')
