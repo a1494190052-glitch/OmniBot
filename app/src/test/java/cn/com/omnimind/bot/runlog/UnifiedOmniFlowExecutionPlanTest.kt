@@ -337,6 +337,8 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(script.contains("model provider configuration/authentication/network"))
         assertTrue(script.contains("provider_tool_call_contract_violation"))
         assertTrue(script.contains("Use a VLM provider/model that returns OpenAI native tool_calls"))
+        assertTrue(script.contains("SKILL_ID=\"\${OOB_VLM_SMOKE_SKILL_ID:-omniflow}\""))
+        assertFalse(script.contains("SKILL_ID=\"\${OOB_VLM_SMOKE_SKILL_ID:-vlm-android-gui}\""))
         assertTrue(script.contains("raise SystemExit(5)"))
         assertTrue(script.contains("raise SystemExit(4)"))
         assertTrue(
