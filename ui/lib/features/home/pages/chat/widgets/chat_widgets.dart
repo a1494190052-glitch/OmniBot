@@ -80,10 +80,6 @@ class ChatAppBar extends StatelessWidget {
   final bool showAppUpdateIndicator;
   final VoidCallback? onAppUpdateTap;
   final String? appUpdateTooltip;
-  final bool showReplayProgressIndicator;
-  final VoidCallback? onReplayProgressTap;
-  final String? replayProgressTooltip;
-  final bool isReplayProgressRunning;
   final bool translucent;
   final AppBackgroundVisualProfile visualProfile;
   final bool showMenuButton;
@@ -122,10 +118,6 @@ class ChatAppBar extends StatelessWidget {
     this.showAppUpdateIndicator = false,
     this.onAppUpdateTap,
     this.appUpdateTooltip,
-    this.showReplayProgressIndicator = false,
-    this.onReplayProgressTap,
-    this.replayProgressTooltip,
-    this.isReplayProgressRunning = false,
     this.translucent = false,
     this.visualProfile = AppBackgroundVisualProfile.defaultProfile,
     this.showMenuButton = true,
@@ -151,13 +143,10 @@ class ChatAppBar extends StatelessWidget {
         ? _kChatAppBarPureChatIconAsset
         : _kChatAppBarAgentIconAsset;
     const updateTint = Color(0xFFD4A017);
-    const replayTint = Color(0xFF2457D6);
     final showWorkspaceButton =
         showWorkspacePaneButton && onWorkspacePaneTap != null;
     final showUpdateShortcutButton =
         showAppUpdateIndicator && onAppUpdateTap != null;
-    final showReplayShortcutButton =
-        showReplayProgressIndicator && onReplayProgressTap != null;
     final appBarBackgroundColor = showSurfaceSwitcher
         ? palette.pageBackground
         : palette.surfacePrimary;
@@ -177,7 +166,6 @@ class ChatAppBar extends StatelessWidget {
                   _kChatAppBarAccessoryGap * 2;
               final rightActionCount =
                   (showUpdateShortcutButton ? 1 : 0) +
-                  (showReplayShortcutButton ? 1 : 0) +
                   (showWorkspaceButton ? 1 : 0) +
                   1;
               final rightReservedSpace =
@@ -310,34 +298,6 @@ class ChatAppBar extends StatelessWidget {
                                 BlendMode.srcIn,
                               ),
                             ),
-                          ),
-                        if (showReplayShortcutButton)
-                          _ChatAppBarIconButton(
-                            key: const ValueKey(
-                              'chat-app-replay-progress-button',
-                            ),
-                            tooltip:
-                                replayProgressTooltip ??
-                                (LegacyTextLocalizer.isEnglish
-                                    ? 'Reusable command progress'
-                                    : '复用指令执行进度'),
-                            onTap: onReplayProgressTap!,
-                            child: isReplayProgressRunning
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(
-                                        replayTint,
-                                      ),
-                                    ),
-                                  )
-                                : Icon(
-                                    Icons.task_alt_rounded,
-                                    size: 20,
-                                    color: replayTint,
-                                  ),
                           ),
                         if (showWorkspaceButton)
                           SizedBox(

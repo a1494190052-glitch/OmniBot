@@ -541,21 +541,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(
-      find.byKey(const ValueKey('chat-app-bar-mode-menu-agent')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const ValueKey('chat-app-bar-mode-menu-codex')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const ValueKey('chat-app-bar-mode-menu-pure-chat')),
-      findsOneWidget,
-    );
+    expect(_menuItem('chat-app-bar-mode-menu-agent'), findsOneWidget);
+    expect(_menuItem('chat-app-bar-mode-menu-codex'), findsOneWidget);
+    expect(_menuItem('chat-app-bar-mode-menu-pure-chat'), findsOneWidget);
     final pureChatMenuIcon = tester.widget<SvgPicture>(
       find.descendant(
-        of: find.byKey(const ValueKey('chat-app-bar-mode-menu-pure-chat')),
+        of: _menuItem('chat-app-bar-mode-menu-pure-chat'),
         matching: find.byType(SvgPicture),
       ),
     );
@@ -565,9 +556,7 @@ void main() {
     expect(find.text('Codex 模式'), findsNothing);
     expect(find.text('纯聊天模式'), findsNothing);
 
-    await tester.tap(
-      find.byKey(const ValueKey('chat-app-bar-mode-menu-agent')),
-    );
+    await tester.tap(_menuItem('chat-app-bar-mode-menu-agent'));
     await tester.pumpAndSettle();
 
     expect(find.text('agentTaps:1'), findsOneWidget);
@@ -576,9 +565,7 @@ void main() {
       find.byKey(const ValueKey('chat-app-bar-pure-chat-button')),
     );
     await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('chat-app-bar-mode-menu-codex')),
-    );
+    await tester.tap(_menuItem('chat-app-bar-mode-menu-codex'));
     await tester.pumpAndSettle();
 
     expect(find.text('codexTaps:1'), findsOneWidget);
@@ -587,9 +574,7 @@ void main() {
       find.byKey(const ValueKey('chat-app-bar-pure-chat-button')),
     );
     await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('chat-app-bar-mode-menu-pure-chat')),
-    );
+    await tester.tap(_menuItem('chat-app-bar-mode-menu-pure-chat'));
     await tester.pumpAndSettle();
 
     expect(find.text('selected:true'), findsOneWidget);
@@ -689,18 +674,15 @@ void main() {
 
     await tester.tap(modeMenu);
     await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('chat-app-bar-mode-menu-codex')),
-    );
+    await tester.tap(_menuItem('chat-app-bar-mode-menu-codex'));
     await tester.pumpAndSettle();
 
     expect(codexTapCount, 1);
   });
 
-  testWidgets('shows replay progress indicator next to update shortcut', (
+  testWidgets('keeps reusable command progress out of default app bar', (
     tester,
   ) async {
-    var replayTapCount = 0;
     await tester.pumpWidget(
       MaterialApp(
         home: DefaultAssetBundle(
@@ -718,12 +700,6 @@ void main() {
               onBrowserTap: () {},
               showAppUpdateIndicator: true,
               onAppUpdateTap: () {},
-              showReplayProgressIndicator: true,
-              replayProgressTooltip: '复用指令执行中：打开蓝牙设置（2/4）',
-              isReplayProgressRunning: true,
-              onReplayProgressTap: () {
-                replayTapCount += 1;
-              },
             ),
           ),
         ),
@@ -739,20 +715,11 @@ void main() {
     );
 
     expect(update, findsOneWidget);
-    expect(replay, findsOneWidget);
+    expect(replay, findsNothing);
     expect(
       tester.getRect(update).right,
-      lessThanOrEqualTo(tester.getRect(replay).left),
-    );
-    expect(
-      tester.getRect(replay).right,
       lessThanOrEqualTo(tester.getRect(modeMenu).left),
     );
-
-    await tester.tap(replay);
-    await tester.pump();
-
-    expect(replayTapCount, 1);
   });
 
   testWidgets('hides update indicator when no update is available', (
@@ -1066,4 +1033,10 @@ void main() {
     expect(find.text('active:openclaw'), findsOneWidget);
     expect(find.text('layer:mode'), findsOneWidget);
   });
+}
+
+Finder _menuItem(String key) {
+  return find.byWidgetPredicate(
+    (widget) => widget is InkWell && widget.key == ValueKey<String>(key),
+  );
 }

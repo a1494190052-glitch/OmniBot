@@ -1211,12 +1211,6 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
             en: 'New version ${_appUpdateStatus!.latestVersionLabel} available',
             zh: '发现新版本 ${_appUpdateStatus!.latestVersionLabel}',
           ));
-    final replayProgressStatus = _oobFunctionRunProgressStatus;
-    final showReplayProgressIndicator =
-        !hideWorkspaceOverlays && replayProgressStatus != null;
-    final replayProgressTooltip = replayProgressStatus == null
-        ? null
-        : _replayProgressTooltip(replayProgressStatus);
     final appBarMode = showSurfaceSwitcher
         ? (_activeSurfaceMode == ChatSurfaceMode.project
               ? ChatSurfaceMode.workspace
@@ -1299,14 +1293,6 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
               onAppUpdateTap: showAppUpdateIndicator
                   ? () {
                       unawaited(_handleAppUpdateBannerTap());
-                    }
-                  : null,
-              showReplayProgressIndicator: showReplayProgressIndicator,
-              replayProgressTooltip: replayProgressTooltip,
-              isReplayProgressRunning: replayProgressStatus?.isRunning ?? false,
-              onReplayProgressTap: showReplayProgressIndicator
-                  ? () {
-                      unawaited(_handleOobFunctionRunProgressTap());
                     }
                   : null,
               translucent: backgroundActive,
@@ -1536,36 +1522,6 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
         _buildBrowserOverlay(constraints),
       ],
     );
-  }
-
-  String _replayProgressTooltip(OobFunctionRunProgressEvent event) {
-    final label = event.label.trim();
-    final step = event.displayStepNumber;
-    final stepCount = event.stepCount;
-    final stepLabel = step != null && step > 0
-        ? (stepCount > 0 ? '$step/$stepCount' : '$step')
-        : '';
-    final status = event.isRunning
-        ? AppTextLocalizer.choose(zh: '复用指令执行中', en: 'Reusable command running')
-        : event.status == 'stopped'
-        ? AppTextLocalizer.choose(zh: '复用指令已停止', en: 'Reusable command stopped')
-        : AppTextLocalizer.choose(
-            zh: '复用指令执行失败',
-            en: 'Reusable command failed',
-          );
-    if (stepLabel.isNotEmpty && label.isNotEmpty) {
-      return AppTextLocalizer.choose(
-        zh: '$status：$label（$stepLabel）',
-        en: '$status: $label ($stepLabel)',
-      );
-    }
-    if (label.isNotEmpty) {
-      return AppTextLocalizer.choose(
-        zh: '$status：$label',
-        en: '$status: $label',
-      );
-    }
-    return status;
   }
 
   Widget _buildHdPadWorkspacePane({

@@ -69,7 +69,6 @@ import 'package:ui/features/home/pages/codex/codex_remote_directory_picker.dart'
 import 'package:ui/features/home/pages/codex/codex_remote_workspace_browser.dart';
 import 'package:ui/features/task/pages/execution_history/run_log_timeline_page.dart';
 import 'package:ui/widgets/chat_drawer_gesture_guard.dart';
-import 'package:ui/widgets/oob_function_run_progress_dialog.dart';
 
 // 导入 Mixins
 import 'mixins/chat_message_handler.dart';
@@ -1834,8 +1833,6 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   double _popupMenuBottomOffset();
 
   Future<void> _handleAppUpdateBannerTap();
-
-  Future<void> _handleOobFunctionRunProgressTap();
 
   Future<void> _refreshCodexStatus();
 

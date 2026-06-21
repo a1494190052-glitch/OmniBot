@@ -785,13 +785,6 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
   }
 
   @override
-  Future<void> _handleOobFunctionRunProgressTap() async {
-    final event = _oobFunctionRunProgressStatus;
-    if (event == null || !mounted) return;
-    await showOobFunctionRunProgressDialog(context, event);
-  }
-
-  @override
   int _pageIndexForSurface(ChatSurfaceMode mode) => switch (mode) {
     ChatSurfaceMode.normal => 0,
     ChatSurfaceMode.workspace => 1,
