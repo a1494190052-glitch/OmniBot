@@ -64,7 +64,7 @@
   "settingsMcpDisabledToast": "MCP 已关闭",
   "settingsMcpToggleFailed": "MCP 开关失败",
   "settingsOobFunctionAsToolTitle": "复用指令召回",
-  "settingsOobFunctionAsToolSubtitle": "VLM 任务中通过运行时召回和重放复用已保存流程",
+  "settingsOobFunctionAsToolSubtitle": "手机任务可在当前页面匹配时复用已保存的指令",
   "settingsOobFunctionAsToolToggleFailed": "复用指令召回开关失败",
   "settingsCopiedAddress": "已复制访问地址",
   "settingsCopiedToken": "已复制 Token",
@@ -1020,7 +1020,7 @@
       }
     }
   },
-  "functionLibraryEnhanceOfflineHint": "当前复用指令已可直接回放；语义升级是离线后台步骤，不会阻塞 VLM 自动注册和下一次快速执行。",
+  "functionLibraryEnhanceOfflineHint": "当前复用指令已可直接执行；语义升级会在后台离线处理，不会阻塞保存或下一次快速执行。",
   "functionLibrarySplit": "拆分",
   "functionLibrarySplitTitle": "拆分复用指令",
   "functionLibrarySplitConfirm": "使用 AI 将此复用指令拆分为多个更小的指令？",

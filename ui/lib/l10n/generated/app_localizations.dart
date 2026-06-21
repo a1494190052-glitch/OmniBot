@@ -485,7 +485,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsOobFunctionAsToolSubtitle.
   ///
   /// In zh, this message translates to:
-  /// **'VLM 任务中通过运行时召回和重放复用已保存流程'**
+  /// **'手机任务可在当前页面匹配时复用已保存的指令'**
   String get settingsOobFunctionAsToolSubtitle;
 
   /// No description provided for @settingsOobFunctionAsToolToggleFailed.
@@ -5183,7 +5183,7 @@ abstract class AppLocalizations {
   /// No description provided for @functionLibraryEnhanceOfflineHint.
   ///
   /// In zh, this message translates to:
-  /// **'当前复用指令已可直接回放；语义升级是离线后台步骤，不会阻塞 VLM 自动注册和下一次快速执行。'**
+  /// **'当前复用指令已可直接执行；语义升级会在后台离线处理，不会阻塞保存或下一次快速执行。'**
   String get functionLibraryEnhanceOfflineHint;
 
   /// No description provided for @functionLibrarySplit.

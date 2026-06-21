@@ -204,7 +204,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsOobFunctionAsToolTitle => '复用指令召回';
 
   @override
-  String get settingsOobFunctionAsToolSubtitle => 'VLM 任务中通过运行时召回和重放复用已保存流程';
+  String get settingsOobFunctionAsToolSubtitle => '手机任务可在当前页面匹配时复用已保存的指令';
 
   @override
   String get settingsOobFunctionAsToolToggleFailed => '复用指令召回开关失败';
@@ -2719,7 +2719,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get functionLibraryEnhanceOfflineHint =>
-      '当前复用指令已可直接回放；语义升级是离线后台步骤，不会阻塞 VLM 自动注册和下一次快速执行。';
+      '当前复用指令已可直接执行；语义升级会在后台离线处理，不会阻塞保存或下一次快速执行。';
 
   @override
   String get functionLibrarySplit => '拆分';

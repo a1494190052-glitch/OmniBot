@@ -1336,8 +1336,8 @@ class _WebChatHomeState extends State<_WebChatHome> {
     final hasProcessMessages = processMessages.isNotEmpty;
     final isRunLogOnly = !group.isActiveRun && !hasProcessMessages;
     final label = AppTextLocalizer.choose(
-      en: isRunLogOnly ? 'RunLog' : 'Process',
-      zh: isRunLogOnly ? '运行记录' : '执行过程',
+      en: isRunLogOnly ? 'Execution record' : 'Process',
+      zh: isRunLogOnly ? '执行记录' : '执行过程',
     );
     final statusLabel = isRunLogOnly
         ? AppTextLocalizer.choose(en: 'Logged', zh: '已记录')

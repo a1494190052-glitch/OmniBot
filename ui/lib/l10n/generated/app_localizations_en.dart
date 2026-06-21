@@ -224,7 +224,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsOobFunctionAsToolSubtitle =>
-      'Use saved workflows during VLM tasks through runtime recall and replay';
+      'Allow phone tasks to reuse saved commands when they match the current screen';
 
   @override
   String get settingsOobFunctionAsToolToggleFailed =>
@@ -2864,7 +2864,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get functionLibraryEnhanceOfflineHint =>
-      'This reusable command is ready for direct replay; semantic upgrade runs as an offline background step and does not block VLM auto-registration or the next fast execution.';
+      'This reusable command is ready to run. Semantic upgrades run offline in the background and do not block saving or the next fast execution.';
 
   @override
   String get functionLibrarySplit => 'Split';
