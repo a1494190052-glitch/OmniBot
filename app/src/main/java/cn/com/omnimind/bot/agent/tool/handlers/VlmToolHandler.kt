@@ -97,7 +97,7 @@ class VlmToolHandler(
                 "auto_execute_omniflow_function",
             )
             val allowOmniFlowFunctionAutoExecute = !disableOmniFlowRecall &&
-                (explicitAllowOmniFlowFunctionAutoExecute ?: hasOmniFlowSkillContext(resolvedSkills))
+                (explicitAllowOmniFlowFunctionAutoExecute ?: false)
             val parseOnly = firstBoolean(args, "parseOnly", "parse_only", "dryRun", "dry_run") ?: false
             val rawArgs = VlmExecutionArgs(
                 goal = goal,
@@ -289,12 +289,6 @@ class VlmToolHandler(
             .filter { it.isNotBlank() }
             .distinct()
             .joinToString("\n\n")
-    }
-
-    private fun hasOmniFlowSkillContext(resolvedSkills: List<ResolvedSkillContext>): Boolean {
-        return resolvedSkills.any { skill ->
-            skill.skillId.equals("omniflow", ignoreCase = true)
-        }
     }
 
     private fun sanitizeVlmExecutionArgs(

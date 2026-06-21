@@ -69,7 +69,7 @@ class AgentToolDefinitionsMusicTest {
 
         assertTrue(description.contains("One `vlm_task` call represents one complete device execution flow"))
         assertTrue(description.contains("Ordinary calls use the online VLM flow by default"))
-        assertTrue(description.contains("enabled only by an explicit reusable-command entrypoint or OmniFlow skill context"))
+        assertTrue(description.contains("enabled only when an explicit reusable-command entrypoint passes the internal opt-in flag"))
         assertTrue(description.contains("must not directly call hidden Function replay or guard tools"))
         assertFalse(description.contains("使用视觉语言模型"))
         assertFalse(description.contains("function_id"))
@@ -96,6 +96,8 @@ class AgentToolDefinitionsMusicTest {
         assertTrue(handlerSource.contains("\"allow_omniflow_function_auto_execute\""))
         assertTrue(handlerSource.contains("\"autoExecuteOmniFlowFunction\""))
         assertTrue(handlerSource.contains("allowOmniFlowFunctionAutoExecute = safeArgs.allowOmniFlowFunctionAutoExecute"))
+        assertTrue(handlerSource.contains("explicitAllowOmniFlowFunctionAutoExecute ?: false"))
+        assertFalse(handlerSource.contains("hasOmniFlowSkillContext"))
     }
 
     @Test
