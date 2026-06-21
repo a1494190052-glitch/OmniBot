@@ -329,7 +329,10 @@ void main() {
                 child: const SizedBox(width: 120, height: 80),
               ),
             );
-            Overlay.of(anchorContext, rootOverlay: true).insert(modelPickerOverlay!);
+            Overlay.of(
+              anchorContext,
+              rootOverlay: true,
+            ).insert(modelPickerOverlay!);
           },
         ),
       ),
@@ -340,7 +343,9 @@ void main() {
     await tester.pump();
     expect(focusNode.hasFocus, isTrue);
 
-    await tester.tap(find.byKey(const ValueKey('chat-input-model-picker-button')));
+    await tester.tap(
+      find.byKey(const ValueKey('chat-input-model-picker-button')),
+    );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
 
@@ -502,171 +507,6 @@ void main() {
     expect(field.keyboardType, TextInputType.text);
     expect(field.textInputAction, TextInputAction.send);
     expect(field.maxLines, 1);
-  });
-
-  testWidgets('trajectory shortcut opens popup and dispatches latest action', (
-    tester,
-  ) async {
-    final inputKey = GlobalKey<ChatInputAreaState>();
-    final controller = TextEditingController();
-    final focusNode = FocusNode();
-    var popupVisible = false;
-    var latestTapCount = 0;
-    var listTapCount = 0;
-    var recordTapCount = 0;
-
-    await tester.pumpWidget(
-      DefaultAssetBundle(
-        bundle: _TestAssetBundle(),
-        child: MaterialApp(
-          home: StatefulBuilder(
-            builder: (context, setState) {
-              return Scaffold(
-                body: Stack(
-                  children: [
-                    Align(
-                      alignment: Alignment.bottomCenter,
-                      child: ChatInputArea(
-                        key: inputKey,
-                        controller: controller,
-                        focusNode: focusNode,
-                        isProcessing: false,
-                        onSendMessage: () {},
-                        onCancelTask: () {},
-                        onPopupVisibilityChanged: (visible) {
-                          setState(() => popupVisible = visible);
-                        },
-                        onViewTrajectoriesTap: () {
-                          listTapCount += 1;
-                        },
-                        onViewCurrentTrajectoryTap: () {
-                          latestTapCount += 1;
-                        },
-                        onManualRecordingTap: (_) {
-                          recordTapCount += 1;
-                        },
-                      ),
-                    ),
-                    if (popupVisible)
-                      Positioned(
-                        left: 12,
-                        bottom: 84,
-                        child:
-                            inputKey.currentState?.buildPopupMenu() ??
-                            const SizedBox.shrink(),
-                      ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ),
-      ),
-    );
-    addTearDown(controller.dispose);
-    addTearDown(focusNode.dispose);
-    await tester.pump();
-
-    await tester.tap(
-      find.byKey(const ValueKey('chat-input-manual-recording-button')),
-    );
-    await tester.pump();
-
-    expect(
-      find.byKey(const ValueKey('chat-input-trajectory-popup')),
-      findsOneWidget,
-    );
-    expect(find.text('已有轨迹'), findsOneWidget);
-    expect(find.text('当前轨迹'), findsOneWidget);
-    expect(find.text('录制轨迹'), findsOneWidget);
-    expect(find.text('Save screenshots'), findsOneWidget);
-
-    await tester.tap(find.text('当前轨迹'));
-    await tester.pump();
-
-    expect(latestTapCount, 1);
-    expect(listTapCount, 0);
-    expect(recordTapCount, 0);
-    expect(
-      find.byKey(const ValueKey('chat-input-trajectory-popup')),
-      findsNothing,
-    );
-  });
-
-  testWidgets('trajectory shortcut exposes reusable function library action', (
-    tester,
-  ) async {
-    final inputKey = GlobalKey<ChatInputAreaState>();
-    final controller = TextEditingController();
-    final focusNode = FocusNode();
-    var popupVisible = false;
-    var functionLibraryTapCount = 0;
-
-    await tester.pumpWidget(
-      DefaultAssetBundle(
-        bundle: _TestAssetBundle(),
-        child: MaterialApp(
-          home: StatefulBuilder(
-            builder: (context, setState) {
-              return Scaffold(
-                body: Stack(
-                  children: [
-                    Align(
-                      alignment: Alignment.bottomCenter,
-                      child: ChatInputArea(
-                        key: inputKey,
-                        controller: controller,
-                        focusNode: focusNode,
-                        isProcessing: false,
-                        onSendMessage: () {},
-                        onCancelTask: () {},
-                        onPopupVisibilityChanged: (visible) {
-                          setState(() => popupVisible = visible);
-                        },
-                        onOpenFunctionLibraryTap: () {
-                          functionLibraryTapCount += 1;
-                        },
-                      ),
-                    ),
-                    if (popupVisible)
-                      Positioned(
-                        left: 12,
-                        bottom: 84,
-                        child:
-                            inputKey.currentState?.buildPopupMenu() ??
-                            const SizedBox.shrink(),
-                      ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ),
-      ),
-    );
-    addTearDown(controller.dispose);
-    addTearDown(focusNode.dispose);
-    await tester.pump();
-
-    await tester.tap(
-      find.byKey(const ValueKey('chat-input-manual-recording-button')),
-    );
-    await tester.pump();
-
-    expect(
-      find.byKey(const ValueKey('chat-input-trajectory-popup')),
-      findsOneWidget,
-    );
-    expect(find.text('复用指令'), findsOneWidget);
-
-    await tester.tap(find.text('复用指令'));
-    await tester.pump();
-
-    expect(functionLibraryTapCount, 1);
-    expect(
-      find.byKey(const ValueKey('chat-input-trajectory-popup')),
-      findsNothing,
-    );
   });
 }
 

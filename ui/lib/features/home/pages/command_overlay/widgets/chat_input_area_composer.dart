@@ -208,14 +208,6 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
         ),
         const SizedBox(width: 4),
       ],
-      if (_hasTrajectoryPopupAction) ...[
-        SizedBox(
-          width: 28,
-          height: 28,
-          child: _buildManualRecordingButton(iconSize: 20),
-        ),
-        const SizedBox(width: 4),
-      ],
       if (_shouldShowModelPicker) ...[
         _buildModelPickerButton(compact: false),
         const SizedBox(width: 4),
@@ -739,14 +731,6 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
           ),
           const SizedBox(width: 2),
         ],
-        if (_hasTrajectoryPopupAction) ...[
-          SizedBox(
-            width: 24,
-            height: 24,
-            child: _buildManualRecordingButton(iconSize: 18),
-          ),
-          const SizedBox(width: 2),
-        ],
         if (_shouldShowModelPicker) ...[
           _buildModelPickerButton(compact: true),
           const SizedBox(width: 2),
@@ -801,40 +785,40 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
 
     return TextFieldTapRegion(
       child: SizedBox(
-      key: _modelPickerButtonKey,
-      width: compact ? 24 : 28,
-      height: compact ? 24 : 28,
-      child: Listener(
-        behavior: HitTestBehavior.opaque,
-        onPointerDown: (_) => settings.onPointerDown?.call(),
-        child: Tooltip(
-        message: modelId.isEmpty
-            ? (english ? 'Select model' : '选择模型')
-            : modelId,
-        waitDuration: const Duration(milliseconds: 400),
-        child: InkWell(
-          key: const ValueKey('chat-input-model-picker-button'),
-          borderRadius: BorderRadius.circular(8),
-          onTap: enabled ? openPicker : null,
-          child: Center(
-            child: RotationTransition(
-              turns: CurvedAnimation(
-                parent: _modelPickerSpinController,
-                curve: Curves.easeOutCubic,
-              ),
-              child: ProviderVendorIcon(
-                vendor: vendor,
-                size: compact ? 20 : 22,
-                disabled: !enabled,
-                forceMonochrome: true,
-                monochromeColor: enabled
-                    ? selectedColor
-                    : palette.textTertiary.withValues(alpha: 0.82),
+        key: _modelPickerButtonKey,
+        width: compact ? 24 : 28,
+        height: compact ? 24 : 28,
+        child: Listener(
+          behavior: HitTestBehavior.opaque,
+          onPointerDown: (_) => settings.onPointerDown?.call(),
+          child: Tooltip(
+            message: modelId.isEmpty
+                ? (english ? 'Select model' : '选择模型')
+                : modelId,
+            waitDuration: const Duration(milliseconds: 400),
+            child: InkWell(
+              key: const ValueKey('chat-input-model-picker-button'),
+              borderRadius: BorderRadius.circular(8),
+              onTap: enabled ? openPicker : null,
+              child: Center(
+                child: RotationTransition(
+                  turns: CurvedAnimation(
+                    parent: _modelPickerSpinController,
+                    curve: Curves.easeOutCubic,
+                  ),
+                  child: ProviderVendorIcon(
+                    vendor: vendor,
+                    size: compact ? 20 : 22,
+                    disabled: !enabled,
+                    forceMonochrome: true,
+                    monochromeColor: enabled
+                        ? selectedColor
+                        : palette.textTertiary.withValues(alpha: 0.82),
+                  ),
+                ),
               ),
             ),
           ),
-        ),
-      ),
         ),
       ),
     );
@@ -1078,41 +1062,6 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
         ),
       ),
       onPressed: widget.onToggleAnnotation,
-    );
-  }
-
-  Widget _buildManualRecordingButton({required double iconSize}) {
-    final palette = context.omniPalette;
-    final color = context.isDarkTheme
-        ? palette.accentPrimary
-        : const Color(0xFF6D5BD0);
-    final hasActions = _hasTrajectoryPopupAction;
-    return IconButton(
-      key: const ValueKey('chat-input-manual-recording-button'),
-      padding: EdgeInsets.zero,
-      iconSize: iconSize,
-      tooltip: context.l10n.chatInputTrajectoryTooltip,
-      icon: AnimatedContainer(
-        duration: _buttonAnimationDuration,
-        curve: _buttonAnimationCurve,
-        width: 24,
-        height: 24,
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: _isPopupVisible ? 0.2 : 0.12),
-          shape: BoxShape.circle,
-        ),
-        child: Icon(Icons.gesture_rounded, size: iconSize, color: color),
-      ),
-      onPressed: !hasActions
-          ? null
-          : () {
-              final nextVisible = !_isPopupVisible;
-              setState(() => _isPopupVisible = nextVisible);
-              widget.onPopupVisibilityChanged?.call(nextVisible);
-              if (nextVisible) {
-                unawaited(_refreshManualRecordingPermissions());
-              }
-            },
     );
   }
 

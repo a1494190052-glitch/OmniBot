@@ -5,7 +5,6 @@ import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter/material.dart';
-import 'package:ui/features/home/pages/command_overlay/services/manual_recording_permission_guard.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/l10n/l10n.dart';
 import 'package:ui/services/model_vendor_catalog.dart';
@@ -124,11 +123,6 @@ class ChatInputArea extends StatefulWidget {
   final bool? openClawEnabled;
   final ValueChanged<bool>? onToggleOpenClaw;
   final VoidCallback? onLongPressOpenClaw;
-  final FutureOr<void> Function()? onViewTrajectoriesTap;
-  final FutureOr<void> Function()? onViewCurrentTrajectoryTap;
-  final FutureOr<void> Function()? onOpenFunctionLibraryTap;
-  final FutureOr<void> Function(bool recordDebugScreenshots)?
-  onManualRecordingTap;
   final FutureOr<void> Function()? onTerminalTap;
 
   /// 是否使用毛玻璃效果（command_overlay 使用毛玻璃，chatbotsheet 使用白色+阴影）
@@ -166,10 +160,6 @@ class ChatInputArea extends StatefulWidget {
     this.openClawEnabled,
     this.onToggleOpenClaw,
     this.onLongPressOpenClaw,
-    this.onViewTrajectoriesTap,
-    this.onViewCurrentTrajectoryTap,
-    this.onOpenFunctionLibraryTap,
-    this.onManualRecordingTap,
     this.onTerminalTap,
     this.useFrostedGlass = false,
     this.useLargeComposerStyle = false,
@@ -465,38 +455,11 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
 
   late ValueNotifier<_ComposerInteractionState> _composerStateNotifier;
   bool _isPopupVisible = false;
-  bool _recordDebugScreenshots = true;
   double _lastKeyboardInset = 0;
-  ManualRecordingPermissionCheck? _manualRecordingPermissionCheck;
-  bool _isCheckingManualRecordingPermissions = false;
-  int _manualRecordingPermissionCheckGeneration = 0;
 
   final ScrollController _textFieldScrollController = ScrollController();
 
   bool get isPopupVisible => _isPopupVisible;
-  bool get _hasManualRecordingAction => widget.onManualRecordingTap != null;
-  bool get _hasTrajectoryPopupAction =>
-      widget.onViewTrajectoriesTap != null ||
-      widget.onViewCurrentTrajectoryTap != null ||
-      widget.onOpenFunctionLibraryTap != null ||
-      widget.onManualRecordingTap != null;
-  bool get _showDebugScreenshotToggle =>
-      _debugScreenshotToggleAvailable && _hasManualRecordingAction;
-  bool get _debugScreenshotToggleAvailable {
-    var available = false;
-    assert(() {
-      available = true;
-      return true;
-    }());
-    return available;
-  }
-
-  bool get _isManualRecordingPermissionBlocked {
-    final permissionCheck = _manualRecordingPermissionCheck;
-    return _hasManualRecordingAction &&
-        permissionCheck != null &&
-        !permissionCheck.isAuthorized;
-  }
 
   double _lastReportedInputHeight = 44;
   bool _inputHeightReportScheduled = false;
@@ -694,41 +657,6 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
     _syncKeyboardPhaseFromView();
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _isPopupVisible) {
-      unawaited(_refreshManualRecordingPermissions());
-    }
-  }
-
-  Future<void> _refreshManualRecordingPermissions() async {
-    if (!_hasManualRecordingAction || !mounted) return;
-    final generation = ++_manualRecordingPermissionCheckGeneration;
-    setState(() {
-      _isCheckingManualRecordingPermissions = true;
-    });
-    try {
-      final permissionCheck = await ManualRecordingPermissionGuard.check(
-        context,
-      );
-      if (!mounted || generation != _manualRecordingPermissionCheckGeneration) {
-        return;
-      }
-      setState(() {
-        _manualRecordingPermissionCheck = permissionCheck;
-        _isCheckingManualRecordingPermissions = false;
-      });
-    } catch (_) {
-      if (!mounted || generation != _manualRecordingPermissionCheckGeneration) {
-        return;
-      }
-      setState(() {
-        _manualRecordingPermissionCheck = null;
-        _isCheckingManualRecordingPermissions = false;
-      });
-    }
-  }
-
   void _syncKeyboardPhaseFromView() {
     if (!mounted) return;
     final view = _safeViewForMetrics();
@@ -800,16 +728,10 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
         oldWidget.modelPickerSettings != widget.modelPickerSettings) {
       _reportInputHeightAfterBuild();
     }
-    if (oldWidget.onManualRecordingTap != widget.onManualRecordingTap &&
-        widget.onManualRecordingTap == null) {
-      _manualRecordingPermissionCheck = null;
-      _isCheckingManualRecordingPermissions = false;
-    }
   }
 
   @override
   void dispose() {
-    _manualRecordingPermissionCheckGeneration++;
     WidgetsBinding.instance.removeObserver(this);
     _textFieldScrollController.dispose();
     _composerStateNotifier.dispose();
