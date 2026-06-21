@@ -717,7 +717,12 @@ void main() {
     expect(find.text('运行记录'), findsNothing);
     expect(find.text('直接回答'), findsOneWidget);
     expect(find.byIcon(Icons.keyboard_arrow_down_rounded), findsNothing);
-    expect(find.byIcon(Icons.route_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.route_rounded), findsNothing);
+    expect(
+      find.byKey(const ValueKey('agent-run-runlog-task-text-only')),
+      findsNothing,
+    );
+    expect(find.byTooltip('查看执行记录'), findsNothing);
     expect(
       find.byKey(const ValueKey('agent-run-process-task-text-only')),
       findsNothing,
@@ -766,6 +771,7 @@ void main() {
     expect(find.text('RunLog'), findsNothing);
     expect(find.text('运行记录'), findsNothing);
     expect(find.text('已记录'), findsNothing);
+    expect(find.byTooltip('View execution record'), findsNothing);
 
     await tester.tap(
       find.byKey(const ValueKey('agent-run-summary-task-text-only')),
@@ -806,6 +812,7 @@ void main() {
     expect(find.text('Logged'), findsNothing);
     expect(find.text('RunLog'), findsNothing);
     expect(find.byIcon(Icons.keyboard_arrow_down_rounded), findsNothing);
+    expect(find.byIcon(Icons.route_rounded), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

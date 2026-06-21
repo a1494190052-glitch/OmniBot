@@ -755,8 +755,6 @@ class _RunLogOnlySummaryHeader extends StatelessWidget {
       en: 'No steps',
       locale: locale,
     );
-    final resolvedRunLogId = runLogId.trim().isEmpty ? taskId : runLogId.trim();
-
     return Padding(
       padding: const EdgeInsets.only(top: 6, bottom: 1),
       child: Material(
@@ -816,45 +814,10 @@ class _RunLogOnlySummaryHeader extends StatelessWidget {
                     ],
                   ),
                 ),
-                const SizedBox(width: 6),
-                _RunLogHeaderButton(
-                  key: ValueKey('agent-run-runlog-$taskId'),
-                  taskId: taskId,
-                  runLogId: resolvedRunLogId,
-                  iconColor: labelColor,
-                ),
               ],
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _RunLogHeaderButton extends StatelessWidget {
-  const _RunLogHeaderButton({
-    super.key,
-    required this.taskId,
-    required this.runLogId,
-    required this.iconColor,
-  });
-
-  final String taskId;
-  final String runLogId;
-  final Color iconColor;
-
-  @override
-  Widget build(BuildContext context) {
-    final locale = Localizations.localeOf(context);
-    final resolvedRunLogId = runLogId.trim().isEmpty ? taskId : runLogId.trim();
-
-    return Tooltip(
-      message: AppTextLocalizer.text('查看执行记录', locale: locale),
-      child: InkResponse(
-        onTap: () => showRunLogTimelineSheet(context, runId: resolvedRunLogId),
-        radius: 18,
-        child: Icon(Icons.route_rounded, size: 16, color: iconColor),
       ),
     );
   }
