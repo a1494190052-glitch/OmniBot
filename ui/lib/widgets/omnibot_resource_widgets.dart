@@ -9,6 +9,7 @@ import 'package:ui/services/office_preview_service.dart';
 import 'package:ui/services/omnibot_resource_service.dart';
 import 'package:ui/services/pdf_preview_service.dart';
 import 'package:ui/theme/theme_context.dart';
+import 'package:ui/utils/ui.dart';
 import 'package:ui/widgets/chat_drawer_gesture_guard.dart';
 import 'package:ui/widgets/image_preview_overlay.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
@@ -21,6 +22,8 @@ typedef OmnibotResourceOpenCallback =
       BuildContext context,
       OmnibotResourceMetadata metadata,
     );
+
+enum _InlineResourceAction { shareFile }
 
 class OmnibotInlineResourceEmbed extends StatelessWidget {
   final OmnibotResourceMetadata metadata;
@@ -1074,6 +1077,7 @@ class _OmnibotPdfScrollablePreviewState
                     color: Color(0xFF64748B),
                   ),
                 ),
+                _InlineResourceMoreMenu(metadata: widget.metadata),
               ],
             ),
           ),
@@ -1470,6 +1474,15 @@ class _OmnibotInlineHtmlCardState extends State<_OmnibotInlineHtmlCard> {
                     child: Center(child: CircularProgressIndicator()),
                   ),
                 ),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Material(
+                  color: Colors.white.withValues(alpha: 0.88),
+                  shape: const CircleBorder(),
+                  child: _InlineResourceMoreMenu(metadata: widget.metadata),
+                ),
+              ),
             ],
           ),
         ),
@@ -1956,6 +1969,64 @@ Future<void> _openMetadata(
     mimeType: metadata.mimeType,
     shellPath: metadata.shellPath,
   );
+}
+
+class _InlineResourceMoreMenu extends StatelessWidget {
+  const _InlineResourceMoreMenu({required this.metadata});
+
+  final OmnibotResourceMetadata metadata;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<_InlineResourceAction>(
+      tooltip: AppTextLocalizer.choose(en: 'More actions', zh: '更多操作'),
+      splashRadius: 18,
+      icon: const Icon(Icons.more_horiz_rounded),
+      onSelected: (action) {
+        switch (action) {
+          case _InlineResourceAction.shareFile:
+            unawaited(_shareMetadataFile(metadata));
+        }
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem<_InlineResourceAction>(
+          value: _InlineResourceAction.shareFile,
+          child: Text(AppTextLocalizer.choose(en: 'Share file', zh: '分享文件')),
+        ),
+      ],
+    );
+  }
+}
+
+Future<void> _shareMetadataFile(OmnibotResourceMetadata metadata) async {
+  if (!metadata.exists) {
+    showToast(
+      AppTextLocalizer.choose(en: 'File does not exist', zh: '文件不存在'),
+      type: ToastType.warning,
+    );
+    return;
+  }
+  try {
+    final shared = await OmnibotResourceService.shareFile(
+      sourcePath: metadata.path,
+      fileName: metadata.title,
+      mimeType: metadata.mimeType,
+    );
+    if (!shared) {
+      showToast(
+        AppTextLocalizer.choose(
+          en: 'Share failed, please try again later',
+          zh: '分享失败，请稍后重试',
+        ),
+        type: ToastType.error,
+      );
+    }
+  } catch (error) {
+    showToast(
+      AppTextLocalizer.choose(en: 'Share failed: $error', zh: '分享失败：$error'),
+      type: ToastType.error,
+    );
+  }
 }
 
 String _formatDuration(Duration duration) {
