@@ -4,7 +4,7 @@ import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 
 /**
- * Exportable schema bundle for Function management/debugging.
+ * Exportable schema bundle for OmniFlow Function lifecycle/debugging.
  *
  * Keep this as data-only JSON-compatible maps so MCP resources, tests, and
  * docs can all inspect the same contract without adding another model tool.

@@ -612,7 +612,7 @@ the same commit as the code change:
   behavior currently listed here, move the ownership bullet instead of copying
   it.
 
-Use canonical OmniFlow Function management tools in agent-facing docs:
+Use canonical OmniFlow Function lifecycle tools in agent-facing docs:
 `oob_function_list`, `oob_function_get`, `oob_function_register`,
 `update_function`, `oob_function_delete`, `oob_function_clear`,
 `oob_run_log_list`,

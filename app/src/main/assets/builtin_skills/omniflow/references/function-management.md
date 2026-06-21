@@ -1,4 +1,4 @@
-# Function Management
+# OmniFlow Function Lifecycle
 
 Use this reference for chat-driven RunLog registration and saved Function
 lifecycle.

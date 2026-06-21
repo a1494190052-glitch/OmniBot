@@ -7,7 +7,7 @@ import cn.com.omnimind.baselib.runlog.InternalRunLogStore
  * Persists an executed OmniFlow Function payload as an InternalRunLog timeline.
  *
  * Function execution already returns structured `step_results`; this adapter
- * records them under the same `run_id` that Function management stores as
+ * records them under the same `run_id` that the OmniFlow Function lifecycle stores as
  * `last_run`, so the UI can reopen the previous execution as a normal RunLog.
  */
 object OobFunctionRunLogRecorder {

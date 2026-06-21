@@ -18,7 +18,7 @@ backends. The agent behavior belongs in this skill and its references.
 This skill is the one agent-facing entry for OOB Android GUI automation and
 OmniFlow Function lifecycle, enhancement, correction, checker design, RunLog
 evidence, and replay debugging. Older focused entries such as VLM Android GUI,
-Function management, Function enhancement, and checker maintenance are folded
+Function lifecycle management, Function enhancement, and checker maintenance are folded
 into this skill. Keep their behavior here or in the `references/` files instead
 of adding another model-visible skill.
 
@@ -46,7 +46,7 @@ run through OOB-native OmniFlow.
 - Online VLM execution, `vlm_task`, native `tool_calls`, prompt/tool schema
   debugging, indexed UI evidence, grounding, live action dispatch, or VLM
   RunLog latency/accuracy validation: read `references/vlm-online-execution.md`.
-- Function lifecycle or chat management: read `references/function-management.md`.
+- Saved Function lifecycle or chat-driven registration: read `references/function-management.md`.
 - Function enhancement, repair, or step labeling: read `references/function-enhancement.md`.
 - RunLog success/failure evidence or `run_id`: read `references/runlog-evidence.md`.
 - Replay failure or local runner result analysis: read `references/replay-fallback.md`.
