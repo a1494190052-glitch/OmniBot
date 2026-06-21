@@ -143,7 +143,7 @@ helper with mixed semantics.
 - route explicit diagnostic Function execution through the internal Function runner
 - never implement Function storage, recall, update, or replay policy
 
-`OobFunctionSkillProfile` owns the native Function-management skill profile:
+`OobFunctionSkillProfile` owns the native `omniflow` skill profile:
 
 - expose the small static tool set used by the `omniflow` skill's focused
   `omniflow` profile
@@ -438,7 +438,7 @@ operation.
 ```text
 Agent/MCP tool surface
   -> McpToolDefinitions / McpToolExecutors # external MCP schema/argument adapter
-  -> OobFunctionSkillProfile # Function-management profile and runtime recall metadata
+  -> OobFunctionSkillProfile # OmniFlow profile and runtime recall metadata
       -> OobFunctionSchemaBuilder # Function spec -> call_tool argument schema
   -> OobOmniFlowToolkitService
       -> OobFunctionRepository       # storage/index/source bindings
@@ -555,7 +555,7 @@ Keep these pieces separate:
   coordinate remapping, and recovery snapshots
 - `McpToolDefinitions` and `McpToolExecutors`: external MCP schema and argument
   alias adapter before dispatch into the Function/tool facade
-- `OobFunctionSkillProfile`: native Function-management skill profile,
+- `OobFunctionSkillProfile`: native `omniflow` skill profile,
   dynamic Function tool exposure, and compact prompt candidates
 - `AgentToolJson`: agent-facing map/list/scalar to `JsonElement` projection for
   tool definitions and payloads

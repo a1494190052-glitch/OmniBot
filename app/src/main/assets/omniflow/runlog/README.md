@@ -95,7 +95,7 @@ record. Do not read only the snapshot when correctness matters.
 - Function execution runner: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionRunner.kt`
 - Canonical in-app Function/RunLog tool names: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionToolNames.kt`
 - Function call timing: `app/src/main/java/cn/com/omnimind/bot/runlog/OobFunctionCallTiming.kt`
-- Function-management skill profile: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionSkillProfile.kt`
+- OmniFlow skill profile: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionSkillProfile.kt`
 - Agent-facing tool JSON projection: `app/src/main/java/cn/com/omnimind/bot/agent/AgentToolJson.kt`
 - Dynamic Function tool schema builder: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionSchemaBuilder.kt`
 - MCP Function tool schema: `app/src/main/java/cn/com/omnimind/bot/mcp/McpToolDefinitions.kt`
