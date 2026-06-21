@@ -54,10 +54,10 @@ when they own the same concept with the same compatibility rules. Keep
 route-specific alias parsing, schema projection, and storage compatibility local
 when their semantics differ from replay conversion.
 
-Home input exposes RunLog entry points through one compact trajectory icon below
-the composer. Tapping it opens a transient three-action popup: existing
-trajectories, the current/latest trajectory, and record trajectory. Do not
-restore a persistent large action panel above the input.
+Default home input does not expose RunLog or Function shortcuts. Manual
+recording remains available through explicit command routing, such as sending
+`录制轨迹` or `Record trajectory`, and through Agent/runtime flows. Do not
+restore a persistent action panel or default composer shortcut.
 
 ## Storage Model
 

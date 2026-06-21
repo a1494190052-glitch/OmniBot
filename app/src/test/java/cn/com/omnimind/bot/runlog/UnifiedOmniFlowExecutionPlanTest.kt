@@ -69,7 +69,7 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(plan.contains("provider_tool_call_contract_violation"))
         assertTrue(plan.contains("single OpenAI native `tool_calls[0]`"))
         assertTrue(plan.contains("not a reason to re-enable legacy text parsing"))
-        assertTrue(plan.contains("Manual recording: a visible `录制轨迹` entry starts recording"))
+        assertTrue(plan.contains("Manual recording: an explicit `录制轨迹` command starts recording"))
         assertTrue(plan.contains("First VLM run: `vlm_task` succeeds"))
         assertTrue(plan.contains("Second VLM run: from the same or equivalent page"))
         assertTrue(plan.contains("No inline enhancement"))

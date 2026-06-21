@@ -300,9 +300,10 @@ evidence:
   single OpenAI native `tool_calls[0]` must fail as
   `provider_tool_call_contract_violation`. This is an external/provider
   blocker, not a reason to re-enable legacy text parsing.
-- Manual recording: a visible `录制轨迹` entry starts recording, completes from
-  the floating assistant, and returns a RunLog plus reusable Function result.
-  Unit tests only prove command routing; a real Android device proves this gate.
+- Manual recording: an explicit `录制轨迹` command starts recording, completes
+  from the floating assistant, and returns a RunLog plus reusable Function
+  result. Unit tests only prove command routing; a real Android device proves
+  this gate.
 - First VLM run: `vlm_task` succeeds, writes an Internal RunLog, and conversion
   registers an agent-visible Function with
   `metadata.enhancement_policy=offline_only`.
@@ -492,8 +493,9 @@ Direct calls are useful for debug and UI buttons, but they must be scoped:
 
 ## Bugs Fixed In This Pass
 
-- The visible recording shortcut label `录制轨迹` is now accepted as a manual
-  recording command instead of falling back to normal chat.
+- The recording command label `录制轨迹` is accepted as a manual recording
+  command instead of falling back to normal chat, while default composer
+  shortcuts remain hidden.
 - VLM RunLog auto-registration no longer runs `update_function`/`enhance`
   inline after registration.
 - Agent-visible auto-registered Functions now carry
@@ -541,8 +543,8 @@ Device smoke tests, requiring a connected Android device:
 
 1. Install a `develop` debug build.
 2. Enable accessibility and overlay permissions.
-3. Start a manual recording from the visible `录制轨迹` shortcut and complete it
-   from the floating assistant.
+3. Send the explicit `录制轨迹` command to start manual recording, then complete
+   it from the floating assistant.
 4. Confirm the result card reports a RunLog and reusable Function.
 5. Run the first VLM debug task, confirm RunLog success and Function conversion.
 6. Run recall from the same page with `auto_execute=true`.
