@@ -82,6 +82,43 @@ void main() {
     }
   });
 
+  test('localized reusable command surfaces avoid VLM provider wording', () {
+    final checkedKeys = const [
+      'alpineOmniFlowDev',
+      'omniflowAssetVlmExecution',
+    ];
+
+    final en =
+        jsonDecode(File('lib/l10n/app_en.arb').readAsStringSync())
+            as Map<String, dynamic>;
+    final zh =
+        jsonDecode(File('lib/l10n/app_zh.arb').readAsStringSync())
+            as Map<String, dynamic>;
+
+    for (final key in checkedKeys) {
+      expect(
+        (en[key] as String).toLowerCase(),
+        isNot(contains('provider')),
+        reason: 'lib/l10n/app_en.arb:$key',
+      );
+      expect(
+        (zh[key] as String).toLowerCase(),
+        isNot(contains('provider')),
+        reason: 'lib/l10n/app_zh.arb:$key',
+      );
+      expect(
+        (en[key] as String).toLowerCase(),
+        isNot(contains('vlm')),
+        reason: 'lib/l10n/app_en.arb:$key',
+      );
+      expect(
+        (zh[key] as String).toLowerCase(),
+        isNot(contains('vlm')),
+        reason: 'lib/l10n/app_zh.arb:$key',
+      );
+    }
+  });
+
   test('uses active locale override for source-text translations', () {
     AppTextLocalizer.setResolvedLocale(const Locale('zh'));
     expect(AppTextLocalizer.text('设置'), '设置');

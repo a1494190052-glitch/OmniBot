@@ -1832,7 +1832,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get alpineOmniFlowDev =>
-      'Reusable command Python CLI / provider dev tools; does not replace native reusable commands';
+      'Reusable command Python CLI dev toolchain; does not replace native reusable commands';
 
   @override
   String get alpineSshClient => 'SSH Client';
@@ -2698,7 +2698,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get omniflowAssetReuseHit => 'Reusable command';
 
   @override
-  String get omniflowAssetVlmExecution => 'VLM Execution';
+  String get omniflowAssetVlmExecution => 'Visual task';
 
   @override
   String omniflowAssetSteps(int count) {

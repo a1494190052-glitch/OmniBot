@@ -1709,7 +1709,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get alpineCodex => 'OpenAI Codex CLI 与 app-server 桥接';
 
   @override
-  String get alpineOmniFlowDev => '复用指令 Python CLI / provider 开发工具，不替代小万原生复用指令';
+  String get alpineOmniFlowDev => '复用指令 Python CLI 开发工具链，不替代小万原生复用指令';
 
   @override
   String get alpineSshClient => 'SSH 客户端';
@@ -2556,7 +2556,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get omniflowAssetReuseHit => '复用指令';
 
   @override
-  String get omniflowAssetVlmExecution => 'VLM 执行';
+  String get omniflowAssetVlmExecution => '视觉执行';
 
   @override
   String omniflowAssetSteps(int count) {

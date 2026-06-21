@@ -634,7 +634,7 @@
   "alpinePip": "Python Projects & Packages",
   "alpinePipInstall": "Python Package Installer",
   "alpineCodex": "OpenAI Codex CLI and app-server bridge",
-  "alpineOmniFlowDev": "Reusable command Python CLI / provider dev tools; does not replace native reusable commands",
+  "alpineOmniFlowDev": "Reusable command Python CLI dev toolchain; does not replace native reusable commands",
   "alpineSshClient": "SSH Client",
   "alpineSshpass": "SSH Password Helper",
   "alpineOpenSshServer": "OpenSSH Server",
@@ -922,7 +922,7 @@
   "omniflowAssetRunning": "Running",
   "omniflowAssetUnknown": "Unknown",
   "omniflowAssetReuseHit": "Reusable command",
-  "omniflowAssetVlmExecution": "VLM Execution",
+  "omniflowAssetVlmExecution": "Visual task",
   "omniflowAssetSteps": "{count} steps",
   "@omniflowAssetSteps": {
     "placeholders": {

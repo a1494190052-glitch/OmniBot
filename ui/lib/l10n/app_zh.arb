@@ -634,7 +634,7 @@
   "alpinePip": "Python 项目与包工具",
   "alpinePipInstall": "Python 包安装器",
   "alpineCodex": "OpenAI Codex CLI 与 app-server 桥接",
-  "alpineOmniFlowDev": "复用指令 Python CLI / provider 开发工具，不替代小万原生复用指令",
+  "alpineOmniFlowDev": "复用指令 Python CLI 开发工具链，不替代小万原生复用指令",
   "alpineSshClient": "SSH 客户端",
   "alpineSshpass": "SSH 密码辅助工具",
   "alpineOpenSshServer": "OpenSSH 服务器",
@@ -922,7 +922,7 @@
   "omniflowAssetRunning": "运行中",
   "omniflowAssetUnknown": "未知",
   "omniflowAssetReuseHit": "复用指令",
-  "omniflowAssetVlmExecution": "VLM 执行",
+  "omniflowAssetVlmExecution": "视觉执行",
   "omniflowAssetSteps": "{count} 步",
   "@omniflowAssetSteps": {
     "placeholders": {
