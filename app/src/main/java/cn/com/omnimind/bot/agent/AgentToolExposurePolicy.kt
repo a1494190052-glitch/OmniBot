@@ -32,9 +32,9 @@ data class AgentToolExposurePolicy(
     }
 
     companion object {
-        const val PROFILE_FUNCTION_MANAGEMENT = OobFunctionSkillProfile.PROFILE
+        const val PROFILE_OMNIFLOW = OobFunctionSkillProfile.PROFILE
 
-        val FUNCTION_MANAGEMENT_TOOLS: Set<String>
+        val OMNIFLOW_TOOLS: Set<String>
             get() = OobFunctionSkillProfile.toolNames
 
         val DEFAULT = AgentToolExposurePolicy()

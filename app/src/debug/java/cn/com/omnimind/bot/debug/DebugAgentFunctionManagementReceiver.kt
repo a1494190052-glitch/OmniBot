@@ -113,7 +113,7 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
             discoveredServers = emptyList(),
             conversationMode = AgentConversationModePolicy.NORMAL_MODE,
             toolExposurePolicy = AgentToolExposurePolicy(
-                profile = AgentToolExposurePolicy.PROFILE_FUNCTION_MANAGEMENT,
+                profile = AgentToolExposurePolicy.PROFILE_OMNIFLOW,
             ),
         )
         lateinit var router: AgentToolRouter
@@ -159,7 +159,7 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
         )
 
         val exposedTools = registry.toolsForModel.map { it.function.name }.sorted()
-        val expectedTools = AgentToolExposurePolicy.FUNCTION_MANAGEMENT_TOOLS.sorted()
+        val expectedTools = AgentToolExposurePolicy.OMNIFLOW_TOOLS.sorted()
         val missingTools = expectedTools.filterNot { it in exposedTools }
         val unexpectedTools = exposedTools.filterNot { it in expectedTools }
         val records = mutableListOf<Map<String, Any?>>()
@@ -271,7 +271,7 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
             "current_package_before" to currentBefore,
             "current_package_after" to currentAfter,
             "foreground_package_matched" to foregroundMatched,
-            "tool_profile" to AgentToolExposurePolicy.PROFILE_FUNCTION_MANAGEMENT,
+            "tool_profile" to AgentToolExposurePolicy.PROFILE_OMNIFLOW,
             "exposed_tools" to exposedTools,
             "missing_tools" to missingTools,
             "unexpected_tools" to unexpectedTools,

@@ -34,7 +34,7 @@ class OobFunctionSkillProfileTest {
     }
 
     @Test
-    fun `function management profile exposes agent managed function tools`() {
+    fun `omniflow profile exposes agent managed function tools`() {
         val definitions = OobFunctionSkillProfile.staticToolDefinitions(PromptLocale.EN_US)
         val toolNames = definitions
             .mapNotNull { definition ->
@@ -62,7 +62,7 @@ class OobFunctionSkillProfileTest {
     }
 
     @Test
-    fun `function management profile is owned by omniflow skill`() {
+    fun `omniflow profile accepts legacy function management spelling`() {
         assertEquals("omniflow", OobFunctionSkillProfile.PROFILE)
         assertEquals("function_management", OobFunctionSkillProfile.LEGACY_PROFILE)
         assertEquals("omniflow", OobFunctionSkillProfile.SKILL_ID)
