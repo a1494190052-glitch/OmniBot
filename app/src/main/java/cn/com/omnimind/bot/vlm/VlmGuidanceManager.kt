@@ -7,8 +7,14 @@ import cn.com.omnimind.assists.task.vlmserver.VLMPostTaskHook
 import cn.com.omnimind.assists.task.vlmserver.VLMSystemPromptRegistry
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 class VlmGuidanceManager private constructor(private val appContext: Context) : VLMPostTaskHook {
 
@@ -42,6 +48,13 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
                 _instance ?: VlmGuidanceManager(context.applicationContext).also { _instance = it }
             }
     }
+
+    // Detached scope — distillation must survive Task destruction
+    private val distillScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // Per-skill mutex prevents concurrent writes corrupting the same file
+    private val skillMutexes = ConcurrentHashMap<String, Mutex>()
+    private fun mutexFor(skillId: String) = skillMutexes.getOrPut(skillId) { Mutex() }
 
     @Volatile
     private var strategiesLastModified = 0L
@@ -85,7 +98,6 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
     fun loadGuidance(packageName: String?, functionId: String? = null): String {
         val manager = AgentWorkspaceManager(appContext)
         val parts = mutableListOf<String>()
-
         readSkillBody(manager, GLOBAL_SKILL_ID)?.let { parts.add(it) }
         if (!packageName.isNullOrBlank()) {
             readSkillBody(manager, APP_SKILL_PREFIX + sanitizePkg(packageName))?.let { parts.add(it) }
@@ -93,30 +105,26 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
         if (!functionId.isNullOrBlank()) {
             readSkillBody(manager, FUNC_SKILL_PREFIX + functionId)?.let { parts.add(it) }
         }
-
         return parts.filter { it.isNotBlank() }.joinToString("\n\n").take(480)
     }
 
     fun loadFunctionsSection(packageName: String?): String {
         val manager = AgentWorkspaceManager(appContext)
-        val bodies = buildList {
+        return buildList {
             readSkillBody(manager, GLOBAL_SKILL_ID)?.let { add(it) }
             if (!packageName.isNullOrBlank()) {
                 readSkillBody(manager, APP_SKILL_PREFIX + sanitizePkg(packageName))?.let { add(it) }
             }
-        }
-        return bodies
-            .flatMap { body ->
-                val start = body.indexOf("## Functions")
-                if (start < 0) return@flatMap emptyList()
-                val end = body.indexOf("\n##", start + 1).takeIf { it > 0 } ?: body.length
-                body.substring(start, end).lines().drop(1).filter { it.trimStart().startsWith("-") }
-            }
-            .distinct()
-            .joinToString("\n")
-            .take(200)
+        }.flatMap { body ->
+            val start = body.indexOf("## Functions")
+            if (start < 0) return@flatMap emptyList()
+            val end = body.indexOf("\n##", start + 1).takeIf { it > 0 } ?: body.length
+            body.substring(start, end).lines().drop(1).filter { it.trimStart().startsWith("-") }
+        }.distinct().joinToString("\n").take(200)
     }
 
+    // Called from VLMOperationTask via VLMPostTaskHookRegistry.
+    // Fires distillation on distillScope so it outlives the Task coroutine.
     override suspend fun onTaskCompleted(
         goal: String,
         packageName: String?,
@@ -125,24 +133,27 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
         executionTrace: List<UIStep>,
     ) {
         if (!success || goal.isBlank() || executionTrace.size < MIN_TRACE_STEPS) return
-        withContext(Dispatchers.IO) {
-            val manager = AgentWorkspaceManager(appContext)
-            val traceText = executionTrace.takeLast(6)
-                .mapNotNull { it.observation?.takeIf { o -> o.isNotBlank() }?.take(80) }
-                .joinToString("; ")
+        val traceText = executionTrace.takeLast(6).mapNotNull { step ->
+            val obs = step.observation.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val thought = step.thought.takeIf { it.isNotBlank() }
+            if (thought != null) "${thought.take(60)} → ${obs.take(60)}"
+            else obs.take(80)
+        }.joinToString("; ")
 
-            distillSkill(manager, GLOBAL_SKILL_ID, goal, null, executedFunctionId, traceText)
-            if (!packageName.isNullOrBlank()) {
-                distillSkill(
-                    manager, APP_SKILL_PREFIX + sanitizePkg(packageName),
-                    goal, packageName, executedFunctionId, traceText,
-                )
+        // Snapshot values before crossing scope boundary
+        val goalSnap = goal
+        val pkgSnap = packageName
+        val funcSnap = executedFunctionId
+        val traceSnap = traceText
+
+        distillScope.launch {
+            val manager = AgentWorkspaceManager(appContext)
+            distillSkill(manager, GLOBAL_SKILL_ID, goalSnap, null, funcSnap, traceSnap)
+            if (!pkgSnap.isNullOrBlank()) {
+                distillSkill(manager, APP_SKILL_PREFIX + sanitizePkg(pkgSnap), goalSnap, pkgSnap, funcSnap, traceSnap)
             }
-            if (!executedFunctionId.isNullOrBlank()) {
-                distillSkill(
-                    manager, FUNC_SKILL_PREFIX + executedFunctionId,
-                    goal, packageName, executedFunctionId, traceText,
-                )
+            if (!funcSnap.isNullOrBlank()) {
+                distillSkill(manager, FUNC_SKILL_PREFIX + funcSnap, goalSnap, pkgSnap, funcSnap, traceSnap)
             }
         }
     }
@@ -155,15 +166,16 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
         functionId: String?,
         traceText: String,
     ) {
-        val current = readSkillBody(manager, skillId) ?: ""
-        val prompt = buildDistillPrompt(skillId, goal, packageName, functionId, traceText, current)
-        val result = runCatching {
-            HttpController.postLLMRequest(SCENE_DISTILL, prompt, maxTokens = MAX_SKILL_CHARS).message.trim()
-        }.onFailure { OmniLog.w(TAG, "distill failed for $skillId: ${it.message}") }
-            .getOrNull()?.takeIf { it.isNotBlank() } ?: return
-
-        writeSkillBody(manager, skillId, result)
-        OmniLog.d(TAG, "updated $skillId (${result.length} chars)")
+        mutexFor(skillId).withLock {
+            val current = readSkillBody(manager, skillId) ?: ""
+            val prompt = buildDistillPrompt(skillId, goal, packageName, functionId, traceText, current)
+            val result = runCatching {
+                HttpController.postLLMRequest(SCENE_DISTILL, prompt, maxTokens = MAX_SKILL_CHARS).message.trim()
+            }.onFailure { OmniLog.w(TAG, "distill failed for $skillId: ${it.message}") }
+                .getOrNull()?.takeIf { it.isNotBlank() } ?: return
+            writeSkillBodyAtomic(manager, skillId, result)
+            OmniLog.d(TAG, "updated $skillId (${result.length} chars)")
+        }
     }
 
     private fun buildDistillPrompt(
@@ -180,7 +192,7 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
         appendLine("目标: $goal")
         if (!packageName.isNullOrBlank()) appendLine("应用: $packageName")
         if (!functionId.isNullOrBlank()) appendLine("使用的函数: $functionId")
-        if (traceText.isNotBlank()) appendLine("执行摘要: $traceText")
+        if (traceText.isNotBlank()) appendLine("执行摘要 (thought → observation): $traceText")
         appendLine()
         appendLine("## 现有策略 ($skillId)")
         appendLine(if (current.isBlank()) "(空)" else current)
@@ -204,12 +216,15 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
         return lines.drop(endIdx + 2).joinToString("\n").trim().takeIf { it.isNotBlank() }
     }
 
-    private fun writeSkillBody(manager: AgentWorkspaceManager, skillId: String, body: String) {
+    // Atomic write: write to a .tmp sibling then rename, so a crash mid-write
+    // never leaves a truncated SKILL.md.
+    private fun writeSkillBodyAtomic(manager: AgentWorkspaceManager, skillId: String, body: String) {
         val dir = manager.skillsRoot().resolve(skillId)
         dir.mkdirs()
-        dir.resolve("SKILL.md").writeText(
-            "---\nname: $skillId\ndescription: VLM planner guidance\n---\n$body"
-        )
+        val target = dir.resolve("SKILL.md")
+        val tmp = File(dir, "SKILL.md.tmp")
+        tmp.writeText("---\nname: $skillId\ndescription: VLM planner guidance\n---\n$body")
+        tmp.renameTo(target)
     }
 
     private fun sanitizePkg(pkg: String) = pkg.replace(".", "_").take(40)

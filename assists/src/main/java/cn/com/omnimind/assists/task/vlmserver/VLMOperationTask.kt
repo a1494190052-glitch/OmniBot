@@ -19,6 +19,8 @@ import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.baselib.util.exception.PrivacyBlockedException
 import cn.com.omnimind.omniintelligence.models.AgentRequest
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -1004,15 +1006,17 @@ open class VLMOperationTask(
                         val executedFunctionId = taskExecutionReport.executionTrace
                             .mapNotNull { (it.action as? FunctionRunAction)?.functionId }
                             .lastOrNull()
-                        cancelScope.launch {
-                            VLMPostTaskHookRegistry.notify(
-                                goal = goal,
-                                packageName = taskExecutionReport.finalContext.targetPackageName
-                                    .takeIf { it.isNotBlank() },
-                                executedFunctionId = executedFunctionId,
-                                success = true,
-                                executionTrace = taskExecutionReport.executionTrace,
-                            )
+                        CoroutineScope(Dispatchers.IO).launch {
+                            kotlinx.coroutines.withTimeoutOrNull(30_000L) {
+                                VLMPostTaskHookRegistry.notify(
+                                    goal = goal ?: "",
+                                    packageName = taskExecutionReport.finalContext.targetPackageName
+                                        .takeIf { it.isNotBlank() },
+                                    executedFunctionId = executedFunctionId,
+                                    success = true,
+                                    executionTrace = taskExecutionReport.executionTrace,
+                                )
+                            }
                         }
                     } else {
                         val errorMessage = finishMessage.ifBlank { "任务执行失败" }
