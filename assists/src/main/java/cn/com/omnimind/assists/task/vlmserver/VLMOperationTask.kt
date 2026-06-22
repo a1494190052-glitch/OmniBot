@@ -1032,6 +1032,18 @@ open class VLMOperationTask(
                                 summaryUnavailable = true
                             )
                         )
+                        CoroutineScope(Dispatchers.IO).launch {
+                            kotlinx.coroutines.withTimeoutOrNull(30_000L) {
+                                VLMPostTaskHookRegistry.notify(
+                                    goal = goal ?: "",
+                                    packageName = taskExecutionReport.finalContext.targetPackageName
+                                        .takeIf { it.isNotBlank() },
+                                    executedFunctionId = null,
+                                    success = false,
+                                    executionTrace = taskExecutionReport.executionTrace,
+                                )
+                            }
+                        }
                     }
                     onTaskStop(finishType, finishMessage)
                     onTaskDestroy()

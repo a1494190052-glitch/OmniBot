@@ -3405,6 +3405,11 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             try {
                 TaskRuntimeSettings.onTaskStarted(context)
                 val taskPackageName = call.argument<String>("packageName")
+                runCatching {
+                    val wsConfig = cn.com.omnimind.bot.vlm.VlmWorkspaceConfig.getInstance(context)
+                        .also { it.reloadIfChanged() }
+                    cn.com.omnimind.assists.task.vlmserver.VLMToolDenylistRegistry.set(wsConfig.get().disabledTools)
+                }
                 val callerGuidance = call.argument<String>("stepSkillGuidance").orEmpty()
                 val learnedGuidance = runCatching {
                     cn.com.omnimind.bot.vlm.VlmGuidanceManager.getInstance(context)

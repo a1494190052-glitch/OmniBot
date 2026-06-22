@@ -132,7 +132,8 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
         success: Boolean,
         executionTrace: List<UIStep>,
     ) {
-        if (!success || goal.isBlank() || executionTrace.size < config.distillMinTraceSteps) return
+        if (goal.isBlank() || executionTrace.isEmpty()) return
+
         val traceText = executionTrace.takeLast(6).mapNotNull { step ->
             val obs = step.observation.takeIf { it.isNotBlank() } ?: return@mapNotNull null
             val thought = step.thought.takeIf { it.isNotBlank() }
@@ -140,20 +141,28 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
             else obs.take(80)
         }.joinToString("; ")
 
-        // Snapshot values before crossing scope boundary
         val goalSnap = goal
         val pkgSnap = packageName
         val funcSnap = executedFunctionId
         val traceSnap = traceText
+        val successSnap = success
 
         distillScope.launch {
             val manager = AgentWorkspaceManager(appContext)
-            distillSkill(manager, GLOBAL_SKILL_ID, goalSnap, null, funcSnap, traceSnap)
-            if (!pkgSnap.isNullOrBlank()) {
-                distillSkill(manager, APP_SKILL_PREFIX + sanitizePkg(pkgSnap), goalSnap, pkgSnap, funcSnap, traceSnap)
-            }
-            if (!funcSnap.isNullOrBlank()) {
-                distillSkill(manager, FUNC_SKILL_PREFIX + funcSnap, goalSnap, pkgSnap, funcSnap, traceSnap)
+            if (successSnap && executionTrace.size >= config.distillMinTraceSteps) {
+                distillSkill(manager, GLOBAL_SKILL_ID, goalSnap, null, funcSnap, traceSnap, success = true)
+                if (!pkgSnap.isNullOrBlank()) {
+                    distillSkill(manager, APP_SKILL_PREFIX + sanitizePkg(pkgSnap), goalSnap, pkgSnap, funcSnap, traceSnap, success = true)
+                }
+                if (!funcSnap.isNullOrBlank()) {
+                    distillSkill(manager, FUNC_SKILL_PREFIX + funcSnap, goalSnap, pkgSnap, funcSnap, traceSnap, success = true)
+                }
+            } else if (!successSnap) {
+                // Record failure signal regardless of trace length
+                distillSkill(manager, GLOBAL_SKILL_ID, goalSnap, null, funcSnap, traceSnap, success = false)
+                if (!pkgSnap.isNullOrBlank()) {
+                    distillSkill(manager, APP_SKILL_PREFIX + sanitizePkg(pkgSnap), goalSnap, pkgSnap, funcSnap, traceSnap, success = false)
+                }
             }
         }
     }
@@ -165,16 +174,21 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
         packageName: String?,
         functionId: String?,
         traceText: String,
+        success: Boolean,
     ) {
         mutexFor(skillId).withLock {
             val current = readSkillBody(manager, skillId) ?: ""
-            val prompt = buildDistillPrompt(skillId, goal, packageName, functionId, traceText, current)
+            val prompt = if (success) {
+                buildDistillPrompt(skillId, goal, packageName, functionId, traceText, current)
+            } else {
+                buildFailureDistillPrompt(skillId, goal, packageName, traceText, current)
+            }
             val result = runCatching {
                 HttpController.postLLMRequest(config.distillModel, prompt, maxTokens = config.distillMaxSkillChars).message.trim()
             }.onFailure { OmniLog.w(TAG, "distill failed for $skillId: ${it.message}") }
                 .getOrNull()?.takeIf { it.isNotBlank() } ?: return
             writeSkillBodyAtomic(manager, skillId, result)
-            OmniLog.d(TAG, "updated $skillId (${result.length} chars)")
+            OmniLog.d(TAG, "updated $skillId (${result.length} chars, success=$success)")
         }
     }
 
@@ -201,6 +215,31 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
         appendLine("- 提炼0-2条新的通用策略合并进去；若无新洞察则保持原内容")
         appendLine("- 保持 ## Strategies 和 ## Functions 两个章节结构")
         appendLine("- ## Functions 章节记录已知有用的函数及其适用场景（格式: `- funcId: 场景`）")
+        appendLine("- 总字数严格控制在 ${config.distillMaxSkillChars} 字以内")
+        appendLine("- 直接输出更新后的 Markdown 内容，不要任何解释")
+    }
+
+    private fun buildFailureDistillPrompt(
+        skillId: String,
+        goal: String,
+        packageName: String?,
+        traceText: String,
+        current: String,
+    ): String = buildString {
+        appendLine("你是 VLM planner 经验蒸馏器。将本次失败的洞察合并到现有策略中，输出更新后的内容。")
+        appendLine()
+        appendLine("## 本次失败执行")
+        appendLine("目标: $goal")
+        if (!packageName.isNullOrBlank()) appendLine("应用: $packageName")
+        if (traceText.isNotBlank()) appendLine("执行摘要 (thought → observation): $traceText")
+        appendLine()
+        appendLine("## 现有策略 ($skillId)")
+        appendLine(if (current.isBlank()) "(空)" else current)
+        appendLine()
+        appendLine("## 要求")
+        appendLine("- 提炼0-1条避免规则写入 ## Failures 章节（如无新洞察则保持原内容）")
+        appendLine("- 保持 ## Strategies、## Failures 和 ## Functions 章节结构")
+        appendLine("- ## Failures 章节格式: `- [操作类型] 失败原因/避免事项`")
         appendLine("- 总字数严格控制在 ${config.distillMaxSkillChars} 字以内")
         appendLine("- 直接输出更新后的 Markdown 内容，不要任何解释")
     }
