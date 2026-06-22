@@ -31,6 +31,16 @@
       "hasEvals": false
     },
     {
+      "id": "tune-vlm",
+      "name": "tune-vlm",
+      "description": "Tune VLM automation behavior without recompiling. Use when the user wants to change VLM strategy, disable a gesture, switch model, adjust recall, modify planner prompt, 调整 VLM 行为, 修改 VLM 策略, 换模型, 禁用 swipe, 修改 recall 参数, 调 planner 的提示词, vlm 操作太激进/保守.",
+      "assetPath": "builtin_skills/tune-vlm",
+      "hasScripts": false,
+      "hasReferences": false,
+      "hasAssets": false,
+      "hasEvals": false
+    },
+    {
       "id": "find-install-skills",
       "name": "find-install-skills",
       "description": "Find and install relevant Omnibot skills. Use when the user asks \"找个 skill\", \"有没有这个功能的 skill\", \"find a skill for X\", \"is there a skill for X\", \"install skill\", \"安装 skill\", \"技能商店\", or wants to extend the agent with an installable workflow.",
