@@ -74,6 +74,9 @@ class VlmToolHandler(
             helper.ensureRunActive()
             val goal = args["goal"]?.jsonPrimitive?.content ?: throw IllegalArgumentException("Missing goal")
             val packageName = firstString(args, "packageName", "package_name")
+            val wsConfig = cn.com.omnimind.bot.vlm.VlmWorkspaceConfig.getInstance(helper.context)
+                .also { it.reloadIfChanged() }
+            cn.com.omnimind.assists.task.vlmserver.VLMToolDenylistRegistry.set(wsConfig.get().disabledTools)
             val guidanceManager = cn.com.omnimind.bot.vlm.VlmGuidanceManager.getInstance(helper.context)
             guidanceManager.reloadSystemPrompt()
             val skillGuidance = buildVlmStepSkillGuidance(resolvedSkills)

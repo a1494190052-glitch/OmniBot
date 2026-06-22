@@ -19,5 +19,9 @@ object VLMAllowedToolSelector {
         OobCanonicalActionSchema.TOOL_REQUIRE_USER_CONFIRMATION,
     )
 
-    fun select(context: UIContext): Set<String> = ALL_TOOL_NAMES
+    fun select(context: UIContext): Set<String> {
+        val denied = VLMToolDenylistRegistry.get()
+        if (denied.isEmpty()) return ALL_TOOL_NAMES
+        return ALL_TOOL_NAMES.filterTo(linkedSetOf()) { it !in denied }
+    }
 }

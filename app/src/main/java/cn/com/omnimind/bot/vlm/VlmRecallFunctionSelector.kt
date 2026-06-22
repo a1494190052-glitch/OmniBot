@@ -25,13 +25,13 @@ import kotlinx.serialization.json.jsonPrimitive
 class VlmRecallFunctionSelector(context: Context) : VLMRecallActionProvider {
     private val appContext = context.applicationContext
     private val TAG = "[VlmRecallFunctionSelector]"
-    private val MAX_CANDIDATES = 3
     private val MAX_STEP_SUMMARIES = 3
-    private val SELECTOR_MODEL = "scene.vlm.operation.primary"
+    private val config get() = VlmWorkspaceConfig.getInstance(appContext).get()
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     override suspend fun selectAction(request: VLMRecallContextRequest): UIAction? {
+        if (!config.recallEnabled) return null
         val goal = request.context.activeGoal().ifBlank { request.context.overallTask }.trim()
         if (goal.isBlank()) return null
 
@@ -41,7 +41,7 @@ class VlmRecallFunctionSelector(context: Context) : VLMRecallActionProvider {
                     "goal" to goal,
                     "current_package" to request.currentPackageName,
                     "current_xml" to request.currentXml,
-                    "k" to MAX_CANDIDATES,
+                    "k" to config.recallMaxCandidates,
                 )
             )
         }.onFailure { OmniLog.w(TAG, "recall failed: ${it.message}") }
@@ -64,7 +64,7 @@ class VlmRecallFunctionSelector(context: Context) : VLMRecallActionProvider {
                 @Suppress("UNCHECKED_CAST")
                 c as? Map<String, Any?>
             }
-            .take(MAX_CANDIDATES)
+            .take(config.recallMaxCandidates)
         if (candidates.isEmpty()) return null
 
         return runCatching {
@@ -83,7 +83,7 @@ class VlmRecallFunctionSelector(context: Context) : VLMRecallActionProvider {
         }.getOrNull().orEmpty()
         val prompt = buildSelectionPrompt(goal, packageName, candidates, knownFunctions)
         val request = ChatCompletionRequest(
-            model = SELECTOR_MODEL,
+            model = config.recallSelectorModel,
             messages = listOf(
                 ChatCompletionMessage(role = "user", content = JsonPrimitive(prompt)),
             ),

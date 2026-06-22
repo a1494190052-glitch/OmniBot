@@ -25,10 +25,7 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
         const val APP_SKILL_PREFIX = "vlm-app-"
         const val FUNC_SKILL_PREFIX = "vlm-func-"
 
-        private const val SCENE_DISTILL = "scene.memory.rollup"
-        private const val MAX_SKILL_CHARS = 400
         private const val VLM_STRATEGIES_FILE = "vlm_strategies.md"
-        private const val MIN_TRACE_STEPS = 2
 
         private val STRATEGIES_SEED = """
             # VLM Planner 自定义策略
@@ -49,6 +46,8 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
             }
     }
 
+    private val config get() = VlmWorkspaceConfig.getInstance(appContext).get()
+
     // Detached scope — distillation must survive Task destruction
     private val distillScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -60,6 +59,7 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
     private var strategiesLastModified = 0L
 
     fun initialize() {
+        VlmWorkspaceConfig.getInstance(appContext).initialize()
         loadSystemPromptIfChanged()
         seedStrategiesTemplate()
     }
@@ -105,7 +105,7 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
         if (!functionId.isNullOrBlank()) {
             readSkillBody(manager, FUNC_SKILL_PREFIX + functionId)?.let { parts.add(it) }
         }
-        return parts.filter { it.isNotBlank() }.joinToString("\n\n").take(480)
+        return parts.filter { it.isNotBlank() }.joinToString("\n\n").take(config.distillMaxSkillChars)
     }
 
     fun loadFunctionsSection(packageName: String?): String {
@@ -132,7 +132,7 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
         success: Boolean,
         executionTrace: List<UIStep>,
     ) {
-        if (!success || goal.isBlank() || executionTrace.size < MIN_TRACE_STEPS) return
+        if (!success || goal.isBlank() || executionTrace.size < config.distillMinTraceSteps) return
         val traceText = executionTrace.takeLast(6).mapNotNull { step ->
             val obs = step.observation.takeIf { it.isNotBlank() } ?: return@mapNotNull null
             val thought = step.thought.takeIf { it.isNotBlank() }
@@ -170,7 +170,7 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
             val current = readSkillBody(manager, skillId) ?: ""
             val prompt = buildDistillPrompt(skillId, goal, packageName, functionId, traceText, current)
             val result = runCatching {
-                HttpController.postLLMRequest(SCENE_DISTILL, prompt, maxTokens = MAX_SKILL_CHARS).message.trim()
+                HttpController.postLLMRequest(config.distillModel, prompt, maxTokens = config.distillMaxSkillChars).message.trim()
             }.onFailure { OmniLog.w(TAG, "distill failed for $skillId: ${it.message}") }
                 .getOrNull()?.takeIf { it.isNotBlank() } ?: return
             writeSkillBodyAtomic(manager, skillId, result)
@@ -201,7 +201,7 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
         appendLine("- 提炼0-2条新的通用策略合并进去；若无新洞察则保持原内容")
         appendLine("- 保持 ## Strategies 和 ## Functions 两个章节结构")
         appendLine("- ## Functions 章节记录已知有用的函数及其适用场景（格式: `- funcId: 场景`）")
-        appendLine("- 总字数严格控制在 $MAX_SKILL_CHARS 字以内")
+        appendLine("- 总字数严格控制在 ${config.distillMaxSkillChars} 字以内")
         appendLine("- 直接输出更新后的 Markdown 内容，不要任何解释")
     }
 
