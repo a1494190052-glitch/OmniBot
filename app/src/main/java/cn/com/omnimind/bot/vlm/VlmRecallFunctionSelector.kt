@@ -78,7 +78,10 @@ class VlmRecallFunctionSelector(context: Context) : VLMRecallActionProvider {
         packageName: String?,
         candidates: List<Map<String, Any?>>,
     ): UIAction? {
-        val prompt = buildSelectionPrompt(goal, packageName, candidates)
+        val knownFunctions = runCatching {
+            VlmGuidanceManager.getInstance(appContext).loadFunctionsSection(packageName)
+        }.getOrNull().orEmpty()
+        val prompt = buildSelectionPrompt(goal, packageName, candidates, knownFunctions)
         val request = ChatCompletionRequest(
             model = SELECTOR_MODEL,
             messages = listOf(
@@ -104,9 +107,11 @@ class VlmRecallFunctionSelector(context: Context) : VLMRecallActionProvider {
         goal: String,
         packageName: String?,
         candidates: List<Map<String, Any?>>,
+        knownFunctionHints: String = "",
     ): String = buildString {
         append("Goal: $goal\n")
         if (!packageName.isNullOrBlank()) append("Current app: $packageName\n")
+        if (knownFunctionHints.isNotBlank()) append("\nKnown useful functions:\n$knownFunctionHints\n")
         append("\nSaved functions:\n")
         candidates.forEachIndexed { i, c ->
             val id = c["function_id"]?.toString() ?: return@forEachIndexed

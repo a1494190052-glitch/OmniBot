@@ -3404,16 +3404,24 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         mainJob.launch {
             try {
                 TaskRuntimeSettings.onTaskStarted(context)
+                val taskPackageName = call.argument<String>("packageName")
+                val callerGuidance = call.argument<String>("stepSkillGuidance").orEmpty()
+                val learnedGuidance = runCatching {
+                    cn.com.omnimind.bot.vlm.VlmGuidanceManager.getInstance(context)
+                        .loadGuidance(taskPackageName)
+                }.getOrNull().orEmpty()
+                val mergedGuidance = listOf(callerGuidance, learnedGuidance)
+                    .filter { it.isNotBlank() }.joinToString("\n")
                 AssistsUtil.Core.createVLMOperationTask(
                     context,
                     call.argument<String>("goal")!!,
                     call.argument<String>("model"),
                     call.argument<Int>("maxSteps"),
-                    call.argument<String>("packageName"),
+                    taskPackageName,
                     vlmListener,
                     needSummary,
                     skipGoHome,
-                    call.argument<String>("stepSkillGuidance").orEmpty(),
+                    mergedGuidance,
                     taskId.takeIf { it.isNotBlank() }
                 )
                 withContext(Dispatchers.Main) {

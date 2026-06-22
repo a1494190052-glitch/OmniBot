@@ -74,10 +74,11 @@ class VlmToolHandler(
             helper.ensureRunActive()
             val goal = args["goal"]?.jsonPrimitive?.content ?: throw IllegalArgumentException("Missing goal")
             val packageName = firstString(args, "packageName", "package_name")
+            val guidanceManager = cn.com.omnimind.bot.vlm.VlmGuidanceManager.getInstance(helper.context)
+            guidanceManager.reloadSystemPrompt()
             val skillGuidance = buildVlmStepSkillGuidance(resolvedSkills)
             val learnedGuidance = runCatching {
-                cn.com.omnimind.bot.vlm.VlmGuidanceManager.getInstance(helper.context)
-                    .loadGuidance(packageName)
+                guidanceManager.loadGuidance(packageName)
             }.getOrNull().orEmpty()
             val stepSkillGuidance = listOf(skillGuidance, learnedGuidance)
                 .filter { it.isNotBlank() }.joinToString("\n")

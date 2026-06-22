@@ -14,11 +14,25 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
 
     companion object {
         private const val TAG = "VlmGuidanceManager"
-        private const val GLOBAL_SKILL_ID = "vlm-guidance"
-        private const val APP_SKILL_PREFIX = "vlm-app-"
+
+        const val GLOBAL_SKILL_ID = "vlm-guidance"
+        const val APP_SKILL_PREFIX = "vlm-app-"
+        const val FUNC_SKILL_PREFIX = "vlm-func-"
+
         private const val SCENE_DISTILL = "scene.memory.rollup"
         private const val MAX_SKILL_CHARS = 400
         private const val VLM_STRATEGIES_FILE = "vlm_strategies.md"
+        private const val MIN_TRACE_STEPS = 2
+
+        private val STRATEGIES_SEED = """
+            # VLM Planner 自定义策略
+            # 编辑此文件可在不更新 App 的情况下调整 VLM 规划行为。
+            # 此内容会追加到 VLM 的 system prompt 末尾。
+            #
+            # 示例：
+            # - 遇到广告弹窗立即关闭，不要等待
+            # - 输入前先点击输入框确认已聚焦
+        """.trimIndent()
 
         @Volatile
         private var _instance: VlmGuidanceManager? = null
@@ -29,16 +43,46 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
             }
     }
 
+    @Volatile
+    private var strategiesLastModified = 0L
+
     fun initialize() {
+        loadSystemPromptIfChanged()
+        seedStrategiesTemplate()
+    }
+
+    fun reloadSystemPrompt() {
+        loadSystemPromptIfChanged()
+    }
+
+    private fun loadSystemPromptIfChanged() {
         runCatching {
             val file = AgentWorkspaceManager(appContext).agentDirectory().resolve(VLM_STRATEGIES_FILE)
-            val content = file.takeIf { it.exists() }?.readText()?.trim()
-            VLMSystemPromptRegistry.set(content)
-            if (content != null) OmniLog.d(TAG, "loaded vlm_strategies.md (${content.length} chars)")
+            if (!file.exists()) return
+            val modified = file.lastModified()
+            if (modified == strategiesLastModified) return
+            val content = file.readText().trim()
+                .lines()
+                .filterNot { it.trimStart().startsWith("#") }
+                .joinToString("\n")
+                .trim()
+            VLMSystemPromptRegistry.set(content.takeIf { it.isNotBlank() })
+            strategiesLastModified = modified
+            OmniLog.d(TAG, "reloaded $VLM_STRATEGIES_FILE (${content.length} chars)")
         }.onFailure { OmniLog.w(TAG, "failed to load $VLM_STRATEGIES_FILE: ${it.message}") }
     }
 
-    fun loadGuidance(packageName: String?): String {
+    private fun seedStrategiesTemplate() {
+        runCatching {
+            val file = AgentWorkspaceManager(appContext).agentDirectory().resolve(VLM_STRATEGIES_FILE)
+            if (!file.exists()) {
+                file.writeText(STRATEGIES_SEED)
+                OmniLog.d(TAG, "seeded $VLM_STRATEGIES_FILE")
+            }
+        }.onFailure { OmniLog.w(TAG, "failed to seed $VLM_STRATEGIES_FILE: ${it.message}") }
+    }
+
+    fun loadGuidance(packageName: String?, functionId: String? = null): String {
         val manager = AgentWorkspaceManager(appContext)
         val parts = mutableListOf<String>()
 
@@ -46,8 +90,31 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
         if (!packageName.isNullOrBlank()) {
             readSkillBody(manager, APP_SKILL_PREFIX + sanitizePkg(packageName))?.let { parts.add(it) }
         }
+        if (!functionId.isNullOrBlank()) {
+            readSkillBody(manager, FUNC_SKILL_PREFIX + functionId)?.let { parts.add(it) }
+        }
 
         return parts.filter { it.isNotBlank() }.joinToString("\n\n").take(480)
+    }
+
+    fun loadFunctionsSection(packageName: String?): String {
+        val manager = AgentWorkspaceManager(appContext)
+        val bodies = buildList {
+            readSkillBody(manager, GLOBAL_SKILL_ID)?.let { add(it) }
+            if (!packageName.isNullOrBlank()) {
+                readSkillBody(manager, APP_SKILL_PREFIX + sanitizePkg(packageName))?.let { add(it) }
+            }
+        }
+        return bodies
+            .flatMap { body ->
+                val start = body.indexOf("## Functions")
+                if (start < 0) return@flatMap emptyList()
+                val end = body.indexOf("\n##", start + 1).takeIf { it > 0 } ?: body.length
+                body.substring(start, end).lines().drop(1).filter { it.trimStart().startsWith("-") }
+            }
+            .distinct()
+            .joinToString("\n")
+            .take(200)
     }
 
     override suspend fun onTaskCompleted(
@@ -57,21 +124,23 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
         success: Boolean,
         executionTrace: List<UIStep>,
     ) {
-        if (!success || goal.isBlank()) return
+        if (!success || goal.isBlank() || executionTrace.size < MIN_TRACE_STEPS) return
         withContext(Dispatchers.IO) {
             val manager = AgentWorkspaceManager(appContext)
             val traceText = executionTrace.takeLast(6)
-                .mapNotNull { step ->
-                    val obs = step.observation?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-                    obs.take(80)
-                }
+                .mapNotNull { it.observation?.takeIf { o -> o.isNotBlank() }?.take(80) }
                 .joinToString("; ")
 
             distillSkill(manager, GLOBAL_SKILL_ID, goal, null, executedFunctionId, traceText)
             if (!packageName.isNullOrBlank()) {
                 distillSkill(
-                    manager,
-                    APP_SKILL_PREFIX + sanitizePkg(packageName),
+                    manager, APP_SKILL_PREFIX + sanitizePkg(packageName),
+                    goal, packageName, executedFunctionId, traceText,
+                )
+            }
+            if (!executedFunctionId.isNullOrBlank()) {
+                distillSkill(
+                    manager, FUNC_SKILL_PREFIX + executedFunctionId,
                     goal, packageName, executedFunctionId, traceText,
                 )
             }
@@ -94,7 +163,7 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
             .getOrNull()?.takeIf { it.isNotBlank() } ?: return
 
         writeSkillBody(manager, skillId, result)
-        OmniLog.d(TAG, "updated skill $skillId (${result.length} chars)")
+        OmniLog.d(TAG, "updated $skillId (${result.length} chars)")
     }
 
     private fun buildDistillPrompt(
@@ -113,14 +182,13 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
         if (!functionId.isNullOrBlank()) appendLine("使用的函数: $functionId")
         if (traceText.isNotBlank()) appendLine("执行摘要: $traceText")
         appendLine()
-        appendLine("## 现有策略内容 (${skillId})")
+        appendLine("## 现有策略 ($skillId)")
         appendLine(if (current.isBlank()) "(空)" else current)
         appendLine()
         appendLine("## 要求")
-        appendLine("- 提炼0-2条新的通用策略合并进去")
-        appendLine("- 若无新洞察则保持原内容")
+        appendLine("- 提炼0-2条新的通用策略合并进去；若无新洞察则保持原内容")
         appendLine("- 保持 ## Strategies 和 ## Functions 两个章节结构")
-        appendLine("- ## Functions 章节记录已知有用的函数ID及其适用场景（格式: `- funcId: 场景`）")
+        appendLine("- ## Functions 章节记录已知有用的函数及其适用场景（格式: `- funcId: 场景`）")
         appendLine("- 总字数严格控制在 $MAX_SKILL_CHARS 字以内")
         appendLine("- 直接输出更新后的 Markdown 内容，不要任何解释")
     }
