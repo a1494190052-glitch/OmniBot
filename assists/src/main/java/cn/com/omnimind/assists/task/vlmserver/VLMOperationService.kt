@@ -582,11 +582,12 @@ class VLMOperationService(
                 )
                 markPhase("recall_action_ms", recallActionStartedAt)
                 if (preSelectedAction != null) {
+                    val recallFnId = (preSelectedAction as? FunctionRunAction)?.functionId ?: "unknown"
                     vlmResult = VLMResult(
                         success = true,
                         step = UIStep(
-                            observation = "Recall matched a saved function",
-                            thought = "Executing recall-selected function instead of calling VLM",
+                            observation = "Recall matched saved function: $recallFnId — executing as action segment",
+                            thought = "Skipping VLM call; replay saved function $recallFnId",
                             action = preSelectedAction,
                         )
                     )

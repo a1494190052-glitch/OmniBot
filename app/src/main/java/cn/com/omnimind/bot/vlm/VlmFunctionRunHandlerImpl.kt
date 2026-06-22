@@ -33,11 +33,17 @@ class VlmFunctionRunHandlerImpl(context: Context) : VLMFunctionRunHandler {
             )
         }
         val success = result["success"] == true
-        val message = listOfNotNull(
-            result["error_message"]?.toString(),
-            result["execution_summary"]?.toString(),
-        ).firstOrNull { it.isNotBlank() } ?: ""
-        OmniLog.d(TAG, "runFunction ${request.functionId} success=$success")
+        val stepCount = result["step_count"]?.toString()?.toIntOrNull()
+        val message = buildString {
+            append(if (success) "Function ${request.functionId} completed" else "Function ${request.functionId} failed")
+            if (stepCount != null && stepCount > 0) append(" ($stepCount steps)")
+            val detail = listOfNotNull(
+                result["error_message"]?.toString(),
+                result["execution_summary"]?.toString(),
+            ).firstOrNull { it.isNotBlank() }
+            if (!detail.isNullOrBlank()) append(": $detail")
+        }
+        OmniLog.d(TAG, "runFunction ${request.functionId} success=$success steps=$stepCount")
         return OperationResult(success = success, message = message, data = null)
     }
 }
