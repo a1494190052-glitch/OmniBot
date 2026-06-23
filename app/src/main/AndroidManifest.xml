@@ -223,6 +223,19 @@
             </intent-filter>
         </activity>
 
+        <provider
+            android:name=".workspace.OmnibotWorkspaceDocumentsProvider"
+            android:authorities="${applicationId}.workspace.documents"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/omni_app_name"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
+
         <!-- FileProvider用于APK安装 -->
         <provider
             android:name="androidx.core.content.FileProvider"
