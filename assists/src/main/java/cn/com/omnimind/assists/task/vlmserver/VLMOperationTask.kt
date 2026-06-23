@@ -1199,7 +1199,7 @@ open class VLMOperationTask(
         var summaryStarted = false
 
         try {
-            val finishedFromTrace = report.executionTrace.lastOrNull { it.action.name == “finished” }
+            val finishedFromTrace = report.executionTrace.lastOrNull { it.action.name == "finished" }
             val traceSummary = finishedFromTrace?.result
                 ?: (finishedFromTrace?.action as? FinishedAction)?.content.orEmpty()
             val prompt = PromptTemplate.summaryPrompt(goal)
