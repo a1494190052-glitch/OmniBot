@@ -2073,6 +2073,11 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     List<Map<String, dynamic>> attachments,
   });
 
+  Future<void> _startManualRecordingFlow(
+    String messageText, {
+    required bool recordDebugScreenshots,
+  });
+
   Future<void> _sendChatMessage(String aiMessageId);
 
   Future<void> _sendPureChatMessage(String aiMessageId);

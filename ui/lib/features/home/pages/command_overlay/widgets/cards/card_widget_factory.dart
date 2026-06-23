@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:ui/services/agent_tool_card_policy.dart';
 import 'package:ui/services/app_background_service.dart';
-import 'package:ui/widgets/oob_function_run_progress_card.dart';
 import 'artifact_card.dart';
 import 'agent_tool_summary_card.dart';
 import 'context_compaction_marker_card.dart';
@@ -13,7 +12,6 @@ import 'permission_section_card.dart';
 import 'stage_hint_card.dart';
 import 'openclaw_attachment_card.dart';
 import 'user_dialog_card.dart';
-import 'manual_recording_result_card.dart';
 
 /// 任务执行前的回调类型
 typedef OnBeforeTaskExecute = Future<void> Function();
@@ -125,10 +123,6 @@ class CardWidgetFactory {
       case 'artifact_card':
         final artifact = cardData['artifact'] as Map<String, dynamic>? ?? {};
         return ArtifactCard(artifact: artifact);
-      case kManualRecordingResultCardType:
-        return ManualRecordingResultCard(cardData: cardData);
-      case kOobFunctionRunProgressCardType:
-        return OobFunctionRunProgressCard.fromCardData(cardData);
       default:
         return _UnknownCard(type: type);
     }

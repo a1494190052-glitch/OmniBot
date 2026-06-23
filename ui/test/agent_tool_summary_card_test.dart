@@ -720,8 +720,8 @@ diff --git a/lib/main.dart b/lib/main.dart
     await tester.tap(find.text('设置按钮'));
     await tester.pumpAndSettle();
 
-    expect(find.text('VLM 执行记录 · 第 1 步'), findsOneWidget);
-    expect(find.text('VLM 动作'), findsOneWidget);
+    expect(find.text('自动执行记录 · 第 1 步'), findsOneWidget);
+    expect(find.text('自动执行动作'), findsOneWidget);
     expect(find.text('设置按钮'), findsAtLeastNWidgets(1));
     expect(find.textContaining('120,240', findRichText: true), findsOneWidget);
     expect(find.byKey(kAgentToolDetailSheetKey), findsNothing);

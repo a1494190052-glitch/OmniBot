@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:ui/features/home/pages/chat/utils/function_run_tool_card_data.dart';
+import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_summary_card.dart';
 import 'package:ui/features/task/pages/execution_history/run_log_timeline_page.dart';
 import 'package:ui/features/task/pages/execution_history/widgets/reusable_function_card.dart';
 import 'package:ui/features/task/run_log/run_log_reusable_function_converter.dart';
@@ -11,7 +13,6 @@ import 'package:ui/theme/app_colors.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/widgets/common_app_bar.dart';
-import 'package:ui/widgets/oob_function_run_progress_card.dart';
 
 class FunctionLibraryPage extends StatefulWidget {
   const FunctionLibraryPage({super.key, this.embedded = false});
@@ -441,9 +442,8 @@ class _FunctionLibraryProgressSlot extends StatelessWidget {
           ),
         ),
       ),
-      child: OobFunctionRunProgressCard(
-        event: event,
-        maxWidth: double.infinity,
+      child: AgentToolSummaryCard(
+        cardData: functionRunToolCardDataForEvent(event),
       ),
     );
   }

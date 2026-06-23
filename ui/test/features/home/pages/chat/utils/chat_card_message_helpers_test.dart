@@ -6,7 +6,7 @@ import 'package:ui/services/agent_tool_card_policy.dart';
 import 'package:ui/services/assists_core_service.dart';
 
 void main() {
-  test('upserts OOB function progress as a shared summary card', () {
+  test('upserts function run progress as a shared summary card', () {
     final messages = <ChatMessageModel>[];
     final started = OobFunctionRunProgressEvent.fromMap(<String, dynamic>{
       'task_id': 'task-1',
@@ -42,7 +42,7 @@ void main() {
 
     expect(messages, hasLength(1));
     expect(messages.single.cardData?['status'], 'success');
-    expect(messages.single.cardData?['toolName'], 'oob_function_run');
+    expect(messages.single.cardData?['toolName'], 'function_run');
   });
 
   test('thinking card default id is shared by create and update', () {

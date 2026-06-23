@@ -1,11 +1,11 @@
 import 'package:ui/features/home/pages/chat/utils/agent_thinking_card_locator.dart';
+import 'package:ui/features/home/pages/chat/utils/function_run_tool_card_data.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/models/chat_link_preview.dart';
 import 'package:ui/models/chat_message_model.dart';
 import 'package:ui/services/agent_stream_meta.dart';
 import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/services/link_preview_service.dart';
-import 'package:ui/widgets/oob_function_run_progress_card.dart';
 
 class ChatCardMessageHelpers {
   const ChatCardMessageHelpers._();
@@ -50,14 +50,14 @@ class ChatCardMessageHelpers {
     List<ChatMessageModel> messages,
     OobFunctionRunProgressEvent event,
   ) {
-    final cardId = oobFunctionRunProgressCardIdForEvent(event);
+    final cardId = functionRunToolCardIdForEvent(event);
     if (cardId.isEmpty) {
       return false;
     }
     return upsertCardMessage(
       messages,
       cardId: cardId,
-      cardData: oobFunctionRunProgressCardDataForEvent(event),
+      cardData: functionRunToolCardDataForEvent(event),
     );
   }
 
