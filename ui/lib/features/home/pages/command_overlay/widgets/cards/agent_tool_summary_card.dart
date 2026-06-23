@@ -7,11 +7,17 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/features/home/pages/chat/tool_activity_utils.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_transcript.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/codex_diff_viewer.dart';
+import 'package:ui/features/task/pages/execution_history/run_log_timeline_page.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
+import 'package:ui/services/agent_tool_card_policy.dart';
 import 'package:ui/services/app_background_service.dart';
 import 'package:ui/services/codex_diff_parser.dart';
 import 'package:ui/services/codex_tool_call_parser.dart';
 import 'package:ui/theme/theme_context.dart';
+
+const ValueKey<String> kAgentToolDiffSheetKey = ValueKey<String>(
+  'agent-tool-diff-sheet',
+);
 
 class AgentToolSummaryCard extends StatefulWidget {
   const AgentToolSummaryCard({
@@ -35,23 +41,34 @@ class _AgentToolSummaryCardState extends State<AgentToolSummaryCard> {
   @override
   Widget build(BuildContext context) {
     final cardData = widget.cardData;
-    if (_usesInlineToolStyle(cardData)) {
+    if (_useInlineToolPresentation && _usesInlineToolStyle(cardData)) {
       return _InlineToolCallCard(
         cardData: cardData,
         visualProfile: widget.visualProfile,
       );
     }
 
+    final locale = Localizations.localeOf(context);
     final status = (cardData['status'] ?? 'running').toString();
-    final title = resolveAgentToolTitle(cardData);
-    final statusLabel = resolveAgentToolStatusLabel(cardData);
-    final preview = resolveAgentToolPreview(cardData);
-    final typeLabel = resolveAgentToolTypeLabel(cardData);
+    final resolvedTitle = resolveAgentToolTitle(cardData, locale: locale);
+    final summaryTitle = resolveAgentToolSummaryText(cardData, locale: locale);
+    final activityKind = AgentToolCardPolicy.activityKindFor(cardData);
+    final title =
+        _useSummaryTextInSummaryCard &&
+            _summaryCardPrefersSummary(activityKind) &&
+            !_isInlineFileTool(cardData) &&
+            summaryTitle.isNotEmpty
+        ? summaryTitle
+        : resolvedTitle;
+    final statusLabel = resolveAgentToolStatusLabel(cardData, locale: locale);
+    final typeLabel = resolveAgentToolTypeLabel(cardData, locale: locale);
+    final preview = resolveAgentToolPreview(cardData, locale: locale);
     final isSubagent = _isSubagentTool(cardData);
-    final subagentEvents = isSubagent
+    final showSubagentStatusBlocks = _showSubagentStatusBlocks && isSubagent;
+    final subagentEvents = showSubagentStatusBlocks
         ? _resolveSubagentTimelineEvents(cardData)
         : const <_SubagentTimelineEvent>[];
-    final subagentGroups = isSubagent
+    final subagentGroups = showSubagentStatusBlocks
         ? _resolveSubagentStatusGroups(cardData, subagentEvents)
         : const <_SubagentStatusGroup>[];
     final statusColor = resolveAgentToolStatusColor(status);
@@ -99,8 +116,7 @@ class _AgentToolSummaryCardState extends State<AgentToolSummaryCard> {
       status: status,
       title: title,
       titleStyle: titleStyle,
-      typeLabel: typeLabel,
-      statusLabel: statusLabel,
+      statusLabel: status == 'running' ? typeLabel : statusLabel,
       cardBackgroundColor: cardBackgroundColor,
       cardBorder: cardBorder,
       statusTagBackgroundColor: statusTagBackgroundColor,
@@ -118,7 +134,7 @@ class _AgentToolSummaryCardState extends State<AgentToolSummaryCard> {
           ),
           child: Container(
             margin: const EdgeInsets.only(top: 6, bottom: 2),
-            child: isSubagent
+            child: showSubagentStatusBlocks
                 ? Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -155,14 +171,15 @@ class _AgentToolSummaryCardState extends State<AgentToolSummaryCard> {
     required String status,
     required String title,
     required TextStyle titleStyle,
-    required String typeLabel,
     required String statusLabel,
     required Color cardBackgroundColor,
     required Border? cardBorder,
     required Color statusTagBackgroundColor,
     required Color statusTagTextColor,
   }) {
-    final diffStatLabel = _resolveDiffStatLabel(cardData);
+    final diffStatLabel = _showSummaryCardDiffBadge
+        ? _resolveDiffStatLabel(cardData)
+        : null;
     return Material(
       color: Colors.transparent,
       borderRadius: BorderRadius.circular(999),
@@ -175,7 +192,7 @@ class _AgentToolSummaryCardState extends State<AgentToolSummaryCard> {
         ),
         child: InkWell(
           onTap: () =>
-              unawaited(showAgentToolDetailSheet(context, cardData: cardData)),
+              unawaited(_openAgentToolCard(context, cardData: cardData)),
           borderRadius: BorderRadius.circular(999),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
@@ -185,7 +202,7 @@ class _AgentToolSummaryCardState extends State<AgentToolSummaryCard> {
                 _StatusIcon(status: status, toolType: cardData['toolType']),
                 const SizedBox(width: 8),
                 Flexible(
-                  child: status == 'running'
+                  child: status == 'running' && _animateRunningSummaryTitle
                       ? _FlowingToolTitleText(text: title, style: titleStyle)
                       : Text(
                           title,
@@ -209,7 +226,7 @@ class _AgentToolSummaryCardState extends State<AgentToolSummaryCard> {
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
-                    status == 'running' ? typeLabel : statusLabel,
+                    statusLabel,
                     style: TextStyle(
                       color: statusTagTextColor,
                       fontSize: 10,
@@ -224,6 +241,251 @@ class _AgentToolSummaryCardState extends State<AgentToolSummaryCard> {
         ),
       ),
     );
+  }
+}
+
+Future<void> _openAgentToolCard(
+  BuildContext context, {
+  required Map<String, dynamic> cardData,
+}) {
+  final locale = Localizations.localeOf(context);
+  final title = resolveAgentToolTitle(cardData, locale: locale);
+  final diffSummary = _resolveInlineDiffSummary(cardData);
+  if (_isInlineFileTool(cardData) &&
+      diffSummary != null &&
+      diffSummary.files.isNotEmpty) {
+    return _showAgentToolDiffSheet(
+      context,
+      cardData: cardData,
+      summary: diffSummary,
+      title: title,
+    );
+  }
+  final runLogRef = AgentToolCardPolicy.runLogRef(cardData);
+  if (_shouldOpenRunLogAsTimeline(cardData) && runLogRef.hasRunLog) {
+    return showRunLogTimelineSheet(
+      context,
+      runId: runLogRef.runLogId,
+      title: title,
+    );
+  }
+  final isVlmTaskWrapper =
+      AgentToolCardPolicy.activityKindFor(cardData) ==
+          AgentToolActivityKind.vlm &&
+      (cardData['toolName'] ?? '').toString().trim() == 'vlm_task';
+  if (isVlmTaskWrapper && runLogRef.hasRunLog) {
+    return showRunLogTimelineSheet(
+      context,
+      runId: runLogRef.runLogId,
+      title: title,
+    );
+  }
+  if (runLogRef.hasStep) {
+    return showRunLogStepDetailSheet(
+      context,
+      runId: runLogRef.runLogId,
+      cardId: runLogRef.cardId,
+      title: title,
+    );
+  }
+  if (runLogRef.hasRunLog) {
+    return showRunLogTimelineSheet(
+      context,
+      runId: runLogRef.runLogId,
+      title: title,
+    );
+  }
+  return showAgentToolDetailSheet(context, cardData: cardData);
+}
+
+Future<void> _showAgentToolDiffSheet(
+  BuildContext context, {
+  required Map<String, dynamic> cardData,
+  required CodexDiffSummary summary,
+  required String title,
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    useRootNavigator: true,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    barrierColor: Colors.black.withValues(alpha: 0.28),
+    builder: (sheetContext) {
+      final palette = sheetContext.omniPalette;
+      final status = (cardData['status'] ?? 'running').toString();
+      final statusColor = resolveAgentToolStatusColor(status);
+      final statusLabel = resolveAgentToolStatusLabel(
+        cardData,
+        locale: Localizations.localeOf(sheetContext),
+      );
+      final mediaQuery = MediaQuery.of(sheetContext);
+      final height = math.max(
+        360.0,
+        (mediaQuery.size.height -
+                mediaQuery.padding.top -
+                mediaQuery.viewInsets.bottom) *
+            0.72,
+      );
+      return SafeArea(
+        top: false,
+        child: Container(
+          key: kAgentToolDiffSheetKey,
+          height: height,
+          decoration: BoxDecoration(
+            color: palette.surfacePrimary,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            border: Border(top: BorderSide(color: palette.borderSubtle)),
+            boxShadow: [
+              BoxShadow(
+                color: palette.shadowColor.withValues(alpha: 0.24),
+                blurRadius: 24,
+                offset: const Offset(0, -8),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              const SizedBox(height: 8),
+              Container(
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: palette.textTertiary.withValues(alpha: 0.32),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 14, 18, 10),
+                child: Row(
+                  children: [
+                    Icon(
+                      LucideIcons.gitCompareArrows,
+                      size: 18,
+                      color: statusColor,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: palette.textPrimary,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0,
+                          height: 1.2,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    _DiffStatBadge(
+                      label: formatCodexDiffStat(
+                        additions: summary.additions,
+                        deletions: summary.deletions,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      statusLabel,
+                      style: TextStyle(
+                        color: statusColor,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0,
+                        height: 1,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: CodexDiffViewer(
+                  summary: summary,
+                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+bool get _useInlineToolPresentation => false;
+
+bool get _showSubagentStatusBlocks => false;
+
+bool get _showSummaryCardDiffBadge => false;
+
+bool get _animateRunningSummaryTitle => false;
+
+bool get _useSummaryTextInSummaryCard => true;
+
+bool _summaryCardPrefersSummary(AgentToolActivityKind? kind) {
+  return kind == AgentToolActivityKind.vlm ||
+      kind == AgentToolActivityKind.research ||
+      kind == AgentToolActivityKind.generic ||
+      kind == AgentToolActivityKind.omniflow;
+}
+
+bool _shouldOpenRunLogAsTimeline(Map<String, dynamic> cardData) {
+  for (final key in const [
+    'openRunLogAsTimeline',
+    'open_run_log_as_timeline',
+    'forceRunLogTimeline',
+    'force_run_log_timeline',
+  ]) {
+    final value = cardData[key];
+    if (value is bool) return value;
+    final text = value?.toString().trim().toLowerCase() ?? '';
+    if (text == 'true' || text == '1' || text == 'yes') return true;
+  }
+  return false;
+}
+
+IconData _summaryCardStatusIcon(String status, String toolType) {
+  final normalizedStatus = AgentToolCardPolicy.normalizeStatus(
+    status,
+    fallback: 'running',
+  );
+  if (normalizedStatus == 'timeout') {
+    return LucideIcons.hourglass;
+  }
+  if (normalizedStatus == 'interrupted') {
+    return LucideIcons.stopCircle;
+  }
+  if (normalizedStatus == 'error') {
+    return LucideIcons.circleAlert;
+  }
+  switch (toolType) {
+    case 'terminal':
+      return LucideIcons.terminal;
+    case 'browser':
+      return LucideIcons.globe;
+    case 'research':
+      return LucideIcons.search;
+    case 'vlm':
+    case 'mobile':
+      return LucideIcons.eye;
+    case 'calendar':
+      return LucideIcons.calendar;
+    case 'alarm':
+    case 'schedule':
+      return LucideIcons.alarmClock;
+    case 'thinking':
+    case 'memory':
+      return LucideIcons.brain;
+    case 'workspace':
+      return LucideIcons.folder;
+    case 'omniflow':
+    case 'oob_function':
+      return LucideIcons.layoutDashboard;
+    case 'mcp':
+      return LucideIcons.puzzle;
+    default:
+      return LucideIcons.checkCircle;
   }
 }
 
@@ -398,10 +660,11 @@ class _InlineToolCallCardState extends State<_InlineToolCallCard> {
                         ? () => setState(() => _expanded = !_expanded)
                         : isCodexTool
                         ? () => unawaited(
-                            showAgentToolDetailSheet(
-                              context,
-                              cardData: cardData,
-                            ),
+                            _openAgentToolCard(context, cardData: cardData),
+                          )
+                        : AgentToolCardPolicy.runLogRef(cardData).hasRunLog
+                        ? () => unawaited(
+                            _openAgentToolCard(context, cardData: cardData),
                           )
                         : null,
                     splashColor: pressedOverlayColor,
@@ -411,7 +674,7 @@ class _InlineToolCallCardState extends State<_InlineToolCallCard> {
                       child: Row(
                         children: [
                           Icon(
-                            resolveAgentToolStatusIcon(status, toolType),
+                            _summaryCardStatusIcon(status, toolType),
                             size: 16,
                             color: mutedColor,
                           ),
@@ -1607,7 +1870,7 @@ class _StatusIcon extends StatelessWidget {
                 ),
               )
             : Icon(
-                resolveAgentToolStatusIcon(status, (toolType ?? '').toString()),
+                _summaryCardStatusIcon(status, (toolType ?? '').toString()),
                 size: 10,
                 color: iconColor,
               ),

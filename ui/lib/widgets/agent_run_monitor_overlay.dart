@@ -595,6 +595,7 @@ class _AgentRunCompactRow extends StatelessWidget {
             child: Center(
               child: ToolActivityRow(
                 card: displayCard,
+                showRunLogButton: false,
                 trailing: FittedBox(
                   fit: BoxFit.scaleDown,
                   child: Text(
@@ -805,15 +806,15 @@ class _AgentRunEventSummary {
       raw.putIfAbsent('progress', () => message);
     }
     return switch (event.kind) {
-      AgentStreamEventKind.toolStarted => _buildMonitorToolCard(
+      AgentStreamEventKind.toolStarted => buildAgentToolActivityCard(
         raw,
         taskId: event.taskId,
       ),
-      AgentStreamEventKind.toolProgress => _buildMonitorToolCard(
+      AgentStreamEventKind.toolProgress => buildAgentToolActivityCard(
         raw,
         taskId: event.taskId,
       ),
-      AgentStreamEventKind.toolCompleted => _buildMonitorToolCard(
+      AgentStreamEventKind.toolCompleted => buildAgentToolActivityCard(
         raw,
         taskId: event.taskId,
         defaultStatus: event.success ? 'success' : 'error',
@@ -842,7 +843,7 @@ Map<String, dynamic> _agentRunToolActivityCard(
     return card;
   }
   final summary = latestEvent?.label ?? run.compactSummary;
-  return _buildMonitorToolCard(
+  return buildAgentToolActivityCard(
     {
       'toolName': run.conversationMode,
       'displayName': run.conversationModeLabel,
@@ -889,7 +890,7 @@ class _AgentRunSnapshot {
       toolName: (activeTool['toolName'] ?? '').toString(),
       toolSummary: (activeTool['summary'] ?? '').toString(),
       userMessage: (map['userMessage'] ?? '').toString(),
-      toolActivityCard: _buildMonitorToolCardFromActiveRun(map),
+      toolActivityCard: buildAgentToolActivityCardFromActiveRun(map),
     );
   }
 
@@ -971,86 +972,6 @@ class _AgentRunSnapshot {
     if (raw is! Map) return const <String, dynamic>{};
     return raw.map((key, value) => MapEntry(key.toString(), value));
   }
-}
-
-Map<String, dynamic>? _buildMonitorToolCardFromActiveRun(
-  Map<String, dynamic> run,
-) {
-  final activeTool = _AgentRunSnapshot._asStringMap(run['activeTool']);
-  if (activeTool.isEmpty) {
-    return null;
-  }
-  final extras = _AgentRunSnapshot._asStringMap(activeTool['extras']);
-  final raw = <String, dynamic>{...extras};
-  for (final key in const [
-    'toolName',
-    'toolCallId',
-    'cardId',
-    'summary',
-    'manualStopRequested',
-    'completed',
-  ]) {
-    final value = activeTool[key];
-    if (value != null) {
-      raw[key] = value;
-    }
-  }
-  final manualStopRequested = activeTool['manualStopRequested'] == true;
-  final completed = activeTool['completed'] == true;
-  return _buildMonitorToolCard(
-    raw,
-    taskId: (run['taskId'] ?? '').toString(),
-    defaultStatus: manualStopRequested
-        ? 'interrupted'
-        : completed
-        ? 'success'
-        : 'running',
-  );
-}
-
-Map<String, dynamic> _buildMonitorToolCard(
-  Map<dynamic, dynamic> raw, {
-  String? taskId,
-  String defaultStatus = 'running',
-}) {
-  final card = raw.map((key, value) => MapEntry(key.toString(), value));
-  card['type'] = kAgentToolSummaryCardType;
-  final normalizedTaskId = taskId?.trim() ?? '';
-  if (normalizedTaskId.isNotEmpty) {
-    card['taskId'] = normalizedTaskId;
-  }
-  final toolName = (card['toolName'] ?? card['name'] ?? '').toString().trim();
-  if (toolName.isNotEmpty) {
-    card['toolName'] = toolName;
-  }
-  if ((card['status'] ?? '').toString().trim().isEmpty) {
-    card['status'] = defaultStatus;
-  }
-  final cardId = [
-    card['cardId'],
-    card['toolCallId'],
-    card['tool_call_id'],
-    card['callId'],
-    card['call_id'],
-    card['toolTaskId'],
-  ]
-      .map((value) => value?.toString().trim() ?? '')
-      .firstWhere((value) => value.isNotEmpty, orElse: () => '');
-  if (cardId.isNotEmpty) {
-    card['cardId'] = cardId;
-  }
-  final summary = (card['summary'] ?? '').toString().trim();
-  final progress = (card['progress'] ?? '').toString().trim();
-  if (summary.isEmpty && progress.isNotEmpty) {
-    card['summary'] = progress;
-  } else if (progress.isEmpty && summary.isNotEmpty) {
-    card['progress'] = summary;
-  }
-  if ((card['displayName'] ?? '').toString().trim().isEmpty &&
-      toolName.isNotEmpty) {
-    card['displayName'] = toolName;
-  }
-  return card;
 }
 
 extension on Offset {

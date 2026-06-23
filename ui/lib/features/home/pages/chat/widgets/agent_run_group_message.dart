@@ -1,12 +1,13 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/features/home/pages/chat/tool_activity_utils.dart';
 import 'package:ui/features/home/pages/chat/utils/agent_run_timeline.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_transcript.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/card_widget_factory.dart'
     show OnBeforeTaskExecute, OnRequestAuthorize;
 import 'package:ui/features/home/pages/command_overlay/widgets/message_bubble.dart';
+import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/models/chat_message_model.dart';
 import 'package:ui/services/agent_avatar_service.dart';
 import 'package:ui/services/app_background_service.dart';
@@ -50,6 +51,7 @@ class AgentRunGroupMessage extends StatefulWidget {
 class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
     with SingleTickerProviderStateMixin {
   static const Duration _kToggleDuration = Duration(milliseconds: 260);
+  static const double _processFontSize = 12;
 
   late final AnimationController _expandController;
   late final Animation<double> _sizeFactor;
@@ -141,6 +143,7 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
   Widget build(BuildContext context) {
     final processMessages = widget.group.processMessagesOldestFirst;
     final visibleMessages = widget.group.visibleMessagesOldestFirst;
+    final hasProcessMessages = processMessages.isNotEmpty;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -150,7 +153,10 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
           group: widget.group,
           taskId: widget.group.taskId,
           expanded: widget.expanded,
-          onTap: widget.onToggleExpanded,
+          onTap: hasProcessMessages
+              ? () => _toggleProcessSection(processMessages)
+              : null,
+          showToggle: hasProcessMessages,
         ),
         _buildAnimatedProcessSection(processMessages),
         ...visibleMessages.map(
@@ -172,6 +178,10 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
         ),
       ],
     );
+  }
+
+  void _toggleProcessSection(List<ChatMessageModel> processMessages) {
+    widget.onToggleExpanded();
   }
 
   Widget _buildAnimatedProcessSection(List<ChatMessageModel> processMessages) {
@@ -237,13 +247,12 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
         }
         if (toolMessages.length > 1) {
           final groupKey = _toolGroupKey(widget.group.taskId, toolMessages);
-          final expanded = _expandedToolGroupKeys.contains(groupKey);
           widgets.add(
             _AgentToolCallGroup(
               key: ValueKey('agent-tool-call-group-$groupKey'),
               groupKey: groupKey,
               messages: toolMessages,
-              expanded: expanded,
+              expanded: _expandedToolGroupKeys.contains(groupKey),
               onToggle: () => _toggleToolGroup(groupKey),
               buildMessageBubble: _buildMessageBubble,
             ),
@@ -319,39 +328,9 @@ bool _isAgentToolSummaryMessage(ChatMessageModel message) {
       kAgentToolSummaryCardType;
 }
 
-const String _kCodexAgentRunAvatarAsset = 'assets/home/chat/codex.svg';
-
-/// A run group is treated as "codex" if any of its messages (visible or
-/// collapsed) was produced by the codex reducer — those carry
-/// cardData.uiStyle == 'codex_tool'. We use this to swap the avatar for the
-/// codex glyph and to keep the collapsed-state header concise ("已处理"
-/// instead of "已运行 N 条命令 · 已读取 M 个文件…").
-bool _agentRunGroupIsCodex(AgentRunTimelineGroup group) {
-  bool hasCodexStyle(ChatMessageModel message) {
-    return (message.cardData?['uiStyle'] ?? '').toString().trim() ==
-        'codex_tool';
-  }
-
-  for (final message in group.processMessagesNewestFirst) {
-    if (hasCodexStyle(message)) return true;
-  }
-  for (final message in group.visibleMessagesNewestFirst) {
-    if (hasCodexStyle(message)) return true;
-  }
-  return false;
-}
-
 String _toolGroupKey(String taskId, List<ChatMessageModel> messages) {
   return '$taskId-${messages.map((message) => message.id).join('-')}';
 }
-
-// NOTE: `_toolCountSummary` was the previous source of the
-// "已运行 X 条命令 · 已读取 Y 个文件 …" header label. The user explicitly
-// asked for both the collapsed AND expanded agent-run headers (and the
-// inner tool-group capsule) to read the generic "已处理" instead, so this
-// helper now has no callers and was deleted. The per-message-type
-// counters live on individually rendered tool cards if anyone needs them
-// later.
 
 class _AgentToolCallGroup extends StatelessWidget {
   const _AgentToolCallGroup({
@@ -375,6 +354,7 @@ class _AgentToolCallGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final locale = Localizations.localeOf(context);
     final palette = context.omniPalette;
     final primaryCard = _primaryCardData(messages);
     final status = (primaryCard['status'] ?? 'running').toString();
@@ -388,9 +368,11 @@ class _AgentToolCallGroup extends StatelessWidget {
     final overlayColor = palette.accentPrimary.withValues(
       alpha: context.isDarkTheme ? 0.10 : 0.06,
     );
-    final isEnglish =
-        Localizations.maybeLocaleOf(context)?.languageCode == 'en';
-    final title = _toolGroupTitle(messages, isEnglish: isEnglish);
+    final title = AppTextLocalizer.choose(
+      zh: '已处理',
+      en: 'Processed',
+      locale: locale,
+    );
 
     return Align(
       alignment: Alignment.centerLeft,
@@ -404,7 +386,7 @@ class _AgentToolCallGroup extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Tooltip(
-              message: _toolGroupTooltip(messages),
+              message: _toolGroupTooltip(messages, locale),
               child: Material(
                 color: Colors.transparent,
                 borderRadius: BorderRadius.circular(8),
@@ -454,7 +436,7 @@ class _AgentToolCallGroup extends StatelessWidget {
                           duration: const Duration(milliseconds: 220),
                           curve: Curves.easeOutCubic,
                           child: Icon(
-                            LucideIcons.chevronDown,
+                            Icons.keyboard_arrow_down_rounded,
                             size: 18,
                             color: mutedColor,
                           ),
@@ -497,24 +479,11 @@ class _AgentToolCallGroup extends StatelessWidget {
     return messages.first.cardData ?? const <String, dynamic>{};
   }
 
-  String _toolGroupTitle(
-    List<ChatMessageModel> messages, {
-    required bool isEnglish,
-  }) {
-    // The inner tool-group capsule (multiple consecutive tool cards
-    // collapsed into one chevron) was previously surfacing the per-tool
-    // count summary too ("已运行 1 条命令 · 已读取 1 个文件"). The user
-    // explicitly asked for the expanded run UI to match the collapsed
-    // header, so this capsule also shows the generic "已处理" — its own
-    // count text was the only place left after fixing the outer header.
-    return isEnglish ? 'Processed' : '已处理';
-  }
-
-  String _toolGroupTooltip(List<ChatMessageModel> messages) {
+  String _toolGroupTooltip(List<ChatMessageModel> messages, Locale locale) {
     return messages
         .map((message) => message.cardData)
         .whereType<Map<String, dynamic>>()
-        .map(resolveAgentToolTitle)
+        .map((cardData) => resolveAgentToolTitle(cardData, locale: locale))
         .where((title) => title.trim().isNotEmpty)
         .join('\n');
   }
@@ -527,28 +496,28 @@ class _AgentRunSummaryHeader extends StatelessWidget {
     required this.taskId,
     required this.expanded,
     required this.onTap,
+    required this.showToggle,
   });
 
   final AgentRunTimelineGroup group;
   final String taskId;
   final bool expanded;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+  final bool showToggle;
 
   @override
   Widget build(BuildContext context) {
-    final isEnglish =
-        Localizations.maybeLocaleOf(context)?.languageCode == 'en';
+    final locale = Localizations.localeOf(context);
     final palette = context.omniPalette;
-    final isCodexGroup = _agentRunGroupIsCodex(group);
-    // Both collapsed AND expanded show the same "已处理 <elapsed>" label.
-    // The per-tool count summary was deliberately retired — the user wants
-    // the header noise-free in both states. The elapsed-time suffix is
-    // computed from the message timestamps inside this group (first
-    // candidate message → last candidate message). If we can't derive
-    // a duration (single instant), we just show "已处理".
-    final baseLabel = isEnglish ? 'Processed' : '已处理';
+    final baseLabel = AppTextLocalizer.choose(
+      zh: '已处理',
+      en: 'Processed',
+      locale: locale,
+    );
     final elapsedLabel = _agentRunElapsedLabel(group);
-    final label = elapsedLabel.isEmpty ? baseLabel : '$baseLabel  $elapsedLabel';
+    final label = elapsedLabel.isEmpty
+        ? baseLabel
+        : '$baseLabel  $elapsedLabel';
     final labelColor = expanded ? palette.textSecondary : palette.textTertiary;
     final lineColor = expanded
         ? palette.textSecondary.withValues(
@@ -572,61 +541,70 @@ class _AgentRunSummaryHeader extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                if (isCodexGroup)
-                  _CodexAgentRunAvatar(
-                    key: ValueKey('agent-run-codex-avatar-$taskId'),
-                    color: labelColor,
-                  )
-                else
-                  ValueListenableBuilder<AgentAvatarState>(
-                    valueListenable: AgentAvatarService.avatarStateNotifier,
-                    builder: (context, state, _) {
-                      return AgentAvatarCircle(
-                        key: ValueKey('agent-run-avatar-$taskId'),
-                        state: state,
-                        size: 30,
+                ValueListenableBuilder<AgentAvatarState>(
+                  valueListenable: AgentAvatarService.avatarStateNotifier,
+                  builder: (context, state, _) {
+                    return AgentAvatarCircle(
+                      key: ValueKey('agent-run-avatar-$taskId'),
+                      state: state,
+                      size: 30,
+                    );
+                  },
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      const labelLineGap = 10.0;
+                      const minLineWidth = 24.0;
+                      final toggleWidth = showToggle ? 24.0 : 0.0;
+                      final labelMaxWidth = math.max(
+                        0.0,
+                        constraints.maxWidth -
+                            labelLineGap -
+                            minLineWidth -
+                            toggleWidth,
+                      );
+                      return Row(
+                        children: [
+                          ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: labelMaxWidth,
+                            ),
+                            child: Text(
+                              label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: labelColor,
+                                fontFamily: 'PingFang SC',
+                                letterSpacing: 0,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: labelLineGap),
+                          Expanded(
+                            child: Container(height: 1, color: lineColor),
+                          ),
+                          if (showToggle) ...[
+                            const SizedBox(width: 6),
+                            AnimatedRotation(
+                              turns: expanded ? 0 : -0.25,
+                              duration:
+                                  _AgentRunGroupMessageState._kToggleDuration,
+                              curve: Curves.easeInOutCubicEmphasized,
+                              child: Icon(
+                                Icons.keyboard_arrow_down_rounded,
+                                size: 18,
+                                color: labelColor,
+                              ),
+                            ),
+                          ],
+                        ],
                       );
                     },
-                  ),
-                const SizedBox(width: 8),
-                // NOTE: deliberately NOT wrapping the label in Flexible. The
-                // previous implementation gave Flexible(flex:1) + Expanded
-                // (flex:1) the remaining row width 50/50, which left a large
-                // blank gap between the label and the divider when the label
-                // was short ("已处理" — the user's reported "横线长度有问题"
-                // bug). Letting the label take its intrinsic width lets the
-                // Expanded(line) below truly consume ALL remaining horizontal
-                // space, so the chevron is glued to the right edge in every
-                // state. Long labels are clipped at 60% of the row width to
-                // avoid pushing the chevron off-screen.
-                ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxWidth: MediaQuery.sizeOf(context).width * 0.6,
-                  ),
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0,
-                      color: labelColor,
-                      fontFamily: 'PingFang SC',
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(child: Container(height: 1, color: lineColor)),
-                const SizedBox(width: 6),
-                AnimatedRotation(
-                  turns: expanded ? 0 : -0.25,
-                  duration: _AgentRunGroupMessageState._kToggleDuration,
-                  curve: Curves.easeInOutCubicEmphasized,
-                  child: Icon(
-                    LucideIcons.chevronDown,
-                    size: 18,
-                    color: labelColor,
                   ),
                 ),
               ],
@@ -638,12 +616,6 @@ class _AgentRunSummaryHeader extends StatelessWidget {
   }
 }
 
-/// Returns a short human-readable duration string ("47s", "1m 23s",
-/// "1h 5m") covering the agent run from its earliest candidate message to
-/// its latest. We use the timestamps already attached to the messages — the
-/// timeline group is only ever built for INACTIVE runs (active runs render
-/// each card individually instead of going through `_buildTimelineGroup`),
-/// so the latest timestamp is the actual run end.
 String _agentRunElapsedLabel(AgentRunTimelineGroup group) {
   int? earliestMs;
   int? latestMs;
@@ -688,40 +660,4 @@ String _agentRunElapsedLabel(AgentRunTimelineGroup group) {
     return '${hours}h';
   }
   return '${hours}h ${remainingMinutes}m';
-}
-
-/// Drop-in replacement for `AgentAvatarCircle` used by codex agent runs:
-/// renders the codex glyph (`assets/home/chat/codex.svg`) inside a 30px
-/// circular surface so the visual rhythm matches the user-avatar variant.
-class _CodexAgentRunAvatar extends StatelessWidget {
-  const _CodexAgentRunAvatar({super.key, required this.color});
-
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.omniPalette;
-    final backgroundColor = context.isDarkTheme
-        ? palette.surfaceSecondary.withValues(alpha: 0.66)
-        : palette.surfaceElevated.withValues(alpha: 0.92);
-    final borderColor = palette.borderSubtle.withValues(
-      alpha: context.isDarkTheme ? 0.48 : 0.72,
-    );
-    return Container(
-      width: 30,
-      height: 30,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        shape: BoxShape.circle,
-        border: Border.all(color: borderColor, width: 0.5),
-      ),
-      child: SvgPicture.asset(
-        _kCodexAgentRunAvatarAsset,
-        width: 18,
-        height: 18,
-        colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
-      ),
-    );
-  }
 }
