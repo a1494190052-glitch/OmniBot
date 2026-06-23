@@ -21,8 +21,7 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
         // Safety bounds — Kotlin's last line of defense regardless of file content
         private val ALLOWED_TOOLS = setOf(
             "click", "long_press", "input_text", "swipe", "open_app",
-            "press_key", "wait", "finished", "info", "feedback",
-            "abort", "require_user_choice", "require_user_confirmation",
+            "press_key", "wait", "finished", "info", "abort",
         )
 
         private val CONFIG_SEED = """

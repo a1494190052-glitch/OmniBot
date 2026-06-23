@@ -259,10 +259,7 @@ class VLMClient(
             is GetStateAction -> "get_state ${action.reason.take(runtimeConfig.maxHistoryActionChars)}"
             is FunctionRunAction -> "${action.functionId} ${action.arguments.toString().take(runtimeConfig.maxHistoryActionChars)}"
             is FinishedAction -> "finished"
-            is RequireUserChoiceAction -> "require_user_choice"
-            is RequireUserConfirmationAction -> "require_user_confirmation"
             is InfoAction -> "info"
-            is FeedbackAction -> "feedback"
             is AbortAction -> "abort"
             is WaitAction -> "wait"
             is RecordAction -> "record"
@@ -624,18 +621,24 @@ class VLMClient(
             OobCanonicalActionSchema.TOOL_INFO -> InfoAction(
                 value = requireString(args, OobCanonicalActionSchema.ARG_VALUE)
             )
-            OobCanonicalActionSchema.TOOL_FEEDBACK -> FeedbackAction(
-                value = requireString(args, OobCanonicalActionSchema.ARG_VALUE)
+            OobCanonicalActionSchema.TOOL_FEEDBACK -> AbortAction(
+                value = optionalString(args, OobCanonicalActionSchema.ARG_VALUE).orEmpty()
             )
             OobCanonicalActionSchema.TOOL_ABORT -> AbortAction(
                 value = optionalString(args, OobCanonicalActionSchema.ARG_VALUE).orEmpty()
             )
-            OobCanonicalActionSchema.TOOL_REQUIRE_USER_CHOICE -> RequireUserChoiceAction(
-                options = requireStringList(args, OobCanonicalActionSchema.ARG_OPTIONS),
-                prompt = requireString(args, OobCanonicalActionSchema.ARG_PROMPT)
+            OobCanonicalActionSchema.TOOL_REQUIRE_USER_CHOICE -> InfoAction(
+                value = buildString {
+                    val prompt = optionalString(args, OobCanonicalActionSchema.ARG_PROMPT).orEmpty()
+                    val options = (args[OobCanonicalActionSchema.ARG_OPTIONS] as? JsonArray)
+                        ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotEmpty) }
+                        .orEmpty()
+                    append(prompt)
+                    if (options.isNotEmpty()) append("\n可选项：${options.joinToString(" / ")}")
+                }
             )
-            OobCanonicalActionSchema.TOOL_REQUIRE_USER_CONFIRMATION -> RequireUserConfirmationAction(
-                prompt = requireString(args, OobCanonicalActionSchema.ARG_PROMPT)
+            OobCanonicalActionSchema.TOOL_REQUIRE_USER_CONFIRMATION -> InfoAction(
+                value = optionalString(args, OobCanonicalActionSchema.ARG_PROMPT).orEmpty()
             )
             else -> throw IllegalArgumentException("Unsupported canonical action: $toolName")
         }

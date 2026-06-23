@@ -236,24 +236,6 @@ class VLMOperationService(
             val result = executeSingleStepWithTimeOut(context, useModel, summary, stepIndex)
             ensureTaskActive("after_single_step_$stepIndex")
 
-            if (result.feedback != null) {
-                result.step?.let { feedbackStep ->
-                    context = result.context
-                    context = updateContext(feedbackStep, context)
-                    executionTrace.add(feedbackStep)
-                }
-                return TaskExecutionReport(
-                    success = false,
-                    goal = goal,
-                    totalSteps = stepIndex + 1,
-                    executionTrace = executionTrace,
-                    finalContext = context,
-                    error = "VLM反馈: ${result.feedback}",
-                    summaryScreenshotList = summaryScreenshotList,
-                    feedback = result.feedback
-                )
-            }
-
             if (!result.success) {
                 result.step?.let { failedStep ->
                     val stepJson =
@@ -360,49 +342,6 @@ class VLMOperationService(
                         executionTrace = executionTrace,
                         finalContext = context,
                         error = "INFO动作处理失败: ${e.message}"
-                    )
-                }
-            }
-            if (step.action is RequireUserChoiceAction ||
-                step.action is RequireUserConfirmationAction
-            ) {
-                try {
-                    val question = when (val action = step.action) {
-                        is RequireUserChoiceAction -> {
-                            buildString {
-                                append(action.prompt)
-                                if (action.options.isNotEmpty()) {
-                                    append("\n可选项：")
-                                    append(action.options.joinToString(" / "))
-                                }
-                            }
-                        }
-
-                        is RequireUserConfirmationAction -> action.prompt
-                        else -> step.result.orEmpty()
-                    }
-                    val userAnswer = onInfoAction(question)
-                    ensureTaskActive("after_user_interaction_$stepIndex")
-                    val userReplyStep = UIStep(
-                        observation = "用户回复：$userAnswer",
-                        thought = "收到用户交互结果，继续执行任务",
-                        action = RecordAction(content = "用户交互结果：$userAnswer"),
-                        result = "已记录用户交互结果"
-                    )
-                    context = updateContext(userReplyStep, context)
-                    executionTrace.add(userReplyStep)
-                    stepIndex++
-                    continue
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    return TaskExecutionReport(
-                        success = false,
-                        goal = goal,
-                        totalSteps = stepIndex + 1,
-                        executionTrace = executionTrace,
-                        finalContext = context,
-                        error = "用户交互动作处理失败: ${e.message}"
                     )
                 }
             }
@@ -763,37 +702,6 @@ class VLMOperationService(
 
                 var processedStep = resolvedVlmResult.step!!
                 processedStep = normalizeOpenAppAction(processedStep, _context)
-
-                if (processedStep.action is FeedbackAction) {
-                    val feedbackAction = processedStep.action as FeedbackAction
-                    val feedbackStep = UIStep(
-                        observation = processedStep.observation,
-                        thought = processedStep.thought,
-                        action = feedbackAction,
-                        result = feedbackAction.value,
-                        summary = processedStep.summary,
-                        tokenUsage = usageAggregate(),
-                        tokenUsageAttempts = usageAttemptsSnapshot(),
-                        pageDiagnostics = _context.pageDiagnostics
-                    )
-                    sceneTurn?.let { completedTurn ->
-                        conversationState.appendRound(
-                            vlmClient.buildConversationRound(
-                                currentUserText = currentUserTextSnapshot,
-                                assistantTurn = completedTurn,
-                                executedStep = feedbackStep
-                            )
-                        )
-                    }
-                    return VLMOperationResult(
-                        success = true,
-                        step = feedbackStep,
-                        context = _context,
-                        error = null,
-                        screenshot = if (summary) screenshot else null,
-                        feedback = feedbackAction.value
-                    )
-                }
 
                 when (processedStep.action) {
                     is ClickAction -> processedStep = updateActionWithCoordinates(

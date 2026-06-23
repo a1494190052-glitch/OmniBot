@@ -215,7 +215,6 @@ class VLMClientRequestTest {
         val toolNames = envelope.request.tools.map { it.function.name }
         assertTrue(toolNames.contains("click"))
         assertTrue(toolNames.contains("finished"))
-        assertTrue(toolNames.contains("feedback"))
         assertTrue(toolNames.contains("abort"))
         assertTrue(toolNames.contains("input_text"))
         assertTrue(toolNames.contains("swipe"))

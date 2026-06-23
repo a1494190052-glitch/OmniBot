@@ -130,31 +130,9 @@ data class FinishedAction(
 ) : UIAction()
 
 @Serializable
-@SerialName("require_user_choice")
-data class RequireUserChoiceAction(
-    override val name: String = "require_user_choice",
-    val options: List<String>,
-    val prompt: String
-) : UIAction()
-
-@Serializable
-@SerialName("require_user_confirmation")
-data class RequireUserConfirmationAction(
-    override val name: String = "require_user_confirmation",
-    val prompt: String
-) : UIAction()
-
-@Serializable
 @SerialName("info")
 data class InfoAction(
     override val name: String = "info",
-    val value: String
-) : UIAction()
-
-@Serializable
-@SerialName("feedback")
-data class FeedbackAction(
-    override val name: String = "feedback",
     val value: String
 ) : UIAction()
 

@@ -11,7 +11,6 @@ import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.assists.controller.http.HttpController
 import cn.com.omnimind.assists.task.vlmserver.AbortAction
 import cn.com.omnimind.assists.task.vlmserver.ClickAction
-import cn.com.omnimind.assists.task.vlmserver.FeedbackAction
 import cn.com.omnimind.assists.task.vlmserver.FinishedAction
 import cn.com.omnimind.assists.task.vlmserver.FunctionRunAction
 import cn.com.omnimind.assists.task.vlmserver.GetStateAction
@@ -22,8 +21,6 @@ import cn.com.omnimind.assists.task.vlmserver.LongPressAction
 import cn.com.omnimind.assists.task.vlmserver.OpenAppAction
 import cn.com.omnimind.assists.task.vlmserver.PressKeyAction
 import cn.com.omnimind.assists.task.vlmserver.RecordAction
-import cn.com.omnimind.assists.task.vlmserver.RequireUserChoiceAction
-import cn.com.omnimind.assists.task.vlmserver.RequireUserConfirmationAction
 import cn.com.omnimind.assists.task.vlmserver.SwipeAction
 import cn.com.omnimind.assists.task.vlmserver.UIAction
 import cn.com.omnimind.assists.task.vlmserver.UIContext
@@ -1087,10 +1084,7 @@ object VlmToolCoordinator {
             )
             is FinishedAction -> linkedMapOf("tool" to name, "content" to content)
             is InfoAction -> linkedMapOf("tool" to name, "value" to value)
-            is FeedbackAction -> linkedMapOf("tool" to name, "value" to value)
             is AbortAction -> linkedMapOf("tool" to name, "value" to value)
-            is RequireUserChoiceAction -> linkedMapOf("tool" to name, "options" to options, "prompt" to prompt)
-            is RequireUserConfirmationAction -> linkedMapOf("tool" to name, "prompt" to prompt)
             is WaitAction -> linkedMapOf("tool" to name, "duration_ms" to durationMs)
             is RecordAction -> linkedMapOf("tool" to name, "content" to content)
         }.filterValues { it != null }

@@ -257,12 +257,11 @@ object VLMToolDefinitions {
             if (has("press_key")) add("press_key 用于系统 back/home/enter")
             if (has("wait")) add("wait 只用于页面明确加载、动画或等待外部状态")
             if (has("finished")) add("finished 只在目标已完成")
-            val userTools = listOf("info", "require_user_choice", "require_user_confirmation")
-                .filter(::has)
+            val userTools = listOf("info").filter(::has)
             if (userTools.isNotEmpty()) {
                 add("${userTools.joinToString("/")} 用于必须询问用户")
             }
-            val fallbackTools = listOf("feedback", "abort").filter(::has)
+            val fallbackTools = listOf("abort").filter(::has)
             if (fallbackTools.isNotEmpty()) {
                 add("${fallbackTools.joinToString("/")} 用于当前上下文不匹配或无法继续")
             }
@@ -277,12 +276,11 @@ object VLMToolDefinitions {
             if (has("press_key")) add("use press_key for system back/home/enter")
             if (has("wait")) add("use wait only for clear loading, animation, or external state")
             if (has("finished")) add("use finished only after the goal is complete")
-            val userTools = listOf("info", "require_user_choice", "require_user_confirmation")
-                .filter(::has)
+            val userTools = listOf("info").filter(::has)
             if (userTools.isNotEmpty()) {
                 add("use ${userTools.joinToString("/")} only when user input is required")
             }
-            val fallbackTools = listOf("feedback", "abort").filter(::has)
+            val fallbackTools = listOf("abort").filter(::has)
             if (fallbackTools.isNotEmpty()) {
                 add("use ${fallbackTools.joinToString("/")} when the context mismatches or cannot continue")
             }

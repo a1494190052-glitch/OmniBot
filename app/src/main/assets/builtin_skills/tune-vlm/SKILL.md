@@ -70,7 +70,7 @@ Read this file first, then edit only the fields you need.
 | `disabled_tools` | 禁用的工具名列表 | 见下方合法工具名 |
 
 合法工具名（可放入 `disabled_tools`）：
-`click` `long_press` `input_text` `swipe` `open_app` `press_key` `wait` `finished` `info` `feedback` `abort` `require_user_choice` `require_user_confirmation`
+`click` `long_press` `input_text` `swipe` `open_app` `press_key` `wait` `finished` `info` `abort`
 
 未知工具名会被忽略。超出范围的数值会被自动 clamp。
 

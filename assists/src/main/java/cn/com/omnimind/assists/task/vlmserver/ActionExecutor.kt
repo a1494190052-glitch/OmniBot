@@ -276,34 +276,10 @@ class ActionExecutor(
                 )
             }
 
-            is RequireUserChoiceAction -> {
-                OperationResult(
-                    success = true,
-                    message = "需要用户选择: ${action.prompt}",
-                    data = json.encodeToJsonElement(action.options)
-                )
-            }
-
-            is RequireUserConfirmationAction -> {
-                OperationResult(
-                    success = true,
-                    message = "需要用户确认: ${action.prompt}",
-                    data = null
-                )
-            }
-
             is InfoAction -> {
                 OperationResult(
                     success = true,
                     message = "Agent询问: ${action.value}",
-                    data = null
-                )
-            }
-
-            is FeedbackAction -> {
-                OperationResult(
-                    success = true,
-                    message = "收到反馈: ${action.value}",
                     data = null
                 )
             }

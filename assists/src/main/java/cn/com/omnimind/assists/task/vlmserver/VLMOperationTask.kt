@@ -850,10 +850,7 @@ open class VLMOperationTask(
             is FunctionRunAction -> "执行工具 ${action.functionId}"
             is RecordAction -> "记录信息"
             is FinishedAction -> "完成任务"
-            is RequireUserChoiceAction -> "请求用户选择"
-            is RequireUserConfirmationAction -> "请求用户确认"
             is InfoAction -> "请求用户协助"
-            is FeedbackAction -> "反馈"
             is AbortAction -> "中止任务"
         }
     }
@@ -897,13 +894,7 @@ open class VLMOperationTask(
             )
             is RecordAction -> linkedMapOf("content" to action.content)
             is FinishedAction -> linkedMapOf("content" to action.content)
-            is RequireUserChoiceAction -> linkedMapOf(
-                "options" to action.options,
-                "prompt" to action.prompt
-            )
-            is RequireUserConfirmationAction -> linkedMapOf("prompt" to action.prompt)
             is InfoAction -> linkedMapOf("value" to action.value)
-            is FeedbackAction -> linkedMapOf("value" to action.value)
             is AbortAction -> linkedMapOf("value" to action.value)
         }
     }
