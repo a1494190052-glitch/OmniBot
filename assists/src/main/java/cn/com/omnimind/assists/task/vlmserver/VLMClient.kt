@@ -40,18 +40,23 @@ class VLMClient(
         screenshot: String?,
         markedScreenshot: String? = null,
         conversationState: VLMConversationState,
-        model: String = "scene.vlm.operation.primary",
+        model: String = VLMRuntimeConfigRegistry.get().primarySceneId,
         retryState: VLMToolCallRetryState? = null,
         includeMarkedScreenshot: Boolean = false
     ): VLMRequestEnvelope {
+        val runtimeConfig = runtimeConfig()
         val sceneId = resolveVlmSceneId(model)
         val modelOverride = resolveVlmModelOverride(model)
-        val dynamicFunctionToolNames = VLMToolDefinitions
+        val hiddenDynamicFunctionToolNames = VLMToolDefinitions
             .dynamicFunctionToolNamesFromDefinitions(context.dynamicToolDefinitions)
+        val dynamicFunctionToolMappings = VLMToolDefinitions
+            .dynamicFunctionToolMappingsFromDefinitions(context.dynamicToolDefinitions)
+        val dynamicFunctionToolNames = hiddenDynamicFunctionToolNames + dynamicFunctionToolMappings.keys
         val selectedBaseToolNames = VLMAllowedToolSelector.select(context)
+        val selectedPromptToolNames = selectedBaseToolNames + dynamicFunctionToolMappings.keys
         val promptContext = context
             .withDynamicFunctionCallToolGuidance(dynamicFunctionToolNames)
-            .copy(allowedVlmToolNames = selectedBaseToolNames.toList())
+            .copy(allowedVlmToolNames = selectedPromptToolNames.toList())
         val systemPrompt = systemPromptBuilder(sceneId)
         val currentUserText = turnPromptBuilder(promptContext, sceneId)
         val historyMessages = conversationState.historyMessages()
@@ -69,7 +74,7 @@ class VLMClient(
         val baseTools = VLMToolDefinitions.tools(allowedToolNames = selectedBaseToolNames)
         val dynamicTools = VLMToolDefinitions
             .dynamicToolsFromDefinitions(promptContext.dynamicToolDefinitions)
-            .filterNot { it.function.name in dynamicFunctionToolNames }
+            .filterNot { it.function.name in hiddenDynamicFunctionToolNames }
         val tools = (baseTools + dynamicTools).distinctBy { it.function.name }
         val defaultToolCount = VLMToolDefinitions.tools().size
 
@@ -83,8 +88,8 @@ class VLMClient(
                 model = sceneId,
                 modelOverride = modelOverride,
                 messages = messages,
-                maxCompletionTokens = DEFAULT_MAX_COMPLETION_TOKENS,
-                temperature = 0.2,
+                maxCompletionTokens = runtimeConfig.maxCompletionTokens,
+                temperature = runtimeConfig.temperature,
                 stream = true,
                 streamOptions = ChatCompletionStreamOptions(includeUsage = true),
                 tools = tools,
@@ -96,6 +101,7 @@ class VLMClient(
             ),
             currentUserText = currentUserText,
             dynamicFunctionToolNames = dynamicFunctionToolNames,
+            dynamicFunctionToolMappings = dynamicFunctionToolMappings,
             toolNames = tools.map { it.function.name },
             defaultToolCount = defaultToolCount,
             selectedBaseToolNames = selectedBaseToolNames,
@@ -107,7 +113,8 @@ class VLMClient(
     private fun UIContext.withDynamicFunctionCallToolGuidance(functionNames: Set<String>): UIContext {
         if (functionNames.isEmpty()) return this
         val hint = "Recalled Functions for this turn are handled by the local runtime. " +
-            "Output only ordinary UI actions; do not emit call_tool, function_id, or Function ids."
+            "You may call a recalled workflow tool if it appears in tools[] and clearly matches the current step. " +
+            "Do not emit call_tool, function_id, or raw Function ids."
         val mergedGuidance = listOf(stepSkillGuidance.trim(), hint)
             .filter(String::isNotBlank)
             .joinToString("\n\n")
@@ -117,11 +124,12 @@ class VLMClient(
     fun parseVLMResponse(
         response: SceneChatCompletionTurn,
         modelOrScene: String,
-        dynamicFunctionToolNames: Set<String> = emptySet()
+        dynamicFunctionToolNames: Set<String> = emptySet(),
+        dynamicFunctionToolMappings: Map<String, String> = emptyMap(),
     ): VLMResult {
         return when (response.parser) {
             ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS ->
-                parseToolActionResponse(response, dynamicFunctionToolNames)
+                parseToolActionResponse(response, dynamicFunctionToolNames, dynamicFunctionToolMappings)
             ModelSceneRegistry.ResponseParser.JSON_CONTENT ->
                 VLMResult(false, null, "主 VLM parser 不支持 JSON_CONTENT: $modelOrScene")
             ModelSceneRegistry.ResponseParser.TEXT_CONTENT ->
@@ -130,11 +138,12 @@ class VLMClient(
     }
 
     fun resolveVlmSceneId(modelOrScene: String?): String {
+        val runtimeConfig = runtimeConfig()
         val normalized = modelOrScene?.trim().orEmpty()
         return if (isSceneId(normalized)) {
             normalized
         } else {
-            "scene.vlm.operation.primary"
+            runtimeConfig.primarySceneId
         }
     }
 
@@ -184,7 +193,9 @@ class VLMClient(
             executedStep.result?.trim()?.takeIf { it.isNotEmpty() }?.let { add(it) }
             executedStep.summary.trim().takeIf { it.isNotEmpty() }?.let { add("summary=$it") }
         }
-        return parts.joinToString("; ").ifBlank { "no result details" }.take(MAX_TOOL_RESULT_CHARS)
+        return parts.joinToString("; ")
+            .ifBlank { "no result details" }
+            .take(runtimeConfig().maxToolResultChars)
     }
 
     private fun sanitizeModelVisibleJson(value: kotlinx.serialization.json.JsonElement): kotlinx.serialization.json.JsonElement {
@@ -237,6 +248,7 @@ class VLMClient(
     }
 
     internal fun buildCompactHistoryUserMessage(currentUserText: String, executedStep: UIStep): String {
+        val runtimeConfig = runtimeConfig()
         val actionSummary = when (val action = executedStep.action) {
             is ClickAction -> "click ${action.targetDescription} @(${action.x},${action.y})"
             is InputTextAction -> "input_text ${action.targetDescription} @(${action.x},${action.y})"
@@ -244,8 +256,8 @@ class VLMClient(
             is LongPressAction -> "long_press ${action.targetDescription} @(${action.x},${action.y})"
             is OpenAppAction -> "open_app ${action.packageName}"
             is PressKeyAction -> "press_key ${action.key}"
-            is GetStateAction -> "get_state ${action.reason.take(MAX_HISTORY_ACTION_CHARS)}"
-            is FunctionRunAction -> "${action.functionId} ${action.arguments.toString().take(MAX_HISTORY_ACTION_CHARS)}"
+            is GetStateAction -> "get_state ${action.reason.take(runtimeConfig.maxHistoryActionChars)}"
+            is FunctionRunAction -> "${action.functionId} ${action.arguments.toString().take(runtimeConfig.maxHistoryActionChars)}"
             is FinishedAction -> "finished"
             is RequireUserChoiceAction -> "require_user_choice"
             is RequireUserConfirmationAction -> "require_user_confirmation"
@@ -254,7 +266,7 @@ class VLMClient(
             is AbortAction -> "abort"
             is WaitAction -> "wait"
             is RecordAction -> "record"
-        }.take(MAX_HISTORY_ACTION_CHARS)
+        }.take(runtimeConfig.maxHistoryActionChars)
         return buildString {
             append("Previous turn compact context. ")
             append("Do not use this as current page evidence; use the latest user message and screenshot for grounding. ")
@@ -262,7 +274,7 @@ class VLMClient(
             append(actionSummary)
             executedStep.result?.trim()?.takeIf { it.isNotEmpty() }?.let {
                 append(". Result: ")
-                append(it.take(MAX_HISTORY_RESULT_CHARS))
+                append(it.take(runtimeConfig.maxHistoryResultChars))
             }
             if (currentUserText.contains("用户任务") || currentUserText.contains("User task")) {
                 append(". The full previous prompt was intentionally compacted to control tokens.")
@@ -272,7 +284,8 @@ class VLMClient(
 
     private fun parseToolActionResponse(
         response: SceneChatCompletionTurn,
-        dynamicFunctionToolNames: Set<String>
+        dynamicFunctionToolNames: Set<String>,
+        dynamicFunctionToolMappings: Map<String, String>,
     ): VLMResult {
         val content = response.turn.message.contentText()
         val metadata = parseStepMetadata(content, response.turn.reasoning)
@@ -304,7 +317,8 @@ class VLMClient(
             metadata = metadata,
             thinking = thinking,
             reasoning = response.turn.reasoning,
-            dynamicFunctionToolNames = dynamicFunctionToolNames
+            dynamicFunctionToolNames = dynamicFunctionToolNames,
+            dynamicFunctionToolMappings = dynamicFunctionToolMappings,
         )
     }
 
@@ -313,10 +327,15 @@ class VLMClient(
         metadata: StepMetadataPayload,
         thinking: VLMThinkingContext,
         reasoning: String,
-        dynamicFunctionToolNames: Set<String>
+        dynamicFunctionToolNames: Set<String>,
+        dynamicFunctionToolMappings: Map<String, String>,
     ): VLMResult {
         return try {
-            val action = parseActionFromToolCall(toolCall, dynamicFunctionToolNames)
+            val action = parseActionFromToolCall(
+                toolCall = toolCall,
+                dynamicFunctionToolNames = dynamicFunctionToolNames,
+                dynamicFunctionToolMappings = dynamicFunctionToolMappings,
+            )
             val thought = metadataThoughtFallback(
                 metadata = metadata,
                 reasoning = reasoning
@@ -487,11 +506,12 @@ class VLMClient(
 
     private fun parseActionFromToolCall(
         toolCall: AssistantToolCall,
-        dynamicFunctionToolNames: Set<String>
+        dynamicFunctionToolNames: Set<String>,
+        dynamicFunctionToolMappings: Map<String, String>,
     ): UIAction {
-        return uiActionFromCanonicalAction(
-            canonicalActionFromToolCall(toolCall, dynamicFunctionToolNames)
-        )
+        val dynamicAction = functionActionFromDynamicToolCall(toolCall, dynamicFunctionToolMappings)
+        if (dynamicAction != null) return dynamicAction
+        return uiActionFromCanonicalAction(canonicalActionFromToolCall(toolCall, dynamicFunctionToolNames))
     }
 
     private fun canonicalActionFromToolCall(
@@ -506,7 +526,7 @@ class VLMClient(
             throw IllegalArgumentException(INTERNAL_CALL_TOOL_ERROR)
         }
         if (rawToolName in dynamicFunctionToolNames) {
-            throw IllegalArgumentException("Function tool calls are handled by runtime recall, not by VLM output: $rawToolName")
+            throw IllegalArgumentException("Unknown recalled workflow tool mapping: $rawToolName")
         }
         if (rawToolName !in modelVisibleToolNames()) {
             throw IllegalArgumentException("Unsupported tool call: ${toolCall.function.name}")
@@ -517,6 +537,38 @@ class VLMClient(
             rawArguments = toolCall.function.arguments,
         )
         return CanonicalActionCall(tool = toolName, args = args)
+    }
+
+    private fun functionActionFromDynamicToolCall(
+        toolCall: AssistantToolCall,
+        dynamicFunctionToolMappings: Map<String, String>,
+    ): FunctionRunAction? {
+        val rawToolName = toolCall.function.name.trim()
+        val functionId = dynamicFunctionToolMappings[rawToolName] ?: return null
+        val arguments = parseDynamicFunctionArguments(rawToolName, toolCall.function.arguments)
+        return FunctionRunAction(
+            functionId = functionId,
+            toolName = rawToolName,
+            arguments = arguments,
+        )
+    }
+
+    private fun parseDynamicFunctionArguments(toolName: String, rawArguments: String): JsonObject {
+        val normalized = rawArguments.trim()
+        if (normalized.isEmpty()) return JsonObject(emptyMap())
+        val parsed = runCatching { json.parseToJsonElement(normalized) as? JsonObject }
+            .getOrElse { error ->
+                throw IllegalArgumentException(
+                    "Invalid tool arguments JSON for $toolName: ${error.message ?: "unknown parse failure"}",
+                    error,
+                )
+            } ?: throw IllegalArgumentException("Invalid tool arguments JSON for $toolName: function.arguments must be a JSON object")
+        return JsonObject(parsed.filterKeys { key ->
+            !key.equals("tool_title", ignoreCase = true) &&
+                !key.equals("toolTitle", ignoreCase = true) &&
+                !key.equals("function_id", ignoreCase = true) &&
+                !key.equals("functionId", ignoreCase = true)
+        })
     }
 
     private fun uiActionFromCanonicalAction(canonical: CanonicalActionCall): UIAction {
@@ -681,12 +733,10 @@ class VLMClient(
         val args: JsonObject,
     )
 
+    private fun runtimeConfig(): VLMRuntimeConfig = VLMRuntimeConfigRegistry.get()
+
     private companion object {
         private const val TAG = "VLMClient"
-        private const val DEFAULT_MAX_COMPLETION_TOKENS = 384
-        private const val MAX_HISTORY_ACTION_CHARS = 160
-        private const val MAX_HISTORY_RESULT_CHARS = 220
-        private const val MAX_TOOL_RESULT_CHARS = 900
         private const val INTERNAL_CALL_TOOL_ERROR =
             "call_tool is an internal runtime action and cannot be emitted by the VLM"
     }

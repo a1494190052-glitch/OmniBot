@@ -145,8 +145,8 @@ class App : BaseApplication() {
             OobVlmRunLogAutoRegistrar.bind(this)
         }
         runCatching {
-            cn.com.omnimind.assists.task.vlmserver.VLMRecallActionProviderRegistry.register(
-                cn.com.omnimind.bot.vlm.VlmRecallFunctionSelector(this)
+            cn.com.omnimind.assists.task.vlmserver.VLMRecallContextProviderRegistry.register(
+                cn.com.omnimind.bot.vlm.VlmRecalledFunctionToolProvider(this)
             )
         }
         runCatching {

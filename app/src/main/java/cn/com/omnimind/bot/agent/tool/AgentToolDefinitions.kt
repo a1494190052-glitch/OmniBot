@@ -578,12 +578,11 @@ object AgentToolDefinitions {
                     }
                     putJsonObject("maxSteps") {
                         put("type", "integer")
-                        put("default", 12)
-                        put("description", "可选最大执行步数。默认 12，上限 64。达到上限但模型未明确完成时返回未完成或超步错误。")
+                        put("description", "可选最大执行步数。留空使用 workspace 的 vlm_default_max_steps；运行时安全上限 64。达到上限但模型未明确完成时返回未完成或超步错误。")
                     }
                     putJsonObject("timeoutMs") {
                         put("type", "integer")
-                        put("description", "可选控制面等待超时，单位毫秒。默认 600000；超时会停止设备端 VLM，避免后台继续执行。")
+                        put("description", "可选控制面等待超时，单位毫秒。留空使用 workspace 的 vlm_max_wait_timeout_ms；超时会停止设备端 VLM，避免后台继续执行。")
                     }
                     putJsonObject("startFromCurrent") {
                         put("type", "boolean")

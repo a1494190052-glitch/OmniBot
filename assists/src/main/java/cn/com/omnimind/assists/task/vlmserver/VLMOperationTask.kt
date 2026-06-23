@@ -19,8 +19,6 @@ import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.baselib.util.exception.PrivacyBlockedException
 import cn.com.omnimind.omniintelligence.models.AgentRequest
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -129,8 +127,8 @@ open class VLMOperationTask(
             },
             isSubTask = isSubTask,
             taskId = id,
-            runId = id
-
+            runId = id,
+            taskScope = taskScope,
         )
         androidDeviceOperator = AndroidDeviceOperator(executionTaskEventApi, taskContext)
     }
@@ -967,7 +965,7 @@ open class VLMOperationTask(
                 val taskExecutionReport = vlmOperationService.executeTask(
                     goal = goal,
                     installedApps = installedApps,
-                    model = model ?: "scene.vlm.operation.primary",
+                    model = model ?: VLMRuntimeConfigRegistry.get().primarySceneId,
                     maxSteps = maxSteps,
                     packageName = packageName,
                     skipGoHome = skipGoHome,
@@ -1006,7 +1004,7 @@ open class VLMOperationTask(
                         val executedFunctionId = taskExecutionReport.executionTrace
                             .mapNotNull { (it.action as? FunctionRunAction)?.functionId }
                             .lastOrNull()
-                        CoroutineScope(Dispatchers.IO).launch {
+                        cancelScope.launch {
                             kotlinx.coroutines.withTimeoutOrNull(30_000L) {
                                 VLMPostTaskHookRegistry.notify(
                                     goal = goal ?: "",
@@ -1032,7 +1030,7 @@ open class VLMOperationTask(
                                 summaryUnavailable = true
                             )
                         )
-                        CoroutineScope(Dispatchers.IO).launch {
+                        cancelScope.launch {
                             kotlinx.coroutines.withTimeoutOrNull(30_000L) {
                                 VLMPostTaskHookRegistry.notify(
                                     goal = goal ?: "",
@@ -1152,7 +1150,7 @@ open class VLMOperationTask(
                 val report = vlmOperationService.executeTask(
                     goal = goal,
                     installedApps = installedApps,
-                    model = model ?: "scene.vlm.operation.primary",
+                    model = model ?: VLMRuntimeConfigRegistry.get().primarySceneId,
                     maxSteps = maxSteps,
                     skipGoHome = true  // 作为子任务执行时，不回退到桌面
                 )
@@ -1201,43 +1199,10 @@ open class VLMOperationTask(
         var summaryStarted = false
 
         try {
-            val steps = report.executionTrace.takeLast(20)
-            val finishedFromTrace = steps.lastOrNull { it.action.name == "finished" }
+            val finishedFromTrace = report.executionTrace.lastOrNull { it.action.name == “finished” }
             val traceSummary = finishedFromTrace?.result
                 ?: (finishedFromTrace?.action as? FinishedAction)?.content.orEmpty()
-            val prompt = """# Role: 智能视觉信息整合与决策专家
-
-# Task
-你将收到用户的**原始目标**以及一组**按时间顺序排列的屏幕截图**（Agent 的执行过程）。
-你的任务是：**忽略操作过程中的无关细节（如点击位置、加载状态），像人类浏览网页一样，从截图中“阅读”并提取关键信息，最终为用户生成一份直接响应其目标的交付物。**
-
-# Input Data
-## 1. 用户原始目标 (User Goal)
-$goal
-
-## 2. 视觉证据 (Visual Evidence)
-*（附带了一组连续的屏幕截图，记录了搜索和浏览的全过程）*
-请仔细阅读附带的图片序列。图片内容可能包含：搜索引擎结果、具体网页详情、地图路线、表格数据等。
-
-# Thinking Process (CoT)
-1. **目标拆解**：明确用户到底想要什么？（是攻略、表格、代码、还是摘要？）
-2. **视觉信息提取**：
-   - 按顺序浏览图片。
-   - **过滤噪点**：忽略浏览器的地址栏、侧边栏广告、弹窗关闭按钮等 UI 元素。
-   - **抓取干货**：重点识别图片中的正文文本、价格数字、时间表、景点介绍、优缺点评价等。
-   - **关联上下文**：如果图1是搜索列表，图2是详情页，则以图2的详情为准。
-3. **逻辑重组**：将从多张图片中提取的碎片信息整合成一个连贯的整体。
-4. **交付生成**：根据目标类型，输出最终结果。
-
-# Constraints
-- **直接回答**：不要包含“根据搜索结果”、“我整理了以下内容”等开场白，直接给出融合相关的浏览结果。
-- **禁止流水账**：不要描述图片（例如不要说“第1张图显示了百度首页...”），直接使用图里的信息回答问题。
-- **事实准确**：严禁编造图片中不存在的数值（如价格、时间），如果图片中未展示关键信息，请注明“未知”。
-- **格式规范**：确保易读性。
-
-# Final Answer
-(请直接输出针对用户目标的最终整理结果...)
-""".trimIndent()
+            val prompt = PromptTemplate.summaryPrompt(goal)
 
             val modelToUse = "scene.vlm.summary"
             val vlmPayload = AgentRequest.Payload.VLMChatPayload(

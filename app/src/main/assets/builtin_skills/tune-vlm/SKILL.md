@@ -16,10 +16,26 @@ Read this file first, then edit only the fields you need.
 ```json
 {
   "primary_model": "scene.vlm.operation.primary",
-  "recall_selector_model": "scene.vlm.operation.primary",
   "distill_model": "scene.memory.rollup",
+  "vlm_max_completion_tokens": 384,
+  "vlm_temperature": 0.2,
+  "vlm_history_rounds": 4,
+  "vlm_history_action_chars": 160,
+  "vlm_history_result_chars": 220,
+  "vlm_tool_result_chars": 900,
+  "vlm_default_max_steps": 12,
+  "vlm_min_wait_timeout_ms": 30000,
+  "vlm_max_wait_timeout_ms": 600000,
+  "vlm_dry_run_prompt_preview_chars": 6000,
   "recall_enabled": true,
   "recall_max_candidates": 3,
+  "recall_max_tools_per_step": 3,
+  "recall_decision_mode": "context_only",
+  "recall_tool_name_prefix": "run_recalled_workflow",
+  "recall_description_chars": 220,
+  "recall_step_summary_count": 2,
+  "recall_step_summary_chars": 180,
+  "recall_tool_description_chars": 520,
   "distill_min_trace_steps": 2,
   "distill_max_skill_chars": 400,
   "disabled_tools": []
@@ -29,10 +45,26 @@ Read this file first, then edit only the fields you need.
 | 字段 | 含义 | 合法值 |
 |------|------|--------|
 | `primary_model` | VLM 主模型 | 非空字符串 |
-| `recall_selector_model` | recall 候选选择模型 | 非空字符串 |
 | `distill_model` | 经验蒸馏模型 | 非空字符串 |
-| `recall_enabled` | 是否开启 recall 快速路径 | `true` / `false` |
-| `recall_max_candidates` | recall 最多返回几个候选 | 1–10 |
+| `vlm_max_completion_tokens` | 单步 VLM 最大输出 token | 64–2048 |
+| `vlm_temperature` | 单步 VLM temperature | 0.0–2.0 |
+| `vlm_history_rounds` | 带入最近多少轮已完成 action/result | 0–12 |
+| `vlm_history_action_chars` | 单条历史 action 摘要字符上限 | 40–1000 |
+| `vlm_history_result_chars` | 单条历史 result 摘要字符上限 | 40–2000 |
+| `vlm_tool_result_chars` | 工具执行结果写入对话历史的字符上限 | 120–4000 |
+| `vlm_default_max_steps` | 外部未传 `maxSteps` 时的默认最大步数 | 1–64 |
+| `vlm_min_wait_timeout_ms` | 控制面等待超时下限 | 5000–600000 |
+| `vlm_max_wait_timeout_ms` | 控制面默认/最大等待超时 | `vlm_min_wait_timeout_ms`–1800000 |
+| `vlm_dry_run_prompt_preview_chars` | parse-only 返回 prompt preview 的字符上限 | 500–30000 |
+| `recall_enabled` | 是否开启 recall 临时工具注入 | `true` / `false` |
+| `recall_max_candidates` | 每步最多召回多少个 Function 候选 | 1–10 |
+| `recall_max_tools_per_step` | 每步最多注入多少个 `run_recalled_workflow_N` 临时工具 | 0–10 |
+| `recall_decision_mode` | recall 决策模式标记，写入诊断与工具 metadata | 非空字符串，默认 `context_only` |
+| `recall_tool_name_prefix` | 临时工具名前缀 | 小写字母开头，运行时会清洗为合法 tool name |
+| `recall_description_chars` | Function 描述摘要字符上限 | 40–1000 |
+| `recall_step_summary_count` | 临时工具描述里最多包含几条历史步骤摘要 | 0–5 |
+| `recall_step_summary_chars` | 单条步骤摘要字符上限 | 40–1000 |
+| `recall_tool_description_chars` | 临时工具完整 description 字符上限 | 120–2000 |
 | `distill_min_trace_steps` | 至少执行几步才触发经验蒸馏 | 1–10 |
 | `distill_max_skill_chars` | guidance skill 单条上限字符数 | 100–1200 |
 | `disabled_tools` | 禁用的工具名列表 | 见下方合法工具名 |
@@ -96,5 +128,5 @@ App 会自动蒸馏成功任务的经验更新这个文件，也可以手动编�
 
 改完文件后，执行任意 VLM 任务，查看 logcat：
 - `VlmWorkspaceConfig` tag — 显示 `reloaded vlm_config.json`
-- `VlmRecallFunctionSelector` tag — 确认候选数量等参数生效
+- `VlmRecalledFunctionToolProvider` tag — 确认 recall 候选工具注入生效
 - `VlmGuidanceManager` tag — 确认 guidance 已加载

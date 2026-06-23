@@ -133,6 +133,7 @@ class ChatInputArea extends StatefulWidget {
   final List<ChatInputAttachment> attachments;
   final ValueChanged<String>? onRemoveAttachment;
   final VoidCallback? onTriggerSlashCommand;
+  final VoidCallback? onTriggerManualRecording;
   final bool annotationEnabled;
   final VoidCallback? onToggleAnnotation;
   final String? selectedModelOverrideId;
@@ -168,6 +169,7 @@ class ChatInputArea extends StatefulWidget {
     this.attachments = const [],
     this.onRemoveAttachment,
     this.onTriggerSlashCommand,
+    this.onTriggerManualRecording,
     this.annotationEnabled = false,
     this.onToggleAnnotation,
     this.selectedModelOverrideId,

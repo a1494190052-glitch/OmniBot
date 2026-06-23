@@ -82,7 +82,7 @@ object McpToolExecutors {
         val request = VlmTaskRequest(
             goal = goal,
             model = requestArgs["model"] as? String,
-            maxSteps = intArg(requestArgs, "maxSteps", "max_steps")?.coerceIn(1, 64),
+            maxSteps = intArg(requestArgs, "maxSteps", "max_steps"),
             waitTimeoutMs = waitTimeoutMsArg(requestArgs),
             packageName = if (startFromCurrent) null else firstString(requestArgs, "packageName", "package_name"),
             needSummary = shouldSummary,

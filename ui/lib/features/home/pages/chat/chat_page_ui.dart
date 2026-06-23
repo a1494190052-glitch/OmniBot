@@ -1352,6 +1352,9 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                       useAttachmentPickerForPlus: true,
                       onPickAttachment: _pickAttachments,
                       onTriggerSlashCommand: _triggerSlashCommandPanel,
+                      onTriggerManualRecording: _activeMode == ChatPageMode.normal
+                          ? () => _startManualRecordingFlow('录制轨迹', recordDebugScreenshots: false)
+                          : null,
                       attachments: _pendingAttachments,
                       onRemoveAttachment: _removePendingAttachment,
                       selectedModelOverrideId:

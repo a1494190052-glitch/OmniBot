@@ -69,15 +69,6 @@ class ActionExecutor(
     }
 
     /**
-     * Legacy helper for old relative-coordinate providers. Current OOB tools use
-     * absolute screen-pixel coordinates.
-     */
-    private fun convertRelativeToAbsolute(relativeValue: Int, imageSize: Int): Float {
-        val clamped = relativeValue.coerceIn(0, 1000)
-        return (clamped / 1000.0f) * imageSize
-    }
-
-    /**
      * 执行VLM推理出的动作
      * 对应Python中的 act 方法
      * 注意：只执行动作，不更新上下文

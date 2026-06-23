@@ -34,6 +34,20 @@ class VlmToolCoordinatorTimeoutTest {
     }
 
     @Test
+    fun `vlm execution defaults come from workspace config snapshot`() {
+        val config = VlmWorkspaceConfig.defaultSnapshotForTests().copy(
+            vlmDefaultMaxSteps = 7,
+            vlmMinWaitTimeoutMs = 10_000L,
+            vlmMaxWaitTimeoutMs = 90_000L,
+        )
+
+        assertEquals(7, VlmToolCoordinator.resolveMaxSteps(null, config))
+        assertEquals(10_000L, VlmToolCoordinator.resolveWaitTimeoutMs(1_000L, config))
+        assertEquals(90_000L, VlmToolCoordinator.resolveWaitTimeoutMs(null, config))
+        assertEquals(90_000L, VlmToolCoordinator.resolveWaitTimeoutMs(120_000L, config))
+    }
+
+    @Test
     fun `manual cancel marks active vlm task cancelled`() {
         val taskId = "test-vlm-cancel-${System.nanoTime()}"
         val state = McpTaskManager.createTask(

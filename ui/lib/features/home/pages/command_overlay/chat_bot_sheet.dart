@@ -2621,6 +2621,10 @@ class _ChatBotSheetState extends State<ChatBotSheet>
             onPopupVisibilityChanged: _onPopupVisibilityChanged,
             openClawEnabled: _openClawEnabled,
             onToggleOpenClaw: _setOpenClawEnabled,
+            onTriggerManualRecording: () => _startManualRecordingFlow(
+              userMessageText: '录制轨迹',
+              recordDebugScreenshots: false,
+            ),
           ),
         ],
       ),

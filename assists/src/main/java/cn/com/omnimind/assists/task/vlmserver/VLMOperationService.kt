@@ -10,9 +10,9 @@ import cn.com.omnimind.assists.util.pollUntilReady
 import cn.com.omnimind.baselib.util.ImageCompressor
 import cn.com.omnimind.baselib.util.ImageQuality
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
@@ -31,14 +31,14 @@ import kotlin.math.roundToInt
 class VLMOperationService(
     private val deviceOperator: DeviceOperator,
     private val streamClient: VLMStreamClient,
-    private val onInfoAction: suspend (String) -> String, // INFO动作回调：传入问题，返回用户答案
-    private val onPauseCheck: suspend () -> Unit = {}, // 暂停检查回调：用于检测用户主动暂停
+    private val onInfoAction: suspend (String) -> String,
+    private val onPauseCheck: suspend () -> Unit = {},
     private val onStepStarted: suspend (Int, UIStep) -> Unit = { _, _ -> },
     private val onStepCompleted: suspend (Int, UIStep, Boolean, String?) -> Unit = { _, _, _, _ -> },
-    private val isSubTask: Boolean = false, // 标识当前是否为子任务
+    private val isSubTask: Boolean = false,
     private val taskId: String = "",
     private val runId: String = "",
-
+    private val taskScope: CoroutineScope? = null,
 ) {
     private data class XmlHealth(
         val nodeCount: Int,
@@ -155,7 +155,7 @@ class VLMOperationService(
     suspend fun executeTask(
         goal: String,
         installedApps: Map<String, String> = emptyMap(),
-        model: String = "scene.vlm.operation.primary",
+        model: String = VLMRuntimeConfigRegistry.get().primarySceneId,
         maxSteps: Int? = null,
         packageName: String? = null,
         skipGoHome: Boolean = false,
@@ -165,7 +165,8 @@ class VLMOperationService(
         disableOmniFlowRecall: Boolean = false
     ): TaskExecutionReport {
 
-        val normalizedMaxSteps = maxSteps?.takeIf { it > 0 } ?: DEFAULT_VLM_MAX_STEPS
+        val normalizedMaxSteps = maxSteps?.takeIf { it > 0 }
+            ?: VLMRuntimeConfigRegistry.get().defaultMaxSteps
         OmniLog.d(Tag, "executeTask - package_name: $packageName, skipGoHome: $skipGoHome")
 
         resetConversationState()
@@ -218,7 +219,7 @@ class VLMOperationService(
         var useModel = model
 
         // 预生成赛博精灵加载提示词（异步，不阻塞主流程）
-        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        (taskScope ?: CoroutineScope(Dispatchers.IO)).launch {
             try {
                 loadingSpriteAgent.prepareForTask(goal)
             } catch (e: Exception) {
@@ -263,7 +264,6 @@ class VLMOperationService(
                     Tag,
                     "Step $stepIndex failed: ${result.error ?: "unknown error"}; step=${result.step?.action?.name}"
                 )
-                println("VLM step $stepIndex failed: ${result.error ?: "unknown error"}; step=${result.step?.action?.name}")
 
                 // 使用 result.context，并将当前 step 添加到 trace 中
                 context = result.context
@@ -303,7 +303,6 @@ class VLMOperationService(
                 Tag,
                 "Step $stepIndex success: action=${step.action.name} result=${step.result ?: "OK"}"
             )
-            println("VLM step $stepIndex success: action=${step.action.name} result=${step.result ?: "OK"}")
 
             // 使用 result.context，并将当前 step 添加到 trace 中
             context = result.context
@@ -464,7 +463,7 @@ class VLMOperationService(
 
     suspend fun executeSingleStepWithTimeOut(
         context: UIContext,
-        useModel: String = "scene.vlm.operation.primary",
+        useModel: String = VLMRuntimeConfigRegistry.get().primarySceneId,
         summary: Boolean,
         stepIndex: Int
     ): VLMOperationResult {
@@ -503,7 +502,7 @@ class VLMOperationService(
 
     suspend fun executeSingleStep(
         context: UIContext,
-        model: String = "scene.vlm.operation.primary",
+        model: String = VLMRuntimeConfigRegistry.get().primarySceneId,
         summary: Boolean,
         stepIndex: Int
     ): VLMOperationResult {
@@ -536,7 +535,6 @@ class VLMOperationService(
                     Tag,
                     "executeSingleStep: stabilityAttempt=$stabilityAttempt, overallTask=${_context.overallTask}, currentStepGoal=${_context.activeGoal()}"
                 )
-                println("executeSingleStep: stabilityAttempt=$stabilityAttempt, overallTask=${_context.overallTask}, currentStepGoal=${_context.activeGoal()}")
                 val observeStartedAt = System.currentTimeMillis()
                 val pageSnapshot = captureCurrentPageSnapshot("attempt_$stabilityAttempt")
                 markPhase("fresh_observe_ms", observeStartedAt)
@@ -570,28 +568,18 @@ class VLMOperationService(
                 )
                 markPhase("indexed_evidence_ms", indexedEvidenceStartedAt)
                 _context = _context.copy(pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics())
+                val recallContextStartedAt = System.currentTimeMillis()
+                _context = VLMRecallContextProviderRegistry.enrich(
+                    stepRecallRequest.copy(context = _context)
+                )
+                markPhase("recall_context_ms", recallContextStartedAt)
+                _context = _context.copy(pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics())
                 // Note: Compactor 已移至 executeTask 主循环，在超时计时之外执行
 
                 val maxToolCallRetries = 2
                 var toolCallRetryCount = 0
                 var retryState: VLMToolCallRetryState? = null
                 var vlmResult: VLMResult? = null
-                val recallActionStartedAt = System.currentTimeMillis()
-                val preSelectedAction = VLMRecallActionProviderRegistry.selectAction(
-                    stepRecallRequest.copy(context = _context)
-                )
-                markPhase("recall_action_ms", recallActionStartedAt)
-                if (preSelectedAction != null) {
-                    val recallFnId = (preSelectedAction as? FunctionRunAction)?.functionId ?: "unknown"
-                    vlmResult = VLMResult(
-                        success = true,
-                        step = UIStep(
-                            observation = "Recall matched saved function: $recallFnId — executing as action segment",
-                            thought = "Skipping VLM call; replay saved function $recallFnId",
-                            action = preSelectedAction,
-                        )
-                    )
-                }
                 var sceneTurn: SceneChatCompletionTurn? = null
                 var lastRequestEnvelope: VLMRequestEnvelope? = null
                 var currentUserTextSnapshot = ""
@@ -616,7 +604,7 @@ class VLMOperationService(
                     _context = _context.copy(
                         pageDiagnostics = _context.pageDiagnostics +
                             phaseDiagnostics() +
-                            buildContextBudgetDiagnostics(_context) +
+                            _context.budgetDiagnostics() +
                             buildRequestEnvelopeDiagnostics(requestEnvelope)
                     )
                     OmniLog.i(
@@ -702,7 +690,8 @@ class VLMOperationService(
                     vlmResult = vlmClient.parseVLMResponse(
                         response = streamedTurn,
                         modelOrScene = model,
-                        dynamicFunctionToolNames = requestEnvelope.dynamicFunctionToolNames
+                        dynamicFunctionToolNames = requestEnvelope.dynamicFunctionToolNames,
+                        dynamicFunctionToolMappings = requestEnvelope.dynamicFunctionToolMappings,
                     )
                     markPhase("parse_response_ms", parseStartedAt)
                     _context = _context.copy(pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics())
@@ -961,7 +950,6 @@ class VLMOperationService(
                     Tag,
                     "Execute action: ${finalStep.action.name}, result=${finalStep.result ?: "OK"}"
                 )
-                println("Execute action: ${finalStep.action.name}, result=${finalStep.result ?: "OK"}")
 
                 val actionSucceeded = finalStep.result?.startsWith("执行失败") != true
                 if (finalStep.result?.contains("不支持的操作类型") == true) {
@@ -1029,7 +1017,6 @@ class VLMOperationService(
                 throw e
             } catch (e: Exception) {
                 OmniLog.e(Tag, "执行异常，第${stabilityAttempt + 1}次重试: ${e.message}")
-                println("执行异常，第${stabilityAttempt + 1}次重试: ${e.message}")
                 if (stabilityAttempt >= maxRetries - 1) {
                     return VLMOperationResult(
                         success = false,
@@ -1148,18 +1135,9 @@ class VLMOperationService(
             "vlm_request_dynamic_function_tool_count" to envelope.dynamicFunctionToolNames.size.toString(),
             "vlm_request_dynamic_function_tool_names" to
                 envelope.dynamicFunctionToolNames.joinToString(",").take(4000),
+            "vlm_request_dynamic_function_mapping_count" to envelope.dynamicFunctionToolMappings.size.toString(),
             "vlm_request_system_prompt_chars" to envelope.systemPromptChars.toString(),
             "vlm_request_current_user_text_chars" to envelope.currentUserTextChars.toString(),
-        )
-
-    private fun buildContextBudgetDiagnostics(context: UIContext): Map<String, String> =
-        linkedMapOf(
-            "vlm_context_current_page_summary_chars" to context.currentPageSummary.length.toString(),
-            "vlm_context_step_skill_guidance_chars" to context.stepSkillGuidance.length.toString(),
-            "vlm_context_running_summary_chars" to context.runningSummary.length.toString(),
-            "vlm_context_key_memory_count" to context.keyMemory.size.toString(),
-            "vlm_context_installed_app_count" to context.installedApplications.size.toString(),
-            "vlm_context_dynamic_tool_definition_count" to context.dynamicToolDefinitions.size.toString(),
         )
 
     private fun normalizeOverlayText(text: String, maxLen: Int): String {
@@ -1490,22 +1468,6 @@ class VLMOperationService(
         return input.lowercase().replace(Regex("[^a-z0-9\u4e00-\u9fa5]+"), "")
     }
 
-    private fun suggestPackages(
-        pkg: String,
-        installedApps: Map<String, String>
-    ): List<String> {
-        if (pkg.isBlank()) return emptyList()
-        val target = normalizeName(pkg)
-        return installedApps.filter { (packageName, appName) ->
-            val pkgNorm = normalizeName(packageName)
-            val appNorm = normalizeName(appName)
-            pkgNorm.contains(target) ||
-                    target.contains(pkgNorm) ||
-                    appNorm.contains(target) ||
-                    target.contains(appNorm)
-        }.keys.take(3)
-    }
-
     /**
      * 获取当前屏幕的XML表示
      */
@@ -1516,7 +1478,7 @@ class VLMOperationService(
             val current = try {
                 AccessibilityController.getCaptureScreenShotXml(true)
             } catch (e: Exception) {
-                println("获取XML失败: ${e.message}")
+                OmniLog.w(Tag, "获取XML失败: ${e.message}")
                 null
             }
             val health = xmlHealth(current)
@@ -1567,17 +1529,17 @@ class VLMOperationService(
     private fun isPageStableByXml(beforeXml: String?, afterXml: String?): Boolean {
         return try {
             if (beforeXml == null || afterXml == null) {
-                println("XML为空，默认认为不稳定")
+                OmniLog.d(Tag, "XML为空，默认认为不稳定")
                 return false
             }
 
             val similarity = TreeEditDistance.getSimilarity(beforeXml, afterXml)
             val isStable = similarity >= 0.85
 
-            println("页面稳定性检测: 相似度=$similarity, 稳定=$isStable")
+            OmniLog.d(Tag, "页面稳定性检测: 相似度=$similarity, 稳定=$isStable")
             isStable
         } catch (e: Exception) {
-            println("页面稳定性比较异常: ${e.message}")
+            OmniLog.w(Tag, "页面稳定性比较异常: ${e.message}")
             false
         }
     }
@@ -1706,7 +1668,6 @@ private const val MAX_GET_STATE_VISIBLE_TEXTS = 18
 private const val MAX_GET_STATE_ACTIONABLES = 18
 private const val MAX_GET_STATE_LABEL_CHARS = 80
 private const val MAX_GET_STATE_RESULT_CHARS = 2200
-private const val DEFAULT_VLM_MAX_STEPS = 12
 private const val VLM_RELATIVE_COORDINATE_MAX = 1000f
 
 data class VLMOperationResult(

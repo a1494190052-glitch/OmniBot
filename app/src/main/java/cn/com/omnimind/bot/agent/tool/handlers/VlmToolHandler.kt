@@ -87,7 +87,7 @@ class VlmToolHandler(
                 .filter { it.isNotBlank() }.joinToString("\n")
             val needSummary = firstBoolean(args, "needSummary", "need_summary") ?: false
             val startFromCurrent = firstBoolean(args, "startFromCurrent", "start_from_current", "skipGoHome", "skip_go_home") ?: false
-            val maxSteps = firstInt(args, "maxSteps", "max_steps")?.coerceIn(1, 64)
+            val maxSteps = firstInt(args, "maxSteps", "max_steps")
             val waitTimeoutMs = firstWaitTimeoutMs(args)
             val model = firstString(args, "model", "modelId", "model_id")
             val disableOmniFlowRecall = firstBoolean(

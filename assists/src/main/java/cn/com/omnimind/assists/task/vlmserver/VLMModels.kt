@@ -344,7 +344,7 @@ data class VLMConversationRound(
 )
 
 class VLMConversationState(
-    private val maxCompletedRounds: Int = 4
+    private val maxCompletedRounds: Int = VLMRuntimeConfigRegistry.get().maxHistoryRounds
 ) {
     private val completedRounds = ArrayDeque<VLMConversationRound>()
     var streamingReasoning: String = ""
@@ -384,6 +384,7 @@ data class VLMRequestEnvelope(
     val request: cn.com.omnimind.baselib.llm.ChatCompletionRequest,
     val currentUserText: String,
     val dynamicFunctionToolNames: Set<String> = emptySet(),
+    val dynamicFunctionToolMappings: Map<String, String> = emptyMap(),
     val toolNames: List<String> = emptyList(),
     val defaultToolCount: Int = 0,
     val selectedBaseToolNames: Set<String> = emptySet(),
@@ -409,4 +410,13 @@ data class VLMResult(
     val error: String? = null,
     val thinking: VLMThinkingContext? = null,
     val shouldRetryForToolCall: Boolean = false
+)
+
+fun UIContext.budgetDiagnostics(): Map<String, String> = linkedMapOf(
+    "vlm_context_current_page_summary_chars" to currentPageSummary.length.toString(),
+    "vlm_context_step_skill_guidance_chars" to stepSkillGuidance.length.toString(),
+    "vlm_context_running_summary_chars" to runningSummary.length.toString(),
+    "vlm_context_key_memory_count" to keyMemory.size.toString(),
+    "vlm_context_installed_app_count" to installedApplications.size.toString(),
+    "vlm_context_dynamic_tool_definition_count" to dynamicToolDefinitions.size.toString(),
 )

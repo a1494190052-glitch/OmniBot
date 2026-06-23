@@ -31,7 +31,8 @@ import cn.com.omnimind.assists.task.vlmserver.VLMClient
 import cn.com.omnimind.assists.task.vlmserver.VLMConversationState
 import cn.com.omnimind.assists.task.vlmserver.VLMCurrentPageSnapshot
 import cn.com.omnimind.assists.task.vlmserver.VLMIndexedPageContext
-
+import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextProviderRegistry
+import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextRequest
 import cn.com.omnimind.assists.task.vlmserver.VLMStreamClient
 import cn.com.omnimind.assists.task.vlmserver.WaitAction
 import cn.com.omnimind.baselib.util.ImageQuality
@@ -186,11 +187,7 @@ typealias VlmToolProgressReporter = suspend (progress: String, extras: Map<Strin
 
 object VlmToolCoordinator {
     private const val TAG = "[VlmToolCoordinator]"
-    private const val MIN_WAIT_TIMEOUT_MS = 30_000L
-    private const val MAX_WAIT_TIMEOUT_MS = 600_000L
-    private const val DEFAULT_MAX_STEPS = 12
     private const val MAX_MAX_STEPS = 64
-    private const val DRY_RUN_PROMPT_PREVIEW_CHARS = 6000
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -204,7 +201,8 @@ object VlmToolCoordinator {
     ): VlmToolOutcome = withContext(Dispatchers.IO) {
         val taskId = taskIdOverride.trim().takeIf { it.isNotEmpty() } ?: UUID.randomUUID().toString()
         val needSummary = request.needSummary == true
-        val boundedRequest = request.copy(maxSteps = resolveMaxSteps(request.maxSteps))
+        val config = loadConfig(context)
+        val boundedRequest = request.withRuntimeDefaults(config)
 
         val missingPermissions = missingAutomationPermissions(context)
         if (missingPermissions.isNotEmpty()) {
@@ -329,7 +327,8 @@ object VlmToolCoordinator {
             goal = boundedRequest.goal,
             progressReporter = progressReporter,
             waitTimeoutMs = executionRequest.waitTimeoutMs,
-            returnOnWaitingInput = returnOnWaitingInput
+            returnOnWaitingInput = returnOnWaitingInput,
+            config = config,
         )
     }
 
@@ -398,25 +397,28 @@ object VlmToolCoordinator {
         }
 
         val captureStartedAt = System.currentTimeMillis()
+        val config = loadConfig(context)
+        val boundedRequest = request.withRuntimeDefaults(config)
         val snapshot = captureParseOnlySnapshot(context)
         markPhase("read_current_page_ms", captureStartedAt)
         val baseContext = UIContext(
-            overallTask = request.goal,
-            currentStepGoal = request.goal,
-            stepSkillGuidance = request.stepSkillGuidance,
-            targetPackageName = request.packageName.orEmpty(),
+            overallTask = boundedRequest.goal,
+            currentStepGoal = boundedRequest.goal,
+            stepSkillGuidance = boundedRequest.stepSkillGuidance,
+            targetPackageName = boundedRequest.packageName.orEmpty(),
             currentPackageName = snapshot.packageName.orEmpty(),
             displayWidth = snapshot.displayWidth,
             displayHeight = snapshot.displayHeight,
-            maxSteps = resolveMaxSteps(request.maxSteps),
+            maxSteps = boundedRequest.maxSteps ?: config.vlmDefaultMaxSteps,
             stepsUsed = 0,
         )
         val result = parseOnlyNextAction(
             context = baseContext,
             snapshot = snapshot,
-            model = request.model ?: "scene.vlm.operation.primary",
+            config = config,
+            model = boundedRequest.model ?: config.primaryModel,
             streamClient = streamClient,
-            disableOmniFlowRecall = request.disableOmniFlowRecall,
+            disableOmniFlowRecall = boundedRequest.disableOmniFlowRecall,
             phaseMs = phaseMs,
         )
         phaseMs["duration_ms"] = System.currentTimeMillis() - phaseStartedAt
@@ -426,12 +428,13 @@ object VlmToolCoordinator {
     internal suspend fun parseOnlyNextAction(
         context: UIContext,
         snapshot: VLMCurrentPageSnapshot,
-        model: String = "scene.vlm.operation.primary",
+        model: String = VlmWorkspaceConfig.defaultSnapshot().primaryModel,
         streamClient: VLMStreamClient,
         conversationState: VLMConversationState = VLMConversationState(),
         vlmClient: VLMClient = VLMClient(),
         disableOmniFlowRecall: Boolean = false,
         phaseMs: MutableMap<String, Long> = linkedMapOf(),
+        config: VlmWorkspaceConfig.Snapshot = VlmWorkspaceConfig.defaultSnapshot(),
     ): VlmParseOnlyResult {
         suspend fun <T> timed(name: String, block: suspend () -> T): T {
             val startedAt = System.currentTimeMillis()
@@ -455,7 +458,20 @@ object VlmToolCoordinator {
                 displayHeight = snapshot.displayHeight,
             )
         }
-        val contextBudgetDiagnostics = buildContextBudgetDiagnostics(workingContext)
+        workingContext = timed("recall_context_ms") {
+            VLMRecallContextProviderRegistry.enrich(
+                VLMRecallContextRequest(
+                    context = workingContext,
+                    currentXml = snapshot.xml,
+                    currentPackageName = snapshot.packageName,
+                    screenshotBase64 = snapshot.screenshotBase64,
+                    stepIndex = 0,
+                    snapshot = snapshot,
+                    disableOmniFlowRecall = disableOmniFlowRecall,
+                )
+            )
+        }
+        val contextBudgetDiagnostics = workingContext.budgetDiagnostics()
         val requestEnvelope = timed("build_request_ms") {
             vlmClient.buildUIOperationRequest(
                 context = workingContext,
@@ -474,6 +490,7 @@ object VlmToolCoordinator {
                 response = turn,
                 modelOrScene = model,
                 dynamicFunctionToolNames = requestEnvelope.dynamicFunctionToolNames,
+                dynamicFunctionToolMappings = requestEnvelope.dynamicFunctionToolMappings,
             )
         }
         val action = parsed.step?.action
@@ -493,6 +510,7 @@ object VlmToolCoordinator {
             "vlm_request_selected_base_tool_names" to requestEnvelope.selectedBaseToolNames.joinToString(",").take(4000),
             "vlm_request_dynamic_function_tool_count" to requestEnvelope.dynamicFunctionToolNames.size.toString(),
             "vlm_request_dynamic_function_tool_names" to requestEnvelope.dynamicFunctionToolNames.joinToString(",").take(4000),
+            "vlm_request_dynamic_function_mapping_count" to requestEnvelope.dynamicFunctionToolMappings.size.toString(),
             "vlm_request_system_prompt_chars" to requestEnvelope.systemPromptChars.toString(),
             "vlm_request_current_user_text_chars" to requestEnvelope.currentUserTextChars.toString(),
         )
@@ -538,7 +556,8 @@ object VlmToolCoordinator {
             requestHadTools = turn.requestHadTools,
             requestToolChoice = turn.requestToolChoice,
             requestParallelToolCalls = turn.requestParallelToolCalls,
-            currentUserTextPreview = requestEnvelope.currentUserText.take(DRY_RUN_PROMPT_PREVIEW_CHARS),
+            currentUserTextPreview = requestEnvelope.currentUserText
+                .take(config.vlmDryRunPromptPreviewChars),
             pageDiagnostics = recalledFunctionDiagnostics(requestEnvelope.dynamicFunctionToolNames) +
                 workingContext.pageDiagnostics +
                 contextBudgetDiagnostics +
@@ -569,6 +588,7 @@ object VlmToolCoordinator {
         scope: CoroutineScope,
         progressReporter: VlmToolProgressReporter = { _, _ -> }
     ): VlmToolOutcome = withContext(Dispatchers.IO) {
+        val config = loadConfig(context)
         val startTime = System.currentTimeMillis()
         emitProgress(
             progressReporter,
@@ -577,7 +597,7 @@ object VlmToolCoordinator {
             "等待解锁",
             mapOf("summary" to "等待用户解锁设备")
         )
-        val waitTimeoutMs = resolveWaitTimeoutMs(taskState.vlmRequest?.waitTimeoutMs)
+        val waitTimeoutMs = resolveWaitTimeoutMs(taskState.vlmRequest?.waitTimeoutMs, config)
         while (System.currentTimeMillis() - startTime < waitTimeoutMs) {
             if (ScreenStateUtil.isOperable()) {
                 taskState.addChatMessage("[SYSTEM] Screen unlocked, starting task...")
@@ -617,7 +637,7 @@ object VlmToolCoordinator {
                     goal = taskState.goal,
                     needSummary = taskState.needSummary
                 )
-                val boundedRequest = request.copy(maxSteps = resolveMaxSteps(request.maxSteps))
+                val boundedRequest = request.withRuntimeDefaults(config)
                 taskState.vlmRequest = boundedRequest
                 val executionRequest = prepareFastStartupRequest(boundedRequest, taskState)
                 val startResult = startVlmTaskInternal(
@@ -655,7 +675,8 @@ object VlmToolCoordinator {
                     taskId = taskId,
                     goal = taskState.goal,
                     progressReporter = progressReporter,
-                    waitTimeoutMs = executionRequest.waitTimeoutMs
+                    waitTimeoutMs = executionRequest.waitTimeoutMs,
+                    config = config,
                 )
             }
             delay(McpTaskManager.POLL_INTERVAL_MS)
@@ -673,9 +694,10 @@ object VlmToolCoordinator {
         progressReporter: VlmToolProgressReporter,
         waitTimeoutMs: Long? = null,
         returnOnWaitingInput: Boolean = true,
+        config: VlmWorkspaceConfig.Snapshot = VlmWorkspaceConfig.defaultSnapshot(),
     ): VlmToolOutcome {
         val startWaitTime = System.currentTimeMillis()
-        val resolvedWaitTimeoutMs = resolveWaitTimeoutMs(waitTimeoutMs)
+        val resolvedWaitTimeoutMs = resolveWaitTimeoutMs(waitTimeoutMs, config)
         var lastScreenState = ScreenStateUtil.isOperable()
         var lastProgress = ""
 
@@ -784,16 +806,36 @@ object VlmToolCoordinator {
         )
     }
 
-    internal fun resolveWaitTimeoutMs(requestedWaitTimeoutMs: Long?): Long {
+    internal fun resolveWaitTimeoutMs(
+        requestedWaitTimeoutMs: Long?,
+        config: VlmWorkspaceConfig.Snapshot = VlmWorkspaceConfig.defaultSnapshot(),
+    ): Long {
         val requested = requestedWaitTimeoutMs?.takeIf { it > 0L }
-            ?: return MAX_WAIT_TIMEOUT_MS
-        return requested.coerceIn(MIN_WAIT_TIMEOUT_MS, MAX_WAIT_TIMEOUT_MS)
+            ?: return config.vlmMaxWaitTimeoutMs
+        return requested.coerceIn(config.vlmMinWaitTimeoutMs, config.vlmMaxWaitTimeoutMs)
     }
 
-    internal fun resolveMaxSteps(requestedMaxSteps: Int?): Int {
-        val requested = requestedMaxSteps?.takeIf { it > 0 } ?: return DEFAULT_MAX_STEPS
+    internal fun resolveMaxSteps(
+        requestedMaxSteps: Int?,
+        config: VlmWorkspaceConfig.Snapshot = VlmWorkspaceConfig.defaultSnapshot(),
+    ): Int {
+        val requested = requestedMaxSteps?.takeIf { it > 0 }
+            ?: return config.vlmDefaultMaxSteps.coerceIn(1, MAX_MAX_STEPS)
         return requested.coerceIn(1, MAX_MAX_STEPS)
     }
+
+    private fun loadConfig(context: Context): VlmWorkspaceConfig.Snapshot =
+        VlmWorkspaceConfig.getInstance(context)
+            .also { it.initialize() }
+            .get()
+
+    private fun VlmTaskRequest.withRuntimeDefaults(
+        config: VlmWorkspaceConfig.Snapshot
+    ): VlmTaskRequest = copy(
+        model = model?.trim()?.takeIf { it.isNotEmpty() } ?: config.primaryModel,
+        maxSteps = resolveMaxSteps(maxSteps, config),
+        waitTimeoutMs = resolveWaitTimeoutMs(waitTimeoutMs, config),
+    )
 
     internal fun missingAutomationPermissions(context: Context): List<String> {
         val missing = mutableListOf<String>()
@@ -1058,19 +1100,9 @@ object VlmToolCoordinator {
         if (names.isEmpty()) return emptyMap()
         return linkedMapOf(
             "omniflow_recalled_function_count" to names.size.toString(),
-            "omniflow_recalled_function_ids" to names.joinToString(","),
+            "omniflow_recalled_function_tool_names" to names.joinToString(","),
         )
     }
-
-    private fun buildContextBudgetDiagnostics(context: UIContext): Map<String, String> =
-        linkedMapOf(
-            "vlm_context_current_page_summary_chars" to context.currentPageSummary.length.toString(),
-            "vlm_context_step_skill_guidance_chars" to context.stepSkillGuidance.length.toString(),
-            "vlm_context_running_summary_chars" to context.runningSummary.length.toString(),
-            "vlm_context_key_memory_count" to context.keyMemory.size.toString(),
-            "vlm_context_installed_app_count" to context.installedApplications.size.toString(),
-            "vlm_context_dynamic_tool_definition_count" to context.dynamicToolDefinitions.size.toString(),
-        )
 
     private fun JsonElement.toPlainAny(): Any? =
         when (this) {

@@ -49,10 +49,6 @@ object VLMRecallContextProviderRegistry {
     }
 }
 
-interface VLMRecallActionProvider {
-    suspend fun selectAction(request: VLMRecallContextRequest): UIAction?
-}
-
 interface VLMPostTaskHook {
     suspend fun onTaskCompleted(
         goal: String,
@@ -94,29 +90,4 @@ object VLMSystemPromptRegistry {
     }
 
     fun get(): String? = strategiesExtra
-}
-
-object VLMRecallActionProviderRegistry {
-    private const val TAG = "VLMRecallActionProvider"
-
-    @Volatile
-    private var provider: VLMRecallActionProvider? = null
-
-    fun register(provider: VLMRecallActionProvider?) {
-        this.provider = provider
-    }
-
-    fun clear() {
-        provider = null
-    }
-
-    suspend fun selectAction(request: VLMRecallContextRequest): UIAction? {
-        if (request.disableOmniFlowRecall) return null
-        val activeProvider = provider ?: return null
-        return runCatching { activeProvider.selectAction(request) }
-            .onFailure { error ->
-                OmniLog.w(TAG, "recall action provider failed: ${error.message}")
-            }
-            .getOrNull()
-    }
 }

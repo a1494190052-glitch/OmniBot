@@ -111,16 +111,42 @@ object VLMToolDefinitions {
         return definitions.mapNotNull { definition ->
             val function = definition["function"] as? JsonObject ?: return@mapNotNull null
             if (!isHiddenFunctionTool(function)) return@mapNotNull null
-            function["name"]?.jsonPrimitive?.contentOrNull
+                function["name"]?.jsonPrimitive?.contentOrNull
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() }
         }.toSet()
     }
 
+    fun dynamicFunctionToolMappingsFromDefinitions(definitions: List<JsonObject>): Map<String, String> {
+        return definitions.mapNotNull { definition ->
+            val function = definition["function"] as? JsonObject ?: return@mapNotNull null
+            if (isHiddenFunctionTool(function)) return@mapNotNull null
+            val name = function["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            if (name.isEmpty()) return@mapNotNull null
+            val functionId = firstNonBlank(
+                definition["function_id"],
+                definition["functionId"],
+                function["function_id"],
+                function["functionId"],
+            )
+            if (functionId.isEmpty()) return@mapNotNull null
+            name to functionId
+        }.toMap()
+    }
+
     private fun isHiddenFunctionTool(function: JsonObject): Boolean {
         val toolType = function["toolType"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
         val modelVisible = function["model_visible"]?.jsonPrimitive?.booleanOrNull
-        return toolType.equals("oob_function", ignoreCase = true) || modelVisible == false
+        if (modelVisible == false) return true
+        return toolType.equals("oob_function", ignoreCase = true)
+    }
+
+    private fun firstNonBlank(vararg values: JsonElement?): String {
+        values.forEach { value ->
+            val text = (value as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
+            if (text.isNotEmpty()) return text
+        }
+        return ""
     }
 
     private fun sanitizeVlmDynamicFunctionParameters(parameters: JsonObject): JsonObject {
@@ -156,8 +182,8 @@ object VLMToolDefinitions {
             append(
                 t(
                     locale,
-                    "注意：每个 tool call 的 JSON 参数必须是严格合法的 object，并满足所选工具 schema.required。Function recall、runtime resolve 和 replay 由本地 runtime 自动处理。同一条 bounded runtime resolve 只用于 replay 前补公开参数，或 replay miss 后补一个当前屏幕普通 UI action。如果本轮请求到达 VLM，只能输出一个当前屏幕的普通 UI action，不要输出 call_tool、function_id 或隐藏 Function 工具。schema.required 中的坐标字段必须是 0..1000 相对坐标，分别写入 x / y / x1 / y1 / x2 / y2，不要写成 \"x\": 827, 76 这类非法格式。系统会在执行前解码为屏幕绝对像素，本地记录始终保存绝对像素。wait 只在页面明确加载、动画或等待外部状态时使用。",
-                    "Important: every tool call JSON argument value must be a strict object and satisfy the selected tool's schema.required. Function recall, runtime resolve, and replay are handled automatically by the local runtime. The same bounded runtime resolve path only fills public arguments before replay or one ordinary current-screen UI action after a replay miss. If this turn reaches the VLM, output exactly one ordinary UI action for the current screen; do not emit call_tool, function_id, or hidden Function tools. Coordinate fields in schema.required must be 0..1000 relative coordinates, written into x / y / x1 / y1 / x2 / y2 as separate scalar fields. Do not emit invalid forms such as \"x\": 827, 76. The system decodes coordinates to screen absolute pixels before execution, and local records always store absolute pixels. Use wait only when the page is clearly loading, animating, or waiting for an external state change."
+                    "注意：每个 tool call 的 JSON 参数必须是严格合法的 object，并满足所选工具 schema.required。Function replay 由本地 runtime 自动处理；不要输出 call_tool、function_id 或隐藏 Function 工具。若本轮 tools[] 包含 run_recalled_workflow_*，它是当前页面可选的已召回工作流工具，可与普通 UI action 同级选择。schema.required 中的坐标字段必须是 0..1000 相对坐标，分别写入 x / y / x1 / y1 / x2 / y2，不要写成 \"x\": 827, 76 这类非法格式。系统会在执行前解码为屏幕绝对像素，本地记录始终保存绝对像素。wait 只在页面明确加载、动画或等待外部状态时使用。",
+                    "Important: every tool call JSON argument value must be a strict object and satisfy the selected tool's schema.required. Function replay is handled by the local runtime; do not emit call_tool, function_id, or hidden Function tools. If this turn's tools[] includes run_recalled_workflow_*, it is an optional recalled workflow tool for the current page and can be chosen at the same level as ordinary UI actions. Coordinate fields in schema.required must be 0..1000 relative coordinates, written into x / y / x1 / y1 / x2 / y2 as separate scalar fields. Do not emit invalid forms such as \"x\": 827, 76. The system decodes coordinates to screen absolute pixels before execution, and local records always store absolute pixels. Use wait only when the page is clearly loading, animating, or waiting for an external state change."
                 )
             )
         }
@@ -168,8 +194,12 @@ object VLMToolDefinitions {
         allowedToolNames: Set<String>? = null
     ): String {
         val selectedSpecs = toolSpecs(locale, allowedToolNames)
-        val toolNames = selectedSpecs.joinToString(separator = ", ") { it.name }
         val selectedNames = selectedSpecs.mapTo(linkedSetOf()) { it.name }
+        val dynamicAllowedNames = allowedToolNames
+            .orEmpty()
+            .map(String::trim)
+            .filter { it.startsWith("run_recalled_workflow_") && it !in selectedNames }
+        val toolNames = (selectedNames + dynamicAllowedNames).joinToString(separator = ", ")
         return buildString {
             appendLine("${t(locale, "本轮允许工具", "Allowed tools this turn")}: $toolNames")
             appendLine(
@@ -187,6 +217,15 @@ object VLMToolDefinitions {
                 )
             )
             appendLine(actionChoiceGuide(locale, selectedNames))
+            if (dynamicAllowedNames.isNotEmpty()) {
+                appendLine(
+                    t(
+                        locale,
+                        "已召回工作流：${dynamicAllowedNames.joinToString(", ")} 可在它明显匹配当前子目标时直接调用；否则继续选择普通 UI action。",
+                        "Recalled workflows: ${dynamicAllowedNames.joinToString(", ")} may be called when one clearly matches the current sub-goal; otherwise choose an ordinary UI action."
+                    )
+                )
+            }
             appendLine(
                 t(
                     locale,

@@ -385,7 +385,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   final GlobalKey<OmnibotWorkspaceBrowserState> _workspaceBrowserKey =
       GlobalKey<OmnibotWorkspaceBrowserState>();
   bool _workspaceBrowserCanGoUp = false;
-  bool _workspaceProjectModeEnabled = true;
+  bool _workspaceProjectModeEnabled = false;
   Future<OmnibotWorkspacePaths>? _workspacePathsLoadFuture;
   bool _hasAppliedInitialSurfaceMode = false;
   bool _hasInitializedHalfScreen = false;

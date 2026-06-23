@@ -2469,6 +2469,7 @@ class ChatInputWrapper extends StatelessWidget {
   final List<ChatInputAttachment> attachments;
   final ValueChanged<String>? onRemoveAttachment;
   final VoidCallback? onTriggerSlashCommand;
+  final VoidCallback? onTriggerManualRecording;
   final Widget? topBanner;
   final String? selectedModelOverrideId;
   final VoidCallback? onClearSelectedModelOverride;
@@ -2504,6 +2505,7 @@ class ChatInputWrapper extends StatelessWidget {
     this.attachments = const [],
     this.onRemoveAttachment,
     this.onTriggerSlashCommand,
+    this.onTriggerManualRecording,
     this.topBanner,
     this.selectedModelOverrideId,
     this.onClearSelectedModelOverride,
@@ -2549,6 +2551,7 @@ class ChatInputWrapper extends StatelessWidget {
             attachments: attachments,
             onRemoveAttachment: onRemoveAttachment,
             onTriggerSlashCommand: onTriggerSlashCommand,
+            onTriggerManualRecording: onTriggerManualRecording,
             selectedModelOverrideId: selectedModelOverrideId,
             onClearSelectedModelOverride: onClearSelectedModelOverride,
             contextUsageRatio: contextUsageRatio,

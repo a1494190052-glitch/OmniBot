@@ -28,7 +28,7 @@ object PromptTemplate {
     fun buildSystemPrompt(sceneId: String? = null): String {
         val locale = currentLocale()
         val resolvedSceneId = if (sceneId.isNullOrBlank()) {
-            "scene.vlm.operation.primary"
+            VLMRuntimeConfigRegistry.get().primarySceneId
         } else {
             sceneId
         }
@@ -79,7 +79,7 @@ object PromptTemplate {
             1. 每轮必须且只能返回 tools[] 中一个原生 tool_call。
             2. function.arguments 必须是严格 JSON object，并满足所选工具的 schema。
             3. schema.required 里的字段必须全部填写；可选字段不能替代 required 字段。
-            4. 不要输出 tools[] 外的工具名、旧文本动作格式、call_tool、function_id 或隐藏 Function 工具。
+            4. 不要输出 tools[] 外的工具名、旧文本动作格式、call_tool、function_id 或隐藏 Function 工具；若 tools[] 中出现 run_recalled_workflow_*，它是当前页面可选的已召回工作流工具，可与普通 UI action 同级选择。
             5. assistant.content 可为空；若返回，只能是 {"summary":"约20字本步摘要"}，不要包含动作参数。
 
             每轮先判断目标是否已经达成；若已达成，直接调用 finished，不要重复点击已经聚焦或已经打开的目标控件。
@@ -92,7 +92,7 @@ object PromptTemplate {
             1. Each turn must return exactly one native tool_call from tools[].
             2. function.arguments must be a strict JSON object that satisfies the selected tool schema.
             3. Every field listed in schema.required must be present; optional fields cannot replace required fields.
-            4. Do not output tool names outside tools[], legacy text action formats, call_tool, function_id, or hidden Function tools.
+            4. Do not output tool names outside tools[], legacy text action formats, call_tool, function_id, or hidden Function tools. If tools[] includes run_recalled_workflow_*, it is an optional recalled workflow tool for the current page and can be chosen at the same level as ordinary UI actions.
             5. assistant.content may be empty. If present, it must only be {"summary":"about 20 words for this step"} and must not contain action arguments.
 
             First check whether the goal is already satisfied this turn. If it is, call finished and do not click a target control that is already focused or already open.
@@ -104,7 +104,7 @@ object PromptTemplate {
     fun buildTurnUserPrompt(context: UIContext, sceneId: String? = null): String {
         val locale = currentLocale()
         val resolvedSceneId = if (sceneId.isNullOrBlank()) {
-            "scene.vlm.operation.primary"
+            VLMRuntimeConfigRegistry.get().primarySceneId
         } else {
             sceneId
         }
@@ -527,4 +527,39 @@ object PromptTemplate {
         "然后",
         "完成",
     )
+
+    fun summaryPrompt(goal: String): String = """
+# Role: 智能视觉信息整合与决策专家
+
+# Task
+你将收到用户的**原始目标**以及一组**按时间顺序排列的屏幕截图**（Agent 的执行过程）。
+你的任务是：**忽略操作过程中的无关细节（如点击位置、加载状态），像人类浏览网页一样，从截图中"阅读"并提取关键信息，最终为用户生成一份直接响应其目标的交付物。**
+
+# Input Data
+## 1. 用户原始目标 (User Goal)
+$goal
+
+## 2. 视觉证据 (Visual Evidence)
+*（附带了一组连续的屏幕截图，记录了搜索和浏览的全过程）*
+请仔细阅读附带的图片序列。图片内容可能包含：搜索引擎结果、具体网页详情、地图路线、表格数据等。
+
+# Thinking Process (CoT)
+1. **目标拆解**：明确用户到底想要什么？（是攻略、表格、代码、还是摘要？）
+2. **视觉信息提取**：
+   - 按顺序浏览图片。
+   - **过滤噪点**：忽略浏览器的地址栏、侧边栏广告、弹窗关闭按钮等 UI 元素。
+   - **抓取干货**：重点识别图片中的正文文本、价格数字、时间表、景点介绍、优缺点评价等。
+   - **关联上下文**：如果图1是搜索列表，图2是详情页，则以图2的详情为准。
+3. **逻辑重组**：将从多张图片中提取的碎片信息整合成一个连贯的整体。
+4. **交付生成**：根据目标类型，输出最终结果。
+
+# Constraints
+- **直接回答**：不要包含"根据搜索结果"、"我整理了以下内容"等开场白，直接给出融合相关的浏览结果。
+- **禁止流水账**：不要描述图片（例如不要说"第1张图显示了百度首页..."），直接使用图里的信息回答问题。
+- **事实准确**：严禁编造图片中不存在的数值（如价格、时间），如果图片中未展示关键信息，请注明"未知"。
+- **格式规范**：确保易读性。
+
+# Final Answer
+(请直接输出针对用户目标的最终整理结果...)
+""".trimIndent()
 }

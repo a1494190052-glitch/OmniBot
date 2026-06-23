@@ -3405,10 +3405,12 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             try {
                 TaskRuntimeSettings.onTaskStarted(context)
                 val taskPackageName = call.argument<String>("packageName")
-                runCatching {
-                    val wsConfig = cn.com.omnimind.bot.vlm.VlmWorkspaceConfig.getInstance(context)
-                        .also { it.reloadIfChanged() }
-                    cn.com.omnimind.assists.task.vlmserver.VLMToolDenylistRegistry.set(wsConfig.get().disabledTools)
+                val wsSnapshot = runCatching {
+                    cn.com.omnimind.bot.vlm.VlmWorkspaceConfig.getInstance(context)
+                        .also { it.initialize() }
+                        .get()
+                }.getOrElse {
+                    cn.com.omnimind.bot.vlm.VlmWorkspaceConfig.defaultSnapshot()
                 }
                 val callerGuidance = call.argument<String>("stepSkillGuidance").orEmpty()
                 val learnedGuidance = runCatching {
@@ -3420,8 +3422,9 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 AssistsUtil.Core.createVLMOperationTask(
                     context,
                     call.argument<String>("goal")!!,
-                    call.argument<String>("model"),
-                    call.argument<Int>("maxSteps"),
+                    call.argument<String>("model")?.trim()?.takeIf { it.isNotEmpty() }
+                        ?: wsSnapshot.primaryModel,
+                    VlmToolCoordinator.resolveMaxSteps(call.argument<Int>("maxSteps"), wsSnapshot),
                     taskPackageName,
                     vlmListener,
                     needSummary,

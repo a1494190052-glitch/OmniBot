@@ -245,6 +245,14 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
             child: _buildSlashTriggerButton(iconSize: 20),
           ),
         ],
+        if (widget.onTriggerManualRecording != null) ...[
+          const SizedBox(width: 4),
+          SizedBox(
+            width: 28,
+            height: 28,
+            child: _buildManualRecordButton(iconSize: 20),
+          ),
+        ],
         const SizedBox(width: 4),
         Expanded(
           child: Align(
@@ -361,6 +369,23 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
               }
               widget.onTriggerSlashCommand?.call();
             },
+    );
+  }
+
+  Widget _buildManualRecordButton({required double iconSize}) {
+    return IconButton(
+      key: const ValueKey('chat-input-manual-record-button'),
+      padding: EdgeInsets.zero,
+      iconSize: iconSize,
+      icon: const Icon(Icons.fiber_manual_record_outlined),
+      tooltip: '录制轨迹',
+      onPressed: () {
+        if (_isPopupVisible) {
+          setState(() => _isPopupVisible = false);
+          widget.onPopupVisibilityChanged?.call(false);
+        }
+        widget.onTriggerManualRecording?.call();
+      },
     );
   }
 

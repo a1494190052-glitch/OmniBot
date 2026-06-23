@@ -122,7 +122,7 @@ class VLMClientRequestTest {
     }
 
     @Test
-    fun `operation request hides recalled function tools from normal vlm`() {
+    fun `operation request hides legacy internal function tools from normal vlm`() {
         val client = VLMClient(
             systemPromptBuilder = { "system prompt" },
             turnPromptBuilder = { context, _ -> context.overallTask }
@@ -146,6 +146,55 @@ class VLMClientRequestTest {
         assertEquals("required", envelope.request.toolChoice!!.jsonPrimitive.contentOrNull)
         assertTrue(envelope.systemPromptChars > 0)
         assertTrue(envelope.currentUserTextChars > 0)
+    }
+
+    @Test
+    fun `operation request exposes recalled workflow tools next to ordinary planner tools`() {
+        val client = VLMClient(
+            systemPromptBuilder = { "system prompt" },
+            turnPromptBuilder = { context, _ ->
+                PromptTemplate.buildTurnUserPrompt(context, "scene.vlm.operation.primary")
+            }
+        )
+
+        val envelope = client.buildUIOperationRequest(
+            context = UIContext(
+                overallTask = "Open Xiaohongshu and search cats",
+                dynamicToolDefinitions = listOf(
+                    recalledWorkflowToolDefinition(1),
+                    recalledWorkflowToolDefinition(2),
+                    recalledWorkflowToolDefinition(3),
+                )
+            ),
+            screenshot = null,
+            conversationState = VLMConversationState()
+        )
+
+        val toolNames = envelope.request.tools.orEmpty().map { it.function.name }
+        assertTrue(toolNames.contains("click"))
+        assertTrue(toolNames.contains("run_recalled_workflow_1"))
+        assertTrue(toolNames.contains("run_recalled_workflow_2"))
+        assertTrue(toolNames.contains("run_recalled_workflow_3"))
+        assertFalse(toolNames.contains("call_tool"))
+        assertEquals(
+            mapOf(
+                "run_recalled_workflow_1" to "oob_fn_vlm_task_41329798_1",
+                "run_recalled_workflow_2" to "oob_fn_vlm_task_41329798_2",
+                "run_recalled_workflow_3" to "oob_fn_vlm_task_41329798_3",
+            ),
+            envelope.dynamicFunctionToolMappings
+        )
+        assertEquals(
+            setOf(
+                "run_recalled_workflow_1",
+                "run_recalled_workflow_2",
+                "run_recalled_workflow_3",
+            ),
+            envelope.dynamicFunctionToolNames
+        )
+        assertTrue(envelope.currentUserText.contains("run_recalled_workflow_1"))
+        assertTrue(envelope.currentUserText.contains("run_recalled_workflow_2"))
+        assertTrue(envelope.currentUserText.contains("run_recalled_workflow_3"))
     }
 
     @Test
@@ -702,7 +751,44 @@ class VLMClientRequestTest {
     }
 
     @Test
-    fun `openai tool action parser rejects native saved function id tool call`() {
+    fun `openai tool action parser maps recalled workflow tool to internal function run`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "vlm-test-model",
+                turn = ChatCompletionTurn(
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        toolCalls = listOf(
+                            AssistantToolCall(
+                                id = "call_1",
+                                function = AssistantToolCallFunction(
+                                    name = "run_recalled_workflow_1",
+                                    arguments = """{"keyword":"猫猫","function_id":"ignored"}"""
+                                )
+                            )
+                        )
+                    )
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary",
+            dynamicFunctionToolNames = setOf("run_recalled_workflow_1"),
+            dynamicFunctionToolMappings = mapOf("run_recalled_workflow_1" to "oob_fn_vlm_task_41329798")
+        )
+
+        assertTrue(result.success)
+        val action = result.step?.action as FunctionRunAction
+        assertEquals("call_tool", action.name)
+        assertEquals("run_recalled_workflow_1", action.toolName)
+        assertEquals("oob_fn_vlm_task_41329798", action.functionId)
+        assertEquals("猫猫", action.arguments["keyword"]!!.jsonPrimitive.contentOrNull)
+        assertFalse(action.arguments.containsKey("function_id"))
+    }
+
+    @Test
+    fun `openai tool action parser rejects unmapped recalled workflow tool call`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(
             SceneChatCompletionTurn(
@@ -730,7 +816,7 @@ class VLMClientRequestTest {
 
         assertFalse(result.success)
         assertTrue(result.step == null)
-        assertTrue(result.error.orEmpty().contains("Function tool calls are handled by runtime recall"))
+        assertTrue(result.error.orEmpty().contains("Unknown recalled workflow tool mapping"))
     }
 
     @Test
@@ -919,6 +1005,31 @@ class VLMClientRequestTest {
                 put("name", name)
                 put("toolType", "oob_function")
                 put("description", "Reusable Function")
+                put("parameters", buildJsonObject {
+                    put("type", "object")
+                    put("properties", buildJsonObject {
+                        put("tool_title", buildJsonObject {
+                            put("type", "string")
+                        })
+                        put("keyword", buildJsonObject {
+                            put("type", "string")
+                        })
+                    })
+                    put("required", buildJsonArray {
+                        add("tool_title")
+                        add("keyword")
+                    })
+                })
+            })
+        }
+
+        private fun recalledWorkflowToolDefinition(index: Int = 1) = buildJsonObject {
+            put("type", "function")
+            put("function_id", "oob_fn_vlm_task_41329798_$index")
+            put("function", buildJsonObject {
+                put("name", "run_recalled_workflow_$index")
+                put("toolType", "oob_recalled_function")
+                put("description", "Use saved workflow to search Xiaohongshu")
                 put("parameters", buildJsonObject {
                     put("type", "object")
                     put("properties", buildJsonObject {
