@@ -8,8 +8,12 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.sse.EventSource
+
+const val ACTION_FAILURE_PREFIX = "执行失败"
 
 // ==================== UI操作动作 ====================
 
@@ -342,6 +346,17 @@ class VLMConversationState(
         while (completedRounds.size > maxCompletedRounds) {
             completedRounds.removeFirst()
         }
+    }
+
+    fun updateLastRoundResult(toolResult: String) {
+        val last = completedRounds.removeLastOrNull() ?: return
+        val newPayload = buildJsonObject {
+            put("success", JsonPrimitive(true))
+            put("result", JsonPrimitive(toolResult))
+        }.toString()
+        completedRounds.addLast(
+            last.copy(toolMessage = last.toolMessage.copy(content = JsonPrimitive(newPayload)))
+        )
     }
 
     fun historyMessages(): List<ChatCompletionMessage> {

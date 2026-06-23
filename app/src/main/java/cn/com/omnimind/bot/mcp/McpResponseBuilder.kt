@@ -326,9 +326,6 @@ $actionText""".trimIndent()
                     "${t("总结", "Summary")}: ${summaryValue ?: if (state.summaryUnavailable) t("不可用", "unavailable") else t("生成中", "pending")}"
                 )
             }
-            state.feedback?.takeIf { it.isNotBlank() }?.let { feedback ->
-                appendLine("${t("反馈", "Feedback")}: $feedback")
-            }
             if (state.status == TaskStatus.WAITING_INPUT && state.waitingQuestion != null) {
                 appendLine("")
                 appendLine(t("⚠️ 等待用户输入", "⚠️ WAITING FOR INPUT"))

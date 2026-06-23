@@ -430,6 +430,8 @@ class TraceRecordingDeviceOperator(
         )
     }
 
+    override val isCancellationRequested: Boolean get() = delegate.isCancellationRequested
+
     /**
      * Convert one low-level operation result into the JSON-safe payload expected
      * by the provider raw-trace ingest endpoint.

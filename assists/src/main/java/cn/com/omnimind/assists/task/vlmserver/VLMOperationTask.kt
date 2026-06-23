@@ -63,7 +63,7 @@ open class VLMOperationTask(
      * 公开属性，供 ExecutionUIImpl 在 delay 循环中检查
      */
     @Volatile
-    var isCancellationRequested: Boolean = false
+    override var isCancellationRequested: Boolean = false
         private set
     
     private var executionRecordId: Long = -1L
@@ -988,7 +988,6 @@ open class VLMOperationTask(
                                 finishedContent = extractFinishedContent(taskExecutionReport),
                                 summaryText = null,
                                 needSummary = shouldSummary,
-                                feedback = taskExecutionReport.feedback,
                                 summaryUnavailable = true
                             )
                         )
@@ -1017,7 +1016,6 @@ open class VLMOperationTask(
                                 summaryText = null,
                                 errorMessage = errorMessage,
                                 needSummary = shouldSummary,
-                                feedback = taskExecutionReport.feedback,
                                 summaryUnavailable = true
                             )
                         )

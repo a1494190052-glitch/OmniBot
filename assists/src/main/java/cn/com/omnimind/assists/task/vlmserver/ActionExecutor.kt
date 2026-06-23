@@ -54,7 +54,7 @@ interface DeviceOperator {
     fun getDisplayWidth(): Int // 设备实际屏幕宽度
     fun getDisplayHeight(): Int // 设备实际屏幕高度
     suspend fun showInfo(message: String)
-
+    val isCancellationRequested: Boolean get() = false
 }
 
 class ActionExecutor(

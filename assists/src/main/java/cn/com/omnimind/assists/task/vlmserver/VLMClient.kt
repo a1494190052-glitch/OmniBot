@@ -169,7 +169,7 @@ class VLMClient(
             toolCalls = assistantTurn.turn.message.toolCalls
         )
         val toolCallId = assistantTurn.turn.message.toolCalls?.firstOrNull()?.id.orEmpty()
-        val success = !(executedStep.result?.startsWith("执行失败") == true)
+        val success = !(executedStep.result?.startsWith(ACTION_FAILURE_PREFIX) == true)
         val toolPayload = buildJsonObject {
             put("success", JsonPrimitive(success))
             put("result", JsonPrimitive(compactToolResult(executedStep)))

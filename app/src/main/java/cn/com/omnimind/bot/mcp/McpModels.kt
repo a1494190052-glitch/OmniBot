@@ -128,13 +128,11 @@ data class TaskState(
             result.errorMessage
                 ?: result.finishedContent
                 ?: result.waitingQuestion
-                ?: result.feedback
                 ?: message
         }
         waitingQuestion = result.waitingQuestion
         finishedContent = result.finishedContent?.takeIf { it.isNotBlank() } ?: finishedContent
         summaryText = result.summaryText?.takeIf { it.isNotBlank() } ?: summaryText
-        feedback = result.feedback?.takeIf { it.isNotBlank() } ?: feedback
         summaryUnavailable = summaryUnavailable || result.summaryUnavailable
         markStateChanged()
     }

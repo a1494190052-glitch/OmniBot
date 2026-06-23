@@ -11,11 +11,13 @@ import cn.com.omnimind.baselib.util.ImageCompressor
 import cn.com.omnimind.baselib.util.ImageQuality
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.w3c.dom.Element
@@ -131,7 +133,7 @@ class VLMOperationService(
     }
 
     private suspend fun ensureTaskActive(stage: String) {
-        if ((deviceOperator as? VLMOperationTask)?.isCancellationRequested == true) {
+        if (deviceOperator.isCancellationRequested) {
             throw CancellationException("任务已取消: $stage")
         }
         currentCoroutineContext().ensureActive()
@@ -322,6 +324,7 @@ class VLMOperationService(
                     val userAnswer = onInfoAction(step.action.value)
                     ensureTaskActive("after_info_action_$stepIndex")
 
+                    conversationState.updateLastRoundResult("用户回复：$userAnswer")
                     val userReplyStep = UIStep(
                         observation = "用户回复：$userAnswer",
                         thought = "收到用户回复，继续执行任务",
@@ -407,11 +410,19 @@ class VLMOperationService(
         stepIndex: Int
     ): VLMOperationResult {
         return try {
-            executeSingleStep(context, useModel, summary, stepIndex)
+            withTimeout(SINGLE_STEP_TIMEOUT_MS) {
+                executeSingleStep(context, useModel, summary, stepIndex)
+            }
+        } catch (e: TimeoutCancellationException) {
+            VLMOperationResult(
+                success = false,
+                error = "单步执行超时 (${SINGLE_STEP_TIMEOUT_MS / 1000}s)",
+                step = null,
+                context = context
+            )
         } catch (e: CancellationException) {
             throw e
         } catch (e: PrivacyBlockedException) {
-            // 隐私限制异常，继续抛出异常
             throw e
         } catch (e: Exception) {
             VLMOperationResult(
@@ -859,7 +870,7 @@ class VLMOperationService(
                     "Execute action: ${finalStep.action.name}, result=${finalStep.result ?: "OK"}"
                 )
 
-                val actionSucceeded = finalStep.result?.startsWith("执行失败") != true
+                val actionSucceeded = finalStep.result?.startsWith(ACTION_FAILURE_PREFIX) != true
                 if (finalStep.result?.contains("不支持的操作类型") == true) {
                     parseFailureCount++
                     onStepCompleted(
@@ -1092,27 +1103,17 @@ class VLMOperationService(
         val displayWidth = deviceOperator.getDisplayWidth().coerceAtLeast(encodedWidth)
         val displayHeight = deviceOperator.getDisplayHeight().coerceAtLeast(encodedHeight)
 
+        fun decodeAndLog(actionName: String): Pair<Float, Float> {
+            val x = decodeVlmRelativeCoordinate(position[0], displayWidth).toFloat()
+            val y = decodeVlmRelativeCoordinate(position[1], displayHeight).toFloat()
+            OmniLog.d(Tag, "Coord decode($actionName): raw_relative_0_1000=(${position[0]}, ${position[1]}), encoded=${encodedWidth}x${encodedHeight}, mapped_screen_absolute=($x, $y), display=${displayWidth}x${displayHeight}")
+            return x to y
+        }
+
         val updatedAction = when (val action = step.action) {
-            is ClickAction -> {
-                val absoluteX = decodeVlmRelativeCoordinate(position[0], displayWidth)
-                val absoluteY = decodeVlmRelativeCoordinate(position[1], displayHeight)
-                OmniLog.d(
-                    Tag,
-                    "Coord decode(click): raw_relative_0_1000=(${position[0]}, ${position[1]}), encoded=${encodedWidth}x${encodedHeight}, mapped_screen_absolute=(${absoluteX}, ${absoluteY}), display=${displayWidth}x${displayHeight}"
-                )
-                action.copy(x = absoluteX.toFloat(), y = absoluteY.toFloat())
-            }
-
-            is InputTextAction -> {
-                val absoluteX = decodeVlmRelativeCoordinate(position[0], displayWidth)
-                val absoluteY = decodeVlmRelativeCoordinate(position[1], displayHeight)
-                OmniLog.d(
-                    Tag,
-                    "Coord decode(input_text): raw_relative_0_1000=(${position[0]}, ${position[1]}), encoded=${encodedWidth}x${encodedHeight}, mapped_screen_absolute=(${absoluteX}, ${absoluteY}), display=${displayWidth}x${displayHeight}"
-                )
-                action.copy(x = absoluteX.toFloat(), y = absoluteY.toFloat())
-            }
-
+            is ClickAction -> { val (x, y) = decodeAndLog("click"); action.copy(x = x, y = y) }
+            is InputTextAction -> { val (x, y) = decodeAndLog("input_text"); action.copy(x = x, y = y) }
+            is LongPressAction -> { val (x, y) = decodeAndLog("long_press"); action.copy(x = x, y = y) }
             is SwipeAction -> {
                 val rawX1 = position.getOrNull(0) ?: 0f
                 val rawY1 = position.getOrNull(1) ?: 0f
@@ -1130,28 +1131,9 @@ class VLMOperationService(
                     displayWidth = displayWidth,
                     displayHeight = displayHeight
                 )
-                OmniLog.d(
-                    Tag,
-                    "Coord decode(swipe): raw_relative_0_1000=($rawX1, $rawY1, $rawX2, $rawY2), encoded=${encodedWidth}x${encodedHeight}, mapped_screen_absolute=($absoluteX1, $absoluteY1, $absoluteX2, $absoluteY2), safe=(${safeScroll.x1}, ${safeScroll.y1}, ${safeScroll.x2}, ${safeScroll.y2}, adjusted=${safeScroll.adjusted}), display=${displayWidth}x${displayHeight}"
-                )
-                action.copy(
-                    x1 = safeScroll.x1.toFloat(),
-                    y1 = safeScroll.y1.toFloat(),
-                    x2 = safeScroll.x2.toFloat(),
-                    y2 = safeScroll.y2.toFloat()
-                )
+                OmniLog.d(Tag, "Coord decode(swipe): raw_relative_0_1000=($rawX1, $rawY1, $rawX2, $rawY2), encoded=${encodedWidth}x${encodedHeight}, mapped_screen_absolute=($absoluteX1, $absoluteY1, $absoluteX2, $absoluteY2), safe=(${safeScroll.x1}, ${safeScroll.y1}, ${safeScroll.x2}, ${safeScroll.y2}, adjusted=${safeScroll.adjusted}), display=${displayWidth}x${displayHeight}")
+                action.copy(x1 = safeScroll.x1.toFloat(), y1 = safeScroll.y1.toFloat(), x2 = safeScroll.x2.toFloat(), y2 = safeScroll.y2.toFloat())
             }
-
-            is LongPressAction -> {
-                val absoluteX = decodeVlmRelativeCoordinate(position[0], displayWidth)
-                val absoluteY = decodeVlmRelativeCoordinate(position[1], displayHeight)
-                OmniLog.d(
-                    Tag,
-                    "Coord decode(long_press): raw_relative_0_1000=(${position[0]}, ${position[1]}), encoded=${encodedWidth}x${encodedHeight}, mapped_screen_absolute=(${absoluteX}, ${absoluteY}), display=${displayWidth}x${displayHeight}"
-                )
-                action.copy(x = absoluteX.toFloat(), y = absoluteY.toFloat())
-            }
-
             else -> action
         }
 
@@ -1164,6 +1146,28 @@ class VLMOperationService(
             .coerceIn(0, displaySize)
     }
 
+    private data class PointedActionFields(
+        val nodeId: String?,
+        val targetDescription: String,
+        val preferEditable: Boolean,
+        val x: Float,
+        val y: Float,
+    )
+
+    private fun UIAction.pointedFields(): PointedActionFields? = when (this) {
+        is ClickAction -> PointedActionFields(nodeId, targetDescription, false, x, y)
+        is InputTextAction -> PointedActionFields(nodeId, targetDescription, true, x, y)
+        is LongPressAction -> PointedActionFields(nodeId, targetDescription, false, x, y)
+        else -> null
+    }
+
+    private fun UIAction.copyWithGroundedXY(target: VLMIndexedPageContext.IndexedTarget): UIAction = when (this) {
+        is ClickAction -> copy(targetDescription = target.label.ifBlank { targetDescription }, x = target.centerX, y = target.centerY, nodeId = target.nodeId)
+        is InputTextAction -> copy(targetDescription = target.label.ifBlank { targetDescription }, x = target.centerX, y = target.centerY, nodeId = target.nodeId)
+        is LongPressAction -> copy(targetDescription = target.label.ifBlank { targetDescription }, x = target.centerX, y = target.centerY, nodeId = target.nodeId)
+        else -> this
+    }
+
     private fun groundIndexedActionTarget(
         step: UIStep,
         currentXml: String?,
@@ -1171,77 +1175,20 @@ class VLMOperationService(
         displayHeight: Int
     ): UIStep {
         return when (val action = step.action) {
-            is ClickAction -> {
+            is ClickAction, is InputTextAction, is LongPressAction -> {
+                val fields = action.pointedFields() ?: return step
                 val target = resolveIndexedElementTarget(
                     currentXml = currentXml,
                     displayWidth = displayWidth,
                     displayHeight = displayHeight,
-                    nodeId = action.nodeId,
-                    targetDescription = action.targetDescription,
-                    preferEditable = false,
-                    actionName = "click"
+                    nodeId = fields.nodeId,
+                    targetDescription = fields.targetDescription,
+                    preferEditable = fields.preferEditable,
+                    actionName = action.name
                 ) ?: return step
-                OmniLog.i(
-                    Tag,
-                    "Indexed click grounding applied: index=${target.index} label=${target.label} (${action.x},${action.y})->(${target.centerX},${target.centerY})"
-                )
+                OmniLog.i(Tag, "Indexed ${action.name} grounding applied: index=${target.index} label=${target.label} (${fields.x},${fields.y})->(${target.centerX},${target.centerY})")
                 step.copy(
-                    action = action.copy(
-                        targetDescription = target.label.ifBlank { action.targetDescription },
-                        x = target.centerX,
-                        y = target.centerY,
-                        nodeId = target.nodeId
-                    ),
-                    summary = appendRuntimeTag(step.summary, "indexed_element:${target.index}")
-                )
-            }
-
-            is InputTextAction -> {
-                val target = resolveIndexedElementTarget(
-                    currentXml = currentXml,
-                    displayWidth = displayWidth,
-                    displayHeight = displayHeight,
-                    nodeId = action.nodeId,
-                    targetDescription = action.targetDescription,
-                    preferEditable = true,
-                    actionName = "input_text"
-                ) ?: return step
-                OmniLog.i(
-                    Tag,
-                    "Indexed input grounding applied: index=${target.index} label=${target.label} (${action.x},${action.y})->(${target.centerX},${target.centerY})"
-                )
-                step.copy(
-                    action = action.copy(
-                        targetDescription = target.label.ifBlank { action.targetDescription },
-                        x = target.centerX,
-                        y = target.centerY,
-                        nodeId = target.nodeId
-                    ),
-                    summary = appendRuntimeTag(step.summary, "indexed_element:${target.index}")
-                )
-            }
-
-            is LongPressAction -> {
-                val target = resolveIndexedElementTarget(
-                    currentXml = currentXml,
-                    displayWidth = displayWidth,
-                    displayHeight = displayHeight,
-                    nodeId = action.nodeId,
-                    targetDescription = action.targetDescription,
-                    preferEditable = false,
-                    actionName = "long_press"
-                ) ?: return step
-                OmniLog.i(
-                    Tag,
-                    "Indexed long_press grounding applied: index=${target.index} label=${target.label} (${action.x},${action.y})->(${target.centerX},${target.centerY})"
-                )
-                step.copy(
-                    action = action.copy(
-                        targetDescription = target.label.ifBlank { action.targetDescription },
-                        x = target.centerX,
-                        y = target.centerY,
-                        nodeId = target.nodeId
-                    ),
+                    action = action.copyWithGroundedXY(target),
                     summary = appendRuntimeTag(step.summary, "indexed_element:${target.index}")
                 )
             }
@@ -1566,6 +1513,7 @@ class VLMOperationService(
     }
 }
 
+private const val SINGLE_STEP_TIMEOUT_MS = 90_000L
 private const val XML_CAPTURE_MAX_ATTEMPTS = 4
 private const val MIN_USABLE_XML_NODE_COUNT = 3
 private const val MIN_TINY_XML_NODE_COUNT = 1
@@ -1584,7 +1532,6 @@ data class VLMOperationResult(
     val context: UIContext,
     val error: String?,
     val screenshot: String? = null,
-    val feedback: String? = null
 )
 
 data class TaskExecutionReport(
@@ -1595,7 +1542,6 @@ data class TaskExecutionReport(
     val finalContext: UIContext,
     val error: String?,
     val summaryScreenshotList: List<String>? = null,
-    val feedback: String? = null,
     val doneReason: String? = null
 )
 
