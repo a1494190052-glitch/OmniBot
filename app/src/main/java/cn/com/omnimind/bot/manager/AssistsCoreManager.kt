@@ -4846,7 +4846,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
      */
     fun generateMemoryGreeting(call: MethodCall, result: MethodChannel.Result) {
         val model = call.argument<String>("model")?.trim().orEmpty()
-            .ifEmpty { "scene.dispatch.model" }
+            .ifEmpty { "scene.compactor.context" }
         val records = (call.argument<List<Map<String, Any?>>>("records") ?: emptyList())
             .map { entry ->
                 entry.mapKeys { it.key.toString() }

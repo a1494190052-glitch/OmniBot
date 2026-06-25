@@ -518,7 +518,7 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
         text: '/model ',
         selection: TextSelection.collapsed(offset: 7),
       );
-      _inputFocusNode.requestFocus();
+      _requestComposerFocus();
       _handleSlashCommandInput();
       await _loadCodexModelOptions();
       return;

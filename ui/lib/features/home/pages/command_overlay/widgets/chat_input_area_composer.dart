@@ -1001,6 +1001,7 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
     final maxLines = multiline ? 3 : 1;
     return GestureDetector(
       onTap: () {
+        widget.onRequestFocus?.call();
         widget.focusNode.requestFocus();
       },
       child: AbsorbPointer(
@@ -1020,6 +1021,7 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
                   if (widget.controller.text.trim().isNotEmpty) {
                     widget.onSendMessage();
                   } else {
+                    widget.onRequestFocus?.call();
                     widget.focusNode.requestFocus();
                   }
                 },

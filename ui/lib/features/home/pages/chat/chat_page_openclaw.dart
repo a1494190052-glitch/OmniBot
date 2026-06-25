@@ -18,7 +18,7 @@ mixin _ChatPageOpenClawMixin on _ChatPageStateBase {
         offset: currentText.length,
       );
     }
-    _inputFocusNode.requestFocus();
+    _requestComposerFocus();
     _handleSlashCommandInput();
   }
 

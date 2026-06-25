@@ -65,8 +65,14 @@ class VLMOperationService(
         classDiscriminator = "action_type"
     }
 
+    // Context Compactor Agent
+    private val compactorAgent = CompactorAgent()
+
     // Loading Sprite Agent (赛博精灵加载状态生成器)
     private val loadingSpriteAgent = LoadingSpriteAgent()
+
+    // Compactor 触发步数记录
+    private val compactorTriggerSteps = mutableListOf<Int>()
 
     // 解析失败计数器
     private var parseFailureCount = 0
@@ -134,6 +140,58 @@ class VLMOperationService(
         return updatedContext
     }
 
+    /**
+     * 计算下一次 compactor 触发的步数
+     * 触发间隔随着总步数增加而减少，从 12 步开始，逐渐减少到 5 步
+     *
+     * @param totalSteps 当前总步数
+     * @param lastTriggerStep 上一次触发的步数
+     * @return 下一次应该触发的步数，如果没有达到触发条件则返回 null
+     */
+    private fun getNextCompactorTriggerStep(totalSteps: Int, lastTriggerStep: Int): Int? {
+        // 计算动态触发间隔
+        // 策略：从 12 步开始，随着总步数增加，间隔逐渐减少到 5 步
+        // - 第一次触发在第 12 步
+        // - 之后间隔逐渐从 8 步减少到 5 步
+        // - 公式：interval = max(5, 8 - (totalSteps / 25))
+
+        val interval = maxOf(5, 8 - (totalSteps / 25))
+
+        // 第一次触发在 12 步
+        val firstTriggerStep = 12
+
+        val nextTriggerStep = if (compactorTriggerSteps.isEmpty()) {
+            firstTriggerStep
+        } else {
+            lastTriggerStep + interval
+        }
+
+        return if (totalSteps >= nextTriggerStep) nextTriggerStep else null
+    }
+
+    /**
+     * 检查当前步骤是否应该触发 compactor
+     * @param currentStep 当前步骤索引（0-based）
+     * @param maxSteps 最大步数（保留参数兼容，当前未使用）
+     * @return 是否应该触发
+     */
+    private fun shouldTriggerCompactor(currentStep: Int, maxSteps: Int?): Boolean {
+        val totalSteps = currentStep + 1
+
+        // 如果已经记录过这个触发点，则跳过
+        if (totalSteps in compactorTriggerSteps) return false
+
+        val lastTriggerStep = compactorTriggerSteps.lastOrNull() ?: 0
+        val nextTriggerStep = getNextCompactorTriggerStep(totalSteps, lastTriggerStep)
+
+        if (nextTriggerStep != null && totalSteps == nextTriggerStep) {
+            compactorTriggerSteps.add(totalSteps)
+            return true
+        }
+
+        return false
+    }
+
     private suspend fun ensureTaskActive(stage: String) {
         if (deviceOperator.isCancellationRequested) {
             throw CancellationException("任务已取消: $stage")
@@ -173,6 +231,8 @@ class VLMOperationService(
             ?: VLMRuntimeConfigRegistry.get().defaultMaxSteps
         OmniLog.d(Tag, "executeTask - package_name: $packageName, skipGoHome: $skipGoHome")
 
+        // 重置 Compactor 触发记录
+        compactorTriggerSteps.clear()
         resetConversationState()
         disableOmniFlowRecallForCurrentTask = disableOmniFlowRecall
         ensureTaskActive("execute_task_start")
@@ -236,6 +296,61 @@ class VLMOperationService(
             // 检查用户是否请求暂停（每一步执行前都检查）
             safePauseCheck("before_step_$stepIndex")
             context = drainExternalMemories(context)
+
+            // === Context Compactor Logic (在超时计时之外执行) ===
+            // 使用动态触发逻辑：随着步数增加，触发间隔逐渐从 12 步减少到 5 步
+            if (shouldTriggerCompactor(stepIndex, normalizedMaxSteps)) {
+                try {
+                    OmniLog.i(Tag, "触发上下文压缩与纠错 (Trace size: ${context.trace.size})")
+
+                    // 显示赛博精灵加载提示词（从预生成列表获取）
+                    if (!isSubTask) {
+                        val loadingPhrase = loadingSpriteAgent.getNextPhrase()
+                        deviceOperator.showInfo(loadingPhrase)
+                    }
+
+                    // 截图用于 Compactor 分析
+                    ensureTaskActive("before_compactor_screenshot_$stepIndex")
+                    val compactorScreenshot = deviceOperator.captureScreenshot()
+                    ensureTaskActive("after_compactor_screenshot_$stepIndex")
+
+                    // 1. 调用 Compactor Agent
+                    val compactorResult = compactorAgent.compact(
+                        goal = context.activeGoal(),
+                        currentScreenshot = compactorScreenshot,
+                        trace = context.trace,
+                        existingRunningSummary = context.runningSummary,
+                        needSummary = summary
+                    )
+                    ensureTaskActive("after_compactor_$stepIndex")
+
+                    // 2. 处理纠错建议
+                    var newSummary = compactorResult.summary
+                    if (compactorResult.needsCorrection && !compactorResult.correctionGuidance.isNullOrBlank()) {
+                        OmniLog.w(Tag, "Compactor检测到错误，添加纠错建议: ${compactorResult.correctionGuidance}")
+                        newSummary += "\n\n[Correction Guidance]: ${compactorResult.correctionGuidance}"
+                    }
+
+                    // 3. 更新 Context (替换 trace 为结构化信息)
+                    context = context.copy(
+                        runningSummary = newSummary,
+                        currentState = compactorResult.currentState,
+                        nextStepHint = compactorResult.nextStep ?: "",
+                        completedMilestones = compactorResult.completedMilestones,
+                        keyMemory = context.keyMemory + compactorResult.keyMemory,
+                        trace = emptyList(),
+                        stepsUsed = 0
+                    )
+                    OmniLog.i(Tag, "上下文压缩完成，Running Summary Updated.")
+
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    OmniLog.e(Tag, "Context Compaction Failed: ${e.message}")
+                    // 失败时不阻断流程，继续使用原有 Context
+                }
+            }
+            // === Context Compactor Logic (End) ===
 
             val result = executeSingleStepWithTimeOut(context, useModel, summary, stepIndex)
             ensureTaskActive("after_single_step_$stepIndex")
@@ -409,7 +524,7 @@ class VLMOperationService(
         context: UIContext,
         useModel: String = VLMRuntimeConfigRegistry.get().primarySceneId,
         summary: Boolean,
-        stepIndex: Int
+        stepIndex: Int = 0
     ): VLMOperationResult {
         return try {
             withTimeout(SINGLE_STEP_TIMEOUT_MS) {
@@ -458,7 +573,7 @@ class VLMOperationService(
         context: UIContext,
         model: String = VLMRuntimeConfigRegistry.get().primarySceneId,
         summary: Boolean,
-        stepIndex: Int
+        stepIndex: Int = 0
     ): VLMOperationResult {
         // 内部传递都用 scene.xxx 格式，只在需要判断模型类型或发送请求时才解析
 

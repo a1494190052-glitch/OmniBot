@@ -63,6 +63,7 @@ import 'package:ui/features/home/pages/chat/utils/agent_runtime_attachment_paylo
 import 'package:ui/features/home/pages/chat/utils/chat_card_message_helpers.dart';
 import 'package:ui/features/home/pages/chat/utils/codex_slash_commands.dart';
 import 'package:ui/features/home/pages/chat/utils/deep_thinking_persistence.dart';
+import 'package:ui/features/home/pages/chat/utils/composer_lift_intent_tracker.dart';
 import 'package:ui/features/home/pages/chat/utils/composer_keyboard_metrics_tracker.dart';
 import 'package:ui/features/home/pages/chat/utils/keyboard_inset_motion_tracker.dart';
 import 'package:ui/features/home/pages/codex/codex_remote_directory_picker.dart';
@@ -208,6 +209,8 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     ChatPageMode.openclaw: '',
     ChatPageMode.codex: '',
   };
+  final ComposerLiftIntentTracker _composerLiftIntentTracker =
+      ComposerLiftIntentTracker();
   final ComposerKeyboardMetricsTracker _composerKeyboardMetricsTracker =
       ComposerKeyboardMetricsTracker();
   final Map<ChatPageMode, ChatIslandDisplayLayer>
@@ -1823,6 +1826,10 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   Future<void> _executeCompanionStart();
 
   Future<void> _cancelCompanionMode();
+
+  void _armComposerLiftIntent();
+
+  void _requestComposerFocus({bool showKeyboard});
 
   void _onFocusChange();
 

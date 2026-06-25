@@ -742,6 +742,9 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
   @override
   void _onFocusChange() {
     if (!mounted) return;
+    if (_inputFocusNode.hasFocus) {
+      _armComposerLiftIntent();
+    }
     setState(() {});
   }
 

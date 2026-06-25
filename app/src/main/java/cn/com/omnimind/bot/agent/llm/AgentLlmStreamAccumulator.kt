@@ -326,14 +326,17 @@ class AgentLlmStreamAccumulator(
     private fun consumeChoice(choice: JsonObject): Boolean {
         choice["finish_reason"]?.jsonPrimitive?.contentOrNull?.let { finishReason = it }
         var hasPayload = false
+        var hasChatContentPayload = false
 
         val delta = choice["delta"] as? JsonObject
         if (delta != null) {
+            hasChatContentPayload = hasTextPayload(delta["content"])
             hasPayload = consumeMessageLike(delta, isDelta = true) || hasPayload
         }
 
         val message = choice["message"] as? JsonObject
         if (message != null) {
+            hasChatContentPayload = hasTextPayload(message["content"]) || hasChatContentPayload
             hasPayload = consumeMessageLike(message, isDelta = false) || hasPayload
         }
 
@@ -355,8 +358,13 @@ class AgentLlmStreamAccumulator(
             hasPayload = true
         }
 
-        // 某些 OpenAI-compat 实现会返回 completion 风格的 choice.text
-        hasPayload = appendTextPayload(choice["text"]) || hasPayload
+        // Some OpenAI-compatible streams include completion-style choice.text
+        // alongside chat-style delta/message content in the same choice. Treat
+        // choice.text as a text fallback, otherwise the same token is appended
+        // twice before it reaches Flutter.
+        if (!hasChatContentPayload) {
+            hasPayload = appendTextPayload(choice["text"]) || hasPayload
+        }
         return hasPayload
     }
 
@@ -520,6 +528,10 @@ class AgentLlmStreamAccumulator(
         val text = extractText(element) ?: return false
         appendTextChunk(text)
         return text.isNotEmpty()
+    }
+
+    private fun hasTextPayload(element: JsonElement?): Boolean {
+        return !extractText(element).isNullOrEmpty()
     }
 
     private fun appendTextChunk(text: String) {

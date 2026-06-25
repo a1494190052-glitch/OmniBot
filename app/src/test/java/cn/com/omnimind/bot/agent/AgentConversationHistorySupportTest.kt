@@ -180,24 +180,31 @@ class AgentConversationHistorySupportTest {
             listOf(userEntry, assistantEntry, toolEntry, secondToolEntry)
         )
 
-        assertEquals(4, seed.historyMessages.size)
+        assertEquals(6, seed.historyMessages.size)
         assertEquals(
-            listOf("user", "assistant", "assistant", "assistant"),
+            listOf("user", "assistant", "assistant", "tool", "assistant", "tool"),
             seed.historyMessages.map { it.role }
         )
         assertTrue(seed.historyMessages[0].content.toString().contains("查看 example"))
-        assertNull(seed.historyMessages[2].toolCalls)
-        assertNull(seed.historyMessages[2].toolCallId)
-        assertNull(seed.historyMessages[3].toolCalls)
-        assertNull(seed.historyMessages[3].toolCallId)
+        assertEquals(1, seed.historyMessages[2].toolCalls?.size)
+        assertEquals("browser_use", seed.historyMessages[2].toolCalls?.single()?.function?.name)
+        assertTrue(
+            seed.historyMessages[2].toolCalls
+                ?.single()
+                ?.function
+                ?.arguments
+                .orEmpty()
+                .contains("\"url\":\"https://example.com\"")
+        )
+        assertEquals("terminal_execute", seed.historyMessages[4].toolCalls?.single()?.function?.name)
 
-        val firstToolSummary = seed.historyMessages[2].content!!.jsonPrimitive.content
+        val firstToolSummary = seed.historyMessages[3].content!!.jsonPrimitive.content
         assertTrue(firstToolSummary.contains("浏览器自动化"))
         assertTrue(firstToolSummary.contains("抓取成功"))
         assertTrue(firstToolSummary.contains("previewJson"))
         assertFalse(firstToolSummary.contains("rawResultJson"))
 
-        val secondToolSummary = seed.historyMessages[3].content!!.jsonPrimitive.content
+        val secondToolSummary = seed.historyMessages[5].content!!.jsonPrimitive.content
         assertTrue(secondToolSummary.contains("执行命令"))
         assertTrue(secondToolSummary.contains("执行命令失败"))
         assertTrue(secondToolSummary.contains("terminalOutput"))
@@ -299,13 +306,10 @@ class AgentConversationHistorySupportTest {
 
         val messages = AgentConversationHistorySupport.buildPromptRelevantMessages(listOf(entry))
 
-        assertEquals(1, messages.size)
+        assertEquals(2, messages.size)
         assertEquals("assistant", messages[0].role)
         assertEquals("需要先打开页面确认结构", messages[0].reasoningContent)
-        assertNull(messages[0].toolCalls)
-        assertNull(messages[0].toolCallId)
-        assertTrue(messages[0].content!!.jsonPrimitive.content.contains("\"toolName\":\"browser_use\""))
-        assertTrue(messages[0].content!!.jsonPrimitive.content.contains("\"summary\":\"抓取成功\""))
+        assertEquals("browser_use", messages[0].toolCalls?.single()?.function?.name)
     }
 
     @Test
@@ -721,15 +725,14 @@ class AgentConversationHistorySupportTest {
         val messages = AgentConversationHistorySupport.buildPromptRelevantMessages(entries)
 
         assertEquals(
-            listOf("user", "assistant", "assistant", "user"),
+            listOf("user", "assistant", "tool", "assistant", "user"),
             messages.map { it.role }
         )
-        assertNull(messages[1].toolCalls)
-        assertNull(messages[1].toolCallId)
-        assertTrue(messages[1].content!!.jsonPrimitive.content.contains("\"summary\":\"抓取成功\""))
-        assertFalse(messages[1].content!!.jsonPrimitive.content.contains("rawResultJson"))
-        assertEquals("页面标题是 Example", messages[2].content!!.jsonPrimitive.content)
-        assertEquals("继续下一步", messages[3].content!!.jsonPrimitive.content)
+        assertEquals("browser_use", messages[1].toolCalls?.single()?.function?.name)
+        assertTrue(messages[2].content!!.jsonPrimitive.content.contains("\"summary\":\"抓取成功\""))
+        assertFalse(messages[2].content!!.jsonPrimitive.content.contains("rawResultJson"))
+        assertEquals("页面标题是 Example", messages[3].content!!.jsonPrimitive.content)
+        assertEquals("继续下一步", messages[4].content!!.jsonPrimitive.content)
     }
 
     @Test
@@ -761,7 +764,7 @@ class AgentConversationHistorySupportTest {
         )
 
         val messages = AgentConversationHistorySupport.buildPromptRelevantMessages(listOf(entry))
-        val toolSummary = messages[0].content!!.jsonPrimitive.content
+        val toolSummary = messages[1].content!!.jsonPrimitive.content
 
         assertTrue(toolSummary.contains("\"summary\":\"${"s".repeat(240)}...\""))
         assertTrue(toolSummary.contains("\"terminalOutput\":\"${"t".repeat(1200)}...\""))

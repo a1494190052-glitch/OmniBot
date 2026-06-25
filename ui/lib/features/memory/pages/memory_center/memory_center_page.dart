@@ -585,7 +585,7 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
     try {
       final response = await AssistsMessageService.generateMemoryGreeting(
         records: topRecords,
-        model: 'scene.dispatch.model',
+        model: 'scene.compactor.context',
       );
 
       if (response != null && response.isNotEmpty && mounted) {

@@ -168,6 +168,31 @@ class AgentLlmStreamAccumulatorTest {
 
         assertEquals("前缀后缀", turn.message.contentText())
     }
+
+    @Test
+    fun `does not append choice text when delta content already supplied payload`() {
+        val accumulator = AgentLlmStreamAccumulator(json = json)
+
+        accumulator.consume(
+            """{"choices":[{"delta":{"content":"The build finished."},"text":"The build finished."}]}"""
+        )
+
+        val turn = accumulator.buildTurn()
+
+        assertEquals("The build finished.", turn.message.contentText())
+    }
+
+    @Test
+    fun `keeps completion style choice text when no chat payload exists`() {
+        val accumulator = AgentLlmStreamAccumulator(json = json)
+
+        accumulator.consume("""{"choices":[{"text":"The build finished."}]}""")
+
+        val turn = accumulator.buildTurn()
+
+        assertEquals("The build finished.", turn.message.contentText())
+    }
+
     @Test
     fun `route-gated leading buffer reclassifies text before close tag for non local providers`() {
         val accumulator = AgentLlmStreamAccumulator(

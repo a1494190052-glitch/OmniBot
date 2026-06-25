@@ -1189,7 +1189,7 @@ open class VLMOperationTask(
                 ?: (finishedFromTrace?.action as? FinishedAction)?.content.orEmpty()
             val prompt = PromptTemplate.summaryPrompt(goal)
 
-            val modelToUse = "scene.vlm.summary"
+            val modelToUse = "scene.compactor.context"
             val vlmPayload = AgentRequest.Payload.VLMChatPayload(
                 model = modelToUse, text = prompt, images = report.summaryScreenshotList!!
             )
