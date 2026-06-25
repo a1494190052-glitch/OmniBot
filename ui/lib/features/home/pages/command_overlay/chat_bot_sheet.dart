@@ -12,7 +12,8 @@ import 'package:ui/utils/data_parser.dart';
 import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/services/app_state_service.dart';
 import 'package:ui/features/home/pages/command_overlay/services/chat_service.dart';
-import 'package:ui/features/home/pages/command_overlay/services/manual_recording_flow_controller.dart';
+import 'package:ui/features/home/pages/command_overlay/services/manual_recording_permission_guard.dart';
+import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/features/home/pages/command_overlay/constants/messages.dart';
 import 'package:ui/features/home/pages/command_overlay/utils/deep_thinking_parser.dart';
 import 'package:ui/features/home/pages/chat/utils/agent_run_timeline.dart';
@@ -55,8 +56,6 @@ class ChatBotSheet extends StatefulWidget {
   final String? initialDisplayMessage;
   final List<Map<String, dynamic>> initialAttachments;
   final Map<String, dynamic>? initialScheduleInfo;
-  final bool? initialManualRecordingDebugScreenshots;
-
   /// 启动场景，用于控制是否加载之前保存的上下文
   final ChatBotLaunchScene launchScene;
   final bool? openClawEnabled;
@@ -67,7 +66,6 @@ class ChatBotSheet extends StatefulWidget {
     this.initialDisplayMessage,
     this.initialAttachments = const [],
     this.initialScheduleInfo,
-    this.initialManualRecordingDebugScreenshots,
     this.launchScene = ChatBotLaunchScene.normal,
     this.openClawEnabled,
   });
@@ -96,8 +94,6 @@ class _ChatBotSheetState extends State<ChatBotSheet>
   bool _isSubmittingVlmReply = false;
   bool _isPopupVisible = false;
   String? _vlmInfoQuestion;
-  StreamSubscription<OobFunctionRunProgressEvent>?
-  _oobFunctionRunProgressSubscription;
 
   final Map<String, String> _currentAiMessages = {};
   final Set<String> _expandedAgentRunTaskIds = <String>{};
@@ -306,8 +302,7 @@ class _ChatBotSheetState extends State<ChatBotSheet>
             text: widget.initialMessage!,
             displayText: widget.initialDisplayMessage,
             attachments: widget.initialAttachments,
-            manualRecordingDebugScreenshots:
-                widget.initialManualRecordingDebugScreenshots,
+            manualRecordingDebugScreenshots: false,
           );
         });
       }
@@ -360,9 +355,6 @@ class _ChatBotSheetState extends State<ChatBotSheet>
     AssistsMessageService.setOnAgentStreamEventCallback(
       _handleIncomingAgentStreamEvent,
     );
-    _oobFunctionRunProgressSubscription = AssistsMessageService
-        .oobFunctionRunProgressStream
-        .listen(_handleOobFunctionRunProgressEvent);
   }
 
   Future<void> _loadOpenClawConfig() async {
@@ -954,28 +946,10 @@ class _ChatBotSheetState extends State<ChatBotSheet>
     AssistsMessageService.removeOnAgentStreamEventCallback(
       _handleIncomingAgentStreamEvent,
     );
-    _oobFunctionRunProgressSubscription?.cancel();
-    _oobFunctionRunProgressSubscription = null;
     ScreenDialogService.setOnBeforeCloseChatBotDialog(null);
     super.dispose();
   }
 
-  void _handleOobFunctionRunProgressEvent(OobFunctionRunProgressEvent event) {
-    if (!mounted) return;
-    var didUpsert = false;
-    setState(() {
-      didUpsert = ChatCardMessageHelpers.upsertOobFunctionRunProgress(
-        _messages,
-        event,
-      );
-    });
-    if (!didUpsert) return;
-    if (event.isTerminal) {
-      unawaited(
-        _saveConversationToDb(generateSummary: false, markComplete: true),
-      );
-    }
-  }
 
   void _onFocusChange() {
     if (!mounted) return;
@@ -1660,7 +1634,6 @@ class _ChatBotSheetState extends State<ChatBotSheet>
 
     final handledManualRecording = await _tryStartManualRecordingFromMessage(
       messageText,
-      recordDebugScreenshots: manualRecordingDebugScreenshots ?? false,
     );
     if (handledManualRecording) return;
 
@@ -1709,65 +1682,166 @@ class _ChatBotSheetState extends State<ChatBotSheet>
     }
   }
 
-  Future<bool> _tryStartManualRecordingFromMessage(
-    String messageText, {
-    required bool recordDebugScreenshots,
-  }) async {
-    if (!ManualRecordingFlowController.isCommand(messageText)) {
+  Future<bool> _tryStartManualRecordingFromMessage(String messageText) async {
+    if (!_isManualRecordingCommand(messageText)) {
       return false;
     }
     await _startManualRecordingFlow(
       userMessageText: messageText,
-      recordDebugScreenshots: recordDebugScreenshots,
+      recordDebugScreenshots: false,
     );
     return true;
+  }
+
+  bool _isManualRecordingCommand(String messageText) {
+    final normalized = messageText.trim().toLowerCase();
+    return normalized == '手动录制' ||
+        normalized == '开始手动录制' ||
+        normalized == '人工录制' ||
+        normalized == 'manual recording' ||
+        normalized == 'manual record';
+  }
+
+  Future<void> _startManualRecordingFromShortcut(
+    bool recordDebugScreenshots,
+  ) async {
+    if (_isAiResponding) return;
+    await _startManualRecordingFlow(
+      userMessageText: '录制轨迹',
+      recordDebugScreenshots: recordDebugScreenshots,
+    );
+  }
+
+  Future<void> _openRunLogListFromShortcut() async {
+    GoRouterManager.push('/task/run_logs');
+  }
+
+  Future<void> _openLatestRunLogFromShortcut() async {
+    if (_isAiResponding) return;
+    try {
+      final snapshot = await AssistsMessageService.getInternalRunLogs(limit: 1);
+      if (!mounted) return;
+      UtgRunLogSummary? latest;
+      for (final run in snapshot.runs) {
+        if (run.runId.trim().isNotEmpty) {
+          latest = run;
+          break;
+        }
+      }
+      if (latest == null) {
+        showToast('暂无可查看的轨迹', type: ToastType.warning);
+        return;
+      }
+      unawaited(
+        showRunLogTimelineSheet(
+          context,
+          runId: latest.runId.trim(),
+          title: latest.goal.trim().isEmpty ? '当前轨迹' : latest.goal.trim(),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      showToast(error.toString(), type: ToastType.error);
+    }
   }
 
   Future<void> _startManualRecordingFlow({
     required String userMessageText,
     required bool recordDebugScreenshots,
   }) async {
-    await ManualRecordingFlowController.start(
-      context: context,
-      inputFocusNode: _inputFocusNode,
-      userMessageText: userMessageText,
-      recordDebugScreenshots: recordDebugScreenshots,
-      isMounted: () => mounted,
-      addUserMessage: (text) {
-        final ids = _addUserMessage(text);
-        return ManualRecordingFlowMessageIds(
-          userMessageId: ids.userMessageId,
-          aiMessageId: ids.aiMessageId,
-        );
-      },
-      afterUserMessageAdded: (_) => _saveConversationToDb(),
-      beforeNativeRecording: () {
-        unawaited(ScreenDialogService.hideForManualRecording());
-      },
-      afterNativeRecording: () {
-        unawaited(ScreenDialogService.restoreAfterManualRecording());
-      },
-      insertResultMessage: _insertManualRecordingResultMessage,
-      openRunLogTimeline: (runId) {
+    final canRecord = await ManualRecordingPermissionGuard.ensureAuthorized(
+      context,
+    );
+    if (!mounted || !canRecord) return;
+
+    _inputFocusNode.unfocus();
+    final messageIds = _addUserMessage(userMessageText);
+    await _saveConversationToDb();
+    showToast('开始手动录制。请执行操作，结束后点小万「完成学习」。');
+    unawaited(ScreenDialogService.hideForManualRecording());
+    try {
+      final result = await AssistsMessageService.startHumanTrajectoryLearning(
+        enableDebugScreenshots: recordDebugScreenshots,
+      );
+      if (!mounted) return;
+      unawaited(ScreenDialogService.restoreAfterManualRecording());
+      _insertManualRecordingResultMessage(messageIds.aiMessageId, result);
+      final success = result['success'] == true;
+      final conversionSuccess =
+          result['conversion_success'] == true ||
+          result['conversionSuccess'] == true ||
+          (result['function_id'] ?? result['functionId'])
+              .toString()
+              .trim()
+              .isNotEmpty;
+      final runId = (result['run_id'] ?? result['runId'] ?? '').toString();
+      showToast(
+        success
+            ? (conversionSuccess
+                  ? '手动录制完成，人工 Function 已保存'
+                  : '手动录制完成，RunLog 已生成')
+            : '手动录制失败',
+        type: success ? ToastType.success : ToastType.error,
+      );
+      if (success && runId.trim().isNotEmpty && mounted) {
         unawaited(
-          showRunLogTimelineSheet(context, runId: runId, title: '手动录制轨迹'),
+          showRunLogTimelineSheet(
+            context,
+            runId: runId.trim(),
+            title: '手动录制 RunLog',
+          ),
         );
-      },
-      onFinally: () async {
+      }
+    } catch (error) {
+      if (!mounted) return;
+      unawaited(ScreenDialogService.restoreAfterManualRecording());
+      _insertManualRecordingResultMessage(messageIds.aiMessageId, {
+        'success': false,
+        'error_message': error.toString(),
+      });
+      showToast(error.toString(), type: ToastType.error);
+    } finally {
+      if (mounted) {
         setState(() => _isAiResponding = false);
         await _saveConversationToDb();
-      },
-    );
+      }
+    }
   }
 
   void _insertManualRecordingResultMessage(
     String messageId,
     Map<String, dynamic> result,
   ) {
-    final cardData = ManualRecordingFlowController.resultCardData(
-      messageId: messageId,
-      result: result,
-    );
+    final success = result['success'] == true;
+    final recordingSuccess =
+        result['recording_success'] ?? result['recordingSuccess'] ?? success;
+    final conversionSuccess =
+        result['conversion_success'] ?? result['conversionSuccess'];
+    final runId = (result['run_id'] ?? result['runId'] ?? '').toString();
+    final actionCount = result['action_count'] ?? result['actionCount'] ?? 0;
+    final functionId = result['function_id'] ?? result['functionId'];
+    final functionRegistered =
+        result['function_registered'] ?? result['functionRegistered'];
+    final agentVisible = result['agent_visible'] ?? result['agentVisible'];
+    final errorMessage = result['error_message'] ?? result['errorMessage'];
+    final cardData = <String, dynamic>{
+      'type': 'manual_recording_result',
+      'cardId': messageId,
+      'success': success,
+      'recordingSuccess': recordingSuccess,
+      'recording_success': recordingSuccess,
+      'conversionSuccess': conversionSuccess,
+      'conversion_success': conversionSuccess,
+      'runId': runId,
+      'run_id': runId,
+      'actionCount': actionCount,
+      if (functionId != null) 'functionId': functionId,
+      if (functionId != null) 'function_id': functionId,
+      if (functionRegistered != null) 'functionRegistered': functionRegistered,
+      if (agentVisible != null) 'agentVisible': agentVisible,
+      if (errorMessage != null) 'errorMessage': errorMessage,
+      if (errorMessage != null) 'error_message': errorMessage,
+    };
     setState(() {
       ChatCardMessageHelpers.upsertCardMessage(
         _messages,
@@ -2621,10 +2695,9 @@ class _ChatBotSheetState extends State<ChatBotSheet>
             onPopupVisibilityChanged: _onPopupVisibilityChanged,
             openClawEnabled: _openClawEnabled,
             onToggleOpenClaw: _setOpenClawEnabled,
-            onTriggerManualRecording: () => _startManualRecordingFlow(
-              userMessageText: '录制轨迹',
-              recordDebugScreenshots: false,
-            ),
+            onViewTrajectoriesTap: _openRunLogListFromShortcut,
+            onViewCurrentTrajectoryTap: _openLatestRunLogFromShortcut,
+            onManualRecordingTap: _startManualRecordingFromShortcut,
           ),
         ],
       ),

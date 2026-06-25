@@ -531,13 +531,10 @@ class _CommandOverlayState extends State<CommandOverlay> {
 
   void _showChatSheet({
     String? initialMessage,
-    bool? initialManualRecordingDebugScreenshots,
   }) {
     _showChatSheetWithScene(
       ChatBotLaunchScene.normal,
       initialMessage: initialMessage,
-      initialManualRecordingDebugScreenshots:
-          initialManualRecordingDebugScreenshots,
     );
   }
 
@@ -547,7 +544,6 @@ class _CommandOverlayState extends State<CommandOverlay> {
     String? initialMessage,
     String? initialDisplayMessage,
     List<Map<String, dynamic>> initialAttachments = const [],
-    bool? initialManualRecordingDebugScreenshots,
   }) {
     if (_isChatSheetVisible) return;
     if (mounted) {
@@ -565,8 +561,6 @@ class _CommandOverlayState extends State<CommandOverlay> {
         initialMessage: initialMessage,
         initialDisplayMessage: initialDisplayMessage,
         initialAttachments: initialAttachments,
-        initialManualRecordingDebugScreenshots:
-            initialManualRecordingDebugScreenshots,
         launchScene: launchScene,
         openClawEnabled: _openClawEnabled,
       ),

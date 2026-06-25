@@ -5,16 +5,13 @@ import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter/material.dart';
+import 'package:ui/features/home/pages/command_overlay/services/manual_recording_permission_guard.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/l10n/l10n.dart';
-import 'package:ui/services/model_vendor_catalog.dart';
 import 'package:ui/services/special_permission.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/theme/theme_context.dart';
-import 'package:ui/widgets/provider_vendor_icon.dart';
-import 'package:ui/widgets/glass_popup.dart';
 import 'package:ui/widgets/image_preview_overlay.dart';
-import 'package:ui/widgets/omni_glass.dart';
 import 'package:ui/widgets/text_input_context_menu.dart';
 
 part 'chat_input_area_composer.dart';
@@ -40,41 +37,6 @@ const String _kCodexPermissionFullAccessIconAsset =
     'assets/home/chat/permission_shield_alert.svg';
 
 enum CodexPermissionMode { defaultMode, autoReview, fullAccess }
-
-typedef CodexRunSettingsChanged =
-    FutureOr<void> Function({String? modelId, String? reasoningEffort});
-
-class CodexRunSettings {
-  const CodexRunSettings({
-    required this.modelId,
-    required this.reasoningEffort,
-    this.modelOptions = const <String>[],
-    this.reasoningEffortOptions = const <String>[],
-    this.isLoadingModels = false,
-    this.modelListError,
-  });
-
-  final String modelId;
-  final String reasoningEffort;
-  final List<String> modelOptions;
-  final List<String> reasoningEffortOptions;
-  final bool isLoadingModels;
-  final String? modelListError;
-}
-
-class ChatModelPickerSettings {
-  const ChatModelPickerSettings({
-    required this.modelId,
-    required this.hasSelectableModels,
-    required this.onOpen,
-    this.onPointerDown,
-  });
-
-  final String modelId;
-  final bool hasSelectableModels;
-  final FutureOr<void> Function(BuildContext anchorContext) onOpen;
-  final VoidCallback? onPointerDown;
-}
 
 class ChatInputAttachment {
   final String id;
@@ -123,6 +85,10 @@ class ChatInputArea extends StatefulWidget {
   final bool? openClawEnabled;
   final ValueChanged<bool>? onToggleOpenClaw;
   final VoidCallback? onLongPressOpenClaw;
+  final FutureOr<void> Function()? onViewTrajectoriesTap;
+  final FutureOr<void> Function()? onViewCurrentTrajectoryTap;
+  final FutureOr<void> Function(bool recordDebugScreenshots)?
+  onManualRecordingTap;
   final FutureOr<void> Function()? onTerminalTap;
 
   /// 是否使用毛玻璃效果（command_overlay 使用毛玻璃，chatbotsheet 使用白色+阴影）
@@ -133,7 +99,6 @@ class ChatInputArea extends StatefulWidget {
   final List<ChatInputAttachment> attachments;
   final ValueChanged<String>? onRemoveAttachment;
   final VoidCallback? onTriggerSlashCommand;
-  final VoidCallback? onTriggerManualRecording;
   final bool annotationEnabled;
   final VoidCallback? onToggleAnnotation;
   final String? selectedModelOverrideId;
@@ -141,10 +106,6 @@ class ChatInputArea extends StatefulWidget {
   final double? contextUsageRatio;
   final String? contextUsageTooltipMessage;
   final VoidCallback? onLongPressContextUsageRing;
-  final ChatModelPickerSettings? modelPickerSettings;
-  final CodexRunSettings? codexRunSettings;
-  final CodexRunSettingsChanged? onCodexRunSettingsChanged;
-  final FutureOr<void> Function()? onCodexRunSettingsOpened;
   final CodexPermissionMode? codexPermissionMode;
   final ValueChanged<CodexPermissionMode>? onCodexPermissionModeChanged;
   final bool useIndependentSendButton;
@@ -161,6 +122,9 @@ class ChatInputArea extends StatefulWidget {
     this.openClawEnabled,
     this.onToggleOpenClaw,
     this.onLongPressOpenClaw,
+    this.onViewTrajectoriesTap,
+    this.onViewCurrentTrajectoryTap,
+    this.onManualRecordingTap,
     this.onTerminalTap,
     this.useFrostedGlass = false,
     this.useLargeComposerStyle = false,
@@ -169,7 +133,6 @@ class ChatInputArea extends StatefulWidget {
     this.attachments = const [],
     this.onRemoveAttachment,
     this.onTriggerSlashCommand,
-    this.onTriggerManualRecording,
     this.annotationEnabled = false,
     this.onToggleAnnotation,
     this.selectedModelOverrideId,
@@ -177,10 +140,6 @@ class ChatInputArea extends StatefulWidget {
     this.contextUsageRatio,
     this.contextUsageTooltipMessage,
     this.onLongPressContextUsageRing,
-    this.modelPickerSettings,
-    this.codexRunSettings,
-    this.onCodexRunSettingsChanged,
-    this.onCodexRunSettingsOpened,
     this.codexPermissionMode,
     this.onCodexPermissionModeChanged,
     this.useIndependentSendButton = true,
@@ -253,99 +212,48 @@ class _ContextUsageRingButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ring = SizedBox(
+    final child = SizedBox(
       width: 22,
       height: 22,
       child: Center(child: _ContextUsageRing(ratio: ratio)),
     );
+    final interactiveChild = onLongPress == null
+        ? child
+        : GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onLongPress: onLongPress,
+            child: child,
+          );
     final tooltip = tooltipMessage?.trim() ?? '';
-    final hasTooltip = tooltip.isEmpty == false;
-    if (!hasTooltip && onLongPress == null) {
-      return ring;
+    if (tooltip.isEmpty) {
+      return interactiveChild;
     }
-    return Builder(
-      builder: (anchorContext) {
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: hasTooltip
-              ? () => _showGlassTooltip(anchorContext, tooltip)
-              : null,
-          onLongPress: onLongPress,
-          child: ring,
-        );
-      },
-    );
-  }
-
-  void _showGlassTooltip(BuildContext anchorContext, String message) {
-    final anchor = glassPopupAnchorFromContext(anchorContext);
-    if (anchor == null) {
-      return;
-    }
-    showGlassPopup<void>(
-      context: anchorContext,
-      anchor: anchor,
+    return Tooltip(
+      message: tooltip,
+      triggerMode: TooltipTriggerMode.tap,
+      waitDuration: Duration.zero,
+      showDuration: const Duration(seconds: 3),
       preferBelow: false,
-      verticalGap: 8,
-      horizontalPlacement: GlassPopupHorizontalPlacement.centerOnAnchor,
-      barrierColor: Colors.transparent,
-      child: _ContextUsageGlassTooltipBody(message: message),
-    );
-  }
-}
-
-class _ContextUsageGlassTooltipBody extends StatefulWidget {
-  const _ContextUsageGlassTooltipBody({required this.message});
-
-  final String message;
-
-  @override
-  State<_ContextUsageGlassTooltipBody> createState() =>
-      _ContextUsageGlassTooltipBodyState();
-}
-
-class _ContextUsageGlassTooltipBodyState
-    extends State<_ContextUsageGlassTooltipBody> {
-  Timer? _autoDismissTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    _autoDismissTimer = Timer(const Duration(seconds: 3), () {
-      if (!mounted) return;
-      final navigator = Navigator.of(context);
-      if (navigator.canPop()) {
-        navigator.pop();
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _autoDismissTimer?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.omniPalette;
-    final isDark = context.isDarkTheme;
-    final textColor = isDark ? palette.textPrimary : const Color(0xFF1F2937);
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 280),
-      child: OmniGlassPanel(
-        borderRadius: const BorderRadius.all(Radius.circular(14)),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        child: Text(
-          widget.message,
-          style: TextStyle(
-            color: textColor,
-            fontSize: 12,
-            height: 1.45,
-            fontWeight: FontWeight.w500,
+      verticalOffset: 12,
+      decoration: BoxDecoration(
+        color: const Color(0xFF172033),
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x24172033),
+            blurRadius: 24,
+            offset: Offset(0, 12),
           ),
-        ),
+        ],
       ),
+      textStyle: const TextStyle(
+        color: Colors.white,
+        fontSize: 12,
+        height: 1.45,
+        fontWeight: FontWeight.w500,
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: interactiveChild,
     );
   }
 }
@@ -457,17 +365,38 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
 
   late ValueNotifier<_ComposerInteractionState> _composerStateNotifier;
   bool _isPopupVisible = false;
+  bool _recordDebugScreenshots = true;
   double _lastKeyboardInset = 0;
+  ManualRecordingPermissionCheck? _manualRecordingPermissionCheck;
+  bool _isCheckingManualRecordingPermissions = false;
+  int _manualRecordingPermissionCheckGeneration = 0;
 
   final ScrollController _textFieldScrollController = ScrollController();
 
   bool get isPopupVisible => _isPopupVisible;
+  bool get _hasManualRecordingAction => widget.onManualRecordingTap != null;
+  bool get _showDebugScreenshotToggle =>
+      _debugScreenshotToggleAvailable && _hasManualRecordingAction;
+  bool get _debugScreenshotToggleAvailable {
+    var available = false;
+    assert(() {
+      available = true;
+      return true;
+    }());
+    return available;
+  }
+
+  bool get _isManualRecordingPermissionBlocked {
+    final permissionCheck = _manualRecordingPermissionCheck;
+    return _hasManualRecordingAction &&
+        permissionCheck != null &&
+        !permissionCheck.isAuthorized;
+  }
 
   double _lastReportedInputHeight = 44;
   bool _inputHeightReportScheduled = false;
   bool _isComposerHovered = false;
   late AnimationController _composerFlowController;
-  late AnimationController _modelPickerSpinController;
 
   late Widget _terminalSvg;
   late Widget _sendSvg;
@@ -502,10 +431,6 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
       vsync: this,
       duration: const Duration(milliseconds: 8000),
     )..repeat();
-    _modelPickerSpinController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 520),
-    );
     _reportInputHeightAfterBuild();
   }
 
@@ -659,6 +584,41 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
     _syncKeyboardPhaseFromView();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _isPopupVisible) {
+      unawaited(_refreshManualRecordingPermissions());
+    }
+  }
+
+  Future<void> _refreshManualRecordingPermissions() async {
+    if (!_hasManualRecordingAction || !mounted) return;
+    final generation = ++_manualRecordingPermissionCheckGeneration;
+    setState(() {
+      _isCheckingManualRecordingPermissions = true;
+    });
+    try {
+      final permissionCheck = await ManualRecordingPermissionGuard.check(
+        context,
+      );
+      if (!mounted || generation != _manualRecordingPermissionCheckGeneration) {
+        return;
+      }
+      setState(() {
+        _manualRecordingPermissionCheck = permissionCheck;
+        _isCheckingManualRecordingPermissions = false;
+      });
+    } catch (_) {
+      if (!mounted || generation != _manualRecordingPermissionCheckGeneration) {
+        return;
+      }
+      setState(() {
+        _manualRecordingPermissionCheck = null;
+        _isCheckingManualRecordingPermissions = false;
+      });
+    }
+  }
+
   void _syncKeyboardPhaseFromView() {
     if (!mounted) return;
     final view = _safeViewForMetrics();
@@ -726,19 +686,23 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
     if (oldWidget.attachments != widget.attachments ||
         oldWidget.useLargeComposerStyle != widget.useLargeComposerStyle ||
         oldWidget.useFrostedGlass != widget.useFrostedGlass ||
-        oldWidget.selectedModelOverrideId != widget.selectedModelOverrideId ||
-        oldWidget.modelPickerSettings != widget.modelPickerSettings) {
+        oldWidget.selectedModelOverrideId != widget.selectedModelOverrideId) {
       _reportInputHeightAfterBuild();
+    }
+    if (oldWidget.onManualRecordingTap != widget.onManualRecordingTap &&
+        widget.onManualRecordingTap == null) {
+      _manualRecordingPermissionCheck = null;
+      _isCheckingManualRecordingPermissions = false;
     }
   }
 
   @override
   void dispose() {
+    _manualRecordingPermissionCheckGeneration++;
     WidgetsBinding.instance.removeObserver(this);
     _textFieldScrollController.dispose();
     _composerStateNotifier.dispose();
     _composerFlowController.dispose();
-    _modelPickerSpinController.dispose();
     widget.controller.removeListener(_onTextChanged);
     widget.focusNode.removeListener(_onFocusChanged);
     super.dispose();
