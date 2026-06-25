@@ -18,6 +18,7 @@ class VlmFunctionRunHandlerImpl(context: Context) : VLMFunctionRunHandler {
         val callArgs = buildMap<String, Any?> {
             put("function_id", request.functionId)
             put("arguments", arguments)
+            put("allow_runtime_resolve", false)
             if (request.taskId.isNotBlank()) put("frontend_task_id", request.taskId)
             if (request.runId.isNotBlank()) put("frontend_run_id", request.runId)
         }
@@ -44,6 +45,10 @@ class VlmFunctionRunHandlerImpl(context: Context) : VLMFunctionRunHandler {
             if (!detail.isNullOrBlank()) append(": $detail")
         }
         OmniLog.d(TAG, "runFunction ${request.functionId} success=$success steps=$stepCount")
-        return OperationResult(success = success, message = message, data = null)
+        return OperationResult(
+            success = success,
+            message = message,
+            data = AgentToolJson.mapToJsonElement(result),
+        )
     }
 }

@@ -12,6 +12,8 @@ import cn.com.omnimind.baselib.util.ImageQuality
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
@@ -436,10 +438,12 @@ class VLMOperationService(
 
     private suspend fun captureCurrentPageSnapshot(stage: String): VLMCurrentPageSnapshot {
         ensureTaskActive("before_screenshot_$stage")
-        val screenshot = deviceOperator.captureScreenshot()
-        safePauseCheck("after_screenshot_$stage")
-        val currentXml = captureCurrentXml()
-        safePauseCheck("after_capture_xml_$stage")
+        val (screenshot, currentXml) = coroutineScope {
+            val s = async { deviceOperator.captureScreenshot() }
+            val x = async { captureCurrentXml() }
+            s.await() to x.await()
+        }
+        safePauseCheck("after_capture_$stage")
         return VLMCurrentPageSnapshot(
             packageName = AccessibilityController.Companion.getPackageName(),
             xml = currentXml,
@@ -526,6 +530,15 @@ class VLMOperationService(
                 _context = _context.copy(pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics())
                 // Note: Compactor 已移至 executeTask 主循环，在超时计时之外执行
 
+                // Image-skip: 当 vlm_image_mode=auto 且 step>0 且页面有索引证据时跳过截图，减少 prompt tokens
+                val runtimeConfig = VLMRuntimeConfigRegistry.get()
+                val hasIndexedEvidence = _context.currentPageSummary.contains("OOB indexed evidence")
+                val screenshotForLlm: String? = when {
+                    runtimeConfig.imageMode == "auto" && stepIndex > 0 && hasIndexedEvidence -> null
+                    else -> screenshot
+                }
+                OmniLog.d(Tag, "image_mode=${runtimeConfig.imageMode} stepIndex=$stepIndex hasIndexed=$hasIndexedEvidence useImage=${screenshotForLlm != null}")
+
                 val maxToolCallRetries = 2
                 var toolCallRetryCount = 0
                 var retryState: VLMToolCallRetryState? = null
@@ -541,7 +554,7 @@ class VLMOperationService(
                     val requestBuildStartedAt = System.currentTimeMillis()
                     val requestEnvelope = vlmClient.buildUIOperationRequest(
                         context = _context,
-                        screenshot = screenshot,
+                        screenshot = screenshotForLlm,
                         markedScreenshot = null,
                         conversationState = conversationState,
                         model = model,

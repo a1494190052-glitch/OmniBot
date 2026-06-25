@@ -29,6 +29,7 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
               "primary_model": "$DEFAULT_PRIMARY_MODEL",
               "distill_model": "$DEFAULT_DISTILL_MODEL",
               "vlm_max_completion_tokens": 384,
+              "vlm_image_mode": "always",
               "vlm_temperature": 0.2,
               "vlm_history_rounds": 4,
               "vlm_history_action_chars": 160,
@@ -69,6 +70,7 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
             primaryModel = DEFAULT_PRIMARY_MODEL,
             distillModel = DEFAULT_DISTILL_MODEL,
             vlmMaxCompletionTokens = 384,
+            vlmImageMode = "always",
             vlmTemperature = 0.2,
             vlmHistoryRounds = 4,
             vlmHistoryActionChars = 160,
@@ -98,6 +100,7 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
         val primary_model: String = DEFAULT_PRIMARY_MODEL,
         val distill_model: String = DEFAULT_DISTILL_MODEL,
         val vlm_max_completion_tokens: Int = 384,
+        val vlm_image_mode: String = "always",
         val vlm_temperature: Double = 0.2,
         val vlm_history_rounds: Int = 4,
         val vlm_history_action_chars: Int = 160,
@@ -125,6 +128,7 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
         val primaryModel: String,
         val distillModel: String,
         val vlmMaxCompletionTokens: Int,
+        val vlmImageMode: String,
         val vlmTemperature: Double,
         val vlmHistoryRounds: Int,
         val vlmHistoryActionChars: Int,
@@ -189,6 +193,7 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
         val primaryModel = raw.primary_model.trim().ifBlank { DEFAULT_PRIMARY_MODEL }
         val distillModel = raw.distill_model.trim().ifBlank { DEFAULT_DISTILL_MODEL }
         val maxCompletionTokens = raw.vlm_max_completion_tokens.coerceIn(64, 2048)
+        val imageMode = raw.vlm_image_mode.trim().takeIf { it in setOf("always", "auto") } ?: "always"
         val temperature = raw.vlm_temperature.coerceIn(0.0, 2.0)
         val historyRounds = raw.vlm_history_rounds.coerceIn(0, 12)
         val historyActionChars = raw.vlm_history_action_chars.coerceIn(40, 1000)
@@ -223,6 +228,7 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
             primaryModel = primaryModel,
             distillModel = distillModel,
             vlmMaxCompletionTokens = maxCompletionTokens,
+            vlmImageMode = imageMode,
             vlmTemperature = temperature,
             vlmHistoryRounds = historyRounds,
             vlmHistoryActionChars = historyActionChars,
@@ -252,6 +258,7 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
             VLMRuntimeConfig(
                 primarySceneId = snapshot.primaryModel,
                 maxCompletionTokens = snapshot.vlmMaxCompletionTokens,
+                imageMode = snapshot.vlmImageMode,
                 temperature = snapshot.vlmTemperature,
                 defaultMaxSteps = snapshot.vlmDefaultMaxSteps,
                 maxHistoryRounds = snapshot.vlmHistoryRounds,

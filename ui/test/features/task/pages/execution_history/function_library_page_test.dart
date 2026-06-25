@@ -899,11 +899,11 @@ void main() {
     expect(find.text('删除步骤'), findsOneWidget);
   });
 
-  testWidgets('Reusable Function run button starts agent managed execution', (
+  testWidgets('Reusable Function run button starts local OmniFlow execution', (
     tester,
   ) async {
     final methodCalls = <MethodCall>[];
-    var agentRunCalls = 0;
+    var localRunCalls = 0;
 
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, (call) async {
@@ -933,10 +933,6 @@ void main() {
               ],
             };
           }
-          if (call.method == 'createAgentTask') {
-            agentRunCalls += 1;
-            return 'SUCCESS';
-          }
           if (call.method == 'getOobReusableFunction') {
             return <String, dynamic>{
               'success': true,
@@ -949,6 +945,29 @@ void main() {
                   'default': 'com.android.settings',
                 },
               ],
+            };
+          }
+          if (call.method == 'runOobReusableFunction') {
+            localRunCalls += 1;
+            return <String, dynamic>{
+              'success': true,
+              'function_id': 'open_settings',
+              'execution_status': 'completed_local',
+              'terminal_state': <String, dynamic>{
+                'status': 'completed_local',
+                'execution_status': 'completed_local',
+                'step_count': 1,
+                'success_step_count': 1,
+              },
+              'context': <String, dynamic>{
+                'step_results': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'success': true,
+                    'tool': 'open_app',
+                    'executor': 'omniflow',
+                  },
+                ],
+              },
             };
           }
           return null;
@@ -967,18 +986,23 @@ void main() {
     await tester.tap(find.text('执行'));
     await tester.pumpAndSettle();
 
-    expect(agentRunCalls, 1);
-    final agentCall = methodCalls.singleWhere(
-      (call) => call.method == 'createAgentTask',
+    expect(localRunCalls, 1);
+    final runCall = methodCalls.singleWhere(
+      (call) => call.method == 'runOobReusableFunction',
     );
-    final agentArgs = Map<String, dynamic>.from(agentCall.arguments as Map);
-    expect(agentArgs['toolProfile'], 'omniflow');
-    expect(agentArgs['allowedTools'], contains('oob_function_run'));
-    expect(agentArgs['userMessage'], contains('Function id: open_settings'));
-    expect(agentArgs['userMessage'], contains('com.android.settings'));
+    final runArgs = Map<String, dynamic>.from(runCall.arguments as Map);
+    expect(runArgs['function_id'], 'open_settings');
+    expect(
+      Map<String, dynamic>.from(runArgs['arguments'] as Map),
+      containsPair('package_name', 'com.android.settings'),
+    );
+    expect(
+      methodCalls.where((call) => call.method == 'createAgentTask'),
+      isEmpty,
+    );
 
-    expect(find.text('复用指令执行结果'), findsNothing);
-    expect(find.text('执行'), findsOneWidget);
+    expect(find.text('复用指令执行结果'), findsOneWidget);
+    expect(find.textContaining('本地执行完成'), findsOneWidget);
     expect(find.textContaining('复用指令执行中'), findsNothing);
   });
 
@@ -1027,8 +1051,27 @@ void main() {
               ],
             };
           }
-          if (call.method == 'createAgentTask') {
-            return 'SUCCESS';
+          if (call.method == 'runOobReusableFunction') {
+            return <String, dynamic>{
+              'success': true,
+              'function_id': 'search_settings',
+              'execution_status': 'completed_local',
+              'terminal_state': <String, dynamic>{
+                'status': 'completed_local',
+                'execution_status': 'completed_local',
+                'step_count': 1,
+                'success_step_count': 1,
+              },
+              'context': <String, dynamic>{
+                'step_results': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'success': true,
+                    'tool': 'input_text',
+                    'executor': 'omniflow',
+                  },
+                ],
+              },
+            };
           }
           return null;
         });
@@ -1057,15 +1100,20 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, '执行'));
     await tester.pumpAndSettle();
 
-    final agentCall = methodCalls.singleWhere(
-      (call) => call.method == 'createAgentTask',
+    final runCall = methodCalls.singleWhere(
+      (call) => call.method == 'runOobReusableFunction',
     );
-    final agentArgs = Map<String, dynamic>.from(agentCall.arguments as Map);
-    expect(agentArgs['toolProfile'], 'omniflow');
-    expect(agentArgs['allowedTools'], contains('oob_function_run'));
-    expect(agentArgs['userMessage'], contains('Function id: search_settings'));
-    expect(agentArgs['userMessage'], contains('"query":"wifi"'));
-    expect(find.text('复用指令执行结果'), findsNothing);
+    final runArgs = Map<String, dynamic>.from(runCall.arguments as Map);
+    expect(runArgs['function_id'], 'search_settings');
+    expect(
+      Map<String, dynamic>.from(runArgs['arguments'] as Map),
+      containsPair('query', 'wifi'),
+    );
+    expect(
+      methodCalls.where((call) => call.method == 'createAgentTask'),
+      isEmpty,
+    );
+    expect(find.text('复用指令执行结果'), findsOneWidget);
   });
 
   testWidgets('Memory Center reusable Function embed keeps OOB interactions', (
@@ -1133,8 +1181,27 @@ void main() {
               },
             };
           }
-          if (call.method == 'createAgentTask') {
-            return 'SUCCESS';
+          if (call.method == 'runOobReusableFunction') {
+            return <String, dynamic>{
+              'success': true,
+              'function_id': 'open_settings',
+              'execution_status': 'completed_local',
+              'terminal_state': <String, dynamic>{
+                'status': 'completed_local',
+                'execution_status': 'completed_local',
+                'step_count': 1,
+                'success_step_count': 1,
+              },
+              'context': <String, dynamic>{
+                'step_results': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'success': true,
+                    'tool': 'open_app',
+                    'executor': 'omniflow',
+                  },
+                ],
+              },
+            };
           }
           if (call.method == 'deleteOobReusableFunction') {
             deleted = true;
@@ -1188,15 +1255,20 @@ void main() {
     await tester.tap(find.text('执行'));
     await tester.pumpAndSettle();
 
-    final agentCall = methodCalls.singleWhere(
-      (call) => call.method == 'createAgentTask',
+    final runCall = methodCalls.singleWhere(
+      (call) => call.method == 'runOobReusableFunction',
     );
-    final agentArgs = Map<String, dynamic>.from(agentCall.arguments as Map);
-    expect(agentArgs['toolProfile'], 'omniflow');
-    expect(agentArgs['allowedTools'], contains('oob_function_run'));
-    expect(agentArgs['userMessage'], contains('Function id: open_settings'));
+    final runArgs = Map<String, dynamic>.from(runCall.arguments as Map);
+    expect(runArgs['function_id'], 'open_settings');
+    expect(
+      methodCalls.where((call) => call.method == 'createAgentTask'),
+      isEmpty,
+    );
 
-    expect(find.text('复用指令执行结果'), findsNothing);
+    expect(find.text('复用指令执行结果'), findsOneWidget);
+
+    Navigator.of(tester.element(find.text('复用指令执行结果'))).pop();
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Icons.delete_outline_rounded));
     await tester.pumpAndSettle();

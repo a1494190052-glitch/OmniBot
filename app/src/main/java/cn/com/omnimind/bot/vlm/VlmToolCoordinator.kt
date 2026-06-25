@@ -24,6 +24,7 @@ import cn.com.omnimind.assists.task.vlmserver.RecordAction
 import cn.com.omnimind.assists.task.vlmserver.SwipeAction
 import cn.com.omnimind.assists.task.vlmserver.UIAction
 import cn.com.omnimind.assists.task.vlmserver.UIContext
+import cn.com.omnimind.assists.task.vlmserver.budgetDiagnostics
 import cn.com.omnimind.assists.task.vlmserver.VLMClient
 import cn.com.omnimind.assists.task.vlmserver.VLMConversationState
 import cn.com.omnimind.assists.task.vlmserver.VLMCurrentPageSnapshot

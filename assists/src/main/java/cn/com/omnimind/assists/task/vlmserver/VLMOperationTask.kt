@@ -58,13 +58,9 @@ open class VLMOperationTask(
     private lateinit var androidDeviceOperator: AndroidDeviceOperator
     private lateinit var onTaskFinishListener: () -> Unit?
     
-    /** 
-     * 取消请求标记，用于在 delay 期间检查取消状态
-     * 公开属性，供 ExecutionUIImpl 在 delay 循环中检查
-     */
     @Volatile
-    override var isCancellationRequested: Boolean = false
-        private set
+    private var _isCancellationRequested: Boolean = false
+    override val isCancellationRequested: Boolean get() = _isCancellationRequested
     
     private var executionRecordId: Long = -1L
     private var isSubTask: Boolean = false
@@ -1365,7 +1361,7 @@ open class VLMOperationTask(
 
     fun finishTask() {
         OmniLog.d(Tag, "Finishing VLM Operation Task")
-        isCancellationRequested = true
+        _isCancellationRequested = true
         unblockWaitingReceivers()
         cancelRunningJob("任务已取消")
         finalizeCancellationAsync("任务已取消")
@@ -1373,7 +1369,7 @@ open class VLMOperationTask(
 
     fun completeByUser(message: String = "任务已完成") {
         OmniLog.d(Tag, "Completing VLM Operation Task by user")
-        isCancellationRequested = true
+        _isCancellationRequested = true
         unblockWaitingReceivers()
         cancelRunningJob(message)
         finalizeUserCompletionAsync(message)

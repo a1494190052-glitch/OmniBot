@@ -9,6 +9,7 @@ data class VLMRuntimeConfig(
     val maxHistoryActionChars: Int = 160,
     val maxHistoryResultChars: Int = 220,
     val maxToolResultChars: Int = 900,
+    val imageMode: String = "always",
 )
 
 object VLMRuntimeConfigRegistry {

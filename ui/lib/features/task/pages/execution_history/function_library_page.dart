@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:ui/features/home/pages/chat/utils/function_run_tool_card_data.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_summary_card.dart';
+import 'package:ui/features/task/pages/execution_history/function_run_result_sheet.dart';
 import 'package:ui/features/task/pages/execution_history/run_log_timeline_page.dart';
 import 'package:ui/features/task/pages/execution_history/widgets/reusable_function_card.dart';
 import 'package:ui/features/task/run_log/run_log_reusable_function_converter.dart';
@@ -230,25 +231,28 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
       if (!mounted) return;
       final arguments = await _resolveRunArguments(context, spec);
       if (!mounted || arguments == null) return;
-      final started =
-          await AssistsMessageService.runOobReusableFunctionWithAgent(
-            taskId: 'oob-function-run-${DateTime.now().millisecondsSinceEpoch}',
-            functionId: group.primary.functionId,
-            arguments: arguments,
-          );
+      final result = await AssistsMessageService.runOobReusableFunction(
+        functionId: group.primary.functionId,
+        arguments: arguments,
+      );
       if (!mounted) return;
+      setState(() {
+        _runningIds.remove(group.signature);
+        _runProgressBySignature.remove(group.signature);
+      });
       showToast(
-        started
-            ? _text(
-                context,
-                '复用指令已交给 Agent 执行',
-                'Reusable command is running in Agent',
-              )
-            : _text(context, '复用指令执行启动失败', 'Failed to start reusable command'),
-        type: started ? ToastType.success : ToastType.error,
+        result.success
+            ? _text(context, '复用指令执行完成', 'Reusable command completed')
+            : _text(context, '复用指令执行失败', 'Reusable command failed'),
+        type: result.success ? ToastType.success : ToastType.error,
         duration: const Duration(seconds: 3),
       );
-      if (mounted) setState(() => _runningIds.remove(group.signature));
+      await showFunctionRunResultSheet(
+        context,
+        result: result,
+        title: _text(context, '复用指令执行结果', 'Reusable command result'),
+        arguments: arguments,
+      );
     } catch (e) {
       if (!mounted) return;
       showToast(e.toString(), type: ToastType.error);

@@ -1106,47 +1106,45 @@ class _DetailTranscriptPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Expanded(
-            child: Scrollbar(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(10, 10, 10, 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _TranscriptSectionLabel(
-                      label: inputLabel,
-                      accentColor: accentColor,
-                    ),
-                    const SizedBox(height: 7),
-                    SelectableText(
-                      normalizedInput,
-                      maxLines: 4,
-                      style: inputStyle,
-                    ),
-                    const SizedBox(height: 12),
-                    Divider(
-                      height: 1,
-                      thickness: 1,
-                      color: palette.borderSubtle,
-                    ),
-                    const SizedBox(height: 10),
-                    _TranscriptSectionLabel(
-                      label: resultLabel,
-                      accentColor: accentColor,
-                    ),
-                    const SizedBox(height: 7),
-                    normalizedResult.isEmpty
-                        ? Text(
-                            emptyResultLabel,
-                            style: outputStyle.copyWith(
-                              color: palette.textTertiary,
-                              fontFamily: null,
-                              fontStyle: FontStyle.italic,
+            child: SelectionArea(
+              child: Scrollbar(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(10, 10, 10, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _TranscriptSectionLabel(
+                        label: inputLabel,
+                        accentColor: accentColor,
+                      ),
+                      const SizedBox(height: 7),
+                      Text(normalizedInput, style: inputStyle),
+                      const SizedBox(height: 12),
+                      Divider(
+                        height: 1,
+                        thickness: 1,
+                        color: palette.borderSubtle,
+                      ),
+                      const SizedBox(height: 10),
+                      _TranscriptSectionLabel(
+                        label: resultLabel,
+                        accentColor: accentColor,
+                      ),
+                      const SizedBox(height: 7),
+                      normalizedResult.isEmpty
+                          ? Text(
+                              emptyResultLabel,
+                              style: outputStyle.copyWith(
+                                color: palette.textTertiary,
+                                fontFamily: null,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            )
+                          : Text.rich(
+                              _buildOutputTextSpan(normalizedResult, outputStyle),
                             ),
-                          )
-                        : SelectableText.rich(
-                            _buildOutputTextSpan(normalizedResult, outputStyle),
-                          ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
