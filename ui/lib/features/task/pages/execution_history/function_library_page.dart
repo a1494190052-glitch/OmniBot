@@ -234,6 +234,7 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
       final result = await AssistsMessageService.runOobReusableFunction(
         functionId: group.primary.functionId,
         arguments: arguments,
+        taskId: 'oob-function-run-${DateTime.now().millisecondsSinceEpoch}',
       );
       if (!mounted) return;
       setState(() {
@@ -241,10 +242,8 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
         _runProgressBySignature.remove(group.signature);
       });
       showToast(
-        result.success
-            ? _text(context, '复用指令执行完成', 'Reusable command completed')
-            : _text(context, '复用指令执行失败', 'Reusable command failed'),
-        type: result.success ? ToastType.success : ToastType.error,
+        functionRunResultToastMessage(context, result),
+        type: functionRunResultToastType(result),
         duration: const Duration(seconds: 3),
       );
       await showFunctionRunResultSheet(
@@ -435,6 +434,7 @@ class _FunctionLibraryProgressSlot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
+    final message = event.message.trim();
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
@@ -446,8 +446,23 @@ class _FunctionLibraryProgressSlot extends StatelessWidget {
           ),
         ),
       ),
-      child: AgentToolSummaryCard(
-        cardData: functionRunToolCardDataForEvent(event),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AgentToolSummaryCard(
+            cardData: functionRunToolCardDataForEvent(event),
+          ),
+          if (message.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              message,
+              style: TextStyle(color: palette.textSecondary, fontSize: 11),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ],
       ),
     );
   }

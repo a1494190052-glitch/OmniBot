@@ -1,7 +1,7 @@
 package cn.com.omnimind.assists.task.vlmserver
 
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
-import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.baselib.llm.ChatCompletionFunction
 import cn.com.omnimind.baselib.llm.ChatCompletionTool
 import cn.com.omnimind.baselib.i18n.PromptLocale
@@ -16,21 +16,14 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 object VLMToolDefinitions {
     private const val TOOL_TITLE_FIELD = "tool_title"
     private val HIDDEN_BASE_TOOL_NAMES = setOf(
-        OobCanonicalActionSchema.TOOL_GET_STATE,
-    )
-
-    data class ToolSpec(
-        val name: String,
-        val description: String,
-        val parameters: JsonObject,
-        val promptGuide: String
+        OobActionSchema.TOOL_GET_STATE,
     )
 
     private fun currentLocale(): PromptLocale = AppLocaleManager.currentPromptLocale()
@@ -42,52 +35,39 @@ object VLMToolDefinitions {
         }
     }
 
-    private fun OobCanonicalActionSchema.LocalizedText.text(locale: PromptLocale): String =
+    private fun OobActionSchema.LocalizedText.text(locale: PromptLocale): String =
         t(locale, zhCn, enUs)
 
-    private fun buildToolSpecs(
+    private fun visibleSchemas(
         locale: PromptLocale,
         allowedToolNames: Set<String>? = null
-    ): List<ToolSpec> =
-        OobCanonicalActionSchema.modelVisibleTools
+    ): List<OobActionSchema.ToolSpec> =
+        OobActionSchema.modelVisibleTools
             .filterNot { it.name in HIDDEN_BASE_TOOL_NAMES }
             .filter { schema -> allowedToolNames == null || schema.name in allowedToolNames }
-            .map { schema ->
-            ToolSpec(
-                name = schema.name,
-                description = schema.description.text(locale),
-                parameters = objectSchema(
-                    properties = schema.args.associate { arg ->
-                        arg.name to jsonSchemaForArg(arg, locale)
-                    },
-                    required = schema.args.filter { it.required }.map { it.name },
-                ),
-                promptGuide = schema.promptGuide.text(locale),
-            )
-        }
 
-    private fun toolSpecs(
-        locale: PromptLocale = currentLocale(),
-        allowedToolNames: Set<String>? = null
-    ): List<ToolSpec> {
-        return buildToolSpecs(locale, allowedToolNames)
-    }
+    private fun buildParameters(
+        schema: OobActionSchema.ToolSpec,
+        locale: PromptLocale
+    ): JsonObject = objectSchema(
+        properties = schema.args.associate { arg -> arg.name to jsonSchemaForArg(arg, locale) },
+        required = schema.args.filter { it.required }.map { it.name },
+    )
 
     fun tools(
         locale: PromptLocale = currentLocale(),
         allowedToolNames: Set<String>? = null
-    ): List<ChatCompletionTool> {
-        return toolSpecs(locale, allowedToolNames).map { spec ->
+    ): List<ChatCompletionTool> =
+        visibleSchemas(locale, allowedToolNames).map { schema ->
             ChatCompletionTool(
                 function = ChatCompletionFunction(
-                    name = spec.name,
-                    description = spec.description,
-                    parameters = spec.parameters,
+                    name = schema.name,
+                    description = schema.description.text(locale),
+                    parameters = buildParameters(schema, locale),
                     strict = true
                 )
             )
         }
-    }
 
     fun dynamicToolsFromDefinitions(definitions: List<JsonObject>): List<ChatCompletionTool> {
         return definitions.mapNotNull { definition ->
@@ -175,7 +155,7 @@ object VLMToolDefinitions {
     }
 
     fun renderPromptGuide(locale: PromptLocale = currentLocale()): String {
-        val guides = toolSpecs(locale).joinToString(separator = "\n") { it.promptGuide }
+        val guides = visibleSchemas(locale).joinToString(separator = "\n") { it.promptGuide.text(locale) }
         return buildString {
             appendLine(guides)
             appendLine(actionChoiceGuide(locale, null))
@@ -193,8 +173,8 @@ object VLMToolDefinitions {
         locale: PromptLocale = currentLocale(),
         allowedToolNames: Set<String>? = null
     ): String {
-        val selectedSpecs = toolSpecs(locale, allowedToolNames)
-        val selectedNames = selectedSpecs.mapTo(linkedSetOf()) { it.name }
+        val selectedSchemas = visibleSchemas(locale, allowedToolNames)
+        val selectedNames = selectedSchemas.mapTo(linkedSetOf()) { it.name }
         val dynamicAllowedNames = allowedToolNames
             .orEmpty()
             .map(String::trim)
@@ -245,7 +225,7 @@ object VLMToolDefinitions {
 
     private fun actionChoiceGuide(locale: PromptLocale, allowedToolNames: Set<String>?): String {
         val visibleNames = allowedToolNames
-            ?: toolSpecs(locale).mapTo(linkedSetOf()) { it.name }
+            ?: visibleSchemas(locale).mapTo(linkedSetOf()) { it.name }
         fun has(name: String): Boolean = name in visibleNames
 
         val zh = buildList {
@@ -298,25 +278,27 @@ object VLMToolDefinitions {
         }
     }
 
-    fun toolSpec(name: String, locale: PromptLocale = currentLocale()): ToolSpec? =
-        toolSpecs(locale).firstOrNull { it.name == name }
+    fun toolSpec(name: String): OobActionSchema.ToolSpec? =
+        OobActionSchema.modelVisibleTools
+            .filterNot { it.name in HIDDEN_BASE_TOOL_NAMES }
+            .firstOrNull { it.name == name }
 
     fun propertiesFor(toolName: String, locale: PromptLocale = currentLocale()): Map<String, JsonObject> {
-        val properties = toolSpec(toolName, locale)?.parameters?.get("properties") as? JsonObject ?: return emptyMap()
-        return properties.mapValues { (_, value) -> value as? JsonObject ?: JsonObject(emptyMap()) }
+        val schema = toolSpec(toolName) ?: return emptyMap()
+        return schema.args.associate { arg -> arg.name to jsonSchemaForArg(arg, locale) }
     }
 
-    fun requiredFieldsFor(toolName: String, locale: PromptLocale = currentLocale()): List<String> {
-        val required = toolSpec(toolName, locale)?.parameters?.get("required") as? JsonArray ?: return emptyList()
-        return required.mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotEmpty) }
+    fun requiredFieldsFor(toolName: String): List<String> {
+        val schema = toolSpec(toolName) ?: return emptyList()
+        return schema.args.filter { it.required }.map { it.name }
     }
 
     fun normalizeArguments(toolName: String, arguments: JsonObject): JsonObject {
         if (arguments.isEmpty()) return arguments
         val normalized = arguments.toMutableMap()
-        if (toolName == OobCanonicalActionSchema.TOOL_SWIPE) {
+        if (toolName == OobActionSchema.TOOL_SWIPE) {
             inferSwipeDirection(normalized)?.let { direction ->
-                normalized[OobCanonicalActionSchema.ARG_DIRECTION] = JsonPrimitive(direction)
+                normalized[OobActionSchema.ARG_DIRECTION] = JsonPrimitive(direction)
             }
         }
         normalizeEnumArguments(toolName, normalized)
@@ -340,12 +322,10 @@ object VLMToolDefinitions {
     }
 
     fun validateArguments(toolName: String, arguments: JsonObject) {
-        val toolSpec = toolSpec(toolName)
+        val schema = toolSpec(toolName)
             ?: throw IllegalArgumentException("Unknown VLM tool: $toolName")
         val properties = propertiesFor(toolName)
         val requiredFields = requiredFieldsFor(toolName)
-        val allowsAdditionalProperties =
-            toolSpec.parameters["additionalProperties"]?.jsonPrimitive?.booleanOrNull == true
         requiredFields.forEach { field ->
             if (arguments[field] == null || arguments[field] is JsonNull) {
                 throw IllegalArgumentException("Tool $toolName missing required argument: $field")
@@ -353,13 +333,10 @@ object VLMToolDefinitions {
         }
 
         arguments.entries.forEach { (field, value) ->
-            val schema = properties[field] ?: run {
-                if (!allowsAdditionalProperties) {
-                    throw IllegalArgumentException("Tool $toolName has unknown argument: $field")
-                }
-                return@forEach
+            val fieldSchema = properties[field] ?: run {
+                throw IllegalArgumentException("Tool $toolName has unknown argument: $field")
             }
-            val expectedType = schema["type"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            val expectedType = fieldSchema["type"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
             if (expectedType.isNotEmpty() && !matchesType(expectedType, value)) {
                 val coordinateHint = if (expectedType == "number" && isCoordinateField(field)) {
                     " Coordinate fields must be a single numeric scalar, not [x,y], objects, or tuples."
@@ -370,7 +347,7 @@ object VLMToolDefinitions {
                     "Tool $toolName argument $field expected $expectedType but got ${describeType(value)}.$coordinateHint"
                 )
             }
-            val enumValues = (schema["enum"] as? JsonArray).orEmpty()
+            val enumValues = (fieldSchema["enum"] as? JsonArray).orEmpty()
             if (enumValues.isNotEmpty()) {
                 val raw = (value as? JsonPrimitive)?.contentOrNull
                 if (raw == null || enumValues.none { it.jsonPrimitive.contentOrNull == raw }) {
@@ -385,7 +362,7 @@ object VLMToolDefinitions {
     }
 
     private fun inferSwipeDirection(arguments: Map<String, JsonElement>): String? {
-        if (!(arguments[OobCanonicalActionSchema.ARG_DIRECTION] as? JsonPrimitive)?.contentOrNull.isNullOrBlank()) {
+        if (!(arguments[OobActionSchema.ARG_DIRECTION] as? JsonPrimitive)?.contentOrNull.isNullOrBlank()) {
             return null
         }
         val x1 = extractScalarNumber(arguments["x1"]) ?: return null
@@ -413,12 +390,12 @@ object VLMToolDefinitions {
             if (raw.isEmpty()) return@forEach
             val enumValues = (properties[field]?.get("enum") as? JsonArray).orEmpty()
             if (enumValues.isEmpty()) return@forEach
-            val canonical = enumValues
+            val resolved = enumValues
                 .mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotEmpty) }
                 .firstOrNull { it.equals(raw, ignoreCase = true) }
                 ?: return@forEach
-            if (canonical != raw) {
-                arguments[field] = JsonPrimitive(canonical)
+            if (resolved != raw) {
+                arguments[field] = JsonPrimitive(resolved)
             }
         }
     }
@@ -541,31 +518,31 @@ object VLMToolDefinitions {
     }
 
     private fun jsonSchemaForArg(
-        arg: OobCanonicalActionSchema.ArgSpec,
+        arg: OobActionSchema.ArgSpec,
         locale: PromptLocale,
     ): JsonObject {
         return when (arg.type) {
-            OobCanonicalActionSchema.Type.STRING -> {
+            OobActionSchema.Type.STRING -> {
                 if (arg.enumValues.isNotEmpty()) {
                     enumSchema(arg.description.text(locale), arg.enumValues)
                 } else {
                     stringSchema(arg.description.text(locale))
                 }
             }
-            OobCanonicalActionSchema.Type.NUMBER -> numberSchema(
+            OobActionSchema.Type.NUMBER -> numberSchema(
                 description = arg.description.text(locale),
                 minimum = arg.minimum,
                 maximum = arg.maximum,
             )
-            OobCanonicalActionSchema.Type.INTEGER -> integerSchema(
+            OobActionSchema.Type.INTEGER -> integerSchema(
                 description = arg.description.text(locale),
                 minimum = arg.minimum,
             )
-            OobCanonicalActionSchema.Type.BOOLEAN -> booleanSchema(arg.description.text(locale))
-            OobCanonicalActionSchema.Type.OBJECT -> objectSchema(
+            OobActionSchema.Type.BOOLEAN -> booleanSchema(arg.description.text(locale))
+            OobActionSchema.Type.OBJECT -> objectSchema(
                 additionalProperties = arg.additionalProperties,
             )
-            OobCanonicalActionSchema.Type.STRING_ARRAY -> stringArraySchema(arg.description.text(locale))
+            OobActionSchema.Type.STRING_ARRAY -> stringArraySchema(arg.description.text(locale))
         }
     }
 

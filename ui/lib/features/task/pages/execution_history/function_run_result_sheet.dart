@@ -27,6 +27,64 @@ Future<void> showFunctionRunResultSheet(
   );
 }
 
+ToastType functionRunResultToastType(UtgManualRunResult result) {
+  if (result.startedAgentFallback) {
+    return ToastType.info;
+  }
+  if (result.completedLocal || result.completedVlmFallback) {
+    return ToastType.success;
+  }
+  if (result.canContinueWithAgent || result.modelRequired) {
+    return ToastType.warning;
+  }
+  if (result.success) {
+    return ToastType.success;
+  }
+  return ToastType.error;
+}
+
+String functionRunResultToastMessage(
+  BuildContext context,
+  UtgManualRunResult result,
+) {
+  if (result.completedVlmFallback) {
+    return _text(
+      context,
+      '复用指令自动执行完成',
+      'Reusable command completed automatically',
+    );
+  }
+  if (result.startedAgentFallback) {
+    return _text(
+      context,
+      '直接执行已交给 Agent 继续处理',
+      'Direct run handed off to Agent',
+    );
+  }
+  if (result.completedLocal) {
+    return _text(context, '复用指令直接执行完成', 'Reusable command ran directly');
+  }
+  if (result.canContinueWithAgent || result.modelRequired) {
+    return _text(
+      context,
+      '直接执行已停止，需要 Agent 继续处理',
+      'Direct run stopped; Agent continuation is required',
+    );
+  }
+  if (result.success) {
+    return _text(context, '复用指令执行已开始', 'Reusable command run started');
+  }
+  final message = result.errorMessage?.trim();
+  if (message != null && message.isNotEmpty) {
+    return _text(
+      context,
+      '复用指令执行失败：$message',
+      'Reusable command failed: $message',
+    );
+  }
+  return _text(context, '复用指令执行失败', 'Reusable command failed');
+}
+
 class FunctionRunResultInlinePanel extends StatelessWidget {
   const FunctionRunResultInlinePanel({
     super.key,
@@ -407,7 +465,7 @@ class FunctionRunStepList extends StatelessWidget {
     return _ExpandableResultSection(
       title:
           title ??
-          '${_text(context, '执行步骤', 'Step results')} · ${steps.length}',
+          '${_text(context, '动作步骤', 'Action steps')} · ${steps.length}',
       copyValue: copyValue ?? _prettyJson(_stripInternalTiming(steps)),
       initiallyExpanded: initiallyExpanded,
       child: Column(

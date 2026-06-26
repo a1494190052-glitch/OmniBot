@@ -29,9 +29,11 @@ RunLog code should preserve these concepts:
   evidence, but they are not automatically replay steps.
 - Step: the canonical Function execution unit produced by conversion.
 - Action: the local device operation inside a deterministic step. The action
-  vocabulary and aliases live in `OobActionCodec`.
+  vocabulary and aliases live in the generated
+  `baselib/src/main/java/cn/com/omnimind/baselib/runlog/OobActionSchema.kt`
+  plus `RunLogActionParser`.
 - Action family: reusable groups such as point-target actions also live in
-  `OobActionCodec`; replay/update/fallback code should not rebuild their own
+  `OobActionSchema`; replay/update/fallback code should not rebuild their own
   `click`/`long_press` sets.
 - Executor: the runtime owner for a step. `RunLogReplayPolicy` classifies
   `omniflow`, `tool`, and `agent`; this is separate from the action name.
@@ -110,7 +112,7 @@ record. Do not read only the snapshot when correctness matters.
 - RunLog card field/JSON accessors: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogCardAccessors.kt`
 - RunLog startup/launcher bridge cleaner: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogStartupBridgeCleaner.kt`
 - RunLog reusable Function parameterizer: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogReusableFunctionParameterizer.kt`
-- RunLog action/value codec: `app/src/main/java/cn/com/omnimind/bot/runlog/OobActionCodec.kt`
+- RunLog action/value parser: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogActionParser.kt`
 - Function execution startup: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionRunner.kt`
 - Replay step runner: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolHandler.kt`
 - Replay frontend session controller: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionFrontendSessionController.kt`
@@ -136,7 +138,7 @@ record. Do not read only the snapshot when correctness matters.
 - Local UTG explorer: `app/src/main/java/cn/com/omnimind/bot/runlog/OobOmniFlowExplorer.kt`
 - Local action runtime backend: `app/src/main/java/cn/com/omnimind/bot/runlog/OmniflowActionBackend.kt`
 - Local action step executor: `app/src/main/java/cn/com/omnimind/bot/runlog/UIStepExecutor.kt`
-  It executes canonical actions and should branch through `OobActionCodec`
+  It executes canonical actions and should branch through `OobActionSchema`
   constants/action families rather than local action string lists.
 - Local checker rules: `app/src/main/java/cn/com/omnimind/bot/runlog/OmniflowCheckerRule.kt`
   Checker detection/execution lives in `UIStepExecutor`; the

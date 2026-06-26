@@ -1,7 +1,11 @@
 package cn.com.omnimind.bot.agent.tool.handlers
+import cn.com.omnimind.bot.runlog.pageXmlFromContext
+import cn.com.omnimind.bot.runlog.sourceContextForStep
+import cn.com.omnimind.bot.runlog.mapArg
+import cn.com.omnimind.bot.runlog.firstNonBlank
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
-import cn.com.omnimind.bot.runlog.OobActionCodec
 import cn.com.omnimind.bot.runlog.OobUdegNodeStore
 import cn.com.omnimind.bot.runlog.UIStepExecutor
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
@@ -41,8 +45,8 @@ class OobFunctionGoToNavigator(
         )
         if (targetNodeId.isBlank() || !udegStore.hasNode(targetNodeId)) return Result()
         val current = UIStepExecutor.currentPageSnapshotForRecovery("function_start_check")
-        val currentXml = OobActionCodec.firstNonBlank(current["observation_xml"])
-        val currentPackage = OobActionCodec.firstNonBlank(
+        val currentXml = firstNonBlank(current["observation_xml"])
+        val currentPackage = firstNonBlank(
             current["effective_package"],
             current["package_name"],
         )
@@ -67,7 +71,7 @@ class OobFunctionGoToNavigator(
 
         val goToRuns = mutableListOf<Map<String, Any?>>()
         goToEdges.forEachIndexed { index, goToEdge ->
-            val goToFunctionId = OobActionCodec.firstNonBlank(goToEdge["function_id"])
+            val goToFunctionId = firstNonBlank(goToEdge["function_id"])
             if (goToFunctionId.isBlank()) {
                 return Result(failure = ctx.notReached("Route-safe UDEG edge is missing function_id.",
                     extras = mapOf("go_to_edge" to goToEdge)))
@@ -107,8 +111,8 @@ class OobFunctionGoToNavigator(
         }
 
         val afterGoTo = UIStepExecutor.currentPageSnapshotForRecovery("after_go_to_function")
-        val afterXml = OobActionCodec.firstNonBlank(afterGoTo["observation_xml"])
-        val afterPackage = OobActionCodec.firstNonBlank(afterGoTo["effective_package"], afterGoTo["package_name"])
+        val afterXml = firstNonBlank(afterGoTo["observation_xml"])
+        val afterPackage = firstNonBlank(afterGoTo["effective_package"], afterGoTo["package_name"])
         if (!udegStore.pageMatchesNode(afterXml, afterPackage, targetNodeId)) {
             return Result(failure = ctx.notReached(
                 "Route Function path completed but target Function start page was not reached.",
@@ -118,7 +122,7 @@ class OobFunctionGoToNavigator(
             "success" to true,
             "result" to "Reached Function start page with route-safe Function path",
             "function_ids" to goToEdges.mapNotNull {
-                OobActionCodec.firstNonBlank(it["function_id"]).takeIf { id -> id.isNotBlank() }
+                firstNonBlank(it["function_id"]).takeIf { id -> id.isNotBlank() }
             },
             "target_node_id" to targetNodeId,
             "path" to goToRuns,
@@ -176,15 +180,15 @@ class OobFunctionGoToNavigator(
     private fun firstExecutableSource(activeSteps: List<Map<String, Any?>>): FunctionSourcePage? {
         activeSteps.forEach { step ->
             val action = UIStepExecutor.actionNameForStep(step)
-            if (action !in OobActionCodec.executableActions ||
-                action == OobActionCodec.ACTION_OPEN_APP ||
-                action == OobActionCodec.ACTION_FINISHED
+            if (action !in OobActionSchema.replayableToolNames ||
+                action == OobActionSchema.TOOL_OPEN_APP ||
+                action == OobActionSchema.TOOL_FINISHED
             ) return@forEach
-            val sourceContext = OobActionCodec.sourceContextForStep(step)
-            val srcCtx = OobActionCodec.mapArg(sourceContext["src_ctx"])
-            val pageXml = OobActionCodec.pageXmlFromContext(srcCtx)
+            val sourceContext = sourceContextForStep(step)
+            val srcCtx = mapArg(sourceContext["src_ctx"])
+            val pageXml = pageXmlFromContext(srcCtx)
             if (pageXml.isBlank()) return null
-            val packageName = OobActionCodec.firstNonBlank(srcCtx["package_name"], srcCtx["packageName"])
+            val packageName = firstNonBlank(srcCtx["package_name"], srcCtx["packageName"])
             return FunctionSourcePage(pageXml = pageXml, packageName = packageName)
         }
         return null
@@ -192,14 +196,14 @@ class OobFunctionGoToNavigator(
 
     private fun isGoToFunction(functionId: String, spec: Map<String, Any?>): Boolean {
         val id = functionId.trim().lowercase()
-        val name = OobActionCodec.firstNonBlank(spec["name"]).lowercase()
+        val name = firstNonBlank(spec["name"]).lowercase()
         return id == "go_to" || id.startsWith("go_to_") || id.contains("_go_to_") ||
             name == "go to" || name.startsWith("go to ") || name == "go_to" || name.startsWith("go_to_")
     }
 
     private fun compactToolResult(result: Map<String, Any?>): Map<String, Any?> = mapOf(
         "success" to (result["success"] == true),
-        "result" to OobActionCodec.firstNonBlank(
+        "result" to firstNonBlank(
             result["result"], result["summary"], result["error_message"], result["description"],
         ),
     )

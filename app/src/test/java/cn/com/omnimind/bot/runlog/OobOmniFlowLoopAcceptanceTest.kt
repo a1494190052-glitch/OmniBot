@@ -1603,7 +1603,7 @@ class OobOmniFlowLoopAcceptanceTest {
     }
 
     @Test
-    fun `top level run function uses typed omniflow function when registered runlog saved one`() = runBlocking {
+    fun `top level run function uses registered spec even when typed runlog function exists`() = runBlocking {
         val context = TempFilesContext()
         try {
             val toolkit = OobOmniFlowToolkitService(context, WorkspaceFunctionStore(context.root))
@@ -1651,18 +1651,21 @@ class OobOmniFlowLoopAcceptanceTest {
             val run = toolkit.runFunction(mapOf("function_id" to functionId))
             assertEquals(true, run["success"])
             val result = run["result"] as? Map<*, *>
-            assertEquals("oob_omniflow_loop", result?.get("runner"))
+            assertEquals("oob_function_direct_runner", result?.get("runner"))
             val timing = run["timing"] as? Map<*, *>
             val phaseMs = timing?.get("phase_ms") as? Map<*, *>
-            assertTrue("typed path should be attempted", phaseMs?.containsKey("run_typed_function_ms") == true)
-            assertEquals(0L, (phaseMs?.get("run_materialized_function_ms") as Number).toLong())
+            assertTrue(
+                "registered Function spec should run first",
+                phaseMs?.containsKey("run_materialized_function_ms") == true
+            )
+            assertFalse("typed RunLog path must not be used", phaseMs?.keys?.contains("run_typed_function_ms") == true)
         } finally {
             context.root.deleteRecursively()
         }
     }
 
     @Test
-    fun `top level run function falls back to legacy spec when typed function is absent`() = runBlocking {
+    fun `top level run function uses registered spec when typed function is absent`() = runBlocking {
         val context = TempFilesContext()
         try {
             val toolkit = OobOmniFlowToolkitService(context, WorkspaceFunctionStore(context.root))
@@ -1711,11 +1714,11 @@ class OobOmniFlowLoopAcceptanceTest {
             assertEquals(true, run["success"])
             val timing = run["timing"] as? Map<*, *>
             val phaseMs = timing?.get("phase_ms") as? Map<*, *>
-            assertTrue("typed path should still be checked", phaseMs?.containsKey("run_typed_function_ms") == true)
             assertTrue(
-                "legacy path should run when typed function is absent",
+                "registered Function spec path should run",
                 ((phaseMs?.get("run_materialized_function_ms") as Number).toLong()) >= 0L
             )
+            assertFalse("typed RunLog path must not be used", phaseMs?.keys?.contains("run_typed_function_ms") == true)
             val stepResults = run["step_results"] as? List<*>
             assertEquals(1, stepResults?.size)
             assertEquals("finished", (stepResults?.single() as? Map<*, *>)?.get("tool"))
@@ -2050,20 +2053,16 @@ class OobOmniFlowLoopAcceptanceTest {
                 "check_arguments_ms",
                 "materialize_function_ms",
                 "create_runner_ms",
-                "run_typed_function_ms",
+                "run_materialized_function_ms",
             ).forEach { phaseName ->
                 assertTrue("missing function timing phase $phaseName", functionPhaseMs?.containsKey(phaseName) == true)
             }
-            assertTrue(
-                "typed or legacy runner phase must be present",
-                functionPhaseMs?.containsKey("run_materialized_function_ms") == true ||
-                    functionPhaseMs?.containsKey("run_typed_function_ms") == true
-            )
+            assertFalse("typed RunLog path must not be used", functionPhaseMs?.keys?.contains("run_typed_function_ms") == true)
             assertNotNull(functionTiming?.get("startup_phase_ms") as? Map<*, *>)
 
             val oobResult = call["result"] as? Map<*, *>
             assertNotNull(oobResult)
-            assertEquals("oob_omniflow_loop", oobResult?.get("runner"))
+            assertEquals("oob_function_direct_runner", oobResult?.get("runner"))
             assertEquals(false, oobResult?.get("model_required"))
 
             val stepResults = call["step_results"] as? List<*>

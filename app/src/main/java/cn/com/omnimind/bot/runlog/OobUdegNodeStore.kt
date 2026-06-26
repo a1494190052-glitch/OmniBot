@@ -1,4 +1,5 @@
 package cn.com.omnimind.bot.runlog
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 
 import android.content.Context
 import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
@@ -189,7 +190,7 @@ class OobUdegNodeStore(
             "functions" to mergedFunctions,
             "edges" to udegEdgesForNode(existing).takeIf { it.isNotEmpty() },
             "raw_graph" to rawGraphSummary(existing).takeIf { it.isNotEmpty() },
-            "first_seen_at" to OobActionCodec.longArg(existing["first_seen_at"], defaultValue = System.currentTimeMillis()),
+            "first_seen_at" to longArg(existing["first_seen_at"], defaultValue = System.currentTimeMillis()),
             "last_seen_at" to mapArg(existing["_oob_registry"])["last_seen_at"],
             "updated_at" to System.currentTimeMillis(),
             "source" to "oob_native_udeg",
@@ -198,7 +199,7 @@ class OobUdegNodeStore(
         node["_oob_registry"] = registry.apply {
             put("node_kind", "page")
             put("function_count", mergedFunctions.size)
-            put("raw_action_edge_count", OobActionCodec.intArg(mapArg(node["raw_graph"])["outgoing_function_edge_count"], defaultValue = 0))
+            put("raw_action_edge_count", intArg(mapArg(node["raw_graph"])["outgoing_function_edge_count"], defaultValue = 0))
             put("last_function_id", normalizedFunctionId)
             put("updated_at", System.currentTimeMillis())
         }
@@ -302,7 +303,7 @@ class OobUdegNodeStore(
             val nextEdges = udegEdgesForNode(node)
                 .filter(::isRouteSafeFunctionCallEdge)
                 .sortedWith(
-                    compareBy<Map<String, Any?>> { OobActionCodec.intArg(it["step_count"], defaultValue = Int.MAX_VALUE) }
+                    compareBy<Map<String, Any?>> { intArg(it["step_count"], defaultValue = Int.MAX_VALUE) }
                         .thenBy { firstNonBlank(it["function_id"]) }
                 )
             nextEdges.forEach { edge ->
@@ -403,7 +404,7 @@ class OobUdegNodeStore(
         return nodesById.values
             .sortedByDescending { node ->
                 val registry = mapArg(node["_oob_registry"])
-                OobActionCodec.longArg(node["updated_at"], node["last_seen_at"], registry["updated_at"], defaultValue = 0L)
+                longArg(node["updated_at"], node["last_seen_at"], registry["updated_at"], defaultValue = 0L)
             }
             .take(normalizedLimit)
     }
@@ -499,7 +500,7 @@ class OobUdegNodeStore(
                     "${firstNonBlank(edge["from_node_id"])}:${firstNonBlank(edge["function_id"])}" in storedCallKeys
             })
             .sortedWith(compareBy<Map<String, Any?>> { firstNonBlank(it["from_node_id"]) }
-                .thenBy { OobActionCodec.intArg(it["step_index"], defaultValue = Int.MAX_VALUE) }
+                .thenBy { intArg(it["step_index"], defaultValue = Int.MAX_VALUE) }
                 .thenBy { firstNonBlank(it["edge_id"]) })
         val rawActionEdges = edges
             .filter { firstNonBlank(it["kind"]) == "function" }
@@ -669,7 +670,7 @@ class OobUdegNodeStore(
         val artifactDir = File(udegSkillArtifactsRoot(), "$safePackage/$safeNodeId")
         val skillFile = File(artifactDir, "SKILL.md")
         val payloadFile = File(artifactDir, "skill.json")
-        val updatedAt = OobActionCodec.longArg(node["updated_at"], defaultValue = System.currentTimeMillis())
+        val updatedAt = longArg(node["updated_at"], defaultValue = System.currentTimeMillis())
         val artifact = linkedMapOf<String, Any?>(
             "schema_version" to NODE_SKILL_ARTIFACT_SCHEMA_VERSION,
             "kind" to "oob_udeg_node_skill_artifact",
@@ -810,7 +811,7 @@ class OobUdegNodeStore(
         val merged = existing
             .filterNot { firstNonBlank(it["node_id"]) == nodeId }
             .plus(artifact)
-            .sortedByDescending { OobActionCodec.longArg(it["updated_at"], defaultValue = 0L) }
+            .sortedByDescending { longArg(it["updated_at"], defaultValue = 0L) }
         root.mkdirs()
         indexFile.writeText(gson.toJson(merged))
     }
@@ -899,9 +900,9 @@ class OobUdegNodeStore(
             "node_id" to nodeId,
             "package_name" to firstNonBlank(node["package_name"]).takeIf { it.isNotBlank() },
             "activity_name" to firstNonBlank(node["activity_name"]).takeIf { it.isNotBlank() },
-            "first_seen_at" to OobActionCodec.longArg(node["first_seen_at"], registry["first_seen_at"], defaultValue = 0L).takeIf { it > 0L },
-            "last_seen_at" to OobActionCodec.longArg(node["last_seen_at"], registry["last_seen_at"], defaultValue = 0L).takeIf { it > 0L },
-            "updated_at" to OobActionCodec.longArg(node["updated_at"], registry["updated_at"], defaultValue = 0L).takeIf { it > 0L },
+            "first_seen_at" to longArg(node["first_seen_at"], registry["first_seen_at"], defaultValue = 0L).takeIf { it > 0L },
+            "last_seen_at" to longArg(node["last_seen_at"], registry["last_seen_at"], defaultValue = 0L).takeIf { it > 0L },
+            "updated_at" to longArg(node["updated_at"], registry["updated_at"], defaultValue = 0L).takeIf { it > 0L },
             "page_match" to linkedMapOf(
                 "schema_version" to vectorSet["schema_version"],
                 "node_id" to firstNonBlank(vectorSet["node_id"], nodeId).takeIf { it.isNotBlank() },
@@ -1149,7 +1150,7 @@ class OobUdegNodeStore(
                 "editable_text_stored" to false,
                 "screenshot_encoding" to "sha256",
             ),
-            "created_at" to OobActionCodec.longArg(previous["created_at"], defaultValue = now),
+            "created_at" to longArg(previous["created_at"], defaultValue = now),
             "updated_at" to now,
         )
     }
@@ -1409,7 +1410,7 @@ class OobUdegNodeStore(
                 diagnostics += linkedMapOf(
                     "step_index" to index,
                     "reason" to "missing_src_ctx_page",
-                    "action_type" to OobActionCodec.actionNameForStep(step),
+                    "action_type" to actionNameForStep(step),
                 )
                 return@forEachIndexed
             }
@@ -1431,15 +1432,15 @@ class OobUdegNodeStore(
                 diagnostics += linkedMapOf(
                     "step_index" to index,
                     "reason" to "invalid_source_page",
-                    "action_type" to OobActionCodec.actionNameForStep(step),
+                    "action_type" to actionNameForStep(step),
                 )
                 return@forEachIndexed
             }
 
-            val actionType = OobActionCodec.actionNameForStep(step)
-            val args = OobActionCodec.argsForStep(step)
+            val actionType = actionNameForStep(step)
+            val args = argsForStep(step)
             val sourceAction = mapArg(sourceContext["action"])
-            val actionSummary = OobActionCodec.actionArgsSummary(
+            val actionSummary = actionArgsSummary(
                 actionType = actionType,
                 args = args,
                 sourceAction = sourceAction,
@@ -1557,8 +1558,8 @@ class OobUdegNodeStore(
             "functions" to functions,
             "edges" to udegEdgesForNode(existing).takeIf { it.isNotEmpty() },
             "raw_graph" to rawGraphSummary(existing).takeIf { it.isNotEmpty() },
-            "first_seen_at" to OobActionCodec.longArg(existing["first_seen_at"], registry["first_seen_at"], defaultValue = now),
-            "last_seen_at" to OobActionCodec.longArg(existing["last_seen_at"], registry["last_seen_at"], defaultValue = now),
+            "first_seen_at" to longArg(existing["first_seen_at"], registry["first_seen_at"], defaultValue = now),
+            "last_seen_at" to longArg(existing["last_seen_at"], registry["last_seen_at"], defaultValue = now),
             "updated_at" to now,
             "source" to "oob_native_udeg",
         ).filterValues { it != null }.toMutableMap()
@@ -1710,7 +1711,7 @@ class OobUdegNodeStore(
             .filterNot { firstNonBlank(it["edge_id"]) == edgeId }
             .plus(normalizeUdegEdge(edge))
             .sortedWith(
-                compareBy<Map<String, Any?>> { OobActionCodec.intArg(it["step_index"], defaultValue = Int.MAX_VALUE) }
+                compareBy<Map<String, Any?>> { intArg(it["step_index"], defaultValue = Int.MAX_VALUE) }
                     .thenBy { firstNonBlank(it["edge_id"]) }
             )
             .take(MAX_NODE_EDGE_COUNT)
@@ -1779,7 +1780,7 @@ class OobUdegNodeStore(
             else -> rawKind.ifBlank { "function" }
         }
         val callable = if (edge.containsKey("callable")) {
-            OobActionCodec.boolArgOrDefault(edge["callable"], defaultValue = kind == EDGE_KIND_FUNCTION_CALL)
+            boolArgOrDefault(edge["callable"], defaultValue = kind == EDGE_KIND_FUNCTION_CALL)
         } else {
             kind == EDGE_KIND_FUNCTION_CALL
         }
@@ -1793,27 +1794,27 @@ class OobUdegNodeStore(
 
     private fun isRouteSafeFunctionCallEdge(edge: Map<String, Any?>): Boolean {
         if (firstNonBlank(edge["kind"]) != EDGE_KIND_FUNCTION_CALL) return false
-        if (!OobActionCodec.boolArgOrDefault(edge["callable"], defaultValue = true)) return false
-        return OobActionCodec.boolArgOrDefault(edge["route_safe"], defaultValue = false)
+        if (!boolArgOrDefault(edge["callable"], defaultValue = true)) return false
+        return boolArgOrDefault(edge["route_safe"], defaultValue = false)
     }
 
     private fun isRouteBridgeFunction(functionSpec: Map<String, Any?>): Boolean {
         if (hasRequiredInput(functionSpec)) return false
         val steps = materializedSteps(functionSpec)
-            .filter { OobActionCodec.actionNameForStep(it) in OobActionCodec.executableActions }
-            .filterNot { OobActionCodec.actionNameForStep(it) == OobActionCodec.ACTION_FINISHED }
+            .filter { actionNameForStep(it) in OobActionSchema.replayableToolNames }
+            .filterNot { actionNameForStep(it) == OobActionSchema.TOOL_FINISHED }
         if (steps.isEmpty()) return false
         return steps.all { step ->
             isRouteBridgeAction(
-                actionType = OobActionCodec.actionNameForStep(step),
-                args = OobActionCodec.argsForStep(step),
+                actionType = actionNameForStep(step),
+                args = argsForStep(step),
             )
         }
     }
 
     private fun isRouteBridgeAction(actionType: String, args: Map<String, Any?>): Boolean {
-        val canonical = OobActionCodec.canonicalActionForName(actionType)
-            ?: OobActionCodec.normalizeName(actionType)
+        val canonical = resolveActionName(actionType)
+            ?: OobActionSchema.normalizeToolName(actionType)
         return canonical in ROUTE_BRIDGE_ACTIONS
     }
 
@@ -1825,7 +1826,7 @@ class OobUdegNodeStore(
         if (required.isNotEmpty()) return true
         val properties = mapArg(schema["properties"])
         return properties.values.any { value ->
-            OobActionCodec.boolArgOrDefault(mapArg(value)["required"], defaultValue = false)
+            boolArgOrDefault(mapArg(value)["required"], defaultValue = false)
         }
     }
 
@@ -1883,7 +1884,7 @@ class OobUdegNodeStore(
             existingMatch?.node ?: emptyMap()
         }
         val existingRegistry = mapArg(existing["_oob_registry"])
-        val existingFirstSeen = OobActionCodec.longArg(existing["first_seen_at"], existingRegistry["first_seen_at"], defaultValue = now)
+        val existingFirstSeen = longArg(existing["first_seen_at"], existingRegistry["first_seen_at"], defaultValue = now)
         val firstSeen = existing.isEmpty()
         val functions = functionSummaries(existing)
         val pageAnalysis = buildPageAnalysis(
@@ -1921,7 +1922,7 @@ class OobUdegNodeStore(
         ).filterValues { it != null }.toMutableMap()
 
         val registry = existingRegistry.toMutableMap()
-        val seenCount = OobActionCodec.intArg(registry["seen_count"], existing["seen_count"], defaultValue = 0) + 1
+        val seenCount = intArg(registry["seen_count"], existing["seen_count"], defaultValue = 0) + 1
         node["_oob_registry"] = registry.apply {
             put("node_kind", "page")
             put("function_count", functions.size)
@@ -2036,11 +2037,11 @@ class OobUdegNodeStore(
         private const val RAW_GRAPH_SUMMARY_SCHEMA_VERSION = "oob.udeg.raw_graph_summary.v1"
         private const val MAX_DYNAMIC_GOTO_DEPTH = 4
         private val ROUTE_BRIDGE_ACTIONS = setOf(
-            OobActionCodec.ACTION_CLICK,
-            OobActionCodec.ACTION_LONG_PRESS,
-            OobActionCodec.ACTION_SWIPE,
-            OobActionCodec.ACTION_OPEN_APP,
-            OobActionCodec.ACTION_PRESS_KEY,
+            OobActionSchema.TOOL_CLICK,
+            OobActionSchema.TOOL_LONG_PRESS,
+            OobActionSchema.TOOL_SWIPE,
+            OobActionSchema.TOOL_OPEN_APP,
+            OobActionSchema.TOOL_PRESS_KEY,
         )
         private const val UDEG_NODE_CONTEXTS_DIR = "udeg-node-contexts"
         private const val ARTIFACT_INDEX_FILE = "index.json"

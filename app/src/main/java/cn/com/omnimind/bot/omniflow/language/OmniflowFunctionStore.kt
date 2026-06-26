@@ -156,9 +156,9 @@ object OmniflowFunctionStore {
             FunctionParameter(
                 id = str(pm, "id"),
                 type = runCatching {
-                    cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema.Type
+                    cn.com.omnimind.baselib.runlog.OobActionSchema.Type
                         .valueOf(str(pm, "type").uppercase())
-                }.getOrDefault(cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema.Type.STRING),
+                }.getOrDefault(cn.com.omnimind.baselib.runlog.OobActionSchema.Type.STRING),
                 required = pm["required"] as? Boolean ?: false,
                 default = pm["default"]?.toString(),
                 description = str(pm, "description"),

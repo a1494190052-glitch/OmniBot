@@ -1,7 +1,7 @@
 package cn.com.omnimind.assists.task.vlmserver
 
 import cn.com.omnimind.baselib.i18n.PromptLocale
-import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 import com.google.gson.Gson
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -31,7 +31,7 @@ class VLMToolDefinitionsTest {
         assertFalse(toolNames.contains("call_tool"))
         assertTrue(toolNames.contains("finished"))
         assertTrue(toolNames.containsAll(
-            OobCanonicalActionSchema.modelVisibleTools
+            OobActionSchema.modelVisibleTools
                 .map { it.name }
                 .filterNot { it == "get_state" }
         ))
@@ -155,11 +155,11 @@ class VLMToolDefinitionsTest {
                 .map { (it as Map<*, *>)["name"].toString() }
         }
 
-        assertTrue(schema["schema_version"] == OobCanonicalActionSchema.SCHEMA_VERSION)
-        assertTrue(schema["root_tool"] == OobCanonicalActionSchema.ROOT_TOOL)
-        assertTrue(schema["root_args"] == OobCanonicalActionSchema.ROOT_ARGS)
-        assertTrue(schemaToolNames == OobCanonicalActionSchema.tools.map { it.name })
-        OobCanonicalActionSchema.tools.forEach { tool ->
+        assertTrue(schema["schema_version"] == OobActionSchema.SCHEMA_VERSION)
+        assertTrue(schema["root_tool"] == OobActionSchema.ROOT_TOOL)
+        assertTrue(schema["root_args"] == OobActionSchema.ROOT_ARGS)
+        assertTrue(schemaToolNames == OobActionSchema.tools.map { it.name })
+        OobActionSchema.tools.forEach { tool ->
             assertTrue(schemaArgsByTool[tool.name] == tool.args.map { it.name })
         }
 

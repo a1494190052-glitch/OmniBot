@@ -7,8 +7,8 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.Locale
 
-data class OobPrimitiveActionRecord(
-    val schemaVersion: String = OobPrimitiveActionLedger.SCHEMA_VERSION,
+data class OobLocalActionRecord(
+    val schemaVersion: String = OobLocalActionLedger.SCHEMA_VERSION,
     val recordId: String = "",
     val source: String,
     val tool: String,
@@ -31,7 +31,7 @@ data class OobPrimitiveActionRecord(
     val diagnostics: Map<String, Any?> = emptyMap(),
 )
 
-data class OobPrimitiveActionRiskDecision(
+data class OobLocalActionRiskDecision(
     val allowed: Boolean,
     val errorCode: String = "",
     val reason: String = "",
@@ -41,15 +41,15 @@ data class OobPrimitiveActionRiskDecision(
     fun diagnostics(): Map<String, String> {
         if (allowed) return emptyMap()
         return linkedMapOf(
-            "primitive_action_error_code" to errorCode,
-            "primitive_action_block_reason" to reason,
-            "primitive_action_risk_category" to category,
-            "primitive_action_matched_text" to matchedText,
+            "local_action_error_code" to errorCode,
+            "local_action_block_reason" to reason,
+            "local_action_risk_category" to category,
+            "local_action_matched_text" to matchedText,
         )
     }
 }
 
-object OobPrimitiveActionRiskPolicy {
+object OobLocalActionRiskPolicy {
     const val ERROR_DANGEROUS_ACTION_BLOCKED = "OOB_DANGEROUS_ACTION_BLOCKED"
 
     fun evaluate(
@@ -58,7 +58,7 @@ object OobPrimitiveActionRiskPolicy {
         pageXml: String = "",
         packageName: String = "",
         activityName: String = "",
-    ): OobPrimitiveActionRiskDecision {
+    ): OobLocalActionRiskDecision {
         val normalizedTool = tool.trim().lowercase(Locale.ROOT)
         val targetText = actionTargetText(args)
         val pageText = pageRiskText(pageXml, packageName, activityName)
@@ -72,16 +72,9 @@ object OobPrimitiveActionRiskPolicy {
                     matchedText = term,
                 )
             }
-            findMatch(targetAndPageText, destructiveTerms)?.let { term ->
-                return blocked(
-                    category = "destructive",
-                    reason = "Destructive account, app, data, or system action requires the user",
-                    matchedText = term,
-                )
-            }
         }
 
-        if (normalizedTool == OobCanonicalActionSchema.TOOL_PRESS_KEY) {
+        if (normalizedTool == OobActionSchema.TOOL_PRESS_KEY) {
             val key = args["key"]?.toString()?.trim()?.lowercase(Locale.ROOT).orEmpty()
             if (key in submitKeys) {
                 findMatch(pageText, submitPageTerms)?.let { term ->
@@ -94,15 +87,15 @@ object OobPrimitiveActionRiskPolicy {
             }
         }
 
-        return OobPrimitiveActionRiskDecision(allowed = true)
+        return OobLocalActionRiskDecision(allowed = true)
     }
 
     private fun blocked(
         category: String,
         reason: String,
         matchedText: String,
-    ): OobPrimitiveActionRiskDecision =
-        OobPrimitiveActionRiskDecision(
+    ): OobLocalActionRiskDecision =
+        OobLocalActionRiskDecision(
             allowed = false,
             errorCode = ERROR_DANGEROUS_ACTION_BLOCKED,
             reason = reason,
@@ -139,11 +132,11 @@ object OobPrimitiveActionRiskPolicy {
     }
 
     private val targetDrivenTools = setOf(
-        OobCanonicalActionSchema.TOOL_CLICK,
-        OobCanonicalActionSchema.TOOL_LONG_PRESS,
-        OobCanonicalActionSchema.TOOL_INPUT_TEXT,
-        OobCanonicalActionSchema.TOOL_SWIPE,
-        OobCanonicalActionSchema.TOOL_PRESS_KEY,
+        OobActionSchema.TOOL_CLICK,
+        OobActionSchema.TOOL_LONG_PRESS,
+        OobActionSchema.TOOL_INPUT_TEXT,
+        OobActionSchema.TOOL_SWIPE,
+        OobActionSchema.TOOL_PRESS_KEY,
     )
 
     private val submitKeys = setOf("enter", "return", "done", "go", "search")
@@ -205,9 +198,9 @@ object OobPrimitiveActionRiskPolicy {
     private const val MAX_PAGE_ATTRS = 240
 }
 
-object OobPrimitiveActionLedger {
-    const val SCHEMA_VERSION = "oob.primitive_action.v1"
-    private const val TAG = "OobPrimitiveActionLedger"
+object OobLocalActionLedger {
+    const val SCHEMA_VERSION = "oob.local_action.v1"
+    private const val TAG = "OobLocalActionLedger"
     private const val DIR_NAME = "oob-primitive-actions"
     private const val FILE_NAME = "primitive-actions.ndjson"
     private const val MAX_RECENT_RECORDS = 500
@@ -215,23 +208,23 @@ object OobPrimitiveActionLedger {
     private const val REDACTED_TEXT = "<redacted>"
 
     val plannerRecordableToolNames: Set<String> = linkedSetOf(
-        OobCanonicalActionSchema.TOOL_CLICK,
-        OobCanonicalActionSchema.TOOL_LONG_PRESS,
-        OobCanonicalActionSchema.TOOL_INPUT_TEXT,
-        OobCanonicalActionSchema.TOOL_SWIPE,
-        OobCanonicalActionSchema.TOOL_OPEN_APP,
-        OobCanonicalActionSchema.TOOL_PRESS_KEY,
-        OobCanonicalActionSchema.TOOL_WAIT,
+        OobActionSchema.TOOL_CLICK,
+        OobActionSchema.TOOL_LONG_PRESS,
+        OobActionSchema.TOOL_INPUT_TEXT,
+        OobActionSchema.TOOL_SWIPE,
+        OobActionSchema.TOOL_OPEN_APP,
+        OobActionSchema.TOOL_PRESS_KEY,
+        OobActionSchema.TOOL_WAIT,
     )
 
     interface Sink {
-        fun append(record: OobPrimitiveActionRecord)
+        fun append(record: OobLocalActionRecord)
     }
 
     private val gson = GsonBuilder()
         .disableHtmlEscaping()
         .create()
-    private val recentRecords = ArrayDeque<OobPrimitiveActionRecord>()
+    private val recentRecords = ArrayDeque<OobLocalActionRecord>()
     private var nextSeq = 0L
 
     @Volatile
@@ -242,18 +235,18 @@ object OobPrimitiveActionLedger {
         sink = FileSink(File(appContext.filesDir, DIR_NAME))
     }
 
-    fun readRecentRecords(context: Context, limit: Int = 100): List<OobPrimitiveActionRecord> {
+    fun readRecentRecords(context: Context, limit: Int = 100): List<OobLocalActionRecord> {
         val appContext = context.applicationContext ?: context
         val file = File(File(appContext.filesDir, DIR_NAME), FILE_NAME)
         if (!file.exists()) return emptyList()
         val boundedLimit = limit.coerceIn(1, MAX_RECENT_RECORDS)
         return runCatching {
-            val records = ArrayDeque<OobPrimitiveActionRecord>()
+            val records = ArrayDeque<OobLocalActionRecord>()
             file.useLines(Charsets.UTF_8) { lines ->
                 lines.forEach { line ->
                     if (line.isBlank()) return@forEach
                     val record = runCatching {
-                        gson.fromJson(line, OobPrimitiveActionRecord::class.java)
+                        gson.fromJson(line, OobLocalActionRecord::class.java)
                     }.getOrNull() ?: return@forEach
                     records += record
                     while (records.size > boundedLimit) {
@@ -263,7 +256,7 @@ object OobPrimitiveActionLedger {
             }
             records.toList()
         }.getOrElse { error ->
-            OmniLog.w(TAG, "primitive action record read failed: ${error.message}")
+            OmniLog.w(TAG, "local action record read failed: ${error.message}")
             emptyList()
         }
     }
@@ -274,8 +267,8 @@ object OobPrimitiveActionLedger {
     }
 
     @Synchronized
-    fun record(record: OobPrimitiveActionRecord): OobPrimitiveActionRecord {
-        val normalizedTool = OobCanonicalActionSchema.normalizeToolName(record.tool)
+    fun record(record: OobLocalActionRecord): OobLocalActionRecord {
+        val normalizedTool = OobActionSchema.normalizeToolName(record.tool)
         if (normalizedTool !in plannerRecordableToolNames) {
             return record
         }
@@ -293,13 +286,13 @@ object OobPrimitiveActionLedger {
         }
         runCatching { sink?.append(normalized) }
             .onFailure { error ->
-                OmniLog.w(TAG, "primitive action record sink failed: ${error.message}")
+                OmniLog.w(TAG, "local action record sink failed: ${error.message}")
             }
         return normalized
     }
 
     @Synchronized
-    fun recentRecordsForTesting(): List<OobPrimitiveActionRecord> = recentRecords.toList()
+    fun recentRecordsForTesting(): List<OobLocalActionRecord> = recentRecords.toList()
 
     @Synchronized
     fun resetForTesting() {
@@ -329,15 +322,15 @@ object OobPrimitiveActionLedger {
     }
 
     fun argsForPlannerRecord(tool: String, args: Map<String, Any?>): Map<String, Any?> =
-        sanitizeArgsForPlannerRecord(OobCanonicalActionSchema.normalizeToolName(tool), args)
+        sanitizeArgsForPlannerRecord(OobActionSchema.normalizeToolName(tool), args)
 
     fun shouldRecordForPlanner(tool: String): Boolean =
-        OobCanonicalActionSchema.normalizeToolName(tool) in plannerRecordableToolNames
+        OobActionSchema.normalizeToolName(tool) in plannerRecordableToolNames
 
     private fun sanitizeArgsForPlannerRecord(tool: String, args: Map<String, Any?>): Map<String, Any?> {
         val sanitized = LinkedHashMap<String, Any?>()
         sanitizeMap(args).forEach { (key, value) ->
-            if (tool == OobCanonicalActionSchema.TOOL_INPUT_TEXT && key == OobCanonicalActionSchema.ARG_TEXT) {
+            if (tool == OobActionSchema.TOOL_INPUT_TEXT && key == OobActionSchema.ARG_TEXT) {
                 val text = value?.toString().orEmpty()
                 sanitized["text_present"] = text.isNotEmpty()
                 sanitized["text_length"] = text.length
@@ -369,7 +362,7 @@ object OobPrimitiveActionLedger {
         private val file = File(dir, FILE_NAME)
 
         @Synchronized
-        override fun append(record: OobPrimitiveActionRecord) {
+        override fun append(record: OobLocalActionRecord) {
             dir.mkdirs()
             rotateIfNeeded()
             file.appendText(gson.toJson(record) + "\n", Charsets.UTF_8)

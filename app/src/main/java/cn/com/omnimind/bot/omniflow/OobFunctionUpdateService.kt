@@ -1,4 +1,7 @@
 package cn.com.omnimind.bot.omniflow
+import cn.com.omnimind.bot.runlog.actionNameForStep
+import cn.com.omnimind.bot.runlog.resolveActionName
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 
 import android.content.Context
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
@@ -10,7 +13,6 @@ import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.mutableJsonList
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.mutableJsonMap
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.mutableJsonValue
-import cn.com.omnimind.bot.runlog.OobActionCodec
 import cn.com.omnimind.bot.runlog.OmniflowCheckerRule
 import cn.com.omnimind.bot.runlog.OobStepRoleClassifier
 
@@ -224,7 +226,7 @@ class OobFunctionUpdateService(
             op["action_name"],
             op["actionName"],
         )
-        val action = OobActionCodec.canonicalActionForName(rawAction) ?: OobActionCodec.normalizeName(rawAction).ifBlank { OobActionCodec.ACTION_CLICK }
+        val action = resolveActionName(rawAction) ?: OobActionSchema.normalizeToolName(rawAction).ifBlank { OobActionSchema.TOOL_CLICK }
         val execution = mutableJsonMap(mapArg(spec["execution"]))
         val steps = mutableJsonList(listArg(execution["steps"]))
         val explicitIndex = intArg(op["step_index"], op["stepIndex"], op["index"], defaultValue = -1)
@@ -376,7 +378,7 @@ class OobFunctionUpdateService(
     private fun compactStep(step: Map<String, Any?>): Map<String, Any?> = linkedMapOf(
         "id" to firstNonBlank(step["id"]), "index" to step["index"],
         "title" to firstNonBlank(step["title"], step["summary"]),
-        "tool" to OobActionCodec.actionNameForStep(step), "executor" to firstNonBlank(step["executor"]),
+        "tool" to actionNameForStep(step), "executor" to firstNonBlank(step["executor"]),
     ).filterValues { it != null && it.toString().isNotBlank() }
 
     private fun uniqueStepId(existingIds: Set<String>, index: Int): String {
@@ -388,8 +390,8 @@ class OobFunctionUpdateService(
 
     private fun targetReplacementCandidates(steps: List<Any?>, action: String, wrongText: String, explicitIndex: Int): List<Map<String, Any?>> =
         steps.mapIndexedNotNull { index, rawStep ->
-            val step = mapArg(rawStep); val tool = OobActionCodec.actionNameForStep(step)
-            val actionMatches = action.isBlank() || action == tool || OobActionCodec.canonicalActionForName(action) == tool
+            val step = mapArg(rawStep); val tool = actionNameForStep(step)
+            val actionMatches = action.isBlank() || action == tool || resolveActionName(action) == tool
             if (explicitIndex >= 0 && explicitIndex != index) return@mapIndexedNotNull null
             if (!actionMatches && explicitIndex < 0) return@mapIndexedNotNull null
             val args = mapArg(step["args"])
@@ -422,8 +424,8 @@ class OobFunctionUpdateService(
         val next = when {
             old != null && wrongText.isNotBlank() && old.contains(wrongText) -> old.replace(wrongText, desiredText)
             old != null && containsLoose(old, desiredText) -> old
-            field == "title" && old.isNullOrBlank() -> when (action) { OobActionCodec.ACTION_INPUT_TEXT -> "填写$desiredText"; OobActionCodec.ACTION_LONG_PRESS -> "长按$desiredText"; else -> "点击$desiredText" }
-            field == "description" && old.isNullOrBlank() -> "${when (action) { OobActionCodec.ACTION_INPUT_TEXT -> "填写$desiredText"; else -> "点击$desiredText" }}，避免误选其他相近目标。"
+            field == "title" && old.isNullOrBlank() -> when (action) { OobActionSchema.TOOL_INPUT_TEXT -> "填写$desiredText"; OobActionSchema.TOOL_LONG_PRESS -> "长按$desiredText"; else -> "点击$desiredText" }
+            field == "description" && old.isNullOrBlank() -> "${when (action) { OobActionSchema.TOOL_INPUT_TEXT -> "填写$desiredText"; else -> "点击$desiredText" }}，避免误选其他相近目标。"
             else -> old
         } ?: return
         if (old == next) return; step[field] = next; changes += changeMap("step_label", field, old, next, stepIndex)

@@ -1,4 +1,5 @@
 package cn.com.omnimind.bot.runlog
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 
 /**
  * Deterministic parameter inference for RunLog -> reusable Function conversion.
@@ -23,9 +24,9 @@ object RunLogReusableFunctionParameterizer {
         val actions = steps.mapIndexed { index, step ->
             val action = actionFromStep(step)
             val tool = action["tool"]?.toString().orEmpty()
-            val args = OobActionCodec.argsForStep(step).toMutableMap()
+            val args = argsForStep(step).toMutableMap()
             val binding = when (tool) {
-                OobActionCodec.ACTION_INPUT_TEXT -> {
+                OobActionSchema.TOOL_INPUT_TEXT -> {
                     val textKey = INPUT_TEXT_ARG_KEYS.firstOrNull { key ->
                         args[key]?.toString()?.trim()?.isNotEmpty() == true
                     }
@@ -89,10 +90,10 @@ object RunLogReusableFunctionParameterizer {
     }
 
     private fun actionFromStep(step: Map<String, Any?>): Map<String, Any?> {
-        val tool = OobActionCodec.actionNameForStep(step)
+        val tool = actionNameForStep(step)
         return linkedMapOf<String, Any?>(
             "tool" to tool,
-            "args" to OobActionCodec.argsForStep(step),
+            "args" to argsForStep(step),
         ).apply {
             step["title"]?.toString()?.takeIf { it.isNotBlank() }?.let {
                 put("description", it)
@@ -142,12 +143,12 @@ object RunLogReusableFunctionParameterizer {
     private fun isInternalConstantInput(step: Map<String, Any?>, text: String): Boolean {
         val value = text.trim()
         if (!Regex("""\d{1,2}""").matches(value)) return false
-        val args = OobActionCodec.argsForStep(step)
+        val args = argsForStep(step)
         val context = listOf(
             step["title"],
             step["summary"],
             args["target_description"],
-            OobActionCodec.sourceActionForStep(step)["target_description"],
+            sourceActionForStep(step)["target_description"],
         ).joinToString(" ") { it?.toString().orEmpty() }.lowercase()
         return listOf(
             "hour",

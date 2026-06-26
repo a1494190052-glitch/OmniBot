@@ -2886,24 +2886,10 @@ class AssistsMessageService {
     required String runId,
     String? baseUrl,
   }) async {
-    final executionContext = await getUtgBridgeExecutionContext();
-    if (executionContext.bridgeBaseUrl.trim().isEmpty ||
-        executionContext.bridgeToken.trim().isEmpty) {
-      throw Exception('OmniFlow bridge 上下文不可用');
-    }
-    final decoded = await _requestUtgJson(
-      method: 'POST',
-      path: '/run_logs/replay',
-      baseUrl: baseUrl,
-      payload: {
-        'run_id': runId.trim(),
-        'bridge_base_url': executionContext.bridgeBaseUrl,
-        'bridge_token': executionContext.bridgeToken,
-        'skip_terminal_verify': true,
-        'context': {'source': 'utg_run_log_replay'},
-      },
+    throw UnsupportedError(
+      'RunLog 只作为证据和 Function 生成来源；禁止直接重放 run_id。'
+      '请先调用 convertInternalRunLogToOobFunction，再执行生成的 Function。',
     );
-    return UtgManualRunResult.fromMap(decoded);
   }
 
   static Future<UtgFunctionsSnapshot> getUtgFunctions({String? baseUrl}) async {
@@ -3381,6 +3367,8 @@ class AssistsMessageService {
     int? conversationId,
     String? conversationMode,
     Map<String, dynamic>? localReplayResult,
+    String? taskId,
+    String? frontendRunId,
   }) async {
     final args = <String, dynamic>{
       'function_id': functionId.trim(),
@@ -3394,6 +3382,12 @@ class AssistsMessageService {
     }
     if (localReplayResult != null && localReplayResult.isNotEmpty) {
       args['localReplayResult'] = _jsonSafeMap(localReplayResult);
+    }
+    if (taskId != null && taskId.trim().isNotEmpty) {
+      args['taskId'] = taskId.trim();
+    }
+    if (frontendRunId != null && frontendRunId.trim().isNotEmpty) {
+      args['frontendRunId'] = frontendRunId.trim();
     }
     final result = await assistCore.invokeMethod('runOobReusableFunction', {
       ...args,

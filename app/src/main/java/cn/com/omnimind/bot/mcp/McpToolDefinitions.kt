@@ -1,7 +1,7 @@
 package cn.com.omnimind.bot.mcp
 
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
-import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.bot.agent.AgentToolNames
 import cn.com.omnimind.bot.omniflow.OobFunctionSchemaExport
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
@@ -13,7 +13,7 @@ import cn.com.omnimind.bot.omniflow.OobFunctionUpdateToolSchema
 object McpToolDefinitions {
     private fun brandName(): String = AppLocaleManager.brandName()
     private val canonicalReplayTools: String =
-        OobCanonicalActionSchema.replayableToolNames.joinToString(", ")
+        OobActionSchema.replayableToolNames.joinToString(", ")
     
     val vlmTaskTool = mapOf(
         "name" to AgentToolNames.VLM_TASK,
@@ -271,11 +271,11 @@ Use this for external evaluators that make their own next-step decision but want
         )
     )
 
-    val primitiveActionLogTool = mapOf(
-        "name" to "primitive_action_log",
-        "description" to """Read recent redacted primitive UI action records for offline planner training/evaluation.
+    val localActionLogTool = mapOf(
+        "name" to "local_action_log",
+        "description" to """Read recent redacted local UI action records for offline planner training/evaluation.
 
-This is read-only. It returns one record per single executed primitive action from VLM, OmniFlow replay, or /act. Sensitive input_text values are redacted at record time; dangerous actions blocked by policy are returned with blocked=true and are not executed.
+This is read-only. It returns one record per executed local action from VLM, OmniFlow replay, or /act. Sensitive input_text values are redacted at record time; dangerous actions blocked by policy are returned with blocked=true and are not executed.
 """.trimIndent(),
         "inputSchema" to mapOf(
             "type" to "object",
@@ -430,7 +430,7 @@ BEHAVIOR:
 
     val omniflowExploreReplayTool = mapOf(
         "name" to "omniflow.explore_replay",
-        "description" to """Run OmniFlow-native exploratory UI crawling, persist the path as a UTG-backed RunLog, convert it into a reusable Function, then optionally replay that Function through the existing local runner.""".trimIndent(),
+        "description" to """Run OmniFlow-native exploratory UI crawling, persist the path as a UTG-backed RunLog, convert it into a reusable Function, then optionally execute that Function through the registered Function runner. This never replays a raw run_id directly.""".trimIndent(),
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
@@ -441,10 +441,10 @@ BEHAVIOR:
                 "stop_text" to mapOf("type" to "string", "description" to "Optional text/content/resource substring that stops exploration once seen in captured XML."),
                 "allow_risky_actions" to mapOf("type" to "boolean", "description" to "Allow labels such as delete, pay, submit, or logout. Default false."),
                 "function_id" to mapOf("type" to "string", "description" to "Optional stable Function id for the generated path."),
-                "replay" to mapOf("type" to "boolean", "description" to "Whether to replay after registration. Default true."),
-                "reset_before_replay" to mapOf("type" to "boolean", "description" to "Optionally press Back and relaunch package before replay."),
+                "replay" to mapOf("type" to "boolean", "description" to "Whether to execute the generated Function after registration. Default true."),
+                "reset_before_replay" to mapOf("type" to "boolean", "description" to "Optionally press Back and relaunch package before Function execution."),
                 "reset_back_steps" to mapOf("type" to "integer", "description" to "Back presses used when reset_before_replay=true. Default 1."),
-                "arguments" to mapOf("type" to "object", "description" to "Function arguments for replay; generated UTG functions are usually argument-free.")
+                "arguments" to mapOf("type" to "object", "description" to "Function arguments for execution; generated UTG functions are usually argument-free.")
             ),
             "required" to listOf("goal")
         )
@@ -572,7 +572,7 @@ BEHAVIOR:
             taskWaitUnlockTool,
             getStateTool,
             actTool,
-            primitiveActionLogTool,
+            localActionLogTool,
             fileTransferTool,
             agentRunTool,
             omniflowRecallTool,

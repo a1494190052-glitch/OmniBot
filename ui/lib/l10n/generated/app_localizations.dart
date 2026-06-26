@@ -5183,7 +5183,7 @@ abstract class AppLocalizations {
   /// No description provided for @functionLibraryEnhanceOfflineHint.
   ///
   /// In zh, this message translates to:
-  /// **'当前复用指令已可直接执行；语义升级会在后台离线处理，不会阻塞保存或下一次快速执行。'**
+  /// **'这里是后台语义增强状态，不会执行复用指令。要运行请点击上方「直接执行」；下方「动作步骤」只是步骤预览。'**
   String get functionLibraryEnhanceOfflineHint;
 
   /// No description provided for @functionLibrarySplit.

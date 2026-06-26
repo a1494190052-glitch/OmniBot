@@ -1,11 +1,12 @@
 package cn.com.omnimind.bot.runlog
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 
 import android.content.Context
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
-import cn.com.omnimind.bot.runlog.OobActionCodec.boolArg
-import cn.com.omnimind.bot.runlog.OobActionCodec.firstNonBlank
-import cn.com.omnimind.bot.runlog.OobActionCodec.intArg
+import cn.com.omnimind.bot.runlog.boolArg
+import cn.com.omnimind.bot.runlog.firstNonBlank
+import cn.com.omnimind.bot.runlog.intArg
 import kotlinx.coroutines.delay
 import org.w3c.dom.Element
 import org.xml.sax.InputSource
@@ -442,7 +443,7 @@ class OobOmniFlowExplorer(
         )
         val maxSteps = intArg(request["max_steps"], request["maxSteps"], defaultValue = 3)
             .coerceIn(1, 8)
-        val settleDelayMs = OobActionCodec.longArg(
+        val settleDelayMs = longArg(
             request["settle_delay_ms"],
             request["settleDelayMs"],
             request["delay_ms"],
@@ -472,8 +473,8 @@ class OobOmniFlowExplorer(
     }
 
     companion object {
-        const val ACTION_CLICK = OobActionCodec.ACTION_CLICK
-        const val ACTION_SWIPE = OobActionCodec.ACTION_SWIPE
+        const val ACTION_CLICK = OobActionSchema.TOOL_CLICK
+        const val ACTION_SWIPE = OobActionSchema.TOOL_SWIPE
         private const val MIN_ACTION_AREA = 36 * 36
         private const val MAX_RESET_BACK_STEPS = 8
         private const val DEFAULT_SCROLL_DISTANCE_PX = 360f

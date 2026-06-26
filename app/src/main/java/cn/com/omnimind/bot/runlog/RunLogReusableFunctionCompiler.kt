@@ -163,7 +163,7 @@ object RunLogReusableFunctionCompiler {
     }
 
     private fun canonicalActionIdentity(action: Map<String, Any?>): Map<String, Any?> {
-        val args = OobActionCodec.mapArg(action["args"])
+        val args = mapArg(action["args"])
         return linkedMapOf(
             "tool" to action["tool"]?.toString().orEmpty(),
             "args" to args.entries
@@ -200,8 +200,8 @@ object RunLogReusableFunctionCompiler {
     private fun firstSourcePackage(steps: List<Map<String, Any?>>): String =
         steps.asSequence()
             .mapNotNull { step ->
-                val context = OobActionCodec.mapArg(step["source_context"])
-                val srcCtx = OobActionCodec.mapArg(context["src_ctx"])
+                val context = mapArg(step["source_context"])
+                val srcCtx = mapArg(context["src_ctx"])
                 srcCtx["package_name"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
             }
             .firstOrNull()

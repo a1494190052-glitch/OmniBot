@@ -2864,7 +2864,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get functionLibraryEnhanceOfflineHint =>
-      'This reusable command is ready to run. Semantic upgrades run offline in the background and do not block saving or the next fast execution.';
+      'This shows background semantic enhancement status and does not run the command. To execute it, use Direct run above; Action steps below are only the step preview.';
 
   @override
   String get functionLibrarySplit => 'Split';

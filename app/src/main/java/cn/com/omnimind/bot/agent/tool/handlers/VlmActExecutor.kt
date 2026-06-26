@@ -1,15 +1,17 @@
 package cn.com.omnimind.bot.agent.tool.handlers
+import cn.com.omnimind.bot.runlog.firstNonBlank
+import cn.com.omnimind.bot.runlog.longArg
+import cn.com.omnimind.bot.runlog.resolveActionName
 
-import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
-import cn.com.omnimind.baselib.runlog.OobPrimitiveActionLedger
-import cn.com.omnimind.baselib.runlog.OobPrimitiveActionRecord
-import cn.com.omnimind.baselib.runlog.OobPrimitiveActionRiskPolicy
+import cn.com.omnimind.baselib.runlog.OobActionSchema
+import cn.com.omnimind.baselib.runlog.OobLocalActionLedger
+import cn.com.omnimind.baselib.runlog.OobLocalActionRecord
+import cn.com.omnimind.baselib.runlog.OobLocalActionRiskPolicy
 import cn.com.omnimind.bot.agent.AgentCallback
 import cn.com.omnimind.bot.agent.AgentExecutionEnvironment
 import cn.com.omnimind.bot.agent.AgentToolExecutionHandle
 import cn.com.omnimind.bot.agent.AgentToolRegistry
 import cn.com.omnimind.bot.agent.ToolExecutionResult
-import cn.com.omnimind.bot.runlog.OobActionCodec
 import cn.com.omnimind.bot.runlog.OmniflowActionBackend
 import cn.com.omnimind.bot.runlog.OmniflowActionRuntime
 import cn.com.omnimind.bot.runlog.RunLogPagePackageInference
@@ -20,19 +22,21 @@ import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonObject
 
 /**
- * ToolHandler implementation for all omniflow primitive actions
- * (click, swipe, input_text, open_app, press_key, finished).
+ * Unified act layer for both VLM online execution and Function replay.
  *
- * Replaces the 300-line dispatch when-block in UIStepExecutor.
- * Registered in AgentToolRegistry at startup.
+ * VLM:      observe → plan(action)            → VlmActExecutor.dispatch()
+ * Function: observe → replay/transfer(action) → VlmActExecutor.dispatch()
  */
-class OmniflowActionHandler(
+class VlmActExecutor(
     private val backendProvider: () -> OmniflowActionBackend = { OmniflowActionRuntime.backend },
-    private val primitiveSource: String = SOURCE_AGENT_ACTION,
+    private val actionSource: String = SOURCE_AGENT_ACTION,
+    private val openAppReadySettleDelayMs: Long = OPEN_APP_READY_SETTLE_DELAY_MS,
+    private val openAppReadyTimeoutMs: Long = OPEN_APP_READY_TIMEOUT_MS,
+    private val openAppReadyPollMs: Long = OPEN_APP_READY_POLL_MS,
 ) : ToolHandler {
     private val backend get() = backendProvider()
 
-    override val toolNames: Set<String> = OobCanonicalActionSchema.replayableToolNames
+    override val toolNames: Set<String> = OobActionSchema.replayableToolNames
 
     override fun canHandle(toolName: String): Boolean = toolName in toolNames
 
@@ -59,38 +63,39 @@ class OmniflowActionHandler(
                 success = true,
             )
         }.getOrElse { e ->
-            OmniLog.e(TAG, "OmniflowActionHandler failed: $action — ${e.message}", e)
+            OmniLog.e(TAG, "VlmActExecutor failed: $action — ${e.message}", e)
             ToolExecutionResult.Error(action, e.message ?: "action failed")
         }
     }
 
     // -----------------------------------------------------------------------
-    // Dispatch — exhaustive over OobCanonicalActionSchema.replayableToolNames
+    // Dispatch — exhaustive over OobActionSchema.replayableToolNames
     // -----------------------------------------------------------------------
 
     suspend fun dispatch(
         action: String,
         args: Map<String, Any?>,
-        source: String = primitiveSource,
+        source: String = actionSource,
         diagnostics: Map<String, Any?> = emptyMap(),
     ) {
-        val canonicalAction = OobActionCodec.canonicalActionForName(action)
-            ?: OobActionCodec.normalizeName(action)
+        val canonicalAction = resolveActionName(action)
+            ?: OobActionSchema.normalizeToolName(action)
+        val canonicalArgs = canonicalActionArgs(canonicalAction, args)
         val startedAtMs = System.currentTimeMillis()
-        val snapshot = primitiveSnapshot()
-        val risk = OobPrimitiveActionRiskPolicy.evaluate(
+        val snapshot = actionSnapshot()
+        val risk = OobLocalActionRiskPolicy.evaluate(
             tool = canonicalAction,
-            args = args,
+            args = canonicalArgs,
             pageXml = snapshot.xml,
             packageName = snapshot.packageName,
             activityName = snapshot.activityName,
         )
         if (!risk.allowed) {
             val now = System.currentTimeMillis()
-            recordPrimitiveAction(
+            recordLocalAction(
                 source = source,
                 action = canonicalAction,
-                args = args,
+                args = canonicalArgs,
                 snapshot = snapshot,
                 startedAtMs = startedAtMs,
                 finishedAtMs = now,
@@ -107,17 +112,18 @@ class OmniflowActionHandler(
         var errorCode = ""
         var errorMessage = ""
         try {
-            dispatchUnchecked(canonicalAction, args)
+            dispatchUnchecked(canonicalAction, canonicalArgs)
             success = true
         } catch (error: Exception) {
-            errorCode = "OOB_PRIMITIVE_ACTION_EXCEPTION"
+            errorCode = (error as? LocalActionExecutionException)?.errorCode
+                ?: "OOB_LOCAL_ACTION_EXCEPTION"
             errorMessage = error.message.orEmpty()
             throw error
         } finally {
-            recordPrimitiveAction(
+            recordLocalAction(
                 source = source,
                 action = canonicalAction,
-                args = args,
+                args = canonicalArgs,
                 snapshot = snapshot,
                 startedAtMs = startedAtMs,
                 success = success,
@@ -139,7 +145,7 @@ class OmniflowActionHandler(
                 .orEmpty()
 
         when (action) {
-            OobActionCodec.ACTION_CLICK -> {
+            OobActionSchema.TOOL_CLICK -> {
                 backend.click(
                     x = float("x"),
                     y = float("y"),
@@ -147,7 +153,7 @@ class OmniflowActionHandler(
                     nodeResourceId = str("node_resource_id", "resource_id", "resource-id"),
                 )
             }
-            OobActionCodec.ACTION_LONG_PRESS -> {
+            OobActionSchema.TOOL_LONG_PRESS -> {
                 backend.longPress(
                     x = float("x"),
                     y = float("y"),
@@ -156,7 +162,7 @@ class OmniflowActionHandler(
                     nodeResourceId = str("node_resource_id", "resource_id", "resource-id"),
                 )
             }
-            OobActionCodec.ACTION_INPUT_TEXT -> {
+            OobActionSchema.TOOL_INPUT_TEXT -> {
                 val text = str("text")
                 val targetDescription = str("target_description")
                 val x = args["x"]?.toString()?.toFloatOrNull()
@@ -180,7 +186,7 @@ class OmniflowActionHandler(
                     )
                 }
             }
-            OobActionCodec.ACTION_SWIPE -> {
+            OobActionSchema.TOOL_SWIPE -> {
                 val direction = ScrollDirection.entries.firstOrNull {
                     it.name.equals(str("direction"), ignoreCase = true)
                 } ?: ScrollDirection.DOWN
@@ -208,28 +214,106 @@ class OmniflowActionHandler(
                     )
                 }
             }
-            OobActionCodec.ACTION_OPEN_APP -> {
-                backend.launchApplication(packageName = str("package_name", "packageName", "package"))
+            OobActionSchema.TOOL_OPEN_APP -> {
+                val packageName = str("package_name", "packageName", "package")
+                if (packageName.isBlank()) {
+                    throw IllegalArgumentException("open_app requires package_name")
+                }
+                backend.launchApplication(packageName = packageName)
+                waitForOpenAppReady(packageName)
             }
-            OobActionCodec.ACTION_PRESS_KEY -> {
+            OobActionSchema.TOOL_PRESS_KEY -> {
                 backend.pressHotKey(pressKey(str("key")))
             }
-            OobActionCodec.ACTION_WAIT -> {
+            OobActionSchema.TOOL_WAIT -> {
                 delay(waitMs(args))
             }
-            OobActionCodec.ACTION_FINISHED -> {
+            OobActionSchema.TOOL_FINISHED -> {
                 // No-op: execution loop handles termination
             }
             else -> {
-                // Fallback for any new actions added to replayableToolNames
-                OmniLog.w(TAG, "OmniflowActionHandler: no explicit handler for action=$action")
+                OmniLog.w(TAG, "VlmActExecutor: no explicit handler for action=$action")
             }
         }
     }
 
+    private fun canonicalActionArgs(
+        action: String,
+        args: Map<String, Any?>,
+    ): Map<String, Any?> {
+        if (action != OobActionSchema.TOOL_OPEN_APP) return args
+        val packageName = firstNonBlank(args["package_name"], args["packageName"], args["package"])
+        if (packageName.isBlank()) return args
+        return linkedMapOf<String, Any?>().apply {
+            putAll(args)
+            put("package_name", packageName)
+        }
+    }
+
+    private suspend fun waitForOpenAppReady(expectedPackage: String) {
+        val normalizedExpected = expectedPackage.trim()
+        if (normalizedExpected.isBlank()) return
+        if (openAppReadySettleDelayMs > 0L) {
+            delay(openAppReadySettleDelayMs)
+        }
+
+        val timeoutMs = openAppReadyTimeoutMs.coerceAtLeast(0L)
+        val pollMs = openAppReadyPollMs.coerceAtLeast(1L)
+        val deadlineMs = System.currentTimeMillis() + timeoutMs
+        val maxAttempts = ((timeoutMs / pollMs) + 1L).coerceAtLeast(1L)
+        var attempts = 0L
+        var lastSnapshot: ActionSnapshot? = null
+        while (true) {
+            attempts += 1L
+            val snapshot = actionSnapshot()
+            lastSnapshot = snapshot
+            if (openAppPackageMatches(snapshot, normalizedExpected)) {
+                return
+            }
+            if (attempts >= maxAttempts || System.currentTimeMillis() >= deadlineMs) {
+                break
+            }
+            val remainingMs = (deadlineMs - System.currentTimeMillis()).coerceAtLeast(0L)
+            delay(minOf(pollMs, remainingMs))
+        }
+
+        val currentPackage = lastSnapshot?.packageName.orEmpty()
+        val rawPackage = lastSnapshot?.rawPackageName.orEmpty()
+        val activityName = lastSnapshot?.activityName.orEmpty()
+        throw LocalActionExecutionException(
+            errorCode = "OPEN_APP_NOT_READY",
+            message = "OPEN_APP_NOT_READY: open_app did not reach target package: " +
+                "$normalizedExpected current=$currentPackage raw=$rawPackage activity=$activityName"
+        )
+    }
+
+    private fun openAppPackageMatches(
+        snapshot: ActionSnapshot,
+        expectedPackage: String,
+    ): Boolean {
+        val rawPackage = snapshot.rawPackageName.trim()
+        val effectivePackage = snapshot.packageName.trim()
+        val activityName = snapshot.activityName.trim()
+        val activityPackage = RunLogPagePackageInference.packageFromActivity(activityName)
+        return rawPackage == expectedPackage ||
+            effectivePackage == expectedPackage ||
+            activityPackage == expectedPackage ||
+            activityName == expectedPackage ||
+            activityName.startsWith("$expectedPackage/") ||
+            activityName.startsWith("$expectedPackage.")
+    }
+
+    private class LocalActionExecutionException(
+        val errorCode: String,
+        message: String,
+    ) : IllegalStateException(message)
+
     private companion object {
-        const val SOURCE_AGENT_ACTION = "agent_primitive_action"
-        const val TAG = "OmniflowActionHandler"
+        const val SOURCE_AGENT_ACTION = "agent_local_action"
+        const val TAG = "VlmActExecutor"
+        const val OPEN_APP_READY_SETTLE_DELAY_MS = 800L
+        const val OPEN_APP_READY_TIMEOUT_MS = 5000L
+        const val OPEN_APP_READY_POLL_MS = 500L
 
         fun pressKey(raw: String): String =
             when (raw.trim().lowercase()) {
@@ -240,7 +324,7 @@ class OmniflowActionHandler(
             }
 
         fun waitMs(args: Map<String, Any?>): Long {
-            val explicitMs = OobActionCodec.longArg(
+            val explicitMs = longArg(
                 args["time_ms"],
                 args["duration_ms"],
                 defaultValue = -1L,
@@ -251,7 +335,7 @@ class OmniflowActionHandler(
         }
     }
 
-    private data class PrimitiveSnapshot(
+    private data class ActionSnapshot(
         val xml: String,
         val rawPackageName: String,
         val activityName: String,
@@ -260,18 +344,18 @@ class OmniflowActionHandler(
             RunLogPagePackageInference.effectivePackage(rawPackageName, xml, activityName)
     }
 
-    private fun primitiveSnapshot(): PrimitiveSnapshot =
-        PrimitiveSnapshot(
+    private fun actionSnapshot(): ActionSnapshot =
+        ActionSnapshot(
             xml = runCatching { backend.currentXml()?.trim().orEmpty() }.getOrDefault(""),
             rawPackageName = runCatching { backend.currentPackageName()?.trim().orEmpty() }.getOrDefault(""),
             activityName = runCatching { backend.currentActivityName()?.trim().orEmpty() }.getOrDefault(""),
         )
 
-    private fun recordPrimitiveAction(
+    private fun recordLocalAction(
         source: String,
         action: String,
         args: Map<String, Any?>,
-        snapshot: PrimitiveSnapshot,
+        snapshot: ActionSnapshot,
         startedAtMs: Long,
         success: Boolean,
         blocked: Boolean,
@@ -280,19 +364,19 @@ class OmniflowActionHandler(
         diagnostics: Map<String, Any?>,
         finishedAtMs: Long = System.currentTimeMillis(),
     ) {
-        if (!OobPrimitiveActionLedger.shouldRecordForPlanner(action)) return
-        OobPrimitiveActionLedger.record(
-            OobPrimitiveActionRecord(
+        if (!OobLocalActionLedger.shouldRecordForPlanner(action)) return
+        OobLocalActionLedger.record(
+            OobLocalActionRecord(
                 source = source,
                 tool = action,
                 args = args,
-                taskId = OobActionCodec.firstNonBlank(args["task_id"], args["taskId"]),
-                runId = OobActionCodec.firstNonBlank(args["run_id"], args["runId"]),
-                functionId = OobActionCodec.firstNonBlank(args["function_id"], args["functionId"]),
-                stepId = OobActionCodec.firstNonBlank(args["step_id"], args["stepId"]),
+                taskId = firstNonBlank(args["task_id"], args["taskId"]),
+                runId = firstNonBlank(args["run_id"], args["runId"]),
+                functionId = firstNonBlank(args["function_id"], args["functionId"]),
+                stepId = firstNonBlank(args["step_id"], args["stepId"]),
                 packageName = snapshot.packageName,
                 activityName = snapshot.activityName,
-                beforeXmlSha256 = OobPrimitiveActionLedger.xmlSha256(snapshot.xml),
+                beforeXmlSha256 = OobLocalActionLedger.xmlSha256(snapshot.xml),
                 beforeXmlChars = snapshot.xml.length,
                 startedAtMs = startedAtMs,
                 finishedAtMs = finishedAtMs,

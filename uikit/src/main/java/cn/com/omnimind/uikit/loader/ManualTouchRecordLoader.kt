@@ -18,7 +18,7 @@ import android.view.accessibility.AccessibilityWindowInfo
 import cn.com.omnimind.accessibility.service.AssistsService
 import cn.com.omnimind.assists.HumanTrajectoryLearningSession
 import cn.com.omnimind.assists.ManualOverlayTouchGesture
-import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.uikit.UIKit
 import kotlinx.coroutines.CancellationException
@@ -237,9 +237,9 @@ object ManualTouchRecordLoader {
                 // Use net displacement (start→end), not peak displacement during move.
                 // Peak-based detection misclassifies taps where the finger briefly drifts.
                 val actionName = when {
-                    distancePx >= touchSlop -> OobCanonicalActionSchema.TOOL_SWIPE
-                    durationMs >= longPressTimeout -> OobCanonicalActionSchema.TOOL_LONG_PRESS
-                    else -> OobCanonicalActionSchema.TOOL_CLICK
+                    distancePx >= touchSlop -> OobActionSchema.TOOL_SWIPE
+                    durationMs >= longPressTimeout -> OobActionSchema.TOOL_LONG_PRESS
+                    else -> OobActionSchema.TOOL_CLICK
                 }
                 isTracking = false
                 val gesture = ManualOverlayTouchGesture(
@@ -250,7 +250,7 @@ object ManualTouchRecordLoader {
                     endY = endY,
                     durationMs = durationMs,
                     distancePx = distancePx,
-                    direction = directionName(startX, startY, endX, endY).takeIf { actionName == OobCanonicalActionSchema.TOOL_SWIPE },
+                    direction = directionName(startX, startY, endX, endY).takeIf { actionName == OobActionSchema.TOOL_SWIPE },
                     startedAtMs = downAtMs,
                     finishedAtMs = finishedAtMs,
                     displayWidth = currentDisplaySize().x,
@@ -479,7 +479,7 @@ object ManualTouchRecordLoader {
         val keyboardTop = keyboardTopForGestureLocked(displayHeight) ?: return false
         if (keyboardTop >= displayHeight) return false
         val gestureY = when (gesture.actionName) {
-            OobCanonicalActionSchema.TOOL_SWIPE -> (gesture.startY + gesture.endY) / 2f
+            OobActionSchema.TOOL_SWIPE -> (gesture.startY + gesture.endY) / 2f
             else -> gesture.startY
         }
         return gestureY >= keyboardTop

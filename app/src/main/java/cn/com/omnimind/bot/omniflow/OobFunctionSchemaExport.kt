@@ -1,6 +1,6 @@
 package cn.com.omnimind.bot.omniflow
 
-import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 
 /**
@@ -18,7 +18,7 @@ object OobFunctionSchemaExport {
             "schema_version" to SCHEMA_VERSION,
             "kind" to "oob_function_schema_export",
             "resource_uri" to RESOURCE_URI,
-            "canonical_actions_schema_version" to OobCanonicalActionSchema.SCHEMA_VERSION,
+            "canonical_actions_schema_version" to OobActionSchema.SCHEMA_VERSION,
             "runlog_replay_policy_schema_version" to RunLogReplayPolicy.schemaVersion,
             "schemas" to linkedMapOf(
                 "oob.reusable_function.v1" to reusableFunctionSchema,

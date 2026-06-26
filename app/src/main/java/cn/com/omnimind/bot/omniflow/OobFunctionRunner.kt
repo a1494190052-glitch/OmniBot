@@ -1,15 +1,14 @@
 package cn.com.omnimind.bot.omniflow
 
 import android.content.Context
-import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
 import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.SharedHelper
 import cn.com.omnimind.bot.mcp.VlmTaskRequest
-import cn.com.omnimind.bot.omniflow.language.OmniflowFunctionStore
-import cn.com.omnimind.bot.runlog.OobActionCodec
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import cn.com.omnimind.bot.runlog.UIStepExecutor
+import cn.com.omnimind.bot.runlog.resolveActionName
 import cn.com.omnimind.bot.vlm.VlmToolCoordinator
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -136,27 +135,10 @@ class OobFunctionRunner(
             }
         }
         val runtimeResolveEnabled = runtimeResolveGoal.isNotBlank() && runtimeResolveBudget > 0
-        val typedPayload = runCatching {
-            timing.measureSuspend("run_typed_function_ms") {
-                runTypedFunctionIfAvailable(
-                    runner = runner,
-                    functionId = functionId,
-                    arguments = arguments,
-                    allowAgentFallback = allowAgentFallback,
-                    resumeFromStep = resumeFromStep,
-                    frontendRunId = frontendRunId,
-                    frontendTaskId = frontendTaskId,
-                    frontendParent = frontendParent,
-                )
-            }
-        }.getOrElse { error ->
-            return@withContext errorPayload(
-                code = "OOB_CALL_TOOL_FAILED",
-                message = error.message.orEmpty(),
-                functionId = functionId
-            ).let { attachExecutionTiming(it, timing) }
+        timing.measure("materialized_step_count_ms") {
+            OobFunctionSchemaBuilder.materializedSteps(materialized).size
         }
-        val payload = typedPayload ?: runCatching {
+        val payload = runCatching {
             timing.measureSuspend("run_materialized_function_ms") {
                 runner.runMaterializedFunction(
                     functionId = functionId,
@@ -194,40 +176,12 @@ class OobFunctionRunner(
                     frontendRunId = frontendRunId,
                     frontendTaskId = frontendTaskId,
                     frontendParent = frontendParent,
-                    typedFunctionAvailable = typedPayload != null,
                 )
             }
         } else {
             payload
         }
         attachExecutionTiming(resolvedPayload, timing)
-    }
-
-    private suspend fun runTypedFunctionIfAvailable(
-        runner: OobFunctionToolHandler,
-        functionId: String,
-        arguments: Map<String, Any?>,
-        allowAgentFallback: Boolean,
-        resumeFromStep: Int,
-        frontendRunId: String,
-        frontendTaskId: String,
-        frontendParent: String,
-    ): Map<String, Any?>? {
-        val storedFunction = OmniflowFunctionStore.get(context, functionId) ?: return null
-        val materialized = runCatching {
-            storedFunction.materialize(stringArguments(arguments))
-        }.getOrElse {
-            return null
-        }
-        return runner.runFunction(
-            fn = materialized,
-            startIndex = resumeFromStep,
-            allowAgentFallback = allowAgentFallback,
-            allowToolDelegationWithoutRouter = false,
-            frontendRunId = frontendRunId,
-            frontendTaskId = frontendTaskId,
-            frontendParent = frontendParent,
-        )
     }
 
     private suspend fun runRuntimeResolveAndResume(
@@ -243,7 +197,6 @@ class OobFunctionRunner(
         frontendRunId: String,
         frontendTaskId: String,
         frontendParent: String,
-        typedFunctionAvailable: Boolean,
     ): Map<String, Any?> {
         val failedStepIndex = OobFunctionJson.intArg(initialPayload["failed_step_index"], defaultValue = -1)
         if (failedStepIndex < 0) {
@@ -338,21 +291,7 @@ class OobFunctionRunner(
                 "completed_step_count" to stepCount,
             )
         } else {
-            val typedResume = if (typedFunctionAvailable) {
-                runTypedFunctionIfAvailable(
-                    runner = runner,
-                    functionId = functionId,
-                    arguments = arguments,
-                    allowAgentFallback = false,
-                    resumeFromStep = resumeFromStep,
-                    frontendRunId = frontendRunId,
-                    frontendTaskId = frontendTaskId,
-                    frontendParent = frontendParent,
-                )
-            } else {
-                null
-            }
-            typedResume ?: runner.runMaterializedFunction(
+            runner.runMaterializedFunction(
                 functionId = functionId,
                 spec = spec,
                 materializedSpec = materializedSpec,
@@ -501,12 +440,12 @@ class OobFunctionRunner(
         if (containsHiddenFunctionCallField(rawAction)) return null
         val rawTool = OobFunctionJson.firstNonBlank(rawAction["tool"], rawAction["name"], rawAction["action_type"])
         val normalizedTool = when (rawTool.trim().lowercase()) {
-            "press_back" -> OobActionCodec.ACTION_PRESS_KEY
-            "press_home" -> OobActionCodec.ACTION_PRESS_KEY
-            else -> OobActionCodec.canonicalActionForName(rawTool) ?: rawTool.trim().lowercase()
+            "press_back" -> OobActionSchema.TOOL_PRESS_KEY
+            "press_home" -> OobActionSchema.TOOL_PRESS_KEY
+            else -> resolveActionName(rawTool) ?: rawTool.trim().lowercase()
         }
-        if (normalizedTool == OobActionCodec.ACTION_FINISHED ||
-            normalizedTool == OobCanonicalActionSchema.TOOL_GET_STATE ||
+        if (normalizedTool == OobActionSchema.TOOL_FINISHED ||
+            normalizedTool == OobActionSchema.TOOL_GET_STATE ||
             RunLogReplayPolicy.isOmniflowToolCallTool(normalizedTool)
         ) {
             return null
@@ -520,7 +459,7 @@ class OobFunctionRunner(
             if (rawTool.equals("press_back", ignoreCase = true)) put("key", "back")
             if (rawTool.equals("press_home", ignoreCase = true)) put("key", "home")
         }
-        if (normalizedTool == OobActionCodec.ACTION_PRESS_KEY) {
+        if (normalizedTool == OobActionSchema.TOOL_PRESS_KEY) {
             val key = OobFunctionJson.firstNonBlank(args["key"]).lowercase()
             if (key !in setOf("back", "home")) return null
             args["key"] = key
@@ -574,9 +513,6 @@ class OobFunctionRunner(
 
     private fun Pair<String, Map<String, Any?>>.toDebugMap(): Map<String, Any?> =
         linkedMapOf("tool" to first, "args" to second)
-
-    private fun stringArguments(arguments: Map<String, Any?>): Map<String, String> =
-        arguments.mapValues { (_, value) -> value?.toString().orEmpty() }
 
     private fun Map<String, Any?>.requiresRuntimeResolve(): Boolean {
         if (this["runtime_resolve_required"] == true) return true
@@ -733,7 +669,7 @@ class OobFunctionRunner(
             "check_arguments_ms",
             "materialize_function_ms",
             "create_runner_ms",
-            "run_typed_function_ms",
+            "materialized_step_count_ms",
         ).forEach { phaseName ->
             startupPhaseMs[phaseName] = OobFunctionJson.longArg(toolkitPhaseMs[phaseName], defaultValue = 0L)
         }
@@ -807,7 +743,7 @@ class OobFunctionRunner(
                 "check_arguments_ms",
                 "materialize_function_ms",
                 "create_runner_ms",
-                "run_typed_function_ms",
+                "materialized_step_count_ms",
                 "run_materialized_function_ms",
             ).forEach { phaseName ->
                 completedPhases[phaseName] = phases[phaseName] ?: 0L
@@ -830,12 +766,12 @@ class OobFunctionRunner(
 
     private companion object {
         val RUNTIME_RESOLVE_ALLOWED_ACTIONS: Set<String> = setOf(
-            OobActionCodec.ACTION_CLICK,
-            OobActionCodec.ACTION_INPUT_TEXT,
-            OobActionCodec.ACTION_SWIPE,
-            OobActionCodec.ACTION_PRESS_KEY,
-            OobActionCodec.ACTION_OPEN_APP,
-            OobActionCodec.ACTION_WAIT,
+            OobActionSchema.TOOL_CLICK,
+            OobActionSchema.TOOL_INPUT_TEXT,
+            OobActionSchema.TOOL_SWIPE,
+            OobActionSchema.TOOL_PRESS_KEY,
+            OobActionSchema.TOOL_OPEN_APP,
+            OobActionSchema.TOOL_WAIT,
         )
         val HIDDEN_FUNCTION_TOOL_NAME_KEYS: Set<String> = setOf(
             "tool",
@@ -851,7 +787,7 @@ class OobFunctionRunner(
             "execute_function",
             "run_function",
             "finished",
-            OobCanonicalActionSchema.TOOL_GET_STATE,
+            OobActionSchema.TOOL_GET_STATE,
         )
     }
 }

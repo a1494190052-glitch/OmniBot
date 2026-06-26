@@ -75,7 +75,7 @@ internal object RunLogCardAccessors {
     }
 
     fun androidPrivilegedReplayAction(args: Map<String, Any?>): String? {
-        return OobActionCodec.canonicalActionForName(
+        return resolveActionName(
             firstNonBlank(args["tool"])
         )
     }
@@ -88,7 +88,7 @@ internal object RunLogCardAccessors {
             flattened[key] = value
         }
         flattened.putAll(nestedArguments)
-        return OobActionCodec.argsForStep(
+        return argsForStep(
             mapOf(
                 "tool" to firstNonBlank(args["tool"]),
                 "args" to flattened,

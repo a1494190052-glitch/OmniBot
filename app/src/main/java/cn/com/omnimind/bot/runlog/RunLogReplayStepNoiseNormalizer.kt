@@ -1,6 +1,7 @@
 package cn.com.omnimind.bot.runlog
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 
-import cn.com.omnimind.bot.runlog.OobActionCodec.firstNonBlank
+import cn.com.omnimind.bot.runlog.firstNonBlank
 
 /**
  * Removes deterministic noise from compiled replay steps.
@@ -10,7 +11,7 @@ import cn.com.omnimind.bot.runlog.OobActionCodec.firstNonBlank
  * handling stay in the compiler.
  */
 object RunLogReplayStepNoiseNormalizer {
-    private val inputTextActions = setOf(OobActionCodec.ACTION_INPUT_TEXT)
+    private val inputTextActions = setOf(OobActionSchema.TOOL_INPUT_TEXT)
 
     fun normalize(steps: List<Map<String, Any?>>): List<Map<String, Any?>> =
         dropDuplicateTextInputSteps(steps)
@@ -71,7 +72,7 @@ object RunLogReplayStepNoiseNormalizer {
             val step = steps[i]
             val next = steps.getOrNull(i + 1)
             if (next != null &&
-                replayActionForStep(step) == OobActionCodec.ACTION_CLICK &&
+                replayActionForStep(step) == OobActionSchema.TOOL_CLICK &&
                 replayActionForStep(next) in inputTextActions &&
                 clickAndInputShareTarget(step, next) &&
                 clickTargetIsAlreadyEditable(step, next)
@@ -149,8 +150,8 @@ object RunLogReplayStepNoiseNormalizer {
         clickStep: Map<String, Any?>,
         inputStep: Map<String, Any?>,
     ): Boolean {
-        val clickArgs = OobActionCodec.argsForStep(clickStep)
-        val inputArgs = OobActionCodec.argsForStep(inputStep)
+        val clickArgs = argsForStep(clickStep)
+        val inputArgs = argsForStep(inputStep)
 
         val clickResId = firstNonBlank(
             clickArgs["node_resource_id"],
@@ -179,22 +180,22 @@ object RunLogReplayStepNoiseNormalizer {
         clickStep: Map<String, Any?>,
         inputStep: Map<String, Any?>,
     ): Boolean {
-        val clickArgs = OobActionCodec.argsForStep(clickStep)
-        val inputArgs = OobActionCodec.argsForStep(inputStep)
+        val clickArgs = argsForStep(clickStep)
+        val inputArgs = argsForStep(inputStep)
 
         val clickResId = firstNonBlank(clickArgs["node_resource_id"])
         val inputResId = firstNonBlank(inputArgs["node_resource_id"])
         if (clickResId.isNotBlank() && clickResId == inputResId) return true
 
         if (firstNonBlank(clickArgs["editable"]).equals("true", ignoreCase = true)) return true
-        if (firstNonBlank(OobActionCodec.sourceActionForStep(clickStep)["editable"]).equals("true", ignoreCase = true)) {
+        if (firstNonBlank(sourceActionForStep(clickStep)["editable"]).equals("true", ignoreCase = true)) {
             return true
         }
 
         val x = firstNonBlank(clickArgs["x"]).toFloatOrNull() ?: return false
         val y = firstNonBlank(clickArgs["y"]).toFloatOrNull() ?: return false
-        val srcCtx = OobActionCodec.mapArg(OobActionCodec.sourceContextForStep(clickStep)["src_ctx"])
-        val sourceXml = OobActionCodec.pageXmlFromContext(srcCtx)
+        val srcCtx = mapArg(sourceContextForStep(clickStep)["src_ctx"])
+        val sourceXml = pageXmlFromContext(srcCtx)
         return nodeAtPointIsEditable(sourceXml, x, y)
     }
 
@@ -222,24 +223,24 @@ object RunLogReplayStepNoiseNormalizer {
     }
 
     private fun replayActionForStep(step: Map<String, Any?>): String =
-        OobActionCodec.actionNameForStep(step)
+        actionNameForStep(step)
 
     private fun isBackPressStep(step: Map<String, Any?>): Boolean {
-        if (replayActionForStep(step) != OobActionCodec.ACTION_PRESS_KEY) return false
-        val key = firstNonBlank(OobActionCodec.argsForStep(step)["key"])
+        if (replayActionForStep(step) != OobActionSchema.TOOL_PRESS_KEY) return false
+        val key = firstNonBlank(argsForStep(step)["key"])
             .trim()
             .lowercase()
         return key == "back"
     }
 
     private fun textInputValue(step: Map<String, Any?>): String {
-        val args = OobActionCodec.argsForStep(step)
+        val args = argsForStep(step)
         return firstNonBlank(args["text"])
     }
 
     private fun textInputTargetSignature(step: Map<String, Any?>): String {
-        val args = OobActionCodec.argsForStep(step)
-        val action = OobActionCodec.sourceActionForStep(step)
+        val args = argsForStep(step)
+        val action = sourceActionForStep(step)
         return firstNonBlank(
             args["node_resource_id"],
             action["node_resource_id"],

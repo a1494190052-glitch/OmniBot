@@ -2554,7 +2554,9 @@ class ChatInputWrapper extends StatelessWidget {
             attachments: attachments,
             onRemoveAttachment: onRemoveAttachment,
             onTriggerSlashCommand: onTriggerSlashCommand,
-            onTriggerManualRecording: onTriggerManualRecording,
+            onManualRecordingTap: onTriggerManualRecording != null
+                ? (_) => onTriggerManualRecording!()
+                : null,
             selectedModelOverrideId: selectedModelOverrideId,
             onClearSelectedModelOverride: onClearSelectedModelOverride,
             contextUsageRatio: contextUsageRatio,

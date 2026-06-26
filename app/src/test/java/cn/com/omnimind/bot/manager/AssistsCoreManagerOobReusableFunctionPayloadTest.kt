@@ -51,7 +51,7 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
             functionId = "open_settings",
             localSuccess = true,
             runPayload = mapOf(
-                "runner" to "oob_omniflow_replay",
+                "runner" to "oob_function_direct_runner",
                 "step_count" to 2,
                 "success_step_count" to 2,
                 "model_used" to false,
@@ -151,7 +151,7 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
             functionId = "click_requires_accessibility",
             localSuccess = false,
             runPayload = mapOf(
-                "runner" to "oob_omniflow_replay",
+                "runner" to "oob_function_direct_runner",
                 "step_count" to 1,
                 "success_step_count" to 0,
                 "error_code" to "OOB_ACCESSIBILITY_REQUIRED",

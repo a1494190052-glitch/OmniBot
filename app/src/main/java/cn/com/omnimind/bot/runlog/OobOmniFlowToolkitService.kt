@@ -16,12 +16,12 @@ import cn.com.omnimind.bot.omniflow.OobFunctionUpdateAgentOrchestrator
 import cn.com.omnimind.bot.omniflow.OobFunctionUpdateService
 import cn.com.omnimind.bot.omniflow.OobFunctionRunner
 import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
-import cn.com.omnimind.bot.runlog.OobActionCodec.boolArg
-import cn.com.omnimind.bot.runlog.OobActionCodec.boolArgOrDefault
-import cn.com.omnimind.bot.runlog.OobActionCodec.firstNonBlank
-import cn.com.omnimind.bot.runlog.OobActionCodec.intArg
-import cn.com.omnimind.bot.runlog.OobActionCodec.listArg
-import cn.com.omnimind.bot.runlog.OobActionCodec.mapArg
+import cn.com.omnimind.bot.runlog.boolArg
+import cn.com.omnimind.bot.runlog.boolArgOrDefault
+import cn.com.omnimind.bot.runlog.firstNonBlank
+import cn.com.omnimind.bot.runlog.intArg
+import cn.com.omnimind.bot.runlog.listArg
+import cn.com.omnimind.bot.runlog.mapArg
 
 /**
  * OOB-native implementation of the public OmniFlow agent toolkit surface.
@@ -207,7 +207,7 @@ class OobOmniFlowToolkitService(
             )
         }
 
-        val settleDelayMs = OobActionCodec.longArg(
+        val settleDelayMs = longArg(
             request["settle_delay_ms"],
             request["settleDelayMs"],
             defaultValue = 800L
@@ -530,9 +530,9 @@ class OobOmniFlowToolkitService(
         )
         val stepResults = listArg(runPayload["step_results"])
         val timing = mapArg(runPayload["timing"])
-        val startedAtMs = OobActionCodec.longArg(timing["started_at_ms"], defaultValue = 0L)
-        val finishedAtMs = OobActionCodec.longArg(timing["finished_at_ms"], defaultValue = 0L)
-        val durationMs = OobActionCodec.longArg(
+        val startedAtMs = longArg(timing["started_at_ms"], defaultValue = 0L)
+        val finishedAtMs = longArg(timing["finished_at_ms"], defaultValue = 0L)
+        val durationMs = longArg(
             timing["call_duration_ms"],
             timing["duration_ms"],
             timing["runner_duration_ms"],
@@ -541,7 +541,7 @@ class OobOmniFlowToolkitService(
             .takeIf { it > 0L }
             ?: (finishedAtMs - startedAtMs).takeIf { startedAtMs > 0L && finishedAtMs >= startedAtMs }
             ?: stepResults.sumOf { raw ->
-                OobActionCodec.longArg(mapArg(raw)["duration_ms"], defaultValue = 0L).coerceAtLeast(0L)
+                longArg(mapArg(raw)["duration_ms"], defaultValue = 0L).coerceAtLeast(0L)
             }
         val successStepCount = intArg(
             runPayload["success_step_count"],
@@ -689,11 +689,11 @@ class OobOmniFlowToolkitService(
                 runLog["operation_description"],
                 runLog["goal"],
             ),
-            startedAtMs = OobActionCodec.longArg(
+            startedAtMs = longArg(
                 runLog["started_at_ms"],
                 defaultValue = System.currentTimeMillis(),
             ),
-            finishedAtMs = OobActionCodec.longArg(
+            finishedAtMs = longArg(
                 runLog["finished_at_ms"],
                 defaultValue = System.currentTimeMillis(),
             ),

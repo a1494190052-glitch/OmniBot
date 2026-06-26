@@ -1,11 +1,12 @@
 package cn.com.omnimind.bot.devicehost
+import cn.com.omnimind.bot.runlog.resolveActionName
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 
 import android.content.Context
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.BuildConfig
-import cn.com.omnimind.bot.agent.tool.handlers.OmniflowActionHandler
+import cn.com.omnimind.bot.agent.tool.handlers.VlmActExecutor
 import cn.com.omnimind.bot.mcp.McpToolExecutors
-import cn.com.omnimind.bot.runlog.OobActionCodec
 import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
 import cn.com.omnimind.bot.runlog.OmniflowActionRuntime
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
@@ -101,11 +102,11 @@ object LocalDeviceHttpHostManager {
                     val status = if (result["success"] == true) HttpStatusCode.OK else HttpStatusCode.BadRequest
                     call.respond(status, result)
                 }
-                get("/primitive_action_log") {
-                    call.respond(exportPrimitiveActionLog(context, call.request.queryParameters.toSingleValueMap()))
+                get("/local_action_log") {
+                    call.respond(exportLocalActionLog(context, call.request.queryParameters.toSingleValueMap()))
                 }
-                post("/primitive_action_log") {
-                    call.respond(exportPrimitiveActionLog(context, call.receiveMap()))
+                post("/local_action_log") {
+                    call.respond(exportLocalActionLog(context, call.receiveMap()))
                 }
                 post("/omniflow/tool") {
                     val body = call.receiveMap()
@@ -151,9 +152,9 @@ object LocalDeviceHttpHostManager {
             )
         }
 
-    private suspend fun exportPrimitiveActionLog(context: Context, body: Map<String, Any?>): Map<String, Any?> =
+    private suspend fun exportLocalActionLog(context: Context, body: Map<String, Any?>): Map<String, Any?> =
         runCatching {
-            McpToolExecutors.executePrimitiveActionLog(context, body) + mapOf(
+            McpToolExecutors.executeLocalActionLog(context, body) + mapOf(
                 "source" to "oob_local_device_http_host",
             )
         }.getOrElse { error ->
@@ -212,22 +213,22 @@ object LocalDeviceHttpHostManager {
 
     private fun canonicalAction(raw: String): String {
         val alias = when (raw.trim().lowercase()) {
-            "tap" -> OobActionCodec.ACTION_CLICK
-            "long_click", "longpress" -> OobActionCodec.ACTION_LONG_PRESS
-            "type", "text", "input" -> OobActionCodec.ACTION_INPUT_TEXT
-            "key" -> OobActionCodec.ACTION_PRESS_KEY
-            "launch_app" -> OobActionCodec.ACTION_OPEN_APP
-            "sleep" -> OobActionCodec.ACTION_WAIT
+            "tap" -> OobActionSchema.TOOL_CLICK
+            "long_click", "longpress" -> OobActionSchema.TOOL_LONG_PRESS
+            "type", "text", "input" -> OobActionSchema.TOOL_INPUT_TEXT
+            "key" -> OobActionSchema.TOOL_PRESS_KEY
+            "launch_app" -> OobActionSchema.TOOL_OPEN_APP
+            "sleep" -> OobActionSchema.TOOL_WAIT
             else -> raw
         }
-        return OobActionCodec.canonicalActionForName(alias)
+        return resolveActionName(alias)
             ?: throw IllegalArgumentException("Unsupported action: $raw")
     }
 
     private fun normalizeArgs(action: String, args: Map<String, Any?>): Map<String, Any?> {
         val normalized = linkedMapOf<String, Any?>()
         normalized.putAll(args)
-        if (action == OobActionCodec.ACTION_SWIPE) {
+        if (action == OobActionSchema.TOOL_SWIPE) {
             val startX = floatArg(args["x"] ?: args["x1"], 0f)
             val startY = floatArg(args["y"] ?: args["y1"], 0f)
             val endX = floatArg(args["end_x"] ?: args["x2"], startX)
@@ -247,7 +248,7 @@ object LocalDeviceHttpHostManager {
             normalized["x"] = startX
             normalized["y"] = startY
         }
-        if (action == OobActionCodec.ACTION_OPEN_APP && firstNonBlank(normalized["package_name"]).isBlank()) {
+        if (action == OobActionSchema.TOOL_OPEN_APP && firstNonBlank(normalized["package_name"]).isBlank()) {
             val component = firstNonBlank(args["component"])
             if (component.contains("/")) normalized["package_name"] = component.substringBefore("/")
         }
@@ -298,7 +299,7 @@ object LocalDeviceHttpHostManager {
         }
 
     private fun redactedArgs(action: String, args: Map<String, Any?>): Map<String, Any?> =
-        if (action == OobActionCodec.ACTION_INPUT_TEXT && args.containsKey("text")) {
+        if (action == OobActionSchema.TOOL_INPUT_TEXT && args.containsKey("text")) {
             args + mapOf("text" to "<redacted>", "text_length" to args["text"].toString().length)
         } else {
             args

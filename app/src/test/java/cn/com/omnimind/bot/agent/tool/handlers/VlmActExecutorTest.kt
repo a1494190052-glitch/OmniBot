@@ -1,6 +1,6 @@
 package cn.com.omnimind.bot.agent.tool.handlers
 
-import cn.com.omnimind.baselib.runlog.OobPrimitiveActionLedger
+import cn.com.omnimind.baselib.runlog.OobLocalActionLedger
 import cn.com.omnimind.bot.runlog.OmniflowActionBackend
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
 import kotlinx.coroutines.runBlocking
@@ -8,15 +8,15 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class OmniflowActionHandlerTest {
+class VlmActExecutorTest {
     @Test
-    fun `dispatch records successful mcp primitive action`() = runBlocking {
-        OobPrimitiveActionLedger.resetForTesting()
+    fun `dispatch records successful mcp local action`() = runBlocking {
+        OobLocalActionLedger.resetForTesting()
         val backend = FakeBackend(xml = SAFE_XML)
         try {
-            OmniflowActionHandler(
+            VlmActExecutor(
                 backendProvider = { backend },
-                primitiveSource = "mcp_act",
+                actionSource = "mcp_act",
             ).dispatch(
                 action = "click",
                 args = mapOf(
@@ -27,7 +27,7 @@ class OmniflowActionHandlerTest {
             )
 
             assertEquals(listOf(120f to 240f), backend.clicks)
-            val record = OobPrimitiveActionLedger.recentRecordsForTesting().single()
+            val record = OobLocalActionLedger.recentRecordsForTesting().single()
             assertEquals("mcp_act", record.source)
             assertEquals("click", record.tool)
             assertEquals(true, record.success)
@@ -35,18 +35,18 @@ class OmniflowActionHandlerTest {
             assertEquals("com.example", record.packageName)
             assertTrue(record.beforeXmlSha256.isNotBlank())
         } finally {
-            OobPrimitiveActionLedger.resetForTesting()
+            OobLocalActionLedger.resetForTesting()
         }
     }
 
     @Test
     fun `dispatch allows slider swipe when checkers are disabled`() = runBlocking {
-        OobPrimitiveActionLedger.resetForTesting()
+        OobLocalActionLedger.resetForTesting()
         val backend = FakeBackend(xml = CAPTCHA_XML)
         try {
-            OmniflowActionHandler(
+            VlmActExecutor(
                 backendProvider = { backend },
-                primitiveSource = "mcp_act",
+                actionSource = "mcp_act",
             ).dispatch(
                 action = "swipe",
                 args = mapOf(
@@ -59,24 +59,24 @@ class OmniflowActionHandlerTest {
             )
 
             assertEquals(1, backend.swipes.size)
-            val record = OobPrimitiveActionLedger.recentRecordsForTesting().single()
+            val record = OobLocalActionLedger.recentRecordsForTesting().single()
             assertEquals("mcp_act", record.source)
             assertEquals("swipe", record.tool)
             assertEquals(true, record.success)
             assertEquals(false, record.blocked)
         } finally {
-            OobPrimitiveActionLedger.resetForTesting()
+            OobLocalActionLedger.resetForTesting()
         }
     }
 
     @Test
     fun `dispatch records input text without leaking typed value`() = runBlocking {
-        OobPrimitiveActionLedger.resetForTesting()
+        OobLocalActionLedger.resetForTesting()
         val backend = FakeBackend(xml = SAFE_XML)
         try {
-            OmniflowActionHandler(
+            VlmActExecutor(
                 backendProvider = { backend },
-                primitiveSource = "mcp_act",
+                actionSource = "mcp_act",
             ).dispatch(
                 action = "input_text",
                 args = mapOf(
@@ -88,14 +88,14 @@ class OmniflowActionHandlerTest {
             )
 
             assertEquals(listOf("coffee near me"), backend.inputTexts)
-            val record = OobPrimitiveActionLedger.recentRecordsForTesting().single()
+            val record = OobLocalActionLedger.recentRecordsForTesting().single()
             assertEquals("input_text", record.tool)
             assertEquals("<redacted>", record.args["text"])
             assertEquals(true, record.args["text_present"])
             assertEquals(14, record.args["text_length"])
             assertEquals(true, record.args["text_redacted"])
         } finally {
-            OobPrimitiveActionLedger.resetForTesting()
+            OobLocalActionLedger.resetForTesting()
         }
     }
 

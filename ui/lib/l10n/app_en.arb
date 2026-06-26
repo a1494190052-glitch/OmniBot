@@ -1020,7 +1020,7 @@
       }
     }
   },
-  "functionLibraryEnhanceOfflineHint": "This reusable command is ready to run. Semantic upgrades run offline in the background and do not block saving or the next fast execution.",
+  "functionLibraryEnhanceOfflineHint": "This shows background semantic enhancement status and does not run the command. To execute it, use Direct run above; Action steps below are only the step preview.",
   "functionLibrarySplit": "Split",
   "functionLibrarySplitTitle": "Split reusable command",
   "functionLibrarySplitConfirm": "Use AI to split this reusable command into smaller ones?",

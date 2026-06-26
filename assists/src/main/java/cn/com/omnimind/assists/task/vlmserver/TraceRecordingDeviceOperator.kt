@@ -235,7 +235,7 @@ class TraceRecordingDeviceOperator(
     override suspend fun pressHotKey(key: String): OperationResult {
         val result = delegate.pressHotKey(key)
         val normalizedKey = key.trim().uppercase()
-        val canonicalKey = when (normalizedKey) {
+        val resolvedKey = when (normalizedKey) {
             "BACK" -> "back"
             "HOME" -> "home"
             "ENTER" -> "enter"
@@ -243,18 +243,18 @@ class TraceRecordingDeviceOperator(
         }
         traceSession.recordDeviceEvent(
             eventType = "press_hotkey",
-            request = if (canonicalKey != null) {
+            request = if (resolvedKey != null) {
                 mapOf(
                     "action" to mapOf(
                         "tool" to "press_key",
-                        "args" to mapOf("key" to canonicalKey),
+                        "args" to mapOf("key" to resolvedKey),
                     )
                 )
             } else {
                 mapOf("unsupported_key" to normalizedKey)
             },
             response = operationResultMap(result),
-            advanceStepIndex = canonicalKey != null,
+            advanceStepIndex = resolvedKey != null,
         )
         return result
     }

@@ -6,10 +6,10 @@ package cn.com.omnimind.assists.task.vlmserver
  */
 
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
-import cn.com.omnimind.baselib.runlog.OobPrimitiveActionLedger
-import cn.com.omnimind.baselib.runlog.OobPrimitiveActionRecord
-import cn.com.omnimind.baselib.runlog.OobPrimitiveActionRiskPolicy
+import cn.com.omnimind.baselib.runlog.OobActionSchema
+import cn.com.omnimind.baselib.runlog.OobLocalActionLedger
+import cn.com.omnimind.baselib.runlog.OobLocalActionRecord
+import cn.com.omnimind.baselib.runlog.OobLocalActionRiskPolicy
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.Json
@@ -84,7 +84,7 @@ class ActionExecutor(
         val rawResult = when (val action = vlmStep.action) {
             is ClickAction -> {
                 executePrimitive(
-                    tool = OobCanonicalActionSchema.TOOL_CLICK,
+                    tool = OobActionSchema.TOOL_CLICK,
                     args = linkedMapOf(
                         "target_description" to action.targetDescription,
                         "x" to action.x,
@@ -100,7 +100,7 @@ class ActionExecutor(
 
             is LongPressAction -> {
                 executePrimitive(
-                    tool = OobCanonicalActionSchema.TOOL_LONG_PRESS,
+                    tool = OobActionSchema.TOOL_LONG_PRESS,
                     args = linkedMapOf(
                         "target_description" to action.targetDescription,
                         "x" to action.x,
@@ -116,7 +116,7 @@ class ActionExecutor(
 
             is InputTextAction -> {
                 executePrimitive(
-                    tool = OobCanonicalActionSchema.TOOL_INPUT_TEXT,
+                    tool = OobActionSchema.TOOL_INPUT_TEXT,
                     args = linkedMapOf(
                         "target_description" to action.targetDescription,
                         "text" to action.text,
@@ -163,7 +163,7 @@ class ActionExecutor(
 
             is SwipeAction -> {
                 executePrimitive(
-                    tool = OobCanonicalActionSchema.TOOL_SWIPE,
+                    tool = OobActionSchema.TOOL_SWIPE,
                     args = linkedMapOf(
                         "target_description" to action.targetDescription,
                         "x1" to action.x1,
@@ -190,7 +190,7 @@ class ActionExecutor(
 
             is OpenAppAction -> {
                 executePrimitive(
-                    tool = OobCanonicalActionSchema.TOOL_OPEN_APP,
+                    tool = OobActionSchema.TOOL_OPEN_APP,
                     args = mapOf("package_name" to action.packageName),
                     functionRunContext = functionRunContext,
                     vlmStep = vlmStep,
@@ -201,7 +201,7 @@ class ActionExecutor(
 
             is PressKeyAction -> {
                 executePrimitive(
-                    tool = OobCanonicalActionSchema.TOOL_PRESS_KEY,
+                    tool = OobActionSchema.TOOL_PRESS_KEY,
                     args = mapOf("key" to action.key),
                     functionRunContext = functionRunContext,
                     vlmStep = vlmStep,
@@ -223,7 +223,7 @@ class ActionExecutor(
                 val waitMs = action.durationMs
                     ?: ((action.timeS ?: 1.0).coerceAtLeast(0.0) * 1000.0).toLong()
                 executePrimitive(
-                    tool = OobCanonicalActionSchema.TOOL_WAIT,
+                    tool = OobActionSchema.TOOL_WAIT,
                     args = linkedMapOf(
                         "time_s" to action.timeS,
                         "duration_ms" to waitMs,
@@ -339,7 +339,7 @@ class ActionExecutor(
     ): OperationResult {
         val startedAtMs = System.currentTimeMillis()
         val snapshot = primitiveSnapshot(vlmStep)
-        val risk = OobPrimitiveActionRiskPolicy.evaluate(
+        val risk = OobLocalActionRiskPolicy.evaluate(
             tool = tool,
             args = args,
             pageXml = snapshot.xml,
@@ -348,15 +348,15 @@ class ActionExecutor(
         )
         if (!risk.allowed) {
             val finishedAtMs = System.currentTimeMillis()
-            OobPrimitiveActionLedger.record(
-                OobPrimitiveActionRecord(
+            OobLocalActionLedger.record(
+                OobLocalActionRecord(
                     source = "vlm_online",
                     tool = tool,
                     args = args,
                     taskId = functionRunContext.taskId,
                     runId = functionRunContext.runId,
                     packageName = snapshot.packageName,
-                    beforeXmlSha256 = OobPrimitiveActionLedger.xmlSha256(snapshot.xml),
+                    beforeXmlSha256 = OobLocalActionLedger.xmlSha256(snapshot.xml),
                     beforeXmlChars = snapshot.xml.length,
                     startedAtMs = startedAtMs,
                     finishedAtMs = finishedAtMs,
@@ -378,15 +378,15 @@ class ActionExecutor(
         return try {
             val result = block()
             val finishedAtMs = System.currentTimeMillis()
-            OobPrimitiveActionLedger.record(
-                OobPrimitiveActionRecord(
+            OobLocalActionLedger.record(
+                OobLocalActionRecord(
                     source = "vlm_online",
                     tool = tool,
                     args = args,
                     taskId = functionRunContext.taskId,
                     runId = functionRunContext.runId,
                     packageName = snapshot.packageName,
-                    beforeXmlSha256 = OobPrimitiveActionLedger.xmlSha256(snapshot.xml),
+                    beforeXmlSha256 = OobLocalActionLedger.xmlSha256(snapshot.xml),
                     beforeXmlChars = snapshot.xml.length,
                     startedAtMs = startedAtMs,
                     finishedAtMs = finishedAtMs,
@@ -399,20 +399,20 @@ class ActionExecutor(
             result
         } catch (error: Exception) {
             val finishedAtMs = System.currentTimeMillis()
-            OobPrimitiveActionLedger.record(
-                OobPrimitiveActionRecord(
+            OobLocalActionLedger.record(
+                OobLocalActionRecord(
                     source = "vlm_online",
                     tool = tool,
                     args = args,
                     taskId = functionRunContext.taskId,
                     runId = functionRunContext.runId,
                     packageName = snapshot.packageName,
-                    beforeXmlSha256 = OobPrimitiveActionLedger.xmlSha256(snapshot.xml),
+                    beforeXmlSha256 = OobLocalActionLedger.xmlSha256(snapshot.xml),
                     beforeXmlChars = snapshot.xml.length,
                     startedAtMs = startedAtMs,
                     finishedAtMs = finishedAtMs,
                     success = false,
-                    errorCode = "OOB_PRIMITIVE_ACTION_EXCEPTION",
+                    errorCode = "OOB_LOCAL_ACTION_EXCEPTION",
                     errorMessage = error.message.orEmpty(),
                 )
             )

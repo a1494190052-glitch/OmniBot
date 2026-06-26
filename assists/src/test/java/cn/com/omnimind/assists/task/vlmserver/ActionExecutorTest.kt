@@ -1,8 +1,8 @@
 package cn.com.omnimind.assists.task.vlmserver
 
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.baselib.runlog.OobPrimitiveActionLedger
-import cn.com.omnimind.baselib.runlog.OobPrimitiveActionRiskPolicy
+import cn.com.omnimind.baselib.runlog.OobLocalActionLedger
+import cn.com.omnimind.baselib.runlog.OobLocalActionRiskPolicy
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -17,7 +17,7 @@ class ActionExecutorTest {
     fun `click uses coordinates even when indexed node id is present`() = runBlocking {
         val previousLogLevel = OmniLog.getLogLevel()
         OmniLog.setLogLevel(OmniLog.Level.DISABLE)
-        OobPrimitiveActionLedger.resetForTesting()
+        OobLocalActionLedger.resetForTesting()
         val operator = FakeDeviceOperator()
         val executor = ActionExecutor(operator, UIContextManager())
 
@@ -48,7 +48,7 @@ class ActionExecutorTest {
     fun `online vlm records successful primitive click`() = runBlocking {
         val previousLogLevel = OmniLog.getLogLevel()
         OmniLog.setLogLevel(OmniLog.Level.DISABLE)
-        OobPrimitiveActionLedger.resetForTesting()
+        OobLocalActionLedger.resetForTesting()
         val operator = FakeDeviceOperator()
         val executor = ActionExecutor(operator, UIContextManager())
 
@@ -68,7 +68,7 @@ class ActionExecutorTest {
             )
 
             assertFalse(result.result.orEmpty().startsWith("执行失败"))
-            val record = OobPrimitiveActionLedger.recentRecordsForTesting().single()
+            val record = OobLocalActionLedger.recentRecordsForTesting().single()
             assertEquals("vlm_online", record.source)
             assertEquals("click", record.tool)
             assertEquals(true, record.success)
@@ -77,7 +77,7 @@ class ActionExecutorTest {
             assertTrue(record.beforeXmlSha256.isNotBlank())
             assertEquals(SAFE_BUTTON_XML.length, record.beforeXmlChars)
         } finally {
-            OobPrimitiveActionLedger.resetForTesting()
+            OobLocalActionLedger.resetForTesting()
             OmniLog.setLogLevel(previousLogLevel)
         }
     }
@@ -86,7 +86,7 @@ class ActionExecutorTest {
     fun `online vlm blocks dangerous primitive click before dispatch`() = runBlocking {
         val previousLogLevel = OmniLog.getLogLevel()
         OmniLog.setLogLevel(OmniLog.Level.DISABLE)
-        OobPrimitiveActionLedger.resetForTesting()
+        OobLocalActionLedger.resetForTesting()
         val operator = FakeDeviceOperator()
         val executor = ActionExecutor(operator, UIContextManager())
 
@@ -108,15 +108,15 @@ class ActionExecutorTest {
             assertTrue(result.result.orEmpty().startsWith("执行失败"))
             assertEquals(emptyList<Pair<Float, Float>>(), operator.clickedCoordinates)
             assertEquals(
-                OobPrimitiveActionRiskPolicy.ERROR_DANGEROUS_ACTION_BLOCKED,
-                result.pageDiagnostics["primitive_action_error_code"],
+                OobLocalActionRiskPolicy.ERROR_DANGEROUS_ACTION_BLOCKED,
+                result.pageDiagnostics["local_action_error_code"],
             )
-            val record = OobPrimitiveActionLedger.recentRecordsForTesting().single()
+            val record = OobLocalActionLedger.recentRecordsForTesting().single()
             assertEquals(false, record.success)
             assertEquals(true, record.blocked)
-            assertEquals(OobPrimitiveActionRiskPolicy.ERROR_DANGEROUS_ACTION_BLOCKED, record.errorCode)
+            assertEquals(OobLocalActionRiskPolicy.ERROR_DANGEROUS_ACTION_BLOCKED, record.errorCode)
         } finally {
-            OobPrimitiveActionLedger.resetForTesting()
+            OobLocalActionLedger.resetForTesting()
             OmniLog.setLogLevel(previousLogLevel)
         }
     }
@@ -125,7 +125,7 @@ class ActionExecutorTest {
     fun `online vlm primitive input text ledger redacts text value`() = runBlocking {
         val previousLogLevel = OmniLog.getLogLevel()
         OmniLog.setLogLevel(OmniLog.Level.DISABLE)
-        OobPrimitiveActionLedger.resetForTesting()
+        OobLocalActionLedger.resetForTesting()
         val operator = FakeDeviceOperator()
         val executor = ActionExecutor(operator, UIContextManager())
 
@@ -148,14 +148,14 @@ class ActionExecutorTest {
 
             assertFalse(result.result.orEmpty().startsWith("执行失败"))
             assertEquals(listOf("88" to "coffee near me"), operator.nodeInputs)
-            val record = OobPrimitiveActionLedger.recentRecordsForTesting().single()
+            val record = OobLocalActionLedger.recentRecordsForTesting().single()
             assertEquals("input_text", record.tool)
             assertEquals("<redacted>", record.args["text"])
             assertEquals(true, record.args["text_present"])
             assertEquals(14, record.args["text_length"])
             assertEquals(true, record.args["text_redacted"])
         } finally {
-            OobPrimitiveActionLedger.resetForTesting()
+            OobLocalActionLedger.resetForTesting()
             OmniLog.setLogLevel(previousLogLevel)
         }
     }

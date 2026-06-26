@@ -47,8 +47,8 @@
       "requires_concrete_function_id": true,
       "model_visible_function_execution_tool": false,
       "arguments_field_policy": "nested_arguments_preserved",
-      "debug_or_compat_only": true,
-      "ordinary_product_ui_should_call": "ui_agent_function_run",
+      "debug_or_compat_only": false,
+      "ordinary_product_ui_should_call": "ui_direct_function_run_adapter",
       "mutates_saved_function": false,
       "enhance_inline_allowed": false
     },
@@ -90,6 +90,7 @@
       "delegates_to": [
         "OobOmniFlowToolkitService.executeTool"
       ],
+      "runlog_policy": "runlog_is_evidence; explore_replay_must_convert_then_execute_function",
       "may_execute_phone_actions": true,
       "phone_action_owner": "kotlin_only_after_native_dispatch",
       "requires_concrete_function_id": "tool_specific",
@@ -100,7 +101,9 @@
         "oob_function_run",
         "omniflow.call_function",
         "omniflow.run_function",
-        "omniflow.execute_function"
+        "omniflow.execute_function",
+        "oob_run_log_replay",
+        "runlog_replay"
       ],
       "enhance_inline_allowed": false
     },

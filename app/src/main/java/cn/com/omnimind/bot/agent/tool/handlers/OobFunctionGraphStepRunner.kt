@@ -7,7 +7,7 @@ import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
 import cn.com.omnimind.bot.runlog.OmniflowCheckerRule
 import cn.com.omnimind.bot.runlog.UIStepExecutor
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
-import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -45,13 +45,8 @@ class OobFunctionGraphStepRunner(
             val pathTitle = primitiveStep["title"]?.toString()?.takeIf { it.isNotBlank() }
                 ?: "$stepTitle path ${index + 1}"
             val startedAtMs = System.currentTimeMillis()
-            val preActionReadyWait = UIStepExecutor.waitForReplayActionReady(
-                step = primitiveStep,
-                recoveryStep = path.getOrNull(index - 1),
-                stopRequested = stopRequested,
-            )
             val result = try {
-                val executionResult = UIStepExecutor.execute(
+                UIStepExecutor.execute(
                     step = primitiveStep,
                     stepId = pathStepId,
                     stepTitle = pathTitle,
@@ -59,18 +54,16 @@ class OobFunctionGraphStepRunner(
                     checkerBudget = checkerBudget,
                     stopRequested = stopRequested,
                 )
-                withPreActionReadyWait(executionResult, preActionReadyWait)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                val failureResult = failureStepResult(
+                failureStepResult(
                     stepId = pathStepId,
                     tool = UIStepExecutor.actionNameForStep(primitiveStep),
                     executor = RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
                     summary = e.message ?: "UTG path action failed",
                     errorCode = "OOB_UTG_ACTION_FAILED",
                 )
-                withPreActionReadyWait(failureResult, preActionReadyWait)
             }
             val finishedAtMs = System.currentTimeMillis()
             primitiveResults += LinkedHashMap<String, Any?>().apply {
@@ -102,19 +95,6 @@ class OobFunctionGraphStepRunner(
                     ?: "$stepTitle failed in local UTG path"
             },
         )
-    }
-
-    private fun withPreActionReadyWait(
-        result: Map<String, Any?>,
-        preActionReadyWait: Map<String, Any?>,
-    ): Map<String, Any?> {
-        if (preActionReadyWait.isEmpty()) {
-            return result
-        }
-        return LinkedHashMap<String, Any?>().apply {
-            putAll(result)
-            put("pre_action_ready_wait", preActionReadyWait)
-        }
     }
 
     private fun resolveGraphPath(
@@ -265,6 +245,6 @@ class OobFunctionGraphStepRunner(
             "input",
         )
 
-        val EDGE_ARG_KEYS = OobCanonicalActionSchema.sourceContextArgNames
+        val EDGE_ARG_KEYS = OobActionSchema.sourceContextArgNames
     }
 }

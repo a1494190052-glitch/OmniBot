@@ -1,4 +1,5 @@
 package cn.com.omnimind.bot.runlog
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 
 import cn.com.omnimind.bot.agent.AgentToolNames
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
@@ -30,9 +31,9 @@ object RunLogReplayPolicy {
     const val TOOL_OMNIFLOW_RECALL: String = "omniflow.recall"
     const val TOOL_OMNIFLOW_INGEST_RUN_LOG: String = "omniflow.ingest_run_log"
 
-    val omniflowActions: Set<String> = OobActionCodec.executableActions
+    val omniflowActions: Set<String> = OobActionSchema.replayableToolNames
 
-    val coordinateActions: Set<String> = OobActionCodec.coordinateActions
+    val coordinateActions: Set<String> = OobActionSchema.coordinateToolNames
 
     val perceptionTools: Set<String> = setOf(
         AgentToolNames.VLM_TASK,
@@ -92,10 +93,10 @@ object RunLogReplayPolicy {
     fun normalizeToolName(toolName: String): String = toolName.trim().lowercase()
 
     fun omniflowActionForToolName(toolName: String): String? =
-        OobActionCodec.canonicalActionForName(toolName)
+        resolveActionName(toolName)
 
     fun isCoordinateAction(toolName: String): Boolean =
-        OobActionCodec.canonicalActionForName(toolName) in coordinateActions
+        resolveActionName(toolName) in coordinateActions
 
     fun isPerceptionTool(toolName: String): Boolean =
         normalizeToolName(toolName) in perceptionTools

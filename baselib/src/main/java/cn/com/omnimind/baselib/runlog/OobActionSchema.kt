@@ -6,7 +6,7 @@ package cn.com.omnimind.baselib.runlog
  * Do not edit action/tool names or argument fields here. Update the schema and
  * run `python3 scripts/generate-oob-action-schema.py`.
  */
-object OobCanonicalActionSchema {
+object OobActionSchema {
     const val SCHEMA_VERSION = "oob.canonical_actions.v1"
     const val ROOT_TOOL = "tool"
     const val ROOT_ARGS = "args"

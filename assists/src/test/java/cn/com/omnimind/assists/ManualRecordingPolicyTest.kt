@@ -353,7 +353,7 @@ class ManualRecordingPolicyTest {
         assertTrue(recorderSource.contains("manualControlEventContextFor("))
         assertTrue(recorderSource.contains("\"recording_backend\" to MANUAL_CONTROL_BACKEND"))
         assertTrue(recorderSource.contains("private const val MANUAL_CONTROL_BACKEND = \"manual_control\""))
-        assertTrue(recorderSource.contains("actionName = OobCanonicalActionSchema.TOOL_PRESS_KEY"))
+        assertTrue(recorderSource.contains("actionName = OobActionSchema.TOOL_PRESS_KEY"))
         assertTrue(recorderSource.contains("\"key\" to \"enter\""))
         assertTrue(recorderSource.contains("\"recording_backend\" to IME_SUBMIT_BACKEND"))
         assertTrue(recorderSource.contains("private const val IME_SUBMIT_BACKEND = \"ime_submit\""))

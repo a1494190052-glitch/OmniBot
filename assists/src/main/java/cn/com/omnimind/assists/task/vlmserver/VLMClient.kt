@@ -7,7 +7,7 @@ import cn.com.omnimind.baselib.llm.ChatCompletionStreamOptions
 import cn.com.omnimind.baselib.llm.ChatCompletionThinking
 import cn.com.omnimind.baselib.llm.ModelSceneRegistry
 import cn.com.omnimind.baselib.llm.contentText
-import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.baselib.util.OmniLog
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
@@ -508,13 +508,13 @@ class VLMClient(
     ): UIAction {
         val dynamicAction = functionActionFromDynamicToolCall(toolCall, dynamicFunctionToolMappings)
         if (dynamicAction != null) return dynamicAction
-        return uiActionFromCanonicalAction(canonicalActionFromToolCall(toolCall, dynamicFunctionToolNames))
+        return parseToolCall(toolCall, dynamicFunctionToolNames)
     }
 
-    private fun canonicalActionFromToolCall(
+    private fun parseToolCall(
         toolCall: AssistantToolCall,
         dynamicFunctionToolNames: Set<String>
-    ): CanonicalActionCall {
+    ): UIAction {
         val rawToolName = toolCall.function.name.trim()
         if (rawToolName.isBlank()) {
             throw IllegalArgumentException("Missing tool_call function name")
@@ -529,11 +529,78 @@ class VLMClient(
             throw IllegalArgumentException("Unsupported tool call: ${toolCall.function.name}")
         }
         val toolName = rawToolName
-        val args = parseCanonicalArguments(
-            canonicalToolName = toolName,
-            rawArguments = toolCall.function.arguments,
-        )
-        return CanonicalActionCall(tool = toolName, args = args)
+        val args = parseArguments(toolName, toolCall.function.arguments)
+        return when (toolName) {
+            OobActionSchema.TOOL_CLICK -> ClickAction(
+                targetDescription = requireString(args, OobActionSchema.ARG_TARGET_DESCRIPTION),
+                x = requireFloat(args, OobActionSchema.ARG_X),
+                y = requireFloat(args, OobActionSchema.ARG_Y),
+                nodeId = optionalString(args, OobActionSchema.ARG_NODE_ID)
+            )
+            OobActionSchema.TOOL_INPUT_TEXT -> InputTextAction(
+                targetDescription = requireString(args, OobActionSchema.ARG_TARGET_DESCRIPTION),
+                text = requireString(args, OobActionSchema.ARG_TEXT),
+                x = requireFloat(args, OobActionSchema.ARG_X),
+                y = requireFloat(args, OobActionSchema.ARG_Y),
+                nodeId = optionalString(args, OobActionSchema.ARG_NODE_ID)
+            )
+            OobActionSchema.TOOL_SWIPE -> SwipeAction(
+                targetDescription = requireString(args, OobActionSchema.ARG_TARGET_DESCRIPTION),
+                x1 = requireFloat(args, OobActionSchema.ARG_X1),
+                y1 = requireFloat(args, OobActionSchema.ARG_Y1),
+                x2 = requireFloat(args, OobActionSchema.ARG_X2),
+                y2 = requireFloat(args, OobActionSchema.ARG_Y2),
+                durationMs = optionalLong(args, OobActionSchema.ARG_DURATION_MS) ?: 1500L,
+                scrollableIndex = optionalInt(args, OobActionSchema.ARG_SCROLLABLE_INDEX),
+                direction = optionalString(args, OobActionSchema.ARG_DIRECTION)?.lowercase()
+            )
+            OobActionSchema.TOOL_LONG_PRESS -> LongPressAction(
+                targetDescription = requireString(args, OobActionSchema.ARG_TARGET_DESCRIPTION),
+                x = requireFloat(args, OobActionSchema.ARG_X),
+                y = requireFloat(args, OobActionSchema.ARG_Y),
+                nodeId = optionalString(args, OobActionSchema.ARG_NODE_ID)
+            )
+            OobActionSchema.TOOL_OPEN_APP -> OpenAppAction(
+                packageName = requireString(args, OobActionSchema.ARG_PACKAGE_NAME)
+            )
+            OobActionSchema.TOOL_PRESS_KEY -> PressKeyAction(
+                key = requireString(args, OobActionSchema.ARG_KEY).lowercase()
+            )
+            OobActionSchema.TOOL_WAIT -> WaitAction(
+                timeS = optionalDouble(args, OobActionSchema.ARG_TIME_S),
+                durationMs = optionalLong(args, OobActionSchema.ARG_DURATION_MS)
+            )
+            OobActionSchema.TOOL_GET_STATE -> GetStateAction(
+                reason = optionalString(args, OobActionSchema.ARG_REASON).orEmpty()
+            )
+            OobActionSchema.TOOL_CALL_TOOL -> throw IllegalArgumentException(INTERNAL_CALL_TOOL_ERROR)
+            OobActionSchema.TOOL_FINISHED -> FinishedAction(
+                content = optionalString(args, OobActionSchema.ARG_CONTENT).orEmpty()
+            )
+            OobActionSchema.TOOL_INFO -> InfoAction(
+                value = requireString(args, OobActionSchema.ARG_VALUE)
+            )
+            OobActionSchema.TOOL_FEEDBACK -> AbortAction(
+                value = optionalString(args, OobActionSchema.ARG_VALUE).orEmpty()
+            )
+            OobActionSchema.TOOL_ABORT -> AbortAction(
+                value = optionalString(args, OobActionSchema.ARG_VALUE).orEmpty()
+            )
+            OobActionSchema.TOOL_REQUIRE_USER_CHOICE -> InfoAction(
+                value = buildString {
+                    val prompt = optionalString(args, OobActionSchema.ARG_PROMPT).orEmpty()
+                    val options = (args[OobActionSchema.ARG_OPTIONS] as? JsonArray)
+                        ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotEmpty) }
+                        .orEmpty()
+                    append(prompt)
+                    if (options.isNotEmpty()) append("\n可选项：${options.joinToString(" / ")}")
+                }
+            )
+            OobActionSchema.TOOL_REQUIRE_USER_CONFIRMATION -> InfoAction(
+                value = optionalString(args, OobActionSchema.ARG_PROMPT).orEmpty()
+            )
+            else -> throw IllegalArgumentException("Unsupported canonical action: $toolName")
+        }
     }
 
     private fun functionActionFromDynamicToolCall(
@@ -568,89 +635,6 @@ class VLMClient(
         })
     }
 
-    private fun uiActionFromCanonicalAction(canonical: CanonicalActionCall): UIAction {
-        val toolName = canonical.tool
-        val args = canonical.args
-        return when (toolName) {
-            OobCanonicalActionSchema.TOOL_CLICK -> ClickAction(
-                targetDescription = requireString(args, OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION),
-                x = requireFloat(args, OobCanonicalActionSchema.ARG_X),
-                y = requireFloat(args, OobCanonicalActionSchema.ARG_Y),
-                nodeId = optionalString(args, OobCanonicalActionSchema.ARG_NODE_ID)
-            )
-            OobCanonicalActionSchema.TOOL_INPUT_TEXT -> InputTextAction(
-                targetDescription = requireString(args, OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION),
-                text = requireString(args, OobCanonicalActionSchema.ARG_TEXT),
-                x = requireFloat(args, OobCanonicalActionSchema.ARG_X),
-                y = requireFloat(args, OobCanonicalActionSchema.ARG_Y),
-                nodeId = optionalString(args, OobCanonicalActionSchema.ARG_NODE_ID)
-            )
-            OobCanonicalActionSchema.TOOL_SWIPE -> SwipeAction(
-                targetDescription = requireString(args, OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION),
-                x1 = requireFloat(args, OobCanonicalActionSchema.ARG_X1),
-                y1 = requireFloat(args, OobCanonicalActionSchema.ARG_Y1),
-                x2 = requireFloat(args, OobCanonicalActionSchema.ARG_X2),
-                y2 = requireFloat(args, OobCanonicalActionSchema.ARG_Y2),
-                durationMs = optionalLong(args, OobCanonicalActionSchema.ARG_DURATION_MS) ?: 1500L,
-                scrollableIndex = optionalInt(args, OobCanonicalActionSchema.ARG_SCROLLABLE_INDEX),
-                direction = optionalString(args, OobCanonicalActionSchema.ARG_DIRECTION)?.lowercase()
-            )
-            OobCanonicalActionSchema.TOOL_LONG_PRESS -> LongPressAction(
-                targetDescription = requireString(args, OobCanonicalActionSchema.ARG_TARGET_DESCRIPTION),
-                x = requireFloat(args, OobCanonicalActionSchema.ARG_X),
-                y = requireFloat(args, OobCanonicalActionSchema.ARG_Y),
-                nodeId = optionalString(args, OobCanonicalActionSchema.ARG_NODE_ID)
-            )
-            OobCanonicalActionSchema.TOOL_OPEN_APP -> OpenAppAction(
-                packageName = requireString(args, OobCanonicalActionSchema.ARG_PACKAGE_NAME)
-            )
-            OobCanonicalActionSchema.TOOL_PRESS_KEY -> PressKeyAction(
-                key = requireString(args, OobCanonicalActionSchema.ARG_KEY).lowercase()
-            )
-            OobCanonicalActionSchema.TOOL_WAIT -> WaitAction(
-                timeS = optionalDouble(args, OobCanonicalActionSchema.ARG_TIME_S),
-                durationMs = optionalLong(args, OobCanonicalActionSchema.ARG_DURATION_MS)
-            )
-            OobCanonicalActionSchema.TOOL_GET_STATE -> GetStateAction(
-                reason = optionalString(args, OobCanonicalActionSchema.ARG_REASON).orEmpty()
-            )
-            OobCanonicalActionSchema.TOOL_CALL_TOOL -> throw IllegalArgumentException(INTERNAL_CALL_TOOL_ERROR)
-            OobCanonicalActionSchema.TOOL_FINISHED -> FinishedAction(
-                content = optionalString(args, OobCanonicalActionSchema.ARG_CONTENT).orEmpty()
-            )
-            OobCanonicalActionSchema.TOOL_INFO -> InfoAction(
-                value = requireString(args, OobCanonicalActionSchema.ARG_VALUE)
-            )
-            OobCanonicalActionSchema.TOOL_FEEDBACK -> AbortAction(
-                value = optionalString(args, OobCanonicalActionSchema.ARG_VALUE).orEmpty()
-            )
-            OobCanonicalActionSchema.TOOL_ABORT -> AbortAction(
-                value = optionalString(args, OobCanonicalActionSchema.ARG_VALUE).orEmpty()
-            )
-            OobCanonicalActionSchema.TOOL_REQUIRE_USER_CHOICE -> InfoAction(
-                value = buildString {
-                    val prompt = optionalString(args, OobCanonicalActionSchema.ARG_PROMPT).orEmpty()
-                    val options = (args[OobCanonicalActionSchema.ARG_OPTIONS] as? JsonArray)
-                        ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotEmpty) }
-                        .orEmpty()
-                    append(prompt)
-                    if (options.isNotEmpty()) append("\n可选项：${options.joinToString(" / ")}")
-                }
-            )
-            OobCanonicalActionSchema.TOOL_REQUIRE_USER_CONFIRMATION -> InfoAction(
-                value = optionalString(args, OobCanonicalActionSchema.ARG_PROMPT).orEmpty()
-            )
-            else -> throw IllegalArgumentException("Unsupported canonical action: $toolName")
-        }
-    }
-
-    private fun parseCanonicalArguments(
-        canonicalToolName: String,
-        rawArguments: String
-    ): JsonObject {
-        return parseArguments(canonicalToolName, rawArguments)
-    }
-
     private fun parseArguments(toolName: String, rawArguments: String): JsonObject {
         return VLMToolArgumentParser.parse(toolName, rawArguments)
     }
@@ -661,13 +645,13 @@ class VLMClient(
             .removePrefix("function.")
             .trim()
             .lowercase()
-        return normalized == OobCanonicalActionSchema.TOOL_CALL_TOOL
+        return normalized == OobActionSchema.TOOL_CALL_TOOL
     }
 
     private fun modelVisibleToolNames(): Set<String> =
-        OobCanonicalActionSchema.modelVisibleTools.mapTo(linkedSetOf()) { it.name }.apply {
-            remove(OobCanonicalActionSchema.TOOL_GET_STATE)
-            remove(OobCanonicalActionSchema.TOOL_CALL_TOOL)
+        OobActionSchema.modelVisibleTools.mapTo(linkedSetOf()) { it.name }.apply {
+            remove(OobActionSchema.TOOL_GET_STATE)
+            remove(OobActionSchema.TOOL_CALL_TOOL)
         }
 
     private fun requireString(obj: JsonObject, key: String): String {
@@ -730,11 +714,6 @@ class VLMClient(
             )
         }
     }
-
-    private data class CanonicalActionCall(
-        val tool: String,
-        val args: JsonObject,
-    )
 
     private fun runtimeConfig(): VLMRuntimeConfig = VLMRuntimeConfigRegistry.get()
 

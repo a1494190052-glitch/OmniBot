@@ -251,7 +251,7 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(zhArb["functionLibraryTitle"] == "复用指令库")
         assertTrue(
             zhArb["functionLibraryEnhanceOfflineHint"].toString()
-                .contains("语义升级会在后台离线处理")
+                .contains("不会执行复用指令")
         )
         assertTrue(!zhArb.values.any { it == "复用记忆" })
         assertTrue(enArb["memoryCommandsTitle"] == "Reusable Commands")
@@ -656,22 +656,21 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(flutterAssistsService.contains("'oob_function_run'"))
         assertTrue(flutterAssistsService.contains("toolProfile: oobReusableFunctionAgentToolProfile"))
         assertTrue(flutterAssistsService.contains("allowedTools: oobReusableFunctionAgentAllowedTools"))
-        assertTrue(functionLibraryPage.contains("runOobReusableFunctionWithAgent"))
-        assertTrue(runLogTimelinePage.contains("runOobReusableFunctionWithAgent"))
+        assertTrue(functionLibraryPage.contains("runOobReusableFunction("))
+        assertTrue(runLogTimelinePage.contains("runOobReusableFunction("))
         assertTrue(functionRunResultSheet.contains("runOobReusableFunctionWithAgent"))
-        assertFalse(functionLibraryPage.contains("runOobReusableFunction("))
-        assertFalse(runLogTimelinePage.contains("runOobReusableFunction("))
+        assertFalse(functionLibraryPage.contains("runOobReusableFunctionWithAgent"))
         assertFalse(functionRunResultSheet.contains("runOobReusableFunction("))
 
         val directAdapter = byId.getValue("ui_direct_function_run_adapter")
         assertTrue(directAdapter["requires_concrete_function_id"] == true)
         assertTrue(directAdapter["arguments_field_policy"] == "nested_arguments_preserved")
-        assertTrue(directAdapter["debug_or_compat_only"] == true)
-        assertTrue(directAdapter["ordinary_product_ui_should_call"] == "ui_agent_function_run")
+        assertTrue(directAdapter["debug_or_compat_only"] == false)
+        assertTrue(directAdapter["ordinary_product_ui_should_call"] == "ui_direct_function_run_adapter")
         assertTrue(assistsManager.contains("fun runOobReusableFunction("))
         assertTrue(assistsManager.contains("OobOmniFlowToolkitService(context).runFunction("))
         assertTrue(assistsManager.contains("\"arguments\" to callArguments"))
-        assertTrue(assistsManager.contains("\"frontend_parent\" to \"oob_direct_replay\""))
+        assertTrue(assistsManager.contains("\"frontend_parent\" to \"oob_function_direct_run\""))
 
         val uiUpdate = byId.getValue("ui_update_function")
         assertTrue(uiUpdate["may_execute_phone_actions"] == false)
@@ -686,6 +685,7 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(allowedTools.contains("omniflow.recall"))
         assertTrue(allowedTools.contains("omniflow.ingest_run_log"))
         assertTrue(allowedTools.contains("omniflow.explore_replay"))
+        assertTrue(mcp["runlog_policy"] == "runlog_is_evidence; explore_replay_must_convert_then_execute_function")
         val fixedMcpToolNames = McpToolDefinitions.fixedToolNames
         val missingAllowedTools = allowedTools.filterNot { it in fixedMcpToolNames }
         assertTrue(
@@ -695,6 +695,7 @@ class UnifiedOmniFlowExecutionPlanTest {
         val forbiddenPublicTools = listAny(mcp["forbidden_public_tools"]).map { it.toString() }
         assertTrue(forbiddenPublicTools.contains("run_function"))
         assertTrue(forbiddenPublicTools.contains("call_tool"))
+        assertTrue(forbiddenPublicTools.contains("oob_run_log_replay"))
         val exposedForbiddenTools = forbiddenPublicTools.filter { it in fixedMcpToolNames }
         assertTrue(
             "Entry-surface forbidden Function execution tools must not be public MCP tools: $exposedForbiddenTools",
@@ -704,6 +705,7 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(mcpRoutes.contains("omniflowToolkit.executeTool(name, args)"))
         assertTrue(!mcpRoutes.contains("\"run_function\" ->"))
         assertTrue(!mcpRoutes.contains("TOOL_CALL_TOOL ->"))
+        assertTrue(!flutterAssistsService.contains("path: '/run_logs/replay'"))
         assertTrue(!mcpRoutes.contains("executeOobToolCall(context, args)"))
 
         val http = byId.getValue("http_function_run")

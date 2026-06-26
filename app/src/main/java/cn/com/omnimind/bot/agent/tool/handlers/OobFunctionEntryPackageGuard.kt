@@ -1,9 +1,9 @@
 package cn.com.omnimind.bot.agent.tool.handlers
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
-import cn.com.omnimind.bot.runlog.OobActionCodec
 import cn.com.omnimind.bot.runlog.OmniflowActionRuntime
 import cn.com.omnimind.bot.runlog.UIStepExecutor
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
@@ -21,7 +21,7 @@ class OobFunctionEntryPackageGuard {
         }.getOrDefault("")
         if (currentPackage.isBlank() || currentPackage == entryPackage) return
         val firstAction = UIStepExecutor.actionNameForStep(steps.first())
-        if (firstAction == OobActionCodec.ACTION_OPEN_APP) return
+        if (firstAction == OobActionSchema.TOOL_OPEN_APP) return
 
         OmniLog.d(TAG, "global open_app: current=$currentPackage expected=$entryPackage")
         runCatching {
@@ -37,7 +37,7 @@ class OobFunctionEntryPackageGuard {
 
     private fun entryPackageForSteps(steps: List<Map<String, Any?>>): String {
         for (step in steps) {
-            if (UIStepExecutor.actionNameForStep(step) == OobActionCodec.ACTION_OPEN_APP) {
+            if (UIStepExecutor.actionNameForStep(step) == OobActionSchema.TOOL_OPEN_APP) {
                 val args = mapArg(step["args"])
                 val pkg = firstNonBlank(args["package_name"])
                 if (pkg.isNotBlank()) return pkg
@@ -60,7 +60,7 @@ class OobFunctionEntryPackageGuard {
             "kind" to "function",
             "executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
             "model_free" to true,
-            "tool" to OobActionCodec.ACTION_OPEN_APP,
+            "tool" to OobActionSchema.TOOL_OPEN_APP,
             "args" to linkedMapOf("package_name" to packageName),
         )
 

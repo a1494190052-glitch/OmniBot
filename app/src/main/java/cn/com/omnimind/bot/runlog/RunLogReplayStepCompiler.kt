@@ -2,7 +2,7 @@ package cn.com.omnimind.bot.runlog
 
 import cn.com.omnimind.bot.agent.AgentToolNames
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
-import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.androidPrivilegedReplayAction
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.androidPrivilegedReplayArgs
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.asMap
@@ -61,12 +61,12 @@ internal object RunLogReplayStepCompiler {
                     utg = utg,
                 )
             }
-            OobActionCodec.canonicalActionForName(normalizedToolName) != null -> {
+            resolveActionName(normalizedToolName) != null -> {
                 val replayAction = requireNotNull(
-                    OobActionCodec.canonicalActionForName(normalizedToolName)
+                    resolveActionName(normalizedToolName)
                 )
                 val replayArgs = enrichArgsWithTargetEvidence(
-                    replayArgs = OobActionCodec.argsForStep(
+                    replayArgs = argsForStep(
                         mapOf(
                             "tool" to toolName,
                             "args" to args,
@@ -158,19 +158,19 @@ internal object RunLogReplayStepCompiler {
         toolName: String,
         args: Map<String, Any?>,
     ): String {
-        val action = OobActionCodec.canonicalActionForName(toolName)
-            ?: OobActionCodec.normalizeName(toolName)
+        val action = resolveActionName(toolName)
+            ?: OobActionSchema.normalizeToolName(toolName)
         val target = firstNonBlank(
             args["target_description"],
             args["label"],
             args["text"],
         ).take(80)
         return when (action) {
-            OobActionCodec.ACTION_OPEN_APP -> {
+            OobActionSchema.TOOL_OPEN_APP -> {
                 val packageName = firstNonBlank(args["package_name"])
-                if (packageName.isNotBlank()) "${OobActionCodec.ACTION_OPEN_APP}: $packageName" else OobActionCodec.ACTION_OPEN_APP
+                if (packageName.isNotBlank()) "${OobActionSchema.TOOL_OPEN_APP}: $packageName" else OobActionSchema.TOOL_OPEN_APP
             }
-            in OobActionCodec.pointTargetActions -> {
+            in OobActionSchema.pointTargetToolNames -> {
                 if (target.isNotBlank()) {
                     "$action: $target"
                 } else {
@@ -179,16 +179,16 @@ internal object RunLogReplayStepCompiler {
                     if (x.isNotBlank() && y.isNotBlank()) "$action: ($x, $y)" else action
                 }
             }
-            OobActionCodec.ACTION_INPUT_TEXT -> if (target.isNotBlank()) "$action: $target" else action
-            OobActionCodec.ACTION_SWIPE -> {
+            OobActionSchema.TOOL_INPUT_TEXT -> if (target.isNotBlank()) "$action: $target" else action
+            OobActionSchema.TOOL_SWIPE -> {
                 val direction = firstNonBlank(args["direction"])
                 if (direction.isNotBlank()) "$action: $direction" else action
             }
-            OobActionCodec.ACTION_PRESS_KEY -> {
+            OobActionSchema.TOOL_PRESS_KEY -> {
                 val key = firstNonBlank(args["key"])
                 if (key.isNotBlank()) "$action: $key" else action
             }
-            OobActionCodec.ACTION_FINISHED -> OobActionCodec.ACTION_FINISHED
+            OobActionSchema.TOOL_FINISHED -> OobActionSchema.TOOL_FINISHED
             else -> if (target.isNotBlank()) "$action: $target" else action.ifBlank { "step" }
         }
     }
@@ -354,11 +354,11 @@ internal object RunLogReplayStepCompiler {
                 if (normalizedToolName == AgentToolNames.ANDROID_PRIVILEGED_ACTION) {
                     androidPrivilegedReplayAction(args)
                 } else {
-                    OobActionCodec.canonicalActionForName(rawToolName)
+                    resolveActionName(rawToolName)
                 } ?: rawToolName
                 )
         )
-        for (key in OobCanonicalActionSchema.sourceContextArgNames) {
+        for (key in OobActionSchema.sourceContextArgNames) {
             if (actionArgs.containsKey(key) && actionArgs[key] != null) {
                 sourceAction[key] = actionArgs[key]
             }
@@ -449,10 +449,10 @@ internal object RunLogReplayStepCompiler {
         srcCtx: Map<String, Any?>,
         sourceAction: Map<String, Any?>,
     ): Map<String, Any?> {
-        val action = OobActionCodec.canonicalActionForName(normalizedToolName)
-            ?: OobActionCodec.canonicalActionForName(sourceAction["tool"]?.toString().orEmpty())
+        val action = resolveActionName(normalizedToolName)
+            ?: resolveActionName(sourceAction["tool"]?.toString().orEmpty())
             ?: return emptyMap()
-        if (action !in OobActionCodec.coordinateActions || !hasCoordinateEvidence(sourceAction)) {
+        if (action !in OobActionSchema.coordinateToolNames || !hasCoordinateEvidence(sourceAction)) {
             return emptyMap()
         }
         return linkedMapOf(

@@ -1,10 +1,13 @@
 package cn.com.omnimind.bot.omniflow
+import cn.com.omnimind.bot.runlog.argsForStep
+import cn.com.omnimind.bot.runlog.actionNameForStep
+import cn.com.omnimind.bot.runlog.resolveActionName
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.boolArg
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.listArg
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
-import cn.com.omnimind.bot.runlog.OobActionCodec
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 
 /**
@@ -108,7 +111,7 @@ object OobFunctionSchemaBuilder {
 
     fun stepSummaries(spec: Map<String, Any?>): List<Map<String, Any?>> =
         materializedSteps(spec).mapIndexed { index, step ->
-            val tool = OobActionCodec.actionNameForStep(step)
+            val tool = actionNameForStep(step)
             linkedMapOf("index" to index, "id" to firstNonBlank(step["id"], "step_${index + 1}"),
                 "title" to firstNonBlank(step["title"], step["summary"], tool),
                 "kind" to step["kind"], "executor" to step["executor"], "tool" to tool)
@@ -117,18 +120,18 @@ object OobFunctionSchemaBuilder {
     private fun canonicalActionToStep(index: Int, action: Map<String, Any?>): Map<String, Any?>? {
         val rawType = firstNonBlank(action["tool"], action["type"], action["action"])
         if (rawType.isEmpty()) return null
-        val normalizedType = OobActionCodec.canonicalActionForName(rawType) ?: OobActionCodec.normalizeName(rawType)
-        val params = OobActionCodec.argsForStep(mapOf("tool" to rawType, "args" to mapArg(action["args"])))
+        val normalizedType = resolveActionName(rawType) ?: OobActionSchema.normalizeToolName(rawType)
+        val params = argsForStep(mapOf("tool" to rawType, "args" to mapArg(action["args"])))
         val sourceContext = mapArg(params["source_context"])
         val title = firstNonBlank(action["description"], action["prompt"], rawType).ifBlank { normalizedType }
         val stepId = firstNonBlank(action["id"], action["step_id"], "step_${index + 1}")
         return when {
-            normalizedType == OobActionCodec.ACTION_CLICK -> {
+            normalizedType == OobActionSchema.TOOL_CLICK -> {
                 val nodeId = firstNonBlank(params["node_id"])
                 if (nodeId.isNotBlank() && firstNonBlank(params["x"]).isBlank() && firstNonBlank(params["y"]).isBlank()) {
                     graphStep(stepId, index, title, linkedMapOf("node_id" to nodeId).filterValues { it.isNotBlank() })
                 } else {
-                    localActionStep(stepId, index, title, OobActionCodec.ACTION_CLICK, linkedMapOf<String, Any?>().apply {
+                    localActionStep(stepId, index, title, OobActionSchema.TOOL_CLICK, linkedMapOf<String, Any?>().apply {
                         putFP("x", params["x"]); putFP("y", params["y"])
                         putFP("target_description", params["target_description"]); putFP("selector", params["selector"])
                         putFP("node_id", params["node_id"]); putFP("element_index", params["element_index"])
@@ -137,36 +140,36 @@ object OobFunctionSchemaBuilder {
                     }, sourceContext)
                 }
             }
-            normalizedType == OobActionCodec.ACTION_LONG_PRESS ->
-                localActionStep(stepId, index, title, OobActionCodec.ACTION_LONG_PRESS, linkedMapOf<String, Any?>().apply {
+            normalizedType == OobActionSchema.TOOL_LONG_PRESS ->
+                localActionStep(stepId, index, title, OobActionSchema.TOOL_LONG_PRESS, linkedMapOf<String, Any?>().apply {
                     putFP("x", params["x"]); putFP("y", params["y"]); putFP("duration_ms", params["duration_ms"])
                     putFP("target_description", params["target_description"]); putFP("selector", params["selector"])
                     putFP("node_id", params["node_id"]); putFP("element_index", params["element_index"])
                     if (sourceContext.isNotEmpty()) put("source_context", sourceContext)
                 }, sourceContext)
-            normalizedType == OobActionCodec.ACTION_INPUT_TEXT ->
-                localActionStep(stepId, index, title, OobActionCodec.ACTION_INPUT_TEXT, linkedMapOf<String, Any?>().apply {
+            normalizedType == OobActionSchema.TOOL_INPUT_TEXT ->
+                localActionStep(stepId, index, title, OobActionSchema.TOOL_INPUT_TEXT, linkedMapOf<String, Any?>().apply {
                     putFP("text", params["text"]); putFP("target_description", params["target_description"])
                     putFP("x", params["x"]); putFP("y", params["y"]); putFP("node_id", params["node_id"])
                     putFP("element_index", params["element_index"]); putFP("node_resource_id", params["node_resource_id"])
                     putFP("bounds", params["bounds"]); putFP("selector", params["selector"]); putFP("clear", params["clear"])
                     if (sourceContext.isNotEmpty()) put("source_context", sourceContext)
                 }, sourceContext)
-            normalizedType == OobActionCodec.ACTION_SWIPE ->
-                localActionStep(stepId, index, title, OobActionCodec.ACTION_SWIPE, linkedMapOf<String, Any?>().apply {
+            normalizedType == OobActionSchema.TOOL_SWIPE ->
+                localActionStep(stepId, index, title, OobActionSchema.TOOL_SWIPE, linkedMapOf<String, Any?>().apply {
                     putFP("target_description", params["target_description"]); putFP("x1", params["x1"]); putFP("y1", params["y1"])
                     putFP("x2", params["x2"]); putFP("y2", params["y2"]); putFP("direction", params["direction"])
                     putFP("duration_ms", params["duration_ms"]); putFP("scrollable_index", params["scrollable_index"])
                     if (sourceContext.isNotEmpty()) put("source_context", sourceContext)
                 }, sourceContext)
-            normalizedType == OobActionCodec.ACTION_OPEN_APP ->
-                localActionStep(stepId, index, title, OobActionCodec.ACTION_OPEN_APP,
+            normalizedType == OobActionSchema.TOOL_OPEN_APP ->
+                localActionStep(stepId, index, title, OobActionSchema.TOOL_OPEN_APP,
                     linkedMapOf<String, Any?>().apply { putFP("package_name", params["package_name"]) }, emptyMap())
-            normalizedType == OobActionCodec.ACTION_PRESS_KEY ->
-                localActionStep(stepId, index, title, OobActionCodec.ACTION_PRESS_KEY,
+            normalizedType == OobActionSchema.TOOL_PRESS_KEY ->
+                localActionStep(stepId, index, title, OobActionSchema.TOOL_PRESS_KEY,
                     linkedMapOf<String, Any?>().apply { putFP("key", params["key"]) }, emptyMap())
-            normalizedType == OobActionCodec.ACTION_FINISHED ->
-                localActionStep(stepId, index, title, OobActionCodec.ACTION_FINISHED, linkedMapOf<String, Any?>().apply {
+            normalizedType == OobActionSchema.TOOL_FINISHED ->
+                localActionStep(stepId, index, title, OobActionSchema.TOOL_FINISHED, linkedMapOf<String, Any?>().apply {
                     putFP("content", params["content"]); putFP("enable_summary", params["enable_summary"])
                     putFP("summary_prompt", params["summary_prompt"])
                 }, emptyMap())

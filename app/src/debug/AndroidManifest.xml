@@ -91,6 +91,14 @@
             </intent-filter>
         </receiver>
         <receiver
+            android:name=".debug.DebugVlmRecallHitReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="cn.com.omnimind.bot.debug.RUN_VLM_RECALL_HIT" />
+            </intent-filter>
+        </receiver>
+        <receiver
             android:name=".debug.DebugManualTraceReceiver"
             android:enabled="true"
             android:exported="true">

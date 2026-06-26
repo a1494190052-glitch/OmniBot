@@ -680,7 +680,7 @@ class InternalRunLogStoreTest {
             )
 
             assertEquals(xml, RunLogCardAccessors.observationXml(observation))
-            assertEquals(xml, OobActionCodec.pageXmlFromContext(sourceContext))
+            assertEquals(xml, pageXmlFromContext(sourceContext))
         } finally {
             context.root.deleteRecursively()
         }

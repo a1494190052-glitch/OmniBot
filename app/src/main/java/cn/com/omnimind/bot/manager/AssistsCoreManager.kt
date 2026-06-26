@@ -98,7 +98,6 @@ import cn.com.omnimind.bot.agent.WorkspaceMemoryRollupScheduler
 import cn.com.omnimind.bot.agent.WorkspaceMemoryService
 import cn.com.omnimind.bot.agent.WorkspaceScheduledTaskScheduler
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
-import cn.com.omnimind.bot.runlog.OobActionCodec
 import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
 import cn.com.omnimind.bot.runlog.OobUdegNodeStore
 import cn.com.omnimind.bot.runlog.OobRunLogReplayService
@@ -540,8 +539,8 @@ internal fun buildOobReusableFunctionRuntimeResolvePayload(
         "resolve_id" to resolveId,
         "runtime_resolve_required" to true,
         "runtime_resolve_available" to false,
-        "source" to "omniflow_replay",
-        "run_source" to "omniflow_replay",
+        "source" to "oob_function_replay",
+        "run_source" to "oob_function_replay",
         "runner" to runner,
         "local_steps_completed" to completedStepCount,
         "resolve_calls" to runtimeResolveStepCount,
@@ -608,8 +607,8 @@ internal fun buildOobReusableFunctionLocalPayload(
     val currentStepNumber = runPayload["current_step_number"]
         ?: (currentStepIndex as? Number)?.toInt()?.plus(1)
     val sharedExecutionMeta = linkedMapOf<String, Any?>(
-        "source" to "omniflow_replay",
-        "run_source" to "omniflow_replay",
+        "source" to "oob_function_replay",
+        "run_source" to "oob_function_replay",
         "runner" to runner,
         "step_count" to stepCount,
         "active_step_count" to runPayload["active_step_count"],
@@ -2385,6 +2384,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val isReplay = (normalizedToolName == RunLogReplayPolicy.TOOL_CALL_TOOL && hasFunctionIdArgument) ||
             evidence.any { value ->
                 value.contains("oob_omniflow_replay") ||
+                    value.contains("oob_function_replay") ||
                     value.contains("oob_fixed_replay") ||
                     value.contains("omniflow_replay") ||
                     value.contains("call_tool_runner") ||
@@ -4309,7 +4309,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                                 args["taskId"],
                                 args["task_id"]
                             ).takeIf { it.isNotEmpty() },
-                            "frontend_parent" to "oob_direct_replay",
+                            "frontend_parent" to "oob_function_direct_run",
                         ).filterValues { it != null }
                     )
                 }

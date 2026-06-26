@@ -1,7 +1,6 @@
 package cn.com.omnimind.bot.agent.tool.handlers
 
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
-import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 
 /**
  * Shapes tool-card payloads for nested Function calls during replay. Execution
@@ -52,8 +51,8 @@ class OobFunctionNestedCallCardPresenter(
         val resultPayload = result?.let {
             linkedMapOf<String, Any?>(
                 "function_id" to functionId.takeIf { id -> id.isNotBlank() },
-                "source" to "omniflow_replay",
-                "run_source" to "omniflow_replay",
+                "source" to OobFunctionToolHandler.FUNCTION_RUN_SOURCE,
+                "run_source" to OobFunctionToolHandler.FUNCTION_RUN_SOURCE,
                 "runner" to it["runner"],
                 "nested_run_id" to it["nested_run_id"],
                 "nested_step_count" to it["nested_step_count"],
@@ -71,10 +70,10 @@ class OobFunctionNestedCallCardPresenter(
             "toolName" to toolName,
             "displayName" to helper.localized("复用指令"),
             "toolType" to "oob_function",
-            "source" to "omniflow_replay",
-            "runSource" to "omniflow_replay",
-            "run_source" to "omniflow_replay",
-            "runner" to (result?.get("runner") ?: RunLogReplayPolicy.fixedReplayRunner),
+            "source" to OobFunctionToolHandler.FUNCTION_RUN_SOURCE,
+            "runSource" to OobFunctionToolHandler.FUNCTION_RUN_SOURCE,
+            "run_source" to OobFunctionToolHandler.FUNCTION_RUN_SOURCE,
+            "runner" to (result?.get("runner") ?: OobFunctionToolHandler.FUNCTION_DIRECT_RUNNER),
             "toolTitle" to if (functionId.isNotBlank()) {
                 "${helper.localized("复用指令")}：$functionId"
             } else {

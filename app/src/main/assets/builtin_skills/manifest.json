@@ -49,26 +49,6 @@
       "hasReferences": false,
       "hasAssets": false,
       "hasEvals": false
-    },
-    {
-      "id": "vlm-android-gui",
-      "name": "vlm-android-gui",
-      "description": "Compatibility entry for OOB VLM Android GUI automation, AndroidWorld phone tasks, vlm_task, OmniFlow replay, reusable Function generation, and RunLog validation.",
-      "assetPath": "builtin_skills/vlm-android-gui",
-      "hasScripts": false,
-      "hasReferences": true,
-      "hasAssets": false,
-      "hasEvals": false
-    },
-    {
-      "id": "oob-function-management",
-      "name": "oob-function-management",
-      "description": "Compatibility entry for OmniFlow Function management. Use for RunLog registration, \"把上一条 runlog 注册了\", \"保存为复用指令\", \"转换轨迹\", update_function, list/get/delete reusable functions, variable-parameter Functions, and function_management profile prompts.",
-      "assetPath": "builtin_skills/oob-function-management",
-      "hasScripts": false,
-      "hasReferences": false,
-      "hasAssets": false,
-      "hasEvals": false
     }
   ]
 }

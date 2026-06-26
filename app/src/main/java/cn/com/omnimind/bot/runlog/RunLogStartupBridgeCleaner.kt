@@ -1,4 +1,5 @@
 package cn.com.omnimind.bot.runlog
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 
 import cn.com.omnimind.bot.agent.AgentToolNames
 
@@ -43,7 +44,7 @@ internal object RunLogStartupBridgeCleaner {
 
     fun hasRecordedReplayStep(card: Map<String, Any?>): Boolean {
         val toolName = toolNameForCard(card)
-        if (OobActionCodec.canonicalActionForName(toolName) != null) {
+        if (resolveActionName(toolName) != null) {
             return true
         }
         if (RunLogReplayPolicy.normalizeToolName(toolName) != AgentToolNames.ANDROID_PRIVILEGED_ACTION) {
@@ -54,7 +55,7 @@ internal object RunLogStartupBridgeCleaner {
     }
 
     private fun replayActionForStep(step: Map<String, Any?>): String {
-        return OobActionCodec.actionNameForStep(step)
+        return actionNameForStep(step)
     }
 
     private fun prependInitialOpenAppStepIfNeeded(
@@ -63,7 +64,7 @@ internal object RunLogStartupBridgeCleaner {
     ): List<Map<String, Any?>> {
         if (steps.isEmpty()) return steps
         val firstAction = replayActionForStep(steps.first())
-        if (firstAction == OobActionCodec.ACTION_OPEN_APP) return steps
+        if (firstAction == OobActionSchema.TOOL_OPEN_APP) return steps
 
         val packageName = initialReplayPackage(steps, replayableCards) ?: return steps
         val openAppStep = nullableMap(
@@ -72,7 +73,7 @@ internal object RunLogStartupBridgeCleaner {
             "executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
             "model_free" to true,
             "scriptable" to true,
-            "tool" to OobActionCodec.ACTION_OPEN_APP,
+            "tool" to OobActionSchema.TOOL_OPEN_APP,
             "args" to linkedMapOf(
                 "package_name" to packageName,
             ),
@@ -87,7 +88,7 @@ internal object RunLogStartupBridgeCleaner {
         if (steps.isEmpty()) return steps
         val first = steps.first()
         val firstAction = replayActionForStep(first)
-        if (firstAction != OobActionCodec.ACTION_OPEN_APP) return steps
+        if (firstAction != OobActionSchema.TOOL_OPEN_APP) return steps
         val args = asMap(first["args"])
         val packageName = firstNonBlank(args["package_name"])
         if (!isLaunchableInitialPackageCandidate(packageName)) return steps
@@ -110,7 +111,7 @@ internal object RunLogStartupBridgeCleaner {
     ): List<Map<String, Any?>> {
         if (steps.size < 2) return steps
         val first = steps.first()
-        if (replayActionForStep(first) != OobActionCodec.ACTION_OPEN_APP) return steps
+        if (replayActionForStep(first) != OobActionSchema.TOOL_OPEN_APP) return steps
         if (first["route_note"] != "injected_initial_package_from_runlog") return steps
 
         val packageName = firstNonBlank(
@@ -119,7 +120,7 @@ internal object RunLogStartupBridgeCleaner {
         if (!isLaunchableInitialPackageCandidate(packageName)) return steps
 
         val candidate = steps[1]
-        if (replayActionForStep(candidate) != OobActionCodec.ACTION_CLICK) return steps
+        if (replayActionForStep(candidate) != OobActionSchema.TOOL_CLICK) return steps
         if (!isInjectedLaunchBridgeClick(candidate, packageName, steps.drop(2))) {
             return steps
         }
@@ -255,7 +256,7 @@ internal object RunLogStartupBridgeCleaner {
         val card = cards[cardIndex]
         if (isManualRecordingCard(card)) return false
         val action = replayActionForCard(card) ?: return false
-        if (action != OobActionCodec.ACTION_CLICK) return false
+        if (action != OobActionSchema.TOOL_CLICK) return false
 
         val args = asMap(extractArgs(card))
         val target = firstNonBlank(
@@ -311,7 +312,7 @@ internal object RunLogStartupBridgeCleaner {
         return if (normalizedToolName == AgentToolNames.ANDROID_PRIVILEGED_ACTION) {
             androidPrivilegedReplayAction(args)
         } else {
-            OobActionCodec.canonicalActionForName(toolName)
+            resolveActionName(toolName)
         }
     }
 

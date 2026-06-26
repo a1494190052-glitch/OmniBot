@@ -1,6 +1,7 @@
 package cn.com.omnimind.bot.runlog
 
 import cn.com.omnimind.baselib.runlog.InternalRunLogRecord
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -149,7 +150,7 @@ class OobOmniFlowExplorerTest {
         val args = step["args"] as Map<*, *>
 
         assertEquals("omniflow", step["executor"])
-        assertEquals(OobActionCodec.ACTION_SWIPE, step["omniflow_action"])
+        assertEquals(OobActionSchema.TOOL_SWIPE, step["omniflow_action"])
         assertFalse(step.containsKey("coordinate_hook"))
         assertFalse(step.containsKey("replay_engine"))
         assertEquals("up", args["direction"])

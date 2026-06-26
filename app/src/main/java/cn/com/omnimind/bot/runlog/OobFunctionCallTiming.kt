@@ -1,6 +1,6 @@
 package cn.com.omnimind.bot.runlog
 
-import cn.com.omnimind.bot.runlog.OobActionCodec.mapArg
+import cn.com.omnimind.bot.runlog.mapArg
 
 /**
  * Tracks phase timing for Function calls made through the OmniFlow toolkit.

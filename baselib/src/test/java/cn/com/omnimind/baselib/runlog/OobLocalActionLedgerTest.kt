@@ -9,13 +9,13 @@ import org.junit.Test
 import java.io.File
 import java.nio.file.Files
 
-class OobPrimitiveActionLedgerTest {
+class OobLocalActionLedgerTest {
     @Test
     fun inputTextRecordsOnlyRedactedPlannerArgs() {
-        OobPrimitiveActionLedger.resetForTesting()
+        OobLocalActionLedger.resetForTesting()
         try {
-            OobPrimitiveActionLedger.record(
-                OobPrimitiveActionRecord(
+            OobLocalActionLedger.record(
+                OobLocalActionRecord(
                     source = "test",
                     tool = "input_text",
                     args = mapOf(
@@ -30,7 +30,7 @@ class OobPrimitiveActionLedgerTest {
                 )
             )
 
-            val record = OobPrimitiveActionLedger.recentRecordsForTesting().single()
+            val record = OobLocalActionLedger.recentRecordsForTesting().single()
             assertEquals("input_text", record.tool)
             assertEquals("<redacted>", record.args["text"])
             assertEquals(true, record.args["text_present"])
@@ -38,16 +38,16 @@ class OobPrimitiveActionLedgerTest {
             assertEquals(true, record.args["text_redacted"])
             assertEquals("Search", record.args["target_description"])
         } finally {
-            OobPrimitiveActionLedger.resetForTesting()
+            OobLocalActionLedger.resetForTesting()
         }
     }
 
     @Test
     fun finishedMarkerIsNotRecordedAsPrimitivePlannerAction() {
-        OobPrimitiveActionLedger.resetForTesting()
+        OobLocalActionLedger.resetForTesting()
         try {
-            OobPrimitiveActionLedger.record(
-                OobPrimitiveActionRecord(
+            OobLocalActionLedger.record(
+                OobLocalActionRecord(
                     source = "test",
                     tool = "finished",
                     args = mapOf("content" to "done"),
@@ -57,22 +57,22 @@ class OobPrimitiveActionLedgerTest {
                 )
             )
 
-            assertTrue(OobPrimitiveActionLedger.recentRecordsForTesting().isEmpty())
-            assertFalse(OobPrimitiveActionLedger.shouldRecordForPlanner("finished"))
-            assertTrue(OobPrimitiveActionLedger.shouldRecordForPlanner("click"))
+            assertTrue(OobLocalActionLedger.recentRecordsForTesting().isEmpty())
+            assertFalse(OobLocalActionLedger.shouldRecordForPlanner("finished"))
+            assertTrue(OobLocalActionLedger.shouldRecordForPlanner("click"))
         } finally {
-            OobPrimitiveActionLedger.resetForTesting()
+            OobLocalActionLedger.resetForTesting()
         }
     }
 
     @Test
     fun fileBackedRecordsCanBeReadForOfflinePlanner() {
-        OobPrimitiveActionLedger.resetForTesting()
+        OobLocalActionLedger.resetForTesting()
         val context = TempFilesContext()
         try {
-            OobPrimitiveActionLedger.bind(context)
-            OobPrimitiveActionLedger.record(
-                OobPrimitiveActionRecord(
+            OobLocalActionLedger.bind(context)
+            OobLocalActionLedger.record(
+                OobLocalActionRecord(
                     source = "mcp_act",
                     tool = "input_text",
                     args = mapOf(
@@ -87,15 +87,15 @@ class OobPrimitiveActionLedgerTest {
                 )
             )
 
-            val records = OobPrimitiveActionLedger.readRecentRecords(context, limit = 10)
+            val records = OobLocalActionLedger.readRecentRecords(context, limit = 10)
 
-            assertTrue(OobPrimitiveActionLedger.recordFile(context).exists())
+            assertTrue(OobLocalActionLedger.recordFile(context).exists())
             assertEquals(1, records.size)
             assertEquals("input_text", records.single().tool)
             assertEquals("<redacted>", records.single().args["text"])
             assertEquals(true, records.single().args["text_redacted"])
         } finally {
-            OobPrimitiveActionLedger.resetForTesting()
+            OobLocalActionLedger.resetForTesting()
             context.root.deleteRecursively()
         }
     }

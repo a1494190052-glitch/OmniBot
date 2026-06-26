@@ -17,7 +17,7 @@ import cn.com.omnimind.bot.agent.tool.handlers.TerminalToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.ToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.VlmToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.WebSearchToolHandler
-import cn.com.omnimind.bot.agent.tool.handlers.OmniflowActionHandler
+import cn.com.omnimind.bot.agent.tool.handlers.VlmActExecutor
 import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
 import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
 import kotlinx.coroutines.CoroutineScope
@@ -55,7 +55,7 @@ class AgentToolRouter(
         ImageGenerationToolHandler(helper, workspaceManager),
         FileToolHandler(helper, workspaceManager),
         SkillsToolHandler(helper, workspaceManager),
-        OmniflowActionHandler(),
+        VlmActExecutor(),
         SystemToolHandler(helper, scheduleToolBridge, workspaceManager),
         MemoryToolHandler(helper),
         MemoryLoadToolHandler(helper),

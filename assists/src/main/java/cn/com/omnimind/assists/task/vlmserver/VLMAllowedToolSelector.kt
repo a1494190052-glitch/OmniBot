@@ -1,22 +1,22 @@
 package cn.com.omnimind.assists.task.vlmserver
 
-import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 
 object VLMAllowedToolSelector {
     private val ALL_TOOL_NAMES = linkedSetOf(
-        OobCanonicalActionSchema.TOOL_CLICK,
-        OobCanonicalActionSchema.TOOL_LONG_PRESS,
-        OobCanonicalActionSchema.TOOL_INPUT_TEXT,
-        OobCanonicalActionSchema.TOOL_SWIPE,
-        OobCanonicalActionSchema.TOOL_OPEN_APP,
-        OobCanonicalActionSchema.TOOL_PRESS_KEY,
-        OobCanonicalActionSchema.TOOL_WAIT,
-        OobCanonicalActionSchema.TOOL_FINISHED,
-        OobCanonicalActionSchema.TOOL_INFO,
-        OobCanonicalActionSchema.TOOL_FEEDBACK,
-        OobCanonicalActionSchema.TOOL_ABORT,
-        OobCanonicalActionSchema.TOOL_REQUIRE_USER_CHOICE,
-        OobCanonicalActionSchema.TOOL_REQUIRE_USER_CONFIRMATION,
+        OobActionSchema.TOOL_CLICK,
+        OobActionSchema.TOOL_LONG_PRESS,
+        OobActionSchema.TOOL_INPUT_TEXT,
+        OobActionSchema.TOOL_SWIPE,
+        OobActionSchema.TOOL_OPEN_APP,
+        OobActionSchema.TOOL_PRESS_KEY,
+        OobActionSchema.TOOL_WAIT,
+        OobActionSchema.TOOL_FINISHED,
+        OobActionSchema.TOOL_INFO,
+        OobActionSchema.TOOL_FEEDBACK,
+        OobActionSchema.TOOL_ABORT,
+        OobActionSchema.TOOL_REQUIRE_USER_CHOICE,
+        OobActionSchema.TOOL_REQUIRE_USER_CONFIRMATION,
     )
 
     fun select(context: UIContext): Set<String> {

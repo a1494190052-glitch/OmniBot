@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ui';
 
 import 'package:ui/features/home/pages/chat/utils/agent_run_timeline.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/terminal_output_utils.dart';
@@ -239,7 +240,7 @@ class _CompletedAgentToolRun {
   final List<ChatMessageModel> messages;
 }
 
-String resolveAgentToolTitle(Map<String, dynamic> cardData) {
+String resolveAgentToolTitle(Map<String, dynamic> cardData, {Locale? locale}) {
   final explicit = (cardData[kAgentToolTitleField] ?? '').toString().trim();
   if (explicit.isNotEmpty) {
     return LegacyTextLocalizer.localize(explicit);
@@ -320,7 +321,7 @@ String resolveAgentToolPreview(Map<String, dynamic> cardData) {
   return resolveAgentToolStatusLabel(cardData);
 }
 
-String resolveAgentToolStatusLabel(Map<String, dynamic> cardData) {
+String resolveAgentToolStatusLabel(Map<String, dynamic> cardData, {Locale? locale}) {
   final explicitStatusLabel = (cardData['statusLabel'] ?? '').toString().trim();
   if (explicitStatusLabel.isNotEmpty) {
     return LegacyTextLocalizer.localize(explicitStatusLabel);
@@ -350,7 +351,7 @@ String resolveAgentToolStatusLabel(Map<String, dynamic> cardData) {
   }
 }
 
-String resolveAgentToolTypeLabel(Map<String, dynamic> cardData) {
+String resolveAgentToolTypeLabel(Map<String, dynamic> cardData, {Locale? locale}) {
   final explicitTypeLabel = (cardData['toolTypeLabel'] ?? '').toString().trim();
   if (explicitTypeLabel.isNotEmpty) {
     return LegacyTextLocalizer.localize(explicitTypeLabel);

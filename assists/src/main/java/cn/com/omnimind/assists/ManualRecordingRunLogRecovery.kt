@@ -1,7 +1,7 @@
 package cn.com.omnimind.assists
 
 import cn.com.omnimind.baselib.runlog.InternalRunLogRecord
-import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 
 data class ManualRecordingRunLogRecoveryDecision(
     val success: Boolean,
@@ -18,12 +18,12 @@ object ManualRecordingRunLogRecovery {
     const val EMPTY_RECORDING_ERROR = "未记录到可复用的人类操作"
 
     private val replayableManualActions = setOf(
-        OobCanonicalActionSchema.TOOL_CLICK,
-        OobCanonicalActionSchema.TOOL_LONG_PRESS,
-        OobCanonicalActionSchema.TOOL_SWIPE,
+        OobActionSchema.TOOL_CLICK,
+        OobActionSchema.TOOL_LONG_PRESS,
+        OobActionSchema.TOOL_SWIPE,
         "scroll",
-        OobCanonicalActionSchema.TOOL_INPUT_TEXT,
-        OobCanonicalActionSchema.TOOL_PRESS_KEY
+        OobActionSchema.TOOL_INPUT_TEXT,
+        OobActionSchema.TOOL_PRESS_KEY
     )
 
     fun decisionFor(record: InternalRunLogRecord): ManualRecordingRunLogRecoveryDecision? {

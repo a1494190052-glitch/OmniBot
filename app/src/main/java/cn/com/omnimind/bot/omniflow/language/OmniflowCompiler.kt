@@ -1,10 +1,11 @@
 package cn.com.omnimind.bot.omniflow.language
+import cn.com.omnimind.bot.runlog.argsForStep
+import cn.com.omnimind.bot.runlog.actionNameForStep
 
-import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
-import cn.com.omnimind.bot.runlog.OobActionCodec
-import cn.com.omnimind.bot.runlog.OobActionCodec.firstNonBlank
-import cn.com.omnimind.bot.runlog.OobActionCodec.mapArg
-import cn.com.omnimind.bot.runlog.OobActionCodec.listArg
+import cn.com.omnimind.baselib.runlog.OobActionSchema
+import cn.com.omnimind.bot.runlog.firstNonBlank
+import cn.com.omnimind.bot.runlog.mapArg
+import cn.com.omnimind.bot.runlog.listArg
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import cn.com.omnimind.bot.runlog.RunLogReplayStepCompiler
 
@@ -120,8 +121,8 @@ object OmniflowCompiler {
         val params = mutableListOf<FunctionParameter>()
         val usedIds = mutableSetOf<String>()
         steps.forEachIndexed { index, step ->
-            val tool = OobActionCodec.actionNameForStep(step)
-            val args = OobActionCodec.argsForStep(step)
+            val tool = actionNameForStep(step)
+            val args = argsForStep(step)
             val candidate = when {
                 tool in INPUT_TEXT_ACTIONS -> {
                     val inputKey = INPUT_TEXT_ARG_KEYS.firstOrNull { k ->
@@ -136,7 +137,7 @@ object OmniflowCompiler {
                         descriptionPrefix = "Text",
                     )
                 }
-                tool == OobActionCodec.ACTION_CLICK -> {
+                tool == OobActionSchema.TOOL_CLICK -> {
                     val defaultValue = args[CLICK_TARGET_ARG]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
                         ?: return@forEachIndexed
                     ParameterCandidate(
@@ -153,7 +154,7 @@ object OmniflowCompiler {
             usedIds += id
             params += FunctionParameter(
                 id = id,
-                type = OobCanonicalActionSchema.Type.STRING,
+                type = OobActionSchema.Type.STRING,
                 required = false,
                 default = candidate.defaultValue,
                 description = "${candidate.descriptionPrefix} for step ${index + 1}: ${step["title"] ?: tool}",
@@ -283,7 +284,7 @@ object OmniflowCompiler {
     // -----------------------------------------------------------------------
 
     private val INPUT_TEXT_ACTIONS = setOf(
-        OobActionCodec.ACTION_INPUT_TEXT,
+        OobActionSchema.TOOL_INPUT_TEXT,
         "input_text",
         "type_text",
     )

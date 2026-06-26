@@ -21,8 +21,8 @@ object OobStepRoleClassifier {
         step: Map<String, Any?>,
         stepIndex: Int,
         originalSpec: Map<String, Any?> = emptyMap(),
-        actionType: String = OobActionCodec.actionNameForStep(step),
-        actionSummary: Map<String, Any?> = OobActionCodec.actionArgsSummary(step),
+        actionType: String = actionNameForStep(step),
+        actionSummary: Map<String, Any?> = actionArgsSummary(step),
     ): Classification {
         explicitRole(listOf(functionSpec, originalSpec), step, stepIndex)?.let {
             return Classification(it, explicit = true)
@@ -36,13 +36,13 @@ object OobStepRoleClassifier {
         stepIndex: Int,
     ): String? {
         listOf(
-            OobActionCodec.mapArg(step["raw_action_edge"]),
-            OobActionCodec.mapArg(step["udeg_edge"]),
-            OobActionCodec.mapArg(step["cleanup_annotation"]),
-            OobActionCodec.mapArg(OobActionCodec.mapArg(step["metadata"])["raw_action_edge"]),
+            mapArg(step["raw_action_edge"]),
+            mapArg(step["udeg_edge"]),
+            mapArg(step["cleanup_annotation"]),
+            mapArg(mapArg(step["metadata"])["raw_action_edge"]),
         ).forEach { annotation ->
             normalizeRole(
-                OobActionCodec.firstNonBlank(
+                firstNonBlank(
                     annotation["role"],
                     annotation["raw_edge_role"],
                     annotation["udeg_edge_role"],
@@ -57,19 +57,19 @@ object OobStepRoleClassifier {
         }
 
         for (spec in specs) {
-            val agentReuse = OobActionCodec.mapArg(spec["agent_reuse"])
-            val keyActions = OobActionCodec.listArg(agentReuse["key_actions"]) +
-                OobActionCodec.listArg(agentReuse["keyActions"])
+            val agentReuse = mapArg(spec["agent_reuse"])
+            val keyActions = listArg(agentReuse["key_actions"]) +
+                listArg(agentReuse["keyActions"])
             if (keyActions.any { matchesStepReference(it, step, stepIndex) }) {
                 return ROLE_UNKNOWN
             }
-            val checkerAssets = OobActionCodec.listArg(agentReuse["checker_assets"]) +
-                OobActionCodec.listArg(agentReuse["checkerAssets"])
+            val checkerAssets = listArg(agentReuse["checker_assets"]) +
+                listArg(agentReuse["checkerAssets"])
             if (checkerAssets.any { matchesStepReference(it, step, stepIndex) }) {
                 return ROLE_CHECKER_CANDIDATE
             }
-            val noiseActions = OobActionCodec.listArg(agentReuse["noise_actions"]) +
-                OobActionCodec.listArg(agentReuse["noiseActions"])
+            val noiseActions = listArg(agentReuse["noise_actions"]) +
+                listArg(agentReuse["noiseActions"])
             if (noiseActions.any { matchesStepReference(it, step, stepIndex) }) {
                 return ROLE_NOISE
             }
@@ -120,14 +120,14 @@ object OobStepRoleClassifier {
             is String -> {
                 val value = rawReference.trim()
                 return value == stepIndex.toString() ||
-                    value == OobActionCodec.firstNonBlank(step["id"], step["step_id"], step["stepId"])
+                    value == firstNonBlank(step["id"], step["step_id"], step["stepId"])
             }
         }
-        val reference = OobActionCodec.mapArg(rawReference)
+        val reference = mapArg(rawReference)
         if (reference.isEmpty()) return false
-        val index = OobActionCodec.intArg(reference["step_index"], reference["stepIndex"], reference["index"], defaultValue = -1)
+        val index = intArg(reference["step_index"], reference["stepIndex"], reference["index"], defaultValue = -1)
         if (index == stepIndex) return true
-        val stepId = OobActionCodec.firstNonBlank(reference["step_id"], reference["stepId"], reference["id"])
-        return stepId.isNotBlank() && stepId == OobActionCodec.firstNonBlank(step["id"], step["step_id"], step["stepId"])
+        val stepId = firstNonBlank(reference["step_id"], reference["stepId"], reference["id"])
+        return stepId.isNotBlank() && stepId == firstNonBlank(step["id"], step["step_id"], step["stepId"])
     }
 }

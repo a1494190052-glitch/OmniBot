@@ -126,6 +126,8 @@ interface OmniflowActionBackend {
     fun currentPackageName(): String?
 
     fun currentActivityName(): String?
+
+    suspend fun captureScreenshotBase64(): String? = null
 }
 
 object OmniflowActionRuntime {
@@ -615,6 +617,12 @@ private object AccessibilityOmniflowActionBackend : OmniflowActionBackend {
         } else {
             null
         }
+
+    override suspend fun captureScreenshotBase64(): String? =
+        runCatching {
+            AccessibilityController.captureScreenshotImage(isBase64 = true)
+                .imageBase64?.takeIf { it.isNotBlank() }
+        }.getOrNull()
 
     private suspend fun launchApplicationByForegroundIntent(
         packageName: String,

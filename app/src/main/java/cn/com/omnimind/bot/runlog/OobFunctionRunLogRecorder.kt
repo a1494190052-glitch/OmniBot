@@ -17,7 +17,7 @@ object OobFunctionRunLogRecorder {
         functionSpec: Map<String, Any?> = emptyMap(),
         runPayload: Map<String, Any?>,
     ): Map<String, Any?> {
-        val runId = OobActionCodec.firstNonBlank(
+        val runId = firstNonBlank(
             runPayload["run_id"],
             runPayload["runId"],
             runPayload["audit_run_id"],
@@ -32,8 +32,8 @@ object OobFunctionRunLogRecorder {
         }
 
         return runCatching {
-            val timing = OobActionCodec.mapArg(runPayload["timing"])
-            val startedAtMs = OobActionCodec.longArg(
+            val timing = mapArg(runPayload["timing"])
+            val startedAtMs = longArg(
                 runPayload["started_at_ms"],
                 runPayload["startedAtMs"],
                 timing["started_at_ms"],
@@ -41,7 +41,7 @@ object OobFunctionRunLogRecorder {
                 timing["runner_started_at_ms"],
                 defaultValue = 0L,
             )
-            val finishedAtMs = OobActionCodec.longArg(
+            val finishedAtMs = longArg(
                 runPayload["finished_at_ms"],
                 runPayload["finishedAtMs"],
                 timing["finished_at_ms"],
@@ -49,9 +49,9 @@ object OobFunctionRunLogRecorder {
                 timing["runner_finished_at_ms"],
                 defaultValue = 0L,
             )
-            val stepResults = OobActionCodec.listArg(runPayload["step_results"])
+            val stepResults = listArg(runPayload["step_results"])
             val cards = stepResults.mapIndexedNotNull { index, raw ->
-                val step = OobActionCodec.mapArg(raw)
+                val step = mapArg(raw)
                 if (step.isEmpty()) null else cardFromStep(
                     runId = runId,
                     functionId = functionId,
@@ -61,21 +61,21 @@ object OobFunctionRunLogRecorder {
             }
             val success = boolValue(runPayload["success"])
                 ?: cards.none { boolValue(it["success"]) == false }
-            val errorMessage = OobActionCodec.firstNonBlank(
+            val errorMessage = firstNonBlank(
                 runPayload["error_message"],
                 runPayload["errorMessage"],
             )
-            val functionName = OobActionCodec.firstNonBlank(
+            val functionName = firstNonBlank(
                 functionSpec["name"],
                 runPayload["name"],
                 functionId,
             )
-            val description = OobActionCodec.firstNonBlank(
+            val description = firstNonBlank(
                 runPayload["description"],
                 functionSpec["description"],
                 functionName,
             )
-            val runner = OobActionCodec.firstNonBlank(
+            val runner = firstNonBlank(
                 runPayload["runner"],
                 "oob_function",
             )
@@ -105,22 +105,22 @@ object OobFunctionRunLogRecorder {
                         "function_id" to functionId,
                         "function_name" to functionName,
                         "runner" to runner,
-                        "step_count" to OobActionCodec.intArg(
+                        "step_count" to intArg(
                             runPayload["step_count"],
                             runPayload["stepCount"],
                             defaultValue = cards.size,
                         ),
-                        "success_step_count" to OobActionCodec.intArg(
+                        "success_step_count" to intArg(
                             runPayload["success_step_count"],
                             runPayload["successStepCount"],
                             defaultValue = cards.count { boolValue(it["success"]) != false },
                         ),
-                        "completed_step_count" to OobActionCodec.intArg(
+                        "completed_step_count" to intArg(
                             runPayload["completed_step_count"],
                             runPayload["completedStepCount"],
                             defaultValue = cards.size,
                         ),
-                        "audit_run_id" to OobActionCodec.firstNonBlank(
+                        "audit_run_id" to firstNonBlank(
                             runPayload["audit_run_id"],
                             runPayload["auditRunId"],
                             runId,
@@ -160,20 +160,20 @@ object OobFunctionRunLogRecorder {
         step: Map<String, Any?>,
         fallbackIndex: Int,
     ): Map<String, Any?> {
-        val stepId = OobActionCodec.firstNonBlank(
+        val stepId = firstNonBlank(
             step["step_id"],
             step["stepId"],
             step["id"],
             "step_${fallbackIndex + 1}",
         )
-        val cardId = OobActionCodec.firstNonBlank(
+        val cardId = firstNonBlank(
             step["card_id"],
             step["cardId"],
             step["tool_call_id"],
             step["toolCallId"],
             "${runId}_$stepId",
         )
-        val toolName = OobActionCodec.firstNonBlank(
+        val toolName = firstNonBlank(
             step["tool_name"],
             step["toolName"],
             step["tool"],
@@ -181,30 +181,30 @@ object OobFunctionRunLogRecorder {
             step["actionType"],
             step["executor"],
         )
-        val title = OobActionCodec.firstNonBlank(
+        val title = firstNonBlank(
             step["title"],
             step["summary"],
             step["description"],
             step["error_message"],
             toolName,
         )
-        val stepIndex = OobActionCodec.intArg(
+        val stepIndex = intArg(
             step["step_index"],
             step["stepIndex"],
             step["index"],
             defaultValue = fallbackIndex,
         )
-        val startedAtMs = OobActionCodec.longArg(
+        val startedAtMs = longArg(
             step["started_at_ms"],
             step["startedAtMs"],
             defaultValue = 0L,
         )
-        val finishedAtMs = OobActionCodec.longArg(
+        val finishedAtMs = longArg(
             step["finished_at_ms"],
             step["finishedAtMs"],
             defaultValue = 0L,
         )
-        val durationMs = OobActionCodec.longArg(
+        val durationMs = longArg(
             step["duration_ms"],
             step["durationMs"],
             step["elapsed_ms"],
@@ -213,8 +213,8 @@ object OobFunctionRunLogRecorder {
         ).takeIf { it > 0L }
             ?: (finishedAtMs - startedAtMs).takeIf { startedAtMs > 0L && finishedAtMs >= startedAtMs }
         val success = boolValue(step["success"]) ?: true
-        val executor = OobActionCodec.firstNonBlank(step["executor"])
-        val recallKind = OobActionCodec.firstNonBlank(
+        val executor = firstNonBlank(step["executor"])
+        val recallKind = firstNonBlank(
             step["recall_kind"],
             step["recallKind"],
             step["compile_kind"],
@@ -239,7 +239,7 @@ object OobFunctionRunLogRecorder {
         return linkedMapOf<String, Any?>().apply {
             putAll(step)
             put("card_id", cardId)
-            put("tool_call_id", OobActionCodec.firstNonBlank(step["tool_call_id"], step["toolCallId"], cardId))
+            put("tool_call_id", firstNonBlank(step["tool_call_id"], step["toolCallId"], cardId))
             put("step_id", stepId)
             put("step_index", stepIndex)
             put("function_id", functionId)

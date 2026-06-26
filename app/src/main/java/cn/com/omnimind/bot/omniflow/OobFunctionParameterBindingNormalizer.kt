@@ -1,7 +1,9 @@
 package cn.com.omnimind.bot.omniflow
+import cn.com.omnimind.bot.runlog.argsForStep
+import cn.com.omnimind.bot.runlog.actionNameForStep
+import cn.com.omnimind.bot.runlog.resolveActionName
 
-import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
-import cn.com.omnimind.bot.runlog.OobActionCodec
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
 
 /**
@@ -180,7 +182,7 @@ object OobFunctionParameterBindingNormalizer {
         stepIndex: Int,
     ): List<String> {
         val step = steps.getOrNull(stepIndex) ?: return emptyList()
-        if (OobActionCodec.actionNameForStep(step) != OobActionCodec.ACTION_INPUT_TEXT) {
+        if (actionNameForStep(step) != OobActionSchema.TOOL_INPUT_TEXT) {
             return emptyList()
         }
         val output = linkedSetOf<String>()
@@ -203,7 +205,7 @@ object OobFunctionParameterBindingNormalizer {
             collectStepArgBindings(
                 output = output,
                 stepIndex = index,
-                value = OobActionCodec.argsForStep(step),
+                value = argsForStep(step),
                 path = emptyList(),
                 allowedLeafNames = allowedLeafNames,
             )
@@ -312,7 +314,7 @@ object OobFunctionParameterBindingNormalizer {
         val action = OobFunctionJson.mapArg(actions.getOrNull(stepIndex))
         if (action.isEmpty()) return emptyList()
         val actionType = OobFunctionJson.firstNonBlank(action["tool"])
-        if (OobActionCodec.canonicalActionForName(actionType) != OobActionCodec.ACTION_INPUT_TEXT) {
+        if (resolveActionName(actionType) != OobActionSchema.TOOL_INPUT_TEXT) {
             return emptyList()
         }
         val output = linkedSetOf<String>()
@@ -333,7 +335,7 @@ object OobFunctionParameterBindingNormalizer {
             ?.toIntOrNull()
         if (explicitStepNumber != null) return explicitStepNumber.minus(1).takeIf { it >= 0 }
         return steps.indexOfFirst {
-            OobActionCodec.actionNameForStep(it) == OobActionCodec.ACTION_INPUT_TEXT
+            actionNameForStep(it) == OobActionSchema.TOOL_INPUT_TEXT
         }.takeIf { it >= 0 }
     }
 
@@ -361,8 +363,8 @@ object OobFunctionParameterBindingNormalizer {
 
     private val INPUT_TEXT_NAME_REGEX = Regex("""input[_-]?text(?:[_-]?(\d+))?""", RegexOption.IGNORE_CASE)
     private val INPUT_TEXT_ARG_KEYS =
-        OobCanonicalActionSchema.argNames(OobActionCodec.ACTION_INPUT_TEXT)
-            .filter { it == OobCanonicalActionSchema.ARG_TEXT }
+        OobActionSchema.argNames(OobActionSchema.TOOL_INPUT_TEXT)
+            .filter { it == OobActionSchema.ARG_TEXT }
     private val BINDING_PATH_PART_REGEX = Regex("""^([A-Za-z0-9_]+)(?:\[(\d+)])?$""")
     private val CANONICAL_EXECUTION_BINDING_REGEX =
         Regex("""^\$\.execution\.steps\[\d+]\.args\.[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+|\[\d+])*$""")

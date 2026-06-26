@@ -216,7 +216,7 @@ object McpRoutes {
             "task_wait_unlock" -> McpToolExecutors.executeTaskWaitUnlock(context, args, serverScope)
             "get_state" -> McpToolExecutors.executeGetState(context, args)
             "act" -> McpToolExecutors.executeAct(context, args)
-            "primitive_action_log" -> McpToolExecutors.executePrimitiveActionLog(context, args)
+            "local_action_log" -> McpToolExecutors.executeLocalActionLog(context, args)
             "file_transfer" -> McpToolExecutors.executeFileTransfer(args)
             "agent_run" -> McpToolExecutors.executeAgentRun(context, args)
             else -> {

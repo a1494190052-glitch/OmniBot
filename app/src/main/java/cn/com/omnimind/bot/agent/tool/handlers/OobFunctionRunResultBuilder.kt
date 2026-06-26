@@ -2,10 +2,9 @@ package cn.com.omnimind.bot.agent.tool.handlers
 
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.listArg
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
-import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 
 /**
- * Builds replay run and step result payloads. The handler owns execution order;
+ * Builds Function run and step result payloads. The handler owns execution order;
  * this builder owns the stable result schema exposed to tools, RunLogs, and UI.
  */
 class OobFunctionRunResultBuilder {
@@ -67,9 +66,9 @@ class OobFunctionRunResultBuilder {
             "audit_run_id" to auditRunId,
             "function_id" to (spec["function_id"] ?: functionId),
             "description" to spec["description"]?.toString().orEmpty(),
-            "source" to "omniflow_replay",
-            "run_source" to "omniflow_replay",
-            "runner" to RunLogReplayPolicy.fixedReplayRunner,
+            "source" to OobFunctionToolHandler.FUNCTION_RUN_SOURCE,
+            "run_source" to OobFunctionToolHandler.FUNCTION_RUN_SOURCE,
+            "runner" to OobFunctionToolHandler.FUNCTION_DIRECT_RUNNER,
             "step_count" to stepCountFromSpec(spec),
             "success_step_count" to 0,
             "model_used" to false,
@@ -126,14 +125,14 @@ class OobFunctionRunResultBuilder {
             "audit_run_id" to auditRunId,
             "function_id" to (spec["function_id"] ?: functionId),
             "description" to spec["description"]?.toString().orEmpty(),
-            "source" to "omniflow_replay",
-            "run_source" to "omniflow_replay",
+            "source" to OobFunctionToolHandler.FUNCTION_RUN_SOURCE,
+            "run_source" to OobFunctionToolHandler.FUNCTION_RUN_SOURCE,
             "runner" to when {
                 runtimeResolveRequired -> "oob_function_runtime_resolve_required"
                 delegatedToolUsed -> "oob_function_mixed_runner"
-                else -> RunLogReplayPolicy.fixedReplayRunner
+                else -> OobFunctionToolHandler.FUNCTION_DIRECT_RUNNER
             },
-            "replay_mode" to if (RunLogReplayPolicy.fixedReplayOnly) "fixed_replay" else "omniflow_loop",
+            "replay_mode" to "function_direct_run",
             "step_count" to steps.size,
             "active_step_count" to activeSteps.size,
             "success_step_count" to successCount,

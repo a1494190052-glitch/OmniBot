@@ -411,8 +411,8 @@ internal object OmniflowNodeMatcher {
             .toMutableList()
             .also { it += MIN_MATCH_SUPPORT * MATCH_PROBABILITY_SCALE }
         val probs = softmax(allLogits)
-        val best = scoredCandidates.minWithOrNull(
-            compareByDescending<CandidateScore> { it.matchScore }.thenBy { it.index }
+        val best = scoredCandidates.maxWithOrNull(
+            compareBy<CandidateScore> { it.matchScore }.thenByDescending { it.index }
         )
         val bestIdx = best?.index ?: -1
         val bestScore = best?.matchScore ?: 0f
@@ -426,7 +426,7 @@ internal object OmniflowNodeMatcher {
         val abstain = bestIdx < 0 || gate["decision"] != "execute"
 
         return MatchResult(
-            index = if (abstain) -1 else bestIdx,
+            index = bestIdx,
             abstain = abstain,
             pBest = pBest, pNull = pNull,
             confidence = entropyConfidence(probs),

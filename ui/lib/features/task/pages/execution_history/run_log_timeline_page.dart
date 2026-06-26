@@ -698,25 +698,25 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
             )
           : const <String, dynamic>{};
 
-      final started =
-          await AssistsMessageService.runOobReusableFunctionWithAgent(
-            taskId: 'oob-function-run-${DateTime.now().millisecondsSinceEpoch}',
-            functionId: functionId,
-            arguments: _defaultArgumentsForFunctionSpec(spec),
-          );
+      final arguments = _defaultArgumentsForFunctionSpec(spec);
+      final result = await AssistsMessageService.runOobReusableFunction(
+        functionId: functionId,
+        arguments: arguments,
+        taskId: 'oob-function-run-${DateTime.now().millisecondsSinceEpoch}',
+      );
       if (!mounted) return;
       setState(() {
         _isReplayingRunLog = false;
       });
       showToast(
-        started
-            ? _text(
-                context,
-                '复用指令已交给 Agent 执行',
-                'Reusable command is running in Agent',
-              )
-            : _text(context, '复用指令执行启动失败', 'Failed to start reusable command'),
-        type: started ? ToastType.success : ToastType.error,
+        functionRunResultToastMessage(context, result),
+        type: functionRunResultToastType(result),
+      );
+      await showFunctionRunResultSheet(
+        context,
+        result: result,
+        title: _text(context, '复用指令执行结果', 'Reusable command result'),
+        arguments: arguments,
       );
     } catch (e) {
       if (!mounted) return;
@@ -2272,7 +2272,7 @@ class RunLogStyleFunctionStepList extends StatelessWidget {
     return _CollapsibleSection(
       title:
           title ??
-          '${_text(context, '执行步骤', 'Step results')} · ${steps.length}',
+          '${_text(context, '动作步骤', 'Action steps')} · ${steps.length}',
       copyValue: copyValue ?? _prettyUserJson(steps),
       initiallyExpanded: initiallyExpanded,
       child: Column(
@@ -3302,7 +3302,11 @@ class _ReusableFunctionSpecSheetState
                               children: [
                                 Expanded(
                                   child: _ReusableFunctionSectionTitle(
-                                    text: _text(context, '执行步骤', 'Steps'),
+                                    text: _text(
+                                      context,
+                                      '动作步骤',
+                                      'Action steps',
+                                    ),
                                   ),
                                 ),
                                 Tooltip(
@@ -3329,7 +3333,7 @@ class _ReusableFunctionSpecSheetState
                             else
                               RunLogStyleFunctionStepList(
                                 title:
-                                    '${_text(context, '执行步骤', 'Step results')} · ${detail.steps.length}',
+                                    '${_text(context, '动作步骤', 'Action steps')} · ${detail.steps.length}',
                                 steps: detail.steps
                                     .map((step) => step.raw)
                                     .toList(growable: false),
@@ -3884,28 +3888,27 @@ class _ReusableFunctionSpecSheetState
       _apiError = null;
     });
     try {
-      final started =
-          await AssistsMessageService.runOobReusableFunctionWithAgent(
-            taskId: 'oob-function-run-${DateTime.now().millisecondsSinceEpoch}',
-            functionId: functionId,
-            arguments: _defaultArguments,
-          );
+      final result = await AssistsMessageService.runOobReusableFunction(
+        functionId: functionId,
+        arguments: _defaultArguments,
+        taskId: 'oob-function-run-${DateTime.now().millisecondsSinceEpoch}',
+      );
       if (!mounted) return;
       setState(() {
         _isExecuting = false;
-        _apiError = started
+        _apiError = result.success
             ? null
-            : _text(context, '复用指令执行启动失败', 'Failed to start reusable command');
+            : functionRunResultToastMessage(context, result);
       });
       showToast(
-        started
-            ? _text(
-                context,
-                '复用指令已交给 Agent 执行',
-                'Reusable command is running in Agent',
-              )
-            : _apiError!,
-        type: started ? ToastType.success : ToastType.error,
+        functionRunResultToastMessage(context, result),
+        type: functionRunResultToastType(result),
+      );
+      await showFunctionRunResultSheet(
+        context,
+        result: result,
+        title: _text(context, '复用指令执行结果', 'Reusable command result'),
+        arguments: _defaultArguments,
       );
     } catch (e) {
       if (!mounted) return;

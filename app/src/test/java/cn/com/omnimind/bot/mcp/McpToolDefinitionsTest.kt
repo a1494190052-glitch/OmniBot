@@ -74,13 +74,17 @@ class McpToolDefinitionsTest {
     )
 
     @Test
-    fun exploreReplayToolExposesNativeExplorerControls() {
+    fun exploreReplayToolConvertsThenExecutesFunction() {
         val tool = McpToolDefinitions.fixedTools.single {
             it["name"] == "omniflow.explore_replay"
         }
         val schema = tool["inputSchema"] as Map<*, *>
         val properties = schema["properties"] as Map<*, *>
+        val description = tool["description"]?.toString().orEmpty()
 
+        assertTrue(description.contains("convert"))
+        assertTrue(description.contains("Function"))
+        assertTrue(description.contains("never replays a raw run_id directly"))
         assertTrue(properties.containsKey("goal"))
         assertTrue(properties.containsKey("package_name"))
         assertTrue(properties.containsKey("max_steps"))

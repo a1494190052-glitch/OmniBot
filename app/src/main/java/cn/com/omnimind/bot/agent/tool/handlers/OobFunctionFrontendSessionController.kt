@@ -298,7 +298,7 @@ class OobFunctionFrontendSessionController(
                     "currentStepIndex" to currentStepIndex,
                     "current_step_number" to currentStepNumber,
                     "currentStepNumber" to currentStepNumber,
-                    "parent" to if (embeddedInVlmTask) "vlm_task" else "oob_direct_replay",
+                    "parent" to if (embeddedInVlmTask) "vlm_task" else "oob_function_direct_run",
                     "embedded_in_vlm_task" to embeddedInVlmTask,
                     "timestamp_ms" to System.currentTimeMillis(),
                 ).filterValues { it != null }

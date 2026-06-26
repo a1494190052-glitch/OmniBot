@@ -1,4 +1,6 @@
 package cn.com.omnimind.bot.mcp
+import cn.com.omnimind.bot.runlog.resolveActionName
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 
 import android.content.Context
 import android.hardware.display.DisplayManager
@@ -7,13 +9,12 @@ import android.view.Display
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.assists.task.vlmserver.VLMIndexedPageContext
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
-import cn.com.omnimind.baselib.runlog.OobPrimitiveActionLedger
+import cn.com.omnimind.baselib.runlog.OobLocalActionLedger
 import cn.com.omnimind.baselib.util.ImageQuality
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
-import cn.com.omnimind.bot.agent.tool.handlers.OmniflowActionHandler
-import cn.com.omnimind.bot.runlog.OobActionCodec
+import cn.com.omnimind.bot.agent.tool.handlers.VlmActExecutor
 import cn.com.omnimind.bot.vlm.VlmToolCoordinator
 import cn.com.omnimind.bot.vlm.VlmToolOutcome
 import cn.com.omnimind.bot.vlm.VlmToolOutcomeStatus
@@ -316,8 +317,8 @@ object McpToolExecutors {
         val startedAtMs = System.currentTimeMillis()
         val settleDelayMs = (longArg(request, "settle_delay_ms", "settleDelayMs") ?: 1_000L)
             .coerceIn(0L, 10_000L)
-        OobPrimitiveActionLedger.bind(context)
-        OmniflowActionHandler(primitiveSource = "mcp_act").dispatch(
+        OobLocalActionLedger.bind(context)
+        VlmActExecutor(actionSource = "mcp_act").dispatch(
             action = normalized.tool,
             args = normalized.args,
             diagnostics = mapOf("source_action_type" to normalized.sourceActionType),
@@ -349,17 +350,17 @@ object McpToolExecutors {
         ).filterValues { it != null }
     }
 
-    suspend fun executePrimitiveActionLog(
+    suspend fun executeLocalActionLog(
         context: Context,
         args: Map<String, Any?>?,
     ): Map<String, Any?> = withContext(Dispatchers.IO) {
         val limit = (intArg(args, "limit") ?: 100).coerceIn(1, 500)
-        OobPrimitiveActionLedger.bind(context)
-        val records = OobPrimitiveActionLedger.readRecentRecords(context, limit)
-        val recordFile = OobPrimitiveActionLedger.recordFile(context)
+        OobLocalActionLedger.bind(context)
+        val records = OobLocalActionLedger.readRecentRecords(context, limit)
+        val recordFile = OobLocalActionLedger.recordFile(context)
         linkedMapOf<String, Any?>(
             "success" to true,
-            "schema_version" to OobPrimitiveActionLedger.SCHEMA_VERSION,
+            "schema_version" to OobLocalActionLedger.SCHEMA_VERSION,
             "source" to "oob_accessibility_runtime",
             "limit" to limit,
             "count" to records.size,
@@ -641,18 +642,18 @@ object McpToolExecutors {
             throw IllegalArgumentException("act requires action.tool or action_type")
         }
         val tool = when (rawType) {
-            "click", "tap", "double_tap" -> OobActionCodec.ACTION_CLICK
-            "long_press", "long-click", "long_click", "longpress" -> OobActionCodec.ACTION_LONG_PRESS
-            "input_text", "type", "text" -> OobActionCodec.ACTION_INPUT_TEXT
-            "scroll", "swipe" -> OobActionCodec.ACTION_SWIPE
-            "open_app" -> OobActionCodec.ACTION_OPEN_APP
-            "navigate_back", "press_back" -> OobActionCodec.ACTION_PRESS_KEY
-            "navigate_home", "press_home" -> OobActionCodec.ACTION_PRESS_KEY
-            "keyboard_enter", "press_enter" -> OobActionCodec.ACTION_PRESS_KEY
-            "press_key" -> OobActionCodec.ACTION_PRESS_KEY
-            "status", "answer", "finished", "finish" -> OobActionCodec.ACTION_FINISHED
-            "wait" -> OobActionCodec.ACTION_WAIT
-            else -> OobActionCodec.canonicalActionForName(rawType)
+            "click", "tap", "double_tap" -> OobActionSchema.TOOL_CLICK
+            "long_press", "long-click", "long_click", "longpress" -> OobActionSchema.TOOL_LONG_PRESS
+            "input_text", "type", "text" -> OobActionSchema.TOOL_INPUT_TEXT
+            "scroll", "swipe" -> OobActionSchema.TOOL_SWIPE
+            "open_app" -> OobActionSchema.TOOL_OPEN_APP
+            "navigate_back", "press_back" -> OobActionSchema.TOOL_PRESS_KEY
+            "navigate_home", "press_home" -> OobActionSchema.TOOL_PRESS_KEY
+            "keyboard_enter", "press_enter" -> OobActionSchema.TOOL_PRESS_KEY
+            "press_key" -> OobActionSchema.TOOL_PRESS_KEY
+            "status", "answer", "finished", "finish" -> OobActionSchema.TOOL_FINISHED
+            "wait" -> OobActionSchema.TOOL_WAIT
+            else -> resolveActionName(rawType)
                 ?: throw IllegalArgumentException("Unsupported act action_type: $rawType")
         }
 
@@ -671,13 +672,13 @@ object McpToolExecutors {
             "navigate_home", "press_home" -> args["key"] = "home"
             "keyboard_enter", "press_enter" -> args["key"] = "enter"
         }
-        if (tool == OobActionCodec.ACTION_OPEN_APP && !args.containsKey("package_name")) {
+        if (tool == OobActionSchema.TOOL_OPEN_APP && !args.containsKey("package_name")) {
             args["package_name"] = firstNonBlank(args["app_name"], actionPayload["app_name"], request["app_name"])
         }
-        if (tool == OobActionCodec.ACTION_FINISHED && !args.containsKey("content")) {
+        if (tool == OobActionSchema.TOOL_FINISHED && !args.containsKey("content")) {
             args["content"] = firstNonBlank(args["goal_status"], args["text"], actionPayload["goal_status"])
         }
-        if (tool == OobActionCodec.ACTION_SWIPE && rawType == "scroll") {
+        if (tool == OobActionSchema.TOOL_SWIPE && rawType == "scroll") {
             fillDefaultScrollArgs(context, args)
         }
         decodeRelativeCoordinatesIfRequested(context, request, actionPayload, args)

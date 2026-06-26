@@ -1,4 +1,5 @@
 package cn.com.omnimind.bot.runlog
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 
 /**
  * A single checker rule evaluated by UIStepExecutor before each step.
@@ -52,7 +53,7 @@ data class OmniflowCheckerRule(
 
         // ── Actions ─────────────────────────────────────────────────────────
         /** Launch the expected app (params: package_name overrides step inference). */
-        const val ACTION_OPEN_APP = OobActionCodec.ACTION_OPEN_APP
+        const val ACTION_OPEN_APP = OobActionSchema.TOOL_OPEN_APP
         /** Dismiss the blocking overlay by clicking its best dismiss candidate. */
         const val ACTION_DISMISS = "dismiss"
         /** Hide the soft keyboard. */
@@ -174,7 +175,7 @@ data class OmniflowCheckerRule(
         fun fromMap(map: Map<*, *>): OmniflowCheckerRule? {
             val id = map["id"]?.toString()?.trim().orEmpty().ifBlank { return null }
             val condition = normalizeCondition(
-                OobActionCodec.firstNonBlank(
+                firstNonBlank(
                     checkerType(map["condition"]),
                     checkerType(map["when"]),
                     checkerType(map["type"]),
@@ -184,7 +185,7 @@ data class OmniflowCheckerRule(
                 )
             ).ifBlank { return null }
             val action = normalizeAction(
-                raw = OobActionCodec.firstNonBlank(
+                raw = firstNonBlank(
                     checkerType(map["action"]),
                     checkerType(map["then"]),
                     checkerType(map["effect"]),
@@ -202,28 +203,28 @@ data class OmniflowCheckerRule(
                 action = action,
                 params = params,
                 phase = map["phase"]?.toString()?.trim()?.ifBlank { null } ?: phaseForCondition(condition),
-                enabled = map["enabled"]?.let(OobActionCodec::boolArg) ?: true,
+                enabled = map["enabled"]?.let(::boolArg) ?: true,
             )
         }
 
         /** Extracts checker rules from a Function spec's metadata.checker_rules list. */
         fun fromSpec(spec: Map<*, *>): List<OmniflowCheckerRule> {
-            val metadata = OobActionCodec.mapArg(spec["metadata"])
-            val rules = OobActionCodec.listArg(metadata["checker_rules"])
-            return rules.mapNotNull { OobActionCodec.mapArg(it).takeIf { rule -> rule.isNotEmpty() }?.let(::fromMap) }
+            val metadata = mapArg(spec["metadata"])
+            val rules = listArg(metadata["checker_rules"])
+            return rules.mapNotNull { mapArg(it).takeIf { rule -> rule.isNotEmpty() }?.let(::fromMap) }
         }
 
         fun checkerType(raw: Any?): String {
-            val map = OobActionCodec.mapArg(raw)
-            return OobActionCodec.firstNonBlank(map["type"], map["kind"], map["name"])
+            val map = mapArg(raw)
+            return firstNonBlank(map["type"], map["kind"], map["name"])
         }
 
         fun checkerParams(map: Map<*, *>): Map<String, Any?> {
             val params = linkedMapOf<String, Any?>()
-            params.putAll(OobActionCodec.mapArg(map["params"]))
-            val condition = OobActionCodec.mapArg(map["condition"])
-            val action = OobActionCodec.mapArg(map["action"])
-            val budget = OobActionCodec.mapArg(map["budget"])
+            params.putAll(mapArg(map["params"]))
+            val condition = mapArg(map["condition"])
+            val action = mapArg(map["action"])
+            val budget = mapArg(map["budget"])
             copyListParam(condition, params, "text_any", "text_any")
             copyListParam(condition, params, "resource_id_any", "resource_id_any")
             copyListParam(condition, params, "package_any", "package_any")
@@ -257,8 +258,8 @@ data class OmniflowCheckerRule(
             fromKey: String,
             toKey: String,
         ) {
-            val values = OobActionCodec.listArg(from[fromKey]).ifEmpty {
-                OobActionCodec.firstNonBlank(from[fromKey]).takeIf { it.isNotBlank() }?.let(::listOf).orEmpty()
+            val values = listArg(from[fromKey]).ifEmpty {
+                firstNonBlank(from[fromKey]).takeIf { it.isNotBlank() }?.let(::listOf).orEmpty()
             }
             if (values.isNotEmpty()) to.putIfAbsent(toKey, values)
         }
@@ -322,15 +323,15 @@ data class OmniflowCheckerRule(
         fun normalizeAction(raw: String, condition: String): String {
             val text = raw.trim().lowercase().replace('-', '_')
             if (text.isBlank()) return actionForCondition(condition)
-            val canonicalAction = OobActionCodec.canonicalActionForName(text)
+            val canonicalAction = resolveActionName(text)
             return when {
                 text in dismissActionAliases -> ACTION_DISMISS
                 text in allowActionAliases -> ACTION_ALLOW
                 text in resolverActionAliases -> ACTION_CONFIRM_RESOLVER_ALWAYS
                 text in hideKeyboardActionAliases -> ACTION_HIDE_KEYBOARD
-                canonicalAction == OobActionCodec.ACTION_OPEN_APP ||
+                canonicalAction == OobActionSchema.TOOL_OPEN_APP ||
                     text == "start_app" -> ACTION_OPEN_APP
-                canonicalAction == OobActionCodec.ACTION_CLICK -> when (condition) {
+                canonicalAction == OobActionSchema.TOOL_CLICK -> when (condition) {
                     COND_OVERLAY_BLOCKING -> ACTION_DISMISS
                     COND_AD_BLOCKING -> ACTION_DISMISS
                     COND_APP_UPGRADE_PROMPT -> ACTION_DISMISS

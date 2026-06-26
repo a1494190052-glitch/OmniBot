@@ -1,7 +1,7 @@
 package cn.com.omnimind.bot.runlog
 
-import cn.com.omnimind.baselib.runlog.OobPrimitiveActionLedger
-import cn.com.omnimind.baselib.runlog.OobPrimitiveActionRiskPolicy
+import cn.com.omnimind.baselib.runlog.OobLocalActionLedger
+import cn.com.omnimind.baselib.runlog.OobLocalActionRiskPolicy
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -162,7 +162,7 @@ class UIStepExecutorTest {
 
     @Test
     fun `execute records successful primitive replay click`() = runBlocking {
-        OobPrimitiveActionLedger.resetForTesting()
+        OobLocalActionLedger.resetForTesting()
         val backend = FakeBackend(beforeXml = SOURCE_XML, afterXml = AFTER_XML)
         try {
             OmniflowActionRuntime.useBackendForTesting(backend).use {
@@ -183,7 +183,7 @@ class UIStepExecutorTest {
 
                 assertEquals(true, result["success"])
                 assertEquals(listOf(120f to 240f), backend.clickPoints)
-                val record = OobPrimitiveActionLedger.recentRecordsForTesting().single()
+                val record = OobLocalActionLedger.recentRecordsForTesting().single()
                 assertEquals("omniflow_replay", record.source)
                 assertEquals("click", record.tool)
                 assertEquals("safe_function", record.functionId)
@@ -194,13 +194,13 @@ class UIStepExecutorTest {
                 assertTrue(record.beforeXmlSha256.isNotBlank())
             }
         } finally {
-            OobPrimitiveActionLedger.resetForTesting()
+            OobLocalActionLedger.resetForTesting()
         }
     }
 
     @Test
     fun `execute blocks dangerous primitive replay click before backend dispatch`() = runBlocking {
-        OobPrimitiveActionLedger.resetForTesting()
+        OobLocalActionLedger.resetForTesting()
         val backend = FakeBackend(beforeXml = SOURCE_XML, afterXml = AFTER_XML)
         try {
             OmniflowActionRuntime.useBackendForTesting(backend).use {
@@ -221,27 +221,27 @@ class UIStepExecutorTest {
                     fail("dangerous primitive click should be blocked")
                 } catch (error: UIStepExecutor.ExecutionException) {
                     assertEquals(
-                        OobPrimitiveActionRiskPolicy.ERROR_DANGEROUS_ACTION_BLOCKED,
+                        OobLocalActionRiskPolicy.ERROR_DANGEROUS_ACTION_BLOCKED,
                         error.errorCode,
                     )
                 }
 
                 assertTrue("backend click should not run", backend.clickPoints.isEmpty())
-                val record = OobPrimitiveActionLedger.recentRecordsForTesting().single()
+                val record = OobLocalActionLedger.recentRecordsForTesting().single()
                 assertEquals("omniflow_replay", record.source)
                 assertEquals("click", record.tool)
                 assertEquals(false, record.success)
                 assertEquals(true, record.blocked)
-                assertEquals(OobPrimitiveActionRiskPolicy.ERROR_DANGEROUS_ACTION_BLOCKED, record.errorCode)
+                assertEquals(OobLocalActionRiskPolicy.ERROR_DANGEROUS_ACTION_BLOCKED, record.errorCode)
             }
         } finally {
-            OobPrimitiveActionLedger.resetForTesting()
+            OobLocalActionLedger.resetForTesting()
         }
     }
 
     @Test
     fun `execute allows slider primitive replay when checkers are disabled`() = runBlocking {
-        OobPrimitiveActionLedger.resetForTesting()
+        OobLocalActionLedger.resetForTesting()
         val backend = FakeBackend(beforeXml = CAPTCHA_XML, afterXml = CAPTCHA_XML)
         try {
             OmniflowActionRuntime.useBackendForTesting(backend).use {
@@ -263,14 +263,14 @@ class UIStepExecutorTest {
                 )
 
                 assertEquals(1, backend.swipeRequests.size)
-                val record = OobPrimitiveActionLedger.recentRecordsForTesting().single()
+                val record = OobLocalActionLedger.recentRecordsForTesting().single()
                 assertEquals("omniflow_replay", record.source)
                 assertEquals("swipe", record.tool)
                 assertEquals(true, record.success)
                 assertEquals(false, record.blocked)
             }
         } finally {
-            OobPrimitiveActionLedger.resetForTesting()
+            OobLocalActionLedger.resetForTesting()
         }
     }
 
@@ -1325,7 +1325,7 @@ class UIStepExecutorTest {
 
     @Test
     fun `input text uses target metadata instead of focused node fallback`() = runBlocking {
-        OobPrimitiveActionLedger.resetForTesting()
+        OobLocalActionLedger.resetForTesting()
         val backend = FakeBackend(beforeXml = INPUT_FORM_XML, afterXml = INPUT_FORM_XML)
         try {
             OmniflowActionRuntime.useBackendForTesting(backend).use {
@@ -1354,7 +1354,7 @@ class UIStepExecutorTest {
                 assertEquals(180f, request["x"])
                 assertEquals(232f, request["y"])
                 assertEquals(0, backend.focusedInputCount)
-                val record = OobPrimitiveActionLedger.recentRecordsForTesting().single()
+                val record = OobLocalActionLedger.recentRecordsForTesting().single()
                 assertEquals("input_text", record.tool)
                 assertEquals("<redacted>", record.args["text"])
                 assertEquals(true, record.args["text_present"])
@@ -1362,7 +1362,7 @@ class UIStepExecutorTest {
                 assertEquals(true, record.args["text_redacted"])
             }
         } finally {
-            OobPrimitiveActionLedger.resetForTesting()
+            OobLocalActionLedger.resetForTesting()
         }
     }
 

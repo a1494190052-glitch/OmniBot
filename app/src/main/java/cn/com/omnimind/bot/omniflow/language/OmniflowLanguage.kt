@@ -1,6 +1,6 @@
 package cn.com.omnimind.bot.omniflow.language
 
-import cn.com.omnimind.baselib.runlog.OobCanonicalActionSchema
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.bot.runlog.OmniflowCheckerRule
 
 // ---------------------------------------------------------------------------
@@ -70,7 +70,7 @@ private fun parseArgPath(path: String): List<PathSegment> {
 
 data class FunctionParameter(
     val id: String,
-    val type: OobCanonicalActionSchema.Type = OobCanonicalActionSchema.Type.STRING,
+    val type: OobActionSchema.Type = OobActionSchema.Type.STRING,
     val required: Boolean = false,
     val default: String? = null,
     val description: String = "",

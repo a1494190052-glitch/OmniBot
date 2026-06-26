@@ -1,8 +1,10 @@
 package cn.com.omnimind.bot.omniflow
+import cn.com.omnimind.bot.runlog.argsForStep
+import cn.com.omnimind.bot.runlog.resolveActionName
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
-import cn.com.omnimind.bot.runlog.OobActionCodec
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 
 /**
@@ -22,11 +24,11 @@ internal object OobFunctionStepNormalizer {
             if (firstNonBlank(mapArg(raw["args"])["function_id"]).isNotBlank()) {
                 RunLogReplayPolicy.TOOL_CALL_TOOL
             } else {
-                OobActionCodec.ACTION_FINISHED
+                OobActionSchema.TOOL_FINISHED
             }
         }
         val normalizedTool = RunLogReplayPolicy.normalizeToolName(rawTool)
-        val action = OobActionCodec.canonicalActionForName(rawTool)
+        val action = resolveActionName(rawTool)
         val sourceContext = mapArg(raw["source_context"]).ifEmpty { inheritedSourceContext }
         val title = firstNonBlank(raw["title"], raw["summary"], raw["description"])
             .ifBlank { simpleStepTitle(action ?: normalizedTool, raw, index) }
@@ -85,7 +87,7 @@ internal object OobFunctionStepNormalizer {
     )
 
     private fun normalizeSimpleStepArgs(raw: Map<String, Any?>, rawTool: String): Map<String, Any?> {
-        val action = OobActionCodec.canonicalActionForName(rawTool) ?: OobActionCodec.normalizeName(rawTool)
+        val action = resolveActionName(rawTool) ?: OobActionSchema.normalizeToolName(rawTool)
         val args = linkedMapOf<String, Any?>()
         args.putAll(mapArg(raw["args"]))
         args.putAlias("package_name", raw["package_name"], raw["packageName"])
@@ -104,9 +106,9 @@ internal object OobFunctionStepNormalizer {
         args.putAlias("duration_ms", raw["duration_ms"], raw["durationMs"])
         args.putAlias("clear", raw["clear"])
         args.putAlias("bounds", raw["bounds"])
-        if (action == OobActionCodec.ACTION_INPUT_TEXT) { args.remove("content"); args.remove("value") }
-        if (action == OobActionCodec.ACTION_FINISHED && args.isEmpty()) args["content"] = "Done"
-        return OobActionCodec.argsForStep(mapOf("tool" to rawTool, "args" to args.filterValues { it != null }))
+        if (action == OobActionSchema.TOOL_INPUT_TEXT) { args.remove("content"); args.remove("value") }
+        if (action == OobActionSchema.TOOL_FINISHED && args.isEmpty()) args["content"] = "Done"
+        return argsForStep(mapOf("tool" to rawTool, "args" to args.filterValues { it != null }))
     }
 
     private fun canonicalSimpleCallToolArgs(normalizedArgs: Map<String, Any?>): Map<String, Any?> {
@@ -125,7 +127,7 @@ internal object OobFunctionStepNormalizer {
         val args = mapArg(raw["args"])
         val target = firstNonBlank(
             args["target_description"], args["label"], args["text"],
-            args["content"].takeIf { action != OobActionCodec.ACTION_INPUT_TEXT },
+            args["content"].takeIf { action != OobActionSchema.TOOL_INPUT_TEXT },
         )
         return if (target.isNotBlank()) "$action: $target" else "$action step ${index + 1}"
     }

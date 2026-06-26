@@ -301,8 +301,8 @@ class _RunActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final label = isRunning
-        ? _text(context, '执行中', 'Running')
-        : _text(context, '执行', 'Run');
+        ? _text(context, '直接执行中', 'Direct running')
+        : _text(context, '直接执行', 'Direct run');
     return Align(
       alignment: Alignment.centerLeft,
       child: FilledButton.icon(
