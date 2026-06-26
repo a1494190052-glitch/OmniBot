@@ -13,6 +13,8 @@ object McpTaskManager {
     
     // 活跃任务映射表
     private val activeTasks = ConcurrentHashMap<String, TaskState>()
+    // Tracks tasks that already have a cleanup coroutine scheduled — prevents double 300s cleanup jobs
+    private val scheduledCleanups = ConcurrentHashMap.newKeySet<String>()
 
     // 最大等待时间（毫秒）
     const val MAX_WAIT_TIME_MS = 120_000L  // 2分钟
@@ -60,9 +62,11 @@ object McpTaskManager {
      * 延迟清理任务（保留一段时间供查询）
      */
     fun scheduleTaskCleanup(taskId: String, scope: CoroutineScope, delayMs: Long = 300_000L) {
+        if (!scheduledCleanups.add(taskId)) return // already scheduled; skip duplicate
         scope.launch {
             kotlinx.coroutines.delay(delayMs)
             activeTasks.remove(taskId)
+            scheduledCleanups.remove(taskId)
             OmniLog.d(TAG, "Task $taskId cleaned up after delay")
         }
     }

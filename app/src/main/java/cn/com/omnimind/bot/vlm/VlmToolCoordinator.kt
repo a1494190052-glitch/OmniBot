@@ -249,6 +249,7 @@ object VlmToolCoordinator {
             taskState.vlmRequest = boundedRequest
             taskState.message = "屏幕锁定，等待解锁"
             taskState.addChatMessage("[SYSTEM] Screen locked, waiting for unlock...")
+            McpTaskManager.scheduleTaskCleanup(taskId, scope)
             emitProgress(
                 progressReporter,
                 taskId,
@@ -994,6 +995,11 @@ object VlmToolCoordinator {
         progressReporter: VlmToolProgressReporter
     ): Result<Unit> {
         val deferred = CompletableDeferred<Result<Unit>>()
+        // If scope is cancelled before scope.launch executes, the coroutine body never runs
+        // and deferred would never be completed, causing deferred.await() to hang forever.
+        val cancelHandler = scope.coroutineContext[kotlinx.coroutines.Job]?.invokeOnCompletion { cause ->
+            if (cause != null) deferred.complete(Result.failure(cause))
+        }
         mainHandler.post {
             scope.launch(Dispatchers.Main) {
                 try {
@@ -1024,7 +1030,11 @@ object VlmToolCoordinator {
                 }
             }
         }
-        return deferred.await()
+        return try {
+            deferred.await()
+        } finally {
+            cancelHandler?.dispose()
+        }
     }
 
     private fun buildListener(
@@ -1059,10 +1069,18 @@ object VlmToolCoordinator {
             }
 
             override fun onTaskFinish() {
+                if (taskState.status !in setOf(TaskStatus.FINISHED, TaskStatus.ERROR, TaskStatus.CANCELLED)) {
+                    taskState.status = TaskStatus.FINISHED
+                    taskState.markStateChanged()
+                }
                 McpTaskManager.scheduleTaskCleanup(taskId, scope)
             }
 
             override fun onVLMTaskFinish() {
+                if (taskState.status !in setOf(TaskStatus.FINISHED, TaskStatus.ERROR, TaskStatus.CANCELLED)) {
+                    taskState.status = TaskStatus.FINISHED
+                    taskState.markStateChanged()
+                }
                 McpTaskManager.scheduleTaskCleanup(taskId, scope)
             }
 
@@ -1091,20 +1109,25 @@ object VlmToolCoordinator {
                     taskState.markStateChanged()
                 }
                 scope.launch {
-                    progressReporter(
-                        summary.ifBlank { "视觉任务执行中" },
-                        linkedMapOf<String, Any?>().apply {
-                            putAll(event)
-                            put(
-                                "agentStreamKind",
-                                event["agentStreamKind"]?.toString()
-                                    ?: event["kind"]?.toString()
-                                    ?: "tool_progress"
-                            )
-                            put("vlmTaskId", taskId)
-                            put("runLogId", event["runLogId"] ?: taskId)
-                        }
-                    )
+                    runCatching {
+                        progressReporter(
+                            summary.ifBlank { "视觉任务执行中" },
+                            linkedMapOf<String, Any?>().apply {
+                                putAll(event)
+                                put(
+                                    "agentStreamKind",
+                                    event["agentStreamKind"]?.toString()
+                                        ?: event["kind"]?.toString()
+                                        ?: "tool_progress"
+                                )
+                                put("vlmTaskId", taskId)
+                                put("runLogId", event["runLogId"] ?: taskId)
+                            }
+                        )
+                    }.onFailure { e ->
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        OmniLog.w(TAG, "onVlmToolEvent progress reporting failed: ${e.message}")
+                    }
                 }
             }
 

@@ -56,10 +56,10 @@ enum class TaskStatus {
 data class TaskState(
     val taskId: String,
     val goal: String,
-    var status: TaskStatus,
+    @Volatile var status: TaskStatus,
     val needSummary: Boolean = false,
-    var message: String = "",
-    var waitingQuestion: String? = null,
+    @Volatile var message: String = "",
+    @Volatile var waitingQuestion: String? = null,
     var chatMessages: MutableList<String> = mutableListOf(),
     @Volatile var finishedContent: String? = null,
     @Volatile var summaryText: String? = null,

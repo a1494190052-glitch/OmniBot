@@ -12,8 +12,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 
 class VlmGuidanceManager private constructor(private val appContext: Context) : VLMPostTaskHook {
@@ -51,9 +54,13 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
     // Detached scope — distillation must survive Task destruction
     private val distillScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    // Per-skill mutex prevents concurrent writes corrupting the same file
+    // Back-pressure: cap concurrent distillations to avoid unbounded coroutine accumulation
+    private val distillSemaphore = Semaphore(8)
+
+    // Per-skill mutex prevents concurrent writes corrupting the same file.
+    // computeIfAbsent is atomic on ConcurrentHashMap; getOrPut is not.
     private val skillMutexes = ConcurrentHashMap<String, Mutex>()
-    private fun mutexFor(skillId: String) = skillMutexes.getOrPut(skillId) { Mutex() }
+    private fun mutexFor(skillId: String) = skillMutexes.computeIfAbsent(skillId) { Mutex() }
 
     @Volatile
     private var strategiesLastModified = 0L
@@ -64,8 +71,8 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
         seedStrategiesTemplate()
     }
 
-    fun reloadSystemPrompt() {
-        loadSystemPromptIfChanged()
+    suspend fun reloadSystemPrompt() {
+        withContext(Dispatchers.IO) { loadSystemPromptIfChanged() }
     }
 
     private fun loadSystemPromptIfChanged() {
@@ -95,33 +102,35 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
         }.onFailure { OmniLog.w(TAG, "failed to seed $VLM_STRATEGIES_FILE: ${it.message}") }
     }
 
-    fun loadGuidance(packageName: String?, functionId: String? = null): String {
-        val manager = AgentWorkspaceManager(appContext)
-        val parts = mutableListOf<String>()
-        readSkillBody(manager, GLOBAL_SKILL_ID)?.let { parts.add(it) }
-        if (!packageName.isNullOrBlank()) {
-            readSkillBody(manager, APP_SKILL_PREFIX + sanitizePkg(packageName))?.let { parts.add(it) }
-        }
-        if (!functionId.isNullOrBlank()) {
-            readSkillBody(manager, FUNC_SKILL_PREFIX + functionId)?.let { parts.add(it) }
-        }
-        return parts.filter { it.isNotBlank() }.joinToString("\n\n").take(config.distillMaxSkillChars)
-    }
-
-    fun loadFunctionsSection(packageName: String?): String {
-        val manager = AgentWorkspaceManager(appContext)
-        return buildList {
-            readSkillBody(manager, GLOBAL_SKILL_ID)?.let { add(it) }
+    suspend fun loadGuidance(packageName: String?, functionId: String? = null): String =
+        withContext(Dispatchers.IO) {
+            val manager = AgentWorkspaceManager(appContext)
+            val parts = mutableListOf<String>()
+            readSkillBody(manager, GLOBAL_SKILL_ID)?.let { parts.add(it) }
             if (!packageName.isNullOrBlank()) {
-                readSkillBody(manager, APP_SKILL_PREFIX + sanitizePkg(packageName))?.let { add(it) }
+                readSkillBody(manager, APP_SKILL_PREFIX + sanitizePkg(packageName))?.let { parts.add(it) }
             }
-        }.flatMap { body ->
-            val start = body.indexOf("## Functions")
-            if (start < 0) return@flatMap emptyList()
-            val end = body.indexOf("\n##", start + 1).takeIf { it > 0 } ?: body.length
-            body.substring(start, end).lines().drop(1).filter { it.trimStart().startsWith("-") }
-        }.distinct().joinToString("\n").take(200)
-    }
+            if (!functionId.isNullOrBlank()) {
+                readSkillBody(manager, FUNC_SKILL_PREFIX + functionId)?.let { parts.add(it) }
+            }
+            parts.filter { it.isNotBlank() }.joinToString("\n\n").take(config.distillMaxSkillChars)
+        }
+
+    suspend fun loadFunctionsSection(packageName: String?): String =
+        withContext(Dispatchers.IO) {
+            val manager = AgentWorkspaceManager(appContext)
+            buildList {
+                readSkillBody(manager, GLOBAL_SKILL_ID)?.let { add(it) }
+                if (!packageName.isNullOrBlank()) {
+                    readSkillBody(manager, APP_SKILL_PREFIX + sanitizePkg(packageName))?.let { add(it) }
+                }
+            }.flatMap { body ->
+                val start = body.indexOf("## Functions")
+                if (start < 0) return@flatMap emptyList()
+                val end = body.indexOf("\n##", start + 1).takeIf { it > 0 } ?: body.length
+                body.substring(start, end).lines().drop(1).filter { it.trimStart().startsWith("-") }
+            }.distinct().joinToString("\n").take(200)
+        }
 
     // Called from VLMOperationTask via VLMPostTaskHookRegistry.
     // Fires distillation on distillScope so it outlives the Task coroutine.
@@ -147,22 +156,29 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
         val traceSnap = traceText
         val successSnap = success
 
+        if (!distillSemaphore.tryAcquire()) {
+            OmniLog.d(TAG, "distill skipped for $pkgSnap: max concurrent distillations reached")
+            return
+        }
         distillScope.launch {
-            val manager = AgentWorkspaceManager(appContext)
-            if (successSnap && executionTrace.size >= config.distillMinTraceSteps) {
-                distillSkill(manager, GLOBAL_SKILL_ID, goalSnap, null, funcSnap, traceSnap, success = true)
-                if (!pkgSnap.isNullOrBlank()) {
-                    distillSkill(manager, APP_SKILL_PREFIX + sanitizePkg(pkgSnap), goalSnap, pkgSnap, funcSnap, traceSnap, success = true)
+            try {
+                val manager = AgentWorkspaceManager(appContext)
+                if (successSnap && executionTrace.size >= config.distillMinTraceSteps) {
+                    distillSkill(manager, GLOBAL_SKILL_ID, goalSnap, null, funcSnap, traceSnap, success = true)
+                    if (!pkgSnap.isNullOrBlank()) {
+                        distillSkill(manager, APP_SKILL_PREFIX + sanitizePkg(pkgSnap), goalSnap, pkgSnap, funcSnap, traceSnap, success = true)
+                    }
+                    if (!funcSnap.isNullOrBlank()) {
+                        distillSkill(manager, FUNC_SKILL_PREFIX + funcSnap, goalSnap, pkgSnap, funcSnap, traceSnap, success = true)
+                    }
+                } else if (!successSnap) {
+                    distillSkill(manager, GLOBAL_SKILL_ID, goalSnap, null, funcSnap, traceSnap, success = false)
+                    if (!pkgSnap.isNullOrBlank()) {
+                        distillSkill(manager, APP_SKILL_PREFIX + sanitizePkg(pkgSnap), goalSnap, pkgSnap, funcSnap, traceSnap, success = false)
+                    }
                 }
-                if (!funcSnap.isNullOrBlank()) {
-                    distillSkill(manager, FUNC_SKILL_PREFIX + funcSnap, goalSnap, pkgSnap, funcSnap, traceSnap, success = true)
-                }
-            } else if (!successSnap) {
-                // Record failure signal regardless of trace length
-                distillSkill(manager, GLOBAL_SKILL_ID, goalSnap, null, funcSnap, traceSnap, success = false)
-                if (!pkgSnap.isNullOrBlank()) {
-                    distillSkill(manager, APP_SKILL_PREFIX + sanitizePkg(pkgSnap), goalSnap, pkgSnap, funcSnap, traceSnap, success = false)
-                }
+            } finally {
+                distillSemaphore.release()
             }
         }
     }
@@ -187,8 +203,12 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
                 HttpController.postLLMRequest(config.distillModel, prompt, maxTokens = config.distillMaxSkillChars).message.trim()
             }.onFailure { OmniLog.w(TAG, "distill failed for $skillId: ${it.message}") }
                 .getOrNull()?.takeIf { it.isNotBlank() } ?: return
-            writeSkillBodyAtomic(manager, skillId, result)
-            OmniLog.d(TAG, "updated $skillId (${result.length} chars, success=$success)")
+            val written = runCatching {
+                writeSkillBodyAtomic(manager, skillId, result)
+                true
+            }.onFailure { OmniLog.w(TAG, "atomic write failed for $skillId: ${it.message}") }
+                .getOrDefault(false)
+            if (written) OmniLog.d(TAG, "updated $skillId (${result.length} chars, success=$success)")
         }
     }
 
@@ -246,8 +266,8 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
 
     private fun readSkillBody(manager: AgentWorkspaceManager, skillId: String): String? {
         val file = manager.skillsRoot().resolve("$skillId/SKILL.md")
-        if (!file.exists()) return null
-        val content = file.readText()
+        // Skip exists() check — just try reading; avoids TOCTOU race between check and read
+        val content = runCatching { file.readText() }.getOrNull() ?: return null
         val lines = content.lines()
         if (lines.firstOrNull()?.trim() != "---") return content.trim()
         val endIdx = lines.drop(1).indexOfFirst { it.trim() == "---" }
@@ -263,7 +283,10 @@ class VlmGuidanceManager private constructor(private val appContext: Context) : 
         val target = dir.resolve("SKILL.md")
         val tmp = File(dir, "SKILL.md.tmp")
         tmp.writeText("---\nname: $skillId\ndescription: VLM planner guidance\n---\n$body")
-        tmp.renameTo(target)
+        if (!tmp.renameTo(target)) {
+            tmp.delete()
+            throw IOException("Failed to atomically write SKILL.md for $skillId")
+        }
     }
 
     private fun sanitizePkg(pkg: String) = pkg.replace(".", "_").take(40)

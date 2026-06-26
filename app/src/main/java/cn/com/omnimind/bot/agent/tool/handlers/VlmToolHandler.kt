@@ -70,6 +70,7 @@ class VlmToolHandler(
         toolHandle.bindStopAction {
             VlmToolCoordinator.cancelTask(vlmTaskId, scope)
         }
+        var taskBegun = false
         return try {
             helper.ensureRunActive()
             val goal = args["goal"]?.jsonPrimitive?.content ?: throw IllegalArgumentException("Missing goal")
@@ -170,6 +171,7 @@ class VlmToolHandler(
                 )
             }
             AgentVlmUiSession.beginTask(toolHandle.runId, vlmTaskId)
+            taskBegun = true
             val outcome = VlmToolCoordinator.executeNewTask(
                 context = helper.context,
                 request = VlmTaskRequest(
@@ -264,12 +266,12 @@ class VlmToolHandler(
                 }
             }
         } catch (e: CancellationException) {
-            VlmToolCoordinator.cancelTask(vlmTaskId, scope)
+            // bindStopAction already calls cancelTask when the user stops; no double call needed
             throw e
         } catch (e: Exception) {
             ToolExecutionResult.Error(AgentToolNames.VLM_TASK, helper.localized(e.message ?: "Unknown error"))
         } finally {
-            AgentVlmUiSession.endTask(vlmTaskId)
+            if (taskBegun) AgentVlmUiSession.endTask(vlmTaskId)
         }
     }
 

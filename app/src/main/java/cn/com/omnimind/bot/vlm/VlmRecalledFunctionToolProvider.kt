@@ -32,10 +32,11 @@ class VlmRecalledFunctionToolProvider(context: Context) : VLMRecallContextProvid
         if (goal.isBlank()) return request.context
 
         val startedAt = System.currentTimeMillis()
-        val maxTools = config.recallMaxCandidates
-            .coerceAtMost(config.recallMaxToolsPerStep)
-            .coerceAtLeast(0)
-        if (maxTools <= 0) {
+        // recallMaxCandidates = retrieval pool size; recallMaxToolsPerStep = injection cap.
+        // Query with the full pool so the best match isn't excluded before ranking.
+        val fetchK = config.recallMaxCandidates.coerceAtLeast(1)
+        val injectMax = config.recallMaxToolsPerStep.coerceAtLeast(0)
+        if (injectMax <= 0) {
             return request.context.copy(
                 pageDiagnostics = request.context.pageDiagnostics + mapOf(
                     "recall_context_lookup_ms" to "0",
@@ -50,7 +51,7 @@ class VlmRecalledFunctionToolProvider(context: Context) : VLMRecallContextProvid
                     "goal" to goal,
                     "current_package" to request.currentPackageName,
                     "current_xml" to request.currentXml,
-                    "k" to maxTools,
+                    "k" to fetchK,
                     "decision_mode" to config.recallDecisionMode,
                 )
             )
@@ -65,7 +66,7 @@ class VlmRecalledFunctionToolProvider(context: Context) : VLMRecallContextProvid
             )
 
         val candidates = recalledCandidates(recallResult)
-            .take(maxTools)
+            .take(injectMax)
         val tools = candidates.mapIndexedNotNull { index, candidate ->
             buildToolDefinition(index = index, candidate = candidate)
         }
