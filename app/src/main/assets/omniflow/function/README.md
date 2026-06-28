@@ -352,7 +352,7 @@ local action execution:
 - start, update, and finish the local OmniFlow execution overlay
 - wire user stop/complete requests into the replay loop
 - keep main-thread UI calls outside the deterministic step executor
-- skip nested Function calls so only the top-level replay owns the overlay
+- skip Function calls so only the top-level replay owns the overlay
 
 `OobFunctionRuntimeResolveContextController` owns failed-step runtime resolve context:
 
@@ -368,11 +368,11 @@ local action execution:
 routing:
 
 - extract executable args from current Function steps and recorded RunLog cards
-- resolve `call_tool(function_id)` targets for nested Function replay
+- resolve `call_tool(function_id)` targets for Function calls
 - identify legacy/noise steps that replay should skip
 - resolve the canonical OmniFlow execution tool for a step
-- decide whether a step is locally executable as UI action or nested Function
-- hand off nested Function runs through `OobFunctionNestedCallCardPresenter`
+- decide whether a step is locally executable as UI action or Function call
+- hand off Function calls through `OobFunctionCallCardPresenter`
 - reject generic `call_tool(tool_name)` delegation during Function replay
 - keep recorded argument-shape compatibility outside the runtime replay loop
 - skip only explicit observation/no-op legacy steps. Do not introduce
@@ -385,12 +385,12 @@ routing:
 - merge runner timing into existing failure payloads
 - keep output schema and timing accounting outside the runtime replay loop
 
-`OobFunctionNestedCallCardPresenter` owns nested Function tool-card payloads:
+`OobFunctionCallCardPresenter` owns Function-call tool-card payloads:
 
-- create stable card ids for nested Function calls
+- create stable card ids for Function calls
 - format running/completed summaries for reusable Function cards
-- shape UI-facing args/result preview payloads for nested replay
-- keep card text and JSON presentation out of nested Function execution
+- shape UI-facing args/result preview payloads for Function calls
+- keep card text and JSON presentation out of Function execution
 
 `AssistsCoreManager` owns method-channel wiring only:
 
@@ -434,7 +434,7 @@ Agent/MCP tool surface
               -> OobFunctionRuntimeResolveContextController # recovery context/runtime resolve
               -> OobFunctionToolHandler # replay/call_tool args and step routing
               -> OobFunctionRunResultBuilder # run result/timing payloads
-              -> OobFunctionNestedCallCardPresenter # nested Function card payloads
+              -> OobFunctionCallCardPresenter # Function-call card payloads
               -> ActionExecutor.act # primitive local UI action execution
                   -> DeviceOperator # physical device port
                   -> OmniflowCheckerRule # global/function/node checker metadata
@@ -503,12 +503,12 @@ Keep these pieces separate:
 - `OobFunctionRuntimeResolveContextController`: failed-step recovery snapshots and
   bounded runtime resolve context
 - `OobFunctionToolHandler`: replay step args, `call_tool` target resolution,
-  nested Function argument extraction, skip-step detection, OmniFlow
-  execution-tool resolution, nested Function classification, and unsupported
+  Function-call argument extraction, skip-step detection, OmniFlow
+  execution-tool resolution, Function-call classification, and unsupported
   tool-step rejection
 - `OobFunctionRunResultBuilder`: stable run payload schema, failure step
   records, and runner timing accounting
-- `OobFunctionNestedCallCardPresenter`: nested Function tool-card ids,
+- `OobFunctionCallCardPresenter`: Function-call tool-card ids,
   summaries, args payloads, and result preview payloads
 - `ActionExecutor`, `ReplayHelper`, and `OmniflowCheckerRule`: primitive local
   action dispatch, checker evaluation, coordinate remapping, and recovery
@@ -641,7 +641,7 @@ Use these owner rules when removing duplicated helper code:
 - Runtime replay policy belongs in the replay components under
   `OobFunctionToolHandler`. Do not move skip/fallback/delegation decisions into
   mechanical helper objects, and do not reintroduce separate `call_tool` or
-  nested-Function step executors for routing already owned by the handler.
+  Function-call step executors for routing already owned by the handler.
 - Function run result payload shape belongs in `OobFunctionRunResultBuilder`.
   Runtime components may decide that a step failed, requires runtime resolve,
   or was delegated, but they should call this owner for stable fields such as

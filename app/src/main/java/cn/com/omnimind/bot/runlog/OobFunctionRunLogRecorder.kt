@@ -232,7 +232,12 @@ object OobFunctionRunLogRecorder {
             "summary" to title,
             "error_code" to firstPresent(step["error_code"], step["errorCode"]),
             "error_message" to firstPresent(step["error_message"], step["errorMessage"]),
-            "nested_run_id" to firstPresent(step["nested_run_id"], step["nestedRunId"]),
+            "called_function_run_id" to firstPresent(
+                step["called_function_run_id"],
+                step["calledFunctionRunId"],
+                step["nested_run_id"],
+                step["nestedRunId"],
+            ),
             "step_results" to firstPresent(step["step_results"], step["stepResults"]),
         ).filterValues { it != null }
 

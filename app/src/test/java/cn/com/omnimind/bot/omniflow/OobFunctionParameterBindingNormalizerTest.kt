@@ -148,7 +148,7 @@ class OobFunctionParameterBindingNormalizerTest {
     }
 
     @Test
-    fun `normalizes semantic parameter into nested function argument binding`() {
+    fun `normalizes semantic parameter into function call argument binding`() {
         val normalized = OobFunctionParameterBindingNormalizer.normalize(
             mapOf(
                 "function_id" to "parent_search",
@@ -197,13 +197,13 @@ class OobFunctionParameterBindingNormalizerTest {
         val steps = ((materialized["execution"] as Map<*, *>)["steps"] as List<*>)
             .map { it as Map<*, *> }
         val args = steps[0]["args"] as Map<*, *>
-        val nestedArguments = args["arguments"] as Map<*, *>
-        assertEquals("猫猫", nestedArguments["query"])
+        val functionArguments = args["arguments"] as Map<*, *>
+        assertEquals("猫猫", functionArguments["query"])
         assertTrue(OobFunctionArgumentBindingValidator.validate(materialized).success)
     }
 
     @Test
-    fun `materialize can create explicit nested function argument object from binding table`() {
+    fun `materialize can create explicit function call argument object from binding table`() {
         val spec = mapOf(
             "function_id" to "parent_search_explicit",
             "parameters" to mapOf(
@@ -232,8 +232,8 @@ class OobFunctionParameterBindingNormalizerTest {
         val steps = ((materialized["execution"] as Map<*, *>)["steps"] as List<*>)
             .map { it as Map<*, *> }
         val args = steps[0]["args"] as Map<*, *>
-        val nestedArguments = args["arguments"] as Map<*, *>
-        assertEquals("猫猫", nestedArguments["search_query"])
+        val functionArguments = args["arguments"] as Map<*, *>
+        assertEquals("猫猫", functionArguments["search_query"])
         assertTrue(OobFunctionArgumentBindingValidator.validate(materialized).success)
     }
 

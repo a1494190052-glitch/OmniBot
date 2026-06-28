@@ -495,7 +495,7 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(readme.contains("Function spec/schema normalization"))
         assertTrue(readme.contains("do not recreate the old split patch-applier classes"))
         assertTrue(readme.contains("owns `call_tool`"))
-        assertTrue(readme.contains("nested Function dispatch"))
+        assertTrue(readme.contains("Function-call dispatch"))
         assertTrue(readme.contains("do not reintroduce separate step executors"))
     }
 

@@ -1127,7 +1127,7 @@ Actual output:
   );
 
   test(
-    'agent enhancement keeps semantic binding into nested function arguments',
+    'agent enhancement keeps semantic binding into function call arguments',
     () async {
       final fallback = RunLogReusableFunctionConverter.buildLocalFunctionJson(
         runId: 'run-nested-function-search',

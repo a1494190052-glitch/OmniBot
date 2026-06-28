@@ -3,11 +3,11 @@ package cn.com.omnimind.bot.agent.tool.handlers
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
 
 /**
- * Shapes tool-card payloads for nested Function calls during replay. Execution
- * remains in the replay handler; this presenter only owns UI-facing card text
- * and JSON payload structure.
+ * Shapes tool-card payloads for Function calls during replay. Execution remains
+ * in the replay handler; this presenter only owns UI-facing card text and JSON
+ * payload structure.
  */
-class OobFunctionNestedCallCardPresenter(
+class OobFunctionCallCardPresenter(
     private val helper: SharedHelper,
 ) {
     fun cardId(parentToolCallId: String?, toolName: String, stepId: String): String {
@@ -35,7 +35,7 @@ class OobFunctionNestedCallCardPresenter(
         stepTitle: String,
         functionId: String,
         callableTool: String,
-        nestedArguments: Map<String, Any?>,
+        functionArguments: Map<String, Any?>,
         status: String,
         success: Boolean?,
         summary: String,
@@ -46,7 +46,7 @@ class OobFunctionNestedCallCardPresenter(
     ): Map<String, Any?> {
         val argsPayload = linkedMapOf<String, Any?>(
             "function_id" to functionId.takeIf { it.isNotBlank() },
-            "arguments" to nestedArguments.takeIf { it.isNotEmpty() },
+            "arguments" to functionArguments.takeIf { it.isNotEmpty() },
         ).filterValues { it != null }
         val resultPayload = result?.let {
             linkedMapOf<String, Any?>(
@@ -54,9 +54,9 @@ class OobFunctionNestedCallCardPresenter(
                 "source" to OobFunctionToolHandler.FUNCTION_RUN_SOURCE,
                 "run_source" to OobFunctionToolHandler.FUNCTION_RUN_SOURCE,
                 "runner" to it["runner"],
-                "nested_run_id" to it["nested_run_id"],
-                "nested_step_count" to it["nested_step_count"],
-                "nested_success_step_count" to it["nested_success_step_count"],
+                "called_function_run_id" to it["called_function_run_id"],
+                "called_function_step_count" to it["called_function_step_count"],
+                "called_function_success_step_count" to it["called_function_success_step_count"],
                 "success" to (it["success"] != false),
                 "summary" to it["summary"],
                 "error_code" to it["error_code"],

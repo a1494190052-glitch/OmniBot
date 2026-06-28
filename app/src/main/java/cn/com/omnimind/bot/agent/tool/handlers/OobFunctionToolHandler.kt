@@ -72,8 +72,8 @@ class OobFunctionToolHandler(
         OobFunctionFrontendSessionController(helper),
     private val runtimeResolveContextController: OobFunctionRuntimeResolveContextController =
         OobFunctionRuntimeResolveContextController(deviceOperator),
-    private val nestedCallCardPresenter: OobFunctionNestedCallCardPresenter =
-        OobFunctionNestedCallCardPresenter(helper),
+    private val functionCallCardPresenter: OobFunctionCallCardPresenter =
+        OobFunctionCallCardPresenter(helper),
     private val runResultBuilder: OobFunctionRunResultBuilder =
         OobFunctionRunResultBuilder(),
     private val runtimeResolvePlanner: OobFunctionRuntimeResolvePlanner = OobFunctionRuntimeResolvePlanner { appContext, request ->
@@ -755,11 +755,11 @@ class OobFunctionToolHandler(
         if (RunLogReplayPolicy.isOmniflowToolCallTool(targetTool)) return runResultBuilder.failureStep(
             stepId = stepId, tool = callableTool.ifEmpty { RunLogReplayPolicy.TOOL_CALL_TOOL },
             executor = RunLogReplayPolicy.EXECUTOR_TOOL,
-            summary = "$stepTitle nested call_tool is not allowed", errorCode = "OOB_CALL_TOOL_RECURSION",
+            summary = "$stepTitle recursive call_tool is not allowed", errorCode = "OOB_CALL_TOOL_RECURSION",
         )
         return runResultBuilder.failureStep(
             stepId = stepId, tool = targetTool, executor = RunLogReplayPolicy.EXECUTOR_TOOL,
-            summary = "Replay call_tool only supports nested Function ids: $targetTool",
+            summary = "Replay call_tool only supports Function ids: $targetTool",
             errorCode = "OOB_CALL_TOOL_TARGET_UNSUPPORTED",
         )
     }
@@ -779,28 +779,28 @@ class OobFunctionToolHandler(
     ): Map<String, Any?> {
         val args = resolveStepArgs(step)
         val functionId = firstNonBlank(args["function_id"], step["function_id"])
-        val nestedArguments = mapArg(args["arguments"])
+        val functionArguments = mapArg(args["arguments"])
         val cardToolName = RunLogReplayPolicy.TOOL_CALL_TOOL
-        val cardId = nestedCallCardPresenter.cardId(parentToolCallId, toolName, stepId)
+        val cardId = functionCallCardPresenter.cardId(parentToolCallId, toolName, stepId)
         val cardStartedAtMs = System.currentTimeMillis()
 
         suspend fun emitStarted() {
-            callback?.onToolCardEvent("tool_started", nestedCallCardPresenter.payload(
+            callback?.onToolCardEvent("tool_started", functionCallCardPresenter.payload(
                 cardId = cardId, toolName = cardToolName, stepTitle = stepTitle,
                 functionId = functionId, callableTool = callableTool,
-                nestedArguments = nestedArguments, status = "running", success = null,
-                summary = nestedCallCardPresenter.runningSummary(functionId),
+                functionArguments = functionArguments, status = "running", success = null,
+                summary = functionCallCardPresenter.runningSummary(functionId),
                 progress = stepTitle, startedAtMs = cardStartedAtMs, finishedAtMs = null, result = null,
             ))
         }
         suspend fun completeWithCard(result: Map<String, Any?>): Map<String, Any?> {
             val success = result["success"] != false
-            callback?.onToolCardEvent("tool_completed", nestedCallCardPresenter.payload(
+            callback?.onToolCardEvent("tool_completed", functionCallCardPresenter.payload(
                 cardId = cardId, toolName = cardToolName, stepTitle = stepTitle,
                 functionId = functionId, callableTool = callableTool,
-                nestedArguments = nestedArguments, status = if (success) "success" else "error",
+                functionArguments = functionArguments, status = if (success) "success" else "error",
                 success = success, summary = result["summary"]?.toString()?.takeIf { it.isNotBlank() }
-                    ?: nestedCallCardPresenter.finishedSummary(functionId, success),
+                    ?: functionCallCardPresenter.finishedSummary(functionId, success),
                 progress = "", startedAtMs = cardStartedAtMs, finishedAtMs = System.currentTimeMillis(), result = result,
             ))
             return result
@@ -811,18 +811,18 @@ class OobFunctionToolHandler(
 
         emitStarted()
         if (functionId.isEmpty()) return completeWithCard(failStep("OOB_FUNCTION_ID_MISSING", "$stepTitle missing function_id"))
-        val nestedSpec = getSpec(functionId)
+        val calledFunctionSpec = getSpec(functionId)
             ?: return completeWithCard(failStep("OOB_FUNCTION_NOT_FOUND", "OmniFlow function not found: $functionId",
-                mapOf("nested_function_id" to functionId)))
-        val missing = OobReusableFunctionStore.missingRequiredArguments(nestedSpec, nestedArguments)
+                mapOf("called_function_id" to functionId)))
+        val missing = OobReusableFunctionStore.missingRequiredArguments(calledFunctionSpec, functionArguments)
         if (missing.isNotEmpty()) return completeWithCard(failStep("OOB_FUNCTION_ARGUMENTS_MISSING",
             "Missing required arguments: ${missing.joinToString(", ")}",
-            mapOf("nested_function_id" to functionId, "missing_required_arguments" to missing)))
-        val boundSpec = OobReusableFunctionStore.materialize(nestedSpec, nestedArguments)
-        val nestedRun = runFunction(
+            mapOf("called_function_id" to functionId, "missing_required_arguments" to missing)))
+        val boundSpec = OobReusableFunctionStore.materialize(calledFunctionSpec, functionArguments)
+        val calledFunctionRun = runFunction(
             functionId = functionId,
-            arguments = nestedArguments,
-            functionSpec = nestedSpec,
+            arguments = functionArguments,
+            functionSpec = calledFunctionSpec,
             preparedSpec = boundSpec,
             argumentsValidated = true,
             callback = callback, toolHandle = toolHandle, env = env,
@@ -831,41 +831,48 @@ class OobFunctionToolHandler(
             callStack = callStack,
             frontendParent = frontendParent,
         )
-        val success = nestedRun["success"] == true
-        val nestedStepResults = listArg(nestedRun["step_results"])
+        val success = calledFunctionRun["success"] == true
+        val calledFunctionStepResults = listArg(calledFunctionRun["step_results"])
             .mapNotNull { mapArg(it).takeIf { mapped -> mapped.isNotEmpty() } }
-        val nestedRuntimeResolveRequired =
-            nestedRun["runtime_resolve_required"] == true ||
-                nestedRun["runtime_resolve_context"] != null ||
-                nestedStepResults.any {
+        val calledFunctionRuntimeResolveRequired =
+            calledFunctionRun["runtime_resolve_required"] == true ||
+                calledFunctionRun["runtime_resolve_context"] != null ||
+                calledFunctionStepResults.any {
                     it["runtime_resolve_required"] == true
                 }
-        val nestedRuntimeResolveAvailable =
-            nestedRun["runtime_resolve_available"] == true ||
-                nestedStepResults.any {
+        val calledFunctionRuntimeResolveAvailable =
+            calledFunctionRun["runtime_resolve_available"] == true ||
+                calledFunctionStepResults.any {
                     it["runtime_resolve_required"] == true && it["runtime_resolve_available"] == true
                 }
-        val nestedModelRequired = nestedRun["model_required"] == true && !nestedRuntimeResolveRequired
+        val calledFunctionModelRequired =
+            calledFunctionRun["model_required"] == true && !calledFunctionRuntimeResolveRequired
         return completeWithCard(linkedMapOf<String, Any?>(
             "step_id" to stepId, "tool" to callableTool.ifEmpty { RunLogReplayPolicy.TOOL_CALL_TOOL },
             "executor" to "omniflow_function", "model_free" to true, "success" to success,
-            "model_required" to nestedModelRequired.takeIf { it },
-            "runtime_resolve_required" to nestedRuntimeResolveRequired.takeIf { it },
-            "runtime_resolve_available" to nestedRuntimeResolveAvailable.takeIf { nestedRuntimeResolveRequired },
-            "nested_function_id" to functionId, "nested_run_id" to nestedRun["run_id"],
-            "nested_runner" to nestedRun["runner"], "nested_step_count" to nestedRun["step_count"],
-            "nested_success_step_count" to nestedRun["success_step_count"],
-            "nested_model_required" to nestedModelRequired,
-            "nested_runtime_resolve_required" to nestedRuntimeResolveRequired,
-            "nested_runtime_resolve_available" to nestedRuntimeResolveAvailable,
-            "nested_failed_step_index" to nestedRun["failed_step_index"],
-            "nested_resume_from_step" to nestedRun["resume_from_step"],
-            "nested_runtime_resolve_context" to nestedRun["runtime_resolve_context"],
-            "nested_agent_prompt" to nestedRun["agent_prompt"],
-            "step_results" to nestedRun["step_results"], "timing" to nestedRun["timing"],
-            "error_code" to nestedRun["error_code"],
+            "model_required" to calledFunctionModelRequired.takeIf { it },
+            "runtime_resolve_required" to calledFunctionRuntimeResolveRequired.takeIf { it },
+            "runtime_resolve_available" to calledFunctionRuntimeResolveAvailable.takeIf {
+                calledFunctionRuntimeResolveRequired
+            },
+            "called_function_id" to functionId,
+            "called_function_run_id" to calledFunctionRun["run_id"],
+            "called_function_runner" to calledFunctionRun["runner"],
+            "called_function_step_count" to calledFunctionRun["step_count"],
+            "called_function_success_step_count" to calledFunctionRun["success_step_count"],
+            "called_function_model_required" to calledFunctionModelRequired,
+            "called_function_runtime_resolve_required" to calledFunctionRuntimeResolveRequired,
+            "called_function_runtime_resolve_available" to calledFunctionRuntimeResolveAvailable,
+            "called_function_failed_step_index" to calledFunctionRun["failed_step_index"],
+            "called_function_resume_from_step" to calledFunctionRun["resume_from_step"],
+            "called_function_runtime_resolve_context" to calledFunctionRun["runtime_resolve_context"],
+            "called_function_agent_prompt" to calledFunctionRun["agent_prompt"],
+            "step_results" to calledFunctionRun["step_results"],
+            "timing" to calledFunctionRun["timing"],
+            "error_code" to calledFunctionRun["error_code"],
             "summary" to if (success) "复用指令执行完成：$functionId"
-                else nestedRun["error_message"]?.toString()?.takeIf { it.isNotBlank() } ?: "复用指令执行失败：$functionId",
+                else calledFunctionRun["error_message"]?.toString()?.takeIf { it.isNotBlank() }
+                    ?: "复用指令执行失败：$functionId",
         ).filterValues { it != null })
     }
 

@@ -118,11 +118,11 @@ record. Do not read only the snapshot when correctness matters.
 - Replay frontend session controller: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionFrontendSessionController.kt`
 - Replay failed-step runtime resolve context controller: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionRuntimeResolveContextController.kt`
 - Function step routing: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolHandler.kt`
-  This owns `call_tool(function_id)` nested Function dispatch and rejects generic
+  This owns `call_tool(function_id)` Function-call dispatch and rejects generic
   tool steps during replay; do not reintroduce separate step executors
   unless the ownership boundary changes.
 - Replay run result builder: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionRunResultBuilder.kt`
-- Nested Function card presenter: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionNestedCallCardPresenter.kt`
+- Function call card presenter: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionCallCardPresenter.kt`
 - Native replay policy and reusable Function conversion: `app/src/main/java/cn/com/omnimind/bot/runlog/`
 - RunLog conversion facade: `app/src/main/java/cn/com/omnimind/bot/runlog/OobRunLogReplayService.kt`
   It converts RunLogs into Function specs or manual Function assets; Function CRUD belongs in

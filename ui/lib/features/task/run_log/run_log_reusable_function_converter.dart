@@ -1200,7 +1200,7 @@ Requirements:
 - Preserve execution.steps order, tool names, and key args. Do not invent tools that do not exist.
 - You may rewrite name/description to make it a clearer reusable Function name.
 - You may refine parameters: abstract hard-coded user input, search terms, message text, URLs, and target objects into parameters; do not abstract coordinate x/y into user parameters.
-- Every parameter must include name/type/description/bindings/default. bindings must be a JSONPath string array pointing to leaf fields under execution.steps[*].args, including nested call_tool arguments such as execution.steps[*].args.arguments.query.
+- Every parameter must include name/type/description/bindings/default. bindings must be a JSONPath string array pointing to leaf fields under execution.steps[*].args, including call_tool argument objects such as execution.steps[*].args.arguments.query.
 - One parameter may bind multiple actions when they refer to the same runtime value, for example search text and the later click target for the same person/product/query.
 - Only abstract click.target_description when the click selects a variable entity in a list, row, search result, or sibling-text context. Keep stable navigation controls such as Back, Search, New Message, drawer, tab, or fixed menu entries as constants.
 - If you abstract a click target, bind its context too: reuse the same parameter for related input/search/call_tool/click bindings that carry the same runtime object instead of creating an isolated click-only parameter.
@@ -1348,7 +1348,7 @@ Return exactly one JSON object. Use this example shape:
 Rules:
 - Do not use Markdown or explanations.
 - Do not change function_id, tools, executors, arguments, parameters, validation, fallback, or step order.
-- You may add or rename parameter descriptors only from candidate_bindings in the input digest. Candidate bindings may target nested call_tool arguments. Do not bind coordinates, bounds, widths, heights, or invented paths.
+- You may add or rename parameter descriptors only from candidate_bindings in the input digest. Candidate bindings may target call_tool argument objects. Do not bind coordinates, bounds, widths, heights, or invented paths.
 - Do not rewrite execution.steps or tool arguments. Parameter abstraction is metadata + bindings only; the runner applies fresh arguments later.
 - Prefer reusable slots for user-entered text, contact names, phone numbers, search terms, message text, dates, URLs, and target object names.
 - One parameter can include multiple bindings when the bindings are the same runtime object across actions.
@@ -1584,7 +1584,7 @@ Return exactly one JSON object:
 Rules:
 - Return raw JSON only. Do not use Markdown or explanations.
 - Bindings must be copied exactly from candidate_bindings[*].binding.
-- A binding may point to a nested call_tool argument, for example \$.execution.steps[1].args.arguments.search_query.
+- A binding may point to a call_tool argument object, for example \$.execution.steps[1].args.arguments.search_query.
 - Do not bind coordinates, bounds, widths, heights, or invented paths.
 - Prefer slots for user-entered text, contact names, phone numbers, search terms, message text, dates, URLs, and target object names.
 - A single parameter may contain multiple bindings when they are the same runtime object across steps.

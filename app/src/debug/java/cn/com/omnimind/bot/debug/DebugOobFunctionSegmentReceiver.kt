@@ -134,12 +134,12 @@ class DebugOobFunctionSegmentReceiver : BroadcastReceiver() {
             waitForPageObservation(expectedPackage = packageName)
         }
         val afterPackage = afterObservation.packageName
-        val nestedSummary = nestedSummary(parentRun)
+        val calledFunctionSummary = calledFunctionSummary(parentRun)
         val loaded = storedChild["function_id"] == childFunctionId
         val parentSucceeded = parentRun["success"] == true
-        val nestedLoaded = nestedSummary["nested_function_id"] == childFunctionId
-        val nestedOpenedApp = nestedSummary["nested_tools"] is List<*> &&
-            (nestedSummary["nested_tools"] as List<*>).contains("open_app")
+        val calledFunctionLoaded = calledFunctionSummary["called_function_id"] == childFunctionId
+        val calledFunctionOpenedApp = calledFunctionSummary["called_function_tools"] is List<*> &&
+            (calledFunctionSummary["called_function_tools"] as List<*>).contains("open_app")
         val packageMatched = afterPackage == packageName
         return linkedMapOf<String, Any?>(
             "success" to (
@@ -147,8 +147,8 @@ class DebugOobFunctionSegmentReceiver : BroadcastReceiver() {
                     registerParent["success"] == true &&
                     loaded &&
                     parentSucceeded &&
-                    nestedLoaded &&
-                    nestedOpenedApp &&
+                    calledFunctionLoaded &&
+                    calledFunctionOpenedApp &&
                     packageMatched
                 ),
             "phase" to "validated",
@@ -161,13 +161,13 @@ class DebugOobFunctionSegmentReceiver : BroadcastReceiver() {
             "after_xml_present" to afterObservation.xml.isNotBlank(),
             "device_package_match" to packageMatched,
             "loaded_child" to loaded,
-            "nested_loaded" to nestedLoaded,
-            "nested_opened_app" to nestedOpenedApp,
+            "called_function_loaded" to calledFunctionLoaded,
+            "called_function_opened_app" to calledFunctionOpenedApp,
             "register_child" to registerChild,
             "register_parent" to registerParent,
             "recall" to recall,
             "parent_run" to parentRun,
-            "parent_nested_summary" to nestedSummary,
+            "parent_function_call_summary" to calledFunctionSummary,
             "timing" to timing.finish(
                 counts = mapOf(
                     "register_success_count" to listOf(
@@ -177,7 +177,7 @@ class DebugOobFunctionSegmentReceiver : BroadcastReceiver() {
                     "parent_step_count" to ((parentRun["step_count"] as? Number)?.toInt()
                         ?: (parentRun["step_results"] as? List<*>)?.size
                         ?: 0),
-                    "nested_step_count" to ((nestedSummary["nested_step_count"] as? Number)?.toInt()
+                    "called_function_step_count" to ((calledFunctionSummary["called_function_step_count"] as? Number)?.toInt()
                         ?: 0),
                     "recall_candidate_count" to ((recall["candidates"] as? List<*>)?.size ?: 0),
                     "segment_candidate_count" to ((recall["segment_candidates"] as? List<*>)?.size
@@ -237,22 +237,34 @@ class DebugOobFunctionSegmentReceiver : BroadcastReceiver() {
         error("OOB accessibility service is not bound")
     }
 
-    private fun nestedSummary(parentRun: Map<String, Any?>): Map<String, Any?> {
+    private fun calledFunctionSummary(parentRun: Map<String, Any?>): Map<String, Any?> {
         val stepResults = parentRun["step_results"] as? List<*> ?: emptyList<Any?>()
         val firstStep = stepResults.firstOrNull() as? Map<*, *> ?: emptyMap<Any?, Any?>()
-        val nestedSteps = firstStep["step_results"] as? List<*> ?: emptyList<Any?>()
-        val nestedTools = nestedSteps.mapNotNull { raw ->
+        val calledFunctionSteps = firstStep["step_results"] as? List<*> ?: emptyList<Any?>()
+        val calledFunctionTools = calledFunctionSteps.mapNotNull { raw ->
             (raw as? Map<*, *>)?.get("tool")?.toString()?.takeIf { it.isNotBlank() }
         }
         return linkedMapOf(
             "step_tool" to firstStep["tool"],
             "step_executor" to firstStep["executor"],
             "step_success" to firstStep["success"],
-            "nested_function_id" to firstStep["nested_function_id"],
-            "nested_run_id" to firstStep["nested_run_id"],
-            "nested_step_count" to firstStep["nested_step_count"],
-            "nested_success_step_count" to firstStep["nested_success_step_count"],
-            "nested_tools" to nestedTools,
+            "called_function_id" to firstPresent(
+                firstStep["called_function_id"],
+                firstStep["nested_function_id"],
+            ),
+            "called_function_run_id" to firstPresent(
+                firstStep["called_function_run_id"],
+                firstStep["nested_run_id"],
+            ),
+            "called_function_step_count" to firstPresent(
+                firstStep["called_function_step_count"],
+                firstStep["nested_step_count"],
+            ),
+            "called_function_success_step_count" to firstPresent(
+                firstStep["called_function_success_step_count"],
+                firstStep["nested_success_step_count"],
+            ),
+            "called_function_tools" to calledFunctionTools,
         )
     }
 
@@ -450,6 +462,18 @@ class DebugOobFunctionSegmentReceiver : BroadcastReceiver() {
     private fun firstNonBlank(vararg values: String?): String? =
         values.firstNotNullOfOrNull { value ->
             value?.trim()?.takeIf { it.isNotEmpty() }
+        }
+
+    private fun firstPresent(vararg values: Any?): Any? =
+        values.firstOrNull { value ->
+            when (value) {
+                null -> false
+                is String -> value.trim().isNotEmpty()
+                is Map<*, *> -> value.isNotEmpty()
+                is Iterable<*> -> value.any()
+                is Array<*> -> value.isNotEmpty()
+                else -> true
+            }
         }
 
     companion object {
