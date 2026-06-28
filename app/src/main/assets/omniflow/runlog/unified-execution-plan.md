@@ -117,7 +117,7 @@ All entry surfaces should call the same native Function facade:
   service.
 
 The shared contract is the Function JSON schema and `{tool,args}` execution
-steps. The owner of actual Android execution remains the Kotlin replay runner.
+steps. The owner of actual Android execution remains the Kotlin replay handler.
 The machine-readable version of this entry-surface boundary lives in
 `app/src/main/assets/omniflow/runlog/examples/unified-entry-surfaces.json`; keep
 it in sync with MCP/HTTP/MethodChannel/VLM route changes.
@@ -151,7 +151,7 @@ OobOmniFlowToolkitService
         |
         +-- OobFunctionRepository        # Function storage/index
         +-- OobFunctionRecallService     # page/node recall and hit policy
-        +-- OobFunctionRunner            # Android replay through Kotlin
+        +-- OobFunctionToolHandler            # Android replay through Kotlin
         +-- OobFunctionUpdateService     # offline update_function patches
         +-- OobRunLogReplayService       # RunLog -> Function conversion
 ```
@@ -187,7 +187,7 @@ This matrix is the implementation boundary for avoiding two execution systems:
 | Python AndroidWorld action sequence | benchmark/eval manifests | OmniFlow Python experiments | no for OOB app runtime | Useful reference for fixtures/evaluation. Do not wire it into OOB's live accessibility path. |
 
 Concrete rule: a caller may be UI, MCP, HTTP, debug, or Python, but live phone
-execution must eventually enter the same native facade and Kotlin replay runner.
+execution must eventually enter the same native facade and Kotlin replay handler.
 If a proposed change adds another component that can click, swipe, input text,
 launch apps, observe XML, or decide strict direct execution outside this chain,
 it is creating the second execution system this plan rejects.
@@ -480,7 +480,7 @@ Direct calls are useful for debug and UI buttons, but they must be scoped:
 
 - Input is `function_id` plus public arguments, not a natural-language goal.
 - The call loads the saved Function through `OobFunctionRepository`.
-- Replay happens through `OobFunctionRunner` and Kotlin action codecs.
+- Replay happens through `OobFunctionToolHandler` and Kotlin action codecs.
 - Failure returns a structured result and does not silently fall back to a fresh
   VLM loop. The caller may decide to start a new `vlm_task` after inspecting the
   failure.

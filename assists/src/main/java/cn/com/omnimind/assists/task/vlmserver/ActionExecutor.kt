@@ -37,9 +37,14 @@ interface DeviceOperator {
     suspend fun hideKeyboard(): OperationResult
 }
 
+fun interface FunctionRunExecutor {
+    suspend fun run(action: FunctionRunAction, context: VLMFunctionRunContext): OperationResult
+}
+
 class ActionExecutor(
     private val deviceOperator: DeviceOperator,
     private val contextManager: UIContextManager,
+    private val functionRunExecutor: FunctionRunExecutor? = null,
 ) {
     private val TAG = "ActionExecutor"
     private val json = Json { ignoreUnknownKeys = true }
@@ -175,14 +180,12 @@ class ActionExecutor(
             }
 
             is FunctionRunAction -> {
-                VLMFunctionRunRegistry.run(
-                    VLMFunctionRunRequest(
-                        functionId = action.functionId,
-                        arguments = action.arguments,
-                        taskId = functionRunContext.taskId,
-                        runId = functionRunContext.runId,
+                functionRunExecutor?.run(action, functionRunContext)
+                    ?: OperationResult(
+                        success = false,
+                        message = "复用指令执行器未注册",
+                        data = null,
                     )
-                )
             }
 
             is RecordAction -> {
@@ -470,7 +473,7 @@ class ActionExecutor(
             else -> "动作执行成功"
         }
 
-    private fun Any?.orEmpty(): String = this?.toString().orEmpty()
+    private fun Any?.orEmpty(): String = this?.toString() ?: ""
 
     private fun Map<String, Any?>.toStringDiagnostics(): Map<String, String> =
         mapValues { (_, value) -> value?.toString().orEmpty() }

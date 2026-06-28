@@ -75,7 +75,6 @@ class AgentToolRouter(
     )
 
     init {
-        oobFunctionHandler.router = this
         oobFunctionHandler.workspaceFunctionStore =
             WorkspaceFunctionStore(AgentWorkspaceManager.rootDirectory(context))
     }

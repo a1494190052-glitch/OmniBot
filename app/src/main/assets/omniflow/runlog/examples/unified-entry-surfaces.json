@@ -3,7 +3,7 @@
   "purpose": "Machine-readable contract for keeping UI, MCP, HTTP/debug, VLM recall, and Python OmniFlow on one OOB-native Function execution path.",
   "runtime_owner": "oob_native_kotlin",
   "native_facade": "OobOmniFlowToolkitService",
-  "phone_action_runner": "OobFunctionRunner",
+  "phone_action_runner": "OobFunctionToolHandler",
   "enhancement_policy": "offline_only",
   "product_label": {
     "zh": "复用指令",
@@ -23,7 +23,7 @@
         "oob_function_run"
       ],
       "may_execute_phone_actions": true,
-      "phone_action_owner": "agent_profile_then_kotlin_runner",
+      "phone_action_owner": "agent_profile_then_kotlin_action_executor",
       "requires_concrete_function_id": true,
       "model_visible_function_execution_tool": true,
       "tool_profile": "omniflow",

@@ -73,7 +73,6 @@ class OobFunctionRunResultBuilder {
             "success_step_count" to 0,
             "model_used" to false,
             "model_required" to false,
-            "delegated_tool_used" to false,
             "error_code" to errorCode,
             "error_message" to errorMessage,
             "timing" to linkedMapOf(
@@ -101,9 +100,6 @@ class OobFunctionRunResultBuilder {
         normalizedResumeFromStep: Int,
         runtimeResolveSessionId: String,
         runtimeResolveAttempt: Int,
-        modelRequired: Boolean,
-        delegatedToolUsed: Boolean,
-        allowAgentFallback: Boolean,
         failureReason: String?,
     ): LinkedHashMap<String, Any?> {
         val successCount = stepResults.count { it["success"] != false }
@@ -129,7 +125,6 @@ class OobFunctionRunResultBuilder {
             "run_source" to OobFunctionToolHandler.FUNCTION_RUN_SOURCE,
             "runner" to when {
                 runtimeResolveRequired -> "oob_function_runtime_resolve_required"
-                delegatedToolUsed -> "oob_function_mixed_runner"
                 else -> OobFunctionToolHandler.FUNCTION_DIRECT_RUNNER
             },
             "replay_mode" to "function_direct_run",
@@ -141,10 +136,9 @@ class OobFunctionRunResultBuilder {
             "runtime_resolve_session_id" to runtimeResolveSessionId.takeIf { it.isNotBlank() },
             "runtime_resolve_attempt" to runtimeResolveAttempt.takeIf { it > 0 },
             "model_used" to false,
-            "model_required" to modelRequired,
+            "model_required" to false,
             "runtime_resolve_required" to runtimeResolveRequired.takeIf { it },
             "runtime_resolve_available" to runtimeResolveAvailable.takeIf { runtimeResolveRequired },
-            "delegated_tool_used" to delegatedToolUsed,
             "failed_step_index" to failedStepIndex,
             "current_step_index" to currentStepIndex,
             "current_step_number" to currentStepNumber,

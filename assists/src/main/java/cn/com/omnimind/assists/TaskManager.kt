@@ -167,7 +167,8 @@ class TaskManager(
             taskChangeListener,
             params.onMessagePushListener,
             params.needSummary
-            ,this
+            ,this,
+            params.functionRunExecutor
         )
         (runningTask as ScheduledVLMOperationTask).start(
             context, params.goal, params.model, params.maxSteps, params.packageName,
@@ -257,7 +258,8 @@ class TaskManager(
             taskChangeListener,
             params.onMessagePushListener,
             params.needSummary
-            ,this
+            ,this,
+            params.functionRunExecutor
         )
         params.taskId?.trim()?.takeIf { it.isNotEmpty() }?.let { taskId ->
             vlmTask.id = taskId

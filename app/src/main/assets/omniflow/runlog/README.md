@@ -96,7 +96,7 @@ record. Do not read only the snapshot when correctness matters.
   `app/src/main/java/cn/com/omnimind/bot/vlm/VlmToolCoordinator.kt`
 - VLM recall context contract:
   `assists/src/main/java/cn/com/omnimind/assists/task/vlmserver/VLMRecallContextProvider.kt`
-- Function execution runner: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionRunner.kt`
+- Function execution runner: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionToolHandler.kt`
 - Canonical in-app Function/RunLog tool names: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionToolNames.kt`
 - Function call timing: `app/src/main/java/cn/com/omnimind/bot/runlog/OobFunctionCallTiming.kt`
 - OmniFlow skill profile: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionSkillProfile.kt`
@@ -113,13 +113,14 @@ record. Do not read only the snapshot when correctness matters.
 - RunLog startup/launcher bridge cleaner: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogStartupBridgeCleaner.kt`
 - RunLog reusable Function parameterizer: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogReusableFunctionParameterizer.kt`
 - RunLog action/value parser: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogActionParser.kt`
-- Function execution startup: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionRunner.kt`
+- Function execution startup: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionToolHandler.kt`
 - Replay step runner: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolHandler.kt`
 - Replay frontend session controller: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionFrontendSessionController.kt`
 - Replay failed-step runtime resolve context controller: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionRuntimeResolveContextController.kt`
-- Replay tool delegation executor: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolDelegationExecutor.kt`
-  This plus `OobFunctionToolHandler` owns `call_tool` and nested Function dispatch;
-  do not reintroduce separate step executors unless the ownership boundary changes.
+- Function step routing: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolHandler.kt`
+  This owns `call_tool(function_id)` nested Function dispatch and rejects generic
+  tool steps during replay; do not reintroduce separate step executors
+  unless the ownership boundary changes.
 - Replay run result builder: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionRunResultBuilder.kt`
 - Nested Function card presenter: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionNestedCallCardPresenter.kt`
 - Native replay policy and reusable Function conversion: `app/src/main/java/cn/com/omnimind/bot/runlog/`

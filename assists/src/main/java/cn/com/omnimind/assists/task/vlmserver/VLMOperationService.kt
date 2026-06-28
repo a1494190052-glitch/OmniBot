@@ -44,6 +44,7 @@ class VLMOperationService(
     private val taskId: String = "",
     private val runId: String = "",
     private val taskScope: CoroutineScope? = null,
+    private val functionRunExecutor: FunctionRunExecutor? = null,
 ) {
     private data class XmlHealth(
         val nodeCount: Int,
@@ -59,7 +60,7 @@ class VLMOperationService(
     private val Tag = "VLMOperationService"
     private val vlmClient = VLMClient()
     private val contextManager = UIContextManager()
-    private val actionExecutor = ActionExecutor(deviceOperator, contextManager)
+    private val actionExecutor = ActionExecutor(deviceOperator, contextManager, functionRunExecutor)
     private val logJson = Json {
         encodeDefaults = true
         ignoreUnknownKeys = true

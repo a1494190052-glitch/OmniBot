@@ -620,7 +620,6 @@ internal fun buildOobReusableFunctionLocalPayload(
         "current_step_number" to currentStepNumber,
         "model_used" to (runPayload["model_used"] == true),
         "model_required" to (runPayload["model_required"] == true),
-        "delegated_tool_used" to (runPayload["delegated_tool_used"] == true),
         "arguments_applied" to true,
         "timing" to timing
     )
@@ -701,7 +700,6 @@ internal fun normalizeOobToolkitFunctionRunPayloadForChannel(payload: Map<String
             "runtime_resolve_available",
             payload["runtime_resolve_available"] ?: resultPayload["runtime_resolve_available"]
         )
-        put("delegated_tool_used", payload["delegated_tool_used"] ?: resultPayload["delegated_tool_used"])
         put(
             "runtime_resolve_session_id",
             payload["runtime_resolve_session_id"] ?: resultPayload["runtime_resolve_session_id"]

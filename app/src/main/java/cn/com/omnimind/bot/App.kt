@@ -153,11 +153,6 @@ class App : BaseApplication() {
             cn.com.omnimind.assists.task.vlmserver.VLMPostTaskHookRegistry.register(guidanceManager)
         }
         runCatching {
-            cn.com.omnimind.assists.task.vlmserver.VLMFunctionRunRegistry.register(
-                cn.com.omnimind.bot.vlm.VlmFunctionRunHandlerImpl(this)
-            )
-        }
-        runCatching {
             ShizukuCapabilityManager.get(this)
         }
 

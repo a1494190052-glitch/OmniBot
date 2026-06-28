@@ -8,15 +8,16 @@ import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
+import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
+import cn.com.omnimind.bot.agent.tool.handlers.SharedHelper
 import cn.com.omnimind.bot.omniflow.OobFunctionRecallService
 import cn.com.omnimind.bot.omniflow.OobFunctionRepository
 import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
-import cn.com.omnimind.bot.omniflow.OobFunctionRuntimeResolvePlanner
+import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionRuntimeResolvePlanner
 import cn.com.omnimind.bot.omniflow.OobFunctionStepwiseUpdateOrchestrator
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
 import cn.com.omnimind.bot.omniflow.OobFunctionUpdateAgentOrchestrator
 import cn.com.omnimind.bot.omniflow.OobFunctionUpdateService
-import cn.com.omnimind.bot.omniflow.OobFunctionRunner
 import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
 import cn.com.omnimind.bot.runlog.boolArg
 import cn.com.omnimind.bot.runlog.boolArgOrDefault
@@ -24,6 +25,7 @@ import cn.com.omnimind.bot.runlog.firstNonBlank
 import cn.com.omnimind.bot.runlog.intArg
 import cn.com.omnimind.bot.runlog.listArg
 import cn.com.omnimind.bot.runlog.mapArg
+import kotlinx.serialization.json.Json
 
 /**
  * OOB-native implementation of the public OmniFlow agent toolkit surface.
@@ -48,26 +50,39 @@ class OobOmniFlowToolkitService(
     private val functionRepository = OobFunctionRepository(context, workspaceFunctionStore)
     private val replayService = OobRunLogReplayService(context, workspaceFunctionStore, functionRepository)
     private val functionRecallService = OobFunctionRecallService(context, functionRepository, deviceOperator)
-    private val functionRunner = runtimeResolvePlanner?.let { planner ->
-        OobFunctionRunner(
-            context = context,
-            workspaceFunctionStore = workspaceFunctionStore,
-            functionRepository = functionRepository,
-            deviceOperator = deviceOperator,
-            runtimeResolvePlanner = planner,
-        )
-    } ?: OobFunctionRunner(
-        context = context,
-        workspaceFunctionStore = workspaceFunctionStore,
-        functionRepository = functionRepository,
-        deviceOperator = deviceOperator,
-    )
+    private val functionHandler = createFunctionHandler()
     private val functionUpdateService = OobFunctionUpdateService(context, functionRepository)
     private val functionUpdateOrchestrator =
         OobFunctionUpdateAgentOrchestrator(functionUpdateService, updateAgentRequester)
     private val functionStepwiseUpdateOrchestrator =
         OobFunctionStepwiseUpdateOrchestrator(functionUpdateService, updateAgentRequester)
     private val explorer = OobOmniFlowExplorer(context, deviceOperator)
+
+    private fun createFunctionHandler(): OobFunctionToolHandler {
+        val helper = SharedHelper(
+            context,
+            Json {
+                ignoreUnknownKeys = true
+                isLenient = true
+                encodeDefaults = false
+            }
+        )
+        val handler = runtimeResolvePlanner?.let { planner ->
+            OobFunctionToolHandler(
+                context = context,
+                helper = helper,
+                deviceOperator = deviceOperator,
+                runtimeResolvePlanner = planner,
+            )
+        } ?: OobFunctionToolHandler(
+            context = context,
+            helper = helper,
+            deviceOperator = deviceOperator,
+        )
+        return handler.apply {
+            this.workspaceFunctionStore = workspaceFunctionStore
+        }
+    }
 
     suspend fun executeTool(name: String?, args: Map<String, Any?>?): Map<String, Any?> {
         return when (name) {
@@ -514,10 +529,9 @@ class OobOmniFlowToolkitService(
         val executionMode = firstNonBlank(request["execution_mode"])
             .ifBlank { "foreground" }
         var runPayload = callTiming.measureSuspend("execute_function_ms") {
-            functionRunner.execute(
+            functionHandler.runFunction(
                 functionId = functionId,
                 arguments = arguments,
-                allowAgentFallback = false,
                 resumeFromStep = resumeFromStep,
                 frontendRunId = frontendRunId,
                 frontendTaskId = frontendTaskId,

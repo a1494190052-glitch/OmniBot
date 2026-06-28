@@ -7,11 +7,9 @@ import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
 /**
  * Static replay classification shared by RunLog conversion and local replay.
  *
- * This is not a dispatcher or service layer. Keep execution in
- * [ReplayHelper], Function storage in
- * [cn.com.omnimind.bot.omniflow.OobFunctionRepository], and tool
- * routing in OobFunctionToolHandler. Canonical action parsing lives in
- * [OobActionCodec]; this policy only owns non-action tool categories.
+ * This is not a dispatcher or service layer. Function replay lowers UI steps
+ * to canonical actions and sends them through ActionExecutor; ReplayHelper only
+ * owns replay checks/remapping. This policy only owns non-action tool categories.
  */
 object RunLogReplayPolicy {
     const val schemaVersion: String = "oob.runlog_replay_policy.v1"
@@ -63,10 +61,7 @@ object RunLogReplayPolicy {
         TOOL_CALL_TOOL,
     )
 
-    /**
-     * Backward-compatible contract field. These tools used to be provider-only,
-     * but OOB now has a native execution layer for OmniFlow graph/function calls.
-     */
+    /** Backward-compatible contract field. Graph route execution is not local. */
     val providerOnlyTools: Set<String> = emptySet()
 
     val skipTools: Set<String> = setOf(
@@ -117,8 +112,4 @@ object RunLogReplayPolicy {
         }
     }
 
-    fun requiresAgentPlanningReason(reason: String): Boolean {
-        return reason == "data_flow_tool_requires_live_context" ||
-            reason == "perception_only_step_without_recorded_actions"
-    }
 }

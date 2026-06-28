@@ -136,7 +136,7 @@ data class FunctionRegistryStats(
 data class FunctionMetadata(
     val packageConstraint: String? = null,
     val checkerRules: List<UIStepCheckerRule> = emptyList(),
-    /** UDEG node ID for the function's starting page — used by OobFunctionGoToNavigator. */
+    /** UDEG node ID captured for the function's starting page. */
     val sourceNodeId: String? = null,
     val sourceRunId: String? = null,
     val registryStats: FunctionRegistryStats? = null,

@@ -121,37 +121,34 @@ class ActionExecutorTest {
     fun `function run action returns function payload as action result data`() = runBlocking {
         withQuietLogs {
             val operator = FakeDeviceOperator()
-            val executor = ActionExecutor(operator, UIContextManager())
-            VLMFunctionRunRegistry.register(object : VLMFunctionRunHandler {
-                override suspend fun runFunction(request: VLMFunctionRunRequest): OperationResult {
-                    return OperationResult(
+            val executor = ActionExecutor(
+                operator,
+                UIContextManager(),
+                FunctionRunExecutor { action, _ ->
+                    OperationResult(
                         success = true,
                         message = "function completed",
                         data = buildJsonObject {
-                            put("function_id", JsonPrimitive(request.functionId))
+                            put("function_id", JsonPrimitive(action.functionId))
                             put("fallback", JsonPrimitive(false))
                         }
                     )
                 }
-            })
+            )
 
-            try {
-                val result = executor.executeAction(
-                    UIStep(
-                        observation = "",
-                        thought = "reuse known flow",
-                        action = FunctionRunAction(functionId = "order_takeout")
-                    )
+            val result = executor.executeAction(
+                UIStep(
+                    observation = "",
+                    thought = "reuse known flow",
+                    action = FunctionRunAction(functionId = "order_takeout")
                 )
+            )
 
-                assertEquals("function completed", result.result)
-                assertEquals(
-                    JsonPrimitive("order_takeout"),
-                    result.actionResultData?.jsonObject?.get("function_id")
-                )
-            } finally {
-                VLMFunctionRunRegistry.register(null)
-            }
+            assertEquals("function completed", result.result)
+            assertEquals(
+                JsonPrimitive("order_takeout"),
+                result.actionResultData?.jsonObject?.get("function_id")
+            )
         }
     }
 
@@ -209,6 +206,17 @@ class ActionExecutorTest {
         override fun getDisplayHeight(): Int = 1280
 
         override suspend fun showInfo(message: String) = Unit
+
+        override fun isReady(): Boolean = true
+
+        override fun currentXml(): String? = "<hierarchy />"
+
+        override fun currentPackageName(): String? = "com.example"
+
+        override fun currentActivityName(): String? = "MainActivity"
+
+        override suspend fun hideKeyboard(): OperationResult =
+            OperationResult(true, "hidden")
     }
 
     private inline fun withQuietLogs(block: () -> Unit) {

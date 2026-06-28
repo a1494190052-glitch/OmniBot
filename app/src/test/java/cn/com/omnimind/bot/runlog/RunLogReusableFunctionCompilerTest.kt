@@ -864,13 +864,10 @@ class RunLogReusableFunctionCompilerTest {
             assertTrue(RunLogReplayPolicy.isAgentTool(toolName))
             assertFalse(RunLogReplayPolicy.isOmniflowExecutionTool(toolName))
         }
-        for (reason in listOf("provider_owned_replay_requires_omniflow")) {
-            assertFalse(RunLogReplayPolicy.requiresAgentPlanningReason(reason))
-        }
     }
 
     @Test
-    fun `generic call_tool without function id compiles to tool delegation`() {
+    fun `generic call_tool without function id compiles as unsupported replay tool step`() {
         val spec = compile(
             listOf(
                 card(

@@ -130,7 +130,7 @@ helper with mixed semantics.
 - route all Function storage operations through `OobFunctionRepository`
 - route Function recall and direct-hit decisions through
   `OobFunctionRecallService`
-- route deterministic Function execution through `OobFunctionRunner`
+- route deterministic Function execution through `OobFunctionToolHandler`
 - route simple Function registration step normalization through
   `OobFunctionStepNormalizer`
 - route `update_function` evidence analysis and patches through
@@ -299,7 +299,7 @@ When adding or migrating a generic agent tool name:
 - share mechanical Function payload coercion with VLM recall/page-context
   guidance through `OobFunctionJson`
 
-`OobFunctionRunner` owns run-time Function execution:
+`OobFunctionToolHandler` owns run-time Function execution:
 
 - load and materialize the requested Function
 - validate missing required arguments
@@ -316,7 +316,7 @@ When adding or migrating a generic agent tool name:
   failed step and must not reselect a Function. Legacy wire payload names remain
   implementation compatibility only.
 
-`OobFunctionRunner` owns runtime execution startup:
+`OobFunctionToolHandler` owns runtime execution startup:
 
 - load the Function spec from `OobFunctionRepository`
 - validate and materialize runtime arguments
@@ -368,29 +368,19 @@ local action execution:
 routing:
 
 - extract executable args from current Function steps and recorded RunLog cards
-- resolve `call_tool` targets, nested Function ids, and delegated tool args
+- resolve `call_tool(function_id)` targets for nested Function replay
 - identify legacy/noise steps that replay should skip
 - resolve the canonical OmniFlow execution tool for a step
-- decide whether a step is locally executable as graph/function/call_tool
-- extract replayable legacy agent-tool steps when present in older recordings
+- decide whether a step is locally executable as UI action or nested Function
 - hand off nested Function runs through `OobFunctionNestedCallCardPresenter`
-- strip Function/call-tool metadata from forwarded argument payloads
+- reject generic `call_tool(tool_name)` delegation during Function replay
 - keep recorded argument-shape compatibility outside the runtime replay loop
 - skip only explicit observation/no-op legacy steps. Do not introduce
   `already_satisfied` or `optional_not_present` runtime skips for action steps.
 
-`OobFunctionToolDelegationExecutor` owns live tool delegation inside replay:
-
-- remap a materialized Function step into delegated tool arguments
-- build the synthetic `AssistantToolCall` used by `AgentToolExecutor`
-- build the runtime descriptor for delegated replay steps
-- map delegated tool results back into a stable per-step payload, delegating
-  failed delegated-tool result shape to `OobFunctionRunResultBuilder`
-- never decide replay order, fallback policy, or whether a step should delegate
-
 `OobFunctionRunResultBuilder` owns replay result payloads:
 
-- build stable per-step failure records for guard, delegation, and replay errors
+- build stable per-step failure records for guard and replay errors
 - build failed and completed Function run payloads
 - merge runner timing into existing failure payloads
 - keep output schema and timing accounting outside the runtime replay loop
@@ -438,12 +428,11 @@ Agent/MCP tool surface
       -> VLM recall/page context guidance # render runtime-safe recall hints
           -> OobFunctionJson # shared value coercion for Function payloads
       -> OobFunctionCallTiming       # call-level timing merge
-      -> OobFunctionRunner           # load/materialize/execute Functions
+      -> OobFunctionToolHandler           # load/materialize/execute Functions
           -> OobFunctionToolHandler  # deterministic replay and runtime resolve
               -> OobFunctionFrontendSessionController # replay overlay/session
               -> OobFunctionRuntimeResolveContextController # recovery context/runtime resolve
               -> OobFunctionToolHandler # replay/call_tool args and step routing
-              -> OobFunctionToolDelegationExecutor # live tool delegation bridge
               -> OobFunctionRunResultBuilder # run result/timing payloads
               -> OobFunctionNestedCallCardPresenter # nested Function card payloads
               -> ActionExecutor.act # primitive local UI action execution
@@ -507,7 +496,7 @@ Keep these pieces separate:
   metadata for compiled Function specs
 - `RunLogReplayStepNoiseNormalizer`: repeated input and redundant compiled-step
   cleanup after card-to-step conversion
-- `OobFunctionRunner`: Function loading, materialization, and execution timing
+- `OobFunctionToolHandler`: Function loading, materialization, and execution timing
 - `OobFunctionToolHandler` and `ActionExecutor`: runtime step execution
 - `OobFunctionFrontendSessionController`: top-level replay overlay lifecycle
   and stop signal handling
@@ -515,11 +504,8 @@ Keep these pieces separate:
   bounded runtime resolve context
 - `OobFunctionToolHandler`: replay step args, `call_tool` target resolution,
   nested Function argument extraction, skip-step detection, OmniFlow
-  execution-tool resolution, local graph/function/call_tool classification,
-  replayable agent-tool extraction, and metadata stripping
-- `OobFunctionToolDelegationExecutor`: mechanical bridge from replay steps to
-  live `AgentToolExecutor` calls and back to per-step result payloads, using
-  `OobFunctionRunResultBuilder` for delegated-tool failures
+  execution-tool resolution, nested Function classification, and unsupported
+  tool-step rejection
 - `OobFunctionRunResultBuilder`: stable run payload schema, failure step
   records, and runner timing accounting
 - `OobFunctionNestedCallCardPresenter`: nested Function tool-card ids,
@@ -549,11 +535,11 @@ conversion, execution, or agent patching.
 
 `OobOmniFlowToolkitService` should stay a facade. New Function behavior should
 land in one of the owned services above before adding more private helper blocks
-to the toolkit. Keep `OobFunctionRunner` intentionally small: it loads,
+to the toolkit. Keep `OobFunctionToolHandler` intentionally small: it loads,
 materializes, and executes Functions; it does not own patching.
 
 When changing run-time execution or recovery behavior, update
-`OobFunctionRunner`/`OobFunctionToolHandler` first and keep the public response
+`OobFunctionToolHandler`/`OobFunctionToolHandler` first and keep the public response
 contract stable at the tool facade. Do not add ad hoc guard, retry, or agent
 prompt helpers back into `OobOmniFlowToolkitService`.
 

@@ -18,11 +18,15 @@ import cn.com.omnimind.assists.api.bean.TaskParams
 import cn.com.omnimind.assists.api.interfaces.OnMessagePushListener
 import cn.com.omnimind.assists.task.scheduled.worker.ScheduledParams
 import cn.com.omnimind.assists.task.scheduled.worker.ScheduledStates
+import cn.com.omnimind.assists.task.vlmserver.FunctionRunExecutor
+import cn.com.omnimind.assists.task.vlmserver.OperationResult
 import cn.com.omnimind.baselib.util.APPPackageUtil
 import cn.com.omnimind.baselib.util.MobileManufacturerUtil
 import cn.com.omnimind.baselib.util.exception.PermissionException
 import cn.com.omnimind.bot.App
+import cn.com.omnimind.bot.agent.AgentToolJson
 import cn.com.omnimind.bot.manager.OmniForegroundService
+import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
 import cn.com.omnimind.bot.util.AssistsUtil.Core.createCompanionTask
 import cn.com.omnimind.uikit.UIKit
 import cn.com.omnimind.uikit.api.callback.HalfScreenApi
@@ -225,10 +229,40 @@ class AssistsUtil {
                     skipGoHome,
                     stepSkillGuidance,
                     taskId,
-                    disableOmniFlowRecall
+                    disableOmniFlowRecall,
+                    functionRunExecutor(context.applicationContext)
                 )
             )
         }
+
+        private fun functionRunExecutor(context: Context): FunctionRunExecutor =
+            FunctionRunExecutor { action, runContext ->
+                val arguments = AgentToolJson.jsonObjectToMap(action.arguments)
+                val callArgs = buildMap<String, Any?> {
+                    put("function_id", action.functionId)
+                    put("arguments", arguments)
+                    put("allow_runtime_resolve", false)
+                    if (runContext.taskId.isNotBlank()) put("frontend_task_id", runContext.taskId)
+                    if (runContext.runId.isNotBlank()) put("frontend_run_id", runContext.runId)
+                }
+                val result = OobOmniFlowToolkitService(context).runFunction(callArgs)
+                val success = result["success"] == true
+                val stepCount = result["step_count"]?.toString()?.toIntOrNull()
+                val message = buildString {
+                    append(if (success) "Function ${action.functionId} completed" else "Function ${action.functionId} failed")
+                    if (stepCount != null && stepCount > 0) append(" ($stepCount steps)")
+                    val detail = listOfNotNull(
+                        result["error_message"]?.toString(),
+                        result["execution_summary"]?.toString(),
+                    ).firstOrNull { it.isNotBlank() }
+                    if (!detail.isNullOrBlank()) append(": $detail")
+                }
+                OperationResult(
+                    success = success,
+                    message = message,
+                    data = AgentToolJson.mapToJsonElement(result),
+                )
+            }
 
         /**
          * 提供用户输入给正在运行的VLM任务

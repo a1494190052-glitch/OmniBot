@@ -44,7 +44,8 @@ open class VLMOperationTask(
     override val taskChangeListener: TaskChangeListener,
     private val onMessagePushListener: OnMessagePushListener? = null,
     private val needSummary: Boolean = false,
-    override val taskManager: TaskManager
+    override val taskManager: TaskManager,
+    private val functionRunExecutor: FunctionRunExecutor? = null,
 ) : Task(taskChangeListener,taskManager), DeviceOperator {
     private val Tag = "VLMOperationTask"
     private companion object {
@@ -126,6 +127,7 @@ open class VLMOperationTask(
             taskId = id,
             runId = id,
             taskScope = taskScope,
+            functionRunExecutor = functionRunExecutor,
         )
         androidDeviceOperator = AndroidDeviceOperator(executionTaskEventApi, taskContext)
     }
