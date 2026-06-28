@@ -126,20 +126,14 @@ object OobFunctionSchemaBuilder {
         val title = firstNonBlank(action["description"], action["prompt"], rawType).ifBlank { normalizedType }
         val stepId = firstNonBlank(action["id"], action["step_id"], "step_${index + 1}")
         return when {
-            normalizedType == OobActionSchema.TOOL_CLICK -> {
-                val nodeId = firstNonBlank(params["node_id"])
-                if (nodeId.isNotBlank() && firstNonBlank(params["x"]).isBlank() && firstNonBlank(params["y"]).isBlank()) {
-                    graphStep(stepId, index, title, linkedMapOf("node_id" to nodeId).filterValues { it.isNotBlank() })
-                } else {
-                    localActionStep(stepId, index, title, OobActionSchema.TOOL_CLICK, linkedMapOf<String, Any?>().apply {
-                        putFP("x", params["x"]); putFP("y", params["y"])
-                        putFP("target_description", params["target_description"]); putFP("selector", params["selector"])
-                        putFP("node_id", params["node_id"]); putFP("element_index", params["element_index"])
-                        putFP("node_resource_id", params["node_resource_id"]); putFP("bounds", params["bounds"])
-                        if (sourceContext.isNotEmpty()) put("source_context", sourceContext)
-                    }, sourceContext)
-                }
-            }
+            normalizedType == OobActionSchema.TOOL_CLICK ->
+                localActionStep(stepId, index, title, OobActionSchema.TOOL_CLICK, linkedMapOf<String, Any?>().apply {
+                    putFP("x", params["x"]); putFP("y", params["y"])
+                    putFP("target_description", params["target_description"]); putFP("selector", params["selector"])
+                    putFP("node_id", params["node_id"]); putFP("element_index", params["element_index"])
+                    putFP("node_resource_id", params["node_resource_id"]); putFP("bounds", params["bounds"])
+                    if (sourceContext.isNotEmpty()) put("source_context", sourceContext)
+                }, sourceContext)
             normalizedType == OobActionSchema.TOOL_LONG_PRESS ->
                 localActionStep(stepId, index, title, OobActionSchema.TOOL_LONG_PRESS, linkedMapOf<String, Any?>().apply {
                     putFP("x", params["x"]); putFP("y", params["y"]); putFP("duration_ms", params["duration_ms"])
@@ -173,10 +167,6 @@ object OobFunctionSchemaBuilder {
                     putFP("content", params["content"]); putFP("enable_summary", params["enable_summary"])
                     putFP("summary_prompt", params["summary_prompt"])
                 }, emptyMap())
-            RunLogReplayPolicy.isOmniflowGraphTool(normalizedType) ->
-                graphStep(stepId, index, title, linkedMapOf<String, Any?>().apply {
-                    putFP("node_id", params["node_id"]); putFP("path", params["path"]); putFP("utg", params["utg"])
-                })
             RunLogReplayPolicy.isOmniflowToolCallTool(normalizedType) ->
                 functionStep(stepId, index, title, linkedMapOf<String, Any?>().apply {
                     putFP("function_id", params["function_id"]); putFP("node_id", params["node_id"])
@@ -194,11 +184,6 @@ object OobFunctionSchemaBuilder {
             "executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW, "model_free" to true, "scriptable" to true,
             "tool" to action, "args" to args.filterValues { it != null },
             "source_context" to sourceContext.takeIf { it.isNotEmpty() }).filterValues { it != null }
-
-    private fun graphStep(stepId: String, index: Int, title: String, args: Map<String, Any?>): Map<String, Any?> =
-        linkedMapOf<String, Any?>("id" to stepId, "index" to index, "title" to title, "kind" to "omniflow_graph",
-            "executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW, "model_free" to true, "scriptable" to true,
-            "tool" to RunLogReplayPolicy.TOOL_GO_TO_NODE, "args" to args.filterValues { it != null })
 
     private fun functionStep(stepId: String, index: Int, title: String, args: Map<String, Any?>): Map<String, Any?> =
         linkedMapOf<String, Any?>("id" to stepId, "index" to index, "title" to title, "kind" to "omniflow_function",

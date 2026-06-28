@@ -1,13 +1,16 @@
 package cn.com.omnimind.bot.omniflow
 
 import android.content.Context
+import cn.com.omnimind.assists.task.vlmserver.ActionExecutor
+import cn.com.omnimind.assists.task.vlmserver.AndroidDeviceOperator
+import cn.com.omnimind.assists.task.vlmserver.DeviceOperator
+import cn.com.omnimind.assists.task.vlmserver.UIContextManager
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
 import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.SharedHelper
 import cn.com.omnimind.bot.mcp.VlmTaskRequest
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
-import cn.com.omnimind.bot.runlog.UIStepExecutor
 import cn.com.omnimind.bot.runlog.resolveActionName
 import cn.com.omnimind.bot.vlm.VlmToolCoordinator
 import kotlinx.coroutines.coroutineScope
@@ -64,6 +67,8 @@ class OobFunctionRunner(
     private val context: Context,
     private val workspaceFunctionStore: WorkspaceFunctionStore,
     private val functionRepository: OobFunctionRepository,
+    private val deviceOperator: DeviceOperator = AndroidDeviceOperator(null, context),
+    private val actionExecutor: ActionExecutor = ActionExecutor(deviceOperator, UIContextManager()),
     private val runtimeResolvePlanner: OobFunctionRuntimeResolvePlanner = OobFunctionRuntimeResolvePlanner { appContext, request ->
         coroutineScope {
             VlmToolCoordinator.parseOnlyNextAction(
@@ -129,7 +134,9 @@ class OobFunctionRunner(
         val runner = timing.measure("create_runner_ms") {
             OobFunctionToolHandler(
                 context = context,
-                helper = SharedHelper(context, json)
+                helper = SharedHelper(context, json),
+                deviceOperator = deviceOperator,
+                actionExecutor = actionExecutor,
             ).apply {
                 this.workspaceFunctionStore = workspaceFunctionStore
             }
@@ -251,14 +258,12 @@ class OobFunctionRunner(
         )
         val resolveStartedAtMs = System.currentTimeMillis()
         val resolveResult = runCatching {
-            UIStepExecutor.execute(
-                step = resolveStep,
-                stepId = stepId,
-                stepTitle = "Runtime resolve action",
-                checkerRules = emptyList(),
-                checkerBudget = UIStepExecutor.CheckerTriggerBudget(),
-                stopRequested = null,
-            )
+            val actionResult = runner.executeRuntimeResolveAction(resolveStep)
+            linkedMapOf<String, Any?>(
+                "success" to actionResult.success,
+                "summary" to actionResult.message,
+                "diagnostics" to actionResult.diagnostics.takeIf { it.isNotEmpty() },
+            ).filterValues { it != null }
         }.getOrElse { error ->
             return initialPayload.withRuntimeResolveFailure(
                 reason = "runtime_resolve_action_failed",

@@ -3,12 +3,11 @@ import cn.com.omnimind.bot.runlog.resolveActionName
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 
 import android.content.Context
+import cn.com.omnimind.assists.task.vlmserver.AndroidDeviceOperator
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.BuildConfig
-import cn.com.omnimind.bot.agent.tool.handlers.VlmActExecutor
 import cn.com.omnimind.bot.mcp.McpToolExecutors
 import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
-import cn.com.omnimind.bot.runlog.OmniflowActionRuntime
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.gson.gson
@@ -102,12 +101,6 @@ object LocalDeviceHttpHostManager {
                     val status = if (result["success"] == true) HttpStatusCode.OK else HttpStatusCode.BadRequest
                     call.respond(status, result)
                 }
-                get("/local_action_log") {
-                    call.respond(exportLocalActionLog(context, call.request.queryParameters.toSingleValueMap()))
-                }
-                post("/local_action_log") {
-                    call.respond(exportLocalActionLog(context, call.receiveMap()))
-                }
                 post("/omniflow/tool") {
                     val body = call.receiveMap()
                     val result = executeOmniFlowTool(context, body)
@@ -131,7 +124,8 @@ object LocalDeviceHttpHostManager {
         context: Context,
         args: Map<String, Any?>,
     ): Map<String, Any?> {
-        if (!OmniflowActionRuntime.backend.isReady()) {
+        val deviceOperator = AndroidDeviceOperator(null, context)
+        if (!deviceOperator.isReady()) {
             return linkedMapOf(
                 "success" to false,
                 "error" to "Accessibility action backend is not ready",
@@ -144,19 +138,6 @@ object LocalDeviceHttpHostManager {
     private suspend fun executeAction(context: Context, body: Map<String, Any?>): Map<String, Any?> =
         runCatching {
             McpToolExecutors.executeAct(context, body) + mapOf("source" to "oob_local_device_http_host")
-        }.getOrElse { error ->
-            linkedMapOf(
-                "success" to false,
-                "error" to error.message.orEmpty().ifBlank { error::class.java.simpleName },
-                "source" to "oob_local_device_http_host",
-            )
-        }
-
-    private suspend fun exportLocalActionLog(context: Context, body: Map<String, Any?>): Map<String, Any?> =
-        runCatching {
-            McpToolExecutors.executeLocalActionLog(context, body) + mapOf(
-                "source" to "oob_local_device_http_host",
-            )
         }.getOrElse { error ->
             linkedMapOf(
                 "success" to false,

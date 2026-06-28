@@ -207,7 +207,6 @@ class OobFunctionRunResultBuilder {
             val completedPhases = linkedMapOf<String, Long>()
             listOf(
                 "materialized_steps_ms",
-                "accessibility_preflight_ms",
                 "pre_step_loop_ms",
                 "step_loop_ms",
                 "result_build_ms",

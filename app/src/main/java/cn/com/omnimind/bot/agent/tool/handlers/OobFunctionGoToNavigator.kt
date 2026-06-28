@@ -1,4 +1,5 @@
 package cn.com.omnimind.bot.agent.tool.handlers
+import cn.com.omnimind.assists.task.vlmserver.DeviceOperator
 import cn.com.omnimind.bot.runlog.pageXmlFromContext
 import cn.com.omnimind.bot.runlog.sourceContextForStep
 import cn.com.omnimind.bot.runlog.mapArg
@@ -7,7 +8,7 @@ import cn.com.omnimind.baselib.runlog.OobActionSchema
 
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
 import cn.com.omnimind.bot.runlog.OobUdegNodeStore
-import cn.com.omnimind.bot.runlog.UIStepExecutor
+import cn.com.omnimind.bot.runlog.ReplayHelper
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 
 /**
@@ -17,6 +18,7 @@ import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
  */
 class OobFunctionGoToNavigator(
     private val context: android.content.Context,
+    private val deviceOperator: DeviceOperator,
     private val runResultBuilder: OobFunctionRunResultBuilder,
 ) {
     data class Result(
@@ -44,7 +46,10 @@ class OobFunctionGoToNavigator(
             packageName = firstSource.packageName,
         )
         if (targetNodeId.isBlank() || !udegStore.hasNode(targetNodeId)) return Result()
-        val current = UIStepExecutor.currentPageSnapshotForRecovery("function_start_check")
+        val current = ReplayHelper.currentPageSnapshotForRecovery(
+            deviceOperator,
+            "function_start_check",
+        )
         val currentXml = firstNonBlank(current["observation_xml"])
         val currentPackage = firstNonBlank(
             current["effective_package"],
@@ -110,7 +115,10 @@ class OobFunctionGoToNavigator(
             }
         }
 
-        val afterGoTo = UIStepExecutor.currentPageSnapshotForRecovery("after_go_to_function")
+        val afterGoTo = ReplayHelper.currentPageSnapshotForRecovery(
+            deviceOperator,
+            "after_go_to_function",
+        )
         val afterXml = firstNonBlank(afterGoTo["observation_xml"])
         val afterPackage = firstNonBlank(afterGoTo["effective_package"], afterGoTo["package_name"])
         if (!udegStore.pageMatchesNode(afterXml, afterPackage, targetNodeId)) {
@@ -144,7 +152,7 @@ class OobFunctionGoToNavigator(
         ): Map<String, Any?> {
             val firstStep = activeSteps.firstOrNull().orEmpty()
             val stepId = firstStep["id"]?.toString().orEmpty().ifBlank { "step_1" }
-            val action = UIStepExecutor.actionNameForStep(firstStep).ifBlank {
+            val action = ReplayHelper.actionNameForStep(firstStep).ifBlank {
                 firstStep["tool"]?.toString().orEmpty().ifBlank { "unknown" }
             }
             val progress = linkedMapOf<String, Any?>(
@@ -179,7 +187,7 @@ class OobFunctionGoToNavigator(
 
     private fun firstExecutableSource(activeSteps: List<Map<String, Any?>>): FunctionSourcePage? {
         activeSteps.forEach { step ->
-            val action = UIStepExecutor.actionNameForStep(step)
+            val action = ReplayHelper.actionNameForStep(step)
             if (action !in OobActionSchema.replayableToolNames ||
                 action == OobActionSchema.TOOL_OPEN_APP ||
                 action == OobActionSchema.TOOL_FINISHED

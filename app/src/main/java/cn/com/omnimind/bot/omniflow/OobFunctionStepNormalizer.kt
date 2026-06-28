@@ -49,15 +49,6 @@ internal object OobFunctionStepNormalizer {
                 step["args"] = stepArgs
                 if (sourceContext.isNotEmpty()) step["source_context"] = sourceContext
             }
-            RunLogReplayPolicy.isOmniflowGraphTool(normalizedTool) -> {
-                step["kind"] = "omniflow_graph"
-                step["executor"] = RunLogReplayPolicy.EXECUTOR_OMNIFLOW
-                step["model_free"] = true
-                step["scriptable"] = true
-                step["tool"] = normalizedTool
-                step["args"] = stepArgs
-                if (sourceContext.isNotEmpty()) step["source_context"] = sourceContext
-            }
             RunLogReplayPolicy.isOmniflowToolCallTool(normalizedTool) ||
                     firstNonBlank(stepArgs["function_id"]).isNotBlank() -> {
                 step["kind"] = "omniflow_function"

@@ -271,23 +271,6 @@ Use this for external evaluators that make their own next-step decision but want
         )
     )
 
-    val localActionLogTool = mapOf(
-        "name" to "local_action_log",
-        "description" to """Read recent redacted local UI action records for offline planner training/evaluation.
-
-This is read-only. It returns one record per executed local action from VLM, OmniFlow replay, or /act. Sensitive input_text values are redacted at record time; dangerous actions blocked by policy are returned with blocked=true and are not executed.
-""".trimIndent(),
-        "inputSchema" to mapOf(
-            "type" to "object",
-            "properties" to mapOf(
-                "limit" to mapOf(
-                    "type" to "integer",
-                    "description" to "Maximum number of recent records to return. Default 100, capped at 500."
-                )
-            )
-        )
-    )
-
     val fileTransferTool
         get() = mapOf(
         "name" to "file_transfer",
@@ -572,7 +555,6 @@ BEHAVIOR:
             taskWaitUnlockTool,
             getStateTool,
             actTool,
-            localActionLogTool,
             fileTransferTool,
             agentRunTool,
             omniflowRecallTool,

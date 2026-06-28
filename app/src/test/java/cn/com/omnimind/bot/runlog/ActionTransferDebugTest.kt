@@ -1,9 +1,10 @@
 package cn.com.omnimind.bot.runlog
 
+import cn.com.omnimind.assists.task.vlmserver.DeviceOperator
+import cn.com.omnimind.assists.task.vlmserver.OperationResult
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonElement
 import com.google.gson.JsonParser
-import cn.com.omnimind.omniintelligence.models.ScrollDirection
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.File
@@ -39,9 +40,7 @@ class ActionTransferDebugTest {
             "source_context" to mapOf("src_ctx" to mapOf("page" to sourceXml)),
         )
 
-        val remap = DebugBackend(targetXml).useAsBackend {
-            UIStepExecutor.remapStepArgs(step)
-        }
+        val remap = ReplayHelper.remapStepArgs(step, DebugDeviceOperator(targetXml))
         val remappedArgs = remap.args as? Map<*, *>
         val payload = linkedMapOf<String, Any?>(
             "input" to linkedMapOf<String, Any?>(
@@ -74,9 +73,6 @@ class ActionTransferDebugTest {
         }
         println(json)
     }
-
-    private fun <T> DebugBackend.useAsBackend(block: () -> T): T =
-        OmniflowActionRuntime.useBackendForTesting(this).use { block() }
 
     private fun loadXml(path: String, source: Boolean): String {
         val text = File(path).readText()
@@ -132,24 +128,36 @@ class ActionTransferDebugTest {
             .firstOrNull()
     }
 
-    private class DebugBackend(
+    private class DebugDeviceOperator(
         private val xml: String,
-    ) : OmniflowActionBackend {
+    ) : DeviceOperator {
         override fun isReady(): Boolean = true
-        override suspend fun click(x: Float, y: Float) = Unit
-        override suspend fun longPress(x: Float, y: Float, durationMs: Long) = Unit
-        override suspend fun scroll(
-            x: Float,
-            y: Float,
-            direction: ScrollDirection,
-            distance: Float,
-            durationMs: Long,
-        ) = Unit
-        override suspend fun inputTextToFocusedNode(text: String) = Unit
-        override suspend fun launchApplication(packageName: String) = Unit
-        override suspend fun pressHotKey(key: String) = Unit
+        override suspend fun clickCoordinate(x: Float, y: Float): OperationResult = OperationResult(true, "click")
+        override suspend fun longClickCoordinate(x: Float, y: Float, duration: Long): OperationResult =
+            OperationResult(true, "long click")
+        override suspend fun inputText(text: String): OperationResult = OperationResult(true, "input")
+        override suspend fun pressHotKey(key: String): OperationResult = OperationResult(true, "key")
+        override suspend fun copyToClipboard(text: String): OperationResult = OperationResult(true, "copy")
+        override suspend fun getClipboard(): String? = null
+        override suspend fun slideCoordinate(
+            x1: Float,
+            y1: Float,
+            x2: Float,
+            y2: Float,
+            duration: Long,
+        ): OperationResult = OperationResult(true, "swipe")
+        override suspend fun goHome(): OperationResult = OperationResult(true, "home")
+        override suspend fun goBack(): OperationResult = OperationResult(true, "back")
+        override suspend fun launchApplication(packageName: String): OperationResult = OperationResult(true, "launch")
+        override suspend fun captureScreenshot(): String = ""
+        override fun getLastScreenshotWidth(): Int = 1080
+        override fun getLastScreenshotHeight(): Int = 1920
+        override fun getDisplayWidth(): Int = 1080
+        override fun getDisplayHeight(): Int = 1920
+        override suspend fun showInfo(message: String) = Unit
         override fun currentXml(): String = xml
         override fun currentPackageName(): String = "debug"
         override fun currentActivityName(): String = "debug/.ActionTransferDebug"
+        override suspend fun hideKeyboard(): OperationResult = OperationResult(true, "hide")
     }
 }

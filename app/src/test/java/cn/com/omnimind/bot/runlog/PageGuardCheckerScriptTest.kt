@@ -1,6 +1,7 @@
 package cn.com.omnimind.bot.runlog
 
-import cn.com.omnimind.omniintelligence.models.ScrollDirection
+import cn.com.omnimind.assists.task.vlmserver.DeviceOperator
+import cn.com.omnimind.assists.task.vlmserver.OperationResult
 import java.io.File
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -22,29 +23,28 @@ class PageGuardCheckerScriptTest {
             currentActivity = currentActivity,
         )
 
-        OmniflowActionRuntime.useBackendForTesting(backend).use {
-            val result = UIStepExecutor.runPageGuardOnce(
-                execute = execute,
-                source = "page_guard_checker_script",
-                checkerBudget = UIStepExecutor.CheckerTriggerBudget(),
-            ) + mapOf(
-                "fake_click_count" to backend.clickPoints.size,
-                "fake_click_points" to backend.clickPoints.map { point ->
-                    mapOf("x" to point.first, "y" to point.second)
-                },
-            )
+        val result = ReplayHelper.runPageGuard(
+            deviceOperator = backend,
+            execute = execute,
+            source = "page_guard_checker_script",
+            checkerBudget = ReplayHelper.CheckerTriggerBudget(),
+        ) + mapOf(
+            "fake_click_count" to backend.clickPoints.size,
+            "fake_click_points" to backend.clickPoints.map { point ->
+                mapOf("x" to point.first, "y" to point.second)
+            },
+        )
 
-            resultFile?.let { file ->
-                file.parentFile?.mkdirs()
-                file.writeText(toJson(result), Charsets.UTF_8)
-            }
+        resultFile?.let { file ->
+            file.parentFile?.mkdirs()
+            file.writeText(toJson(result), Charsets.UTF_8)
+        }
 
-            when (expect) {
-                "match" -> assertEquals(true, result["matched"])
-                "no-match" -> assertEquals(false, result["matched"])
-                "any" -> Unit
-                else -> fail("Unsupported PAGE_GUARD_CHECKER_EXPECT=$expect")
-            }
+        when (expect) {
+            "match" -> assertEquals(true, result["matched"])
+            "no-match" -> assertEquals(false, result["matched"])
+            "any" -> Unit
+            else -> fail("Unsupported PAGE_GUARD_CHECKER_EXPECT=$expect")
         }
     }
 
@@ -52,36 +52,42 @@ class PageGuardCheckerScriptTest {
         private val xml: String,
         private val currentPackage: String,
         private val currentActivity: String,
-    ) : OmniflowActionBackend {
+    ) : DeviceOperator {
         val clickPoints = mutableListOf<Pair<Float, Float>>()
 
         override fun isReady(): Boolean = true
 
-        override suspend fun click(x: Float, y: Float) {
+        override suspend fun clickCoordinate(x: Float, y: Float): OperationResult {
             clickPoints += x to y
+            return OperationResult(true, "clicked")
         }
 
-        override suspend fun longPress(x: Float, y: Float, durationMs: Long) = Unit
-
-        override suspend fun scroll(
-            x: Float,
-            y: Float,
-            direction: ScrollDirection,
-            distance: Float,
-            durationMs: Long,
-        ) = Unit
-
-        override suspend fun inputTextToFocusedNode(text: String) = Unit
-
-        override suspend fun launchApplication(packageName: String) = Unit
-
-        override suspend fun pressHotKey(key: String) = Unit
-
+        override suspend fun longClickCoordinate(x: Float, y: Float, duration: Long): OperationResult =
+            OperationResult(true, "long clicked")
+        override suspend fun inputText(text: String): OperationResult = OperationResult(true, "input")
+        override suspend fun pressHotKey(key: String): OperationResult = OperationResult(true, "key")
+        override suspend fun copyToClipboard(text: String): OperationResult = OperationResult(true, "copy")
+        override suspend fun getClipboard(): String? = null
+        override suspend fun slideCoordinate(
+            x1: Float,
+            y1: Float,
+            x2: Float,
+            y2: Float,
+            duration: Long,
+        ): OperationResult = OperationResult(true, "swipe")
+        override suspend fun goHome(): OperationResult = OperationResult(true, "home")
+        override suspend fun goBack(): OperationResult = OperationResult(true, "back")
+        override suspend fun launchApplication(packageName: String): OperationResult = OperationResult(true, "launch")
+        override suspend fun captureScreenshot(): String = ""
+        override fun getLastScreenshotWidth(): Int = 1080
+        override fun getLastScreenshotHeight(): Int = 1920
+        override fun getDisplayWidth(): Int = 1080
+        override fun getDisplayHeight(): Int = 1920
+        override suspend fun showInfo(message: String) = Unit
         override fun currentXml(): String = xml
-
         override fun currentPackageName(): String = currentPackage
-
         override fun currentActivityName(): String = currentActivity
+        override suspend fun hideKeyboard(): OperationResult = OperationResult(true, "hide")
     }
 
     companion object {

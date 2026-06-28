@@ -1,11 +1,10 @@
 package cn.com.omnimind.bot.runlog
 
+import cn.com.omnimind.assists.task.vlmserver.DeviceOperator
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 import kotlinx.coroutines.delay
 
 // ── Checker-machinery constants ─────────────────────────────────────────────
-
-internal const val CHECKERS_DISABLED = true
 
 internal const val DEFAULT_PAGE_GUARD_TRIGGER_LIMIT = 3
 internal const val MAX_CHECKER_PHASE_CONTROL_COUNT = 3
@@ -520,13 +519,41 @@ private val PERMISSION_RESOURCE_PACKAGE_TERMS = setOf(
     ".packageinstaller:id/",
 )
 
-// ── Small top-level extensions (no UIStepExecutor receiver needed) ──────────
+private val ALLOW_RESOURCE_TAILS = setOf(
+    "permission_allow_button",
+    "permission_allow_foreground_only_button",
+    "permission_allow_one_time_button",
+    "allow_button",
+    "button1",
+)
+
+private val ALLOW_EXACT_LABELS = setOf(
+    "allow",
+    "ok",
+    "允许",
+    "确定",
+)
+
+private val ALLOW_CONTAINS_LABELS = setOf(
+    "while using",
+    "only this time",
+    "允许",
+    "使用期间",
+    "仅此一次",
+)
+
+private val ALLOW_ONCE_LABELS = setOf(
+    "only this time",
+    "仅此一次",
+)
+
+// ── Small top-level extensions (no ReplayHelper receiver needed) ──────────
 
 internal fun OmniflowCheckerRule.budgetKey(): String =
     listOf(phase, id, condition, action).joinToString("|")
 
 internal fun Map<String, Any?>.withCheckerTrigger(
-    trigger: UIStepExecutor.CheckerTriggerRecord,
+    trigger: ReplayHelper.CheckerTriggerRecord,
 ): Map<String, Any?> = linkedMapOf<String, Any?>().apply {
     putAll(this@withCheckerTrigger)
     put("trigger_count", trigger.count)
@@ -547,34 +574,36 @@ internal fun checkerTriggerLimit(rule: OmniflowCheckerRule): Int =
         defaultValue = DEFAULT_CHECKER_TRIGGER_LIMIT,
     ).coerceAtLeast(0)
 
-// ── UIStepExecutor extension functions (checker machinery) ─────────────────
+// ── ReplayHelper extension functions (checker machinery) ─────────────────
 
-internal suspend fun UIStepExecutor.evaluateAndExecuteRule(
+internal suspend fun ReplayHelper.evaluateAndExecuteRule(
+    deviceOperator: DeviceOperator,
     rule: OmniflowCheckerRule,
-    state: UIStepExecutor.ReplayState,
-    replayAction: UIStepExecutor.ReplayAction,
+    state: ReplayHelper.ReplayState,
+    replayAction: ReplayHelper.ReplayAction,
 ): Map<String, Any?>? = when (rule.condition) {
     OmniflowCheckerRule.COND_RESOLVER_DIALOG ->
-        checkerResolverDialog(rule, state, replayAction)
+        checkerResolverDialog(deviceOperator, rule, state, replayAction)
     OmniflowCheckerRule.COND_PERMISSION_DIALOG ->
-        checkerPermissionDialog(rule, state, replayAction)
+        checkerPermissionDialog(deviceOperator, rule, state, replayAction)
     OmniflowCheckerRule.COND_PACKAGE_MISMATCH ->
-        checkerPackageMismatch(rule, state, replayAction)
+        checkerPackageMismatch(deviceOperator, rule, state, replayAction)
     OmniflowCheckerRule.COND_AD_BLOCKING ->
-        checkerAdBlocking(rule, state, replayAction)
+        checkerAdBlocking(deviceOperator, rule, state, replayAction)
     OmniflowCheckerRule.COND_APP_UPGRADE_PROMPT ->
-        checkerAppUpgradePrompt(rule, state, replayAction)
+        checkerAppUpgradePrompt(deviceOperator, rule, state, replayAction)
     OmniflowCheckerRule.COND_OVERLAY_BLOCKING ->
-        checkerOverlayBlocking(rule, state, replayAction)
+        checkerOverlayBlocking(deviceOperator, rule, state, replayAction)
     OmniflowCheckerRule.COND_KEYBOARD_OBSCURING ->
-        checkerKeyboardObscuring(rule, state, replayAction)
+        checkerKeyboardObscuring(deviceOperator, rule, state, replayAction)
     else -> null
 }
 
-internal suspend fun UIStepExecutor.checkerResolverDialog(
+internal suspend fun ReplayHelper.checkerResolverDialog(
+    deviceOperator: DeviceOperator,
     rule: OmniflowCheckerRule,
-    state: UIStepExecutor.ReplayState,
-    replayAction: UIStepExecutor.ReplayAction,
+    state: ReplayHelper.ReplayState,
+    replayAction: ReplayHelper.ReplayAction,
 ): Map<String, Any?>? {
     if (targetLooksLikeResolverConfirm(replayAction.args)) return null
     val page = state.page ?: return null
@@ -583,20 +612,20 @@ internal suspend fun UIStepExecutor.checkerResolverDialog(
 
     val immediateAlways = resolverAlwaysCandidate(page, requireEnabled = true)
     if (immediateAlways != null) {
-        return clickResolverAlways(rule, immediateAlways, selectedApp = null)
+        return clickResolverAlways(deviceOperator, rule, immediateAlways, selectedApp = null)
     }
 
     val appChoice = resolverAppChoiceCandidate(page) ?: return null
-    OmniflowActionRuntime.backend.click(appChoice.centerX, appChoice.centerY)
+    deviceOperator.clickCoordinate(appChoice.centerX, appChoice.centerY)
     delay(PRE_ACTION_CONTROL_DELAY_MS)
 
-    val refreshedPage = parsePageModel(readBackendSnapshot().xml)
+    val refreshedPage = parsePageModel(readBackendSnapshot(deviceOperator).xml)
         ?.takeIf(::looksLikeResolverDialog)
     val refreshedAlways = refreshedPage?.let {
         resolverAlwaysCandidate(it, requireEnabled = true)
     }
     if (refreshedAlways != null) {
-        return clickResolverAlways(rule, refreshedAlways, selectedApp = appChoice)
+        return clickResolverAlways(deviceOperator, rule, refreshedAlways, selectedApp = appChoice)
     }
 
     return linkedMapOf(
@@ -613,12 +642,13 @@ internal suspend fun UIStepExecutor.checkerResolverDialog(
     )
 }
 
-internal suspend fun UIStepExecutor.clickResolverAlways(
+internal suspend fun ReplayHelper.clickResolverAlways(
+    deviceOperator: DeviceOperator,
     rule: OmniflowCheckerRule,
-    candidate: UIStepExecutor.UiNode,
-    selectedApp: UIStepExecutor.UiNode?,
+    candidate: ReplayHelper.UiNode,
+    selectedApp: ReplayHelper.UiNode?,
 ): Map<String, Any?> {
-    OmniflowActionRuntime.backend.click(candidate.centerX, candidate.centerY)
+    deviceOperator.clickCoordinate(candidate.centerX, candidate.centerY)
     delay(PRE_ACTION_CONTROL_DELAY_MS)
     return linkedMapOf(
         "phase" to rule.phase,
@@ -638,16 +668,17 @@ internal suspend fun UIStepExecutor.clickResolverAlways(
     }
 }
 
-internal suspend fun UIStepExecutor.checkerPermissionDialog(
+internal suspend fun ReplayHelper.checkerPermissionDialog(
+    deviceOperator: DeviceOperator,
     rule: OmniflowCheckerRule,
-    state: UIStepExecutor.ReplayState,
-    replayAction: UIStepExecutor.ReplayAction,
+    state: ReplayHelper.ReplayState,
+    replayAction: ReplayHelper.ReplayAction,
 ): Map<String, Any?>? {
     val page = state.page ?: return null
     if (!looksLikePermissionDialog(page)) return null
     if (recordedActionTargetsPermissionDialog(replayAction)) return null
     val candidate = permissionAllowCandidate(page) ?: return null
-    OmniflowActionRuntime.backend.click(candidate.centerX, candidate.centerY)
+    deviceOperator.clickCoordinate(candidate.centerX, candidate.centerY)
     delay(PRE_ACTION_CONTROL_DELAY_MS)
     return linkedMapOf(
         "phase" to "before_action",
@@ -660,10 +691,10 @@ internal suspend fun UIStepExecutor.checkerPermissionDialog(
     )
 }
 
-internal fun UIStepExecutor.looksLikePermissionDialog(page: UIStepExecutor.PageModel): Boolean =
+internal fun ReplayHelper.looksLikePermissionDialog(page: ReplayHelper.PageModel): Boolean =
     page.nodes.any(::isPermissionControllerNode)
 
-internal fun UIStepExecutor.permissionAllowCandidate(page: UIStepExecutor.PageModel): UIStepExecutor.UiNode? {
+internal fun ReplayHelper.permissionAllowCandidate(page: ReplayHelper.PageModel): ReplayHelper.UiNode? {
     if (!looksLikePermissionDialog(page)) return null
     return page.nodes
         .asSequence()
@@ -676,7 +707,7 @@ internal fun UIStepExecutor.permissionAllowCandidate(page: UIStepExecutor.PageMo
         ?.first
 }
 
-internal fun UIStepExecutor.isPermissionControllerNode(node: UIStepExecutor.UiNode): Boolean {
+internal fun ReplayHelper.isPermissionControllerNode(node: ReplayHelper.UiNode): Boolean {
     val packageName = node.packageName.lowercase()
     val resourceId = node.resourceId.lowercase()
     return PERMISSION_PACKAGES.any { prefix ->
@@ -686,10 +717,10 @@ internal fun UIStepExecutor.isPermissionControllerNode(node: UIStepExecutor.UiNo
     }
 }
 
-internal fun UIStepExecutor.resolverAlwaysCandidate(
-    page: UIStepExecutor.PageModel,
+internal fun ReplayHelper.resolverAlwaysCandidate(
+    page: ReplayHelper.PageModel,
     requireEnabled: Boolean,
-): UIStepExecutor.UiNode? {
+): ReplayHelper.UiNode? {
     return page.nodes
         .asSequence()
         .filter { it.visible && (!requireEnabled || it.enabled) && it.area > 1f }
@@ -701,7 +732,7 @@ internal fun UIStepExecutor.resolverAlwaysCandidate(
         ?.first
 }
 
-internal fun UIStepExecutor.resolverAppChoiceCandidate(page: UIStepExecutor.PageModel): UIStepExecutor.UiNode? {
+internal fun ReplayHelper.resolverAppChoiceCandidate(page: ReplayHelper.PageModel): ReplayHelper.UiNode? {
     return page.nodes
         .asSequence()
         .mapNotNull { node ->
@@ -709,13 +740,13 @@ internal fun UIStepExecutor.resolverAppChoiceCandidate(page: UIStepExecutor.Page
             if (score > 0f) node to score else null
         }
         .maxWithOrNull(
-            compareBy<Pair<UIStepExecutor.UiNode, Float>> { it.second }
+            compareBy<Pair<ReplayHelper.UiNode, Float>> { it.second }
                 .thenByDescending { -it.first.bounds.top }
         )
         ?.first
 }
 
-internal fun UIStepExecutor.looksLikeResolverDialog(page: UIStepExecutor.PageModel): Boolean {
+internal fun ReplayHelper.looksLikeResolverDialog(page: ReplayHelper.PageModel): Boolean {
     val hasResolverPackage = page.nodes.any { node ->
         RESOLVER_PACKAGES.any { prefix -> node.packageName.startsWith(prefix) } ||
             RESOLVER_PACKAGE_TERMS.any { term ->
@@ -734,7 +765,7 @@ internal fun UIStepExecutor.looksLikeResolverDialog(page: UIStepExecutor.PageMod
     return hasAlwaysButton && (hasResolverPackage || hasResolverTitle || hasOnceButton)
 }
 
-internal fun UIStepExecutor.resolverAlwaysButtonScore(node: UIStepExecutor.UiNode): Float {
+internal fun ReplayHelper.resolverAlwaysButtonScore(node: ReplayHelper.UiNode): Float {
     val label = nodeLabelText(node).lowercase()
     val resource = node.resourceTail.lowercase()
     val exactLabel = RESOLVER_ALWAYS_EXACT_LABELS.any { label == it }
@@ -751,7 +782,7 @@ internal fun UIStepExecutor.resolverAlwaysButtonScore(node: UIStepExecutor.UiNod
     return score
 }
 
-internal fun UIStepExecutor.resolverOnceButtonScore(node: UIStepExecutor.UiNode): Float {
+internal fun ReplayHelper.resolverOnceButtonScore(node: ReplayHelper.UiNode): Float {
     val label = nodeLabelText(node).lowercase()
     val resource = node.resourceTail.lowercase()
     val labelMatch = RESOLVER_ONCE_LABELS.any { label == it || label.contains(it) }
@@ -767,7 +798,7 @@ internal fun UIStepExecutor.resolverOnceButtonScore(node: UIStepExecutor.UiNode)
     return score
 }
 
-internal fun UIStepExecutor.resolverAppChoiceScore(node: UIStepExecutor.UiNode, page: UIStepExecutor.PageModel): Float {
+internal fun ReplayHelper.resolverAppChoiceScore(node: ReplayHelper.UiNode, page: ReplayHelper.PageModel): Float {
     if (!node.visible || !node.enabled || node.area <= 1f || !node.interactive) return 0f
     if (resolverAlwaysButtonScore(node) > 0f || resolverOnceButtonScore(node) > 0f) return 0f
 
@@ -794,7 +825,7 @@ internal fun UIStepExecutor.resolverAppChoiceScore(node: UIStepExecutor.UiNode, 
     return if (score >= 240f) score else 0f
 }
 
-internal fun UIStepExecutor.allowButtonScore(node: UIStepExecutor.UiNode): Float {
+internal fun ReplayHelper.allowButtonScore(node: ReplayHelper.UiNode): Float {
     val label = permissionNodeLabelText(node)
     val resource = node.resourceTail.lowercase()
     val resourceScore = when {
@@ -810,10 +841,11 @@ internal fun UIStepExecutor.allowButtonScore(node: UIStepExecutor.UiNode): Float
     return resourceScore + labelScore + oncePenalty
 }
 
-internal suspend fun UIStepExecutor.checkerPackageMismatch(
+internal suspend fun ReplayHelper.checkerPackageMismatch(
+    deviceOperator: DeviceOperator,
     rule: OmniflowCheckerRule,
-    state: UIStepExecutor.ReplayState,
-    replayAction: UIStepExecutor.ReplayAction,
+    state: ReplayHelper.ReplayState,
+    replayAction: ReplayHelper.ReplayAction,
 ): Map<String, Any?>? {
     if (targetLooksLikeDismiss(replayAction.args)) return null
     if (recordedActionTargetsPermissionDialog(replayAction)) return null
@@ -823,7 +855,7 @@ internal suspend fun UIStepExecutor.checkerPackageMismatch(
     val currentPkg = state.snapshot.effectivePackage()
     if (packageMatchMode(expectedPkg, currentPkg) != null) return null
     runCatching {
-        OmniflowActionRuntime.backend.launchApplication(expectedPkg, resetTask = false)
+        deviceOperator.launchApplication(expectedPkg)
     }
     delay(PRE_ACTION_CONTROL_DELAY_MS)
     return linkedMapOf(
@@ -836,16 +868,17 @@ internal suspend fun UIStepExecutor.checkerPackageMismatch(
     )
 }
 
-internal suspend fun UIStepExecutor.checkerAdBlocking(
+internal suspend fun ReplayHelper.checkerAdBlocking(
+    deviceOperator: DeviceOperator,
     rule: OmniflowCheckerRule,
-    state: UIStepExecutor.ReplayState,
-    replayAction: UIStepExecutor.ReplayAction,
+    state: ReplayHelper.ReplayState,
+    replayAction: ReplayHelper.ReplayAction,
 ): Map<String, Any?>? {
     if (targetLooksLikeDismiss(replayAction.args)) return null
     val page = state.page ?: return null
     val candidate = adBlockingDismissCandidate(page) ?: return null
     if (actionTargetHitsNode(replayAction.action, replayAction.args, candidate)) return null
-    OmniflowActionRuntime.backend.click(candidate.centerX, candidate.centerY)
+    deviceOperator.clickCoordinate(candidate.centerX, candidate.centerY)
     delay(PRE_ACTION_CONTROL_DELAY_MS)
     return linkedMapOf(
         "phase" to "before_action",
@@ -859,16 +892,17 @@ internal suspend fun UIStepExecutor.checkerAdBlocking(
     )
 }
 
-internal suspend fun UIStepExecutor.checkerAppUpgradePrompt(
+internal suspend fun ReplayHelper.checkerAppUpgradePrompt(
+    deviceOperator: DeviceOperator,
     rule: OmniflowCheckerRule,
-    state: UIStepExecutor.ReplayState,
-    replayAction: UIStepExecutor.ReplayAction,
+    state: ReplayHelper.ReplayState,
+    replayAction: ReplayHelper.ReplayAction,
 ): Map<String, Any?>? {
     if (targetLooksLikeDismiss(replayAction.args)) return null
     val page = state.page ?: return null
     val candidate = appUpgradeDismissCandidate(page) ?: return null
     if (actionTargetHitsNode(replayAction.action, replayAction.args, candidate)) return null
-    OmniflowActionRuntime.backend.click(candidate.centerX, candidate.centerY)
+    deviceOperator.clickCoordinate(candidate.centerX, candidate.centerY)
     delay(PRE_ACTION_CONTROL_DELAY_MS)
     return linkedMapOf(
         "phase" to rule.phase,
@@ -883,17 +917,18 @@ internal suspend fun UIStepExecutor.checkerAppUpgradePrompt(
     )
 }
 
-internal suspend fun UIStepExecutor.checkerOverlayBlocking(
+internal suspend fun ReplayHelper.checkerOverlayBlocking(
+    deviceOperator: DeviceOperator,
     rule: OmniflowCheckerRule,
-    state: UIStepExecutor.ReplayState,
-    replayAction: UIStepExecutor.ReplayAction,
+    state: ReplayHelper.ReplayState,
+    replayAction: ReplayHelper.ReplayAction,
 ): Map<String, Any?>? {
     if (targetLooksLikeDismiss(replayAction.args)) return null
     val page = state.page ?: return null
     val candidate = blockingOverlayDismissCandidate(page)
         ?: blockingOverlayAtActionTarget(page, replayAction)
         ?: return null
-    val clickMeta = clickDismissCandidateWithRetry(candidate, ::blockingOverlayDismissCandidate)
+    val clickMeta = clickDismissCandidateWithRetry(deviceOperator, candidate, ::blockingOverlayDismissCandidate)
     return linkedMapOf(
         "phase" to "before_action",
         "effect" to "run_actions",
@@ -906,14 +941,15 @@ internal suspend fun UIStepExecutor.checkerOverlayBlocking(
     ) + clickMeta
 }
 
-internal suspend fun UIStepExecutor.clickDismissCandidateWithRetry(
-    candidate: UIStepExecutor.UiNode,
-    nextCandidate: (UIStepExecutor.PageModel) -> UIStepExecutor.UiNode?,
+internal suspend fun ReplayHelper.clickDismissCandidateWithRetry(
+    deviceOperator: DeviceOperator,
+    candidate: ReplayHelper.UiNode,
+    nextCandidate: (ReplayHelper.PageModel) -> ReplayHelper.UiNode?,
 ): Map<String, Any?> {
     var latestCandidate = candidate
     var retryCount = 0
-    clickCheckerDismissCandidate(latestCandidate)
-    var remaining = waitForDismissCandidate(nextCandidate)
+    clickCheckerDismissCandidate(deviceOperator, latestCandidate)
+    var remaining = waitForDismissCandidate(deviceOperator, nextCandidate)
     while (retryCount < DISMISS_CONTROL_RETRY_LIMIT) {
         val stillBlocking = remaining ?: return mapOf(
             "dismiss_retry_count" to retryCount,
@@ -921,8 +957,8 @@ internal suspend fun UIStepExecutor.clickDismissCandidateWithRetry(
         )
         retryCount += 1
         latestCandidate = stillBlocking
-        clickCheckerDismissCandidate(latestCandidate)
-        remaining = waitForDismissCandidate(nextCandidate)
+        clickCheckerDismissCandidate(deviceOperator, latestCandidate)
+        remaining = waitForDismissCandidate(deviceOperator, nextCandidate)
     }
     return linkedMapOf<String, Any?>(
         "dismiss_retry_count" to retryCount,
@@ -932,22 +968,21 @@ internal suspend fun UIStepExecutor.clickDismissCandidateWithRetry(
     ).filterValues { it != null }
 }
 
-internal suspend fun UIStepExecutor.clickCheckerDismissCandidate(candidate: UIStepExecutor.UiNode) {
-    OmniflowActionRuntime.backend.click(
-        x = candidate.centerX,
-        y = candidate.centerY,
-        targetDescription = nodeDisplayLabel(candidate),
-        nodeResourceId = checkerSafeClickNodeResourceId(candidate.resourceId),
-    )
+internal suspend fun ReplayHelper.clickCheckerDismissCandidate(
+    deviceOperator: DeviceOperator,
+    candidate: ReplayHelper.UiNode,
+) {
+    deviceOperator.clickCoordinate(candidate.centerX, candidate.centerY)
 }
 
-internal suspend fun UIStepExecutor.waitForDismissCandidate(
-    nextCandidate: (UIStepExecutor.PageModel) -> UIStepExecutor.UiNode?,
-): UIStepExecutor.UiNode? {
+internal suspend fun ReplayHelper.waitForDismissCandidate(
+    deviceOperator: DeviceOperator,
+    nextCandidate: (ReplayHelper.PageModel) -> ReplayHelper.UiNode?,
+): ReplayHelper.UiNode? {
     val deadline = System.currentTimeMillis() + DISMISS_CONTROL_SETTLE_TIMEOUT_MS
-    var latest: UIStepExecutor.UiNode? = null
+    var latest: ReplayHelper.UiNode? = null
     do {
-        val page = parsePageModel(readBackendSnapshot().xml)
+        val page = parsePageModel(readBackendSnapshot(deviceOperator).xml)
         val remaining = page?.let(nextCandidate)
         latest = remaining
         if (remaining == null) return null
@@ -956,17 +991,18 @@ internal suspend fun UIStepExecutor.waitForDismissCandidate(
     return latest
 }
 
-internal suspend fun UIStepExecutor.checkerKeyboardObscuring(
+internal suspend fun ReplayHelper.checkerKeyboardObscuring(
+    deviceOperator: DeviceOperator,
     rule: OmniflowCheckerRule,
-    state: UIStepExecutor.ReplayState,
-    replayAction: UIStepExecutor.ReplayAction,
+    state: ReplayHelper.ReplayState,
+    replayAction: ReplayHelper.ReplayAction,
 ): Map<String, Any?>? {
     val action = replayAction.action
     if (action !in OobActionSchema.pointTargetToolNames + OobActionSchema.TOOL_SWIPE) return null
     val page = state.page ?: return null
     val kbTop = keyboardTop(page) ?: return null
     if (!actionTargetIntersectsKeyboard(action, replayAction.args, kbTop)) return null
-    OmniflowActionRuntime.backend.hideKeyboard()
+    deviceOperator.hideKeyboard()
     delay(PRE_ACTION_CONTROL_DELAY_MS)
     return linkedMapOf(
         "phase" to "before_action",
@@ -977,10 +1013,10 @@ internal suspend fun UIStepExecutor.checkerKeyboardObscuring(
     )
 }
 
-internal fun UIStepExecutor.blockingOverlayAtActionTarget(
-    page: UIStepExecutor.PageModel,
-    replayAction: UIStepExecutor.ReplayAction,
-): UIStepExecutor.UiNode? {
+internal fun ReplayHelper.blockingOverlayAtActionTarget(
+    page: ReplayHelper.PageModel,
+    replayAction: ReplayHelper.ReplayAction,
+): ReplayHelper.UiNode? {
     if (replayAction.action !in OobActionSchema.pointTargetToolNames) return null
     if (pageHasReplayActionTarget(page, replayAction)) return null
     if (!looksLikeSparseOverlayPage(page)) return null
@@ -1000,9 +1036,9 @@ internal fun UIStepExecutor.blockingOverlayAtActionTarget(
         .minByOrNull { it.area }
 }
 
-internal fun UIStepExecutor.recordedSourceTargetLooksLikeNode(
-    replayAction: UIStepExecutor.ReplayAction,
-    candidate: UIStepExecutor.UiNode,
+internal fun ReplayHelper.recordedSourceTargetLooksLikeNode(
+    replayAction: ReplayHelper.ReplayAction,
+    candidate: ReplayHelper.UiNode,
 ): Boolean {
     val x = numberArg(replayAction.args, "x")?.toFloat() ?: return false
     val y = numberArg(replayAction.args, "y")?.toFloat() ?: return false
@@ -1025,7 +1061,7 @@ internal fun UIStepExecutor.recordedSourceTargetLooksLikeNode(
         nodeLabelWithSubtreeText(sourceNode) == nodeLabelWithSubtreeText(candidate)
 }
 
-internal fun UIStepExecutor.looksLikeSparseOverlayPage(page: UIStepExecutor.PageModel): Boolean {
+internal fun ReplayHelper.looksLikeSparseOverlayPage(page: ReplayHelper.PageModel): Boolean {
     val visibleNodes = page.nodes.count { it.visible }
     val interactiveNodes = page.nodes.count { it.visible && it.enabled && it.interactive }
     if (visibleNodes <= SPARSE_OVERLAY_MAX_VISIBLE_NODES &&
@@ -1041,9 +1077,9 @@ internal fun UIStepExecutor.looksLikeSparseOverlayPage(page: UIStepExecutor.Page
     return interactiveNodes <= 1 && fullScreenInteractiveNodes == 0
 }
 
-internal fun UIStepExecutor.pageHasReplayActionTarget(
-    page: UIStepExecutor.PageModel,
-    replayAction: UIStepExecutor.ReplayAction,
+internal fun ReplayHelper.pageHasReplayActionTarget(
+    page: ReplayHelper.PageModel,
+    replayAction: ReplayHelper.ReplayAction,
 ): Boolean {
     val targetResourceId = firstNonBlank(
         stringArg(replayAction.args, "node_resource_id", "resource_id", "resource-id"),
@@ -1068,7 +1104,7 @@ internal fun UIStepExecutor.pageHasReplayActionTarget(
     }
 }
 
-internal fun UIStepExecutor.appUpgradeDismissCandidate(page: UIStepExecutor.PageModel): UIStepExecutor.UiNode? {
+internal fun ReplayHelper.appUpgradeDismissCandidate(page: ReplayHelper.PageModel): ReplayHelper.UiNode? {
     val hasUpgradeCue = page.nodes.any(::hasAppUpgradeCue)
     if (!hasUpgradeCue) return null
     return page.nodes
@@ -1082,9 +1118,9 @@ internal fun UIStepExecutor.appUpgradeDismissCandidate(page: UIStepExecutor.Page
         ?.first
 }
 
-internal fun UIStepExecutor.adDismissCandidateScore(
-    node: UIStepExecutor.UiNode,
-    rootBounds: UIStepExecutor.Rect,
+internal fun ReplayHelper.adDismissCandidateScore(
+    node: ReplayHelper.UiNode,
+    rootBounds: ReplayHelper.Rect,
     hasExplicitAdCue: Boolean,
     hasFullScreenAdSurface: Boolean,
 ): Float {
@@ -1125,9 +1161,9 @@ internal fun UIStepExecutor.adDismissCandidateScore(
     return score
 }
 
-internal fun UIStepExecutor.dismissCandidateScore(
-    node: UIStepExecutor.UiNode,
-    rootBounds: UIStepExecutor.Rect,
+internal fun ReplayHelper.dismissCandidateScore(
+    node: ReplayHelper.UiNode,
+    rootBounds: ReplayHelper.Rect,
     hasOverlayCue: Boolean,
 ): Float {
     val label = nodeLabelText(node)
@@ -1160,7 +1196,7 @@ internal fun UIStepExecutor.dismissCandidateScore(
     return labelScore + resourceScore + overlayScore + smallButtonScore + topRightScore
 }
 
-internal fun UIStepExecutor.appUpgradeDismissCandidateScore(node: UIStepExecutor.UiNode, rootBounds: UIStepExecutor.Rect): Float {
+internal fun ReplayHelper.appUpgradeDismissCandidateScore(node: ReplayHelper.UiNode, rootBounds: ReplayHelper.Rect): Float {
     val label = nodeLabelText(node)
     val resource = node.resourceTail.lowercase()
     val topRight = isTopRightSmallControl(node, rootBounds)
@@ -1190,7 +1226,7 @@ internal fun UIStepExecutor.appUpgradeDismissCandidateScore(node: UIStepExecutor
     return score
 }
 
-internal fun UIStepExecutor.hasExplicitAdCue(node: UIStepExecutor.UiNode): Boolean {
+internal fun ReplayHelper.hasExplicitAdCue(node: ReplayHelper.UiNode): Boolean {
     val text = nodeLabelText(node)
     val classText = node.className.lowercase()
     val resource = node.resourceId.lowercase()
@@ -1200,7 +1236,7 @@ internal fun UIStepExecutor.hasExplicitAdCue(node: UIStepExecutor.UiNode): Boole
         AD_RESOURCE_CUE_TERMS.any { resource.contains(it) }
 }
 
-internal fun UIStepExecutor.hasAppUpgradeCue(node: UIStepExecutor.UiNode): Boolean {
+internal fun ReplayHelper.hasAppUpgradeCue(node: ReplayHelper.UiNode): Boolean {
     val text = nodeLabelText(node)
     val classText = node.className.lowercase()
     val resource = node.resourceId.lowercase()
@@ -1209,7 +1245,7 @@ internal fun UIStepExecutor.hasAppUpgradeCue(node: UIStepExecutor.UiNode): Boole
     }
 }
 
-internal fun UIStepExecutor.hasAdOrModalCue(node: UIStepExecutor.UiNode): Boolean {
+internal fun ReplayHelper.hasAdOrModalCue(node: ReplayHelper.UiNode): Boolean {
     val text = nodeLabelText(node)
     val classText = node.className.lowercase()
     val resource = node.resourceId.lowercase()
@@ -1218,7 +1254,7 @@ internal fun UIStepExecutor.hasAdOrModalCue(node: UIStepExecutor.UiNode): Boolea
     }
 }
 
-internal fun UIStepExecutor.hasPrivacyNoticeCue(node: UIStepExecutor.UiNode): Boolean {
+internal fun ReplayHelper.hasPrivacyNoticeCue(node: ReplayHelper.UiNode): Boolean {
     val text = nodeLabelWithSubtreeText(node)
     val classText = node.className.lowercase()
     val resource = node.resourceId.lowercase()
@@ -1227,7 +1263,7 @@ internal fun UIStepExecutor.hasPrivacyNoticeCue(node: UIStepExecutor.UiNode): Bo
     }
 }
 
-internal fun UIStepExecutor.hasLikelyFullScreenAdSurface(page: UIStepExecutor.PageModel): Boolean {
+internal fun ReplayHelper.hasLikelyFullScreenAdSurface(page: ReplayHelper.PageModel): Boolean {
     val rootArea = page.rootBounds.area.coerceAtLeast(1f)
     return page.nodes.any { node ->
         node.visible &&
@@ -1239,16 +1275,16 @@ internal fun UIStepExecutor.hasLikelyFullScreenAdSurface(page: UIStepExecutor.Pa
     }
 }
 
-internal fun UIStepExecutor.hasAdDismissResourceCue(resource: String): Boolean =
+internal fun ReplayHelper.hasAdDismissResourceCue(resource: String): Boolean =
     AD_DISMISS_RESOURCE_TERMS.any { resource.contains(it) } ||
         AD_RESOURCE_TOKEN_REGEX.containsMatchIn(resource)
 
-internal fun UIStepExecutor.isTopRightSmallControl(node: UIStepExecutor.UiNode, rootBounds: UIStepExecutor.Rect): Boolean =
+internal fun ReplayHelper.isTopRightSmallControl(node: ReplayHelper.UiNode, rootBounds: ReplayHelper.Rect): Boolean =
     node.centerX >= rootBounds.left + rootBounds.width * 0.58f &&
         node.centerY <= rootBounds.top + rootBounds.height * 0.26f &&
         node.area / rootBounds.area.coerceAtLeast(1f) <= 0.10f
 
-internal fun UIStepExecutor.targetLooksLikeDismiss(args: Map<String, Any?>): Boolean {
+internal fun ReplayHelper.targetLooksLikeDismiss(args: Map<String, Any?>): Boolean {
     val target = listOf(
         stringArg(args, "target_description"),
         stringArg(args, "label"),
@@ -1263,7 +1299,7 @@ internal fun UIStepExecutor.targetLooksLikeDismiss(args: Map<String, Any?>): Boo
         SKIP_COUNTDOWN_REGEX.containsMatchIn(target)
 }
 
-internal fun UIStepExecutor.targetLooksLikeResolverConfirm(args: Map<String, Any?>): Boolean {
+internal fun ReplayHelper.targetLooksLikeResolverConfirm(args: Map<String, Any?>): Boolean {
     val target = listOf(
         stringArg(args, "target_description"),
         stringArg(args, "label"),
@@ -1273,14 +1309,14 @@ internal fun UIStepExecutor.targetLooksLikeResolverConfirm(args: Map<String, Any
         RESOLVER_ALWAYS_CONTAINS_LABELS.any { target.contains(it) }
 }
 
-internal fun UIStepExecutor.recordedStepLooksLikeResolverDialog(step: Map<String, Any?>): Boolean {
+internal fun ReplayHelper.recordedStepLooksLikeResolverDialog(step: Map<String, Any?>): Boolean {
     val srcCtx = (step["source_context"] as? Map<*, *>)?.get("src_ctx") as? Map<*, *>
     val sourceXml = srcCtx?.get("page")?.toString()?.trim().orEmpty()
     if (sourceXml.isBlank()) return false
     return parsePageModel(sourceXml)?.let(::looksLikeResolverDialog) == true
 }
 
-internal fun UIStepExecutor.recordedActionTargetsPermissionDialog(replayAction: UIStepExecutor.ReplayAction): Boolean {
+internal fun ReplayHelper.recordedActionTargetsPermissionDialog(replayAction: ReplayHelper.ReplayAction): Boolean {
     if (replayAction.action !in OobActionSchema.pointTargetToolNames) return false
     if (!shouldUseCoordinateHook(replayAction.step)) return false
     val sourceXml = sourceXmlForStep(replayAction.step)
@@ -1296,17 +1332,17 @@ internal fun UIStepExecutor.recordedActionTargetsPermissionDialog(replayAction: 
     }
 }
 
-internal fun UIStepExecutor.sourceXmlForStep(step: Map<String, Any?>): String {
+internal fun ReplayHelper.sourceXmlForStep(step: Map<String, Any?>): String {
     val sourceContext = sourceContextForStep(step)
     val srcCtx = mapArg(sourceContext["src_ctx"])
     return RunLogXmlArtifacts.pageXmlFromContext(srcCtx)
         .ifBlank { RunLogXmlArtifacts.pageXmlFromContext(sourceContext) }
 }
 
-internal fun UIStepExecutor.actionTargetHitsNode(
+internal fun ReplayHelper.actionTargetHitsNode(
     action: String,
     args: Map<String, Any?>,
-    node: UIStepExecutor.UiNode,
+    node: ReplayHelper.UiNode,
 ): Boolean {
     if (action !in OobActionSchema.coordinateToolNames) return false
     val x = numberArg(args, "x")?.toFloat()
@@ -1325,7 +1361,7 @@ internal fun UIStepExecutor.actionTargetHitsNode(
     ).any { (px, py) -> expanded.contains(px, py) }
 }
 
-internal fun UIStepExecutor.keyboardTop(page: UIStepExecutor.PageModel): Float? {
+internal fun ReplayHelper.keyboardTop(page: ReplayHelper.PageModel): Float? {
     val rootHeight = page.rootBounds.height.coerceAtLeast(1f)
     return page.nodes
         .asSequence()
@@ -1340,7 +1376,7 @@ internal fun UIStepExecutor.keyboardTop(page: UIStepExecutor.PageModel): Float? 
         .minOfOrNull { it.bounds.top }
 }
 
-internal fun UIStepExecutor.actionTargetIntersectsKeyboard(
+internal fun ReplayHelper.actionTargetIntersectsKeyboard(
     action: String,
     args: Map<String, Any?>,
     keyboardTop: Float,

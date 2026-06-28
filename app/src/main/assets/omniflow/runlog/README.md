@@ -122,9 +122,6 @@ record. Do not read only the snapshot when correctness matters.
   do not reintroduce separate step executors unless the ownership boundary changes.
 - Replay run result builder: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionRunResultBuilder.kt`
 - Nested Function card presenter: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionNestedCallCardPresenter.kt`
-- Pre-replay entry package guard: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionEntryPackageGuard.kt`
-- Pre-replay accessibility guard: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionAccessibilityPreflightGuard.kt`
-- Graph/UTG replay path runner: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionGraphStepRunner.kt`
 - Native replay policy and reusable Function conversion: `app/src/main/java/cn/com/omnimind/bot/runlog/`
 - RunLog conversion facade: `app/src/main/java/cn/com/omnimind/bot/runlog/OobRunLogReplayService.kt`
   It converts RunLogs into Function specs or manual Function assets; Function CRUD belongs in
@@ -136,12 +133,11 @@ record. Do not read only the snapshot when correctness matters.
   best-effort and must not replace Function registration status.
 - Agent/MCP Function facade: `app/src/main/java/cn/com/omnimind/bot/runlog/OobOmniFlowToolkitService.kt`
 - Local UTG explorer: `app/src/main/java/cn/com/omnimind/bot/runlog/OobOmniFlowExplorer.kt`
-- Local action runtime backend: `app/src/main/java/cn/com/omnimind/bot/runlog/OmniflowActionBackend.kt`
-- Local action step executor: `app/src/main/java/cn/com/omnimind/bot/runlog/UIStepExecutor.kt`
-  It executes canonical actions and should branch through `OobActionSchema`
-  constants/action families rather than local action string lists.
+- Canonical action executor: `assists/src/main/java/cn/com/omnimind/assists/task/vlmserver/ActionExecutor.kt`
+- Replay strategy helpers: `app/src/main/java/cn/com/omnimind/bot/runlog/ReplayHelper.kt`
+  `ActionExecutor.act` is the only act entry; replay only supplies ActCheckConfig callbacks for page guard, checker, and action transfer before canonical dispatch.
 - Local checker rules: `app/src/main/java/cn/com/omnimind/bot/runlog/OmniflowCheckerRule.kt`
-  Checker detection/execution lives in `UIStepExecutor`; the
+  Checker detection/execution lives behind `ActionExecutor.act` check callbacks; the
   `omniflow` skill references are the active agent maintenance checklist. The
   retired focused checker skill is no longer bundled.
 - Page/package inference helper: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogPagePackageInference.kt`
@@ -248,7 +244,7 @@ Do not hard replay `browser_use` or `web_search`; their outputs are live context
   `OobFunctionCallTiming`, schema/parameterization helpers, explorer utilities,
   UDEG scalar readers, and cleanup services should call it instead of adding private
   `mapArg`/`listArg`/`firstNonBlank`/`intArg`/`longArg`/`boolArg` copies when
-  behavior is equivalent. Execution code such as `UIStepExecutor` should
+  behavior is equivalent. Execution code such as `ActionExecutor` should
   follow the same rule for generic argument coercion. Prefer direct calls or
   member imports from `OobActionCodec`; do not add one-line local forwarding helpers. In
   particular, schema projection and Function parameterization should not carry
@@ -413,7 +409,6 @@ dart analyze lib/features/task/run_log/run_log_reusable_function_converter.dart 
 
 ```bash
 ./gradlew :app:testDevelopStandardDebugUnitTest --tests cn.com.omnimind.bot.runlog.InternalRunLogStoreTest
-./gradlew :app:testDevelopStandardDebugUnitTest --tests cn.com.omnimind.bot.runlog.UIStepExecutorTest
 ```
 
 Add tests for new tool classes before changing executor policy.

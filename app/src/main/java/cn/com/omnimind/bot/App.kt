@@ -3,7 +3,6 @@ package cn.com.omnimind.bot
 import BaseApplication
 import cn.com.omnimind.baselib.database.DatabaseHelper
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
-import cn.com.omnimind.baselib.runlog.OobLocalActionLedger
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentAiCapabilityConfigSync
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
@@ -108,7 +107,6 @@ class App : BaseApplication() {
         setupUncaughtExceptionHandler()
 
         DatabaseHelper.init(this)
-        OobLocalActionLedger.bind(this)
         LocalModelFeatureInstaller.install(this)
 
         val nestedStart = System.currentTimeMillis()

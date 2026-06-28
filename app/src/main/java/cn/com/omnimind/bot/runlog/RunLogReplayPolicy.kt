@@ -8,7 +8,7 @@ import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
  * Static replay classification shared by RunLog conversion and local replay.
  *
  * This is not a dispatcher or service layer. Keep execution in
- * [UIStepExecutor], Function storage in
+ * [ReplayHelper], Function storage in
  * [cn.com.omnimind.bot.omniflow.OobFunctionRepository], and tool
  * routing in OobFunctionToolHandler. Canonical action parsing lives in
  * [OobActionCodec]; this policy only owns non-action tool categories.
@@ -20,11 +20,8 @@ object RunLogReplayPolicy {
     const val EXECUTOR_OMNIFLOW: String = "omniflow"
     const val EXECUTOR_AGENT: String = "agent"
     const val EXECUTOR_TOOL: String = "tool"
-    const val REPLAY_ENGINE_OMNIFLOW_UTG: String = "omniflow_utg"
     const val TOOL_AGENT_RUN: String = "oob.agent.run"
     const val TOOL_CALL_TOOL: String = "call_tool"
-    const val TOOL_GO_TO_NODE: String = "go_to_node"
-    const val TOOL_CLICK_NODE: String = "click_node"
     const val TOOL_WAIT: String = "wait"
     const val TOOL_EXTERNAL_TOOL: String = "external_tool"
     const val TOOL_OOB_AGENT_RUN_LEGACY: String = "oob_agent_run"
@@ -59,15 +56,6 @@ object RunLogReplayPolicy {
         TOOL_OMNIFLOW_RECALL,
         TOOL_OMNIFLOW_INGEST_RUN_LOG,
     ) + functionDataFlowTools
-
-    val omniflowGraphTools: Set<String> = setOf(
-        TOOL_GO_TO_NODE,
-        TOOL_CLICK_NODE,
-    )
-
-    val omniflowClickNodeGraphTools: Set<String> = setOf(
-        TOOL_CLICK_NODE,
-    )
 
     val omniflowFunctionTools: Set<String> = emptySet()
 
@@ -107,18 +95,11 @@ object RunLogReplayPolicy {
     fun isProviderOnlyTool(toolName: String): Boolean =
         normalizeToolName(toolName) in providerOnlyTools
 
-    fun isOmniflowGraphTool(toolName: String): Boolean =
-        normalizeToolName(toolName) in omniflowGraphTools
-
-    fun isOmniflowClickNodeGraphTool(toolName: String): Boolean =
-        normalizeToolName(toolName) in omniflowClickNodeGraphTools
-
     fun isOmniflowToolCallTool(toolName: String): Boolean =
         normalizeToolName(toolName) in omniflowToolCallTools
 
     fun isOmniflowExecutionTool(toolName: String): Boolean =
-        isOmniflowGraphTool(toolName) ||
-            isOmniflowToolCallTool(toolName)
+        isOmniflowToolCallTool(toolName)
 
     fun isAgentTool(toolName: String): Boolean =
         isPerceptionTool(toolName) || isDataFlowTool(toolName) || isProviderOnlyTool(toolName)

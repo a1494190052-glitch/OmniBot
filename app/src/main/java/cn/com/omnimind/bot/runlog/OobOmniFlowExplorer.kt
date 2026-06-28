@@ -2,8 +2,9 @@ package cn.com.omnimind.bot.runlog
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 
 import android.content.Context
+import cn.com.omnimind.assists.task.vlmserver.AndroidDeviceOperator
+import cn.com.omnimind.assists.task.vlmserver.DeviceOperator
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
-import cn.com.omnimind.omniintelligence.models.ScrollDirection
 import cn.com.omnimind.bot.runlog.boolArg
 import cn.com.omnimind.bot.runlog.firstNonBlank
 import cn.com.omnimind.bot.runlog.intArg
@@ -26,7 +27,8 @@ import kotlin.math.min
  * handle the rest.
  */
 class OobOmniFlowExplorer(
-    private val context: Context
+    private val context: Context,
+    private val deviceOperator: DeviceOperator = AndroidDeviceOperator(null, context),
 ) {
     data class ExploreOptions(
         val goal: String,
@@ -203,8 +205,7 @@ class OobOmniFlowExplorer(
 
     suspend fun explore(args: Map<String, Any?>?): Map<String, Any?> {
         val options = optionsFrom(args)
-        val backend = OmniflowActionRuntime.backend
-        if (!backend.isReady()) {
+        if (!deviceOperator.isReady()) {
             return errorPayload(
                 code = "ACCESSIBILITY_NOT_READY",
                 message = "Accessibility service is not ready"
@@ -212,7 +213,7 @@ class OobOmniFlowExplorer(
         }
 
         if (options.packageName.isNotEmpty()) {
-            backend.launchApplication(options.packageName)
+            deviceOperator.launchApplication(options.packageName)
             delay(options.settleDelayMs)
         }
 
@@ -386,19 +387,30 @@ class OobOmniFlowExplorer(
     )
 
     private suspend fun executeCandidate(candidate: UtgActionCandidate) {
-        val backend = OmniflowActionRuntime.backend
         when (candidate.action) {
-            ACTION_CLICK -> backend.click(
+            ACTION_CLICK -> deviceOperator.clickCoordinate(
                 candidate.bounds.centerX,
                 candidate.bounds.centerY
             )
-            ACTION_SWIPE -> backend.scroll(
-                x = candidate.bounds.centerX,
-                y = candidate.bounds.centerY,
-                direction = scrollDirection(candidate.scrollDirection),
-                distance = candidate.scrollDistancePx.coerceAtLeast(DEFAULT_SCROLL_DISTANCE_PX),
-                durationMs = candidate.scrollDurationMs.coerceAtLeast(DEFAULT_SCROLL_DURATION_MS),
-            )
+            ACTION_SWIPE -> {
+                val distance = candidate.scrollDistancePx.coerceAtLeast(DEFAULT_SCROLL_DISTANCE_PX)
+                val half = distance / 2f
+                val x = candidate.bounds.centerX
+                val y = candidate.bounds.centerY
+                val (x1, y1, x2, y2) = when (candidate.scrollDirection.lowercase()) {
+                    "up" -> listOf(x, y + half, x, y - half)
+                    "left" -> listOf(x + half, y, x - half, y)
+                    "right" -> listOf(x - half, y, x + half, y)
+                    else -> listOf(x, y - half, x, y + half)
+                }
+                deviceOperator.slideCoordinate(
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    candidate.scrollDurationMs.coerceAtLeast(DEFAULT_SCROLL_DURATION_MS),
+                )
+            }
             else -> throw IllegalArgumentException("Unsupported UTG action: ${candidate.action}")
         }
     }
@@ -408,26 +420,24 @@ class OobOmniFlowExplorer(
         backSteps: Int,
         settleDelayMs: Long,
     ) {
-        val backend = OmniflowActionRuntime.backend
-        if (!backend.isReady()) return
+        if (!deviceOperator.isReady()) return
         repeat(backSteps.coerceIn(0, MAX_RESET_BACK_STEPS)) {
-            backend.pressHotKey("BACK")
+            deviceOperator.goBack()
             delay(settleDelayMs)
         }
         if (targetPackageName.isNotBlank()) {
-            backend.launchApplication(targetPackageName)
+            deviceOperator.launchApplication(targetPackageName)
             delay(settleDelayMs)
         }
     }
 
     private fun captureSnapshot(): UtgPageSnapshot? {
-        val backend = OmniflowActionRuntime.backend
-        val xml = backend.currentXml()?.trim().orEmpty()
+        val xml = deviceOperator.currentXml()?.trim().orEmpty()
         if (xml.isEmpty()) return null
         return parseSnapshot(
             xml = xml,
-            packageName = backend.currentPackageName().orEmpty(),
-            activityName = backend.currentActivityName().orEmpty()
+            packageName = deviceOperator.currentPackageName().orEmpty(),
+            activityName = deviceOperator.currentActivityName().orEmpty()
         )
     }
 
@@ -808,15 +818,6 @@ class OobOmniFlowExplorer(
                 "left" -> max(x - distance, bounds.left.toFloat()) to y
                 "right" -> min(x + distance, bounds.right.toFloat()) to y
                 else -> x to max(y - distance, bounds.top.toFloat())
-            }
-        }
-
-        private fun scrollDirection(value: String): ScrollDirection {
-            return when (value.trim().lowercase(Locale.US)) {
-                "down" -> ScrollDirection.DOWN
-                "left" -> ScrollDirection.LEFT
-                "right" -> ScrollDirection.RIGHT
-                else -> ScrollDirection.UP
             }
         }
 

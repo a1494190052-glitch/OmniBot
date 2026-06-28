@@ -3,6 +3,7 @@ package cn.com.omnimind.assists.task.vlmserver
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.baselib.http.Http429Exception
 import cn.com.omnimind.baselib.llm.contentText
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.baselib.util.exception.PrivacyBlockedException
 import cn.com.omnimind.assists.util.TreeEditDistance
@@ -193,9 +194,6 @@ class VLMOperationService(
     }
 
     private suspend fun ensureTaskActive(stage: String) {
-        if (deviceOperator.isCancellationRequested) {
-            throw CancellationException("任务已取消: $stage")
-        }
         currentCoroutineContext().ensureActive()
     }
 
@@ -242,7 +240,11 @@ class VLMOperationService(
             if (packageName != null && packageName.isNotEmpty()) {
                 try {
                     ensureTaskActive("before_launch_application")
-                    val launchResult = deviceOperator.launchApplication(packageName)
+                    val launchResult = actionExecutor.act(
+                        action = OobActionSchema.TOOL_OPEN_APP,
+                        args = mapOf(OobActionSchema.ARG_PACKAGE_NAME to packageName),
+                        source = "vlm_task_start",
+                    )
                     if (launchResult.success) {
                         OmniLog.d(Tag, "成功拉起应用: $packageName")
                         pollUntilReady(intervalMs = 100L, timeoutMs = 3000L) {
@@ -904,34 +906,6 @@ class VLMOperationService(
                     )
                 }
 
-                if (shouldRunActionPipeline(processedStep.action)) {
-                    val pipelineResult = VLMActionPipelineRegistry.preflight(
-                        VLMActionPipelineRequest(
-                            context = _context,
-                            step = processedStep,
-                            currentXml = dispatchXml,
-                            currentPackageName = dispatchPackageName,
-                            displayWidth = pageSnapshot.displayWidth,
-                            displayHeight = pageSnapshot.displayHeight,
-                            stepIndex = stepIndex,
-                            snapshot = pageSnapshot.copy(
-                                xml = dispatchXml,
-                                packageName = dispatchPackageName
-                            )
-                        )
-                    )
-                    processedStep = pipelineResult.step
-                    dispatchXml = pipelineResult.currentXml?.takeIf { it.isNotBlank() } ?: dispatchXml
-                    dispatchPackageName = pipelineResult.currentPackageName
-                        ?.takeIf { it.isNotBlank() }
-                        ?: dispatchPackageName
-                    if (pipelineResult.diagnostics.isNotEmpty()) {
-                        _context = _context.copy(
-                            pageDiagnostics = _context.pageDiagnostics + pipelineResult.diagnostics
-                        )
-                    }
-                }
-
                 safePauseCheck("before_action_${processedStep.action.name}_${stabilityAttempt}")
                 ensureTaskActive("before_action_dispatch_${processedStep.action.name}_$stabilityAttempt")
 
@@ -1195,18 +1169,6 @@ class VLMOperationService(
     private fun needsPreciseLocation(action: UIAction): Boolean {
         return when (action) {
             is ClickAction, is InputTextAction, is SwipeAction, is LongPressAction -> true
-            else -> false
-        }
-    }
-
-    private fun shouldRunActionPipeline(action: UIAction): Boolean {
-        return when (action) {
-            is ClickAction,
-            is InputTextAction,
-            is SwipeAction,
-            is LongPressAction,
-            is OpenAppAction,
-            is PressKeyAction -> true
             else -> false
         }
     }

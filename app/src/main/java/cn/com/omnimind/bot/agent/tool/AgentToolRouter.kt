@@ -1,6 +1,9 @@
 package cn.com.omnimind.bot.agent
 
 import android.content.Context
+import cn.com.omnimind.assists.task.vlmserver.ActionExecutor
+import cn.com.omnimind.assists.task.vlmserver.AndroidDeviceOperator
+import cn.com.omnimind.assists.task.vlmserver.UIContextManager
 import cn.com.omnimind.bot.agent.tool.handlers.BrowserToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.ContextToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.FileToolHandler
@@ -17,7 +20,7 @@ import cn.com.omnimind.bot.agent.tool.handlers.TerminalToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.ToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.VlmToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.WebSearchToolHandler
-import cn.com.omnimind.bot.agent.tool.handlers.VlmActExecutor
+import cn.com.omnimind.bot.agent.tool.handlers.LocalActionToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
 import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
 import kotlinx.coroutines.CoroutineScope
@@ -40,6 +43,8 @@ class AgentToolRouter(
     }
 
     private val helper = SharedHelper(context, json)
+    private val deviceOperator = AndroidDeviceOperator(null, context)
+    private val actionExecutor = ActionExecutor(deviceOperator, UIContextManager())
 
     private val terminalHandler = TerminalToolHandler(helper, workspaceManager, scope)
     private val privilegedHandler = PrivilegedToolHandler(helper, workspaceManager, terminalHandler)
@@ -55,14 +60,19 @@ class AgentToolRouter(
         ImageGenerationToolHandler(helper, workspaceManager),
         FileToolHandler(helper, workspaceManager),
         SkillsToolHandler(helper, workspaceManager),
-        VlmActExecutor(),
+        LocalActionToolHandler(actionExecutor),
         SystemToolHandler(helper, scheduleToolBridge, workspaceManager),
         MemoryToolHandler(helper),
         MemoryLoadToolHandler(helper),
         SubagentToolHandler(helper, subagentDispatcher)
     )
 
-    private val oobFunctionHandler = OobFunctionToolHandler(context, helper)
+    private val oobFunctionHandler = OobFunctionToolHandler(
+        context = context,
+        helper = helper,
+        deviceOperator = deviceOperator,
+        actionExecutor = actionExecutor,
+    )
 
     init {
         oobFunctionHandler.router = this

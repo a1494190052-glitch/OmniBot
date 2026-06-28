@@ -2,7 +2,7 @@ package cn.com.omnimind.bot.runlog
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 
 /**
- * A single checker rule evaluated by UIStepExecutor before each step.
+ * A single checker rule evaluated by ReplayHelper before each step.
  *
  * Rules are matched by [condition] against the current device state and the
  * pending replay action. When the condition is satisfied, [action] is executed.

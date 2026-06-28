@@ -22,7 +22,6 @@ class RunLogReusableFunctionCompilerTest {
         assertEquals(RunLogReplayPolicy.coordinateActions, stringSet(policy["coordinate_actions"]))
         assertEquals(RunLogReplayPolicy.perceptionTools, stringSet(policy["perception_tools"]))
         assertEquals(RunLogReplayPolicy.dataFlowTools, stringSet(policy["data_flow_tools"]))
-        assertEquals(RunLogReplayPolicy.omniflowGraphTools, stringSet(policy["omniflow_graph_tools"]))
         assertEquals(RunLogReplayPolicy.omniflowFunctionTools, stringSet(policy["omniflow_function_tools"]))
         assertEquals(RunLogReplayPolicy.providerOnlyTools, stringSet(policy["provider_only_tools"]))
         assertEquals(RunLogReplayPolicy.skipTools, stringSet(policy["skip_tools"]))
@@ -812,7 +811,7 @@ class RunLogReusableFunctionCompilerTest {
     }
 
     @Test
-    fun `omniflow graph and function tools compile to local omniflow execution`() {
+    fun `omniflow function tool compiles to local omniflow execution and graph tool stays external`() {
         val spec = compile(
             listOf(
                 card("go_to_node", mapOf("node_id" to "node_1")),
@@ -825,9 +824,9 @@ class RunLogReusableFunctionCompilerTest {
         assertEquals(2, steps.size)
         val graph = steps[0]
         assertEquals("go_to_node", graph["tool"])
-        assertEquals("omniflow", graph["executor"])
-        assertEquals("omniflow_graph", graph["kind"])
-        assertEquals(true, graph["model_free"])
+        assertEquals("tool", graph["executor"])
+        assertEquals("tool_call", graph["kind"])
+        assertFalse(graph.containsKey("model_free"))
         assertEquals(true, graph["scriptable"])
         assertFalse(graph.containsKey("agent_call"))
 
@@ -840,20 +839,20 @@ class RunLogReusableFunctionCompilerTest {
         assertFalse(function.containsKey("agent_call"))
 
         val capabilities = capabilitiesFrom(spec)
-        assertEquals(2, capabilities["omniflow_step_count"])
+        assertEquals(1, capabilities["omniflow_step_count"])
         assertEquals(0, capabilities["agent_step_count"])
         assertEquals(false, capabilities["has_agent_steps"])
     }
 
     @Test
-    fun `provider only policy no longer classifies omniflow execution tools as agent`() {
+    fun `provider only policy no longer classifies omniflow function execution tools as agent`() {
         assertTrue(RunLogReplayPolicy.providerOnlyTools.isEmpty())
-        for (toolName in listOf(
-            "go_to_node",
-            "click_node",
-            "call_tool",
-        )) {
+        for (toolName in listOf("call_tool")) {
             assertTrue(RunLogReplayPolicy.isOmniflowExecutionTool(toolName))
+            assertFalse(RunLogReplayPolicy.isAgentTool(toolName))
+        }
+        for (toolName in listOf("go_to_node", "click_node")) {
+            assertFalse(RunLogReplayPolicy.isOmniflowExecutionTool(toolName))
             assertFalse(RunLogReplayPolicy.isAgentTool(toolName))
         }
         for (toolName in listOf(

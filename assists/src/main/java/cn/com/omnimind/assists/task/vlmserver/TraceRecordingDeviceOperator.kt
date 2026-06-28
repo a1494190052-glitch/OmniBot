@@ -126,26 +126,6 @@ class TraceRecordingDeviceOperator(
         return result
     }
 
-    override suspend fun clickNodeById(nodeId: String, targetDescription: String): OperationResult {
-        val result = delegate.clickNodeById(nodeId, targetDescription)
-        traceSession.recordDeviceEvent(
-            eventType = "click_node",
-            request = mapOf(
-                "action" to mapOf(
-                    "tool" to "click",
-                    "args" to mapOf(
-                        "node_id" to nodeId,
-                        "target_description" to targetDescription,
-                        "execution" to "accessibility_node_action",
-                    ),
-                )
-            ),
-            response = operationResultMap(result),
-            advanceStepIndex = true,
-        )
-        return result
-    }
-
     override suspend fun longClickCoordinate(x: Float, y: Float, duration: Long): OperationResult {
         val result = delegate.longClickCoordinate(x, y, duration)
         traceSession.recordDeviceEvent(
@@ -166,31 +146,6 @@ class TraceRecordingDeviceOperator(
         return result
     }
 
-    override suspend fun longClickNodeById(
-        nodeId: String,
-        targetDescription: String,
-        duration: Long
-    ): OperationResult {
-        val result = delegate.longClickNodeById(nodeId, targetDescription, duration)
-        traceSession.recordDeviceEvent(
-            eventType = "node_long_click",
-            request = mapOf(
-                "action" to mapOf(
-                    "tool" to "long_press",
-                    "args" to mapOf(
-                        "node_id" to nodeId,
-                        "target_description" to targetDescription,
-                        "duration_ms" to duration,
-                        "execution" to "accessibility_node_action",
-                    ),
-                )
-            ),
-            response = operationResultMap(result),
-            advanceStepIndex = true,
-        )
-        return result
-    }
-
     override suspend fun inputText(text: String): OperationResult {
         val result = delegate.inputText(text)
         traceSession.recordDeviceEvent(
@@ -199,31 +154,6 @@ class TraceRecordingDeviceOperator(
                 "action" to mapOf(
                     "tool" to "input_text",
                     "args" to mapOf("text" to text),
-                )
-            ),
-            response = operationResultMap(result),
-            advanceStepIndex = true,
-        )
-        return result
-    }
-
-    override suspend fun inputTextToNodeById(
-        nodeId: String,
-        text: String,
-        targetDescription: String
-    ): OperationResult {
-        val result = delegate.inputTextToNodeById(nodeId, text, targetDescription)
-        traceSession.recordDeviceEvent(
-            eventType = "node_input_text",
-            request = mapOf(
-                "action" to mapOf(
-                    "tool" to "input_text",
-                    "args" to mapOf(
-                        "node_id" to nodeId,
-                        "target_description" to targetDescription,
-                        "text" to text,
-                        "execution" to "accessibility_node_action",
-                    ),
                 )
             ),
             response = operationResultMap(result),
@@ -282,32 +212,6 @@ class TraceRecordingDeviceOperator(
             y2 = y2,
             duration = duration,
             targetDescription = null,
-        )
-    }
-
-    override suspend fun slideCoordinateWithContext(
-        x1: Float,
-        y1: Float,
-        x2: Float,
-        y2: Float,
-        duration: Long,
-        targetDescription: String,
-    ): OperationResult {
-        return recordSlide(
-            result = delegate.slideCoordinateWithContext(
-                x1 = x1,
-                y1 = y1,
-                x2 = x2,
-                y2 = y2,
-                duration = duration,
-                targetDescription = targetDescription,
-            ),
-            x1 = x1,
-            y1 = y1,
-            x2 = x2,
-            y2 = y2,
-            duration = duration,
-            targetDescription = targetDescription,
         )
     }
 
@@ -430,7 +334,15 @@ class TraceRecordingDeviceOperator(
         )
     }
 
-    override val isCancellationRequested: Boolean get() = delegate.isCancellationRequested
+    override fun isReady(): Boolean = delegate.isReady()
+
+    override fun currentXml(): String? = delegate.currentXml()
+
+    override fun currentPackageName(): String? = delegate.currentPackageName()
+
+    override fun currentActivityName(): String? = delegate.currentActivityName()
+
+    override suspend fun hideKeyboard(): OperationResult = delegate.hideKeyboard()
 
     /**
      * Convert one low-level operation result into the JSON-safe payload expected

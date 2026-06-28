@@ -7,7 +7,7 @@ import cn.com.omnimind.bot.agent.AgentToolExecutionHandle
 import cn.com.omnimind.bot.agent.AgentToolJson.mapToJsonElement
 import cn.com.omnimind.bot.agent.AgentToolRegistry
 import cn.com.omnimind.bot.agent.ToolExecutionResult
-import cn.com.omnimind.bot.runlog.UIStepExecutor
+import cn.com.omnimind.bot.runlog.ReplayHelper
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import cn.com.omnimind.baselib.llm.AssistantToolCall
 import cn.com.omnimind.baselib.llm.AssistantToolCallFunction
@@ -93,7 +93,7 @@ class OobFunctionToolDelegationExecutor(
     }
 
     private fun remappedStepArgs(step: Map<String, Any?>): JsonObject {
-        val remapResult = UIStepExecutor.remapStepArgs(step)
+        val remapResult = ReplayHelper.remapStepArgs(step)
         val stepArgsMap = remapResult.args
         return when (stepArgsMap) {
             is Map<*, *> -> mapToJsonElement(

@@ -201,12 +201,11 @@ internal object RunLogReplayStepCompiler {
         sourceContext: Map<String, Any?>,
         utg: Map<String, Any?> = emptyMap(),
     ): Map<String, Any?> {
-        val isGraphTool = RunLogReplayPolicy.isOmniflowGraphTool(toolName)
         val isCallTool = RunLogReplayPolicy.isOmniflowToolCallTool(toolName)
         val canonicalToolName = if (isCallTool) RunLogReplayPolicy.TOOL_CALL_TOOL else toolName
         val canonicalArgs = if (isCallTool) canonicalCallToolArgs(toolName, args) else args
         val hasFunctionId = firstNonBlank(canonicalArgs["function_id"]).isNotEmpty()
-        val executor = if (isGraphTool || hasFunctionId) {
+        val executor = if (hasFunctionId) {
             RunLogReplayPolicy.EXECUTOR_OMNIFLOW
         } else {
             RunLogReplayPolicy.EXECUTOR_TOOL
@@ -214,7 +213,6 @@ internal object RunLogReplayStepCompiler {
         return nullableMap(
             "title" to title,
             "kind" to when {
-                isGraphTool -> "omniflow_graph"
                 hasFunctionId -> "omniflow_function"
                 else -> "tool_call"
             },

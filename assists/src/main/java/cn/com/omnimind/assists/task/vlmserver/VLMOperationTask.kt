@@ -60,7 +60,8 @@ open class VLMOperationTask(
     
     @Volatile
     private var _isCancellationRequested: Boolean = false
-    override val isCancellationRequested: Boolean get() = _isCancellationRequested
+    val isCancellationRequested: Boolean
+        get() = _isCancellationRequested
     
     private var executionRecordId: Long = -1L
     private var isSubTask: Boolean = false
@@ -265,7 +266,7 @@ open class VLMOperationTask(
     }
 
     private fun throwIfCancellationRequested(stage: String) {
-        if (isCancellationRequested) {
+        if (_isCancellationRequested) {
             throw CancellationException("任务已取消: $stage")
         }
     }
@@ -1305,7 +1306,7 @@ open class VLMOperationTask(
         return androidDeviceOperator.slideCoordinate(x1, y1, x2, y2, duration)
     }
 
-    override suspend fun slideCoordinateWithContext(
+    suspend fun slideCoordinateWithContext(
         x1: Float,
         y1: Float,
         x2: Float,
@@ -1357,6 +1358,26 @@ open class VLMOperationTask(
 
     override suspend fun showInfo(message: String) {
         androidDeviceOperator.showInfo(message)
+    }
+
+    override fun isReady(): Boolean {
+        return androidDeviceOperator.isReady()
+    }
+
+    override fun currentXml(): String? {
+        return androidDeviceOperator.currentXml()
+    }
+
+    override fun currentPackageName(): String? {
+        return androidDeviceOperator.currentPackageName()
+    }
+
+    override fun currentActivityName(): String? {
+        return androidDeviceOperator.currentActivityName()
+    }
+
+    override suspend fun hideKeyboard(): OperationResult {
+        return androidDeviceOperator.hideKeyboard()
     }
 
     fun finishTask() {

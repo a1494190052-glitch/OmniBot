@@ -3,18 +3,19 @@ import cn.com.omnimind.bot.runlog.resolveActionName
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 
 import android.content.Context
+import cn.com.omnimind.assists.task.vlmserver.ActionExecutor
+import cn.com.omnimind.assists.task.vlmserver.AndroidDeviceOperator
+import cn.com.omnimind.assists.task.vlmserver.UIContextManager
 import android.hardware.display.DisplayManager
 import android.util.DisplayMetrics
 import android.view.Display
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.assists.task.vlmserver.VLMIndexedPageContext
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
-import cn.com.omnimind.baselib.runlog.OobLocalActionLedger
 import cn.com.omnimind.baselib.util.ImageQuality
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
-import cn.com.omnimind.bot.agent.tool.handlers.VlmActExecutor
 import cn.com.omnimind.bot.vlm.VlmToolCoordinator
 import cn.com.omnimind.bot.vlm.VlmToolOutcome
 import cn.com.omnimind.bot.vlm.VlmToolOutcomeStatus
@@ -317,10 +318,13 @@ object McpToolExecutors {
         val startedAtMs = System.currentTimeMillis()
         val settleDelayMs = (longArg(request, "settle_delay_ms", "settleDelayMs") ?: 1_000L)
             .coerceIn(0L, 10_000L)
-        OobLocalActionLedger.bind(context)
-        VlmActExecutor(actionSource = "mcp_act").dispatch(
+        ActionExecutor(
+            AndroidDeviceOperator(null, context),
+            UIContextManager(),
+        ).act(
             action = normalized.tool,
             args = normalized.args,
+            source = "mcp_act",
             diagnostics = mapOf("source_action_type" to normalized.sourceActionType),
         )
         if (settleDelayMs > 0L && normalized.tool != "finished") {
@@ -347,26 +351,6 @@ object McpToolExecutors {
             "duration_ms" to (System.currentTimeMillis() - startedAtMs),
             "package_name" to packageName.takeIf { it.isNotBlank() },
             "activity_name" to activityName.takeIf { it.isNotBlank() },
-        ).filterValues { it != null }
-    }
-
-    suspend fun executeLocalActionLog(
-        context: Context,
-        args: Map<String, Any?>?,
-    ): Map<String, Any?> = withContext(Dispatchers.IO) {
-        val limit = (intArg(args, "limit") ?: 100).coerceIn(1, 500)
-        OobLocalActionLedger.bind(context)
-        val records = OobLocalActionLedger.readRecentRecords(context, limit)
-        val recordFile = OobLocalActionLedger.recordFile(context)
-        linkedMapOf<String, Any?>(
-            "success" to true,
-            "schema_version" to OobLocalActionLedger.SCHEMA_VERSION,
-            "source" to "oob_accessibility_runtime",
-            "limit" to limit,
-            "count" to records.size,
-            "record_file_exists" to recordFile.exists(),
-            "record_file_bytes" to recordFile.takeIf { it.exists() }?.length(),
-            "records" to records,
         ).filterValues { it != null }
     }
 

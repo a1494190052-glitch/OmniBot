@@ -6,8 +6,8 @@ import android.content.Context
 import android.content.Intent
 import cn.com.omnimind.accessibility.service.AssistsService
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
+import cn.com.omnimind.assists.task.vlmserver.AndroidDeviceOperator
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.runlog.OmniflowActionRuntime
 import cn.com.omnimind.bot.runlog.RunLogPagePackageInference
 import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
 import cn.com.omnimind.bot.util.AssistsUtil
@@ -379,13 +379,14 @@ class DebugOobFunctionSegmentReceiver : BroadcastReceiver() {
 
     private suspend fun currentObservation(): PageObservation {
         val accessibilityReady = AccessibilityController.initController()
+        val deviceOperator = AndroidDeviceOperator(null, BaseApplication.instance)
         val xml = firstNonBlank(
             if (accessibilityReady) {
                 captureXmlOnMain()
             } else {
                 null
             },
-            OmniflowActionRuntime.backend.currentXml(),
+            deviceOperator.currentXml(),
         ).orEmpty()
         val rawPackage = firstNonBlank(
             if (accessibilityReady) {
@@ -393,7 +394,7 @@ class DebugOobFunctionSegmentReceiver : BroadcastReceiver() {
             } else {
                 null
             },
-            OmniflowActionRuntime.backend.currentPackageName(),
+            deviceOperator.currentPackageName(),
         ).orEmpty()
         val effectivePackage = RunLogPagePackageInference.effectivePackage(rawPackage, xml)
         if (effectivePackage.isBlank() || isOobPackage(effectivePackage)) {

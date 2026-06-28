@@ -330,24 +330,13 @@ When adding or migrating a generic agent tool name:
 - merge call-level timing into runner timing without changing run results
 - keep timing payload shape outside the public tool facade
 
-`OmniflowActionBackend`, `OmniflowCheckerRule`, and `UIStepExecutor` own
-primitive local action execution:
+`ActionExecutor`, `ReplayHelper`, and `OmniflowCheckerRule` own primitive
+local action execution:
 
-- dispatch canonical local UI actions to the accessibility-backed runtime
+- dispatch canonical local UI actions to `DeviceOperator`
 - evaluate global, Function-level, and node-level checker rules around each step
 - perform source-context coordinate remapping and recovery snapshots
 - keep primitive execution separate from Function storage, recall, and update
-
-`OobFunctionGraphStepRunner` owns local graph/UTG execution inside replay:
-
-- select graph path edges for `go_to_node` and `click_node`
-- lower graph edges into primitive OmniFlow local-action steps
-- execute the primitive path with the same checker rules as normal replay
-- report path-level success, failure, and per-edge step results
-- delegate stable failure step payload shape to `OobFunctionRunResultBuilder`
-- use `RunLogReplayPolicy` for graph replay tools such as `go_to_node` and
-  `click_node`; graph runners and schema builders should not rebuild these sets
-  locally
 
 `OobFunctionEntryPackageGuard` owns pre-replay app restoration:
 
@@ -357,13 +346,6 @@ primitive local action execution:
 - keep package recovery outside the main step loop
 - callers that infer an entry package from Function steps should use canonical
   action names from `OobActionCodec`; new specs must write `open_app` directly
-
-`OobFunctionAccessibilityPreflightGuard` owns replay permission preflight:
-
-- scan active replay steps for deterministic actions that require accessibility
-- check whether the accessibility action backend is ready before the step loop
-- build the stable permission-blocked failed-run payload
-- keep permission preflight outside replay ordering and step execution
 
 `OobFunctionFrontendSessionController` owns transient replay UI state:
 
@@ -464,11 +446,8 @@ Agent/MCP tool surface
               -> OobFunctionToolDelegationExecutor # live tool delegation bridge
               -> OobFunctionRunResultBuilder # run result/timing payloads
               -> OobFunctionNestedCallCardPresenter # nested Function card payloads
-              -> OobFunctionEntryPackageGuard # pre-replay app restoration
-              -> OobFunctionAccessibilityPreflightGuard # permission preflight
-              -> OobFunctionGraphStepRunner # graph/UTG path lowering
-              -> UIStepExecutor # primitive local UI action execution
-                  -> OmniflowActionBackend # accessibility-backed action runtime
+              -> ActionExecutor.act # primitive local UI action execution
+                  -> DeviceOperator # physical device port
                   -> OmniflowCheckerRule # global/function/node checker metadata
       -> OobRunLogReplayService      # RunLog -> Function conversion
           -> OobFunctionRepository   # injected storage owner for registration
@@ -529,7 +508,7 @@ Keep these pieces separate:
 - `RunLogReplayStepNoiseNormalizer`: repeated input and redundant compiled-step
   cleanup after card-to-step conversion
 - `OobFunctionRunner`: Function loading, materialization, and execution timing
-- `OobFunctionToolHandler` and `UIStepExecutor`: runtime step execution
+- `OobFunctionToolHandler` and `ActionExecutor`: runtime step execution
 - `OobFunctionFrontendSessionController`: top-level replay overlay lifecycle
   and stop signal handling
 - `OobFunctionRuntimeResolveContextController`: failed-step recovery snapshots and
@@ -545,14 +524,9 @@ Keep these pieces separate:
   records, and runner timing accounting
 - `OobFunctionNestedCallCardPresenter`: nested Function tool-card ids,
   summaries, args payloads, and result preview payloads
-- `OobFunctionEntryPackageGuard`: pre-replay app/package restoration
-- `OobFunctionAccessibilityPreflightGuard`: permission readiness checks and
-  permission-blocked failed-run payloads before replay starts
-- `OobFunctionGraphStepRunner`: graph/UTG path selection and primitive action
-  lowering inside runtime replay
-- `OmniflowActionBackend`, `OmniflowCheckerRule`, and
-  `UIStepExecutor`: primitive local action dispatch, checker evaluation,
-  coordinate remapping, and recovery snapshots
+- `ActionExecutor`, `ReplayHelper`, and `OmniflowCheckerRule`: primitive local
+  action dispatch, checker evaluation, coordinate remapping, and recovery
+  snapshots
 - `McpToolDefinitions` and `McpToolExecutors`: external MCP schema and argument
   alias adapter before dispatch into the Function/tool facade
 - `OobFunctionSkillProfile`: native `omniflow` skill profile,
@@ -566,7 +540,7 @@ Keep these pieces separate:
 - `omniflow` checker references: agent-facing checklist for implementing
   runtime checker code, contracts, and tests. Retired focused checker skills
   are not bundled; executable checker policy still belongs to
-  `OmniflowCheckerRule` and `UIStepExecutor`
+  `OmniflowCheckerRule`, `ReplayHelper`, and `ActionExecutor`
 
 Merging these would make it harder to tell whether a change affects storage,
 conversion, execution, or agent patching.
@@ -718,9 +692,9 @@ change:
 - `McpRoutes.mapArg` and `McpRoutes.listArg` support legacy/debug HTTP route
   request parsing, including nullable maps and comma-separated string lists.
   They are not Function payload helpers.
-- `UIStepExecutor.firstNonBlank` and `OobPageVectorSet.firstNonBlank`
-  are low-risk local helpers in runtime/vector internals; merge them only when
-  touching the surrounding code for another reason.
+- `OobPageVectorSet.firstNonBlank` is a low-risk local helper in vector
+  internals; merge it only when touching the surrounding code for another
+  reason.
 - `OobReusableFunctionStore` lives in `baselib` and cannot depend on app-layer
   helper owners such as `OobFunctionJson`; keep its storage-compatibility
   coercion local unless the owner is moved to a shared module.

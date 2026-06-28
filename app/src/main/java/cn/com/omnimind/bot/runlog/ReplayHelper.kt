@@ -1,9 +1,9 @@
 package cn.com.omnimind.bot.runlog
 
-import cn.com.omnimind.bot.runlog.boolArg
 import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
+import cn.com.omnimind.assists.task.vlmserver.DeviceOperator
 import cn.com.omnimind.baselib.runlog.OobActionSchema
-import cn.com.omnimind.bot.agent.tool.handlers.VlmActExecutor
+import cn.com.omnimind.bot.runlog.boolArg
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -20,28 +20,16 @@ import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 
-object UIStepExecutor {
+object ReplayHelper {
     private const val MIN_ANCHOR_PROJECTION_CONFIDENCE = 0.55f
     private val LOCAL_ANCHOR_RADIUS_RATIOS = floatArrayOf(0.12f, 0.20f, 0.35f, 0.50f, 0.75f, 1.00f)
     private const val MIN_LOCAL_ANCHOR_SOURCE_COUNT = 3
     private const val MAX_LOCAL_ANCHOR_SOURCE_COUNT = 12
     private const val LOCAL_ANCHOR_DISTANCE_SIGMA = 0.25f
 
-    private val vlmActExecutor = VlmActExecutor()
-
     data class StepArgsResult(
         val args: Any?,
         val meta: Map<String, Any?> = emptyMap(),
-    )
-
-    data class PreflightResult(
-        val args: Map<String, Any?>,
-        val transfer: Map<String, Any?> = emptyMap(),
-        val checker: Map<String, Any?> = emptyMap(),
-        val controlEffects: List<Map<String, Any?>> = emptyList(),
-        val timing: Map<String, Any?> = emptyMap(),
-        val currentXml: String? = null,
-        val currentPackageName: String? = null,
     )
 
     internal data class ReplayState(
@@ -94,28 +82,21 @@ object UIStepExecutor {
         val diagnostics: Map<String, Any?> = emptyMap(),
     ) : IllegalStateException(message)
 
-    suspend fun currentPageSnapshotForRecovery(reason: String? = null): Map<String, Any?> =
-        recoverySnapshotMap(readBackendSnapshot(), reason)
+    suspend fun currentPageSnapshotForRecovery(
+        deviceOperator: DeviceOperator,
+        reason: String? = null,
+    ): Map<String, Any?> =
+        recoverySnapshotMap(readBackendSnapshot(deviceOperator), reason)
 
-    suspend fun runPageGuardOnce(
+    suspend fun runPageGuard(
+        deviceOperator: DeviceOperator,
         execute: Boolean = true,
         source: String = "page_guard",
         checkerBudget: CheckerTriggerBudget = CheckerTriggerBudget(),
         conditions: Set<String> = DEFAULT_PAGE_GUARD_CONDITIONS,
     ): Map<String, Any?> {
         val capturedAtMs = System.currentTimeMillis()
-        if (CHECKERS_DISABLED) {
-            return pageGuardBaseResult(
-                source = source,
-                execute = execute,
-                capturedAtMs = capturedAtMs,
-                snapshot = null,
-            ) + mapOf(
-                "matched" to false,
-                "reason" to "checker_disabled",
-            )
-        }
-        if (!OmniflowActionRuntime.backend.isReady()) {
+        if (!deviceOperator.isReady()) {
             return pageGuardBaseResult(
                 source = source,
                 execute = execute,
@@ -127,7 +108,7 @@ object UIStepExecutor {
             )
         }
 
-        val snapshot = readBackendSnapshot()
+        val snapshot = readBackendSnapshot(deviceOperator)
         val base = pageGuardBaseResult(
             source = source,
             execute = execute,
@@ -171,7 +152,7 @@ object UIStepExecutor {
                 return base + result + mapOf("reason" to "trigger_budget_exhausted")
             }
 
-            val clickMeta = clickDismissCandidateWithRetry(candidate) { latestPage ->
+            val clickMeta = clickDismissCandidateWithRetry(deviceOperator, candidate) { latestPage ->
                 pageGuardCandidate(condition, latestPage)
             }
             val trigger = checkerBudget.recordTrigger(rule)
@@ -264,117 +245,11 @@ object UIStepExecutor {
         }
     }
 
-    suspend fun execute(
+    fun remapStepArgs(
         step: Map<String, Any?>,
-        stepId: String,
-        stepTitle: String,
-        checkerRules: List<OmniflowCheckerRule> = emptyList(),
-        checkerBudget: CheckerTriggerBudget = CheckerTriggerBudget(),
-        stopRequested: (() -> Boolean)? = null,
-    ): Map<String, Any?> {
-        throwIfStopRequested(stopRequested)
-        val action = actionNameForStep(step)
-        if (action !in OobActionSchema.replayableToolNames) {
-            throw IllegalArgumentException("Unsupported omniflow action: $action")
-        }
-        if (actionRequiresAccessibility(action) && !OmniflowActionRuntime.backend.isReady()) {
-            throw IllegalStateException("OmniFlow action backend is not ready")
-        }
-        val initialArgs = normalizeArgsMap(argsForStep(step))
-        val transfer = try {
-            remapStepArgs(step)
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            StepArgsResult(
-                args = initialArgs,
-                meta = mapOf(
-                    "applied" to false,
-                    "reason" to "action_transfer_exception",
-                    "error_message" to e.message.orEmpty(),
-                ),
-            )
-        }
-        val args = normalizeArgsMap(transfer.args ?: initialArgs)
-        throwIfStopRequested(stopRequested)
-        vlmActExecutor.dispatch(
-            action = action,
-            args = args,
-            source = "function_replay",
-            diagnostics = transfer.meta,
-        )
-        return linkedMapOf<String, Any?>(
-            "step_id" to stepId,
-            "tool" to action,
-            "executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
-            "model_free" to true,
-            "success" to true,
-            "summary" to stepTitle.takeIf { it.isNotBlank() }.orEmpty(),
-            "action_transfer" to transfer.meta.takeIf { it.isNotEmpty() },
-        ).filterValues { it != null }
-    }
-
-    suspend fun preflight(
-        step: Map<String, Any?>,
-        checkerRules: List<OmniflowCheckerRule> = emptyList(),
-        checkerBudget: CheckerTriggerBudget = CheckerTriggerBudget(),
-        respectFixedReplayPolicy: Boolean = true,
-    ): PreflightResult {
-        val timing = ReplayStepTiming()
-        val action = actionNameForStep(step)
-        if (action !in OobActionSchema.replayableToolNames) {
-            return PreflightResult(
-                args = normalizeArgsMap(step["args"]),
-                timing = timing.finish(),
-            )
-        }
-        val backend = OmniflowActionRuntime.backend
-        if (actionRequiresAccessibility(action) && !backend.isReady()) {
-            throw IllegalStateException("OmniFlow action backend is not ready")
-        }
-        val fixedReplay = respectFixedReplayPolicy && RunLogReplayPolicy.fixedReplayOnly
-        val initialArgs = argsForStep(step)
-        val transferRequested = !fixedReplay &&
-            action in OobActionSchema.coordinateToolNames &&
-            shouldUseCoordinateHook(step)
-        var currentState: ReplayState? = null
-
-        suspend fun getState(reason: String): ReplayState =
-            currentState ?: observeReplayState(timing, reason).also { currentState = it }
-
-        suspend fun refreshState(reason: String): ReplayState =
-            observeReplayState(timing, reason).also { currentState = it }
-
-        val (preTransferControls, preActionControls, remapResult, args) = runPreActionPhase(
-            step = step, action = action, initialArgs = initialArgs,
-            fixedReplay = fixedReplay, transferRequested = transferRequested,
-            checkerRules = checkerRules, checkerBudget = checkerBudget,
-            timing = timing, stopRequested = null,
-            getState = ::getState, refreshState = ::refreshState,
-        )
-        val controlEffects = preTransferControls + preActionControls
-        val checker = timing.measureOverhead("result_summary_ms") {
-            replayCheckerSummary(
-                action = action,
-                fixedReplay = fixedReplay,
-                transfer = remapResult.meta,
-                controlEffects = controlEffects,
-            )
-        }
-        val latestState = currentState?.snapshot
-        return PreflightResult(
-            args = args,
-            transfer = remapResult.meta,
-            checker = checker,
-            controlEffects = controlEffects,
-            timing = timing.finish(),
-            currentXml = latestState?.xml,
-            currentPackageName = latestState?.effectivePackage(),
-        )
-    }
-
-    fun remapStepArgs(step: Map<String, Any?>): StepArgsResult =
-        remapStepArgsInternal(step, currentXmlOverride = null)
+        deviceOperator: DeviceOperator? = null,
+    ): StepArgsResult =
+        remapStepArgsInternal(step, currentXmlOverride = null, deviceOperator = deviceOperator)
 
     private fun recordedReplayFallbackIfNeeded(
         transferRequested: Boolean,
@@ -464,6 +339,7 @@ object UIStepExecutor {
     )
 
     private suspend fun runPreActionPhase(
+        deviceOperator: DeviceOperator,
         step: Map<String, Any?>,
         action: String,
         initialArgs: Map<String, Any?>,
@@ -480,6 +356,7 @@ object UIStepExecutor {
             if (fixedReplay) emptyList()
             else runCheckerPhaseUntilStable(
                 phase = OmniflowCheckerRule.PHASE_PRE_TRANSFER,
+                deviceOperator = deviceOperator,
                 initialState = getState("before_step"),
                 replayAction = ReplayAction(step, action, initialArgs),
                 extraRules = checkerRules,
@@ -494,6 +371,7 @@ object UIStepExecutor {
             action != OobActionSchema.TOOL_FINISHED
         ) {
             runPreTransferBlockingOverlayIfPresent(
+                deviceOperator = deviceOperator,
                 state = getState("before_transfer_overlay_check"),
                 checkerBudget = checkerBudget,
             )
@@ -524,6 +402,7 @@ object UIStepExecutor {
             if (fixedReplay) emptyList()
             else runCheckerPhaseUntilStable(
                 phase = OmniflowCheckerRule.PHASE_PRE_ACTION,
+                deviceOperator = deviceOperator,
                 initialState = getState("before_action"),
                 replayAction = ReplayAction(step, action, args),
                 extraRules = checkerRules,
@@ -544,10 +423,10 @@ object UIStepExecutor {
     }
 
     private suspend fun runPreTransferBlockingOverlayIfPresent(
+        deviceOperator: DeviceOperator,
         state: ReplayState,
         checkerBudget: CheckerTriggerBudget,
     ): List<Map<String, Any?>> {
-        if (CHECKERS_DISABLED) return emptyList()
         val page = state.page ?: return emptyList()
         val candidate = blockingOverlayDismissCandidate(page) ?: return emptyList()
         val rule = OmniflowCheckerRule(
@@ -557,7 +436,11 @@ object UIStepExecutor {
             phase = OmniflowCheckerRule.PHASE_PRE_TRANSFER,
         )
         if (!checkerBudget.canTrigger(rule)) return emptyList()
-        val clickMeta = clickDismissCandidateWithRetry(candidate, ::blockingOverlayDismissCandidate)
+        val clickMeta = clickDismissCandidateWithRetry(
+            deviceOperator,
+            candidate,
+            ::blockingOverlayDismissCandidate,
+        )
         val trigger = checkerBudget.recordTrigger(rule)
         return listOf(
             linkedMapOf(
@@ -577,6 +460,7 @@ object UIStepExecutor {
     private fun remapStepArgsInternal(
         step: Map<String, Any?>,
         currentXmlOverride: String?,
+        deviceOperator: DeviceOperator?,
     ): StepArgsResult {
         val rawArgs = step["args"]
         val rawArgMap = mapArg(rawArgs)
@@ -605,7 +489,8 @@ object UIStepExecutor {
                 meta = mapOf("applied" to false, "reason" to "missing_source_xml", "algorithm" to "anchor_projection")
             )
         }
-        val currentXml = currentXmlOverride ?: readCurrentXmlForCoordinateRemapDirect()
+        val currentXml = currentXmlOverride
+            ?: readCurrentXmlForCoordinateRemapDirect(deviceOperator)
         if (currentXml.isEmpty()) {
             return StepArgsResult(
                 args,
@@ -695,10 +580,13 @@ object UIStepExecutor {
         step: Map<String, Any?>,
         state: ReplayState,
     ): StepArgsResult =
-        remapStepArgsInternal(step, currentXmlOverride = state.snapshot.xml)
+        remapStepArgsInternal(step, currentXmlOverride = state.snapshot.xml, deviceOperator = null)
 
     private fun readCurrentXmlForCoordinateRemapDirect(): String =
-        readBackendSnapshotDirect().xml
+        readCurrentXmlForCoordinateRemapDirect(null)
+
+    private fun readCurrentXmlForCoordinateRemapDirect(deviceOperator: DeviceOperator?): String =
+        deviceOperator?.let { readBackendSnapshotDirect(it).xml }.orEmpty()
 
     internal fun shouldUseCoordinateHook(step: Map<String, Any?>): Boolean {
         val coordinateHook = step["coordinate_hook"]?.toString()?.trim()?.lowercase().orEmpty()
@@ -707,7 +595,6 @@ object UIStepExecutor {
         val sourceContext = sourceContextForStep(step)
         return coordinateHook == RunLogReplayPolicy.EXECUTOR_OMNIFLOW ||
             step["omniflow"] == true ||
-            replayEngine == RunLogReplayPolicy.REPLAY_ENGINE_OMNIFLOW_UTG ||
             (RunLogReplayPolicy.isCoordinateAction(action) && sourceContext.isNotEmpty())
     }
 
@@ -823,12 +710,12 @@ object UIStepExecutor {
 
     private suspend fun runCheckerPhase(
         phase: String,
+        deviceOperator: DeviceOperator,
         state: ReplayState,
         replayAction: ReplayAction,
         extraRules: List<OmniflowCheckerRule>,
         checkerBudget: CheckerTriggerBudget,
     ): List<Map<String, Any?>> {
-        if (CHECKERS_DISABLED) return emptyList()
         val action = replayAction.action
         if (action == OobActionSchema.TOOL_FINISHED) return emptyList()
         if (action == OobActionSchema.TOOL_OPEN_APP && phase != OmniflowCheckerRule.PHASE_POST_ACTION) {
@@ -838,7 +725,7 @@ object UIStepExecutor {
         val activeRules = globalRules + extraRules.filter { it.phase == phase && it.enabled }
         for (rule in activeRules) {
             if (!checkerBudget.canTrigger(rule)) continue
-            val result = evaluateAndExecuteRule(rule, state, replayAction) ?: continue
+            val result = evaluateAndExecuteRule(deviceOperator, rule, state, replayAction) ?: continue
             val trigger = checkerBudget.recordTrigger(rule)
             // Stop after the first rule that produces a recovery action.
             return listOf(result.withCheckerTrigger(trigger))
@@ -848,6 +735,7 @@ object UIStepExecutor {
 
     private suspend fun runCheckerPhaseUntilStable(
         phase: String,
+        deviceOperator: DeviceOperator,
         initialState: ReplayState,
         replayAction: ReplayAction,
         extraRules: List<OmniflowCheckerRule>,
@@ -860,6 +748,7 @@ object UIStepExecutor {
         repeat(MAX_CHECKER_PHASE_CONTROL_COUNT) { index ->
             val result = runCheckerPhase(
                 phase = phase,
+                deviceOperator = deviceOperator,
                 state = state,
                 replayAction = replayAction,
                 extraRules = extraRules,
@@ -869,6 +758,54 @@ object UIStepExecutor {
             effects += result
             state = refreshState("${refreshReasonPrefix}_${index + 1}")
         }
+        return effects
+    }
+
+    suspend fun runChecker(
+        deviceOperator: DeviceOperator,
+        step: Map<String, Any?>,
+        action: String,
+        args: Map<String, Any?>,
+        checkerRules: List<OmniflowCheckerRule> = emptyList(),
+        checkerBudget: CheckerTriggerBudget = CheckerTriggerBudget(),
+        stopRequested: (() -> Boolean)? = null,
+    ): List<Map<String, Any?>> {
+        throwIfStopRequested(stopRequested)
+        val initialState = observeReplayState(
+            deviceOperator = deviceOperator,
+            timing = ReplayStepTiming(),
+            reason = "before_checker",
+        )
+        val replayAction = ReplayAction(step, action, args)
+        val effects = mutableListOf<Map<String, Any?>>()
+        effects += runCheckerPhaseUntilStable(
+            phase = OmniflowCheckerRule.PHASE_PRE_TRANSFER,
+            deviceOperator = deviceOperator,
+            initialState = initialState,
+            replayAction = replayAction,
+            extraRules = checkerRules,
+            checkerBudget = checkerBudget,
+            refreshState = { reason ->
+                throwIfStopRequested(stopRequested)
+                observeReplayState(deviceOperator, ReplayStepTiming(), reason)
+            },
+            refreshReasonPrefix = "after_pre_transfer_controls",
+        )
+        throwIfStopRequested(stopRequested)
+        val preActionState = observeReplayState(deviceOperator, ReplayStepTiming(), "before_pre_action_checker")
+        effects += runCheckerPhaseUntilStable(
+            phase = OmniflowCheckerRule.PHASE_PRE_ACTION,
+            deviceOperator = deviceOperator,
+            initialState = preActionState,
+            replayAction = replayAction,
+            extraRules = checkerRules,
+            checkerBudget = checkerBudget,
+            refreshState = { reason ->
+                throwIfStopRequested(stopRequested)
+                observeReplayState(deviceOperator, ReplayStepTiming(), reason)
+            },
+            refreshReasonPrefix = "after_pre_action_controls",
+        )
         return effects
     }
 
@@ -914,10 +851,11 @@ object UIStepExecutor {
     }
 
     private suspend fun observeReplayState(
+        deviceOperator: DeviceOperator,
         timing: ReplayStepTiming,
         reason: String,
     ): ReplayState {
-        val snapshot = readBackendSnapshot(timing)
+        val snapshot = readBackendSnapshot(deviceOperator, timing)
         return ReplayState(
             snapshot = snapshot,
             page = parsePageModel(snapshot.xml),
@@ -926,14 +864,17 @@ object UIStepExecutor {
         )
     }
 
-    internal suspend fun readBackendSnapshot(timing: ReplayStepTiming? = null): BackendSnapshot {
+    internal suspend fun readBackendSnapshot(
+        deviceOperator: DeviceOperator,
+        timing: ReplayStepTiming? = null,
+    ): BackendSnapshot {
         val readBlock: suspend () -> BackendSnapshot = {
             runCatching {
                 withContext(Dispatchers.Main.immediate) {
-                    readBackendSnapshotDirect()
+                    readBackendSnapshotDirect(deviceOperator)
                 }
             }.getOrElse {
-                readBackendSnapshotDirect()
+                readBackendSnapshotDirect(deviceOperator)
             }
         }
         return if (timing == null) {
@@ -943,16 +884,16 @@ object UIStepExecutor {
         }
     }
 
-    private fun readBackendSnapshotDirect(): BackendSnapshot {
-        runCatching { OmniflowActionRuntime.backend.isReady() }
+    private fun readBackendSnapshotDirect(deviceOperator: DeviceOperator): BackendSnapshot {
+        runCatching { deviceOperator.isReady() }
         val currentXml = runCatching {
-            OmniflowActionRuntime.backend.currentXml()?.trim().orEmpty()
+            deviceOperator.currentXml()?.trim().orEmpty()
         }.getOrDefault("")
         val rawPackage = runCatching {
-            OmniflowActionRuntime.backend.currentPackageName()?.trim().orEmpty()
+            deviceOperator.currentPackageName()?.trim().orEmpty()
         }.getOrDefault("")
         val activityName = runCatching {
-            OmniflowActionRuntime.backend.currentActivityName()?.trim().orEmpty()
+            deviceOperator.currentActivityName()?.trim().orEmpty()
         }.getOrDefault("")
         return BackendSnapshot(
             xml = currentXml,

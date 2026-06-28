@@ -146,7 +146,7 @@ class AssistsCoreManagerOobReusableFunctionPayloadTest {
     }
 
     @Test
-    fun `local reusable function payload preserves accessibility preflight error`() {
+    fun `local reusable function payload preserves accessibility action error`() {
         val payload = buildOobReusableFunctionLocalPayload(
             functionId = "click_requires_accessibility",
             localSuccess = false,

@@ -6,9 +6,9 @@ import android.content.Intent
 import android.util.Base64
 import cn.com.omnimind.accessibility.service.AssistsService
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
+import cn.com.omnimind.assists.task.vlmserver.AndroidDeviceOperator
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
-import cn.com.omnimind.bot.runlog.OmniflowActionRuntime
 import cn.com.omnimind.bot.runlog.RunLogPagePackageInference
 import cn.com.omnimind.bot.util.AssistsUtil
 import cn.com.omnimind.uikit.settings.CompanionOverlaySettings
@@ -180,7 +180,9 @@ class DebugOobFunctionRunReceiver : BroadcastReceiver() {
                 null
             }
         }.getOrNull()?.trim()?.takeIf { it.isNotEmpty() }
-            ?: runCatching { OmniflowActionRuntime.backend.currentXml()?.trim().orEmpty() }.getOrDefault("")
+            ?: runCatching {
+                AndroidDeviceOperator(null, BaseApplication.instance).currentXml()?.trim().orEmpty()
+            }.getOrDefault("")
 
     private suspend fun currentPackageName(): String =
         runCatching {
@@ -192,7 +194,9 @@ class DebugOobFunctionRunReceiver : BroadcastReceiver() {
                 null
             }
         }.getOrNull()?.trim()?.takeIf { it.isNotEmpty() }
-            ?: runCatching { OmniflowActionRuntime.backend.currentPackageName()?.trim().orEmpty() }.getOrDefault("")
+            ?: runCatching {
+                AndroidDeviceOperator(null, BaseApplication.instance).currentPackageName()?.trim().orEmpty()
+            }.getOrDefault("")
 
     private fun isOobPackage(context: Context, packageName: String): Boolean =
         packageName == context.packageName || packageName.startsWith("cn.com.omnimind.")

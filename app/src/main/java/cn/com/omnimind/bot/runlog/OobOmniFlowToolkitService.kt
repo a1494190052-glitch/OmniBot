@@ -1,6 +1,8 @@
 package cn.com.omnimind.bot.runlog
 
 import android.content.Context
+import cn.com.omnimind.assists.task.vlmserver.AndroidDeviceOperator
+import cn.com.omnimind.assists.task.vlmserver.DeviceOperator
 import cn.com.omnimind.baselib.runlog.InternalRunLogRecord
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
@@ -33,6 +35,7 @@ import cn.com.omnimind.bot.runlog.mapArg
  */
 class OobOmniFlowToolkitService(
     private val context: Context,
+    private val deviceOperator: DeviceOperator = AndroidDeviceOperator(null, context),
     private val workspaceFunctionStore: WorkspaceFunctionStore = WorkspaceFunctionStore(
         AgentWorkspaceManager.rootDirectory(context)
     ),
@@ -44,16 +47,27 @@ class OobOmniFlowToolkitService(
 ) {
     private val functionRepository = OobFunctionRepository(context, workspaceFunctionStore)
     private val replayService = OobRunLogReplayService(context, workspaceFunctionStore, functionRepository)
-    private val functionRecallService = OobFunctionRecallService(context, functionRepository)
+    private val functionRecallService = OobFunctionRecallService(context, functionRepository, deviceOperator)
     private val functionRunner = runtimeResolvePlanner?.let { planner ->
-        OobFunctionRunner(context, workspaceFunctionStore, functionRepository, planner)
-    } ?: OobFunctionRunner(context, workspaceFunctionStore, functionRepository)
+        OobFunctionRunner(
+            context = context,
+            workspaceFunctionStore = workspaceFunctionStore,
+            functionRepository = functionRepository,
+            deviceOperator = deviceOperator,
+            runtimeResolvePlanner = planner,
+        )
+    } ?: OobFunctionRunner(
+        context = context,
+        workspaceFunctionStore = workspaceFunctionStore,
+        functionRepository = functionRepository,
+        deviceOperator = deviceOperator,
+    )
     private val functionUpdateService = OobFunctionUpdateService(context, functionRepository)
     private val functionUpdateOrchestrator =
         OobFunctionUpdateAgentOrchestrator(functionUpdateService, updateAgentRequester)
     private val functionStepwiseUpdateOrchestrator =
         OobFunctionStepwiseUpdateOrchestrator(functionUpdateService, updateAgentRequester)
-    private val explorer = OobOmniFlowExplorer(context)
+    private val explorer = OobOmniFlowExplorer(context, deviceOperator)
 
     suspend fun executeTool(name: String?, args: Map<String, Any?>?): Map<String, Any?> {
         return when (name) {
@@ -420,10 +434,10 @@ class OobOmniFlowToolkitService(
             boolArg(request["no_current_page_capture"]) || boolArg(request["noCurrentPageCapture"])
         val capturedPage = if (pageXmlFromRequest.isBlank() && !autoCaptureDisabled) {
             runCatching {
-                val pageXml = OmniflowActionRuntime.backend.currentXml()?.trim().orEmpty()
+                val pageXml = deviceOperator.currentXml()?.trim().orEmpty()
                 if (pageXml.isBlank()) return@runCatching emptyMap()
-                val pkg = OmniflowActionRuntime.backend.currentPackageName()?.trim().orEmpty()
-                val act = OmniflowActionRuntime.backend.currentActivityName()?.trim().orEmpty()
+                val pkg = deviceOperator.currentPackageName()?.trim().orEmpty()
+                val act = deviceOperator.currentActivityName()?.trim().orEmpty()
                 linkedMapOf("src_ctx" to linkedMapOf<String, Any?>(
                     "page" to pageXml, "package_name" to pkg.takeIf { it.isNotBlank() },
                     "activity_name" to act.takeIf { it.isNotBlank() },

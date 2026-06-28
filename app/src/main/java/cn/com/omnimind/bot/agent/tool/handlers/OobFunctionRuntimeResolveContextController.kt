@@ -1,14 +1,17 @@
 package cn.com.omnimind.bot.agent.tool.handlers
 
+import cn.com.omnimind.assists.task.vlmserver.DeviceOperator
 import cn.com.omnimind.bot.agent.AgentToolJson.mapToJsonElement
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
-import cn.com.omnimind.bot.runlog.UIStepExecutor
+import cn.com.omnimind.bot.runlog.ReplayHelper
 
 /**
  * Builds recovery context for failed-step runtime resolve inside the Function
  * runner. It must not be surfaced as an outer Agent continuation path.
  */
-class OobFunctionRuntimeResolveContextController {
+class OobFunctionRuntimeResolveContextController(
+    private val deviceOperator: DeviceOperator,
+) {
     fun prompt(
         step: Map<String, Any?>,
         stepTitle: String,
@@ -18,7 +21,7 @@ class OobFunctionRuntimeResolveContextController {
             ?.get("args")?.let { (it as? Map<*, *>)?.get("prompt")?.toString() }
             ?: (step["fallback"] as? Map<*, *>)?.get("prompt")?.toString()
             ?: stepTitle
-        val args = UIStepExecutor.normalizeArgsMap(step["args"])
+        val args = ReplayHelper.normalizeArgsMap(step["args"])
         val argsText = if (args.isNotEmpty()) {
             "\n\n当前已物化参数：${mapToJsonElement(args)}"
         } else {
@@ -29,7 +32,7 @@ class OobFunctionRuntimeResolveContextController {
 
     suspend fun refetchCurrentPageForFailedStep(reason: String): Map<String, Any?> =
         runCatching {
-            UIStepExecutor.currentPageSnapshotForRecovery(reason)
+            ReplayHelper.currentPageSnapshotForRecovery(deviceOperator, reason)
         }.getOrElse { error ->
             linkedMapOf(
                 "refetched_current_page" to false,

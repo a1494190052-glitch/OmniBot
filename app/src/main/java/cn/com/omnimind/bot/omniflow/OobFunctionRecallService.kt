@@ -1,12 +1,13 @@
 package cn.com.omnimind.bot.omniflow
 
 import android.content.Context
+import cn.com.omnimind.assists.task.vlmserver.AndroidDeviceOperator
+import cn.com.omnimind.assists.task.vlmserver.DeviceOperator
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.boolArg
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.intArg
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.listArg
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
-import cn.com.omnimind.bot.runlog.OmniflowActionRuntime
 import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
 import cn.com.omnimind.bot.runlog.OobUdegNodeStore
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
@@ -19,6 +20,7 @@ import kotlin.math.roundToInt
 class OobFunctionRecallService(
     private val context: Context,
     private val functionRepository: OobFunctionRepository,
+    private val deviceOperator: DeviceOperator = AndroidDeviceOperator(null, context),
 ) {
     fun recall(args: Map<String, Any?>?): Map<String, Any?> {
         val timing = RecallTiming()
@@ -31,7 +33,7 @@ class OobFunctionRecallService(
             firstNonBlank(
                 request["current_package"],
                 request["currentPackage"],
-                runCatching { OmniflowActionRuntime.backend.currentPackageName() }.getOrNull(),
+                runCatching { deviceOperator.currentPackageName() }.getOrNull(),
             )
         }
         val currentNodeId = firstNonBlank(request["current_node_id"], request["currentNodeId"])
@@ -55,7 +57,7 @@ class OobFunctionRecallService(
                 request["observation_xml"],
                 request["observationXml"],
             ).ifBlank {
-                runCatching { OmniflowActionRuntime.backend.currentXml()?.trim().orEmpty() }
+                runCatching { deviceOperator.currentXml()?.trim().orEmpty() }
                     .getOrDefault("")
             }
         }

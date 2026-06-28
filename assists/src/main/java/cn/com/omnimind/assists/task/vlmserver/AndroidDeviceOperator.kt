@@ -51,6 +51,7 @@ class AndroidDeviceOperator(
         private const val EXTRA_OPERATION = "clipboard_operation"
         private const val OPERATION_COPY = "copy"
         private const val OPERATION_GET = "get"
+        private const val CLICK_EFFECT_CHECK_DELAY_MS = 180L
 
         @JvmStatic
         fun notifyClipboardResult(success: Boolean) {
@@ -76,11 +77,13 @@ class AndroidDeviceOperator(
             }
             OperationResult(true, "点击坐标 ($x, $y) 成功", null)
         } catch (e: Exception) {
+            val shizukuFallback = tapViaShizuku(x, y)
+            if (shizukuFallback.success) return shizukuFallback
             OperationResult(false, "点击失败: ${e.message}", null)
         }
     }
 
-    override suspend fun clickNodeById(nodeId: String, targetDescription: String): OperationResult {
+    suspend fun clickNodeById(nodeId: String, targetDescription: String): OperationResult {
         return try {
             AccessibilityController.clickNodeById(nodeId, targetDescription)
             OperationResult(
@@ -98,6 +101,7 @@ class AndroidDeviceOperator(
 
     override suspend fun longClickCoordinate(x: Float, y: Float, duration: Long): OperationResult {
         return try {
+            val beforeXml = currentXml().orEmpty()
             if (executionTaskEventApi != null) {
                 executionTaskEventApi.longClickCoordinate(x, y) {
                     AccessibilityController.longClickCoordinate(x, y, duration)
@@ -105,13 +109,19 @@ class AndroidDeviceOperator(
             } else {
                 AccessibilityController.longClickCoordinate(x, y, duration)
             }
+            kotlinx.coroutines.delay(CLICK_EFFECT_CHECK_DELAY_MS)
+            if (xmlChanged(beforeXml, currentXml().orEmpty())) {
+                return OperationResult(true, "长按坐标 ($x, $y) 成功", null)
+            }
             OperationResult(true, "长按坐标 ($x, $y) 成功", null)
         } catch (e: Exception) {
+            val shizukuFallback = swipeViaShizuku(x, y, x, y, duration)
+            if (shizukuFallback.success) return shizukuFallback
             OperationResult(false, "长按失败: ${e.message}", null)
         }
     }
 
-    override suspend fun longClickNodeById(
+    suspend fun longClickNodeById(
         nodeId: String,
         targetDescription: String,
         duration: Long
@@ -154,7 +164,38 @@ class AndroidDeviceOperator(
         }
     }
 
-    override suspend fun inputTextToNodeById(
+    suspend fun inputText(
+        text: String,
+        targetDescription: String,
+        x: Float?,
+        y: Float?,
+        nodeResourceId: String,
+    ): OperationResult {
+        return try {
+            AccessibilityController.inputTextToBestNode(
+                text = text,
+                targetDescription = targetDescription,
+                x = x,
+                y = y,
+                nodeResourceId = nodeResourceId,
+            )
+            OperationResult(true, "输入文本成功", null)
+        } catch (error: Exception) {
+            if (x == null || y == null) {
+                return inputText(text)
+            }
+            val clickResult = clickCoordinate(x, y)
+            if (!clickResult.success) return clickResult
+            kotlinx.coroutines.delay(250L)
+            val shizukuFallback = inputTextViaShizuku(text)
+            if (shizukuFallback.success) return shizukuFallback
+            val shellFallback = inputTextViaShell(text)
+            if (shellFallback.success) return shellFallback
+            OperationResult(false, "输入失败: ${error.message}", null)
+        }
+    }
+
+    suspend fun inputTextToNodeById(
         nodeId: String,
         text: String,
         targetDescription: String
@@ -278,6 +319,40 @@ class AndroidDeviceOperator(
         }
     }
 
+    private suspend fun tapViaShizuku(x: Float, y: Float): OperationResult {
+        val ctx = context ?: BaseApplication.instance
+        return try {
+            val result = ShizukuCapabilityManager.get(ctx).tap(x, y)
+            if (result.success) {
+                OperationResult(true, "通过 Shizuku 点击坐标 ($x, $y) 成功", null)
+            } else {
+                OperationResult(false, "Shizuku 点击失败: ${result.message}", null)
+            }
+        } catch (e: Exception) {
+            OperationResult(false, "Shizuku 点击失败: ${e.message}", null)
+        }
+    }
+
+    private suspend fun swipeViaShizuku(
+        x1: Float,
+        y1: Float,
+        x2: Float,
+        y2: Float,
+        duration: Long,
+    ): OperationResult {
+        val ctx = context ?: BaseApplication.instance
+        return try {
+            val result = ShizukuCapabilityManager.get(ctx).swipe(x1, y1, x2, y2, duration)
+            if (result.success) {
+                OperationResult(true, "通过 Shizuku 滑动成功", null)
+            } else {
+                OperationResult(false, "Shizuku 滑动失败: ${result.message}", null)
+            }
+        } catch (e: Exception) {
+            OperationResult(false, "Shizuku 滑动失败: ${e.message}", null)
+        }
+    }
+
     override suspend fun copyToClipboard(text: String): OperationResult {
         val ctx = context ?: return try {
             // 无 context 时回退到原方法
@@ -363,7 +438,7 @@ class AndroidDeviceOperator(
         )
     }
 
-    override suspend fun slideCoordinateWithContext(
+    suspend fun slideCoordinateWithContext(
         x1: Float,
         y1: Float,
         x2: Float,
@@ -371,6 +446,7 @@ class AndroidDeviceOperator(
         duration: Long,
         targetDescription: String
     ): OperationResult {
+        val beforeXml = currentXml().orEmpty()
         return try {
             val dx = x2 - x1
             val dy = y2 - y1
@@ -452,6 +528,11 @@ class AndroidDeviceOperator(
             }
             OperationResult(true, message, null)
         } catch (e: Exception) {
+            val fallback = swipeViaShizuku(x1, y1, x2, y2, duration)
+            if (fallback.success) {
+                kotlinx.coroutines.delay(CLICK_EFFECT_CHECK_DELAY_MS)
+                if (xmlChanged(beforeXml, currentXml().orEmpty())) return fallback
+            }
             OperationResult(false, "滑动失败: ${e.message}", null)
         }
     }
@@ -493,6 +574,10 @@ class AndroidDeviceOperator(
      * 启动应用
      */
     override suspend fun launchApplication(packageName: String): OperationResult {
+        return launchApplication(packageName, resetTask = false)
+    }
+
+    suspend fun launchApplication(packageName: String, resetTask: Boolean): OperationResult {
         return try {
             if (!APPPackageUtil.isPackageAuthorized(packageName)) {
                 val appContext = context ?: BaseApplication.instance
@@ -505,6 +590,9 @@ class AndroidDeviceOperator(
             val accessibilityReady = AccessibilityController.initController()
             if (accessibilityReady) {
                 val accessibilityLaunch = runCatching {
+                    if (resetTask) {
+                        throw IllegalStateException("resetTask requested")
+                    }
                     AccessibilityController.launchApplicationBestEffort(packageName) { x, y ->
                         if (executionTaskEventApi != null) {
                             executionTaskEventApi.clickCoordinate(x, y) {
@@ -524,7 +612,7 @@ class AndroidDeviceOperator(
                 }
             }
 
-            if (launchApplicationByIntent(packageName)) {
+            if (launchApplicationByIntent(packageName, resetTask)) {
                 OperationResult(true, "通过系统启动应用 $packageName 成功", null)
             } else {
                 OperationResult(false, "启动应用失败: 无法通过无障碍或系统 Intent 启动 $packageName", null)
@@ -541,18 +629,22 @@ class AndroidDeviceOperator(
         }
     }
 
-    private suspend fun launchApplicationByIntent(packageName: String): Boolean =
+    private suspend fun launchApplicationByIntent(packageName: String, resetTask: Boolean = false): Boolean =
         withContext(Dispatchers.Main) {
             val appContext = context ?: BaseApplication.instance
             val startContext = BaseApplication.foregroundActivity ?: appContext
             val launchIntent = appContext.packageManager.getLaunchIntentForPackage(packageName)
                 ?: return@withContext false
             return@withContext try {
-                launchIntent.addFlags(
-                    Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED or
-                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP
-                )
+                if (resetTask) {
+                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                } else {
+                    launchIntent.addFlags(
+                        Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED or
+                            Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    )
+                }
                 if (startContext !is Activity) {
                     launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
@@ -641,8 +733,48 @@ class AndroidDeviceOperator(
     override fun getDisplayWidth(): Int = lastDisplayWidth
 
     override fun getDisplayHeight(): Int = lastDisplayHeight
+
+    override fun isReady(): Boolean = AccessibilityController.initController()
+
+    override fun currentXml(): String? =
+        if (AccessibilityController.initController()) {
+            AccessibilityController.getCaptureScreenShotXml(true)
+        } else {
+            null
+        }
+
+    override fun currentPackageName(): String? =
+        if (AccessibilityController.initController()) {
+            AccessibilityController.getPackageName()
+        } else {
+            null
+        }
+
+    override fun currentActivityName(): String? =
+        if (AccessibilityController.initController()) {
+            AccessibilityController.getCurrentActivity()
+        } else {
+            null
+        }
+
+    override suspend fun hideKeyboard(): OperationResult {
+        return try {
+            AccessibilityController.hideKeyboard()
+            kotlinx.coroutines.delay(250L)
+            OperationResult(true, "已隐藏键盘", null)
+        } catch (e: Exception) {
+            OperationResult(false, "隐藏键盘失败: ${e.message}", null)
+        }
+    }
+
     override suspend fun showInfo(message: String) {
         executionTaskEventApi?.updateShowStepText(message)
+    }
+
+    private fun xmlChanged(beforeXml: String, afterXml: String): Boolean {
+        if (beforeXml.isBlank() || afterXml.isBlank()) return false
+        if (beforeXml == afterXml) return false
+        return beforeXml.hashCode() != afterXml.hashCode()
     }
 
 }
