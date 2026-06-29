@@ -35,7 +35,7 @@ object OobVlmRunLogAutoRegistrar {
 
     private suspend fun registerRunLog(context: Context, event: InternalRunLogFinishEvent) {
         val result = runCatching {
-            OobRunLogReplayService(context).convertRunLog(
+            OobRunLogFunctionConverter(context).convertRunLog(
                 runId = event.runId,
                 register = true,
                 agentVisible = true,

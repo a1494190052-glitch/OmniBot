@@ -8,7 +8,8 @@ import com.google.gson.reflect.TypeToken
 import cn.com.omnimind.accessibility.service.AssistsService
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
+import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
+import cn.com.omnimind.bot.runlog.OobFunctionManagementService
 import cn.com.omnimind.bot.util.AssistsUtil
 import cn.com.omnimind.uikit.settings.CompanionOverlaySettings
 import com.google.gson.GsonBuilder
@@ -71,7 +72,7 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                 CompanionOverlaySettings.init(appContext)
                 CompanionOverlaySettings.dismissFloatingUi()
                 delay(300L)
-                val service = OobOmniFlowToolkitService(appContext)
+                val service = OobFunctionManagementService(appContext)
                 val convertArgs = linkedMapOf<String, Any?>(
                     "run_id" to runId,
                     "register" to true,
@@ -161,10 +162,10 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                     null
                 }
                 val functionSpecBeforeReplayHash = stableHash(functionSpecBeforeReplay)
-                val replay = if (
+                val replay: Map<String, Any?>? = if (
                     canReplay
                 ) {
-                    service.runFunction(
+                    OobFunctionToolHandler(appContext).runFunction(
                         linkedMapOf(
                             "function_id" to createdFunctionId,
                             "goal" to effectiveGoal,

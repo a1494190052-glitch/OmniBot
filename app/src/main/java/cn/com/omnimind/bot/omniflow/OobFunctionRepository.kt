@@ -14,7 +14,7 @@ import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
 /**
  * Single owner for OmniFlow Function storage and index synchronization.
  *
- * RunLog services should compile evidence into Function specs; toolkit services should expose
+ * RunLog services should compile evidence into Function specs; management services should expose
  * agent/MCP APIs. All Function CRUD, workspace/registry mirroring, UDEG references, and tool
  * exposure cleanup should go through this repository.
  */

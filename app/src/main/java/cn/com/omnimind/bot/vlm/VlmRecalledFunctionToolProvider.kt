@@ -8,7 +8,7 @@ import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.listArg
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
-import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
+import cn.com.omnimind.bot.runlog.OobFunctionManagementService
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -46,7 +46,7 @@ class VlmRecalledFunctionToolProvider(context: Context) : VLMRecallContextProvid
             )
         }
         val recallResult = runCatching {
-            OobOmniFlowToolkitService(appContext).recall(
+            OobFunctionManagementService(appContext).recall(
                 mapOf(
                     "goal" to goal,
                     "current_package" to request.currentPackageName,

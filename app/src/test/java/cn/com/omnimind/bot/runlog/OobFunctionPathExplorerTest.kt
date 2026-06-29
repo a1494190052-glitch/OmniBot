@@ -8,11 +8,11 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class OobOmniFlowExplorerTest {
+class OobFunctionPathExplorerTest {
     @Test
     fun `snapshot parser creates stable UTG candidates from accessibility xml`() {
         val snapshot = requireNotNull(
-            OobOmniFlowExplorer.parseSnapshot(
+            OobFunctionPathExplorer.parseSnapshot(
                 xml = SOURCE_XML,
                 packageName = "com.example.settings",
                 activityName = "SettingsActivity",
@@ -29,10 +29,10 @@ class OobOmniFlowExplorerTest {
     @Test
     fun `candidate rank prefers goal matching safe action`() {
         val snapshot = requireNotNull(
-            OobOmniFlowExplorer.parseSnapshot(SOURCE_XML, "com.example.settings")
+            OobFunctionPathExplorer.parseSnapshot(SOURCE_XML, "com.example.settings")
         )
 
-        val ranked = OobOmniFlowExplorer.rankCandidates(
+        val ranked = OobFunctionPathExplorer.rankCandidates(
             snapshot = snapshot,
             goal = "open network settings",
         )
@@ -44,7 +44,7 @@ class OobOmniFlowExplorerTest {
     @Test
     fun `snapshot diagnostics expose raw safe and skipped candidate counts`() {
         val snapshot = requireNotNull(
-            OobOmniFlowExplorer.parseSnapshot(SOURCE_XML, "com.example.settings")
+            OobFunctionPathExplorer.parseSnapshot(SOURCE_XML, "com.example.settings")
         )
 
         val safe = snapshot.safeCandidates(goal = "open network settings")
@@ -59,14 +59,14 @@ class OobOmniFlowExplorerTest {
     @Test
     fun `UTG click card compiles into omniflow function with coordinate hook`() {
         val before = requireNotNull(
-            OobOmniFlowExplorer.parseSnapshot(SOURCE_XML, "com.example.settings")
+            OobFunctionPathExplorer.parseSnapshot(SOURCE_XML, "com.example.settings")
         )
-        val candidate = OobOmniFlowExplorer.rankCandidates(before, "network").first()
+        val candidate = OobFunctionPathExplorer.rankCandidates(before, "network").first()
         val after = requireNotNull(
-            OobOmniFlowExplorer.parseSnapshot(AFTER_XML, "com.example.settings")
+            OobFunctionPathExplorer.parseSnapshot(AFTER_XML, "com.example.settings")
         )
-        val edge = OobOmniFlowExplorer.edgeFor(before, after, candidate, stepIndex = 0)
-        val card = OobOmniFlowExplorer.buildClickCard(
+        val edge = OobFunctionPathExplorer.edgeFor(before, after, candidate, stepIndex = 0)
+        val card = OobFunctionPathExplorer.buildClickCard(
             stepIndex = 0,
             before = before,
             after = after,
@@ -76,7 +76,7 @@ class OobOmniFlowExplorerTest {
         val record = InternalRunLogRecord(
             runId = "utg-test-run",
             goal = "open network settings",
-            source = "oob_native_omniflow_explorer",
+            source = "oob_function_path_explorer",
             toolName = "omniflow.explore_replay",
             operationDescription = "open network settings",
             finishedAtMs = 1234L,
@@ -104,12 +104,12 @@ class OobOmniFlowExplorerTest {
     @Test
     fun `snapshot parser emits canonical swipe action for scrollable node`() {
         val snapshot = requireNotNull(
-            OobOmniFlowExplorer.parseSnapshot(SCROLL_XML, "com.example.feed")
+            OobFunctionPathExplorer.parseSnapshot(SCROLL_XML, "com.example.feed")
         )
 
         val scroll = snapshot.candidates.single()
 
-        assertEquals(OobOmniFlowExplorer.ACTION_SWIPE, scroll.action)
+        assertEquals(OobFunctionPathExplorer.ACTION_SWIPE, scroll.action)
         assertTrue(scroll.scrollable)
         assertEquals("up", scroll.scrollDirection)
         assertTrue(scroll.scrollDistancePx > 0f)
@@ -118,14 +118,14 @@ class OobOmniFlowExplorerTest {
     @Test
     fun `UTG swipe card compiles into omniflow replay step`() {
         val before = requireNotNull(
-            OobOmniFlowExplorer.parseSnapshot(SCROLL_XML, "com.example.feed")
+            OobFunctionPathExplorer.parseSnapshot(SCROLL_XML, "com.example.feed")
         )
-        val candidate = OobOmniFlowExplorer.rankCandidates(before, "read more").first()
+        val candidate = OobFunctionPathExplorer.rankCandidates(before, "read more").first()
         val after = requireNotNull(
-            OobOmniFlowExplorer.parseSnapshot(SCROLL_AFTER_XML, "com.example.feed")
+            OobFunctionPathExplorer.parseSnapshot(SCROLL_AFTER_XML, "com.example.feed")
         )
-        val edge = OobOmniFlowExplorer.edgeFor(before, after, candidate, stepIndex = 0)
-        val card = OobOmniFlowExplorer.buildActionCard(
+        val edge = OobFunctionPathExplorer.edgeFor(before, after, candidate, stepIndex = 0)
+        val card = OobFunctionPathExplorer.buildActionCard(
             stepIndex = 0,
             before = before,
             after = after,
@@ -135,7 +135,7 @@ class OobOmniFlowExplorerTest {
         val record = InternalRunLogRecord(
             runId = "utg-swipe-run",
             goal = "read more posts",
-            source = "oob_native_omniflow_explorer",
+            source = "oob_function_path_explorer",
             toolName = "omniflow.explore_replay",
             operationDescription = "read more posts",
             finishedAtMs = 1234L,

@@ -13,7 +13,7 @@ executors.
    agent-visible reusable Function.
 4. A later matching `vlm_task` performs fresh observe, calls native recall, and
    if the recall result is a strict direct hit, runs the Function locally through
-   `OobOmniFlowToolkitService.runFunction`.
+   `OobFunctionToolHandler.runFunction`.
 5. If there is no strict hit, the task falls back to ordinary VLM execution.
 
 Enhancement is deliberately out of this critical path. Auto-registration must
@@ -53,7 +53,7 @@ Latest real-phone online bottleneck:
   action, with `prompt_chars=2161`, `vlm_stream_ms=1976`, `build_request_ms=5`,
   and `parse_response_ms=7`.
 - Online VLM execution now keeps planner as the only non-replay decision path:
-  strict Function hits are handled by local OmniFlow replay before planner;
+  strict Function hits are handled by local Function replay before planner;
   otherwise the turn goes through the normal VLM planner.
 - The remaining measured bottleneck was action dispatch: `action_dispatch_ms=471`
   for the click, with `action_executor_action_ms=170` and
@@ -105,19 +105,19 @@ Do not move to OmniFlow Python:
 
 ## Entry Surface Unification
 
-All entry surfaces should call the same native Function facade:
+All Function-run entry surfaces should call the same native Function runner:
 
-- MCP tool call: `run_function`/Function lifecycle tools call
-  `OobOmniFlowToolkitService`.
-- HTTP/debug receiver: calls the same toolkit service with the same payload.
+- MCP tool call: `run_function` calls `OobFunctionToolHandler.runFunction`;
+  Function lifecycle tools call `OobFunctionManagementService`.
+- HTTP/debug receiver: calls the same Function runner with the same payload.
 - Direct in-app UI action: calls `AssistsMessageService` -> native manager ->
-  the same toolkit service.
+  the same Function runner.
 - `vlm_task` recall fast path: calls `VlmToolCoordinator.tryExecuteRecallHitOnly`
-  or `executeNewTask`, which delegates Function execution to the same toolkit
-  service.
+  or `executeNewTask`, which delegates Function execution to the same Function
+  runner.
 
 The shared contract is the Function JSON schema and `{tool,args}` execution
-steps. The owner of actual Android execution remains the Kotlin replay handler.
+steps. The owner of actual Android execution remains `ActionExecutor`.
 The machine-readable version of this entry-surface boundary lives in
 `app/src/main/assets/omniflow/runlog/examples/unified-entry-surfaces.json`; keep
 it in sync with MCP/HTTP/MethodChannel/VLM route changes.
@@ -130,7 +130,7 @@ Python OmniFlow compatibility should be one-way for live tasks:
 - Python must not call Android accessibility actions directly for the in-app
   `vlm_task` flow. If an external Python tool wants to execute on this phone, it
   must call OOB's native HTTP/MCP/debug surface, which then delegates to
-  `OobOmniFlowToolkitService`.
+  `OobFunctionToolHandler.runFunction` for Function replay.
 - There is no model-visible `function_id` execution tool in the normal agent
   prompt. Saved Function recall, runtime resolve, and replay stay runtime-owned.
 
@@ -144,16 +144,16 @@ MCP / HTTP / debug receiver
 Python OmniFlow provider or MCP dev tool
         |
         v
-OOB native Function facade
+OOB native Function surfaces
         |
         v
-OobOmniFlowToolkitService
+OobFunctionToolHandler.runFunction   OobFunctionManagementService
         |
+        +-- ActionExecutor               # Android action execution
         +-- OobFunctionRepository        # Function storage/index
         +-- OobFunctionRecallService     # page/node recall and hit policy
-        +-- OobFunctionToolHandler            # Android replay through Kotlin
         +-- OobFunctionUpdateService     # offline update_function patches
-        +-- OobRunLogReplayService       # RunLog -> Function conversion
+        +-- OobRunLogFunctionConverter   # RunLog -> Function conversion
 ```
 
 The adapter may differ, but the payload must not:
@@ -178,16 +178,16 @@ This matrix is the implementation boundary for avoiding two execution systems:
 | --- | --- | --- | --- | --- |
 | `vlm_task` | natural-language goal, optional package, max steps | `VlmToolCoordinator` | yes, through Kotlin only | Performs fresh observe, native recall, strict-hit replay, or ordinary VLM action loop. |
 | Product UI Function run | concrete `function_id`, public arguments | Flutter -> `createAgentTask(toolProfile=omniflow, allowedTools=[oob_function_run])` | yes, through the Agent profile then Kotlin runner | Product-facing buttons hand execution to Agent; Flutter must never interpret Function steps or call Android actions itself. |
-| UI direct Function adapter | concrete `function_id`, public arguments | Flutter/native debug compatibility -> `OobOmniFlowToolkitService` | yes, through Kotlin only | Keep only as a low-level compatibility/debug adapter. Ordinary product UI should call the Agent path above. |
-| MCP Function tools | concrete Function lifecycle payloads | `McpToolExecutors` -> `OobOmniFlowToolkitService` | yes, only after native dispatch | The MCP layer is an adapter; it must not own replay semantics. |
-| HTTP/debug Function run | concrete debug payloads | debug receiver -> `OobOmniFlowToolkitService` | yes, through Kotlin only | Useful for smoke tests and diagnostics. It should not become a separate product mode. |
+| UI direct Function adapter | concrete `function_id`, public arguments | Flutter/native debug compatibility -> `OobFunctionToolHandler.runFunction` | yes, through Kotlin only | Keep only as a low-level compatibility/debug adapter. Ordinary product UI should call the Agent path above. |
+| MCP Function tools | concrete Function lifecycle payloads | `McpToolExecutors` -> `OobFunctionManagementService` | yes, only after native dispatch | The MCP layer is an adapter; it must not own replay semantics. |
+| HTTP/debug Function run | concrete debug payloads | debug receiver -> `OobFunctionToolHandler.runFunction` | yes, through Kotlin only | Useful for smoke tests and diagnostics. It should not become a separate product mode. |
 | `RUN_VLM_RECALL_HIT` | natural-language goal for strict-hit validation | debug receiver -> `VlmToolCoordinator.tryExecuteRecallHitOnly` | yes, through Kotlin only | Exists to isolate the second-run fast path without starting a fresh ordinary VLM loop. |
 | `update_function` / enhance | concrete `function_id`, RunLog evidence, patch | `OobFunctionUpdateService` | no | Offline maintenance only. It may edit metadata/labels/checkers, but must not replay. |
 | Python `omniflow-mcp` in Alpine | `omniflow.recall`, `omniflow.ingest_run_log`, `omniflow.update_function` | OmniFlow Python provider/toolchain | no for OOB phone runtime | The upstream standalone MCP server exposes recall/ingest/offline-update tools only; OOB phone execution still goes through native surfaces. |
 | Python AndroidWorld action sequence | benchmark/eval manifests | OmniFlow Python experiments | no for OOB app runtime | Useful reference for fixtures/evaluation. Do not wire it into OOB's live accessibility path. |
 
 Concrete rule: a caller may be UI, MCP, HTTP, debug, or Python, but live phone
-execution must eventually enter the same native facade and Kotlin replay handler.
+execution must eventually enter the same Function runner and `ActionExecutor`.
 If a proposed change adds another component that can click, swipe, input text,
 launch apps, observe XML, or decide strict direct execution outside this chain,
 it is creating the second execution system this plan rejects.
@@ -304,7 +304,7 @@ evidence:
   registers an agent-visible Function with
   `metadata.enhancement_policy=offline_only`.
 - Second VLM run: from the same or equivalent page, native recall returns a
-  strict hit and `VlmToolCoordinator` runs `OobOmniFlowToolkitService.runFunction`
+  strict hit and `VlmToolCoordinator` runs `OobFunctionToolHandler.runFunction`
   once, producing an `executionRoute` that starts with `omniflow_recall_hit`.
 - No inline enhancement: no VLM auto-registration, recall-hit path, direct
   Function run, or debug replay path should call `update_function` before
@@ -440,16 +440,16 @@ Flutter should stay a presentation and request surface:
 External and debug entry points should be thin adapters:
 
 - MCP schema lives in `McpToolDefinitions`; dispatch goes through
-  `McpToolExecutors`/native toolkit services.
+  `McpToolExecutors`/native Function management services.
 - Public MCP must not route hidden `call_tool` or `run_function` directly.
   `call_tool(function_id)` is an internal replay primitive only; external MCP
   callers use `vlm_task` for goal execution or lifecycle tools for data.
 - HTTP/debug receivers should decode arguments, call the same native service,
   and write a result JSON file or response body.
 - Debug HTTP exposes `/omniflow/tool` for Function lifecycle tools and
-  `/omniflow/function/run` for concrete `function_id` execution. Both routes
-  delegate to `OobOmniFlowToolkitService`; `/act` remains only a single-step
-  action endpoint for recorder/debug tooling.
+  `/omniflow/function/run` for concrete `function_id` execution. Function run
+  delegates to `OobFunctionToolHandler.runFunction`; `/act` remains only a
+  single-step action endpoint for recorder/debug tooling.
 - Diagnostic direct Function execution is permitted only when the caller gives a
   concrete `function_id`; ordinary user goals should still enter through
   `vlm_task`, so recall and replay remain runtime-owned.

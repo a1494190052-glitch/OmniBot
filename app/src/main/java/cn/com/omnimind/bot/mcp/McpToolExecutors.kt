@@ -16,10 +16,11 @@ import cn.com.omnimind.baselib.util.ImageQuality
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
+import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
 import cn.com.omnimind.bot.vlm.VlmToolCoordinator
 import cn.com.omnimind.bot.vlm.VlmToolOutcome
 import cn.com.omnimind.bot.vlm.VlmToolOutcomeStatus
-import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
+import cn.com.omnimind.bot.runlog.OobFunctionManagementService
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import cn.com.omnimind.bot.util.AssistsUtil
 import cn.com.omnimind.bot.webchat.AgentRunRequestNormalizer
@@ -1148,7 +1149,7 @@ object McpToolExecutors {
             ).ifBlank {
                 if (frontendRunId.isNotEmpty() || frontendTaskId.isNotEmpty()) "vlm_task" else ""
             }
-            return OobOmniFlowToolkitService(context).runFunction(
+            return OobFunctionToolHandler(context).runFunction(
                 linkedMapOf(
                     "function_id" to functionId,
                     "arguments" to toolArgs,

@@ -9,7 +9,7 @@ import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 
 /**
  * Normalizes raw step Maps into the canonical OmniFlow step format.
- * Used by OobFunctionUpdateService (insert_step) and OobOmniFlowToolkitService (simple registration).
+ * Used by OobFunctionUpdateService (insert_step) and OobFunctionManagementService (simple registration).
  */
 internal object OobFunctionStepNormalizer {
 

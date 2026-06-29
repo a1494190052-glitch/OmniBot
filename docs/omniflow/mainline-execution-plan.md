@@ -161,7 +161,7 @@ The canonical runtime flow should remain:
      `{}` and `resolve_calls=0`.
    - If public arguments are required, run bounded runtime resolve only for
      those public arguments.
-   - Execute via `OobOmniFlowToolkitService.runFunction`.
+   - Execute via `OobFunctionToolHandler.runFunction`.
 5. If no strict hit, call the online VLM.
 6. Online VLM must return exactly one native OpenAI tool call.
 7. Convert the native tool call to canonical `{tool,args}` and then to Kotlin
@@ -188,8 +188,8 @@ Function steps in Dart.
 
 ### Direct Function Run
 
-All direct Function execution surfaces should converge on the same native
-facade:
+All direct Function execution surfaces should converge on the same native run
+entry:
 
 - Flutter/MethodChannel direct run.
 - MCP lifecycle tools.
@@ -233,9 +233,9 @@ Use adapters, not separate semantics:
 | Surface | Input | Owner | Phone actions |
 | --- | --- | --- | --- |
 | `vlm_task` | goal, package, max steps | `VlmToolCoordinator` | Kotlin only |
-| Flutter Function run | `function_id`, public args | native manager -> `OobOmniFlowToolkitService` | Kotlin only |
-| MCP tools | lifecycle payloads | MCP adapter -> `OobOmniFlowToolkitService` | Kotlin only after native dispatch |
-| HTTP/debug run | debug payload | receiver -> native toolkit | Kotlin only |
+| Flutter Function run | `function_id`, public args | native manager -> `OobFunctionToolHandler.runFunction` | Kotlin only |
+| MCP tools | lifecycle payloads | MCP adapter -> `OobFunctionManagementService` | Kotlin only after native dispatch |
+| HTTP/debug run | debug payload | receiver -> Function run or management service | Kotlin only |
 | Python `omniflow-mcp` | recall/ingest/update | OmniFlow Python | no live OOB phone action |
 | `update_function` / enhance | patch/evidence | native update service or Python offline tool | no replay |
 
@@ -251,9 +251,9 @@ Forbidden online/model-visible execution tools:
 These names may appear in internal tests or offline migration tools, but not as
 ordinary VLM action choices.
 
-### Native Facade Contract
+### Native Entry Contract
 
-All live-entry adapters should converge on one native facade method family
+All live-entry adapters should converge on one native method family
 instead of each surface inventing its own replay path:
 
 ```text
@@ -263,10 +263,10 @@ HTTP/debug receiver
 VLM recall hit
         |
         v
-OobOmniFlowToolkitService
+OobFunctionToolHandler.runFunction
         |
         v
-OobFunctionRepository -> OobFunctionRunner -> Kotlin ActionExecutor
+ActionExecutor -> DeviceOperator
 ```
 
 Minimum shared request fields:
@@ -292,7 +292,7 @@ Minimum shared result fields:
 - `execution_summary.tokens`
 - structured `error` / `failure_reason` on failure
 
-Facade invariants:
+Entry invariants:
 
 - Direct Function execution requires a concrete `function_id`.
 - Natural-language goals enter through `vlm_task`, not direct replay.
@@ -398,7 +398,7 @@ Short-term, without broad refactor:
 
 1. Keep the real-phone offline and online smoke paths green after each runtime
    change.
-2. Finish native facade convergence with narrow adapter changes:
+2. Finish native entry convergence with narrow adapter changes:
    - UI direct Function run, MCP lifecycle run, HTTP/debug run, and
      `RUN_VLM_RECALL_HIT` all preserve the shared request/result envelope.
    - Add tests that direct calls require `function_id`, keep nested

@@ -13,7 +13,7 @@ import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.runlog.OobRunLogReplayService
+import cn.com.omnimind.bot.runlog.OobRunLogFunctionConverter
 import cn.com.omnimind.bot.util.AssistsUtil
 import com.google.gson.GsonBuilder
 import kotlinx.coroutines.CompletableDeferred
@@ -417,7 +417,7 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
         description: String
     ): Map<String, Any?> =
         runCatching {
-            OobRunLogReplayService(context).convertRunLog(
+            OobRunLogFunctionConverter(context).convertRunLog(
                 runId = runId,
                 register = true,
                 agentVisible = false,

@@ -1106,8 +1106,11 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
       afterUserMessageAdded: (ids) {
         _syncUserMessageLinkPreviews(ids.userMessageId);
       },
-      beforeNativeRecording: () {
-        unawaited(AppStateService.exitApp());
+      beforeNativeRecording: () async {
+        await ScreenDialogService.hideForManualRecording();
+      },
+      afterNativeRecording: () async {
+        await ScreenDialogService.restoreAfterManualRecording();
       },
       insertResultMessage: _insertManualRecordingResultMessage,
       openRunLogTimeline: (runId) {

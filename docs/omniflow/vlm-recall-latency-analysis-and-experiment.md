@@ -163,7 +163,7 @@ observe/index 很快
 -> VLM planner call with ordinary UI tools + optional ephemeral recalled tools
 -> if planner selects recalled tool:
       runtime maps tool name -> internal function_id
-      execute OobOmniFlowToolkitService.runFunction(...)
+      execute OobFunctionToolHandler.runFunction(...)
       record replay diagnostics
    else:
       execute ordinary UI action
@@ -205,7 +205,7 @@ runtime 内部映射：
 }
 ```
 
-模型永远不需要看到 `function_id`。在线 VLM 只选择一个普通工具名，例如 `run_recalled_workflow_1`。执行时由本地 runtime 转成 `FunctionRunAction(functionId=...)` 或直接调用 `OobOmniFlowToolkitService.runFunction(...)`。
+模型永远不需要看到 `function_id`。在线 VLM 只选择一个普通工具名，例如 `run_recalled_workflow_1`。执行时由本地 runtime 转成内部 Function run 请求，直接调用 `OobFunctionToolHandler.runFunction(...)`。
 
 ### Recall 策略
 

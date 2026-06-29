@@ -5,7 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Base64
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
+import cn.com.omnimind.bot.runlog.OobFunctionManagementService
 import com.google.gson.GsonBuilder
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CoroutineScope
@@ -65,7 +65,7 @@ class DebugOobFunctionImportExportReceiver : BroadcastReceiver() {
             )
         }
 
-        val service = OobOmniFlowToolkitService(context)
+        val service = OobFunctionManagementService(context)
         val startedAtMs = System.currentTimeMillis()
         val register = service.registerFunction(linkedMapOf("function_spec" to functionSpec))
         val endedAtMs = System.currentTimeMillis()
@@ -90,7 +90,7 @@ class DebugOobFunctionImportExportReceiver : BroadcastReceiver() {
             )
         }
 
-        val service = OobOmniFlowToolkitService(context)
+        val service = OobFunctionManagementService(context)
         val get = service.getFunction(linkedMapOf("function_id" to functionId))
         val success = get["success"] == true
         val function = get["function"]

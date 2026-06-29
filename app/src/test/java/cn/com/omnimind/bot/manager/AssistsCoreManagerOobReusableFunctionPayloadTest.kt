@@ -8,8 +8,8 @@ import org.junit.Test
 
 class AssistsCoreManagerOobReusableFunctionPayloadTest {
     @Test
-    fun `toolkit run payload normalization keeps runtime resolve channel fields on errors`() {
-        val payload = normalizeOobToolkitFunctionRunPayloadForChannel(
+    fun `function run payload normalization keeps runtime resolve channel fields on errors`() {
+        val payload = normalizeOobFunctionRunPayloadForChannel(
             mapOf(
                 "success" to false,
                 "function_id" to "missing_function",

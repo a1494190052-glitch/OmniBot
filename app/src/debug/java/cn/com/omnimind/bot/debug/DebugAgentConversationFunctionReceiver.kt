@@ -6,7 +6,8 @@ import android.content.Intent
 import android.util.Base64
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentToolExposurePolicy
-import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
+import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
+import cn.com.omnimind.bot.runlog.OobFunctionManagementService
 import cn.com.omnimind.bot.webchat.AgentRunService
 import cn.com.omnimind.bot.webchat.ConversationDomainService
 import com.google.gson.GsonBuilder
@@ -105,12 +106,12 @@ class DebugAgentConversationFunctionReceiver : BroadcastReceiver() {
         waitForAgentIdle(context, startedAt, waitMs)
         delay(AGENT_SETTLE_MS)
 
-        val functionPayload = OobOmniFlowToolkitService(context).getFunction(
+        val functionPayload = OobFunctionManagementService(context).getFunction(
             mapOf("function_id" to functionId)
         )
         val functionRegistered = functionPayload["success"] == true
         val runPayload = if (functionRegistered) {
-            OobOmniFlowToolkitService(context).runFunction(
+            OobFunctionToolHandler(context).runFunction(
                 mapOf(
                     "function_id" to functionId,
                     "goal" to "Validate agent-conversation registered Function replay.",

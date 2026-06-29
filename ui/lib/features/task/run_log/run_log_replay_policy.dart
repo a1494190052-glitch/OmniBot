@@ -17,7 +17,6 @@ class RunLogReplayPolicy {
   };
 
   static const dataFlowTools = <String>{
-    'browser_use',
     'web_search',
     'memory_search',
     'memory_recall',

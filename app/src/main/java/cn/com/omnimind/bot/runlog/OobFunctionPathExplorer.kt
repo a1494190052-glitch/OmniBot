@@ -19,14 +19,11 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Minimal OOB-native UTG explorer.
- *
- * The provider-side OmniFlow graph runtime is not embedded in OOB. This class
- * builds a small local UTG from Accessibility XML, records the explored path as
+ * Builds a small local UTG from Accessibility XML, records the explored path as
  * an InternalRunLog, and lets the existing RunLog -> Function -> replay stack
  * handle the rest.
  */
-class OobOmniFlowExplorer(
+class OobFunctionPathExplorer(
     private val context: Context,
     private val deviceOperator: DeviceOperator = AndroidDeviceOperator(null, context),
 ) {
@@ -236,7 +233,7 @@ class OobOmniFlowExplorer(
             context = context,
             runId = options.runId,
             goal = options.goal,
-            source = "oob_native_omniflow_explorer",
+            source = "oob_function_path_explorer",
             toolName = "omniflow.explore_replay",
             operationDescription = options.goal
         )
@@ -327,7 +324,7 @@ class OobOmniFlowExplorer(
             "success" to success,
             "run_id" to options.runId,
             "goal" to options.goal,
-            "source" to "oob_native_omniflow_explorer",
+            "source" to "oob_function_path_explorer",
             "step_count" to cards.size,
             "safe_action_only" to !options.allowRiskyActions,
             "done_reason" to if (success) doneReason else "utg_exploration_failed",
@@ -936,7 +933,7 @@ class OobOmniFlowExplorer(
             "success" to false,
             "error_code" to code,
             "error_message" to message,
-            "source" to "oob_native_omniflow_explorer"
+            "source" to "oob_function_path_explorer"
         )
     }
 }

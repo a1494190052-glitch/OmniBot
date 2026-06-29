@@ -1208,7 +1208,7 @@ Requirements:
 - Preserve or improve step executor/model_free/scriptable/tool/args/agent_call/validation/fallback fields.
 - Keep model_free OOB actions model-free; do not turn click/swipe/input_text/open_app/press_key/call_tool into agent steps.
 - Drop legacy wait cards. Page settling is handled internally by OmniFlow/VLM stability logic and must not become a replay step.
-- Keep data-flow and perception tools as executor=agent with tool=oob.agent.run; do not turn browser_use/web_search/memory/oob_run_log tools into direct tool replay.
+- Keep browser_use as a direct replayable tool with its original args; keep web_search/memory/oob_run_log tools as agent/data-flow steps.
 - Output must be consumable by both the agent and the script runner.
 
 Draft JSON:
@@ -1234,7 +1234,7 @@ $compact
 - 保留或优化每步的 executor/model_free/scriptable/tool/args/agent_call/validation/fallback 字段。
 - 保持 model_free OOB 动作无模型执行，不要把 click/swipe/input_text/open_app/press_key/call_tool 改成 agent 步骤。
 - 丢弃旧版 wait 卡片。页面停留由 OmniFlow/VLM 内部稳定逻辑处理，不能生成回放步骤。
-- 保持 data-flow 和感知工具为 executor=agent 且 tool=oob.agent.run；不要把 browser_use/web_search/memory/oob_run_log 工具改成直接 tool replay。
+- 保持 browser_use 为直接可回放工具并保留原始 args；web_search/memory/oob_run_log 仍保持为 agent/data-flow 步骤。
 - 输出必须能被 agent 和 script 执行器共同消费。
 
 草稿 JSON：

@@ -57,7 +57,7 @@ class VlmRunLogConversionInstrumentedTest {
             assertEquals(true, record!!.success)
             assertTrue("VLM runlog should contain at least one card", record.cards.isNotEmpty())
 
-            val convert = OobOmniFlowToolkitService(context).convertRunLog(
+            val convert = OobFunctionManagementService(context).convertRunLog(
                 mapOf(
                     "run_id" to runId,
                     "register" to true,
@@ -73,7 +73,7 @@ class VlmRunLogConversionInstrumentedTest {
             assertEquals(functionId, convert["function_id"])
         } finally {
             if (functionId.isNotBlank()) {
-                OobOmniFlowToolkitService(context).deleteFunction(mapOf("function_id" to functionId))
+                OobFunctionManagementService(context).deleteFunction(mapOf("function_id" to functionId))
             }
             testScope.cancel()
         }

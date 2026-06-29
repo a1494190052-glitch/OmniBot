@@ -2,8 +2,9 @@
   "schema_version": "oob.omniflow_entry_surface_contract.v1",
   "purpose": "Machine-readable contract for keeping UI, MCP, HTTP/debug, VLM recall, and Python OmniFlow on one OOB-native Function execution path.",
   "runtime_owner": "oob_native_kotlin",
-  "native_facade": "OobOmniFlowToolkitService",
-  "phone_action_runner": "OobFunctionToolHandler",
+  "management_service": "OobFunctionManagementService",
+  "function_run_owner": "OobFunctionToolHandler",
+  "phone_action_runner": "ActionExecutor",
   "enhancement_policy": "offline_only",
   "product_label": {
     "zh": "复用指令",
@@ -40,7 +41,7 @@
       "adapter": "AssistsCoreManager.runOobReusableFunction",
       "input_shape": "function_id_plus_public_arguments",
       "delegates_to": [
-        "OobOmniFlowToolkitService.runFunction"
+        "OobFunctionToolHandler.runFunction"
       ],
       "may_execute_phone_actions": true,
       "phone_action_owner": "kotlin_only",
@@ -58,7 +59,7 @@
       "adapter": "AssistsCoreManager.updateOobFunction",
       "input_shape": "function_id_runlog_evidence_analysis_patch",
       "delegates_to": [
-        "OobOmniFlowToolkitService.executeTool(update_function)"
+        "OobFunctionManagementService.executeTool(update_function)"
       ],
       "may_execute_phone_actions": false,
       "phone_action_owner": "none",
@@ -88,7 +89,7 @@
         "oob_run_log_convert"
       ],
       "delegates_to": [
-        "OobOmniFlowToolkitService.executeTool"
+        "OobFunctionManagementService.executeTool"
       ],
       "runlog_policy": "runlog_is_evidence; explore_replay_must_convert_then_execute_function",
       "may_execute_phone_actions": true,
@@ -113,7 +114,7 @@
       "adapter": "LocalDeviceHttpHostManager.post(/omniflow/function/run)",
       "input_shape": "function_id_plus_public_arguments",
       "delegates_to": [
-        "OobOmniFlowToolkitService.executeTool(run_function)"
+        "OobFunctionToolHandler.runFunction"
       ],
       "may_execute_phone_actions": true,
       "phone_action_owner": "kotlin_only",
@@ -144,7 +145,7 @@
     }
   ],
   "invariants": {
-    "single_live_phone_executor": "All phone actions eventually enter the OOB-native facade and Kotlin runner.",
+    "single_live_phone_executor": "All phone actions eventually enter OobFunctionToolHandler and ActionExecutor.",
     "direct_function_calls_require_id": true,
     "ordinary_vlm_prompt_has_no_function_id_execution_tool": true,
     "enhance_never_blocks_registration_recall_or_replay": true,

@@ -11,13 +11,10 @@ import cn.com.omnimind.bot.omniflow.language.OmniflowFunctionStore
 import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
 
 /**
- * OOB-owned replay facade for RunLog-derived reusable Functions.
- *
- * This is intentionally smaller than the external OmniFlow provider: OOB keeps a
- * fixed registry, fixed dispatch, and deterministic local replay runner, while
- * preserving the Function schema fields external OmniFlow can import later.
+ * Converts recorded RunLogs into reusable Function specs and optionally
+ * registers them. It does not execute Function replay.
  */
-class OobRunLogReplayService(
+class OobRunLogFunctionConverter(
     private val context: Context,
     private val workspaceFunctionStore: WorkspaceFunctionStore = WorkspaceFunctionStore(
         AgentWorkspaceManager.rootDirectory(context)
@@ -82,7 +79,7 @@ class OobRunLogReplayService(
                 "summary" to functionRepository.summaryMap(spec),
                 "function_kind" to "oob_reusable_function",
                 "asset_state" to "native_local",
-                "source" to "oob_run_log_replay_service"
+                "source" to "oob_run_log_function_converter"
             ).apply {
                 putAll(conversionDiagnostics(record, spec, runStatusWarnings))
             }
@@ -112,7 +109,7 @@ class OobRunLogReplayService(
             put("run_id", normalizedRunId)
             put("function_spec", spec)
             put("summary", functionRepository.summaryMap(spec))
-            put("source", "oob_run_log_replay_service")
+            put("source", "oob_run_log_function_converter")
             putAll(conversionDiagnostics(record, spec, runStatusWarnings))
             if (this["success"] == true) {
                 OmniLog.d(
@@ -363,6 +360,6 @@ class OobRunLogReplayService(
     )
 
     private companion object {
-        const val TAG = "OobRunLogReplayService"
+        const val TAG = "OobRunLogFunctionConverter"
     }
 }

@@ -16,8 +16,8 @@ class UnifiedOmniFlowExecutionPlanTest {
             "app/src/main/assets/omniflow/runlog/unified-execution-plan.md"
         )
 
-        assertTrue(plan.contains("OOB native Function facade"))
-        assertTrue(plan.contains("OobOmniFlowToolkitService"))
+        assertTrue(plan.contains("OOB native Function surfaces"))
+        assertTrue(plan.contains("OobFunctionManagementService"))
         assertTrue(plan.contains("OobFunctionToolHandler"))
         assertTrue(plan.contains("Python must not call Android accessibility actions directly"))
         assertTrue(plan.contains("native HTTP/MCP/debug surface"))
@@ -50,7 +50,7 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(plan.contains("| `update_function` / enhance | concrete `function_id`, RunLog evidence, patch"))
         assertTrue(plan.contains("| Python `omniflow-mcp` in Alpine | `omniflow.recall`, `omniflow.ingest_run_log`"))
         assertTrue(plan.contains("live phone"))
-        assertTrue(plan.contains("same native facade and Kotlin replay handler"))
+        assertTrue(plan.contains("same Function runner and `ActionExecutor`"))
         assertTrue(plan.contains("creating the second execution system this plan rejects"))
 
         assertTrue(plan.contains("## Call Shapes"))
@@ -560,29 +560,28 @@ class UnifiedOmniFlowExecutionPlanTest {
     }
 
     @Test
-    fun `debug http omniflow routes delegate to native toolkit facade`() {
+    fun `debug http omniflow routes split management and function run`() {
         val httpHost = readSource(
             "app/src/main/java/cn/com/omnimind/bot/devicehost/LocalDeviceHttpHostManager.kt"
         )
-        val toolkit = readSource(
-            "app/src/main/java/cn/com/omnimind/bot/runlog/OobOmniFlowToolkitService.kt"
+        val managementSource = readSource(
+            "app/src/main/java/cn/com/omnimind/bot/runlog/OobFunctionManagementService.kt"
         )
 
         assertTrue(httpHost.contains("post(\"/omniflow/tool\")"))
         assertTrue(httpHost.contains("post(\"/omniflow/function/run\")"))
-        assertTrue(httpHost.contains("executeOmniFlowTool(context, body)"))
-        assertTrue(httpHost.contains("executeOmniFlowFunction(context, body)"))
-        assertTrue(httpHost.contains("OobOmniFlowToolkitService(context).executeTool(toolName, args)"))
-        assertTrue(httpHost.contains("OobOmniFlowToolkitService(context).executeTool(\"run_function\", args)"))
+        assertTrue(httpHost.contains("executeFunctionManagementTool(context, body)"))
+        assertTrue(httpHost.contains("executeFunctionRun(context, body)"))
+        assertTrue(httpHost.contains("OobFunctionManagementService(context).executeTool(toolName, args)"))
+        assertTrue(httpHost.contains("OobFunctionToolHandler(context).runFunction(args)"))
         assertTrue(httpHost.contains("val publicArguments = mapArg(body[\"arguments\"])"))
         assertTrue(httpHost.contains("put(\"arguments\", publicArguments)"))
         assertTrue(!httpHost.contains("putAll(mapArg(body[\"arguments\"]).ifEmpty { body })"))
         assertTrue(httpHost.contains("adapter_source"))
         assertTrue(httpHost.contains("post(\"/act\")"))
         assertTrue(httpHost.contains("McpToolExecutors.executeAct(context, body)"))
-        assertTrue(toolkit.contains("\"run_function\", \"oob_function_run\" -> runFunction(args)"))
-        assertTrue(toolkit.contains("val arguments = functionArguments(request)"))
-        assertTrue(toolkit.contains("mapArg(request[\"arguments\"])"))
+        assertFalse(managementSource.contains("\"run_function\", \"oob_function_run\" -> runFunction(args)"))
+        assertTrue(httpHost.contains("OobFunctionToolHandler(context).runFunction(args)"))
     }
 
     @Test
@@ -616,14 +615,15 @@ class UnifiedOmniFlowExecutionPlanTest {
         val coordinator = readSource(
             "app/src/main/java/cn/com/omnimind/bot/vlm/VlmToolCoordinator.kt"
         )
-        val toolkit = readSource(
-            "app/src/main/java/cn/com/omnimind/bot/runlog/OobOmniFlowToolkitService.kt"
+        val managementSource = readSource(
+            "app/src/main/java/cn/com/omnimind/bot/runlog/OobFunctionManagementService.kt"
         )
 
         assertTrue(contract["schema_version"] == "oob.omniflow_entry_surface_contract.v1")
         assertTrue(contract["runtime_owner"] == "oob_native_kotlin")
-        assertTrue(contract["native_facade"] == "OobOmniFlowToolkitService")
-        assertTrue(contract["phone_action_runner"] == "OobFunctionToolHandler")
+        assertTrue(contract["management_service"] == "OobFunctionManagementService")
+        assertTrue(contract["function_run_owner"] == "OobFunctionToolHandler")
+        assertTrue(contract["phone_action_runner"] == "ActionExecutor")
         assertTrue(contract["enhancement_policy"] == "offline_only")
         assertTrue(mapArg(contract["product_label"])["zh"] == "复用指令")
         assertTrue(listAny(mapArg(contract["product_label"])["compatibility_aliases"]).contains("复用记忆"))
@@ -668,7 +668,7 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(directAdapter["debug_or_compat_only"] == false)
         assertTrue(directAdapter["ordinary_product_ui_should_call"] == "ui_direct_function_run_adapter")
         assertTrue(assistsManager.contains("fun runOobReusableFunction("))
-        assertTrue(assistsManager.contains("OobOmniFlowToolkitService(context).runFunction("))
+        assertTrue(assistsManager.contains("OobFunctionToolHandler(context).runFunction("))
         assertTrue(assistsManager.contains("\"arguments\" to callArguments"))
         assertTrue(assistsManager.contains("\"frontend_parent\" to \"oob_function_direct_run\""))
 
@@ -702,8 +702,8 @@ class UnifiedOmniFlowExecutionPlanTest {
             exposedForbiddenTools.isEmpty()
         )
         assertTrue(mcpRoutes.contains("OMNIFLOW_MCP_TOOL_NAMES"))
-        assertTrue(mcpRoutes.contains("omniflowToolkit.executeTool(name, args)"))
-        assertTrue(!mcpRoutes.contains("\"run_function\" ->"))
+        assertTrue(mcpRoutes.contains("functionManagementService.executeTool(name, args)"))
+        assertTrue(mcpRoutes.contains("\"run_function\", OobFunctionToolNames.FUNCTION_RUN -> OobFunctionToolHandler(context).runFunction(args)"))
         assertTrue(!mcpRoutes.contains("TOOL_CALL_TOOL ->"))
         assertTrue(!flutterAssistsService.contains("path: '/run_logs/replay'"))
         assertTrue(!mcpRoutes.contains("executeOobToolCall(context, args)"))
@@ -712,7 +712,7 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(http["debug_or_dev_only"] == true)
         assertTrue(http["arguments_field_policy"] == "nested_arguments_preserved")
         assertTrue(httpHost.contains("post(\"/omniflow/function/run\")"))
-        assertTrue(httpHost.contains("OobOmniFlowToolkitService(context).executeTool(\"run_function\", args)"))
+        assertTrue(httpHost.contains("OobFunctionToolHandler(context).runFunction(args)"))
         assertTrue(httpHost.contains("val publicArguments = mapArg(body[\"arguments\"])"))
 
         val python = byId.getValue("python_omniflow_offline")
@@ -725,9 +725,9 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(invariants["enhance_never_blocks_registration_recall_or_replay"] == true)
         assertTrue(invariants["python_never_owns_accessibility_or_overlay"] == true)
         assertTrue(invariants["ui_never_interprets_function_steps_in_dart"] == true)
-        assertTrue(toolkit.contains("\"run_function\", \"oob_function_run\" -> runFunction(args)"))
-        assertTrue(toolkit.contains("suspend fun updateFunction(args: Map<String, Any?>?)"))
-        assertTrue(toolkit.contains("functionStepwiseUpdateOrchestrator.updateFunction(args)"))
+        assertFalse(managementSource.contains("\"run_function\", \"oob_function_run\" -> runFunction(args)"))
+        assertTrue(managementSource.contains("suspend fun updateFunction(args: Map<String, Any?>?)"))
+        assertTrue(managementSource.contains("functionStepwiseUpdateOrchestrator.updateFunction(args)"))
     }
 
     private fun readSource(relativePath: String): String {

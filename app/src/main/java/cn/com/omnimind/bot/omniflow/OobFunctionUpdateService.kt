@@ -85,7 +85,7 @@ class OobFunctionUpdateService(
                 "agent_prompt" to evidencePackager.agentPrompt(analysisContext),
                 "message" to "已读取 Function 和 RunLog，等待 agent 分析后再保存。",
                 "cost" to updateCost,
-                "source" to "oob_native_omniflow_toolkit"
+                "source" to "oob_function_management"
             )
         }
 
@@ -125,7 +125,7 @@ class OobFunctionUpdateService(
                             "requires_confirmation" to true, "reason" to result.reason,
                             "function" to original, "updated_function" to original,
                             "candidates" to allCandidates, "message" to "需要确认要修改哪一步，Function 未保存。",
-                            "source" to "oob_native_omniflow_toolkit"
+                            "source" to "oob_function_management"
                         )
                     }
                     changes += result.changes
@@ -170,7 +170,7 @@ class OobFunctionUpdateService(
                 "changed" to false, "saved" to false, "dry_run" to dryRun,
                 "requires_confirmation" to false, "message" to "未找到可安全应用的 Function 更新。",
                 "function" to original, "updated_function" to original,
-                "changes" to changes, "cost" to updateCost, "source" to "oob_native_omniflow_toolkit"
+                "changes" to changes, "cost" to updateCost, "source" to "oob_function_management"
             )
         }
         if (dryRun) {
@@ -180,7 +180,7 @@ class OobFunctionUpdateService(
                 "requires_confirmation" to false, "changes" to changes,
                 "function" to original, "updated_function" to updated, "message" to "已生成 Function 更新预览，未保存。",
                 "cost" to updateCost,
-                "source" to "oob_native_omniflow_toolkit"
+                "source" to "oob_function_management"
             )
         }
 
@@ -197,7 +197,7 @@ class OobFunctionUpdateService(
             "updated_function" to updated,
             "message" to if (saved) "Function 已更新并保存。" else if (!identityPreserved) "Function 更新必须保持同一个 function_id。" else save["error_message"]?.toString() ?: "Function 更新保存失败。",
             "cost" to updateCost,
-            "source" to "oob_native_omniflow_toolkit"
+            "source" to "oob_function_management"
         )
     }
 
@@ -548,7 +548,7 @@ class OobFunctionUpdateService(
         return linkedMapOf(
             "mode" to mode.takeIf { it.isNotBlank() },
             "backend" to (firstNonBlank(request["source"], analysis["source"]).takeIf { it.isNotBlank() }
-                ?: "oob_native_omniflow_toolkit"),
+                ?: "oob_function_management"),
             "started_at_ms" to startedAtMs,
             "ended_at_ms" to endedAtMs,
             "duration_ms" to (endedAtMs - startedAtMs).coerceAtLeast(0L),

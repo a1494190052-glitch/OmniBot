@@ -58,7 +58,7 @@ helper with mixed semantics.
 - bind registered Functions back to source RunLogs
 - clear Function-as-tool exposure when the last Function is removed
 
-`OobRunLogReplayService` owns RunLog conversion:
+`OobRunLogFunctionConverter` owns RunLog conversion:
 
 - read finished `InternalRunLogRecord` entries
 - compile records through `RunLogReusableFunctionCompiler`
@@ -67,8 +67,8 @@ helper with mixed semantics.
 - mirror source RunLogs into the workspace as a best-effort portable artifact
 - return conversion diagnostics such as card count and compiled step count
 - delegate all Function persistence to `OobFunctionRepository`; callers that
-  already own a repository should inject it so conversion and tool facades share
-  the same storage owner instance
+  already own a repository should inject it so conversion and management calls
+  share the same storage owner instance
 
 `InternalRunLogStore` owns native RunLog persistence:
 
@@ -120,16 +120,14 @@ Replay page guard owns startup package correction:
 - record parameter binding metadata under `metadata.oob_parameter_bindings`
 - keep canonical action compatibility separate from RunLog card filtering
 
-`OobOmniFlowToolkitService` owns the agent/MCP tool facade:
+`OobFunctionManagementService` owns Function management tool routing:
 
 - parse public tool arguments
-- expose recall, register, update, delete, clear, RunLog conversion, and
-  internal diagnostic Function execution
-- use `OobFunctionCallTiming` for Function call timing payloads
+- expose recall, register, update, delete, clear, and RunLog conversion
 - route all Function storage operations through `OobFunctionRepository`
 - route Function recall and direct-hit decisions through
   `OobFunctionRecallService`
-- route deterministic Function execution through `OobFunctionToolHandler`
+- leave Function execution to `OobFunctionToolHandler.runFunction`
 - route simple Function registration step normalization through
   `OobFunctionStepNormalizer`
 - route `update_function` evidence analysis and patches through
@@ -305,7 +303,7 @@ When adding or migrating a generic agent tool name:
 - execute fixed replay through `OobFunctionToolHandler`
 - return compact failure or runtime-resolve diagnostics when deterministic replay
   cannot execute the current step
-- keep `Function.steps` as the only pending sequence. OmniFlow replay should
+- keep `Function.steps` as the only pending sequence. Function replay should
   re-localize and attempt each active step in order; it must not skip action
   steps because a terminal postcondition appears satisfied or because the page
   seems to have advanced. If the current step cannot be executed, return
@@ -323,11 +321,11 @@ When adding or migrating a generic agent tool name:
 - pass execution controls into the replay handler
 - merge execution timing into the returned payload
 
-`OobFunctionCallTiming` owns toolkit call timing payloads:
+`OobFunctionCallTiming` owns Function call timing payloads:
 
 - measure guard and execution timing for Function calls
 - merge call-level timing into runner timing without changing run results
-- keep timing payload shape outside the public tool facade
+- keep timing payload shape outside public tool routes
 
 `ActionExecutor`, `ReplayHelper`, and `OmniflowCheckerRule` own primitive
 local action execution:
@@ -348,7 +346,7 @@ local action execution:
 
 `OobFunctionFrontendSessionController` owns transient replay UI state:
 
-- start, update, and finish the local OmniFlow execution overlay
+- start, update, and finish the local Function execution overlay
 - wire user stop/complete requests into the replay loop
 - keep main-thread UI calls outside the deterministic step executor
 - skip Function calls so only the top-level replay owns the overlay
@@ -369,7 +367,7 @@ routing:
 - extract executable args from current Function steps and recorded RunLog cards
 - resolve `call_tool(function_id)` targets for Function calls
 - identify legacy/noise steps that replay should skip
-- resolve the canonical OmniFlow execution tool for a step
+- resolve the canonical Function execution tool for a step
 - decide whether a step is locally executable as UI action or Function call
 - hand off Function calls through `OobFunctionCallCardPresenter`
 - reject generic `call_tool(tool_name)` delegation during Function replay
@@ -395,13 +393,13 @@ routing:
 
 - call `OobFunctionRepository` for Function register/list/get/delete and direct
   UI run lookup
-- call `OobRunLogReplayService` only for RunLog conversion and recent RunLog
+- call `OobRunLogFunctionConverter` only for RunLog conversion and recent RunLog
   auto-registration
 - never implement Function persistence or indexing rules inline
 
 Do not add new Function CRUD paths directly into `AssistsCoreManager`,
-`OobOmniFlowToolkitService`, or `OobRunLogReplayService`. Add them to
-`OobFunctionRepository`, then call the repository from the facade that needs the
+`OobFunctionManagementService`, or `OobRunLogFunctionConverter`. Add them to
+`OobFunctionRepository`, then call the repository from the route that needs the
 operation.
 
 ## Current Shape
@@ -411,7 +409,17 @@ Agent/MCP tool surface
   -> McpToolDefinitions / McpToolExecutors # external MCP schema/argument adapter
   -> OobFunctionSkillProfile # OmniFlow profile and runtime recall metadata
       -> OobFunctionSchemaBuilder # Function spec -> call_tool argument schema
-  -> OobOmniFlowToolkitService
+  -> OobFunctionToolHandler       # load/materialize/execute Functions
+      -> OobFunctionToolHandler   # deterministic replay and runtime resolve
+          -> OobFunctionFrontendSessionController # replay overlay/session
+          -> OobFunctionRuntimeResolveContextController # recovery context/runtime resolve
+          -> OobFunctionToolHandler # replay/call_tool args and step routing
+          -> OobFunctionRunResultBuilder # run result/timing payloads
+          -> OobFunctionCallCardPresenter # Function-call card payloads
+          -> ActionExecutor.act # primitive local UI action execution
+              -> DeviceOperator # physical device port
+              -> OmniflowCheckerRule # global/function/node checker metadata
+  -> OobFunctionManagementService
       -> OobFunctionRepository       # storage/index/source bindings
       -> OobFunctionStepNormalizer   # simple register/insert-step normalization
           -> OobFunctionJson # shared value coercion for Function payloads
@@ -426,18 +434,7 @@ Agent/MCP tool surface
           -> OobUdegNodeStore        # page/node recall index
       -> VLM recall/page context guidance # render runtime-safe recall hints
           -> OobFunctionJson # shared value coercion for Function payloads
-      -> OobFunctionCallTiming       # call-level timing merge
-      -> OobFunctionToolHandler           # load/materialize/execute Functions
-          -> OobFunctionToolHandler  # deterministic replay and runtime resolve
-              -> OobFunctionFrontendSessionController # replay overlay/session
-              -> OobFunctionRuntimeResolveContextController # recovery context/runtime resolve
-              -> OobFunctionToolHandler # replay/call_tool args and step routing
-              -> OobFunctionRunResultBuilder # run result/timing payloads
-              -> OobFunctionCallCardPresenter # Function-call card payloads
-              -> ActionExecutor.act # primitive local UI action execution
-                  -> DeviceOperator # physical device port
-                  -> OmniflowCheckerRule # global/function/node checker metadata
-      -> OobRunLogReplayService      # RunLog -> Function conversion
+      -> OobRunLogFunctionConverter      # RunLog -> Function conversion
           -> OobFunctionRepository   # injected storage owner for registration
           -> RunLogReusableFunctionCompiler # cards -> reusable Function spec
               -> RunLogReplayStepCompiler # single-card action -> replay step
@@ -448,11 +445,11 @@ Agent/MCP tool surface
 Flutter method channel
   -> AssistsCoreManager
       -> OobFunctionRepository       # Function CRUD and direct run lookup
-      -> OobRunLogReplayService      # conversion and auto-register only
+      -> OobRunLogFunctionConverter      # conversion and auto-register only
 ```
 
-`OobRunLogReplayService` does not expose Function CRUD. New and legacy callers
-must use `OobFunctionRepository` for storage and use `OobRunLogReplayService`
+`OobRunLogFunctionConverter` does not expose Function CRUD. New and legacy callers
+must use `OobFunctionRepository` for storage and use `OobRunLogFunctionConverter`
 only for `convertRunLog` and `autoRegisterRecentRunLogs`.
 
 ## What Not To Merge
@@ -510,14 +507,14 @@ Keep these pieces separate:
   action dispatch, checker evaluation, coordinate remapping, and recovery
   snapshots
 - `McpToolDefinitions` and `McpToolExecutors`: external MCP schema and argument
-  alias adapter before dispatch into the Function/tool facade
+  alias adapter before dispatch into Function run or management calls
 - `OobFunctionSkillProfile`: native `omniflow` skill profile,
   dynamic Function tool exposure, and compact prompt candidates
 - `AgentToolJson`: agent-facing map/list/scalar to `JsonElement` projection for
   tool definitions and payloads
 - `OobFunctionSchemaBuilder`: Function spec projection into model-tool schemas
   and compatibility materialization for that projection
-- `OobOmniFlowToolkitService`: public tool facade and response shaping
+- `OobFunctionManagementService`: Function management tool routing and response shaping
 - builtin skill prompts: agent instructions, not executable policy
 - `omniflow` checker references: agent-facing checklist for implementing
   runtime checker code, contracts, and tests. Retired focused checker skills
@@ -529,15 +526,15 @@ conversion, execution, or agent patching.
 
 ## Cleanup Direction
 
-`OobOmniFlowToolkitService` should stay a facade. New Function behavior should
+`OobFunctionManagementService` should stay a thin management service. New Function behavior should
 land in one of the owned services above before adding more private helper blocks
-to the toolkit. Keep `OobFunctionToolHandler` intentionally small: it loads,
+to the management service. Keep `OobFunctionToolHandler` intentionally small: it loads,
 materializes, and executes Functions; it does not own patching.
 
 When changing run-time execution or recovery behavior, update
 `OobFunctionToolHandler`/`OobFunctionToolHandler` first and keep the public response
-contract stable at the tool facade. Do not add ad hoc guard, retry, or agent
-prompt helpers back into `OobOmniFlowToolkitService`.
+contract stable at the tool route. Do not add ad hoc guard, retry, or agent
+prompt helpers back into `OobFunctionManagementService`.
 
 When changing Function register/update/run/recall payload handling, use
 `OobFunctionJson` for mechanical payload coercion instead of adding another

@@ -26,7 +26,7 @@ import cn.com.omnimind.baselib.util.exception.PermissionException
 import cn.com.omnimind.bot.App
 import cn.com.omnimind.bot.agent.AgentToolJson
 import cn.com.omnimind.bot.manager.OmniForegroundService
-import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
+import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
 import cn.com.omnimind.bot.util.AssistsUtil.Core.createCompanionTask
 import cn.com.omnimind.uikit.UIKit
 import cn.com.omnimind.uikit.api.callback.HalfScreenApi
@@ -245,7 +245,7 @@ class AssistsUtil {
                     if (runContext.taskId.isNotBlank()) put("frontend_task_id", runContext.taskId)
                     if (runContext.runId.isNotBlank()) put("frontend_run_id", runContext.runId)
                 }
-                val result = OobOmniFlowToolkitService(context).runFunction(callArgs)
+                val result = OobFunctionToolHandler(context).runFunction(callArgs)
                 val success = result["success"] == true
                 val stepCount = result["step_count"]?.toString()?.toIntOrNull()
                 val message = buildString {

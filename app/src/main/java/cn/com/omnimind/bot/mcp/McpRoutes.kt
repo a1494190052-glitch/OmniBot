@@ -2,9 +2,10 @@ package cn.com.omnimind.bot.mcp
 
 import android.content.Context
 import cn.com.omnimind.bot.agent.AgentToolNames
+import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
 import cn.com.omnimind.bot.omniflow.OobFunctionSchemaExport
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
-import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
+import cn.com.omnimind.bot.runlog.OobFunctionManagementService
 import cn.com.omnimind.bot.util.AssistsUtil
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
@@ -208,7 +209,7 @@ object McpRoutes {
         args: Map<String, Any?>?
     ): Map<String, Any?> {
         return runCatching {
-            val omniflowToolkit by lazy { OobOmniFlowToolkitService(context) }
+            val functionManagementService by lazy { OobFunctionManagementService(context) }
             when (name) {
             AgentToolNames.VLM_TASK -> McpToolExecutors.executeVlmTask(context, args, serverScope)
             "task_status" -> McpToolExecutors.executeTaskStatus(args)
@@ -218,9 +219,10 @@ object McpRoutes {
             "act" -> McpToolExecutors.executeAct(context, args)
             "file_transfer" -> McpToolExecutors.executeFileTransfer(args)
             "agent_run" -> McpToolExecutors.executeAgentRun(context, args)
+            "run_function", OobFunctionToolNames.FUNCTION_RUN -> OobFunctionToolHandler(context).runFunction(args)
             else -> {
                 if (isOmniflowMcpTool(name)) {
-                    omniflowToolkit.executeTool(name, args)
+                    functionManagementService.executeTool(name, args)
                 } else if (name.isNullOrBlank()) {
                     McpResponseBuilder.buildErrorText("Missing tool name")
                 } else {

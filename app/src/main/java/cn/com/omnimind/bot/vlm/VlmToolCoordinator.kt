@@ -24,7 +24,6 @@ import cn.com.omnimind.assists.task.vlmserver.RecordAction
 import cn.com.omnimind.assists.task.vlmserver.SwipeAction
 import cn.com.omnimind.assists.task.vlmserver.UIAction
 import cn.com.omnimind.assists.task.vlmserver.UIContext
-import cn.com.omnimind.assists.task.vlmserver.budgetDiagnostics
 import cn.com.omnimind.assists.task.vlmserver.VLMClient
 import cn.com.omnimind.assists.task.vlmserver.VLMConversationState
 import cn.com.omnimind.assists.task.vlmserver.VLMCurrentPageSnapshot
@@ -35,11 +34,12 @@ import cn.com.omnimind.assists.task.vlmserver.VLMStreamClient
 import cn.com.omnimind.assists.task.vlmserver.WaitAction
 import cn.com.omnimind.baselib.util.ImageQuality
 import cn.com.omnimind.baselib.util.OmniLog
+import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
 import cn.com.omnimind.bot.mcp.McpTaskManager
 import cn.com.omnimind.bot.mcp.TaskState
 import cn.com.omnimind.bot.mcp.TaskStatus
 import cn.com.omnimind.bot.mcp.VlmTaskRequest
-import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
+import cn.com.omnimind.bot.runlog.OobFunctionManagementService
 import cn.com.omnimind.bot.runlog.firstNonBlank
 import cn.com.omnimind.bot.util.AssistsUtil
 import kotlinx.coroutines.CompletableDeferred
@@ -189,6 +189,15 @@ object VlmToolCoordinator {
     private const val MAX_MAX_STEPS = 64
 
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    private fun budgetDiagnostics(context: UIContext): Map<String, String> = linkedMapOf(
+        "vlm_context_current_page_summary_chars" to context.currentPageSummary.length.toString(),
+        "vlm_context_step_skill_guidance_chars" to context.stepSkillGuidance.length.toString(),
+        "vlm_context_running_summary_chars" to context.runningSummary.length.toString(),
+        "vlm_context_key_memory_count" to context.keyMemory.size.toString(),
+        "vlm_context_installed_app_count" to context.installedApplications.size.toString(),
+        "vlm_context_dynamic_tool_definition_count" to context.dynamicToolDefinitions.size.toString(),
+    )
 
     suspend fun executeNewTask(
         context: Context,
@@ -444,7 +453,7 @@ object VlmToolCoordinator {
         taskState: TaskState,
         functionId: String,
     ): VlmToolOutcome {
-        val runResult = OobOmniFlowToolkitService(context).runFunction(
+        val runResult = OobFunctionToolHandler(context).runFunction(
             linkedMapOf(
                 "function_id" to functionId,
                 "goal" to request.goal,
@@ -524,7 +533,7 @@ object VlmToolCoordinator {
             .getOrDefault("")
         val currentXml = runCatching { AccessibilityController.getCaptureScreenShotXml(true).orEmpty() }
             .getOrDefault("")
-        return OobOmniFlowToolkitService(context).recall(
+        return OobFunctionManagementService(context).recall(
             linkedMapOf(
                 "goal" to request.goal,
                 "current_package" to firstNonBlank(request.packageName, currentPackage),
@@ -581,7 +590,7 @@ object VlmToolCoordinator {
                 )
             )
         }
-        val contextBudgetDiagnostics = workingContext.budgetDiagnostics()
+        val contextBudgetDiagnostics = budgetDiagnostics(workingContext)
         val requestEnvelope = timed("build_request_ms") {
             vlmClient.buildUIOperationRequest(
                 context = workingContext,

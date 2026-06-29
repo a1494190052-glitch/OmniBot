@@ -40,7 +40,7 @@ class McpToolDefinitionsTest {
         ).first { it.exists() }.readText()
         val hasOmniFlowDispatcher =
             "OMNIFLOW_MCP_TOOL_NAMES" in routeSource &&
-                "omniflowToolkit.executeTool" in routeSource
+                "functionManagementService.executeTool" in routeSource
         val missingRoutes = McpToolDefinitions.fixedToolNames
             .filterNot { toolName ->
                 "\"$toolName\" ->" in routeSource ||
@@ -146,11 +146,11 @@ class McpToolDefinitionsTest {
         assertFalse(names.contains("omniflow.run_function"))
         assertFalse(names.contains("omniflow.call_function"))
         assertFalse(names.contains("omniflow.execute_function"))
-        assertFalse(routeSource.contains("\"run_function\""))
+        assertTrue(routeSource.contains("\"run_function\", OobFunctionToolNames.FUNCTION_RUN -> OobFunctionToolHandler(context).runFunction(args)"))
         assertFalse(routeSource.contains("\"omniflow.call_function\""))
 
         assertTrue(httpHostSource.contains("post(\"/omniflow/function/run\")"))
-        assertTrue(httpHostSource.contains("OobOmniFlowToolkitService(context).executeTool(\"run_function\", args)"))
+        assertTrue(httpHostSource.contains("OobFunctionToolHandler(context).runFunction(args)"))
     }
 
     @Test

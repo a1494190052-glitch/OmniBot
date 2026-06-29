@@ -5,7 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Base64
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
+import cn.com.omnimind.bot.runlog.OobFunctionManagementService
 import com.google.gson.GsonBuilder
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CoroutineScope
@@ -63,7 +63,7 @@ class DebugOobFunctionUpdateReceiver : BroadcastReceiver() {
                     autoAnalyzeWithModel?.let { put("auto_analyze_with_model", it) }
                 }.filterValues { it != null }
 
-                val service = OobOmniFlowToolkitService(appContext)
+                val service = OobFunctionManagementService(appContext)
                 val before = if (functionId.isNotBlank()) {
                     service.getFunction(linkedMapOf("function_id" to functionId))
                 } else {

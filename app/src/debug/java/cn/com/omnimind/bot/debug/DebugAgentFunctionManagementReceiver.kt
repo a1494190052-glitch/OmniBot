@@ -28,7 +28,8 @@ import cn.com.omnimind.bot.agent.NoOpAgentRunControl
 import cn.com.omnimind.bot.agent.SubagentDispatcher
 import cn.com.omnimind.bot.agent.ToolExecutionResult
 import cn.com.omnimind.bot.agent.WorkspaceMemoryService
-import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
+import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
+import cn.com.omnimind.bot.runlog.OobFunctionManagementService
 import cn.com.omnimind.bot.runlog.RunLogPagePackageInference
 import cn.com.omnimind.bot.util.AssistsUtil
 import com.google.gson.GsonBuilder
@@ -223,7 +224,7 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
         )
         if (shouldRun) {
             val runStartedAt = System.currentTimeMillis()
-            val runPayload = OobOmniFlowToolkitService(context).runFunction(
+            val runPayload = OobFunctionToolHandler(context).runFunction(
                 mapOf(
                     "function_id" to functionId,
                     "goal" to "Validate debug Function execution through runtime replay.",

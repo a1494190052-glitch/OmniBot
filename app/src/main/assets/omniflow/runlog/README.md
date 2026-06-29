@@ -96,7 +96,7 @@ record. Do not read only the snapshot when correctness matters.
   `app/src/main/java/cn/com/omnimind/bot/vlm/VlmToolCoordinator.kt`
 - VLM recall context contract:
   `assists/src/main/java/cn/com/omnimind/assists/task/vlmserver/VLMRecallContextProvider.kt`
-- Function execution runner: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionToolHandler.kt`
+- Function execution runner: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolHandler.kt`
 - Canonical in-app Function/RunLog tool names: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionToolNames.kt`
 - Function call timing: `app/src/main/java/cn/com/omnimind/bot/runlog/OobFunctionCallTiming.kt`
 - OmniFlow skill profile: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionSkillProfile.kt`
@@ -112,18 +112,19 @@ record. Do not read only the snapshot when correctness matters.
 - RunLog card field/JSON accessors: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogCardAccessors.kt`
 - RunLog reusable Function parameterizer: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogReusableFunctionParameterizer.kt`
 - RunLog action/value parser: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogActionParser.kt`
-- Function execution startup: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionToolHandler.kt`
+- Function execution startup: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolHandler.kt`
 - Replay step runner: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolHandler.kt`
 - Replay frontend session controller: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionFrontendSessionController.kt`
 - Replay failed-step runtime resolve context controller: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionRuntimeResolveContextController.kt`
 - Function step routing: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolHandler.kt`
-  This owns `call_tool(function_id)` Function-call dispatch and rejects generic
+  This owns `call_tool` Function-call dispatch, supports `call_tool(function_id)`,
+  and rejects generic
   tool steps during replay; do not reintroduce separate step executors
   unless the ownership boundary changes.
 - Replay run result builder: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionRunResultBuilder.kt`
 - Function call card presenter: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionCallCardPresenter.kt`
 - Native replay policy and reusable Function conversion: `app/src/main/java/cn/com/omnimind/bot/runlog/`
-- RunLog conversion facade: `app/src/main/java/cn/com/omnimind/bot/runlog/OobRunLogReplayService.kt`
+- RunLog conversion: `app/src/main/java/cn/com/omnimind/bot/runlog/OobRunLogFunctionConverter.kt`
   It converts RunLogs into Function specs or manual Function assets; Function CRUD belongs in
   `OobFunctionRepository`. RunLog conversion must not make the result agent-visible by default:
   `agent_visible=false` / `visibility=manual_function` means it is saved for editing or direct id-based
@@ -131,8 +132,8 @@ record. Do not read only the snapshot when correctness matters.
   explicit registration/publish action should set `agent_visible=true`. Conversion responses should expose diagnostics such
   as card counts and compiled step counts; workspace RunLog mirroring is
   best-effort and must not replace Function registration status.
-- Agent/MCP Function facade: `app/src/main/java/cn/com/omnimind/bot/runlog/OobOmniFlowToolkitService.kt`
-- Local UTG explorer: `app/src/main/java/cn/com/omnimind/bot/runlog/OobOmniFlowExplorer.kt`
+- Agent/MCP Function management tools: `app/src/main/java/cn/com/omnimind/bot/runlog/OobFunctionManagementService.kt`
+- Local UTG explorer: `app/src/main/java/cn/com/omnimind/bot/runlog/OobFunctionPathExplorer.kt`
 - Canonical action executor: `assists/src/main/java/cn/com/omnimind/assists/task/vlmserver/ActionExecutor.kt`
 - Replay strategy helpers: `app/src/main/java/cn/com/omnimind/bot/runlog/ReplayHelper.kt`
   `ActionExecutor.act` is the only act entry; replay only supplies ActCheckConfig callbacks for page guard, checker, and action transfer before canonical dispatch.
@@ -239,8 +240,8 @@ Do not hard replay `browser_use` or `web_search`; their outputs are live context
   UDEG indexing, and Function checker patching should share checker-candidate
   role aliases instead of each service carrying its own `optional_checker` /
   `ad_checker` table.
-- Keep generic RunLog action/value coercion in `OobActionCodec`. Tool facades
-  such as `OobOmniFlowToolkitService` and small payload helpers such as
+- Keep generic RunLog action/value coercion in `OobActionCodec`. Tool routes
+  such as `OobFunctionManagementService` and small payload helpers such as
   `OobFunctionCallTiming`, schema/parameterization helpers, explorer utilities,
   UDEG scalar readers, and cleanup services should call it instead of adding private
   `mapArg`/`listArg`/`firstNonBlank`/`intArg`/`longArg`/`boolArg` copies when
@@ -295,7 +296,7 @@ Do not hard replay `browser_use` or `web_search`; their outputs are live context
   selection but is not an executable split.
 - OmniFlow graph/reusable Function tools convert to `kind=omniflow_graph` or
   `kind=omniflow_function`, `executor=omniflow`, and `model_free=true`.
-- `OobOmniFlowExplorer` is a local OOB utility that records explored UTG paths
+- `OobFunctionPathExplorer` is a local OOB utility that records explored UTG paths
   as RunLogs. It should feed the same RunLog -> Function conversion path rather
   than creating a second Function writer.
 - `RunLogPagePackageInference` owns package-name inference from recorded

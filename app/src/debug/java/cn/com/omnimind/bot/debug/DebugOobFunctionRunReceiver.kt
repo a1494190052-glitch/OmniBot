@@ -8,7 +8,8 @@ import cn.com.omnimind.accessibility.service.AssistsService
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.assists.task.vlmserver.AndroidDeviceOperator
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
+import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
+import cn.com.omnimind.bot.runlog.OobFunctionManagementService
 import cn.com.omnimind.bot.runlog.RunLogPagePackageInference
 import cn.com.omnimind.bot.util.AssistsUtil
 import cn.com.omnimind.uikit.settings.CompanionOverlaySettings
@@ -64,8 +65,9 @@ class DebugOobFunctionRunReceiver : BroadcastReceiver() {
         goal: String,
         arguments: Map<String, Any?>,
     ): Map<String, Any?> {
-        val service = OobOmniFlowToolkitService(context)
-        val initial = service.runFunction(functionRunArgs(functionId, goal, arguments))
+        val service = OobFunctionManagementService(context)
+        val functionRunner = OobFunctionToolHandler(context)
+        val initial = functionRunner.runFunction(functionRunArgs(functionId, goal, arguments))
         if (!isFunctionNotFound(initial)) return initial
 
         val runId = runIdFromDebugFunctionId(functionId)
@@ -91,7 +93,7 @@ class DebugOobFunctionRunReceiver : BroadcastReceiver() {
             )
         }
 
-        return service.runFunction(functionRunArgs(functionId, goal, arguments)) + linkedMapOf(
+        return functionRunner.runFunction(functionRunArgs(functionId, goal, arguments)) + linkedMapOf(
             "auto_register_attempted" to true,
             "auto_register_success" to true,
             "auto_register" to summarizeConvert(convert),

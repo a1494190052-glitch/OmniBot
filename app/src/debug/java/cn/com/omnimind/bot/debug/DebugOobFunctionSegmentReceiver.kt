@@ -8,8 +8,9 @@ import cn.com.omnimind.accessibility.service.AssistsService
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.assists.task.vlmserver.AndroidDeviceOperator
 import cn.com.omnimind.baselib.util.OmniLog
+import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
 import cn.com.omnimind.bot.runlog.RunLogPagePackageInference
-import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
+import cn.com.omnimind.bot.runlog.OobFunctionManagementService
 import cn.com.omnimind.bot.util.AssistsUtil
 import com.google.gson.GsonBuilder
 import kotlinx.coroutines.CoroutineScope
@@ -78,7 +79,7 @@ class DebugOobFunctionSegmentReceiver : BroadcastReceiver() {
         goal: String,
     ): Map<String, Any?> {
         val timing = ValidationTiming()
-        val toolkit = OobOmniFlowToolkitService(context)
+        val managementService = OobFunctionManagementService(context)
         timing.measure("wait_accessibility_ms") {
             waitForAccessibility(context)
         }
@@ -88,7 +89,7 @@ class DebugOobFunctionSegmentReceiver : BroadcastReceiver() {
         val beforePackage = beforeObservation.packageName
         val beforeXml = beforeObservation.xml
         val registerChild = timing.measure("register_child_ms") {
-            toolkit.registerFunction(
+            managementService.registerFunction(
                 mapOf(
                     "functionSpec" to openSettingsChildSpec(
                         functionId = childFunctionId,
@@ -100,15 +101,15 @@ class DebugOobFunctionSegmentReceiver : BroadcastReceiver() {
             )
         }
         val registerParent = timing.measure("register_parent_ms") {
-            toolkit.registerFunction(
+            managementService.registerFunction(
                 mapOf("functionSpec" to parentCallsChildSpec(parentFunctionId, childFunctionId))
             )
         }
         val storedChild = timing.measure("load_child_ms") {
-            toolkit.getFunction(mapOf("function_id" to childFunctionId))
+            managementService.getFunction(mapOf("function_id" to childFunctionId))
         }
         val recall = timing.measure("recall_ms") {
-            toolkit.recall(
+            managementService.recall(
                 mapOf(
                     "goal" to goal,
                     "current_package" to beforePackage,
@@ -119,7 +120,7 @@ class DebugOobFunctionSegmentReceiver : BroadcastReceiver() {
             )
         }
         val parentRun = timing.measure("parent_run_ms") {
-            toolkit.runFunction(
+            OobFunctionToolHandler(context).runFunction(
                 mapOf(
                     "function_id" to parentFunctionId,
                     "goal" to goal,

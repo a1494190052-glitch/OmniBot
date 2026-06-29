@@ -97,10 +97,11 @@ import cn.com.omnimind.bot.agent.UserDialog
 import cn.com.omnimind.bot.agent.WorkspaceMemoryRollupScheduler
 import cn.com.omnimind.bot.agent.WorkspaceMemoryService
 import cn.com.omnimind.bot.agent.WorkspaceScheduledTaskScheduler
+import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
-import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
+import cn.com.omnimind.bot.runlog.OobFunctionManagementService
 import cn.com.omnimind.bot.runlog.OobUdegNodeStore
-import cn.com.omnimind.bot.runlog.OobRunLogReplayService
+import cn.com.omnimind.bot.runlog.OobRunLogFunctionConverter
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import cn.com.omnimind.bot.localmodel.LocalModelFeature
 import cn.com.omnimind.bot.mcp.McpTaskManager
@@ -658,7 +659,7 @@ internal fun buildOobReusableFunctionLocalPayload(
     )
 }
 
-internal fun normalizeOobToolkitFunctionRunPayloadForChannel(payload: Map<String, Any?>): Map<String, Any?> {
+internal fun normalizeOobFunctionRunPayloadForChannel(payload: Map<String, Any?>): Map<String, Any?> {
     val resultPayload = normalizeOobChannelMap(payload["result"])
     val stepResults = normalizeOobChannelStepResultList(
         payload["step_results"] ?: resultPayload["step_results"]
@@ -3496,13 +3497,13 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         }
     }
 
-    private suspend fun executeOmniFlowToolkitForChannel(
+    private suspend fun executeFunctionManagementToolForChannel(
         toolName: String,
         args: Map<String, Any?>,
         errorCode: String,
     ): Map<String, Any?> = withContext(Dispatchers.IO) {
         runCatching {
-            OobOmniFlowToolkitService(context).executeTool(toolName, args)
+            OobFunctionManagementService(context).executeTool(toolName, args)
         }.getOrElse { error ->
             linkedMapOf(
                 "success" to false,
@@ -3526,7 +3527,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 args.containsKey("function_id") -> args
                 else -> emptyMap()
             }
-            val payload = executeOmniFlowToolkitForChannel(
+            val payload = executeFunctionManagementToolForChannel(
                 toolName = OobFunctionToolNames.FUNCTION_REGISTER,
                 args = linkedMapOf("function_spec" to functionSpec),
                 errorCode = "OOB_FUNCTION_REGISTER_FAILED",
@@ -3540,7 +3541,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     fun updateOobFunction(call: MethodCall, result: MethodChannel.Result) {
         mainJob.launch {
             val args = normalizeMethodCallMap(call.arguments)
-            val payload = executeOmniFlowToolkitForChannel(
+            val payload = executeFunctionManagementToolForChannel(
                 toolName = OobFunctionToolNames.FUNCTION_UPDATE,
                 args = args,
                 errorCode = "OOB_FUNCTION_UPDATE_FAILED",
@@ -3565,7 +3566,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 is String -> raw.equals("true", ignoreCase = true)
                 else -> false
             }
-            val payload = executeOmniFlowToolkitForChannel(
+            val payload = executeFunctionManagementToolForChannel(
                 toolName = OobFunctionToolNames.RUN_LOG_CONVERT,
                 args = linkedMapOf<String, Any?>(
                     "run_id" to runId,
@@ -3700,7 +3701,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 }
                 val conversion = withContext(Dispatchers.Default) {
                     runCatching {
-                        OobRunLogReplayService(context).convertRunLog(
+                        OobRunLogFunctionConverter(context).convertRunLog(
                             runId = learningResult.runId,
                             register = true,
                             agentVisible = false,
@@ -4225,7 +4226,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         mainJob.launch {
             val args = normalizeMethodCallMap(call.arguments)
             val functionId = args["function_id"]?.toString()?.trim().orEmpty()
-            val payload = executeOmniFlowToolkitForChannel(
+            val payload = executeFunctionManagementToolForChannel(
                 toolName = OobFunctionToolNames.FUNCTION_GET,
                 args = linkedMapOf("function_id" to functionId),
                 errorCode = "OOB_FUNCTION_GET_FAILED",
@@ -4251,7 +4252,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 call.argument<Boolean>("includeHidden")
                     ?: call.argument<Boolean>("include_hidden")
                     ?: false
-            val payload = executeOmniFlowToolkitForChannel(
+            val payload = executeFunctionManagementToolForChannel(
                 toolName = OobFunctionToolNames.FUNCTION_LIST,
                 args = linkedMapOf(
                     "limit" to limit,
@@ -4272,7 +4273,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         mainJob.launch {
             val args = normalizeMethodCallMap(call.arguments)
             val functionId = args["function_id"]?.toString()?.trim().orEmpty()
-            val payload = executeOmniFlowToolkitForChannel(
+            val payload = executeFunctionManagementToolForChannel(
                 toolName = OobFunctionToolNames.FUNCTION_DELETE,
                 args = linkedMapOf("function_id" to functionId),
                 errorCode = "OOB_FUNCTION_DELETE_FAILED",
@@ -4292,8 +4293,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 args["localReplayResult"] ?: args["local_replay_result"]
             )
             val runPayload = providedLocalReplayResult ?: runCatching {
-                val toolkitPayload = withContext(Dispatchers.IO) {
-                    OobOmniFlowToolkitService(context).runFunction(
+                val functionRunPayload = withContext(Dispatchers.IO) {
+                    OobFunctionToolHandler(context).runFunction(
                         linkedMapOf<String, Any?>(
                             "function_id" to functionId,
                             "arguments" to callArguments,
@@ -4311,7 +4312,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                         ).filterValues { it != null }
                     )
                 }
-                normalizeOobToolkitFunctionRunPayload(toolkitPayload)
+                normalizeOobFunctionRunPayload(functionRunPayload)
             }.getOrElse { error ->
                 linkedMapOf<String, Any?>(
                     "success" to false,
@@ -6207,8 +6208,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         return runPayload
     }
 
-    private fun normalizeOobToolkitFunctionRunPayload(payload: Map<String, Any?>): Map<String, Any?> =
-        normalizeOobToolkitFunctionRunPayloadForChannel(payload)
+    private fun normalizeOobFunctionRunPayload(payload: Map<String, Any?>): Map<String, Any?> =
+        normalizeOobFunctionRunPayloadForChannel(payload)
 
     private fun normalizeStepResultList(value: Any?): List<Map<String, Any?>> {
         val rawList = value as? List<*> ?: return emptyList()

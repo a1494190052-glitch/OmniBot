@@ -45,7 +45,6 @@ object RunLogReplayPolicy {
     ) + OobFunctionToolNames.runLogTools
 
     val dataFlowTools: Set<String> = setOf(
-        AgentToolNames.BROWSER_USE,
         AgentToolNames.WEB_SEARCH,
         "memory_search",
         "memory_recall",
@@ -86,6 +85,9 @@ object RunLogReplayPolicy {
 
     fun isDataFlowTool(toolName: String): Boolean =
         normalizeToolName(toolName) in dataFlowTools
+
+    fun isBrowserReplayTool(toolName: String): Boolean =
+        normalizeToolName(toolName) == AgentToolNames.BROWSER_USE
 
     fun isProviderOnlyTool(toolName: String): Boolean =
         normalizeToolName(toolName) in providerOnlyTools

@@ -14,7 +14,7 @@ import cn.com.omnimind.bot.agent.AgentAiCapabilityConfigSync
 import cn.com.omnimind.bot.agent.ResolvedSkillContext
 import cn.com.omnimind.bot.manager.AssistsCoreManager
 import cn.com.omnimind.bot.mcp.VlmTaskRequest
-import cn.com.omnimind.bot.runlog.OobOmniFlowToolkitService
+import cn.com.omnimind.bot.runlog.OobFunctionManagementService
 import cn.com.omnimind.bot.util.AssistsUtil
 import cn.com.omnimind.bot.vlm.VlmToolCoordinator
 import cn.com.omnimind.bot.vlm.VlmToolOutcomeStatus
@@ -213,7 +213,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             if (register && timeline?.get("registered_as_function") == true) {
                 autoRegisteredConvertPayload(runId, timeline.orEmpty())
             } else {
-                OobOmniFlowToolkitService(context).convertRunLog(
+                OobFunctionManagementService(context).convertRunLog(
                     mapOf(
                         "run_id" to runId,
                         "register" to register,

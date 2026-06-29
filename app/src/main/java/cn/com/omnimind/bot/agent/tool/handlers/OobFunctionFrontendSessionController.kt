@@ -6,12 +6,10 @@ import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
 import cn.com.omnimind.bot.manager.AssistsCoreManager
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
 import cn.com.omnimind.uikit.loader.cat.DraggableBallInstance
-import cn.com.omnimind.uikit.settings.CompanionOverlaySettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -35,8 +33,7 @@ class OobFunctionFrontendSessionController(
     ): Session? {
         if (stepCount <= 0 || callStack.isNotEmpty()) return null
         val frontendMode = frontendParent.trim().lowercase()
-        val suppressUiOverlay = frontendMode in HEADLESS_FRONTEND_PARENTS
-        val canUseUiOverlay = !suppressUiOverlay && !isHeadlessJvm() && canUseMainDispatcher()
+        val canUseUiOverlay = !isHeadlessJvm()
         val embeddedInVlmTask = frontendMode == "vlm_task"
         val runId = frontendRunId
             .trim()
@@ -77,17 +74,17 @@ class OobFunctionFrontendSessionController(
             embeddedInVlmTask = embeddedInVlmTask,
             message = helper.localized("准备执行复用指令"),
         )
-        if (suppressUiOverlay) {
-            CompanionOverlaySettings.dismissFloatingUi()
-        } else if (canUseUiOverlay) {
+        if (canUseUiOverlay) {
             runCatching {
                 withContext(Dispatchers.Main) {
                     DraggableBallInstance.loadBall()
-                    DraggableBallInstance.doingTask(
+                    DraggableBallInstance.setDoing(
                         message = helper.localized("准备执行复用指令"),
+                        isShowTakeOver = false,
                         subMessage = helper.localized(label),
-                        forceOnTop = true,
-                        isTouchable = true
+                        isShowStop = false,
+                        isTouchable = false,
+                        forceOnTop = true
                     )
                 }
             }.onFailure {
@@ -108,13 +105,6 @@ class OobFunctionFrontendSessionController(
             toolHandle = toolHandle,
         )
     }
-
-    private suspend fun canUseMainDispatcher(): Boolean =
-        withTimeoutOrNull(MAIN_DISPATCHER_PROBE_TIMEOUT_MS) {
-            runCatching {
-                withContext(Dispatchers.Main.immediate) { true }
-            }.getOrDefault(false)
-        } ?: false
 
     private fun isHeadlessJvm(): Boolean =
         System.getProperty("java.awt.headless")
@@ -187,11 +177,13 @@ class OobFunctionFrontendSessionController(
             if (canUseUiOverlay) {
                 runCatching {
                     withContext(Dispatchers.Main) {
-                        DraggableBallInstance.doingTask(
+                        DraggableBallInstance.setDoing(
                             message = message,
+                            isShowTakeOver = false,
                             subMessage = helper.localized(progressText),
-                            forceOnTop = true,
-                            isTouchable = true
+                            isShowStop = false,
+                            isTouchable = false,
+                            forceOnTop = true
                         )
                     }
                 }.onFailure {
@@ -221,20 +213,24 @@ class OobFunctionFrontendSessionController(
                         if (!end.wasActive) return@withContext
                         val finishMsg = helper.localized(message.ifBlank { "任务已完成" })
                         if (embeddedInVlmTask) {
-                            DraggableBallInstance.doingTask(
+                            DraggableBallInstance.setDoing(
                                 message = helper.localized("复用指令执行完成"),
+                                isShowTakeOver = false,
                                 subMessage = finishMsg,
-                                forceOnTop = true,
-                                isTouchable = true
+                                isShowStop = false,
+                                isTouchable = false,
+                                forceOnTop = true
                             )
                             delay(OMNIFLOW_FINISH_VISIBLE_MS)
                             DraggableBallInstance.finishDoingTask(finishMsg)
                         } else {
-                            DraggableBallInstance.doingTask(
+                            DraggableBallInstance.setDoing(
                                 message = finishMsg,
+                                isShowTakeOver = false,
                                 subMessage = helper.localized(label),
-                                forceOnTop = true,
-                                isTouchable = true
+                                isShowStop = false,
+                                isTouchable = false,
+                                forceOnTop = true
                             )
                             if (closeAfterMs > 0L) {
                                 delay(closeAfterMs)
@@ -257,15 +253,8 @@ class OobFunctionFrontendSessionController(
 
     private companion object {
         const val TAG = "OobFunctionFrontendSession"
-        const val MAIN_DISPATCHER_PROBE_TIMEOUT_MS = 100L
         const val OMNIFLOW_FINISH_VISIBLE_MS = 900L
         val STEP_PROGRESS_REGEX = Regex("""第\s*(\d+)\s*/\s*\d+\s*步""")
-        val HEADLESS_FRONTEND_PARENTS = setOf(
-            "debug_replay",
-            "native_replay",
-            "androidworld_validator",
-            "headless",
-        )
 
         fun dispatchRunProgress(
             status: String,
