@@ -45,6 +45,7 @@ object RunLogReplayPolicy {
     ) + OobFunctionToolNames.runLogTools
 
     val dataFlowTools: Set<String> = setOf(
+        AgentToolNames.BROWSER_USE,
         AgentToolNames.WEB_SEARCH,
         "memory_search",
         "memory_recall",

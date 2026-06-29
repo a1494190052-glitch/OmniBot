@@ -82,8 +82,8 @@ class OobFunctionFrontendSessionController(
                         message = helper.localized("准备执行复用指令"),
                         isShowTakeOver = false,
                         subMessage = helper.localized(label),
-                        isShowStop = false,
-                        isTouchable = false,
+                        isShowStop = true,
+                        isTouchable = true,
                         forceOnTop = true
                     )
                 }
@@ -181,8 +181,8 @@ class OobFunctionFrontendSessionController(
                             message = message,
                             isShowTakeOver = false,
                             subMessage = helper.localized(progressText),
-                            isShowStop = false,
-                            isTouchable = false,
+                            isShowStop = true,
+                            isTouchable = true,
                             forceOnTop = true
                         )
                     }

@@ -12,11 +12,22 @@ internal object RunLogCardAccessors {
         val header = asMap(card["header"])
         val toolCall = asMap(card["tool_call"]).ifEmpty { asMap(card["toolCall"]) }
         val function = asMap(toolCall["function"])
+        val executor = firstNonBlank(card["executor"], header["executor"]).lowercase()
+        val reusableCommandAction = if (executor == "reusable_command") {
+            firstNonBlank(
+                card["reusable_command_action"],
+                card["reusableCommandAction"],
+                card["tool"],
+            )
+        } else {
+            ""
+        }
         return firstNonBlank(
             toolCall["name"],
             toolCall["tool_name"],
             toolCall["toolName"],
             function["name"],
+            reusableCommandAction,
             card["tool_name"],
             card["toolName"],
             card["action_type"],

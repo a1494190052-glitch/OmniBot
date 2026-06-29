@@ -1023,6 +1023,38 @@ class RunLogReusableFunctionCompilerTest {
     }
 
     @Test
+    fun `manual reusable command cards use reusable command action as tool name`() {
+        val spec = compile(
+            listOf(
+                linkedMapOf<String, Any?>(
+                    "title" to "人工滑动",
+                    "kind" to "command",
+                    "executor" to "reusable_command",
+                    "reusable_command_action" to "swipe",
+                    "args" to linkedMapOf(
+                        "target_description" to "list",
+                        "direction" to "up",
+                        "x1" to 540,
+                        "y1" to 1800,
+                        "x2" to 540,
+                        "y2" to 600,
+                    ),
+                    "before" to linkedMapOf(
+                        "package_name" to "com.example",
+                        "observation_xml" to SOURCE_XML,
+                    ),
+                )
+            ),
+            runId = "run-manual-reusable-command-swipe",
+        )
+
+        val step = stepsFrom(spec).single()
+        assertEquals("swipe", step["tool"])
+        assertEquals("omniflow", step["executor"])
+        assertEquals("swipe", ((step["source_context"] as Map<*, *>)["action"] as Map<*, *>)["tool"])
+    }
+
+    @Test
     fun `keyboard back between form inputs is dropped but submit back is preserved`() {
         val spec = compile(
             listOf(

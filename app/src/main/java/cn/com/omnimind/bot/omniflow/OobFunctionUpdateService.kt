@@ -14,7 +14,6 @@ import cn.com.omnimind.bot.omniflow.OobFunctionJson.mutableJsonList
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.mutableJsonMap
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.mutableJsonValue
 import cn.com.omnimind.bot.runlog.OmniflowCheckerRule
-import cn.com.omnimind.bot.runlog.OobStepRoleClassifier
 
 /**
  * Applies agent-provided updates to registered OmniFlow Functions.
@@ -450,7 +449,6 @@ class OobFunctionUpdateService(
         applyAgentReusePatch(spec, patch, changes)
         applyMetadataPatch(spec, patch, changes)
         applyTopLevelCheckerRulesPatch(spec, patch, changes)
-        changes += applyOptionalCheckerMetadataFromSteps(spec)
         return changes
     }
 
@@ -664,60 +662,6 @@ class OobFunctionUpdateService(
         return listOf(changeMap("metadata", "checker_rules", existing.takeIf { it.isNotEmpty() }, merged))
     }
 
-    private fun applyOptionalCheckerMetadataFromSteps(spec: MutableMap<String, Any?>): List<Map<String, Any?>> {
-        val steps = listArg(mapArg(spec["execution"])["steps"]).mapNotNull { mapArg(it).takeIf { s -> s.isNotEmpty() } }
-        if (steps.isEmpty()) return emptyList()
-        val changes = mutableListOf<Map<String, Any?>>()
-        val metadata = mutableJsonMap(mapArg(spec["metadata"]))
-        val existingRules = listArg(metadata["checker_rules"])
-        val mergedRules = mergeCheckerRules(existingRules, steps.mapIndexedNotNull { i, s -> optionalCheckerRuleForStep(s, i) })
-        val signatureToId = checkerRuleSignatureToId(mergedRules)
-        val checkerAssets = steps.mapIndexedNotNull { i, s ->
-            val rule = optionalCheckerRuleForStep(s, i) ?: return@mapIndexedNotNull null
-            checkerAssetForStep(signatureToId[checkerRuleSignature(rule)] ?: firstNonBlank(rule["id"]), s, i)
-        }
-        if (existingRules != mergedRules) {
-            changes += changeMap("metadata", "checker_rules", existingRules.takeIf { it.isNotEmpty() }, mergedRules)
-            metadata["checker_rules"] = mergedRules; spec["metadata"] = metadata
-        }
-        if (checkerAssets.isNotEmpty()) {
-            val agentReuse = mutableJsonMap(mapArg(spec["agent_reuse"]))
-            val existingAssets = listArg(agentReuse["checker_assets"])
-            val mergedAssets = mergeCheckerAssets(existingAssets, checkerAssets)
-            if (existingAssets != mergedAssets) {
-                changes += changeMap("agent_reuse", "checker_assets", existingAssets.takeIf { it.isNotEmpty() }, mergedAssets)
-                agentReuse["checker_assets"] = mergedAssets; spec["agent_reuse"] = agentReuse
-            }
-        }
-        return changes
-    }
-
-    private fun optionalCheckerRuleForStep(step: Map<String, Any?>, stepIndex: Int): Map<String, Any?>? {
-        val annotation = mapArg(step["cleanup_annotation"]); if (!isOptionalCheckerAnnotation(annotation)) return null
-        val text = checkerInferenceText(step, annotation)
-        val condition = when {
-            containsAnyIn(text, listOf("resolver", "chooser", "open with", "always open", "始终打开", "打开方式")) -> OmniflowCheckerRule.COND_RESOLVER_DIALOG
-            containsAnyIn(text, listOf("upgrade", "update", "version", "hi升级", "新版本", "升级", "更新")) -> OmniflowCheckerRule.COND_APP_UPGRADE_PROMPT
-            containsAnyIn(text, listOf("keyboard", "ime", "键盘", "输入法")) -> OmniflowCheckerRule.COND_KEYBOARD_OBSCURING
-            containsAnyIn(text, listOf("permission", "allow", "authorize", "grant", "权限", "授权", "允许")) -> OmniflowCheckerRule.COND_PERMISSION_DIALOG
-            else -> OmniflowCheckerRule.COND_OVERLAY_BLOCKING
-        }
-        return linkedMapOf("id" to "optional_checker_step_${stepIndex}_$condition",
-            "phase" to OmniflowCheckerRule.phaseForCondition(condition),
-            "condition" to condition,
-            "action" to OmniflowCheckerRule.actionForCondition(condition), "enabled" to true, "params" to emptyMap<String, Any?>())
-    }
-
-    private fun isOptionalCheckerAnnotation(a: Map<String, Any?>) = listOf(
-        firstNonBlank(a["cleanup_action"], a["cleanupAction"], a["action"]),
-        firstNonBlank(a["usefulness"]), firstNonBlank(a["category"]), firstNonBlank(a["role"]), firstNonBlank(a["kind"])
-    ).any { OobStepRoleClassifier.isCheckerCandidateRole(it) }
-
-    private fun checkerInferenceText(step: Map<String, Any?>, a: Map<String, Any?>) = listOf(
-        step["title"], step["summary"], step["description"], a["optional_condition"], a["optionalCondition"],
-        a["reason"], a["action_purpose"], mapArg(step["args"])["target_description"], mapArg(step["args"])["text"]
-    ).joinToString(" ") { it?.toString().orEmpty() }.lowercase()
-
     private fun sanitizeCheckerRule(raw: Map<String, Any?>): Map<String, Any?>? {
         if (raw.isEmpty()) return null
         val normalizedInput = mutableJsonMap(raw).apply {
@@ -735,6 +679,10 @@ class OobFunctionUpdateService(
             "class_any",
             "action_text_any",
             "action_resource_id_any",
+            "xpath",
+            "xpath_exists",
+            "target_covered_by_xpath",
+            "target_xpath",
             "delay_ms",
             "max_triggers",
             "maxTriggers",
@@ -763,37 +711,16 @@ class OobFunctionUpdateService(
         return output
     }
 
-    private fun checkerRuleSignatureToId(rules: List<Any?>): Map<String, String> =
-        rules.mapNotNull { sanitizeCheckerRule(mapArg(it))?.let { s -> checkerRuleSignature(s) to firstNonBlank(mapArg(it)["id"], s["id"]) } }.toMap()
-
     private fun checkerRuleSignature(rule: Map<String, Any?>): String {
         val p = mapArg(rule["params"])
-        return listOf(rule["phase"], rule["condition"], rule["action"], firstNonBlank(p["package_name"], p["packageName"])).joinToString("|") { it?.toString().orEmpty() }
-    }
-
-    private fun checkerAssetForStep(checkerId: String, step: Map<String, Any?>, stepIndex: Int): Map<String, Any?>? {
-        if (checkerId.isBlank()) return null
-        val a = mapArg(step["cleanup_annotation"])
-        val reason = firstNonBlank(a["optional_condition"], a["reason"], a["action_purpose"], step["description"], step["summary"], step["title"])
-        return linkedMapOf("checker_id" to checkerId, "step_index" to stepIndex,
-            "step_id" to firstNonBlank(step["id"], "step_${stepIndex + 1}"),
-            "role" to OobStepRoleClassifier.ROLE_CHECKER_CANDIDATE, "materialization" to "metadata_checker_rule",
-            "reason" to reason.takeIf { it.isNotBlank() }).filterValues { it != null }
-    }
-
-    private fun mergeCheckerAssets(existing: List<Any?>, additions: List<Map<String, Any?>>): List<Any?> {
-        if (additions.isEmpty()) return existing
-        val output = existing.map { mutableJsonValue(it) }.toMutableList()
-        val seen = existing.mapNotNull { checkerAssetSignature(mapArg(it)).takeIf(String::isNotBlank) }.toMutableSet()
-        additions.forEach { if (checkerAssetSignature(it).isNotBlank() && seen.add(checkerAssetSignature(it))) output += mutableJsonMap(it) }
-        return output
-    }
-
-    private fun checkerAssetSignature(asset: Map<String, Any?>): String {
-        val id = firstNonBlank(asset["checker_id"], asset["checkerId"])
-        val idx = intArg(asset["step_index"], asset["stepIndex"], asset["index"], defaultValue = -1)
-        val stepId = firstNonBlank(asset["step_id"], asset["stepId"])
-        return if (id.isBlank() || idx < 0) "" else "$id|$idx|$stepId"
+        return listOf(
+            rule["phase"],
+            rule["condition"],
+            rule["action"],
+            firstNonBlank(p["package_name"], p["packageName"]),
+            firstNonBlank(p["xpath"], p["xpath_exists"], p["target_covered_by_xpath"]),
+            firstNonBlank(p["target_xpath"]),
+        ).joinToString("|") { it?.toString().orEmpty() }
     }
 
     private fun safeCheckerRuleId(raw: String): String {
@@ -807,8 +734,6 @@ class OobFunctionUpdateService(
         while (candidate in usedIds) { val s = "_$suffix"; candidate = base.take((80 - s.length).coerceAtLeast(1)).trimEnd('_') + s; suffix++ }
         usedIds += candidate; return candidate
     }
-
-    private fun containsAnyIn(text: String, needles: List<String>) = needles.any { text.contains(it) }
 
     // -----------------------------------------------------------------------
     // Shared utilities

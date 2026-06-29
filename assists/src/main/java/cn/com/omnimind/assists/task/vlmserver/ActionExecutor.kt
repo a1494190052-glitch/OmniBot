@@ -57,7 +57,6 @@ class ActionExecutor(
     data class ActCheckConfig(
         val step: Map<String, Any?>? = null,
         val stopRequested: (() -> Boolean)? = null,
-        val pageGuard: (suspend () -> Map<String, Any?>)? = null,
         val checker: (suspend (action: String, args: Map<String, Any?>) -> Map<String, Any?>)? = null,
         val actionTransfer: (suspend (action: String, args: Map<String, Any?>) -> ActArgsResult)? = null,
     )
@@ -272,16 +271,23 @@ class ActionExecutor(
             var effectiveAction = resolveActionName(action) ?: OobActionSchema.normalizeToolName(action)
             var effectiveArgs = canonicalActionArgs(effectiveAction, args)
 
-            check?.pageGuard?.let { pageGuard ->
-                val result = pageGuard()
-                if (result.isNotEmpty()) checkDiagnostics["page_guard"] = result
-                throwIfStopRequested(check)
-            }
-
             check?.checker?.let { checker ->
-                val result = checker(effectiveAction, effectiveArgs)
-                if (result.isNotEmpty()) checkDiagnostics["checker"] = result
-                throwIfStopRequested(check)
+                val checkerResults = mutableListOf<Map<String, Any?>>()
+                for (attempt in 0 until CHECKER_STABILIZE_LIMIT) {
+                    val result = checker(effectiveAction, effectiveArgs)
+                    if (result.isNotEmpty()) checkerResults += result
+                    throwIfStopRequested(check)
+                    if (!checkerChangedPage(result)) {
+                        break
+                    }
+                    delay(CHECKER_SETTLE_MS)
+                    throwIfStopRequested(check)
+                }
+                when (checkerResults.size) {
+                    0 -> Unit
+                    1 -> checkDiagnostics["checker"] = checkerResults.first()
+                    else -> checkDiagnostics["checker"] = checkerResults
+                }
             }
 
             check?.actionTransfer?.let { transfer ->
@@ -461,6 +467,16 @@ class ActionExecutor(
         }
     }
 
+    private fun checkerChangedPage(result: Map<String, Any?>): Boolean {
+        if (result.isEmpty()) return false
+        if (result["executed"] == true || result["effect"] == "run_actions") return true
+        val effects = result["effects"] as? Iterable<*> ?: return false
+        return effects.any { effect ->
+            val map = effect as? Map<*, *> ?: return@any false
+            map["effect"] == "run_actions" || map["executed"] == true
+        }
+    }
+
     private fun actionSuccessMessage(tool: String, args: Map<String, Any?>): String =
         when (tool) {
             OobActionSchema.TOOL_CLICK -> "点击 ${args["target_description"].orEmpty()} 成功"
@@ -498,6 +514,8 @@ class ActionExecutor(
         private const val OPEN_APP_POST_DELAY_MS = 1000L
         private const val FUNCTION_RUN_POST_DELAY_MS = 500L
         private const val MAX_WAIT_MS = 10_000L
+        private const val CHECKER_STABILIZE_LIMIT = 3
+        private const val CHECKER_SETTLE_MS = 1_000L
 
         fun resolveActionName(raw: String): String? =
             OobActionSchema.canonicalToolName(raw)?.takeIf { it in OobActionSchema.replayableToolNames }

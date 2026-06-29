@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://omniflow.local/schemas/oob/omniflow_checker_rule.v1.json",
   "title": "OmniFlow Checker Rule",
-  "description": "Shared checker rule contract for Function metadata.checker_rules. Native OmniFlow reads it through OmniflowCheckerRule; Python OmniFlow adapts it into the existing TriggerSpec runtime.",
+  "description": "Shared checker rule contract for Function metadata.checker_rules and workspace checkers/checker_rules.json. Native replay evaluates generic XML/XPath, package, and keyboard conditions before action transfer.",
   "type": "object",
   "additionalProperties": true,
   "required": ["id", "condition", "action"],
@@ -59,11 +59,8 @@
     "condition_name": {
       "type": "string",
       "enum": [
-        "overlay_blocking",
-        "ad_blocking",
-        "permission_dialog",
-        "resolver_dialog",
-        "app_upgrade_prompt",
+        "xpath_exists",
+        "target_covered_by_xpath",
         "keyboard_obscuring",
         "package_mismatch"
       ]
@@ -71,9 +68,7 @@
     "action_name": {
       "type": "string",
       "enum": [
-        "dismiss",
-        "allow",
-        "confirm_resolver_always",
+        "click",
         "hide_keyboard",
         "open_app",
         "wait"
@@ -108,24 +103,24 @@
     "condition": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type"],
       "properties": {
         "type": {"$ref": "#/$defs/condition_name"},
-        "text_any": {"$ref": "#/$defs/string_list"},
-        "resource_id_any": {"$ref": "#/$defs/string_list"},
-        "package_any": {"$ref": "#/$defs/string_list"},
-        "class_any": {"$ref": "#/$defs/string_list"},
-        "xml_contains_any": {"$ref": "#/$defs/string_list"}
+        "xpath_exists": {"type": "string", "minLength": 1},
+        "xpath": {"type": "string", "minLength": 1},
+        "target_covered_by_xpath": {"type": "string", "minLength": 1},
+        "keyboard_obscuring": {"type": "boolean"},
+        "keyboard_obscures_target": {"type": "boolean"},
+        "package_mismatch": {"type": "boolean"}
       }
     },
     "action": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type"],
       "properties": {
         "type": {"$ref": "#/$defs/action_name"},
-        "text_any": {"$ref": "#/$defs/string_list"},
-        "resource_id_any": {"$ref": "#/$defs/string_list"},
+        "action": {"$ref": "#/$defs/action_name"},
+        "target_xpath": {"type": "string", "minLength": 1},
+        "package_name": {"type": "string", "minLength": 1},
         "wait_ms": {"type": "integer", "minimum": 0}
       }
     },
@@ -142,16 +137,15 @@
   "examples": [
     {
       "schema_version": "omniflow.checker_rule.v1",
-      "id": "dismiss_optional_overlay",
+      "id": "dismiss_optional_overlay_by_xpath",
       "enabled": true,
       "phase": "pre_transfer",
       "condition": {
-        "type": "overlay_blocking",
-        "text_any": ["添加到首页"]
+        "xpath_exists": "//node[@clickable='true' and contains(@text,'关闭')]"
       },
       "action": {
-        "type": "dismiss",
-        "text_any": ["关闭"]
+        "action": "click",
+        "target_xpath": "//node[@clickable='true' and contains(@text,'关闭')]"
       },
       "budget": {
         "max_triggers_per_run": 2,

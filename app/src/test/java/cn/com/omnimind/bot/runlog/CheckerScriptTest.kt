@@ -8,27 +8,35 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.fail
 import org.junit.Test
 
-class PageGuardCheckerScriptTest {
+class CheckerScriptTest {
     @Test
-    fun `script can dry run page guard checker`() = runBlocking {
+    fun `script can dry run replay checker`() = runBlocking {
         val xml = checkerXml()
-        val currentPackage = env("PAGE_GUARD_CHECKER_PACKAGE") ?: "com.example"
-        val currentActivity = env("PAGE_GUARD_CHECKER_ACTIVITY") ?: "ExampleActivity"
-        val execute = env("PAGE_GUARD_CHECKER_EXECUTE") == "true"
-        val expect = env("PAGE_GUARD_CHECKER_EXPECT") ?: "any"
-        val resultFile = env("PAGE_GUARD_CHECKER_RESULT_FILE")?.let(::File)
+        val currentPackage = env("REPLAY_CHECKER_PACKAGE") ?: "com.example"
+        val currentActivity = env("REPLAY_CHECKER_ACTIVITY") ?: "ExampleActivity"
+        val expect = env("REPLAY_CHECKER_EXPECT") ?: "any"
+        val resultFile = env("REPLAY_CHECKER_RESULT_FILE")?.let(::File)
         val backend = ScriptBackend(
             xml = xml,
             currentPackage = currentPackage,
             currentActivity = currentActivity,
         )
 
-        val result = ReplayHelper.runPageGuard(
+        val effects = ReplayHelper.runChecker(
             deviceOperator = backend,
-            execute = execute,
-            source = "page_guard_checker_script",
+            step = mapOf(
+                "executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
+                "tool" to "click",
+                "args" to mapOf("x" to 100, "y" to 100),
+            ),
+            action = "click",
+            args = mapOf("x" to 100, "y" to 100),
+            checkerRules = listOf(skipOverlayRule()),
             checkerBudget = ReplayHelper.CheckerTriggerBudget(),
-        ) + mapOf(
+        )
+        val result = mapOf(
+            "matched" to effects.isNotEmpty(),
+            "effects" to effects,
             "fake_click_count" to backend.clickPoints.size,
             "fake_click_points" to backend.clickPoints.map { point ->
                 mapOf("x" to point.first, "y" to point.second)
@@ -44,7 +52,7 @@ class PageGuardCheckerScriptTest {
             "match" -> assertEquals(true, result["matched"])
             "no-match" -> assertEquals(false, result["matched"])
             "any" -> Unit
-            else -> fail("Unsupported PAGE_GUARD_CHECKER_EXPECT=$expect")
+            else -> fail("Unsupported REPLAY_CHECKER_EXPECT=$expect")
         }
     }
 
@@ -95,13 +103,30 @@ class PageGuardCheckerScriptTest {
             System.getenv(name)?.trim()?.takeIf { it.isNotEmpty() }
 
         private fun checkerXml(): String {
-            val file = env("PAGE_GUARD_CHECKER_XML_FILE")?.let(::File)
+            val file = env("REPLAY_CHECKER_XML_FILE")?.let(::File)
             return if (file != null) {
                 file.readText(Charsets.UTF_8)
             } else {
                 DEFAULT_SKIP_AD_XML
             }
         }
+
+        private fun skipOverlayRule(): OmniflowCheckerRule =
+            requireNotNull(
+                OmniflowCheckerRule.fromMap(
+                    mapOf(
+                        "id" to "dismiss_transient_overlay",
+                        "phase" to OmniflowCheckerRule.PHASE_PRE_TRANSFER,
+                        "when" to mapOf(
+                            "xpath_exists" to "//node[@clickable='true' and contains(@text,'跳过')]",
+                        ),
+                        "then" to mapOf(
+                            "action" to "click",
+                            "target_xpath" to "//node[@clickable='true' and contains(@text,'跳过')]",
+                        ),
+                    )
+                )
+            )
 
         private fun toJson(value: Any?): String =
             buildString { appendJsonValue(value) }

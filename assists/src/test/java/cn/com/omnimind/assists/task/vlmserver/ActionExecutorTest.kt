@@ -118,6 +118,31 @@ class ActionExecutorTest {
     }
 
     @Test
+    fun `action transfer failure stops before physical dispatch`() = runBlocking {
+        withQuietLogs {
+            val operator = FakeDeviceOperator()
+            val executor = ActionExecutor(operator, UIContextManager())
+
+            val result = executor.act(
+                action = "click",
+                args = mapOf("x" to 360f, "y" to 625f),
+                source = "function_replay",
+                check = ActionExecutor.ActCheckConfig(
+                    actionTransfer = { _, _ ->
+                        throw IllegalStateException(
+                            "OOB_FUNCTION_SOURCE_NOT_REACHED: action transfer could not match the recorded source page: no_anchor_match"
+                        )
+                    },
+                ),
+            )
+
+            assertFalse(result.success)
+            assertTrue(result.message.contains("OOB_FUNCTION_SOURCE_NOT_REACHED"))
+            assertEquals(emptyList<Pair<Float, Float>>(), operator.clickedCoordinates)
+        }
+    }
+
+    @Test
     fun `function run action returns function payload as action result data`() = runBlocking {
         withQuietLogs {
             val operator = FakeDeviceOperator()

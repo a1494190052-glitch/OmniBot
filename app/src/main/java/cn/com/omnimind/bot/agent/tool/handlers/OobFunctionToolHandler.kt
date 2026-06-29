@@ -38,6 +38,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import java.io.File
 import java.util.concurrent.atomic.AtomicLong
 
 data class OobFunctionRuntimeResolveRequest(
@@ -112,6 +113,12 @@ class OobFunctionToolHandler(
         }
     },
 ) : ToolHandler {
+    private val checkerRuleJson = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+        encodeDefaults = false
+    }
+
     override val toolNames: Set<String> = setOf(
         RunLogReplayPolicy.TOOL_CALL_TOOL,
     )
@@ -130,12 +137,12 @@ class OobFunctionToolHandler(
             }.getOrDefault(false) ||
             workspaceFunctionStore?.canHandle(toolName) == true
 
-    /** Returns the function spec from SharedPreferences or workspace, whichever has it. */
+    /** Returns the function spec from workspace first so editable checker rules take effect. */
     private fun getSpec(functionId: String): Map<String, Any?>? =
-        runCatching {
+        workspaceFunctionStore?.get(functionId)
+            ?: runCatching {
             cn.com.omnimind.baselib.runlog.OobReusableFunctionStore.get(context, functionId)
         }.getOrNull()
-            ?: workspaceFunctionStore?.get(functionId)
 
     override suspend fun execute(
         toolCall: cn.com.omnimind.baselib.llm.AssistantToolCall,
@@ -602,9 +609,7 @@ class OobFunctionToolHandler(
                 }
             }
         try {
-        // Checker rules from the Function spec (metadata.checker_rules).
-        // These are layered on top of the global built-in rules inside the executor.
-        val functionCheckerRules = OmniflowCheckerRule.fromSpec(spec)
+        val checkerRules = checkerRulesForSpec(spec)
         val checkerBudget = ReplayHelper.CheckerTriggerBudget()
 
         val stepLoopStartedAt = System.nanoTime()
@@ -693,7 +698,7 @@ class OobFunctionToolHandler(
                             source = "function_replay",
                             check = replayCheckConfig(
                                 step = step,
-                                checkerRules = functionCheckerRules,
+                                checkerRules = checkerRules,
                                 checkerBudget = checkerBudget,
                                 stopRequested = replayStopRequested,
                             ),
@@ -1172,13 +1177,6 @@ class OobFunctionToolHandler(
                 }
                 false
             },
-            pageGuard = {
-                ReplayHelper.runPageGuard(
-                    deviceOperator = deviceOperator,
-                    checkerBudget = checkerBudget,
-                    expectedPackage = ReplayHelper.stepSourcePackage(step),
-                )
-            },
             checker = { action, args ->
                 val effects = ReplayHelper.runChecker(
                     deviceOperator = deviceOperator,
@@ -1210,12 +1208,51 @@ class OobFunctionToolHandler(
                         ),
                     )
                 }
+                val checkedTransfer = ReplayHelper.requireActionTransferApplied(transfer, args)
                 ActionExecutor.ActArgsResult(
-                    args = ReplayHelper.normalizeArgsMap(transfer.args ?: args),
-                    diagnostics = transfer.meta,
+                    args = ReplayHelper.normalizeArgsMap(checkedTransfer.args ?: args),
+                    diagnostics = checkedTransfer.meta,
                 )
             },
         )
+
+    private fun checkerRulesForSpec(spec: Map<String, Any?>): List<OmniflowCheckerRule> =
+        OmniflowCheckerRule.fromSpec(spec) + workspaceCheckerRules()
+
+    private fun workspaceCheckerRules(): List<OmniflowCheckerRule> {
+        val file = File(AgentWorkspaceManager.rootDirectory(context), CHECKER_RULES_FILE)
+        if (!file.isFile) {
+            writeDefaultCheckerRules(file)
+        }
+        val raw = runCatching {
+            AgentToolJson.jsonElementToAny(
+                checkerRuleJson.parseToJsonElement(file.readText(Charsets.UTF_8))
+            )
+        }.getOrNull() ?: return emptyList()
+        val rawRules = when (raw) {
+            is Iterable<*> -> raw.toList()
+            is Array<*> -> raw.toList()
+            is Map<*, *> -> {
+                val map = mapArg(raw)
+                listArg(map["checker_rules"])
+                    .ifEmpty { listArg(map["checkerRules"]) }
+                    .ifEmpty { listArg(map["rules"]) }
+            }
+            else -> emptyList()
+        }
+        return rawRules.mapNotNull { value ->
+            mapArg(value).takeIf { it.isNotEmpty() }?.let(OmniflowCheckerRule::fromMap)
+        }
+    }
+
+    private fun writeDefaultCheckerRules(file: File) {
+        runCatching {
+            file.parentFile?.mkdirs()
+            context.assets.open(CHECKER_RULES_ASSET).use { input ->
+                file.outputStream().use { output -> input.copyTo(output) }
+            }
+        }
+    }
 
     private suspend fun runRuntimeResolveAndResume(
         initialPayload: Map<String, Any?>,
@@ -1746,6 +1783,8 @@ class OobFunctionToolHandler(
     companion object {
         const val FUNCTION_DIRECT_RUNNER = "oob_function_direct_runner"
         const val FUNCTION_RUN_SOURCE = "oob_function_replay"
+        private const val CHECKER_RULES_FILE = "checkers/checker_rules.json"
+        private const val CHECKER_RULES_ASSET = "omniflow/checkers/checker_rules.json"
         private const val TAG = "OobFunctionToolHandler"
         private const val MAX_OMNIFLOW_CALL_DEPTH = 8
         private const val REPLAY_UI_STEP_SETTLE_DELAY_MS = 1_000L

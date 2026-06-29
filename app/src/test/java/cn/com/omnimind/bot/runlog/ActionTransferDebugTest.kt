@@ -5,11 +5,140 @@ import cn.com.omnimind.assists.task.vlmserver.OperationResult
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonElement
 import com.google.gson.JsonParser
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.File
 
 class ActionTransferDebugTest {
+    @Test
+    fun `swipe remap fails closed when scroll source is missing`() {
+        val sourceXml =
+            "<hierarchy bounds=\"[0,0][1000,2000]\"><node bounds=\"[10,10][90,90]\" text=\"Header\"/></hierarchy>"
+        val targetXml =
+            "<hierarchy bounds=\"[0,0][500,1000]\"><node bounds=\"[5,5][45,45]\" text=\"Header\"/></hierarchy>"
+        val step = linkedMapOf<String, Any?>(
+            "executor" to "omniflow",
+            "tool" to "swipe",
+            "args" to linkedMapOf(
+                "x1" to 500,
+                "y1" to 1600,
+                "x2" to 500,
+                "y2" to 400,
+            ),
+            "source_context" to mapOf("src_ctx" to mapOf("page" to sourceXml)),
+        )
+
+        val remap = ReplayHelper.remapStepArgs(step, DebugDeviceOperator(targetXml))
+        val args = remap.args as Map<*, *>
+
+        assertEquals(false, remap.meta["applied"])
+        assertEquals("missing_scroll_source_element", remap.meta["reason"])
+        assertEquals("anchor_projection", remap.meta["algorithm"])
+        assertEquals(500f, (args["x1"] as Number).toFloat())
+        assertEquals(1600f, (args["y1"] as Number).toFloat())
+    }
+
+    @Test
+    fun `swipe remap reads source xml from file paths`() {
+        val sourceFile = kotlin.io.path.createTempFile("omniflow-source-", ".xml").toFile()
+        sourceFile.deleteOnExit()
+        sourceFile.writeText(
+            "<hierarchy bounds=\"[0,0][1000,2000]\"><node bounds=\"[10,10][90,90]\" text=\"Header\"/></hierarchy>"
+        )
+        val targetXml =
+            "<hierarchy bounds=\"[0,0][500,1000]\"><node bounds=\"[5,5][45,45]\" text=\"Header\"/></hierarchy>"
+        val step = linkedMapOf<String, Any?>(
+            "kind" to "command",
+            "executor" to "omniflow",
+            "tool" to "swipe",
+            "args" to linkedMapOf(
+                "x1" to 500,
+                "y1" to 1600,
+                "x2" to 500,
+                "y2" to 400,
+                "allow_raw_coordinate_replay" to true,
+            ),
+            "source_context" to mapOf(
+                "src_ctx" to mapOf(
+                    "page_path" to sourceFile.absolutePath,
+                    "xml_path" to sourceFile.absolutePath,
+                ),
+            ),
+        )
+
+        val remap = ReplayHelper.remapStepArgs(step, DebugDeviceOperator(targetXml))
+        val args = remap.args as Map<*, *>
+
+        assertEquals(true, remap.meta["applied"])
+        assertEquals("root_projection", remap.meta["algorithm"])
+        assertEquals(250f, (args["x1"] as Number).toFloat())
+        assertEquals(800f, (args["y1"] as Number).toFloat())
+        assertEquals(250f, (args["x2"] as Number).toFloat())
+        assertEquals(200f, (args["y2"] as Number).toFloat())
+    }
+
+    @Test
+    fun `swipe transfer uses same matcher branch for scroll container`() {
+        val sourceXml =
+            """
+            <hierarchy bounds="[0,0][1000,2000]">
+              <node bounds="[0,100][1000,1900]" class="androidx.recyclerview.widget.RecyclerView" resource-id="com.demo:id/list" scrollable="true">
+                <node bounds="[20,120][980,300]" text="Alice"/>
+              </node>
+            </hierarchy>
+            """.trimIndent()
+        val targetXml =
+            """
+            <hierarchy bounds="[0,0][500,1000]">
+              <node bounds="[0,50][500,950]" class="androidx.recyclerview.widget.RecyclerView" resource-id="com.demo:id/list" scrollable="true">
+                <node bounds="[10,60][490,150]" text="Alice"/>
+              </node>
+            </hierarchy>
+            """.trimIndent()
+        val result = ActionTransfer.transfer(
+            ActionTransfer.Request(
+                action = "swipe",
+                args = mapOf("x1" to 500, "y1" to 1600, "x2" to 500, "y2" to 400),
+                sourceContext = mapOf("xml" to sourceXml),
+                currentContext = mapOf("xml" to targetXml),
+            ),
+        )
+        val args = result.args
+
+        assertEquals(true, result.applied)
+        assertEquals(true, result.diagnostics["applied"])
+        assertEquals("anchor_projection", result.diagnostics["algorithm"])
+        assertEquals(250f, (args["x1"] as Number).toFloat())
+        assertEquals(800f, (args["y1"] as Number).toFloat())
+        assertEquals(250f, (args["x2"] as Number).toFloat())
+        assertEquals(200f, (args["y2"] as Number).toFloat())
+    }
+
+    @Test
+    fun `hard action transfer failure throws before recorded coordinate replay`() {
+        val transfer = ReplayHelper.StepArgsResult(
+            args = mapOf("x" to 500, "y" to 1600),
+            meta = mapOf(
+                "applied" to false,
+                "reason" to "no_anchor_match",
+                "algorithm" to "anchor_projection",
+            ),
+        )
+
+        try {
+            ReplayHelper.requireActionTransferApplied(
+                transfer,
+                initialArgs = mapOf("x" to 500, "y" to 1600),
+            )
+            throw AssertionError("expected action transfer failure")
+        } catch (e: ReplayHelper.ExecutionException) {
+            assertEquals("OOB_FUNCTION_SOURCE_NOT_REACHED", e.errorCode)
+            assertEquals(false, e.diagnostics["recorded_action_args_used"])
+        }
+    }
+
     @Test
     fun `debug remap from xml or json fixtures`() {
         val sourcePath = setting("omniflow.debug.sourceJson")
