@@ -84,19 +84,52 @@ class ManualRecordingPolicyTest {
     }
 
     @Test
-    fun `manual recording does not collect after evidence`() {
+    fun `manual touch recording does not collect after evidence`() {
         val source = readSource(
             "assists/src/main/java/cn/com/omnimind/assists/task/vlmserver/ManualVlmTraceRecorder.kt"
         )
 
         assertFalse(source.contains("recordWindowTransitionObservation"))
-        assertFalse(source.contains("afterXml = afterXml"))
         assertFalse(source.contains("afterScreenshot = afterScreenshot"))
         assertFalse(source.contains("RAW_TOUCH_SETTLE_MS"))
         assertFalse(source.contains("\"after_fingerprint\""))
         assertFalse(source.contains("\"after_page\""))
-        assertTrue(source.contains("afterXml = null"))
-        assertTrue(source.contains("afterScreenshot = null"))
+        assertTrue(
+            Regex(
+                "private fun appendRawClickGesture\\(.*?afterXml = null,\\s*" +
+                    "beforeScreenshot = beforeScreenshot,\\s*" +
+                    "afterScreenshot = null",
+                RegexOption.DOT_MATCHES_ALL
+            ).containsMatchIn(source)
+        )
+        assertTrue(
+            Regex(
+                "private fun appendRawSwipeGesture\\(.*?afterXml = null,\\s*" +
+                    "beforeScreenshot = beforeScreenshot,\\s*" +
+                    "afterScreenshot = null",
+                RegexOption.DOT_MATCHES_ALL
+            ).containsMatchIn(source)
+        )
+        assertTrue(
+            Regex(
+                "private fun appendOverlayClickGesture\\(.*?afterXml = null,\\s*" +
+                    "beforeScreenshot = beforeScreenshot,\\s*" +
+                    "afterScreenshot = null",
+                RegexOption.DOT_MATCHES_ALL
+            ).containsMatchIn(source)
+        )
+        assertTrue(
+            Regex(
+                "private fun appendOverlaySwipeGesture\\(.*?afterXml = null,\\s*" +
+                    "beforeScreenshot = beforeScreenshot,\\s*" +
+                    "afterScreenshot = null",
+                RegexOption.DOT_MATCHES_ALL
+            ).containsMatchIn(source)
+        )
+        assertTrue(source.contains("appendManualInputText("))
+        assertTrue(source.contains("appendManualPressKey("))
+        assertTrue(source.contains("appendImeSubmitGesture("))
+        assertTrue(source.contains("afterXml = afterXml"))
     }
 
     @Test
@@ -302,9 +335,10 @@ class ManualRecordingPolicyTest {
         assertFalse(source.contains("fallbackImeTop(displayHeight)"))
         assertTrue(source.contains("scheduleImeRelockLocked()"))
         assertFalse(source.contains("awaitImeVisible"))
-        assertFalse(source.contains("private fun isKeyboardSubmitGestureLocked(gesture: ManualOverlayTouchGesture): Boolean"))
+        assertTrue(source.contains("private fun isKeyboardSubmitGestureLocked(gesture: ManualOverlayTouchGesture): Boolean"))
         assertFalse(source.contains("HumanTrajectoryLearningSession.prepareImeSubmitRecording()"))
-        assertFalse(source.contains("HumanTrajectoryLearningSession.recordImeSubmitGesture(gesture)"))
+        assertTrue(source.contains("HumanTrajectoryLearningSession.recordImeSubmitGesture(gesture)"))
+        assertTrue(source.contains("submit_recorded=$"))
         assertTrue(recorderSource.contains("TEXT_INPUT_ANCHOR_ACTIVE_TTL_MS"))
         assertFalse(recorderSource.contains("if (target == null && !beforeXml.isNullOrBlank())"))
         assertFalse(recorderSource.contains("val anchorTarget = target ?: coordinateTextAnchorTarget("))
@@ -323,9 +357,10 @@ class ManualRecordingPolicyTest {
         assertTrue(recorderSource.contains("keyboard_click_suppressed_count"))
         assertTrue(
             Regex(
-                "if \\(action\\.actionName != \"click\"\\) return\\s*" +
+                "if \\(action\\.actionName != OobActionSchema\\.TOOL_CLICK\\) return\\s*" +
                     "if \\(action\\.params\\[\"recording_backend\"\\]\\?\\.toString\\(\\) != OVERLAY_TOUCH_BACKEND\\) return\\s*" +
-                    "if \\(anchor != null &&",
+                    "if \\(anchor != null &&\\s*" +
+                    "action\\.finishedAtMs <= anchor\\.finishedAtMs \\+ TEXT_INPUT_ANCHOR_CLICK_GRACE_MS",
                 RegexOption.DOT_MATCHES_ALL
             ).containsMatchIn(recorderSource)
         )
@@ -343,9 +378,10 @@ class ManualRecordingPolicyTest {
         assertFalse(recorderSource.contains("foregroundAppVisibleBottomFromFilteredXml("))
         assertFalse(recorderSource.contains("IME_FILTERED_APP_TOP_MAX_RATIO"))
         assertTrue(recorderSource.contains("fun prepareImeSubmitRecording(): Boolean"))
-        assertTrue(recorderSource.contains("fun recordImeSubmitGesture(gesture: ManualOverlayTouchGesture): Boolean"))
+        assertTrue(recorderSource.contains("suspend fun recordImeSubmitGesture(gesture: ManualOverlayTouchGesture): Boolean"))
         assertTrue(recorderSource.contains("focused_xml_ime_submit"))
-        assertTrue(recorderSource.contains("appendImeSubmitGesture(gesture, beforeXml)"))
+        assertTrue(recorderSource.contains("AccessibilityController.pressHotKey(\"ENTER\")"))
+        assertTrue(recorderSource.contains("appendImeSubmitGesture("))
         assertTrue(recorderSource.contains("suspend fun recordManualInputText(text: String): Boolean"))
         assertTrue(recorderSource.contains("suspend fun recordManualPressKey(key: String): Boolean"))
         assertTrue(recorderSource.contains("AccessibilityController.inputTextToBestNode("))
@@ -401,10 +437,10 @@ class ManualRecordingPolicyTest {
 
         assertFalse(source.contains("WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY"))
         assertFalse(controlSource.contains("WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY"))
-        assertFalse(source.contains("ensureOnTop"))
+        assertTrue(source.contains("ManualRecordingControlOverlay.ensureOnTop()"))
         assertTrue(source.contains("WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY"))
         assertTrue(controlSource.contains("WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY"))
-        assertFalse(controlSource.contains("fun ensureOnTop"))
+        assertTrue(controlSource.contains("fun ensureOnTop()"))
         assertTrue(controlSource.contains("showTransientStatus(\"开启悬浮窗权限\""))
         assertFalse(source.contains("ManualRecordingControlOverlay.showTransientStatus"))
         assertFalse(source.contains("ClickIndicator("))
@@ -418,7 +454,10 @@ class ManualRecordingPolicyTest {
         assertTrue(controlSource.contains("showManualActionDialog(context)"))
         assertTrue(controlSource.contains("HumanTrajectoryLearningSession.recordManualInputText(text)"))
         assertTrue(controlSource.contains("HumanTrajectoryLearningSession.recordManualPressKey(key)"))
-        assertTrue(controlSource.contains("ManualTouchRecordLoader.hide()"))
+        assertTrue(controlSource.contains("ManualTouchRecordLoader.prepareForManualAction()"))
+        assertTrue(source.contains("private fun hideLocked()"))
+        assertTrue(source.contains("pendingGestures.isNotEmpty()"))
+        assertTrue(source.contains("requestControlOverlayTopRefresh()"))
         assertTrue(controlSource.contains("manual_recording_cancel_action"))
         assertTrue(controlSource.contains("fun cancelRecording(message: String = \"人工轨迹学习已取消\")"))
         assertTrue(controlSource.contains("HumanTrajectoryLearningSession.cancelActive(message)"))
@@ -427,6 +466,8 @@ class ManualRecordingPolicyTest {
         assertTrue(controlSource.contains("contentDescription = \"完成并保存手动录制\""))
         assertTrue(controlSource.contains("text = \"录制\""))
         assertTrue(controlSource.contains("keepControlsAboveTouchRecorder()"))
+        assertTrue(controlSource.contains("keepControlsAboveTouchRecorderLocked()"))
+        assertTrue(controlSource.contains("manager.removeViewImmediate(view)"))
         val catStepSource = readSource(
             "uikit/src/main/java/cn/com/omnimind/uikit/api/callbackimpl/CatStepLayoutApiImpl.kt"
         )
@@ -439,21 +480,20 @@ class ManualRecordingPolicyTest {
         val frontendSource = readSource(
             "app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionFrontendSessionController.kt"
         )
-        assertTrue(frontendSource.contains("isShowStop = false"))
-        assertTrue(frontendSource.contains("isTouchable = false"))
         assertTrue(frontendSource.contains("forceOnTop = true"))
+        assertTrue(frontendSource.contains("isTouchable = true"))
         assertTrue(frontendSource.contains("val progressText = progress.trim().ifBlank { label }.take(48)"))
         assertTrue(frontendSource.contains("subMessage = helper.localized(progressText)"))
         assertTrue(frontendSource.contains("message = helper.localized(message.ifBlank { \"任务已完成\" })"))
-        assertTrue(frontendSource.contains("OobFunctionStopOverlay("))
-        assertTrue(frontendSource.contains("OmniFlowUiSession.requestStopSession(runId)"))
-        assertTrue(frontendSource.contains("stopOverlay.show()"))
-        assertTrue(frontendSource.contains("stopOverlay.hide()"))
+        assertTrue(frontendSource.contains("OmniFlowUiSession.registerRun("))
+        assertTrue(frontendSource.contains("onStopRequested = { requestStopNow() }"))
+        assertTrue(frontendSource.contains("toolHandle?.bindStopAction"))
         assertTrue(frontendSource.contains("if (closeAfterMs > 0L)"))
         assertTrue(frontendSource.contains("DraggableBallInstance.finishDoingTask("))
         assertFalse(frontendSource.contains("subMessage = helper.localized(\"执行中\")"))
-        assertFalse(frontendSource.contains("isShowStop = true"))
-        assertFalse(frontendSource.contains("isTouchable = true"))
+        assertFalse(frontendSource.contains("OobFunctionStopOverlay("))
+        assertFalse(frontendSource.contains("isShowStop = false"))
+        assertFalse(frontendSource.contains("isTouchable = false"))
         val functionHandlerSource = readSource(
             "app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolHandler.kt"
         )
@@ -461,6 +501,9 @@ class ManualRecordingPolicyTest {
             "app/src/main/java/cn/com/omnimind/bot/manager/AssistsCoreManager.kt"
         )
         assertTrue(functionHandlerSource.contains("frontendSession?.update(\"第 \$stepIndex/\${steps.size} 步 \$stepTitle\")"))
+        assertTrue(functionHandlerSource.contains("REPLAY_UI_STEP_SETTLE_DELAY_MS = 1_000L"))
+        assertTrue(functionHandlerSource.contains("timedReplayStepShouldSettle(stepResult)"))
+        assertTrue(functionHandlerSource.contains("delay(REPLAY_UI_STEP_SETTLE_DELAY_MS)"))
         assertTrue(functionHandlerSource.contains("FRONTEND_SUCCESS_POPUP_VISIBLE_MS = 900L"))
         assertTrue(functionHandlerSource.contains("FRONTEND_TERMINAL_POPUP_VISIBLE_MS = 2500L"))
         assertTrue(functionHandlerSource.contains("frontendSession?.finish(frontendFinishMessage, closeAfterMs = frontendCloseAfterMs)"))
@@ -470,6 +513,11 @@ class ManualRecordingPolicyTest {
             Regex(
                 "frontendSession\\?\\.throwIfStopRequested\\(\\)\\s*" +
                     "toolHandle\\?\\.throwIfStopRequested\\(\\)\\s*" +
+                    "if \\(timedReplayStepShouldSettle\\(stepResult\\)\\) \\{\\s*" +
+                    "delay\\(REPLAY_UI_STEP_SETTLE_DELAY_MS\\)\\s*" +
+                    "frontendSession\\?\\.throwIfStopRequested\\(\\)\\s*" +
+                    "toolHandle\\?\\.throwIfStopRequested\\(\\)\\s*" +
+                    "\\}\\s*" +
                     "val stepFinishedAtMs = System\\.currentTimeMillis\\(\\)",
                 RegexOption.DOT_MATCHES_ALL
             ).containsMatchIn(functionHandlerSource)
@@ -510,8 +558,12 @@ class ManualRecordingPolicyTest {
         assertTrue(draggableSource.contains("windowManager.addView(view, instance.catDialogShowInfoViewParams)"))
         assertTrue(draggableSource.contains("showInfoView top refresh fallback"))
 
-        val stopIndex = catStepSource.indexOf("AgentVlmUiSession.requestStopActiveSession()")
-        val completeIndex = catStepSource.indexOf("completeActiveVlmUiSession()")
+        val stopBranch = Regex(
+            "private fun stopActiveVlmUiSession\\(\\): Boolean \\{(.*?)\\n    \\}",
+            RegexOption.DOT_MATCHES_ALL
+        ).find(catStepSource)?.groupValues?.get(1).orEmpty()
+        val stopIndex = stopBranch.indexOf("AgentVlmUiSession.requestStop")
+        val completeIndex = stopBranch.indexOf("UIKit.executionTaskEventApi?.vlmTask?.finishTask()")
         assertTrue(stopIndex >= 0)
         assertTrue(completeIndex >= 0)
         assertTrue(stopIndex < completeIndex)

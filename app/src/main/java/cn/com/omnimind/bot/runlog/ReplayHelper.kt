@@ -94,6 +94,7 @@ object ReplayHelper {
         source: String = "page_guard",
         checkerBudget: CheckerTriggerBudget = CheckerTriggerBudget(),
         conditions: Set<String> = DEFAULT_PAGE_GUARD_CONDITIONS,
+        expectedPackage: String = "",
     ): Map<String, Any?> {
         val capturedAtMs = System.currentTimeMillis()
         if (!deviceOperator.isReady()) {
@@ -108,13 +109,33 @@ object ReplayHelper {
             )
         }
 
-        val snapshot = readBackendSnapshot(deviceOperator)
-        val base = pageGuardBaseResult(
+        var snapshot = readBackendSnapshot(deviceOperator)
+        var base = pageGuardBaseResult(
             source = source,
             execute = execute,
             capturedAtMs = capturedAtMs,
             snapshot = snapshot,
+            expectedPackage = expectedPackage,
         )
+        val entryResult = runEntryPackageGuard(
+            deviceOperator = deviceOperator,
+            expectedPackage = expectedPackage,
+            snapshot = snapshot,
+            execute = execute,
+        )
+        if (entryResult.isNotEmpty()) {
+            if (!execute || entryResult["executed"] != true) {
+                return base + entryResult
+            }
+            snapshot = readBackendSnapshot(deviceOperator)
+            base = pageGuardBaseResult(
+                source = source,
+                execute = execute,
+                capturedAtMs = capturedAtMs,
+                snapshot = snapshot,
+                expectedPackage = expectedPackage,
+            ) + mapOf("entry_package_guard" to entryResult)
+        }
         val effectivePackage = snapshot.effectivePackage()
         if (effectivePackage.startsWith("cn.com.omnimind")) {
             return base + mapOf(
@@ -680,16 +701,63 @@ object ReplayHelper {
         execute: Boolean,
         capturedAtMs: Long,
         snapshot: BackendSnapshot?,
+        expectedPackage: String = "",
     ): Map<String, Any?> = linkedMapOf<String, Any?>(
         "schema_version" to "oob.page_guard.v1",
         "source" to source,
         "execute" to execute,
         "captured_at_ms" to capturedAtMs,
+        "expected_package" to expectedPackage.takeIf { it.isNotBlank() },
         "package_name" to snapshot?.rawPackage?.takeIf { it.isNotBlank() },
         "effective_package" to snapshot?.effectivePackage()?.takeIf { it.isNotBlank() },
         "activity_name" to snapshot?.activityName?.takeIf { it.isNotBlank() },
         "xml_chars" to snapshot?.xml?.length,
     ).filterValues { it != null }
+
+    private suspend fun runEntryPackageGuard(
+        deviceOperator: DeviceOperator,
+        expectedPackage: String,
+        snapshot: BackendSnapshot,
+        execute: Boolean,
+    ): Map<String, Any?> {
+        val normalizedExpected = expectedPackage.trim()
+        if (normalizedExpected.isBlank()) return emptyMap()
+        if (!isLaunchableReplayPackage(normalizedExpected)) {
+            return mapOf(
+                "matched" to false,
+                "reason" to "entry_package_not_launchable",
+                "entry_package" to normalizedExpected,
+            )
+        }
+        val currentPackage = snapshot.effectivePackage()
+        val matchMode = packageMatchMode(normalizedExpected, currentPackage)
+        if (matchMode != null) {
+            return emptyMap()
+        }
+        val result = linkedMapOf<String, Any?>(
+            "matched" to true,
+            "executed" to false,
+            "condition" to "entry_package_mismatch",
+            "action" to OobActionSchema.TOOL_OPEN_APP,
+            "entry_package" to normalizedExpected,
+            "current_package" to currentPackage.takeIf { it.isNotBlank() },
+            "raw_package" to snapshot.rawPackage.takeIf { it.isNotBlank() },
+        )
+        if (!execute) {
+            return result + mapOf("reason" to "dry_run")
+        }
+        val launchResult = deviceOperator.launchApplication(normalizedExpected)
+        if (launchResult.success) {
+            delay(ENTRY_PACKAGE_LAUNCH_SETTLE_MS)
+        }
+        return result + mapOf(
+            "executed" to launchResult.success,
+            "effect" to OobActionSchema.TOOL_OPEN_APP,
+            "success" to launchResult.success,
+            "message" to launchResult.message.takeIf { it.isNotBlank() },
+            "reason" to if (launchResult.success) "entry_package_launched" else "entry_package_launch_failed",
+        ).filterValues { it != null }
+    }
 
     private fun pageGuardRule(condition: String): OmniflowCheckerRule =
         OmniflowCheckerRule(
@@ -810,13 +878,48 @@ object ReplayHelper {
     }
 
     internal fun stepSourcePackage(step: Map<String, Any?>): String {
-        val srcCtx = (step["source_context"] as? Map<*, *>)?.get("src_ctx") as? Map<*, *>
-        val pkg = srcCtx?.get("package_name")?.toString()?.trim().orEmpty()
-        if (pkg.isBlank()) return ""
-        if (pkg.startsWith("cn.com.omnimind")) return ""
-        if (pkg == "android" || pkg == "com.android.systemui") return ""
-        if (pkg.contains("launcher", ignoreCase = true)) return ""
-        return pkg
+        val sourceContext = mapArg(step["source_context"])
+        val srcCtx = mapArg(sourceContext["src_ctx"])
+        val action = mapArg(sourceContext["action"])
+        return firstLaunchablePackage(
+            srcCtx["package_name"],
+            srcCtx["packageName"],
+            packageFromResourceId(mapArg(step["args"])["node_resource_id"]),
+            packageFromResourceId(mapArg(step["args"])["resource_id"]),
+            packageFromResourceId(action["node_resource_id"]),
+            packageFromResourceId(action["resource_id"]),
+            RunLogPagePackageInference.effectivePackage(
+                recordedPackage = "",
+                xml = RunLogXmlArtifacts.pageXmlFromContext(srcCtx),
+            ),
+        )
+    }
+
+    private fun firstLaunchablePackage(vararg candidates: Any?): String {
+        for (candidate in candidates) {
+            val pkg = candidate?.toString()?.trim().orEmpty()
+            if (isLaunchableReplayPackage(pkg)) return pkg
+        }
+        return ""
+    }
+
+    private fun packageFromResourceId(value: Any?): String {
+        val resourceId = value?.toString()?.trim().orEmpty()
+        val prefix = resourceId.substringBefore(":id/", missingDelimiterValue = "")
+        return prefix.takeIf(::isLaunchableReplayPackage).orEmpty()
+    }
+
+    private fun isLaunchableReplayPackage(packageName: String): Boolean {
+        val normalized = packageName.trim()
+        if (!PACKAGE_NAME_PATTERN.matches(normalized)) return false
+        if (normalized.startsWith("cn.com.omnimind.")) return false
+        if (normalized == "android") return false
+        if (normalized == "com.android.systemui") return false
+        if (normalized.startsWith("com.android.inputmethod")) return false
+        if (normalized.startsWith("com.google.android.inputmethod")) return false
+        if (normalized.contains("launcher", ignoreCase = true)) return false
+        if (normalized.startsWith("com.example")) return false
+        return true
     }
 
     internal fun packageMatchMode(expectedPackage: String, currentPackage: String): String? {
@@ -2391,11 +2494,14 @@ object ReplayHelper {
         "widget_frame",
     )
     private const val STOP_POLL_INTERVAL_MS = 50L
+    private const val ENTRY_PACKAGE_LAUNCH_SETTLE_MS = 1_000L
 
     private val GENERIC_TARGET_TEXT_TOKENS = setOf(
         "click", "tap", "press", "button", "view", "viewgroup", "textview",
         "imageview", "android", "widget", "点击", "按钮", "文本", "视图",
     )
+
+    private val PACKAGE_NAME_PATTERN = Regex("""[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+""")
 
     private val GENERIC_ANDROID_CLICK_RESOURCE_IDS = setOf(
         "android:id/title",

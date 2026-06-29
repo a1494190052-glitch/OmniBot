@@ -110,7 +110,6 @@ record. Do not read only the snapshot when correctness matters.
 - RunLog reusable Function compiler: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogReusableFunctionCompiler.kt`
 - RunLog card-to-step compiler: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogReplayStepCompiler.kt`
 - RunLog card field/JSON accessors: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogCardAccessors.kt`
-- RunLog startup/launcher bridge cleaner: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogStartupBridgeCleaner.kt`
 - RunLog reusable Function parameterizer: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogReusableFunctionParameterizer.kt`
 - RunLog action/value parser: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogActionParser.kt`
 - Function execution startup: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionToolHandler.kt`
@@ -224,9 +223,9 @@ Do not hard replay `browser_use` or `web_search`; their outputs are live context
   final replay tool. Drop adjacent duplicate input-text steps when noisy
   accessibility events report the same final text on the same target.
 - Keep compiled step noise cleanup in `RunLogReplayStepNoiseNormalizer`.
-  It owns repeated input collapse and redundant click-before-input removal;
-  startup launch bridge cleanup belongs in `RunLogStartupBridgeCleaner`, and
-  the compiler should only orchestrate card-to-step conversion.
+  It owns repeated input collapse and redundant click-before-input removal.
+  Startup package correction is a replay page-guard concern, not a compile-time
+  injected `open_app` step.
 - Cleanup code that compares replay actions must use `OobActionCodec`
   constants; natural-language token lists may still contain literal words like
   `click` because those are UI labels, not action names.

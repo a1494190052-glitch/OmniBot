@@ -2118,6 +2118,10 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     List<String> requiredPermissionIds,
   );
 
+  Future<void> _openRunLogListFromShortcut();
+
+  Future<void> _openPreviousRunLogFromShortcut();
+
   Future<void> _retryLatestInstructionAfterAuth();
 
   void _removeFailedAttemptMessages();

@@ -169,6 +169,12 @@ object ManualRecordingControlOverlay {
         }
     }
 
+    fun ensureOnTop() {
+        synchronized(this) {
+            keepControlsAboveTouchRecorderLocked()
+        }
+    }
+
     fun showTransientStatus(message: String, durationMs: Long = 800L) {
         val token = synchronized(this) {
             transientStatusToken += 1
@@ -237,16 +243,26 @@ object ManualRecordingControlOverlay {
 
     private fun keepControlsAboveTouchRecorder() {
         synchronized(this) {
-            val view = overlayView ?: return
-            val manager = windowManager ?: return
-            val params = overlayParams ?: return
-            if (!view.isAttachedToWindow) return
-            runCatching {
-                manager.removeView(view)
+            keepControlsAboveTouchRecorderLocked()
+        }
+    }
+
+    private fun keepControlsAboveTouchRecorderLocked() {
+        val view = overlayView ?: return
+        val manager = windowManager ?: return
+        val params = overlayParams ?: return
+        if (!view.isAttachedToWindow) return
+        runCatching {
+            manager.removeViewImmediate(view)
+            manager.addView(view, params)
+        }.recoverCatching {
+            if (view.isAttachedToWindow) {
+                manager.updateViewLayout(view, params)
+            } else {
                 manager.addView(view, params)
-            }.onFailure { error ->
-                OmniLog.w(TAG, "keep controls above touch recorder failed: ${error.message}")
             }
+        }.onFailure { error ->
+            OmniLog.w(TAG, "keep controls above touch recorder failed: ${error.message}")
         }
     }
 
@@ -446,7 +462,13 @@ object ManualRecordingControlOverlay {
             showTransientStatus("先开始录制", 900L)
             return
         }
-        ManualTouchRecordLoader.hide()
+        if (!ManualTouchRecordLoader.prepareForManualAction()) {
+            synchronized(this) {
+                manualActionDialogShowing = false
+            }
+            showTransientStatus("稍后再试", 900L)
+            return
+        }
         val labels = arrayOf(
             "input_text",
             "press_key enter",

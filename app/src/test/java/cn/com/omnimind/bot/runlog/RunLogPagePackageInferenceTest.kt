@@ -5,6 +5,27 @@ import org.junit.Test
 
 class RunLogPagePackageInferenceTest {
     @Test
+    fun `replay step source package falls back to node resource id`() {
+        val step = mapOf(
+            "args" to mapOf(
+                "node_resource_id" to "com.google.android.dialer:id/tab_contacts",
+            ),
+            "source_context" to mapOf(
+                "src_ctx" to mapOf(
+                    "page_path" to "/tmp/before.xml",
+                    "require_unique_action_signature" to false,
+                ),
+                "action" to mapOf(
+                    "tool" to "click",
+                    "node_resource_id" to "com.google.android.dialer:id/tab_contacts",
+                ),
+            ),
+        )
+
+        assertEquals("com.google.android.dialer", ReplayHelper.stepSourcePackage(step))
+    }
+
+    @Test
     fun `infers package from flattened activity component when package and xml are blank`() {
         assertEquals(
             "com.android.settings",

@@ -3039,11 +3039,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get chatInputViewTrajectoriesTooltip => 'View existing trajectories';
 
   @override
-  String get chatInputViewCurrentTrajectory => 'Latest';
+  String get chatInputViewCurrentTrajectory => 'Previous';
 
   @override
   String get chatInputViewCurrentTrajectoryTooltip =>
-      'View the latest trajectory';
+      'View the previous trajectory';
 
   @override
   String get chatInputRecordTrajectory => 'Record';

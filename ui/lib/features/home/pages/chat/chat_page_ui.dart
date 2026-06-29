@@ -1366,9 +1366,18 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                       useLargeComposerStyle: true,
                       useAttachmentPickerForPlus: true,
                       onPickAttachment: _pickAttachments,
+                      onViewTrajectoriesTap: _activeMode == ChatPageMode.normal
+                          ? _openRunLogListFromShortcut
+                          : null,
+                      onViewCurrentTrajectoryTap: _activeMode == ChatPageMode.normal
+                          ? _openPreviousRunLogFromShortcut
+                          : null,
                       onTriggerSlashCommand: _triggerSlashCommandPanel,
                       onTriggerManualRecording: _activeMode == ChatPageMode.normal
-                          ? () => _startManualRecordingFlow('录制轨迹', recordDebugScreenshots: false)
+                          ? () => _startManualRecordingFlow(
+                              '录制轨迹',
+                              recordDebugScreenshots: false,
+                            )
                           : null,
                       attachments: _pendingAttachments,
                       onRemoveAttachment: _removePendingAttachment,

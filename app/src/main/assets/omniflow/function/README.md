@@ -99,12 +99,11 @@ helper with mixed semantics.
 - build source-context repair data for coordinate remapping
 - keep card action translation out of top-level Function assembly
 
-`RunLogStartupBridgeCleaner` owns startup/launcher bridge cleanup:
+Replay page guard owns startup package correction:
 
-- drop transient startup cards that only bridge from launcher to the target app
-- normalize injected first `open_app` steps when the RunLog already contains a
-  concrete launch action
-- keep launch cleanup separate from card action semantics and replay execution
+- compiled Functions do not inject a synthetic first `open_app` step
+- replay checks the current package against the step source package at runtime
+- package correction remains separate from card action semantics
 
 `RunLogCardAccessors` owns RunLog card field extraction:
 
@@ -441,7 +440,6 @@ Agent/MCP tool surface
       -> OobRunLogReplayService      # RunLog -> Function conversion
           -> OobFunctionRepository   # injected storage owner for registration
           -> RunLogReusableFunctionCompiler # cards -> reusable Function spec
-              -> RunLogStartupBridgeCleaner # transient launch bridge cleanup
               -> RunLogReplayStepCompiler # single-card action -> replay step
                   -> RunLogCardAccessors # card field/JSON extraction helpers
               -> RunLogReplayStepNoiseNormalizer # compiled step noise cleanup
@@ -487,8 +485,6 @@ Keep these pieces separate:
   conversion orchestration
 - `RunLogReplayStepCompiler`: single-card action semantics, executor selection,
   step titles, and source-context repair
-- `RunLogStartupBridgeCleaner`: transient startup/launcher bridge cleanup before
-  final step indexing
 - `RunLogCardAccessors`: shared RunLog card field, tool-call, observation, and
   JSON-safe extraction helpers
 - `RunLogReusableFunctionParameterizer`: deterministic runtime parameter
@@ -701,7 +697,6 @@ After backend Function changes, run focused tests:
   --tests 'cn.com.omnimind.bot.agent.AgentSystemPromptTest' \
   --tests 'cn.com.omnimind.bot.mcp.McpToolDefinitionsTest' \
   --tests 'cn.com.omnimind.bot.runlog.RunLogReusableFunctionCompilerTest' \
-  --tests 'cn.com.omnimind.bot.runlog.OobOmniFlowLoopAcceptanceTest' \
   --tests 'cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandlerOmniFlowExecutionTest' \
   --tests 'cn.com.omnimind.bot.runlog.InternalRunLogStoreTest'
 ```

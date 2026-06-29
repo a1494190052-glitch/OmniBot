@@ -1,17 +1,20 @@
 package cn.com.omnimind.bot.runlog
 
 import cn.com.omnimind.baselib.runlog.InternalRunLogRecord
+import cn.com.omnimind.bot.agent.AgentToolNames
+import cn.com.omnimind.bot.runlog.RunLogCardAccessors.androidPrivilegedReplayAction
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.asBoolean
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.asMap
+import cn.com.omnimind.bot.runlog.RunLogCardAccessors.extractArgs
+import cn.com.omnimind.bot.runlog.RunLogCardAccessors.toolNameForCard
 import com.google.gson.GsonBuilder
 import java.security.MessageDigest
 
 object RunLogReusableFunctionCompiler {
     fun compile(record: InternalRunLogRecord): Map<String, Any?>? {
         val replayableCards = record.cards.filter(::isSuccessfulCard)
-        val compileCards = RunLogStartupBridgeCleaner.dropTransientStartupBridgeCards(replayableCards)
-        val droppedStartupBridgeCount = replayableCards.size - compileCards.size
-        val hasRecordedReplayStep = compileCards.any(RunLogStartupBridgeCleaner::hasRecordedReplayStep)
+        val compileCards = replayableCards
+        val hasRecordedReplayStep = compileCards.any(::hasRecordedReplayStep)
         val rawSteps = compileCards
             .mapIndexedNotNull { index, card ->
                 RunLogReplayStepCompiler.compileCard(
@@ -20,16 +23,10 @@ object RunLogReusableFunctionCompiler {
                     nextReplayableCard = compileCards
                         .asSequence()
                         .drop(index + 1)
-                        .firstOrNull(RunLogStartupBridgeCleaner::hasRecordedReplayStep),
+                        .firstOrNull(::hasRecordedReplayStep),
                 )
             }
-        val replaySteps = RunLogReplayStepNoiseNormalizer.normalize(rawSteps)
-        val initialStepCleanup = RunLogStartupBridgeCleaner.normalizeInitialOpenAppStep(
-            replayableCards,
-            replaySteps,
-        )
-        val injectedLaunchBridgeDroppedCount = initialStepCleanup.injectedLaunchBridgeDroppedCount
-        val steps = initialStepCleanup.steps
+        val steps = RunLogReplayStepNoiseNormalizer.normalize(rawSteps)
             .mapIndexed { index, rawStep ->
                 linkedMapOf<String, Any?>().apply {
                     putAll(rawStep)
@@ -75,8 +72,6 @@ object RunLogReusableFunctionCompiler {
                 "card_count" to record.cards.size,
                 "replayable_card_count" to replayableCards.size,
                 "compiled_replayable_card_count" to compileCards.size,
-                "transient_startup_bridge_dropped_count" to droppedStartupBridgeCount,
-                "injected_launch_bridge_step_dropped_count" to injectedLaunchBridgeDroppedCount,
                 "converted_at" to now,
                 "converter" to "native_run_log_reusable_function_builder",
                 "parameter_inference" to linkedMapOf(
@@ -118,6 +113,18 @@ object RunLogReusableFunctionCompiler {
     private fun isSuccessfulCard(card: Map<String, Any?>): Boolean {
         val header = asMap(card["header"])
         return asBoolean(card["success"]) != false && asBoolean(header["success"]) != false
+    }
+
+    private fun hasRecordedReplayStep(card: Map<String, Any?>): Boolean {
+        val toolName = toolNameForCard(card)
+        if (resolveActionName(toolName) != null) {
+            return true
+        }
+        if (RunLogReplayPolicy.normalizeToolName(toolName) != AgentToolNames.ANDROID_PRIVILEGED_ACTION) {
+            return false
+        }
+        val args = asMap(extractArgs(card))
+        return androidPrivilegedReplayAction(args) != null
     }
 
     private fun deriveFunctionId(

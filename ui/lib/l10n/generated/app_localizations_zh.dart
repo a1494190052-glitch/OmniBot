@@ -2890,7 +2890,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get chatInputViewTrajectoriesTooltip => '查看已有轨迹';
 
   @override
-  String get chatInputViewCurrentTrajectory => '当前轨迹';
+  String get chatInputViewCurrentTrajectory => '上一个';
 
   @override
   String get chatInputViewCurrentTrajectoryTooltip => '查看上一条轨迹';

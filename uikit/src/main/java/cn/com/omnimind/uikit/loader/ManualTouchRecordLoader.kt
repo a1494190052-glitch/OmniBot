@@ -48,6 +48,8 @@ object ManualTouchRecordLoader {
     private const val IME_RELIABLE_TOP_MIN_RATIO = 0.25f
     private const val IME_RELIABLE_TOP_MAX_RATIO = 0.92f
     private const val IME_ESTIMATED_TOP_RATIO = 0.58f
+    private const val IME_SUBMIT_MIN_X_RATIO = 0.72f
+    private const val IME_SUBMIT_MIN_KEYBOARD_Y_RATIO = 0.55f
     private const val IME_OPEN_EXPECTED_TTL_MS = 1_500L
     private const val GESTURE_PROCESS_BASE_TIMEOUT_MS = 2_500L
     private const val GESTURE_PROCESS_MAX_EXTRA_DURATION_MS = 2_500L
@@ -78,42 +80,65 @@ object ManualTouchRecordLoader {
     fun show(context: Context? = UIKit.appContext): Boolean {
         val appContext = context?.applicationContext ?: UIKit.appContext
         if (appContext == null) return false
-        return synchronized(this) {
+        var shouldEnsureControlsOnTop = false
+        val shown = synchronized(this) {
             if (overlayView?.isAttachedToWindow == true) {
                 lockTouchLocked()
+                shouldEnsureControlsOnTop = true
                 return@synchronized true
             }
-            if (tryShowLocked(appContext)) return@synchronized true
+            if (tryShowLocked(appContext)) {
+                shouldEnsureControlsOnTop = true
+                return@synchronized true
+            }
             OmniLog.w(TAG, "manual touch recording overlay unavailable")
             false
         }
+        if (shouldEnsureControlsOnTop) {
+            ManualRecordingControlOverlay.ensureOnTop()
+        }
+        return shown
     }
 
     fun hide() {
         synchronized(this) {
-            isTracking = false
-            isProcessing = false
-            pendingGestures.clear()
-            imeVisibilityProbeJob?.cancel()
-            imeVisibilityProbeJob = null
-            imeRelockJob?.cancel()
-            imeRelockJob = null
-            val view = overlayView
-            val manager = windowManager
-            overlayView = null
-            overlayParams = null
-            windowManager = null
-            currentTouchable = null
-            currentOverlayHeight = 0
-            displayWidth = 0
-            displayHeight = 0
-            imeOpenExpectedUntilMs = 0L
-            syntheticReplayInFlight = false
-            syntheticReplaySuppressUntilMs = 0L
-            if (view != null && manager != null && view.isAttachedToWindow) {
-                runCatching { manager.removeView(view) }
-                    .onFailure { OmniLog.w(TAG, "hide failed: ${it.message}") }
+            hideLocked()
+        }
+    }
+
+    fun prepareForManualAction(): Boolean {
+        return synchronized(this) {
+            if (isTracking || isProcessing || syntheticReplayInFlight || pendingGestures.isNotEmpty()) {
+                return@synchronized false
             }
+            hideLocked()
+            true
+        }
+    }
+
+    private fun hideLocked() {
+        isTracking = false
+        isProcessing = false
+        pendingGestures.clear()
+        imeVisibilityProbeJob?.cancel()
+        imeVisibilityProbeJob = null
+        imeRelockJob?.cancel()
+        imeRelockJob = null
+        val view = overlayView
+        val manager = windowManager
+        overlayView = null
+        overlayParams = null
+        windowManager = null
+        currentTouchable = null
+        currentOverlayHeight = 0
+        displayWidth = 0
+        displayHeight = 0
+        imeOpenExpectedUntilMs = 0L
+        syntheticReplayInFlight = false
+        syntheticReplaySuppressUntilMs = 0L
+        if (view != null && manager != null && view.isAttachedToWindow) {
+            runCatching { manager.removeView(view) }
+                .onFailure { OmniLog.w(TAG, "hide failed: ${it.message}") }
         }
     }
 
@@ -375,7 +400,17 @@ object ManualTouchRecordLoader {
                 isKeyboardBlackBoxGestureLocked(gesture)
             }
         }
+        val keyboardSubmitGesture = withContext(Dispatchers.Main) {
+            synchronized(this@ManualTouchRecordLoader) {
+                keyboardBlackBoxGesture && isKeyboardSubmitGestureLocked(gesture)
+            }
+        }
         if (keyboardBlackBoxGesture) {
+            val submitRecorded = if (keyboardSubmitGesture) {
+                HumanTrajectoryLearningSession.recordImeSubmitGesture(gesture)
+            } else {
+                false
+            }
             withContext(Dispatchers.Main) {
                 synchronized(this@ManualTouchRecordLoader) {
                     rememberImeOpenExpectedLocked()
@@ -386,7 +421,8 @@ object ManualTouchRecordLoader {
             OmniLog.w(
                 TAG,
                 "manual keyboard touch consumed by overlay; cropped overlay without replay " +
-                    "action=${gesture.actionName} x=${gesture.startX} y=${gesture.startY}"
+                    "action=${gesture.actionName} x=${gesture.startX} y=${gesture.startY} " +
+                    "submit_recorded=$submitRecorded"
             )
             return true
         }
@@ -483,6 +519,17 @@ object ManualTouchRecordLoader {
             else -> gesture.startY
         }
         return gestureY >= keyboardTop
+    }
+
+    private fun isKeyboardSubmitGestureLocked(gesture: ManualOverlayTouchGesture): Boolean {
+        if (gesture.actionName != OobActionSchema.TOOL_CLICK) return false
+        val displaySize = currentDisplaySize()
+        if (displaySize.x <= 0 || displaySize.y <= 0) return false
+        val keyboardTop = keyboardTopForGestureLocked(displaySize.y) ?: return false
+        val keyboardHeight = (displaySize.y - keyboardTop).coerceAtLeast(1)
+        val minSubmitX = displaySize.x * IME_SUBMIT_MIN_X_RATIO
+        val minSubmitY = keyboardTop + keyboardHeight * IME_SUBMIT_MIN_KEYBOARD_Y_RATIO
+        return gesture.startX >= minSubmitX && gesture.startY >= minSubmitY
     }
 
     private fun keyboardTopForGestureLocked(displayHeight: Int): Int? {
@@ -668,8 +715,17 @@ object ManualTouchRecordLoader {
                     TAG,
                     "manual touch overlay updated touchable=$touchable height=${params.height}/$displayHeight"
                 )
+                if (touchable) {
+                    requestControlOverlayTopRefresh()
+                }
             }
             .onFailure { OmniLog.w(TAG, "update touchable=$touchable failed: ${it.message}") }
+    }
+
+    private fun requestControlOverlayTopRefresh() {
+        recordScope.launch(Dispatchers.Main) {
+            ManualRecordingControlOverlay.ensureOnTop()
+        }
     }
 
     private fun clampRawPoint(event: MotionEvent): PointF {

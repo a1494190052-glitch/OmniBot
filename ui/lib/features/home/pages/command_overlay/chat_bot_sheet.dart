@@ -1736,7 +1736,7 @@ class _ChatBotSheetState extends State<ChatBotSheet>
         showRunLogTimelineSheet(
           context,
           runId: latest.runId.trim(),
-          title: latest.goal.trim().isEmpty ? '当前轨迹' : latest.goal.trim(),
+          title: latest.goal.trim().isEmpty ? '上一个轨迹' : latest.goal.trim(),
         ),
       );
     } catch (error) {

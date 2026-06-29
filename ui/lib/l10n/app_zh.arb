@@ -1102,7 +1102,7 @@
   "chatInputTrajectoryTooltip": "轨迹",
   "chatInputViewTrajectories": "已有轨迹",
   "chatInputViewTrajectoriesTooltip": "查看已有轨迹",
-  "chatInputViewCurrentTrajectory": "当前轨迹",
+  "chatInputViewCurrentTrajectory": "上一个",
   "chatInputViewCurrentTrajectoryTooltip": "查看上一条轨迹",
   "chatInputRecordTrajectory": "录制轨迹",
   "chatInputRecordTrajectoryTooltip": "开始录制一条轨迹",

@@ -441,7 +441,7 @@ class ManualVlmTraceRecorder(
         }
     }
 
-    fun recordImeSubmitGesture(gesture: ManualOverlayTouchGesture): Boolean {
+    suspend fun recordImeSubmitGesture(gesture: ManualOverlayTouchGesture): Boolean {
         val shouldTryFocusedXml = synchronized(recordingLock) {
             if (!isStarted || isPaused) return false
             pendingText == null
@@ -451,8 +451,10 @@ class ManualVlmTraceRecorder(
         } else {
             null
         }
-        return synchronized(recordingLock) {
-            if (!isStarted || isPaused) return@synchronized null
+        val beforeXml = fallbackXml ?: synchronized(recordingLock) { lastXmlSnapshot }
+        val startedAtMs = System.currentTimeMillis()
+        val target = synchronized(recordingLock) {
+            if (!isStarted || isPaused) return false
             if (pendingText == null && !fallbackXml.isNullOrBlank()) {
                 materializePendingTextFromXml(
                     xml = fallbackXml,
@@ -460,14 +462,54 @@ class ManualVlmTraceRecorder(
                     resolutionSuffix = "focused_xml_ime_submit"
                 )
             }
-            val beforeXml = fallbackXml ?: lastXmlSnapshot
             flushPendingText(beforeXml)
             clearPostInputClickWindowLocked()
-            lastXmlSnapshot = beforeXml ?: lastXmlSnapshot
-            appendImeSubmitGesture(gesture, beforeXml)
+            manualInputTextTargetFor(beforeXml, "")
+        }
+        val dispatchOutcome = runCatching {
+            if (target != null) {
+                AccessibilityController.pressImeEnterToBestNode(
+                    targetDescription = target.label,
+                    x = target.bounds.centerX().toFloat(),
+                    y = target.bounds.centerY().toFloat(),
+                    nodeResourceId = target.resourceId.orEmpty()
+                )
+            } else {
+                AccessibilityController.pressHotKey("ENTER")
+            }
+            OverlayDispatchOutcome.completed()
+        }.getOrElse { error ->
+            OverlayDispatchOutcome.fromError(error)
+        }
+        if (dispatchOutcome.executed) {
+            delay(MANUAL_CONTROL_AFTER_ACTION_CAPTURE_DELAY_MS)
+        }
+        val afterXml = if (dispatchOutcome.executed) {
+            currentXmlForTextFallback("ime_submit_after")
+        } else {
+            null
+        }
+        return synchronized(recordingLock) {
+            if (!isStarted || isPaused) return@synchronized false
+            lastXmlSnapshot = afterXml ?: beforeXml ?: lastXmlSnapshot
+            if (!dispatchOutcome.executed) {
+                OmniLog.w(
+                    TAG,
+                    "manual ime submit dispatch ${dispatchOutcome.status}: ${dispatchOutcome.errorMessage}"
+                )
+                return@synchronized false
+            }
+            appendImeSubmitGesture(
+                gesture = gesture,
+                beforeXml = beforeXml,
+                afterXml = afterXml,
+                startedAtMs = startedAtMs,
+                finishedAtMs = System.currentTimeMillis(),
+                dispatchOutcome = dispatchOutcome
+            )
             imeSubmitRecordedCount += 1
             true
-        } ?: false
+        }
     }
 
     suspend fun recordManualInputText(text: String): Boolean {
@@ -1521,7 +1563,11 @@ class ManualVlmTraceRecorder(
 
     private fun appendImeSubmitGesture(
         gesture: ManualOverlayTouchGesture,
-        beforeXml: String?
+        beforeXml: String?,
+        afterXml: String?,
+        startedAtMs: Long,
+        finishedAtMs: Long,
+        dispatchOutcome: OverlayDispatchOutcome
     ) {
         val title = "人工按键盘提交键"
         val packageName = fallbackActionPackageName(beforeXml)
@@ -1529,7 +1575,8 @@ class ManualVlmTraceRecorder(
             "key" to "enter",
             "target_description" to "键盘提交键",
             "recording_backend" to IME_SUBMIT_BACKEND,
-            "execution_mode" to IME_ACTION_EXECUTION_MODE
+            "execution_mode" to IME_ACTION_EXECUTION_MODE,
+            "dispatch_status" to dispatchOutcome.status
         ).filterValues { it != null }
         appendRecordedAction(
             ManualVlmRecordedAction(
@@ -1538,11 +1585,11 @@ class ManualVlmTraceRecorder(
                 params = params,
                 packageName = packageName,
                 beforeXml = beforeXml,
-                afterXml = null,
+                afterXml = afterXml,
                 beforeScreenshot = null,
                 afterScreenshot = null,
-                startedAtMs = gesture.startedAtMs,
-                finishedAtMs = gesture.finishedAtMs,
+                startedAtMs = startedAtMs,
+                finishedAtMs = finishedAtMs,
                 summary = title,
                 eventContext = imeSubmitEventContextFor(gesture, packageName)
             )

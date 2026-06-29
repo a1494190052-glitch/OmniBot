@@ -294,7 +294,7 @@ object HumanTrajectoryLearningSession {
             }
     }
 
-    fun recordImeSubmitGesture(gesture: ManualOverlayTouchGesture): Boolean {
+    suspend fun recordImeSubmitGesture(gesture: ManualOverlayTouchGesture): Boolean {
         val session = synchronized(lock) { activeSession } ?: return false
         if (synchronized(lock) { activePaused }) return false
         return runCatching { session.recorder.recordImeSubmitGesture(gesture) }

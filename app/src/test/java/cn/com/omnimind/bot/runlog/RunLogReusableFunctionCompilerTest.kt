@@ -496,7 +496,7 @@ class RunLogReusableFunctionCompilerTest {
     }
 
     @Test
-    fun `builder prepends initial app launch for app scoped replay`() {
+    fun `builder does not prepend initial app launch for app scoped replay`() {
         val spec = compile(
             listOf(
                 card(
@@ -510,26 +510,19 @@ class RunLogReusableFunctionCompilerTest {
         )
 
         val steps = stepsFrom(spec)
-        assertEquals(2, steps.size)
-        val openApp = steps[0]
-        val click = steps[1]
+        assertEquals(1, steps.size)
+        val click = steps.single()
 
-        assertEquals("open_app", openApp["tool"])
-        assertEquals("omniflow", openApp["executor"])
-        assertEquals("injected_initial_package_from_runlog", openApp["route_note"])
-        assertEquals(
-            "com.android.settings",
-            (openApp["args"] as Map<*, *>)["package_name"],
-        )
-        assertEquals("step_1", openApp["id"])
-        assertEquals(0, (openApp["index"] as Number).toInt())
         assertEquals("click", click["tool"])
-        assertEquals("step_2", click["id"])
-        assertEquals(1, (click["index"] as Number).toInt())
+        assertEquals("step_1", click["id"])
+        assertEquals(0, (click["index"] as Number).toInt())
+        val sourceContext = click["source_context"] as Map<*, *>
+        val srcCtx = sourceContext["src_ctx"] as Map<*, *>
+        assertEquals("com.android.settings", srcCtx["package_name"])
     }
 
     @Test
-    fun `builder prefers page inferred package over transient launcher package`() {
+    fun `builder keeps page inferred package for runtime entry guard`() {
         val spec = compile(
             listOf(
                 card(
@@ -542,13 +535,11 @@ class RunLogReusableFunctionCompilerTest {
             runId = "run-launcher-foreground-click",
         )
 
-        val openApp = stepsFrom(spec).first()
-        assertEquals("open_app", openApp["tool"])
-        assertEquals(
-            "com.android.settings",
-            (openApp["args"] as Map<*, *>)["package_name"],
-        )
-        assertEquals("injected_initial_package_from_runlog", openApp["route_note"])
+        val click = stepsFrom(spec).single()
+        val sourceContext = click["source_context"] as Map<*, *>
+        val srcCtx = sourceContext["src_ctx"] as Map<*, *>
+        assertEquals("click", click["tool"])
+        assertEquals("com.android.settings", srcCtx["package_name"])
     }
 
     @Test
@@ -593,7 +584,7 @@ class RunLogReusableFunctionCompilerTest {
     }
 
     @Test
-    fun `recorded initial open app is normalized to fresh task launch`() {
+    fun `recorded initial open app is preserved`() {
         val spec = compile(
             listOf(
                 card(
@@ -615,7 +606,7 @@ class RunLogReusableFunctionCompilerTest {
         val args = openApp["args"] as Map<*, *>
         assertEquals("open_app", openApp["tool"])
         assertEquals("com.android.settings", args["package_name"])
-        assertEquals("initial_open_app_fresh_launch", openApp["route_note"])
+        assertFalse(openApp.containsKey("route_note"))
     }
 
     @Test
@@ -664,7 +655,6 @@ class RunLogReusableFunctionCompilerTest {
         val source = spec["source"] as Map<*, *>
         assertEquals(4, source["replayable_card_count"])
         assertEquals(4, source["compiled_replayable_card_count"])
-        assertEquals(0, source["transient_startup_bridge_dropped_count"])
     }
 
     @Test
@@ -696,9 +686,8 @@ class RunLogReusableFunctionCompilerTest {
         )
 
         val steps = stepsFrom(spec)
-        assertEquals(listOf("open_app", "click", "click"), steps.map { it["tool"] })
-        assertEquals("Stopwatch tab", (steps[1]["args"] as Map<*, *>)["target_description"])
-        assertEquals(0, (spec["source"] as Map<*, *>)["transient_startup_bridge_dropped_count"])
+        assertEquals(listOf("click", "click"), steps.map { it["tool"] })
+        assertEquals("Stopwatch tab", (steps[0]["args"] as Map<*, *>)["target_description"])
     }
 
     @Test
@@ -718,13 +707,7 @@ class RunLogReusableFunctionCompilerTest {
         )
 
         val steps = stepsFrom(spec)
-        val openApp = steps.first()
-        val click = steps.first { it["tool"] == "click" }
-        assertEquals("open_app", openApp["tool"])
-        assertEquals(
-            "com.android.settings",
-            (openApp["args"] as Map<*, *>)["package_name"],
-        )
+        val click = steps.single()
         val sourceContext = click["source_context"] as Map<*, *>
         val srcCtx = sourceContext["src_ctx"] as Map<*, *>
         val dstCtx = sourceContext["dst_ctx"] as Map<*, *>
@@ -1132,7 +1115,7 @@ class RunLogReusableFunctionCompilerTest {
     }
 
     @Test
-    fun `injected open app drops redundant sparse launch bridge click`() {
+    fun `manual launcher bridge click is preserved for runtime replay`() {
         val spec = compile(
             listOf(
                 card(
@@ -1166,12 +1149,7 @@ class RunLogReusableFunctionCompilerTest {
         )
 
         val steps = stepsFrom(spec)
-        assertEquals(listOf("open_app", "input_text"), steps.map { it["tool"] })
-        assertEquals(
-            "com.zhihu.android",
-            (steps[0]["args"] as Map<*, *>)["package_name"],
-        )
-        assertEquals(1, (spec["source"] as Map<*, *>)["injected_launch_bridge_step_dropped_count"])
+        assertEquals(listOf("click", "input_text"), steps.map { it["tool"] })
     }
 
     @Test

@@ -520,7 +520,6 @@ Required local commands before PR handoff:
 ```bash
 ./gradlew --no-daemon :app:testDevelopStandardDebugUnitTest \
   --tests cn.com.omnimind.bot.runlog.ManualRecordingRunLogRecoveryTest \
-  --tests cn.com.omnimind.bot.runlog.OobVlmRunLogAutoRegistrarTest \
   --tests cn.com.omnimind.bot.vlm.VlmToolCoordinatorRecallExecutionTest
 
 cd ui

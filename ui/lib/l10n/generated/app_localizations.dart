@@ -5507,7 +5507,7 @@ abstract class AppLocalizations {
   /// No description provided for @chatInputViewCurrentTrajectory.
   ///
   /// In zh, this message translates to:
-  /// **'当前轨迹'**
+  /// **'上一个'**
   String get chatInputViewCurrentTrajectory;
 
   /// No description provided for @chatInputViewCurrentTrajectoryTooltip.

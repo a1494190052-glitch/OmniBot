@@ -24,6 +24,7 @@ import cn.com.omnimind.bot.vlm.VlmToolCoordinator
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import java.util.concurrent.atomic.AtomicLong
@@ -233,6 +234,11 @@ class OobFunctionToolHandler(
         }
     }
 
+    private fun timedReplayStepShouldSettle(stepResult: Map<String, Any?>): Boolean =
+        stepResult["success"] == true &&
+            stepResult["executor"] == RunLogReplayPolicy.EXECUTOR_OMNIFLOW &&
+            stepResult["model_free"] == true
+
     suspend fun runFunction(
         functionId: String,
         arguments: Map<String, Any?>,
@@ -419,6 +425,7 @@ class OobFunctionToolHandler(
             currentStepStartedAtMs = stepStartedAtMs
             frontendSession?.update("第 $stepIndex/${steps.size} 步 $stepTitle")
             if (isSkippedStep(step, callableTool)) {
+                val skippedArgs = ReplayHelper.normalizeArgsMap(argsForStep(step))
                 stepResults += linkedMapOf<String, Any?>(
                     "step_id" to stepId,
                     "index" to index,
@@ -430,7 +437,9 @@ class OobFunctionToolHandler(
                     "started_at_ms" to stepStartedAtMs,
                     "finished_at_ms" to stepStartedAtMs,
                     "duration_ms" to 0L
-                )
+                ).apply {
+                    putAll(replayStepEvidence(step, skippedArgs))
+                }
                 currentStepIndex = -1
                 continue
             }
@@ -462,11 +471,13 @@ class OobFunctionToolHandler(
                 }
 
                 ReplayHelper.isUIStep(step) -> {
+                    val action = ReplayHelper.actionNameForStep(step)
+                    val normalizedArgs = ReplayHelper.normalizeArgsMap(argsForStep(step))
+                    val evidence = replayStepEvidence(step, normalizedArgs)
                     try {
-                        val action = ReplayHelper.actionNameForStep(step)
                         val result = actionExecutor.act(
                             action = action,
-                            args = ReplayHelper.normalizeArgsMap(argsForStep(step)),
+                            args = normalizedArgs,
                             source = "function_replay",
                             check = replayCheckConfig(
                                 step = step,
@@ -491,7 +502,9 @@ class OobFunctionToolHandler(
                             "success" to true,
                             "summary" to stepTitle.takeIf { it.isNotBlank() }.orEmpty(),
                             "diagnostics" to result.diagnostics.takeIf { it.isNotEmpty() },
-                        ).filterValues { it != null }
+                        ).apply {
+                            putAll(evidence)
+                        }.filterValues { it != null }
                     } catch (e: kotlinx.coroutines.CancellationException) {
                         throw e
                     } catch (e: Exception) {
@@ -500,14 +513,15 @@ class OobFunctionToolHandler(
                         val recovery = runtimeResolveContextController.refetchCurrentPageForFailedStep(failReason)
                         runResultBuilder.failureStep(
                             stepId = stepId,
-                            tool = ReplayHelper.actionNameForStep(step),
+                            tool = action,
                             executor = RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
                             summary = failReason,
                             errorCode = executionError?.errorCode ?: "OOB_OMNIFLOW_STEP_FAILED",
-                            extras = mapOf(
-                                "diagnostics" to executionError?.diagnostics?.takeIf { it.isNotEmpty() },
-                                "recovery" to recovery,
-                            ),
+                            extras = linkedMapOf<String, Any?>().apply {
+                                putAll(evidence)
+                                put("diagnostics", executionError?.diagnostics?.takeIf { it.isNotEmpty() })
+                                put("recovery", recovery)
+                            },
                         )
                     }
                 }
@@ -518,6 +532,11 @@ class OobFunctionToolHandler(
             }
             frontendSession?.throwIfStopRequested()
             toolHandle?.throwIfStopRequested()
+            if (timedReplayStepShouldSettle(stepResult)) {
+                delay(REPLAY_UI_STEP_SETTLE_DELAY_MS)
+                frontendSession?.throwIfStopRequested()
+                toolHandle?.throwIfStopRequested()
+            }
             val stepFinishedAtMs = System.currentTimeMillis()
             val timedStepResult = LinkedHashMap<String, Any?>().apply {
                 putAll(stepResult)
@@ -894,6 +913,7 @@ class OobFunctionToolHandler(
                 ReplayHelper.runPageGuard(
                     deviceOperator = deviceOperator,
                     checkerBudget = checkerBudget,
+                    expectedPackage = ReplayHelper.stepSourcePackage(step),
                 )
             },
             checker = { action, args ->
@@ -1360,6 +1380,45 @@ class OobFunctionToolHandler(
 
     private data class CallRequest(val targetTool: String, val targetArgs: Map<String, Any?>, val functionId: String)
 
+    private fun replayStepEvidence(
+        step: Map<String, Any?>,
+        normalizedArgs: Map<String, Any?>,
+    ): Map<String, Any?> {
+        val sourceContext = mapArg(step["source_context"])
+            .ifEmpty { mapArg(mapArg(step["args"])["source_context"]) }
+        val before = mapArg(sourceContext["src_ctx"])
+            .ifEmpty { mapArg(sourceContext["before"]) }
+            .ifEmpty { mapArg(step["before"]) }
+        val after = mapArg(sourceContext["dst_ctx"])
+            .ifEmpty { mapArg(sourceContext["after"]) }
+            .ifEmpty { mapArg(step["after"]) }
+        return linkedMapOf<String, Any?>(
+            "args" to normalizedArgs.takeIf { it.isNotEmpty() },
+            "source_context" to sourceContext.takeIf { it.isNotEmpty() },
+            "before" to before.takeIf { it.isNotEmpty() },
+            "after" to after.takeIf { it.isNotEmpty() },
+            "screenshot_path" to screenshotPathFromObservation(before).takeIf { it.isNotBlank() },
+        ).filterValues { it != null }
+    }
+
+    private fun screenshotPathFromObservation(observation: Map<String, Any?>): String {
+        val screenshot = mapArg(observation["screenshot"])
+        return firstNonBlank(
+            observation["screenshot_path"],
+            observation["screenshotPath"],
+            observation["image_path"],
+            observation["imagePath"],
+            observation["path"],
+            screenshot["path"],
+            screenshot["screenshot_path"],
+            screenshot["screenshotPath"],
+            screenshot["absolute_path"],
+            screenshot["absolutePath"],
+            screenshot["relative_path"],
+            screenshot["relativePath"],
+        )
+    }
+
     private fun resolveStepArgs(step: Map<String, Any?>): Map<String, Any?> {
         val directArgs = mapArg(step["args"])
         val agentCall = mapArg(step["agent_call"])
@@ -1426,6 +1485,7 @@ class OobFunctionToolHandler(
         const val FUNCTION_RUN_SOURCE = "oob_function_replay"
         private const val TAG = "OobFunctionToolHandler"
         private const val MAX_OMNIFLOW_CALL_DEPTH = 8
+        private const val REPLAY_UI_STEP_SETTLE_DELAY_MS = 1_000L
         private const val FRONTEND_SUCCESS_POPUP_VISIBLE_MS = 900L
         private const val FRONTEND_TERMINAL_POPUP_VISIBLE_MS = 2500L
         private val RUN_SEQUENCE = AtomicLong(0)

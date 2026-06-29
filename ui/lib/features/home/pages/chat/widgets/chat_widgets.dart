@@ -2469,6 +2469,8 @@ class ChatInputWrapper extends StatelessWidget {
   final Future<void> Function()? onPickAttachment;
   final List<ChatInputAttachment> attachments;
   final ValueChanged<String>? onRemoveAttachment;
+  final FutureOr<void> Function()? onViewTrajectoriesTap;
+  final FutureOr<void> Function()? onViewCurrentTrajectoryTap;
   final VoidCallback? onTriggerSlashCommand;
   final VoidCallback? onTriggerManualRecording;
   final Widget? topBanner;
@@ -2506,6 +2508,8 @@ class ChatInputWrapper extends StatelessWidget {
     this.onPickAttachment,
     this.attachments = const [],
     this.onRemoveAttachment,
+    this.onViewTrajectoriesTap,
+    this.onViewCurrentTrajectoryTap,
     this.onTriggerSlashCommand,
     this.onTriggerManualRecording,
     this.topBanner,
@@ -2553,6 +2557,8 @@ class ChatInputWrapper extends StatelessWidget {
             onPickAttachment: onPickAttachment,
             attachments: attachments,
             onRemoveAttachment: onRemoveAttachment,
+            onViewTrajectoriesTap: onViewTrajectoriesTap,
+            onViewCurrentTrajectoryTap: onViewCurrentTrajectoryTap,
             onTriggerSlashCommand: onTriggerSlashCommand,
             onManualRecordingTap: onTriggerManualRecording != null
                 ? (_) => onTriggerManualRecording!()
