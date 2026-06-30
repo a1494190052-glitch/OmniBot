@@ -243,7 +243,6 @@ object McpRoutes {
         OobFunctionToolNames.mcpLifecycleTools + setOf(
             "omniflow.recall",
             "omniflow.ingest_run_log",
-            "omniflow.explore_replay",
         )
 
     private fun isOmniflowMcpTool(name: String?): Boolean =

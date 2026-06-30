@@ -77,7 +77,6 @@
       "allowed_tools": [
         "omniflow.recall",
         "omniflow.ingest_run_log",
-        "omniflow.explore_replay",
         "oob_function_list",
         "oob_function_get",
         "oob_function_register",
@@ -91,9 +90,9 @@
       "delegates_to": [
         "OobFunctionManagementService.executeTool"
       ],
-      "runlog_policy": "runlog_is_evidence; explore_replay_must_convert_then_execute_function",
-      "may_execute_phone_actions": true,
-      "phone_action_owner": "kotlin_only_after_native_dispatch",
+      "runlog_policy": "runlog_is_evidence; runlog_convert_creates_functions_only",
+      "may_execute_phone_actions": false,
+      "phone_action_owner": "none",
       "requires_concrete_function_id": "tool_specific",
       "model_visible_function_execution_tool": false,
       "forbidden_public_tools": [

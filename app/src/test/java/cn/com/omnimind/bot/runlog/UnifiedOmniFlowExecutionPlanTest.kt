@@ -684,8 +684,9 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(allowedTools.contains("oob_run_log_convert"))
         assertTrue(allowedTools.contains("omniflow.recall"))
         assertTrue(allowedTools.contains("omniflow.ingest_run_log"))
-        assertTrue(allowedTools.contains("omniflow.explore_replay"))
-        assertTrue(mcp["runlog_policy"] == "runlog_is_evidence; explore_replay_must_convert_then_execute_function")
+        assertTrue(mcp["runlog_policy"] == "runlog_is_evidence; runlog_convert_creates_functions_only")
+        assertTrue(mcp["may_execute_phone_actions"] == false)
+        assertTrue(mcp["phone_action_owner"] == "none")
         val fixedMcpToolNames = McpToolDefinitions.fixedToolNames
         val missingAllowedTools = allowedTools.filterNot { it in fixedMcpToolNames }
         assertTrue(

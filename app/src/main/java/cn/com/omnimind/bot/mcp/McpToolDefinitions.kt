@@ -411,28 +411,6 @@ BEHAVIOR:
         )
     )
 
-    val omniflowExploreReplayTool = mapOf(
-        "name" to "omniflow.explore_replay",
-        "description" to """Run OmniFlow-native exploratory UI crawling, persist the path as a UTG-backed RunLog, convert it into a reusable Function, then optionally execute that Function through the registered Function runner. This never replays a raw run_id directly.""".trimIndent(),
-        "inputSchema" to mapOf(
-            "type" to "object",
-            "properties" to mapOf(
-                "goal" to mapOf("type" to "string", "description" to "Natural-language objective used to rank safe clickable UI nodes."),
-                "package_name" to mapOf("type" to "string", "description" to "Optional Android package to launch before exploration."),
-                "max_steps" to mapOf("type" to "integer", "description" to "Maximum exploration clicks. Default 3, capped at 8."),
-                "settle_delay_ms" to mapOf("type" to "integer", "description" to "Delay after launch/click before capturing XML. Default 800ms."),
-                "stop_text" to mapOf("type" to "string", "description" to "Optional text/content/resource substring that stops exploration once seen in captured XML."),
-                "allow_risky_actions" to mapOf("type" to "boolean", "description" to "Allow labels such as delete, pay, submit, or logout. Default false."),
-                "function_id" to mapOf("type" to "string", "description" to "Optional stable Function id for the generated path."),
-                "replay" to mapOf("type" to "boolean", "description" to "Whether to execute the generated Function after registration. Default true."),
-                "reset_before_replay" to mapOf("type" to "boolean", "description" to "Optionally press Back and relaunch package before Function execution."),
-                "reset_back_steps" to mapOf("type" to "integer", "description" to "Back presses used when reset_before_replay=true. Default 1."),
-                "arguments" to mapOf("type" to "object", "description" to "Function arguments for execution; generated UTG functions are usually argument-free.")
-            ),
-            "required" to listOf("goal")
-        )
-    )
-
     val oobFunctionListTool = mapOf(
         "name" to OobFunctionToolNames.FUNCTION_LIST,
         "description" to "List registered OmniFlow Functions available for runtime recall and replay.",
@@ -559,7 +537,6 @@ BEHAVIOR:
             agentRunTool,
             omniflowRecallTool,
             omniflowIngestRunLogTool,
-            omniflowExploreReplayTool,
             oobFunctionListTool,
             oobFunctionGetTool,
             oobFunctionRegisterTool,

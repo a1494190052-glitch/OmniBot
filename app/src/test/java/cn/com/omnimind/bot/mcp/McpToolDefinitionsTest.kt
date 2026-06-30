@@ -19,7 +19,6 @@ class McpToolDefinitionsTest {
         assertFalse(names.contains("call_tool"))
         assertTrue(names.contains("omniflow.recall"))
         assertTrue(names.contains("omniflow.ingest_run_log"))
-        assertTrue(names.contains("omniflow.explore_replay"))
         assertTrue(names.contains(OobFunctionToolNames.FUNCTION_LIST))
         assertTrue(names.contains(OobFunctionToolNames.FUNCTION_GET))
         assertTrue(names.contains(OobFunctionToolNames.FUNCTION_REGISTER))
@@ -70,29 +69,7 @@ class McpToolDefinitionsTest {
     private val omniFlowDispatchedToolNames = OobFunctionToolNames.mcpLifecycleTools + setOf(
         "omniflow.recall",
         "omniflow.ingest_run_log",
-        "omniflow.explore_replay",
     )
-
-    @Test
-    fun exploreReplayToolConvertsThenExecutesFunction() {
-        val tool = McpToolDefinitions.fixedTools.single {
-            it["name"] == "omniflow.explore_replay"
-        }
-        val schema = tool["inputSchema"] as Map<*, *>
-        val properties = schema["properties"] as Map<*, *>
-        val description = tool["description"]?.toString().orEmpty()
-
-        assertTrue(description.contains("convert"))
-        assertTrue(description.contains("Function"))
-        assertTrue(description.contains("never replays a raw run_id directly"))
-        assertTrue(properties.containsKey("goal"))
-        assertTrue(properties.containsKey("package_name"))
-        assertTrue(properties.containsKey("max_steps"))
-        assertTrue(properties.containsKey("stop_text"))
-        assertTrue(properties.containsKey("allow_risky_actions"))
-        assertTrue(properties.containsKey("replay"))
-        assertTrue(properties.containsKey("reset_before_replay"))
-    }
 
     @Test
     fun getStateToolExposesXmlScreenshotControls() {

@@ -30,10 +30,10 @@ tools or names for Function parameters or failed replay steps.
 
 ## MCP Diagnostic Tools
 
-`omniflow.recall`, `omniflow.ingest_run_log`, and `omniflow.explore_replay` are
-diagnostic MCP tools for recall and RunLog ingestion. They do not define a
-second Function execution language. Online Function execution remains runtime
-recall/replay inside `vlm_task`.
+`omniflow.recall` and `omniflow.ingest_run_log` are diagnostic MCP tools for
+recall and RunLog ingestion. They do not define a second Function execution
+language. Online Function execution remains runtime recall/replay inside
+`vlm_task`.
 
 `start_step_index`, `startStepIndex`, and `resumeFromStep` are legacy
 compatibility spellings. They are not part of the normal VLM online path.

@@ -133,7 +133,6 @@ record. Do not read only the snapshot when correctness matters.
   as card counts and compiled step counts; workspace RunLog mirroring is
   best-effort and must not replace Function registration status.
 - Agent/MCP Function management tools: `app/src/main/java/cn/com/omnimind/bot/runlog/OobFunctionManagementService.kt`
-- Local UTG explorer: `app/src/main/java/cn/com/omnimind/bot/runlog/OobFunctionPathExplorer.kt`
 - Canonical action executor: `assists/src/main/java/cn/com/omnimind/assists/task/vlmserver/ActionExecutor.kt`
 - Replay strategy helpers: `app/src/main/java/cn/com/omnimind/bot/runlog/ReplayHelper.kt`
   `ActionExecutor.act` is the only act entry; replay only supplies ActCheckConfig callbacks for page guard, checker, and action transfer before canonical dispatch.
@@ -296,9 +295,8 @@ Do not hard replay `browser_use` or `web_search`; their outputs are live context
   selection but is not an executable split.
 - OmniFlow graph/reusable Function tools convert to `kind=omniflow_graph` or
   `kind=omniflow_function`, `executor=omniflow`, and `model_free=true`.
-- `OobFunctionPathExplorer` is a local OOB utility that records explored UTG paths
-  as RunLogs. It should feed the same RunLog -> Function conversion path rather
-  than creating a second Function writer.
+- RunLog evidence should feed the same RunLog -> Function conversion path. Do
+  not add a local explorer or replay tool that directly executes phone actions.
 - `RunLogPagePackageInference` owns package-name inference from recorded
   activity/XML evidence. Keep this separate from card compilation and replay
   execution so package heuristics do not leak into unrelated conversion rules.

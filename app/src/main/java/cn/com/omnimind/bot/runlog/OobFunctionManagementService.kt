@@ -7,12 +7,9 @@ import cn.com.omnimind.baselib.runlog.InternalRunLogRecord
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
-import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
-import cn.com.omnimind.bot.agent.tool.handlers.SharedHelper
 import cn.com.omnimind.bot.omniflow.OobFunctionRecallService
 import cn.com.omnimind.bot.omniflow.OobFunctionRepository
 import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
-import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionRuntimeResolvePlanner
 import cn.com.omnimind.bot.omniflow.OobFunctionStepwiseUpdateOrchestrator
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
 import cn.com.omnimind.bot.omniflow.OobFunctionUpdateAgentOrchestrator
@@ -24,7 +21,6 @@ import cn.com.omnimind.bot.runlog.intArg
 import cn.com.omnimind.bot.runlog.listArg
 import cn.com.omnimind.bot.runlog.longArg
 import cn.com.omnimind.bot.runlog.mapArg
-import kotlinx.serialization.json.Json
 
 /**
  * OOB-native implementation of Function management tools.
@@ -39,7 +35,6 @@ class OobFunctionManagementService(
     private val workspaceFunctionStore: WorkspaceFunctionStore = WorkspaceFunctionStore(
         AgentWorkspaceManager.rootDirectory(context)
     ),
-    private val runtimeResolvePlanner: OobFunctionRuntimeResolvePlanner? = null,
     private val updateAgentRequester: suspend (prompt: String, responseJsonObject: Boolean) -> String? =
         { prompt, responseJsonObject ->
             OobFunctionUpdateAgentOrchestrator.requestAgentAnalysis(prompt, responseJsonObject)
@@ -53,39 +48,11 @@ class OobFunctionManagementService(
         OobFunctionUpdateAgentOrchestrator(functionUpdateService, updateAgentRequester)
     private val functionStepwiseUpdateOrchestrator =
         OobFunctionStepwiseUpdateOrchestrator(functionUpdateService, updateAgentRequester)
-    private val explorer = OobFunctionPathExplorer(context, deviceOperator)
-
-    private fun createFunctionHandler(): OobFunctionToolHandler {
-        val helper = SharedHelper(
-            context,
-            Json {
-                ignoreUnknownKeys = true
-                isLenient = true
-                encodeDefaults = false
-            }
-        )
-        val handler = runtimeResolvePlanner?.let { planner ->
-            OobFunctionToolHandler(
-                context = context,
-                helper = helper,
-                deviceOperator = deviceOperator,
-                runtimeResolvePlanner = planner,
-            )
-        } ?: OobFunctionToolHandler(
-            context = context,
-            helper = helper,
-            deviceOperator = deviceOperator,
-        )
-        return handler.apply {
-            this.workspaceFunctionStore = workspaceFunctionStore
-        }
-    }
 
     suspend fun executeTool(name: String?, args: Map<String, Any?>?): Map<String, Any?> {
         return when (name) {
             "omniflow.recall" -> recall(args)
             "omniflow.ingest_run_log" -> ingestRunLog(args)
-            "omniflow.explore_replay" -> exploreAndReplay(args)
             OobFunctionToolNames.FUNCTION_LIST -> listFunctions(args)
             OobFunctionToolNames.FUNCTION_GET -> getFunction(args)
             OobFunctionToolNames.FUNCTION_REGISTER -> registerFunction(args)
@@ -134,139 +101,6 @@ class OobFunctionManagementService(
             },
             "reason" to (result["error_message"] ?: ""),
             "result" to result,
-            "source" to "oob_function_management"
-        )
-    }
-
-    suspend fun explore(args: Map<String, Any?>?): Map<String, Any?> {
-        val request = args ?: emptyMap()
-        val register = boolArg(request["register"])
-        val functionId = firstNonBlank(request["function_id"], request["functionId"])
-        val name = firstNonBlank(request["name"])
-        val description = firstNonBlank(request["description"])
-        val exploreResult = explorer.explore(request)
-        val success = exploreResult["success"] == true
-        if (!success) {
-            return linkedMapOf(
-                "success" to false,
-                "phase" to "explore",
-                "explore" to exploreResult,
-                "error_code" to exploreResult["error_code"],
-                "error_message" to exploreResult["error_message"],
-                "source" to "oob_function_management"
-            )
-        }
-        if (!register) {
-            return linkedMapOf(
-                "success" to true,
-                "phase" to "explore",
-                "run_id" to exploreResult["run_id"],
-                "utg" to exploreResult["utg"],
-                "explore" to exploreResult,
-                "registered" to false,
-                "source" to "oob_function_management"
-            )
-        }
-
-        val convertResult = runLogConverter.convertRunLog(
-            runId = exploreResult["run_id"]?.toString().orEmpty(),
-            register = true,
-            functionIdOverride = functionId.takeIf { it.isNotEmpty() },
-            nameOverride = name.takeIf { it.isNotEmpty() },
-            descriptionOverride = description.takeIf { it.isNotEmpty() },
-        )
-        val converted = convertResult["success"] == true
-        return linkedMapOf(
-            "success" to converted,
-            "phase" to if (converted) "registered" else "convert",
-            "run_id" to exploreResult["run_id"],
-            "function_id" to convertResult["function_id"],
-            "created_function_id" to convertResult["created_function_id"],
-            "registered" to converted,
-            "utg" to exploreResult["utg"],
-            "explore" to exploreResult,
-            "convert" to convertResult,
-            "error_code" to convertResult["error_code"],
-            "error_message" to convertResult["error_message"],
-            "source" to "oob_function_management"
-        )
-    }
-
-    suspend fun exploreAndReplay(args: Map<String, Any?>?): Map<String, Any?> {
-        val request = args ?: emptyMap()
-        val exploreArgs = linkedMapOf<String, Any?>().apply {
-            putAll(request)
-            put("register", true)
-        }
-        val exploreResult = explore(exploreArgs)
-        if (exploreResult["success"] != true) {
-            return linkedMapOf(
-                "success" to false,
-                "phase" to (exploreResult["phase"] ?: "explore"),
-                "explore" to exploreResult,
-                "error_code" to exploreResult["error_code"],
-                "error_message" to exploreResult["error_message"],
-                "source" to "oob_function_management"
-            )
-        }
-
-        val functionId = firstNonBlank(exploreResult["function_id"], exploreResult["created_function_id"])
-        val packageName = firstNonBlank(
-            request["package_name"],
-            request["packageName"],
-            request["target_package"],
-            request["targetPackage"],
-        )
-        val shouldReplay = request["replay"] != false &&
-            !request["replay"]?.toString().equals("false", ignoreCase = true)
-        if (!shouldReplay) {
-            return linkedMapOf(
-                "success" to true,
-                "phase" to "registered",
-                "run_id" to exploreResult["run_id"],
-                "function_id" to functionId,
-                "utg" to exploreResult["utg"],
-                "replay_skipped" to true,
-                "explore" to exploreResult,
-                "source" to "oob_function_management"
-            )
-        }
-
-        val settleDelayMs = longArg(
-            request["settle_delay_ms"],
-            request["settleDelayMs"],
-            defaultValue = 800L
-        ).coerceIn(100L, 5_000L)
-        val resetBackSteps = intArg(
-            request["reset_back_steps"],
-            request["resetBackSteps"],
-            defaultValue = 1
-        ).coerceIn(0, 8)
-        if (boolArg(request["reset_before_replay"]) || boolArg(request["resetBeforeReplay"])) {
-            explorer.resetBeforeReplay(
-                targetPackageName = packageName,
-                backSteps = resetBackSteps,
-                settleDelayMs = settleDelayMs,
-            )
-        }
-
-        val replayResult = createFunctionHandler().runFunction(
-            linkedMapOf(
-                "function_id" to functionId,
-                "arguments" to mapArg(request["arguments"]),
-                "goal" to firstNonBlank(request["goal"], request["query"], request["task"])
-            )
-        )
-        val replaySuccess = replayResult["success"] == true
-        return linkedMapOf(
-            "success" to replaySuccess,
-            "phase" to if (replaySuccess) "replayed" else "replay",
-            "run_id" to exploreResult["run_id"],
-            "function_id" to functionId,
-            "explore" to exploreResult,
-            "replay" to replayResult,
-            "utg" to exploreResult["utg"],
-            "error" to firstNonBlank(replayResult["error"], replayResult["error_message"]).takeIf { it.isNotEmpty() },
             "source" to "oob_function_management"
         )
     }
