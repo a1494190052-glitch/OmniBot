@@ -767,7 +767,10 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
       if (anchorContext == null || !enabled) {
         return;
       }
-      _modelPickerSpinController.forward(from: 0);
+      final shouldClose = settings.isOpen?.call() ?? false;
+      if (!shouldClose) {
+        _playModelPickerOpenAnimation();
+      }
       await Future<void>.sync(() => settings.onOpen(anchorContext));
     }
 

@@ -65,12 +65,14 @@ class ChatModelPickerSettings {
     required this.modelId,
     required this.hasSelectableModels,
     required this.onOpen,
+    this.isOpen,
     this.onPointerDown,
   });
 
   final String modelId;
   final bool hasSelectableModels;
   final FutureOr<void> Function(BuildContext anchorContext) onOpen;
+  final bool Function()? isOpen;
   final VoidCallback? onPointerDown;
 }
 
@@ -412,7 +414,11 @@ class _ContextUsageRingPainter extends CustomPainter {
 }
 
 class ChatInputAreaState extends _ChatInputAreaStateBase
-    with _ChatInputAreaComposerMixin, _ChatInputAreaPopupMixin {}
+    with _ChatInputAreaComposerMixin, _ChatInputAreaPopupMixin {
+  void playModelPickerCloseAnimation() {
+    _playModelPickerCloseAnimation();
+  }
+}
 
 enum _ComposerKeyboardPhase { hidden, opening, visible, closing }
 
@@ -518,6 +524,14 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
       duration: const Duration(milliseconds: 520),
     );
     _reportInputHeightAfterBuild();
+  }
+
+  void _playModelPickerOpenAnimation() {
+    _modelPickerSpinController.forward(from: 0);
+  }
+
+  void _playModelPickerCloseAnimation() {
+    _modelPickerSpinController.reverse(from: 1);
   }
 
   @override

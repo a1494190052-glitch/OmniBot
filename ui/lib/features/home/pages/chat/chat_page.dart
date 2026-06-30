@@ -146,8 +146,8 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   /// (条件是 **Navigator** 的 `requestFocus`,Route 的 `requestFocus` 不起作用)，
   /// 把焦点从输入框抢走 → 软键盘塌陷 → 输入栏下沉 → popup 锚点错位。
   /// 用 Overlay 直接挂面板可以彻底跳过这条路径。
-  OverlayGlassPopupHandle<_ChatModelOverrideSelection>?
-  _conversationModelSelectorHandle;
+  OverlayEntry? _conversationModelSelectorOverlayEntry;
+  Future<void> Function()? _conversationModelSelectorDismiss;
 
   // ===================== State =====================
   bool _isPopupVisible = false;
@@ -671,18 +671,9 @@ abstract class _ChatPageStateBase extends State<ChatPage>
       }
       return _newThreadTargetForConversationMode(conversationMode);
     }
-    final localCodexThreadId = _activeMode == ChatPageMode.codex
-        ? _activeCodexThreadId?.trim()
-        : null;
     return ConversationThreadTarget.existing(
       conversationId: conversationId,
       mode: conversationMode,
-      codexThreadId: localCodexThreadId == null || localCodexThreadId.isEmpty
-          ? null
-          : localCodexThreadId,
-      codexRuntime: localCodexThreadId == null || localCodexThreadId.isEmpty
-          ? null
-          : 'local',
     );
   }
 
