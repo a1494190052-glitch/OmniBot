@@ -158,13 +158,20 @@ class ChatAppBar extends StatelessWidget {
     final appBarBackgroundColor = showSurfaceSwitcher
         ? palette.pageBackground
         : palette.surfacePrimary;
+    // Desktop chrome treats this bar as the macOS title bar — collapse the
+    // outer padding entirely and shrink the inner content box so the row
+    // reads close to the system title-bar height. Mobile / tablet keep the
+    // roomier 66dp bar.
+    final isDesktopChrome = enableWindowDrag || leadingInset > 0;
+    final verticalPadding = isDesktopChrome ? 0.0 : 8.0;
+    final barContentHeight = isDesktopChrome ? 40.0 : 50.0;
     return ColoredBox(
       key: const ValueKey('chat-app-bar-background'),
       color: translucent ? Colors.transparent : appBarBackgroundColor,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        padding: EdgeInsets.symmetric(horizontal: 8, vertical: verticalPadding),
         child: SizedBox(
-          height: 50,
+          height: barContentHeight,
           child: LayoutBuilder(
             builder: (context, constraints) {
               const leftActionRowWidth = _kChatAppBarAccessoryButtonSize;

@@ -1555,12 +1555,12 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     );
   }
 
-  /// Desktop variant of the normal (non-HD-pad) chat shell: the floating
-  /// HomeDrawer is replaced by a left side panel so the page picks up the
-  /// web/tablet sidebar pattern. The chat pane keeps its own ChatAppBar at
-  /// the top — that bar's empty space becomes a window drag handle so the
-  /// merged title-bar row (traffic lights + drawer button + companion +
-  /// dynamic island) can move the window.
+  /// Desktop variant of the chat shell: a single unified title-bar row sits at
+  /// the very top of the window and visually contains the macOS traffic
+  /// lights, the drawer toggle, the companion button, the dynamic island and
+  /// the mode-shortcut icons — all aligned at one height. Below it, a Row
+  /// pairs the embedded HomeDrawer on the left with the chat content (no
+  /// in-pane ChatAppBar) on the right.
   Widget _buildDesktopEmbeddedDrawerShell({
     required AppBackgroundConfig backgroundConfig,
     required AppBackgroundVisualProfile visualProfile,
@@ -1570,66 +1570,99 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     required double commandPanelBottomOffset,
   }) {
     const drawerWidth = 260.0;
-    return Row(
+    final showAppUpdateIndicator = AppUpdateService.shouldShowBanner(
+      _appUpdateStatus,
+    );
+    final appUpdateTooltip = _appUpdateStatus == null
+        ? (LegacyTextLocalizer.isEnglish
+              ? 'New version available'
+              : '发现新版本')
+        : (LegacyTextLocalizer.isEnglish
+              ? 'New version ${_appUpdateStatus!.latestVersionLabel} available'
+              : '发现新版本 ${_appUpdateStatus!.latestVersionLabel}');
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SizedBox(
-          width: drawerWidth,
-          child: Padding(
-            // Push drawer content below the macOS traffic lights so they do
-            // not overlap the search field / conversation list.
-            padding: const EdgeInsets.only(top: kMacOSTitleBarHeight),
-            child: HomeDrawer(
-              key: _drawerKey,
-              embedded: true,
-              closeOnNavigate: false,
-              newConversationMode: _conversationModeForPageMode(_activeMode),
-              onThreadTargetSelected:
-                  _handleEmbeddedDrawerThreadTargetSelected,
-            ),
-          ),
+        _buildChatAppBar(
+          onMenuTap: () {
+            // Drawer is always visible in this layout; reuse the tap as a
+            // gentle focus-clear so power users with kbd nav don't get
+            // stuck on the menu button.
+            _dismissChatInputFocus();
+          },
+          appBarMode: _activeSurfaceMode,
+          showMenuButton: true,
+          showSurfaceSwitcher: true,
+          showWorkspacePaneButton: false,
+          onWorkspacePaneTap: null,
+          showAppUpdateIndicator: showAppUpdateIndicator,
+          appUpdateTooltip: appUpdateTooltip,
+          translucent: backgroundActive,
+          visualProfile: visualProfile,
+          leadingInset: kMacOSTrafficLightsInset,
+          enableWindowDrag: true,
         ),
         Expanded(
-          child: LayoutBuilder(
-            builder: (context, paneConstraints) {
-              return _buildChatPaneShell(
-                layoutContext: context,
-                constraints: paneConstraints,
-                backgroundConfig: backgroundConfig,
-                visualProfile: visualProfile,
-                backgroundActive: backgroundActive,
-                inputBottomPadding: inputBottomPadding,
-                keyboardSpacer: keyboardSpacer,
-                commandPanelBottomOffset: commandPanelBottomOffset,
-                conversationBody: ClipRect(
-                  child: NotificationListener<ScrollNotification>(
-                    onNotification: _handleModePageScrollNotification,
-                    child: PageView(
-                      controller: _modePageController,
-                      onPageChanged: _handleModePageChanged,
-                      children: [
-                        _buildModeMessagePage(
-                          _primaryChatMessagePageMode,
-                          backgroundConfig,
-                          visualProfile,
-                          bottomOverlayInset:
-                              _resolveNormalSurfaceComposerInset(
-                                inputBottomPadding: inputBottomPadding,
-                                keyboardSpacer: keyboardSpacer,
-                              ),
-                        ),
-                        _buildWorkspaceSurfacePage(),
-                      ],
-                    ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                width: drawerWidth,
+                child: HomeDrawer(
+                  key: _drawerKey,
+                  embedded: true,
+                  closeOnNavigate: false,
+                  newConversationMode: _conversationModeForPageMode(
+                    _activeMode,
                   ),
+                  onThreadTargetSelected:
+                      _handleEmbeddedDrawerThreadTargetSelected,
                 ),
-                hideWorkspaceOverlays: _isWorkspaceSurface,
-                showMenuButton: false,
-                showSurfaceSwitcher: true,
-                onMenuTap: () {},
-                enableWindowDrag: true,
-              );
-            },
+              ),
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, paneConstraints) {
+                    return _buildChatPaneShell(
+                      layoutContext: context,
+                      constraints: paneConstraints,
+                      backgroundConfig: backgroundConfig,
+                      visualProfile: visualProfile,
+                      backgroundActive: backgroundActive,
+                      inputBottomPadding: inputBottomPadding,
+                      keyboardSpacer: keyboardSpacer,
+                      commandPanelBottomOffset: commandPanelBottomOffset,
+                      conversationBody: ClipRect(
+                        child: NotificationListener<ScrollNotification>(
+                          onNotification: _handleModePageScrollNotification,
+                          child: PageView(
+                            controller: _modePageController,
+                            onPageChanged: _handleModePageChanged,
+                            children: [
+                              _buildModeMessagePage(
+                                _primaryChatMessagePageMode,
+                                backgroundConfig,
+                                visualProfile,
+                                bottomOverlayInset:
+                                    _resolveNormalSurfaceComposerInset(
+                                      inputBottomPadding: inputBottomPadding,
+                                      keyboardSpacer: keyboardSpacer,
+                                    ),
+                              ),
+                              _buildWorkspaceSurfacePage(),
+                            ],
+                          ),
+                        ),
+                      ),
+                      hideWorkspaceOverlays: _isWorkspaceSurface,
+                      showMenuButton: false,
+                      showSurfaceSwitcher: true,
+                      onMenuTap: () {},
+                      includeAppBar: false,
+                    );
+                  },
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -2004,6 +2037,12 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                             ),
                     ),
                     SafeArea(
+                      // On macOS desktop with `fullSizeContentView`, the OS
+                      // reports the title-bar strip as a top safe-area inset.
+                      // The unified bar is the title bar, so opt out of the
+                      // top inset and let the bar sit flush against y=0 with
+                      // the traffic lights overlaid on its left.
+                      top: !isDesktopEmbeddedDrawer,
                       child: ClipRect(
                         child: Listener(
                           behavior: HitTestBehavior.translucent,
